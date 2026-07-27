@@ -3,12 +3,10 @@ use crate::agent::bridge::persist_native_agent_turn_start;
 use crate::agent::runtime::NativeAgentRuntimeServices;
 use crate::agent::runtime::NativeAgentTraceSink;
 use crate::desktop::state::lock_runtime;
-use crate::desktop::state::GatewayRuntime;
-use crate::desktop_commands::agent::worker_restore_agent_checkpoint_with_options;
+use crate::desktop::state::NativeRuntimeState;
 use crate::desktop_commands::agent::worker_run_agent_with_options;
 use crate::desktop_commands::agent::worker_submit_thread_turn_with_options;
 use crate::desktop_commands::agent::WorkerSubmitThreadTurnInput;
-use crate::desktop_commands::session::worker_turn_runtime_state_with_options;
 use crate::desktop_commands::thread::worker_thread_request_with_options;
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
@@ -20,7 +18,7 @@ use std::time::Duration;
 #[test]
 fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({
@@ -51,36 +49,6 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
     let thread_id = result["threadId"].as_str().expect("thread id").to_string();
     assert_eq!(result["turnId"], "turn-thread-submit-new");
     assert_eq!(result["sessionId"], thread_id);
-    assert_eq!(result["agentResult"]["stopReason"], "final_response");
-    assert!(result["agentResult"]["runtimeEvents"]
-        .as_array()
-        .expect("runtime events should be present")
-        .iter()
-        .all(|event| event["threadId"] == thread_id));
-    let trace_id = result["agentResult"]["traceContext"]["traceId"]
-        .as_str()
-        .expect("thread agent result should expose traceId");
-    assert!(result["agentResult"]["runtimeEvents"]
-        .as_array()
-        .expect("runtime events should be present")
-        .iter()
-        .all(|event| event["traceContext"]["traceId"] == trace_id));
-    assert!(result["snapshot"]["thread"]["sessionKey"].is_null());
-    assert!(result["snapshot"]["items"]
-        .as_array()
-        .expect("thread items should be present")
-        .iter()
-        .any(|item| item["kind"]["type"] == "assistant_message_completed"));
-    let started = result["snapshot"]["items"]
-        .as_array()
-        .expect("thread items should be present")
-        .iter()
-        .find(|item| item["kind"]["type"] == "turn_started")
-        .expect("thread turn start item should be present");
-    assert_eq!(
-        started["kind"]["payload"]["traceContext"]["traceId"],
-        trace_id
-    );
     let metadata = call_rust_state_service(
         &fixture.thread_store,
         config,
@@ -93,6 +61,21 @@ fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
         "thread submit session metadata",
     )
     .expect("agent turn thread should be readable");
+    assert!(metadata["thread"]["sessionKey"].is_null());
+    assert!(metadata["items"]
+        .as_array()
+        .expect("thread items should be present")
+        .iter()
+        .any(|item| item["kind"]["type"] == "assistant_message_completed"));
+    let started = metadata["items"]
+        .as_array()
+        .expect("thread items should be present")
+        .iter()
+        .find(|item| item["kind"]["type"] == "turn_started")
+        .expect("thread turn start item should be present");
+    assert!(started["kind"]["payload"]["traceContext"]["traceId"]
+        .as_str()
+        .is_some_and(|trace_id| !trace_id.is_empty()));
     assert_eq!(metadata["thread"]["threadId"], thread_id);
     let rollout_paths = compatibility_thread_log_paths(&fixture.root);
     assert_eq!(rollout_paths.len(), 1, "{rollout_paths:?}");
@@ -230,9 +213,9 @@ fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
         Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
     );
-    let shared = Arc::new(Mutex::new(GatewayRuntime {
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
         native_agent_runtime: services,
-        ..GatewayRuntime::with_thread_store(fixture.thread_store.clone())
+        ..NativeRuntimeState::with_thread_store(fixture.thread_store.clone())
     }));
     let sink = Arc::new(LivePatchSink::default());
 
@@ -255,7 +238,7 @@ fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
     )
     .expect("desktop thread submit should complete");
 
-    assert_eq!(result["agentResult"]["stopReason"], "final_response");
+    assert_eq!(result["turnId"], "turn-thread-live-stream");
     let patches = sink.patches.lock().expect("live patches should lock");
     let assistant_patches = patches
         .iter()
@@ -296,7 +279,7 @@ fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
 #[test]
 fn thread_owned_compaction_commits_installed_checkpoint_before_finalization() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({
@@ -335,7 +318,20 @@ fn thread_owned_compaction_commits_installed_checkpoint_before_finalization() {
     )
     .expect("thread compaction should commit through thread authority");
 
-    let compactions = result["snapshot"]["items"]
+    let thread_id = result["threadId"].as_str().unwrap();
+    let snapshot = call_rust_state_service(
+        &fixture.thread_store,
+        config.clone(),
+        WorkerRequest::new(
+            "req-thread-compact-snapshot",
+            "trace-thread-compact-snapshot",
+            "thread.read",
+            serde_json::json!({ "threadId": thread_id }),
+        ),
+        "thread compact snapshot",
+    )
+    .expect("thread compact snapshot should be readable");
+    let compactions = snapshot["items"]
         .as_array()
         .expect("thread items should be present")
         .iter()
@@ -349,7 +345,6 @@ fn thread_owned_compaction_commits_installed_checkpoint_before_finalization() {
         let checkpoint = &item["kind"]["payload"]["payload"]["contextCheckpoint"];
         checkpoint["windowNumber"] == 1 && checkpoint["windowId"] == checkpoint["contextId"]
     }));
-    let thread_id = result["threadId"].as_str().unwrap();
     let metadata = call_rust_state_service(
         &fixture.thread_store,
         config,
@@ -387,7 +382,7 @@ fn thread_owned_terminal_reentry_uses_rollout_authority_after_restart() {
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
         "providers": { "fixture": { "responses": [{ "content": "terminal answer" }] } }
     });
-    let first_shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let first_shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let first = worker_submit_thread_turn_with_options(
@@ -407,7 +402,7 @@ fn thread_owned_terminal_reentry_uses_rollout_authority_after_restart() {
     .expect("initial thread turn should complete");
     let thread_id = first["threadId"].as_str().unwrap().to_string();
 
-    let restarted_shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let restarted_shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let retry = worker_submit_thread_turn_with_options(
@@ -427,8 +422,19 @@ fn thread_owned_terminal_reentry_uses_rollout_authority_after_restart() {
     .expect("terminal retry should return a stable rejection");
 
     assert_eq!(retry["threadId"], thread_id);
-    assert_eq!(retry["agentResult"]["stopReason"], "terminal_turn");
-    assert_eq!(retry["snapshot"]["thread"]["status"], "idle");
+    let retry_snapshot = call_rust_state_service(
+        &fixture.thread_store,
+        serde_json::json!({}),
+        WorkerRequest::new(
+            "req-thread-terminal-reentry",
+            "trace-thread-terminal-reentry",
+            "thread.read",
+            serde_json::json!({ "threadId": thread_id }),
+        ),
+        "terminal retry snapshot",
+    )
+    .expect("terminal retry thread should remain readable");
+    assert_eq!(retry_snapshot["thread"]["status"], "idle");
     let rollout_paths = compatibility_thread_log_paths(&fixture.root);
     assert_eq!(rollout_paths.len(), 1, "{rollout_paths:?}");
 }
@@ -444,7 +450,7 @@ fn worker_submit_thread_turn_uses_thread_id_as_rollout_id() {
         "existing thread project instructions",
     )
     .expect("existing thread project instructions should write");
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({
@@ -499,25 +505,6 @@ fn worker_submit_thread_turn_uses_thread_id_as_rollout_id() {
 
     assert_eq!(result["threadId"], "thread-existing-submit");
     assert_eq!(result["sessionId"], "thread-existing-submit");
-    assert_eq!(result["agentResult"]["sessionId"], "thread-existing-submit");
-    assert_eq!(
-        result["snapshot"]["thread"]["threadId"],
-        "thread-existing-submit"
-    );
-    assert_eq!(
-        result["agentResult"]["instructionProvenance"]["workingDirectory"],
-        working_directory.display().to_string()
-    );
-    assert!(result["agentResult"]["instructionProvenance"]["sources"]
-        .as_array()
-        .expect("thread instruction provenance should list sources")
-        .iter()
-        .any(|source| source["kind"] == "project_agents"));
-    assert!(result["snapshot"]["items"]
-        .as_array()
-        .expect("thread items should be present")
-        .iter()
-        .any(|item| item["turnId"] == "turn-thread-submit-existing"));
     let run_request = next_worker_request_correlation();
     let persisted_run = call_rust_state_service(
         &fixture.thread_store,
@@ -538,6 +525,11 @@ fn worker_submit_thread_turn_uses_thread_id_as_rollout_id() {
         persisted_run["instructionProvenance"]["workingDirectory"],
         working_directory.display().to_string()
     );
+    assert!(persisted_run["instructionProvenance"]["sources"]
+        .as_array()
+        .expect("thread instruction provenance should list sources")
+        .iter()
+        .any(|source| source["kind"] == "project_agents"));
 }
 
 #[test]
@@ -682,7 +674,7 @@ fn thread_working_directory_mutations_fail_before_persisting_invalid_paths() {
 #[test]
 fn worker_submit_thread_turn_does_not_require_a_session_key() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({
@@ -721,15 +713,27 @@ fn worker_submit_thread_turn_does_not_require_a_session_key() {
             }),
         },
         fixture.root.clone(),
-        config,
+        config.clone(),
         Duration::from_millis(10),
     )
     .expect("thread submit should use the thread id as the Rollout id");
 
     assert_eq!(result["threadId"], "thread-submit-backfill");
     assert_eq!(result["sessionId"], "thread-submit-backfill");
-    assert!(result["snapshot"]["thread"]["sessionKey"].is_null());
-    assert!(result["snapshot"]["items"]
+    let snapshot = call_rust_state_service(
+        &fixture.thread_store,
+        config,
+        WorkerRequest::new(
+            "req-thread-submit-backfill-read",
+            "trace-thread-submit-backfill-read",
+            "thread.read",
+            serde_json::json!({ "threadId": "thread-submit-backfill" }),
+        ),
+        "thread submit backfill read",
+    )
+    .expect("backfilled thread should be readable");
+    assert!(snapshot["thread"]["sessionKey"].is_null());
+    assert!(snapshot["items"]
         .as_array()
         .expect("thread items should be present")
         .iter()
@@ -739,7 +743,7 @@ fn worker_submit_thread_turn_does_not_require_a_session_key() {
 #[test]
 fn worker_thread_commands_expose_thread_service_surface() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({});
@@ -1031,9 +1035,6 @@ fn worker_thread_commands_expose_thread_service_surface() {
 #[test]
 fn native_agent_semantic_sink_updates_runtime_state_before_final_persistence() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
-        fixture.thread_store.clone(),
-    )));
     let config = serde_json::json!({});
     let session_id = "websocket:chat-trace-sink";
     let turn_id = "turn-trace-sink";
@@ -1057,15 +1058,8 @@ fn native_agent_semantic_sink_updates_runtime_state_before_final_persistence() {
 
     sink.append_trace_event(session_id, turn_id, &event)
         .expect("trace sink should append event");
-    let runtime_state = worker_turn_runtime_state_with_options(
-        &shared,
-        session_id.to_string(),
-        turn_id.to_string(),
-        fixture.root.clone(),
-        config,
-        Duration::from_millis(10),
-    )
-    .expect("runtime state should read appended trace event");
+    let runtime_state =
+        read_thread_turn_runtime_state(&fixture.thread_store, config, session_id, turn_id);
 
     assert!(runtime_state["runtimeEvents"]
         .as_array()
@@ -1085,7 +1079,7 @@ fn native_agent_semantic_sink_updates_runtime_state_before_final_persistence() {
 #[test]
 fn worker_run_agent_persists_recovered_tool_error_with_typed_results() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({
@@ -1159,7 +1153,7 @@ fn worker_run_agent_persists_recovered_tool_error_with_typed_results() {
 #[test]
 fn worker_run_agent_persists_cancelled_run_as_cancelled() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({});
@@ -1197,7 +1191,7 @@ fn worker_run_agent_persists_cancelled_run_as_cancelled() {
 fn worker_run_agent_projects_redacted_bounded_tool_result() {
     let fixture = WorkspaceFixture::new();
     fixture.write("README.md", "secret-token ABCDEFGHIJKLMNOP");
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({
@@ -1258,7 +1252,7 @@ fn worker_run_agent_projects_redacted_bounded_tool_result() {
 #[test]
 fn worker_run_agent_omits_large_raw_tool_trace_from_persisted_run_record() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let large_output = "A".repeat(12_000);
@@ -1318,42 +1312,4 @@ fn worker_run_agent_omits_large_raw_tool_trace_from_persisted_run_record() {
     );
     assert!(!serialized.contains(&"A".repeat(512)));
     assert!(run["completedToolResults"][0].get("envelope").is_none());
-}
-
-#[test]
-fn worker_rust_agent_restore_rejects_unknown_checkpoint_schema_version() {
-    let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
-        fixture.thread_store.clone(),
-    )));
-    {
-        let services = {
-            let runtime = lock_runtime(&shared);
-            runtime.native_agent_runtime.clone()
-        };
-        services.save_checkpoint(
-            "websocket:chat-future-checkpoint",
-            serde_json::json!({
-                "schemaVersion": 999,
-                "runtime": "rust",
-                "turnId": "turn-future-checkpoint",
-                "sessionId": "websocket:chat-future-checkpoint",
-                "phase": "awaiting_approval"
-            }),
-        );
-    }
-
-    let error = worker_restore_agent_checkpoint_with_options(
-        &shared,
-        "websocket:chat-future-checkpoint".to_string(),
-        fixture.root.clone(),
-        serde_json::json!({ "desktop": { "nativeAgentRuntime": "rust" } }),
-        Duration::from_millis(10),
-    )
-    .expect_err("unknown checkpoint versions should fail visibly");
-
-    assert!(
-        error.contains("unsupported Rust agent checkpoint schemaVersion 999"),
-        "unexpected error: {error}"
-    );
 }

@@ -33,7 +33,6 @@ pub enum ThreadStatus {
     Idle,
     Running,
     WaitingForInput,
-    WaitingForApproval,
     Cancelling,
     Failed,
     Archived,

@@ -51,11 +51,11 @@ describe("TinyOS desktop projector", () => {
   });
 
   it("projects blocking requests as dialogs and failures as notifications", () => {
-    const approval = step("approval", {
-      approval: { approvalId: "approval-1", actions: ["approveOnce", "deny"] },
-      kind: "approval",
+    const form = step("form", {
+      form: { fieldIds: ["query"], formId: "form-1" },
+      kind: "form",
       status: "blocked",
-      title: "Run tests",
+      title: "Clarify request",
     });
     const failure = step("failure", {
       error: { message: "Tests failed" },
@@ -65,11 +65,11 @@ describe("TinyOS desktop projector", () => {
     });
 
     const snapshot = projectTinyOsDesktop([
-      entry("turn-1", approval),
+      entry("turn-1", form),
       entry("turn-1", failure),
     ], { mode: "live_follow" });
 
-    expect(snapshot.dialog).toMatchObject({ kind: "approval", entry: { step: { id: "approval" } } });
+    expect(snapshot.dialog).toMatchObject({ kind: "form", entry: { step: { id: "form" } } });
     expect(snapshot.notifications).toEqual([
       expect.objectContaining({ kind: "error", message: "Tests failed" }),
     ]);

@@ -60,8 +60,15 @@ fn runs_fixture_tool_event_sequence() {
                 && event["payload"]["triggerEventName"] == "agent.tool.start"
         }));
     assert_eq!(
-        &event_names[..3],
-        &[
+        event_names
+            .iter()
+            .copied()
+            .filter(|event_name| matches!(
+                *event_name,
+                "agent.tool_call.delta" | "agent.tool.start" | "agent.tool.result"
+            ))
+            .collect::<Vec<_>>(),
+        vec![
             "agent.tool_call.delta",
             "agent.tool.start",
             "agent.tool.result"
@@ -487,7 +494,6 @@ fn registry_marks_only_read_only_model_tools_as_parallel_safe() {
     let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
         WorkerCapability::FsWorkspaceRead,
         WorkerCapability::FsWorkspaceWrite,
-        WorkerCapability::ApprovalRequest,
         WorkerCapability::MemoryRead,
         WorkerCapability::McpCall,
         WorkerCapability::ShellExecute,
@@ -530,7 +536,6 @@ fn registry_exposes_runtime_policy_for_cancellation_and_mutation_classification(
     let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
         WorkerCapability::FsWorkspaceRead,
         WorkerCapability::FsWorkspaceWrite,
-        WorkerCapability::ApprovalRequest,
         WorkerCapability::MemoryRead,
         WorkerCapability::McpCall,
         WorkerCapability::ShellExecute,
@@ -795,7 +800,7 @@ fn mcp_call_scheduling_uses_registry_runtime_policy() {
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
         )
-        .with_test_tool_registry_entries(test_registry_without_approval(&["mcp.call_tool"]))
+        .with_test_tool_registry_entries(test_registry_entries(&["mcp.call_tool"]))
         .with_test_activated_tools(&["mcp.call_tool"]),
         json!({
             "runtime": "rust",
@@ -825,7 +830,7 @@ fn mcp_call_scheduling_uses_registry_runtime_policy() {
         }),
     )
     .expect("read-only MCP tool run should complete");
-    let mcp_start_modes = result["events"]
+    let mcp_start_modes = result["runtimeEvents"]
         .as_array()
         .expect("events should be returned")
         .iter()
@@ -935,7 +940,7 @@ fn shell_read_only_allowlist_uses_read_lock_only_when_explicitly_enabled() {
         }),
     )
     .expect("read-only shell allowlist run should complete");
-    let shell_start_modes = result["events"]
+    let shell_start_modes = result["runtimeEvents"]
         .as_array()
         .expect("events should be returned")
         .iter()
@@ -1044,7 +1049,7 @@ fn parallel_tool_failures_are_returned_to_the_model_in_call_order() {
         }),
     )
     .expect("parallel tool failures should be returned to the model");
-    let events = result["events"]
+    let events = result["runtimeEvents"]
         .as_array()
         .expect("events should be returned");
     let terminal_errors = events
@@ -1200,10 +1205,6 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
             self.inner.save_for_turn(session_id, turn_id, checkpoint);
         }
 
-        fn restore(&self, session_id: &str) -> Option<Value> {
-            self.inner.restore(session_id)
-        }
-
         fn restore_for_turn(&self, session_id: &str, turn_id: &str) -> Option<Value> {
             self.inner.restore_for_turn(session_id, turn_id)
         }
@@ -1254,7 +1255,7 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
         .iter()
         .filter(|message| message["role"] == "tool")
         .collect::<Vec<_>>();
-    let tool_start_statuses = result["events"]
+    let tool_start_statuses = result["runtimeEvents"]
         .as_array()
         .expect("events should be an array")
         .iter()
@@ -1537,7 +1538,7 @@ fn returned_failure_before_queued_write_does_not_skip_waiting_tool() {
     )
     .expect("queued write failure should be returned to the model");
 
-    let events = result["events"]
+    let events = result["runtimeEvents"]
         .as_array()
         .expect("events should be returned");
     assert_eq!(result["stopReason"], "final_response");
@@ -1745,8 +1746,23 @@ fn provider_error_after_tool_result_preserves_accumulated_tool_state() {
         result["completedToolResults"][0]["toolCallId"],
         "call-before-provider-error"
     );
+    let relevant_events = event_names(&result)
+        .into_iter()
+        .filter(|event_name| {
+            matches!(
+                *event_name,
+                "agent.tool_call.delta"
+                    | "agent.tool.start"
+                    | "agent.tool.result"
+                    | "agent.model_call.completed"
+                    | "agent.token_count"
+                    | "agent.usage"
+                    | "agent.error"
+            )
+        })
+        .collect::<Vec<_>>();
     assert_eq!(
-        event_names(&result),
+        relevant_events,
         vec![
             "agent.tool_call.delta",
             "agent.tool.start",
@@ -1794,13 +1810,13 @@ fn emits_tool_result_envelope_with_legacy_content_projection() {
     )
     .expect("fixture tool run should succeed");
 
-    let tool_start = result["events"]
+    let tool_start = result["runtimeEvents"]
         .as_array()
         .expect("events should be an array")
         .iter()
         .find(|event| event["eventName"] == "agent.tool.start")
         .expect("tool start event should be emitted");
-    let tool_result = result["events"]
+    let tool_result = result["runtimeEvents"]
         .as_array()
         .expect("events should be an array")
         .iter()
@@ -1955,7 +1971,7 @@ fn subagent_tools_share_manager_state_without_copying_child_transcript_to_parent
     assert!(event_names.contains(&"agent.delegate.wait"));
     assert!(event_names.contains(&"agent.delegate.cancelled"));
     assert!(event_names.contains(&"agent.delegate.closed"));
-    let link_event = result["events"]
+    let link_event = result["runtimeEvents"]
         .as_array()
         .expect("events should be present")
         .iter()
@@ -1970,7 +1986,7 @@ fn subagent_tools_share_manager_state_without_copying_child_transcript_to_parent
     assert_eq!(link_event["payload"]["agentItem"]["type"], "subagent");
     assert_eq!(link_event["payload"]["agentItem"]["agentId"], "delegate-1");
     assert_eq!(link_event["payload"]["agentItem"]["id"], "delegate-1");
-    let wait_event = result["events"]
+    let wait_event = result["runtimeEvents"]
         .as_array()
         .expect("events should be present")
         .iter()
@@ -2148,7 +2164,7 @@ fn tool_result_projection_redacts_and_truncates_model_content() {
         }),
     )
     .expect("bounded tool result run should complete");
-    let tool_result = result["events"]
+    let tool_result = result["runtimeEvents"]
         .as_array()
         .expect("events should be an array")
         .iter()
@@ -2225,7 +2241,7 @@ fn dispatches_multiple_tool_calls_from_one_provider_response_in_order() {
     )
     .expect("multiple tool run should succeed");
 
-    let tool_results = result["events"]
+    let tool_results = result["runtimeEvents"]
         .as_array()
         .expect("events should be an array")
         .iter()
@@ -2351,7 +2367,7 @@ fn later_tool_error_and_earlier_success_are_both_returned_to_the_model() {
         "call-second-fails"
     );
     assert_eq!(result["completedToolResults"][1]["status"], "error");
-    assert!(!result["events"]
+    assert!(!result["runtimeEvents"]
         .as_array()
         .unwrap()
         .iter()
@@ -2433,7 +2449,7 @@ fn single_tool_dispatch_error_is_returned_to_the_model() {
     assert_eq!(result["stopReason"], "final_response");
     assert_eq!(result["finalContent"], "single tool error handled");
     assert_eq!(result["completedToolResults"][0]["status"], "error");
-    assert!(!result["events"]
+    assert!(!result["runtimeEvents"]
         .as_array()
         .unwrap()
         .iter()
@@ -2476,7 +2492,7 @@ fn rejects_unpermitted_native_tool_with_structured_error_result() {
     assert_eq!(result["stopReason"], "final_response");
     assert_eq!(result["finalContent"], "permission denial handled");
     assert_eq!(result["toolsUsed"], json!([]));
-    assert!(!result["events"]
+    assert!(!result["runtimeEvents"]
         .as_array()
         .unwrap()
         .iter()
@@ -2510,9 +2526,16 @@ fn reports_provider_and_iteration_errors_as_frontend_events() {
     .expect("iteration error should return compatibility result");
 
     assert_eq!(provider_error["stopReason"], "provider_error");
-    assert_eq!(provider_error["events"][0]["eventName"], "agent.error");
+    assert!(provider_error["runtimeEvents"]
+        .as_array()
+        .expect("provider runtime events should be present")
+        .iter()
+        .any(|event| event["eventName"] == "agent.error"));
     assert_eq!(iteration_error["stopReason"], "max_iterations");
-    assert_eq!(iteration_error["events"][0]["eventName"], "agent.error");
+    assert_eq!(
+        iteration_error["runtimeEvents"][0]["eventName"],
+        "agent.error"
+    );
 }
 
 #[test]
@@ -2554,11 +2577,11 @@ fn stops_with_max_iterations_after_bounded_tool_iterations() {
     assert_eq!(result["finalContent"], "");
     assert_eq!(result["toolsUsed"], json!(["workspace.read_file"]));
     assert_eq!(
-        result["events"].as_array().unwrap().last().unwrap()["eventName"],
+        result["runtimeEvents"].as_array().unwrap().last().unwrap()["eventName"],
         "agent.error"
     );
     assert_eq!(
-        result["events"].as_array().unwrap().last().unwrap()["payload"]["stopReason"],
+        result["runtimeEvents"].as_array().unwrap().last().unwrap()["payload"]["stopReason"],
         "max_iterations"
     );
 }
@@ -2665,7 +2688,7 @@ fn tool_task_panic_remains_terminal() {
         .as_str()
         .is_some_and(|error| error.contains("owned native tool task panicked")));
     assert_eq!(
-        result["events"].as_array().unwrap().last().unwrap()["eventName"],
+        result["runtimeEvents"].as_array().unwrap().last().unwrap()["eventName"],
         "agent.error"
     );
 }
@@ -2737,15 +2760,24 @@ fn cancellation_before_tool_dispatch_stops_without_dispatching_tool() {
         .as_array()
         .unwrap()
         .is_empty());
+    let terminal_events = event_names(&result)
+        .into_iter()
+        .filter(|event_name| {
+            matches!(
+                *event_name,
+                "agent.message.classified" | "agent.tool_call.delta" | "agent.cancelled"
+            )
+        })
+        .collect::<Vec<_>>();
     assert_eq!(
-        event_names(&result),
+        terminal_events,
         vec![
             "agent.message.classified",
             "agent.tool_call.delta",
             "agent.cancelled"
         ]
     );
-    let cancelled_event = result["events"]
+    let cancelled_event = result["runtimeEvents"]
         .as_array()
         .expect("events should be an array")
         .last()
@@ -2961,8 +2993,21 @@ fn cancellation_after_tool_result_preserves_completed_tool_state() {
         result["completedToolResults"][0]["toolCallId"],
         "call-cancel-after-result"
     );
+    let terminal_events = event_names(&result)
+        .into_iter()
+        .filter(|event_name| {
+            matches!(
+                *event_name,
+                "agent.message.classified"
+                    | "agent.tool_call.delta"
+                    | "agent.tool.start"
+                    | "agent.tool.result"
+                    | "agent.cancelled"
+            )
+        })
+        .collect::<Vec<_>>();
     assert_eq!(
-        event_names(&result),
+        terminal_events,
         vec![
             "agent.message.classified",
             "agent.tool_call.delta",
@@ -2972,7 +3017,7 @@ fn cancellation_after_tool_result_preserves_completed_tool_state() {
         ]
     );
     assert_eq!(
-        result["events"]
+        result["runtimeEvents"]
             .as_array()
             .expect("events should be an array")
             .last()

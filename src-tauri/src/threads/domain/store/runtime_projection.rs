@@ -1,6 +1,6 @@
 use crate::agent::runtime_protocol::{
-    project_turn_items_from_trace_events, AgentEventKind, AgentRuntimeEventEnvelope, AgentTurnItem,
-    LegacyNativeAgentEventEnvelopeInput,
+    project_turn_items_from_trace_events, AgentEventKind, AgentRuntimeEventEnvelope,
+    AgentRuntimeEventEnvelopeInput, AgentRuntimePhase, AgentTurnItem,
 };
 use crate::threads::domain::types::{ThreadItem, ThreadItemKind};
 use serde_json::Value;
@@ -42,7 +42,6 @@ fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(AgentEventKind,
                 "content": value.get("output").cloned().unwrap_or(Value::Null),
             }),
         )),
-        ThreadItemKind::ApprovalRequested(_) | ThreadItemKind::ApprovalResolved(_) => None,
         ThreadItemKind::SubagentSpawned(value) => {
             Some((AgentEventKind::DelegateSpawned, value.clone()))
         }
@@ -97,16 +96,22 @@ fn runtime_event_from_thread_item(
 ) -> Option<AgentRuntimeEventEnvelope> {
     let (event_kind, payload) = semantic_event_from_thread_item(item)?;
     let item_id = semantic_item_id(item);
-    Some(AgentRuntimeEventEnvelope::from_legacy_native_event(
-        LegacyNativeAgentEventEnvelopeInput {
+    let phase = event_kind
+        .definition()
+        .resolve_phase(&AgentRuntimePhase::Planning, &payload)
+        .expect("persisted semantic Thread item must resolve canonical event metadata");
+    Some(AgentRuntimeEventEnvelope::from_event_kind(
+        AgentRuntimeEventEnvelopeInput {
             session_id: session_id.to_string(),
             thread_id: Some(item.thread_id.clone()),
             turn_id: item.turn_id.clone(),
             parent_turn_id: None,
             item_id: Some(item_id),
-            event_name: event_kind.wire_name().to_string(),
+            event_kind,
+            phase,
             sequence: item.sequence,
             timestamp: item.created_at.clone(),
+            trace_context: None,
             payload,
         },
     ))

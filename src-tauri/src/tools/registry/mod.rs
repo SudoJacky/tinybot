@@ -72,7 +72,6 @@ pub struct ToolRegistryEntry {
     pub runtime_policy: ToolRuntimePolicy,
     pub required_capabilities: Vec<WorkerCapability>,
     pub available: bool,
-    pub approval: ToolApprovalMetadata,
     pub input_schema: Value,
     pub output_schema: Value,
     #[serde(skip_serializing)]
@@ -133,16 +132,6 @@ pub enum ToolExposure {
     Model,
     Deferred,
     Hidden,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ToolApprovalMetadata {
-    pub required: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub scope: Option<&'static str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub lifetime: Option<&'static str>,
 }
 
 impl WorkerToolRegistryRpc {
@@ -464,7 +453,6 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             false,
             runtime_policy(true, ToolCancellationMode::Cooperative, false, false),
             vec![WorkerCapability::MemoryRead],
-            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["query"],
@@ -483,7 +471,6 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             false,
             runtime_policy(true, ToolCancellationMode::Cooperative, false, false),
             vec![WorkerCapability::MemoryRead],
-            approval(false, None, None),
             json!({
                 "type": "object",
                 "properties": {
@@ -501,7 +488,6 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![WorkerCapability::BrowserObserve],
-            approval(false, None, None),
             json!({
                 "type": "object",
                 "properties": {
@@ -522,7 +508,6 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![WorkerCapability::BrowserInteract],
-            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["browserSessionId", "tabId", "controlEpoch", "action"],
@@ -566,7 +551,6 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             false,
             runtime_policy(false, ToolCancellationMode::TerminateProcess, true, false),
             vec![WorkerCapability::ShellExecute],
-            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["command"],
@@ -587,7 +571,6 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             false,
             runtime_policy(false, ToolCancellationMode::TerminateProcess, true, false),
             vec![WorkerCapability::ShellExecute],
-            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["command"],
@@ -611,7 +594,6 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
             vec![WorkerCapability::ShellExecute],
-            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["processId"],
@@ -637,7 +619,6 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
                 WorkerCapability::SessionMetadataRead,
                 WorkerCapability::SessionWrite,
             ],
-            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["task"],
@@ -667,7 +648,6 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
                 WorkerCapability::SessionMetadataRead,
                 WorkerCapability::SessionWrite,
             ],
-            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["subagentId", "content"],
@@ -691,7 +671,6 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
                 WorkerCapability::BackgroundRead,
                 WorkerCapability::SessionMetadataRead,
             ],
-            approval(false, None, None),
             json!({
                 "type": "object",
                 "properties": {
@@ -719,7 +698,6 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
                 WorkerCapability::SessionMetadataRead,
                 WorkerCapability::SessionWrite,
             ],
-            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["subagentId"],
@@ -743,7 +721,6 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
                 WorkerCapability::SessionMetadataRead,
                 WorkerCapability::SessionWrite,
             ],
-            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["subagentId"],
@@ -765,7 +742,6 @@ fn tool(
     dynamic: bool,
     runtime_policy: ToolRuntimePolicy,
     required_capabilities: Vec<WorkerCapability>,
-    approval: ToolApprovalMetadata,
     input_schema: Value,
 ) -> ToolRegistryEntry {
     ToolRegistryEntry {
@@ -780,7 +756,6 @@ fn tool(
         runtime_policy,
         required_capabilities,
         available: false,
-        approval,
         input_schema,
         output_schema: json!({ "type": "object" }),
         execution_target: ToolExecutionTarget::WorkerRpc {
@@ -800,7 +775,6 @@ fn worker_rpc_tool(
     dynamic: bool,
     runtime_policy: ToolRuntimePolicy,
     required_capabilities: Vec<WorkerCapability>,
-    approval: ToolApprovalMetadata,
     input_schema: Value,
 ) -> ToolRegistryEntry {
     let mut entry = tool(
@@ -812,7 +786,6 @@ fn worker_rpc_tool(
         dynamic,
         runtime_policy,
         required_capabilities,
-        approval,
         input_schema,
     );
     entry.execution_target = ToolExecutionTarget::WorkerRpc {
@@ -843,7 +816,6 @@ fn runtime_control_tool(
         runtime_policy,
         required_capabilities,
         available: false,
-        approval: approval(false, None, None),
         input_schema,
         output_schema: json!({ "type": "object" }),
         execution_target: ToolExecutionTarget::RuntimeControl(control),
@@ -865,18 +837,6 @@ fn runtime_policy(
         },
         mutates_workspace,
         mutates_session,
-    }
-}
-
-fn approval(
-    required: bool,
-    scope: Option<&'static str>,
-    lifetime: Option<&'static str>,
-) -> ToolApprovalMetadata {
-    ToolApprovalMetadata {
-        required,
-        scope,
-        lifetime,
     }
 }
 

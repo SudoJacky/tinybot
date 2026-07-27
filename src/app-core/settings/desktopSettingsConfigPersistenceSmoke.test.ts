@@ -17,14 +17,14 @@ describe("desktop settings config persistence smoke", () => {
           workspace: "D:/work/old",
         },
       },
-      gateway: { port: 18790 },
+      runtime: { logLevel: "info" },
       configMetadata: {
         revision: "hash:old",
         origins: {
           "agents.defaults.model": "default",
           "agents.defaults.timezone": "environment",
           "agents.defaults.workspace": "file",
-          "gateway.port": "file",
+          "runtime.logLevel": "file",
         },
       },
     };
@@ -38,7 +38,7 @@ describe("desktop settings config persistence smoke", () => {
 
     const patch = {
       agents: { defaults: { workspace: "D:/work/new" } },
-      gateway: { port: 18888 },
+      runtime: { logLevel: "debug" },
     };
     const invoke = vi.fn().mockResolvedValue({
       ok: true,
@@ -46,20 +46,19 @@ describe("desktop settings config persistence smoke", () => {
         ...currentConfig,
         revision: "hash:new",
         agents: { defaults: { ...currentConfig.agents.defaults, workspace: "D:/work/new" } },
-        gateway: { port: 18888 },
+        runtime: { logLevel: "debug" },
       },
       revision: "hash:new",
-      updatedFields: ["agents.defaults.workspace", "gateway.port"],
+      updatedFields: ["agents.defaults.workspace", "runtime.logLevel"],
       sideEffects: {
         applied: [],
-        restartRequired: ["workspaceReloadRequired", "gatewayRestartRequired"],
+        restartRequired: ["workspaceReloadRequired", "applicationRestartRequired"],
         warnings: [],
       },
     });
 
     const result = await saveDesktopSettingsConfig(currentConfig, patch, {
       applyNativeConfigPatch: (config, nativePatch) => applyNativeConfigPatch(config, nativePatch, { invoke }),
-      applyGatewayConfigPatch: vi.fn(),
     });
 
     expect(invoke).toHaveBeenCalledWith("apply_config_operations", {
@@ -67,16 +66,16 @@ describe("desktop settings config persistence smoke", () => {
         expectedRevision: "hash:old",
         operations: [
           { op: "replace", path: "agents.defaults.workspace", value: "D:/work/new" },
-          { op: "replace", path: "gateway.port", value: 18888 },
+          { op: "replace", path: "runtime.logLevel", value: "debug" },
         ],
       },
     });
     expect(result).toMatchObject({
       transport: "native",
       persistedRevision: "hash:new",
-      updatedFields: ["agents.defaults.workspace", "gateway.port"],
+      updatedFields: ["agents.defaults.workspace", "runtime.logLevel"],
       applied: [],
-      restartRequired: ["gatewayRestartRequired"],
+      restartRequired: ["applicationRestartRequired"],
       reloadRequired: ["workspaceReloadRequired"],
     });
 
@@ -94,35 +93,11 @@ describe("desktop settings config persistence smoke", () => {
       },
     });
     expect(savedPane.save.status).toBe("restart-required");
-    expect(savedPane.save.message).toBe("Settings persisted. Gateway restart required");
+    expect(savedPane.save.message).toBe("Settings persisted. Application restart required");
     expect(savedPane.save.diagnostics).toContain("Persisted revision: hash:new");
     expect(savedPane.save.diagnostics).toContain("Applied: none");
-    expect(savedPane.save.diagnostics).toContain("Restart required: gatewayRestartRequired");
+    expect(savedPane.save.diagnostics).toContain("Restart required: applicationRestartRequired");
     expect(savedPane.save.diagnostics).toContain("Reload required: workspaceReloadRequired");
   });
 
-  test("uses gateway fallback only when native invocation is unavailable", async () => {
-    const patch = { agents: { defaults: { model: "gpt-4.1" } } };
-    const gatewayConfig = {
-      revision: "hash:gateway",
-      agents: { defaults: { model: "gpt-4.1" } },
-    };
-
-    const result = await saveDesktopSettingsConfig({ revision: "hash:old" }, patch, {
-      applyNativeConfigPatch: vi.fn().mockRejectedValue(new Error("command not found")),
-      applyGatewayConfigPatch: vi.fn().mockResolvedValue({
-        config: gatewayConfig,
-        revision: "hash:gateway",
-      }),
-    });
-
-    expect(result).toMatchObject({
-      transport: "gateway-fallback",
-      persistedRevision: "hash:gateway",
-      config: gatewayConfig,
-      applied: [],
-      restartRequired: [],
-      reloadRequired: [],
-    });
-  });
 });

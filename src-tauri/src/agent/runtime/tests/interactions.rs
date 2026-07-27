@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn strict_patch_search_and_real_dispatch_work_end_to_end_without_approval() {
+fn strict_patch_search_and_real_dispatch_work_end_to_end() {
     struct PatchProvider {
         calls: AtomicUsize,
     }
@@ -351,7 +351,7 @@ fn request_user_input_rejects_invalid_forms_without_waiting() {
 }
 
 #[test]
-fn discovered_mcp_tool_searches_activates_and_calls_real_server_without_approval() {
+fn discovered_mcp_tool_searches_activates_and_calls_real_server() {
     struct McpDiscoveryProvider {
         calls: AtomicUsize,
     }
@@ -882,7 +882,13 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
 
     assert_eq!(result["stopReason"], "final_response");
     assert_eq!(result["finalContent"], "deferred tool rejection handled");
-    assert_eq!(result["events"][1]["payload"]["toolName"], "shell.execute");
+    let tool_result = result["runtimeEvents"]
+        .as_array()
+        .expect("runtime events should be present")
+        .iter()
+        .find(|event| event["eventName"] == "agent.tool.result")
+        .expect("tool result should be present");
+    assert_eq!(tool_result["payload"]["toolName"], "shell.execute");
 }
 
 #[test]
@@ -973,8 +979,8 @@ fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_
         run_native_agent_turn_with_config(
             &run_services,
             json!({
-                "turnId": "turn-approval-batch",
-                "sessionId": "session-approval-batch",
+                "turnId": "turn-tool-batch",
+                "sessionId": "session-tool-batch",
                 "maxIterations": 2,
                 "messages": [{ "role": "user", "content": "write then read" }]
             }),
@@ -998,7 +1004,7 @@ fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_
 }
 
 #[test]
-fn write_tool_dispatches_without_approval_and_does_not_abort_the_turn() {
+fn write_tool_dispatches_and_does_not_abort_the_turn() {
     struct DeniedProvider {
         calls: AtomicUsize,
     }
@@ -1067,8 +1073,8 @@ fn write_tool_dispatches_without_approval_and_does_not_abort_the_turn() {
         run_native_agent_turn_with_config(
             &run_services,
             json!({
-                "turnId": "turn-denied-approval",
-                "sessionId": "session-denied-approval",
+                "turnId": "turn-write-tool",
+                "sessionId": "session-write-tool",
                 "maxIterations": 2,
                 "messages": [{ "role": "user", "content": "try a write" }]
             }),
@@ -1448,17 +1454,6 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
         }),
     )
     .expect("selected canonical patch tool should configure the turn");
-    run_native_agent_turn_with_services(
-        &services,
-        json!({
-            "runtime": "rust",
-            "turnId": "turn-never-approval",
-            "sessionId": "session-never-approval",
-            "approvalPolicy": "never",
-            "messages": [{ "role": "user", "content": "use safe tools only" }]
-        }),
-    )
-    .expect("legacy approval policy should not filter tools");
     let captured = specs
         .lock()
         .expect("tool registry provider lock should not be poisoned");
@@ -1467,7 +1462,7 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
         .expect("activated tools lock should not be poisoned");
 
     assert_eq!(result["stopReason"], "final_response");
-    assert_eq!(captured.len(), 3);
+    assert_eq!(captured.len(), 2);
     assert_eq!(captured[0].len(), 2);
     assert_eq!(captured[0][0]["function"]["name"], "update_plan");
     assert_eq!(captured[0][1]["function"]["name"], "memory_search");
@@ -1479,13 +1474,6 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
         .iter()
         .any(|tool| tool["function"]["name"] == "apply_patch"));
     assert!(activated[1].is_empty());
-    assert!(captured[2]
-        .iter()
-        .any(|tool| tool["function"]["name"] == "apply_patch"));
-    assert!(captured[2]
-        .iter()
-        .any(|tool| tool["function"]["name"] == "exec_command"));
-    assert!(activated[2].is_empty());
 }
 
 #[test]
@@ -1567,7 +1555,7 @@ fn invalid_request_stops_before_provider_call() {
     assert_eq!(result["finalContent"], "");
     assert_eq!(event_names(&result), vec!["agent.error"]);
     assert_eq!(
-        result["events"][0]["payload"]["stopReason"],
+        result["runtimeEvents"][0]["payload"]["stopReason"],
         "invalid_request"
     );
 }

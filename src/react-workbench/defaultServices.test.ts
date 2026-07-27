@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { createDesktopAppServices } from "./defaultServices";
 import type { ChatEvent } from "./services";
 import { createDesktopStopCommand, createDesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
-import { createTinyOsApprovalResolveCommand } from "../app-core/chat/tinyOsCommandGateway";
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -18,8 +17,6 @@ vi.mock("@tauri-apps/api/event", () => ({
     return () => mocks.listeners.delete(name);
   }),
 }));
-vi.mock("../app-core/gateway/desktopGatewayStartup", () => ({ ensureGatewayReady: vi.fn(async () => undefined) }));
-
 const thread = {
   threadId: "thread-1",
   sessionKey: "thread-1",
@@ -81,22 +78,29 @@ describe("desktop native app services", () => {
     mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };
       if (command === "worker_thread_create") return thread;
-      if (command === "worker_turns_list") return { turns: [] };
-      if (command === "worker_turn_runtime_state") return null;
-      if (command === "worker_session_effective_capabilities") return {
-        schemaVersion: "tinybot.effective_capabilities.v1",
-        sessionId: "thread-1",
+      if (command === "thread_list_turns") return { turns: [] };
+      if (command === "thread_get_turn_runtime_state") return null;
+      if (command === "thread_get_effective_capabilities") return {
+        schemaVersion: "tinybot.effective_capabilities.v2",
+        threadId: "thread-1",
         capabilities: {},
       };
       if (command === "worker_submit_thread_turn") return {
         threadId: "thread-1",
         sessionId: "thread-1",
         turnId: "turn-1",
-        agentResult: {},
-        snapshot: {},
       };
       return { command, args };
     });
+  });
+
+  test("initializes directly through native Thread commands", async () => {
+    const services = createDesktopAppServices();
+
+    await services.sessionStore.list();
+
+    const commands = mocks.invoke.mock.calls.map(([command]) => command);
+    expect(commands).toContain("worker_threads_list");
   });
 
   test("lists and creates real Thread sessions", async () => {
@@ -144,8 +148,8 @@ describe("desktop native app services", () => {
           ? { threads: [thread], total: 2 }
           : { threads: [childThread], total: 2, nextOffset: 1 };
       }
-      if (command === "worker_turns_list") return { turns: [] };
-      if (command === "worker_turn_runtime_state") return null;
+      if (command === "thread_list_turns") return { turns: [] };
+      if (command === "thread_get_turn_runtime_state") return null;
       return {};
     });
     const services = createDesktopAppServices();
@@ -210,10 +214,10 @@ describe("desktop native app services", () => {
     });
     mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };
-      if (command === "worker_turns_list") {
+      if (command === "thread_list_turns") {
         return { turns: completedTurnId ? [{ turnId: completedTurnId }] : [] };
       }
-      if (command === "worker_turn_runtime_state") {
+      if (command === "thread_get_turn_runtime_state") {
         return canonicalRuntimeState(completedTurnId, "completed");
       }
       if (command === "worker_submit_thread_turn") {
@@ -299,8 +303,6 @@ describe("desktop native app services", () => {
       threadId: "thread-1",
       sessionId: "thread-1",
       turnId: completedTurnId,
-      agentResult: { finalContent: "hi", stopReason: "final_response" },
-      snapshot: {},
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -318,10 +320,10 @@ describe("desktop native app services", () => {
     let completedTurnId = "";
     mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };
-      if (command === "worker_turns_list") {
+      if (command === "thread_list_turns") {
         return { turns: completedTurnId ? [{ turnId: completedTurnId }] : [] };
       }
-      if (command === "worker_turn_runtime_state") {
+      if (command === "thread_get_turn_runtime_state") {
         return canonicalRuntimeState(completedTurnId, "completed");
       }
       if (command === "worker_submit_thread_turn") {
@@ -331,20 +333,6 @@ describe("desktop native app services", () => {
           threadId: "thread-1",
           sessionId: "thread-1",
           turnId: completedTurnId,
-          agentResult: {
-            finalContent: "hi",
-            stopReason: "final_response",
-          },
-          snapshot: {
-            items: [{
-              itemId: `${completedTurnId}:assistant`,
-              kind: {
-                type: "assistant_message_completed",
-                payload: { content: "hi", role: "assistant" },
-              },
-            }],
-            turnItems: [],
-          },
         };
       }
       return {};
@@ -375,11 +363,11 @@ describe("desktop native app services", () => {
     expect(events).toContainEqual({ type: "agent.event", eventType: "agent.turn.completed" });
   });
 
-  test("consumes typed Tauri timeline patches without a Gateway frame", async () => {
+  test("consumes typed Tauri timeline patches without a transport frame", async () => {
     mocks.invoke.mockImplementation(async (command: string) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };
-      if (command === "worker_turns_list") return { turns: [{ turnId: "turn-live" }] };
-      if (command === "worker_turn_runtime_state") return canonicalRuntimeState("turn-live");
+      if (command === "thread_list_turns") return { turns: [{ turnId: "turn-live" }] };
+      if (command === "thread_get_turn_runtime_state") return canonicalRuntimeState("turn-live");
       return {};
     });
     const services = createDesktopAppServices();
@@ -449,8 +437,8 @@ describe("desktop native app services", () => {
   test("uses the typed Thread command for interrupt", async () => {
     mocks.invoke.mockImplementation(async (command: string) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };
-      if (command === "worker_turns_list") return { turns: [{ turnId: "turn-live" }] };
-      if (command === "worker_turn_runtime_state") return canonicalRuntimeState("turn-live");
+      if (command === "thread_list_turns") return { turns: [{ turnId: "turn-live" }] };
+      if (command === "thread_get_turn_runtime_state") return canonicalRuntimeState("turn-live");
       return {};
     });
     const services = createDesktopAppServices();
@@ -468,27 +456,6 @@ describe("desktop native app services", () => {
         clientEventId: "command-stop-1",
       }) },
     });
-  });
-
-  test("rejects native approval continuation commands", async () => {
-    mocks.invoke.mockImplementation(async (command: string) => {
-      if (command === "worker_threads_list") return { threads: [thread], total: 1 };
-      if (command === "worker_turns_list") return { turns: [{ turnId: "turn-live" }] };
-      if (command === "worker_turn_runtime_state") return canonicalRuntimeState("turn-live");
-      return {};
-    });
-    const services = createDesktopAppServices();
-    await services.sessionStore.list();
-
-    await expect(services.chatStore.dispatch(createTinyOsApprovalResolveCommand({
-      action: "approveOnce",
-      approvalId: "approval-1",
-      commandId: "command-approval-1",
-      sessionId: "thread-1",
-      source: { control: "test", surface: "chat" },
-      threadId: "thread-1",
-      turnId: "turn-live",
-    }))).rejects.toThrow("Native agent approval continuation is not supported");
   });
 
   test("forks a completed canonical turn into a registered Thread at the selected message boundary", async () => {
@@ -517,8 +484,8 @@ describe("desktop native app services", () => {
           : [thread];
         return { threads, total: threads.length };
       }
-      if (command === "worker_turns_list") return { turns: [{ turnId: "turn-completed" }] };
-      if (command === "worker_turn_runtime_state") return canonicalRuntimeState("turn-completed", "completed");
+      if (command === "thread_list_turns") return { turns: [{ turnId: "turn-completed" }] };
+      if (command === "thread_get_turn_runtime_state") return canonicalRuntimeState("turn-completed", "completed");
       if (command === "worker_thread_read") {
         return {
           items: [{
@@ -574,7 +541,7 @@ describe("desktop native app services", () => {
         deleted = true;
         return { deleted: true, deletedChildren: ["thread-branch"] };
       }
-      if (command === "worker_turns_list") return { turns: [] };
+      if (command === "thread_list_turns") return { turns: [] };
       return {};
     });
     const services = createDesktopAppServices();

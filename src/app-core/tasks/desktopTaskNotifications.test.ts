@@ -23,14 +23,6 @@ describe("desktop task notifications", () => {
           canonical: { module: "files", href: "/files" },
         },
       ],
-      gatewayOperations: [
-        {
-          id: "gateway:startup",
-          title: "Start Tinybot gateway",
-          status: "starting",
-          canonical: { module: "gateway", href: "/api/status" },
-        },
-      ],
     }));
 
     await controller.update(buildDesktopTaskCenterItems({
@@ -43,50 +35,9 @@ describe("desktop task notifications", () => {
           canonical: { module: "files", href: "/files" },
         },
       ],
-      gatewayOperations: [
-        {
-          id: "gateway:startup",
-          title: "Start Tinybot gateway",
-          status: "failed",
-          detail: "shell / Tauri Rust backend",
-          diagnostics: "port occupied",
-          retryable: true,
-          canonical: { module: "gateway", href: "/api/status" },
-        },
-      ],
-      approvals: [
-        {
-          id: "approval:tool-1",
-          title: "Approve shell_command",
-          status: "waiting",
-          detail: "Shell command approval required",
-          canonical: { module: "approvals", href: "/chat/chat-1" },
-        },
-      ],
-      coworkRuns: [
-        {
-          id: "cowork:session-1",
-          title: "Review swarm plan",
-          status: "intervention_needed",
-          detail: "Needs review",
-          canonical: { module: "cowork", href: "/cowork" },
-        },
-      ],
     }));
 
     expect(sent).toEqual([
-      {
-        title: "Tinybot approval required",
-        body: "Approve shell_command - Shell command approval required",
-      },
-      {
-        title: "Tinybot Cowork intervention needed",
-        body: "Review swarm plan - Needs review",
-      },
-      {
-        title: "Tinybot gateway needs attention",
-        body: "Start Tinybot gateway - port occupied",
-      },
       {
         title: "Tinybot task completed",
         body: "Process Desktop Notes - File ready",
@@ -104,7 +55,7 @@ describe("desktop task notifications", () => {
         },
       ],
     }));
-    expect(sent).toHaveLength(4);
+    expect(sent).toHaveLength(1);
   });
 
   test("skips OS notification when disabled, focused, unsupported, or permission is unavailable", async () => {

@@ -1,5 +1,5 @@
 use super::checkpoint::save_phase_checkpoint;
-use super::events::{event, legacy_result_events_from_runtime_events};
+use super::events::standalone_runtime_event;
 use super::state::AgentTurnState;
 use super::{AgentTurnContext, NativeAgentRuntimeServices};
 use crate::agent::runtime_protocol::{AgentEventKind, TerminalEvent};
@@ -11,7 +11,9 @@ pub(super) fn error_result(
     stop_reason: &str,
     message: &str,
 ) -> Value {
-    let events = vec![event(
+    let runtime_events = vec![standalone_runtime_event(
+        turn_id,
+        session_id,
         AgentEventKind::Error,
         serde_json::json!({
             "turnId": turn_id,
@@ -30,7 +32,7 @@ pub(super) fn error_result(
         "messages": [],
         "toolsUsed": [],
         "error": message,
-        "events": events,
+        "runtimeEvents": runtime_events,
     })
 }
 
@@ -40,7 +42,9 @@ pub(super) fn cancelled_result(
     session_id: &str,
     checkpoint: Value,
 ) -> Value {
-    let events = vec![event(
+    let runtime_events = vec![standalone_runtime_event(
+        turn_id,
+        session_id,
         AgentEventKind::Cancelled,
         serde_json::json!({
             "turnId": turn_id,
@@ -61,7 +65,7 @@ pub(super) fn cancelled_result(
         "messages": [],
         "toolsUsed": [],
         "checkpoint": checkpoint,
-        "events": events,
+        "runtimeEvents": runtime_events,
     })
 }
 
@@ -91,7 +95,6 @@ pub(super) fn cancelled_turn_result(
         "error": "cancelled",
     })))?;
     let runtime_events = state.take_runtime_events();
-    let events = legacy_result_events_from_runtime_events(&runtime_events);
     Ok(serde_json::json!({
         "runtime": "rust",
         "turnId": context.turn_id,
@@ -103,14 +106,6 @@ pub(super) fn cancelled_turn_result(
         "completedToolResults": std::mem::take(&mut state.completed_tool_results),
         "error": "cancelled",
         "checkpoint": checkpoint,
-        "events": events,
         "runtimeEvents": runtime_events,
     }))
-}
-
-pub(super) fn event_value(kind: AgentEventKind, payload: Value) -> Value {
-    serde_json::json!({
-        "eventName": kind.wire_name(),
-        "payload": payload,
-    })
 }

@@ -1,5 +1,5 @@
 import type { ChatTurn } from "./chatTurnModel";
-import type { NativeChatReference } from "./nativeChat";
+import type { AgentInputReference } from "./agentInputReference";
 
 export const TINYOS_COMMAND_ACK_TIMEOUT_MS = 5_000;
 
@@ -7,7 +7,6 @@ export const TINYOS_COMMAND_KINDS = [
   "agent.cancel",
   "agent.pause",
   "agent.resume",
-  "approval.resolve",
   "form.submit",
   "form.cancel",
   "operation.retry",
@@ -35,25 +34,6 @@ export type TinyOsAgentCancelCommand = {
     turnId: string;
     sessionId: string;
     threadId?: string;
-  };
-};
-
-export type TinyOsApprovalResolveCommand = {
-  schemaVersion: "tinybot.command.v1";
-  commandId: string;
-  issuedAt: string;
-  kind: "approval.resolve";
-  source: TinyOsCommandSource;
-  target: {
-    turnId: string;
-    sessionId: string;
-    threadId?: string;
-  };
-  approval: {
-    approvalId: string;
-    approved: boolean;
-    scope: "once" | "session";
-    guidance?: string;
   };
 };
 
@@ -134,7 +114,7 @@ export type TinyOsAgentRequestChangeCommand = {
   request: {
     instruction: string;
     observedTurnId?: string;
-    references: NativeChatReference[];
+    references: AgentInputReference[];
   };
 };
 
@@ -225,7 +205,6 @@ export type TinyOsBrowserInteractCommand = {
 
 export type TinyOsCommand = TinyOsAgentCancelCommand
   | TinyOsAgentTurnControlCommand
-  | TinyOsApprovalResolveCommand
   | TinyOsFormSubmitCommand
   | TinyOsFormCancelCommand
   | TinyOsOperationRetryCommand
@@ -239,7 +218,7 @@ export type TinyOsCommand = TinyOsAgentCancelCommand
 
 export type TinyOsHostCommand = Exclude<
   TinyOsCommand,
-  TinyOsAgentCancelCommand | TinyOsApprovalResolveCommand | TinyOsFormSubmitCommand | TinyOsFormCancelCommand
+  TinyOsAgentCancelCommand | TinyOsFormSubmitCommand | TinyOsFormCancelCommand
 >;
 
 export type TinyOsDirectHostCommand =
@@ -368,38 +347,6 @@ export function createTinyOsAgentCancelCommand(input: {
   };
 }
 
-export function createTinyOsApprovalResolveCommand(input: {
-  action: "approveOnce" | "approveSession" | "deny";
-  approvalId: string;
-  commandId?: string;
-  guidance?: string;
-  issuedAt?: string;
-  turnId: string;
-  sessionId: string;
-  source: TinyOsCommandSource;
-  threadId?: string;
-}): TinyOsApprovalResolveCommand {
-  const guidance = input.guidance?.trim();
-  return {
-    schemaVersion: "tinybot.command.v1",
-    commandId: input.commandId ?? createTinyOsCommandId(),
-    issuedAt: input.issuedAt ?? new Date().toISOString(),
-    kind: "approval.resolve",
-    source: input.source,
-    target: {
-      turnId: input.turnId,
-      sessionId: input.sessionId,
-      ...(input.threadId ? { threadId: input.threadId } : {}),
-    },
-    approval: {
-      approvalId: input.approvalId,
-      approved: input.action !== "deny",
-      scope: input.action === "approveSession" ? "session" : "once",
-      ...(guidance ? { guidance } : {}),
-    },
-  };
-}
-
 export function createTinyOsFormSubmitCommand(input: {
   commandId?: string;
   formId: string;
@@ -510,7 +457,7 @@ export function createTinyOsAgentRequestChangeCommand(input: {
   instruction: string;
   issuedAt?: string;
   observedTurnId?: string;
-  references: NativeChatReference[];
+  references: AgentInputReference[];
   requestTurnId?: string;
   sessionId: string;
   source: TinyOsCommandSource;
@@ -746,15 +693,6 @@ export function reduceTinyOsCommandLifecycle(
   }
   if (state.stage === "acknowledged") return state;
   if (action.type === "transport_accepted") {
-    if (state.command.kind === "approval.resolve") {
-      return {
-        acknowledgement: { itemId: state.command.approval.approvalId, revision: 0 },
-        acknowledgedAtMs: action.nowMs,
-        command: state.command,
-        dispatchedAtMs: state.dispatchedAtMs,
-        stage: "acknowledged",
-      };
-    }
     return {
       command: state.command,
       dispatchedAtMs: state.dispatchedAtMs,
@@ -790,8 +728,7 @@ export function canonicalTinyOsCommandAcknowledgement(
       const detailCommandId = stringValue(detail.commandId ?? detail.command_id);
       const commandStatus = stringValue(detail.commandStatus ?? detail.command_status);
       const correlated = directCommandId === commandId || detailCommandId === commandId;
-      const resolvedApproval = item.kind === "approval" && item.status === "completed";
-      if (correlated && (commandStatus === "acknowledged" || resolvedApproval)) {
+      if (correlated && commandStatus === "acknowledged") {
         return { itemId: item.itemId, revision: item.revision };
       }
     }
@@ -849,7 +786,7 @@ export function isTinyOsCommandPending(state: TinyOsCommandLifecycle): boolean {
 
 export function isTinyOsCommandInFlight(state: TinyOsCommandLifecycle): boolean {
   return isTinyOsCommandPending(state)
-    || (state.stage === "acknowledged" && state.command.kind !== "approval.resolve");
+    || state.stage === "acknowledged";
 }
 
 function createTinyOsCommandId(): string {

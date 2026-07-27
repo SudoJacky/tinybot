@@ -19,7 +19,7 @@ describe("chat branch session continuation", () => {
       },
       runtimeState: {
         queuedInputs: [{ id: "queued-1" }],
-        pendingApprovals: [{ id: "approval-1" }],
+        pendingForms: [{ id: "form-1" }],
         liveSubagents: [{ id: "delegate-1" }],
       },
     };

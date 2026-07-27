@@ -8,7 +8,6 @@ fn update_plan_is_an_always_available_runtime_control_tool() {
 
     assert_eq!(tool.exposure, ToolExposure::Model);
     assert!(tool.available);
-    assert!(!tool.approval.required);
     assert!(tool.runtime_policy.mutates_session);
     assert!(!tool.supports_parallel_tool_calls);
     assert_eq!(
@@ -63,10 +62,8 @@ fn request_user_input_requires_form_capability() {
 
 #[test]
 fn canonical_apply_patch_is_model_visible_and_legacy_name_is_hidden() {
-    let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
-        WorkerCapability::FsWorkspaceWrite,
-        WorkerCapability::ApprovalRequest,
-    ]));
+    let registry =
+        WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]));
     let tool = registry
         .get_tool("apply_patch")
         .expect("apply_patch should be registered");
@@ -76,7 +73,6 @@ fn canonical_apply_patch_is_model_visible_and_legacy_name_is_hidden() {
 
     assert_eq!(tool.exposure, ToolExposure::Model);
     assert!(tool.available);
-    assert!(!tool.approval.required);
     assert!(tool.runtime_policy.mutates_workspace);
     assert_eq!(
         tool.execution_target,
@@ -88,11 +84,10 @@ fn canonical_apply_patch_is_model_visible_and_legacy_name_is_hidden() {
 }
 
 #[test]
-fn browser_tools_are_deferred_without_approval() {
+fn browser_tools_are_deferred() {
     let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
         WorkerCapability::BrowserObserve,
         WorkerCapability::BrowserInteract,
-        WorkerCapability::ApprovalRequest,
     ]));
     let observe = registry
         .get_tool("browser.observe")
@@ -103,12 +98,9 @@ fn browser_tools_are_deferred_without_approval() {
 
     assert_eq!(observe.exposure, ToolExposure::Deferred);
     assert!(observe.available);
-    assert!(!observe.approval.required);
     assert!(observe.runtime_policy.mutates_session);
     assert_eq!(interact.exposure, ToolExposure::Deferred);
     assert!(interact.available);
-    assert!(!interact.approval.required);
-    assert_eq!(interact.approval.scope, None);
     assert_eq!(
         interact.runtime_policy.cancellation_mode,
         ToolCancellationMode::DetachForbidden
@@ -121,10 +113,8 @@ fn browser_tools_are_deferred_without_approval() {
 
 #[test]
 fn retained_shell_tools_use_owned_process_rpc_targets() {
-    let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
-        WorkerCapability::ShellExecute,
-        WorkerCapability::ApprovalRequest,
-    ]));
+    let registry =
+        WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::ShellExecute]));
     let start = registry
         .get_tool("exec_command")
         .expect("exec_command should be registered");
@@ -134,7 +124,6 @@ fn retained_shell_tools_use_owned_process_rpc_targets() {
 
     assert_eq!(start.exposure, ToolExposure::Model);
     assert!(start.available);
-    assert!(!start.approval.required);
     assert_eq!(
         start.runtime_policy.cancellation_mode,
         ToolCancellationMode::TerminateProcess
@@ -147,7 +136,6 @@ fn retained_shell_tools_use_owned_process_rpc_targets() {
     );
     assert_eq!(input.exposure, ToolExposure::Model);
     assert!(input.available);
-    assert!(!input.approval.required);
     assert_eq!(
         input.runtime_policy.cancellation_mode,
         ToolCancellationMode::DetachForbidden
@@ -162,10 +150,7 @@ fn retained_shell_tools_use_owned_process_rpc_targets() {
 
 #[test]
 fn explicit_exec_disable_marks_new_shell_commands_unavailable() {
-    let policy = CapabilityPolicy::new([
-        WorkerCapability::ShellExecute,
-        WorkerCapability::ApprovalRequest,
-    ]);
+    let policy = CapabilityPolicy::new([WorkerCapability::ShellExecute]);
     let disabled = WorkerToolRegistryRpc::new_with_config(
         policy.clone(),
         json!({ "tools": { "exec": { "enable": false } } }),
@@ -310,7 +295,6 @@ fn discovered_mcp_tool_becomes_deferred_registry_entry() {
     assert_eq!(entries.len(), 1);
     assert_eq!(entries[0].exposure, ToolExposure::Deferred);
     assert!(entries[0].dynamic);
-    assert!(!entries[0].approval.required);
     assert!(entries[0].supports_parallel_tool_calls);
     assert_eq!(entries[0].input_schema["type"], "object");
     assert_eq!(

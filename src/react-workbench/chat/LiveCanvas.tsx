@@ -4,12 +4,11 @@ import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { projectKernelBackedTinyOsDesktop, projectTinyOsDesktop, type TinyOsTimelineEntry } from "../../app-core/chat/tinyOsDesktopModel";
 import { tinyOsLayoutModeForWidth, type TinyOsAgentRequestIntent, type TinyOsAgentRequestReference, type TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
 import type { ArtifactRef, BackendAgentTurnItem, ChatStep } from "../../app-core/chat/chatTurnModel";
-import type { TinyOsBrowserAction } from "../../app-core/chat/tinyOsCommandGateway";
+import type { TinyOsBrowserAction } from "../../app-core/chat/tinyOsCommand";
 import type { TinyOsNativeSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
-import type { ApprovalAction } from "../services";
 import { TinyOsShell } from "./TinyOsShell";
 import type { TinyOsFilesController } from "./useTinyOsFilesController";
-import { isTinyOsCommandInFlight, type TinyOsCommandLifecycle } from "../../app-core/chat/tinyOsCommandGateway";
+import { isTinyOsCommandInFlight, type TinyOsCommandLifecycle } from "../../app-core/chat/tinyOsCommand";
 import { createTinyOsShellCommandRegistry, defineTinyOsShellCommand, type TinyOsShellCommandAvailability } from "../../app-core/chat/tinyOsShellCommandRegistry";
 import { createTinyOsTimeMachineIndex, type TinyOsTimeMachineBoundary } from "../../app-core/chat/tinyOsTimeMachine";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
@@ -59,7 +58,6 @@ export function LiveCanvas({
   onDeleteFile = async () => undefined,
   onExecuteTerminal = async () => undefined,
   onMoveFile = async () => undefined,
-  onResolveApproval,
   onRetryOperation,
   onReturnToLive,
   onResumeTurn,
@@ -67,7 +65,6 @@ export function LiveCanvas({
   onSubmitForm,
   onSaveFile = async () => undefined,
   onWidthChange,
-  resolvingApprovalId,
   requestChangeUnavailableReason,
   directEditUnavailableReason,
   retryTurnId,
@@ -120,7 +117,6 @@ export function LiveCanvas({
   onDeleteFile?: (input: { baseRevision: string; path: string }) => Promise<void>;
   onExecuteTerminal?: (input: { command: string; cwd?: string }) => Promise<void>;
   onMoveFile?: (input: { baseRevision: string; path: string; targetPath: string }) => Promise<void>;
-  onResolveApproval: (approvalId: string, action: ApprovalAction) => void;
   onRetryOperation: (entry: LiveCanvasEntry) => void;
   onReturnToLive: () => void;
   onResumeTurn: () => void;
@@ -128,7 +124,6 @@ export function LiveCanvas({
   onSubmitForm: (form: AgentUiForm, values: Record<string, unknown>) => void;
   onSaveFile?: (input: { baseRevision?: string; content: string; createOnly: boolean; path: string }) => Promise<void>;
   onWidthChange: (widthPx: number) => void;
-  resolvingApprovalId: string;
   requestChangeUnavailableReason?: string;
   directEditUnavailableReason?: string;
   retryTurnId?: string;
@@ -364,7 +359,6 @@ export function LiveCanvas({
         filesController={filesController}
         history={mode === "history"}
         onAttachContext={onAttachContext}
-        resolvingApprovalId={resolvingApprovalId}
         submittingFormId={submittingFormId}
         snapshot={snapshot}
         layoutMode={tinyOsLayoutModeForWidth(widthPx, expanded)}
@@ -378,7 +372,6 @@ export function LiveCanvas({
         onDeleteFile={onDeleteFile}
         onExecuteTerminal={onExecuteTerminal}
         onMoveFile={onMoveFile}
-        onResolveApproval={onResolveApproval}
         onRetryOperation={onRetryOperation}
         onSelectEntry={onSelectEntry}
         onSubmitForm={onSubmitForm}

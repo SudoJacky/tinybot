@@ -3,24 +3,24 @@ use super::{
     active_child_turn_id_for_status, agent_registry_entry, apply_metadata_patch, bounded_limit,
     checkpoint_from_item, descendant_thread_ids, generate_item_id, generate_thread_id,
     inherited_subagent_history_items, invalid_thread_request, latest_checkpoint_from_items,
-    non_empty_string, now_timestamp, parse_sequence_cursor, pending_approvals_from_items,
-    read_cursor_from_request, recompute_dynamic_metadata, remember_client_event_items,
-    running_tools_from_items, status_value, subagent_agent_control_payload,
-    subagent_child_status_item, subagent_initial_child_items, subagent_input_item,
-    subagent_lifecycle_item_label, subagent_parent_item, thread_items_match_query,
-    thread_matches_list_filters, thread_matches_query, thread_status_for_subagent,
-    turn_items_from_thread_items, turn_summaries_from_items, unknown_thread_error,
-    validate_context_checkpoint_lineage, validate_thread_id, AppendThreadItemsResult,
-    CreateThreadRequest, DeleteThreadRequest, DeleteThreadResult, ForkThreadRequest,
-    ListThreadsRequest, ListThreadsResult, ReadThreadRequest, RestoreThreadCheckpointRequest,
-    RestoreThreadCheckpointResult, ResumeThreadRequest, SearchThreadsRequest, SearchThreadsResult,
-    SubagentMailboxInput, SubagentThreadStatus, SubagentThreadSummary, ThreadActivityRequest,
-    ThreadActivityResult, ThreadActivitySummary, ThreadAgentRegistryRequest,
-    ThreadAgentRegistryResult, ThreadChildActivity, ThreadChildSummary, ThreadEvent,
-    ThreadEventsRequest, ThreadEventsResult, ThreadItem, ThreadItemKind, ThreadMetadata,
-    ThreadMetadataPatch, ThreadPagination, ThreadRecord, ThreadSnapshot, ThreadStatus,
-    ThreadStatusResult, ThreadStore, CLIENT_EVENT_IDS_KEY, DEFAULT_LIST_LIMIT, DEFAULT_READ_LIMIT,
-    DEFAULT_SEARCH_LIMIT, DEFAULT_THREAD_TITLE, MAX_LIST_LIMIT, MAX_READ_LIMIT, MAX_SEARCH_LIMIT,
+    non_empty_string, now_timestamp, parse_sequence_cursor, read_cursor_from_request,
+    recompute_dynamic_metadata, remember_client_event_items, running_tools_from_items,
+    status_value, subagent_agent_control_payload, subagent_child_status_item,
+    subagent_initial_child_items, subagent_input_item, subagent_lifecycle_item_label,
+    subagent_parent_item, thread_items_match_query, thread_matches_list_filters,
+    thread_matches_query, thread_status_for_subagent, turn_items_from_thread_items,
+    turn_summaries_from_items, unknown_thread_error, validate_context_checkpoint_lineage,
+    validate_thread_id, AppendThreadItemsResult, CreateThreadRequest, DeleteThreadRequest,
+    DeleteThreadResult, ForkThreadRequest, ListThreadsRequest, ListThreadsResult,
+    ReadThreadRequest, RestoreThreadCheckpointRequest, RestoreThreadCheckpointResult,
+    ResumeThreadRequest, SearchThreadsRequest, SearchThreadsResult, SubagentMailboxInput,
+    SubagentThreadStatus, SubagentThreadSummary, ThreadActivityRequest, ThreadActivityResult,
+    ThreadActivitySummary, ThreadAgentRegistryRequest, ThreadAgentRegistryResult,
+    ThreadChildActivity, ThreadChildSummary, ThreadEvent, ThreadEventsRequest, ThreadEventsResult,
+    ThreadItem, ThreadItemKind, ThreadMetadata, ThreadMetadataPatch, ThreadPagination,
+    ThreadRecord, ThreadSnapshot, ThreadStatus, ThreadStatusResult, ThreadStore,
+    CLIENT_EVENT_IDS_KEY, DEFAULT_LIST_LIMIT, DEFAULT_READ_LIMIT, DEFAULT_SEARCH_LIMIT,
+    DEFAULT_THREAD_TITLE, MAX_LIST_LIMIT, MAX_READ_LIMIT, MAX_SEARCH_LIMIT,
 };
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
 use crate::threads::domain::ThreadTurnSummary;
@@ -293,15 +293,10 @@ impl MemoryThreadStore {
                 .then_with(|| left.thread_id.cmp(&right.thread_id))
         });
         let active_count = agents.iter().filter(|agent| agent.active).count();
-        let waiting_for_approval_count = agents
-            .iter()
-            .filter(|agent| agent.status == ThreadStatus::WaitingForApproval)
-            .count();
         Ok(ThreadAgentRegistryResult {
             root_thread_id: request.thread_id,
             total: agents.len(),
             active_count,
-            waiting_for_approval_count,
             agents,
         })
     }
@@ -311,7 +306,7 @@ impl MemoryThreadStore {
         request: ThreadActivityRequest,
     ) -> Result<ThreadActivityResult, WorkerProtocolError> {
         validate_thread_id(&request.thread_id)?;
-        let (thread, thread_ids, pending_approvals, running_tools, checkpoints) = {
+        let (thread, thread_ids, running_tools, checkpoints) = {
             let state = self.lock()?;
             let thread = state
                 .threads
@@ -326,24 +321,16 @@ impl MemoryThreadStore {
             if request.include_child_threads {
                 thread_ids.extend(descendant_thread_ids(&index, &request.thread_id));
             }
-            let mut pending_approvals = Vec::new();
             let mut running_tools = Vec::new();
             let mut checkpoints = Vec::new();
             for thread_id in &thread_ids {
                 let items = state.items.get(thread_id).map(Vec::as_slice).unwrap_or(&[]);
-                pending_approvals.extend(pending_approvals_from_items(thread_id, items));
                 running_tools.extend(running_tools_from_items(thread_id, items));
                 if let Some(checkpoint) = latest_checkpoint_from_items(thread_id, items) {
                     checkpoints.push(checkpoint);
                 }
             }
-            (
-                thread,
-                thread_ids,
-                pending_approvals,
-                running_tools,
-                checkpoints,
-            )
+            (thread, thread_ids, running_tools, checkpoints)
         };
         let _ = thread_ids;
         let status = self.get_thread_status(&request.thread_id)?;
@@ -354,7 +341,6 @@ impl MemoryThreadStore {
         })?;
         let summary = ThreadActivitySummary {
             active_children: status.child_activities.len(),
-            pending_approvals: pending_approvals.len(),
             running_tools: running_tools.len(),
             checkpoints: checkpoints.len(),
         };
@@ -363,7 +349,6 @@ impl MemoryThreadStore {
             thread,
             active_turn: status.active_turn,
             active_children: status.child_activities,
-            pending_approvals,
             running_tools,
             checkpoints,
             agents,

@@ -26,13 +26,12 @@ fn snapshot_contains_only_first_version_settings_groups() {
             "mcp-servers",
             "skills",
             "automations",
-            "gateway-runtime",
+            "runtime",
             "logs-diagnostics",
             "expert-config",
         ]
     );
     assert!(!group_ids.contains(&"memory-experience"));
-    assert!(!group_ids.contains(&"cowork-tasks"));
     assert!(!group_ids.contains(&"channels"));
 }
 
@@ -59,7 +58,7 @@ fn provider_api_key_is_secret_modeled_and_revealable() {
 }
 
 #[test]
-fn gateway_host_is_readonly_but_port_is_editable() {
+fn runtime_group_ignores_legacy_gateway_config_fields() {
     let snapshot = build_settings_snapshot(SettingsSnapshotInput {
         config: config_fixture(),
         config_path: PathBuf::from("C:/Users/example/.tinybot/config.json"),
@@ -67,20 +66,14 @@ fn gateway_host_is_readonly_but_port_is_editable() {
         diagnostics: Vec::new(),
     });
 
-    let host = snapshot
-        .field("gateway.host")
-        .expect("gateway host field should exist");
-    let port = snapshot
-        .field("gateway.port")
-        .expect("gateway port field should exist");
-
-    assert!(!host.editable);
-    assert_eq!(host.source, SettingSource::Computed);
-    assert_eq!(host.value, json!("127.0.0.1"));
-
-    assert!(port.editable);
-    assert_eq!(port.source, SettingSource::Config);
-    assert_eq!(port.value, json!(18791));
+    assert!(snapshot.field("gateway.host").is_none());
+    assert!(snapshot.field("gateway.port").is_none());
+    assert!(snapshot.field("gateway.http_base_url").is_none());
+    assert!(snapshot.field("gateway.ws_url").is_none());
+    assert!(snapshot.field("gateway.heartbeat.enabled").is_none());
+    assert!(snapshot.field("gateway.heartbeat.interval_s").is_none());
+    assert!(snapshot.field("runtime.config_path").is_some());
+    assert!(snapshot.field("runtime.config_revision").is_some());
 }
 
 #[test]
@@ -278,19 +271,19 @@ fn config_fixture() -> serde_json::Value {
                     "args": ["-y", "@modelcontextprotocol/server-github"],
                     "env": {
                         "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp-secret"
-                    },
-                    "approval": "always"
+                    }
                 }
             }
         },
         "gateway": {
             "host": "0.0.0.0",
-            "port": 18791
+            "port": 18791,
+            "heartbeat": {
+                "enabled": true,
+                "interval_s": 1800
+            }
         },
         "memory": {
-            "enabled": true
-        },
-        "cowork": {
             "enabled": true
         },
         "channels": {

@@ -1,4 +1,3 @@
-use super::{resolve_event_name, EventNameResolution, PhaseRule};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -59,19 +58,6 @@ impl AgentRuntimePhase {
             Self::Cancelled => "cancelled",
         }
     }
-
-    pub fn for_legacy_event(event_name: &str) -> Self {
-        match resolve_event_name(event_name) {
-            EventNameResolution::Canonical(kind) => match kind.definition().phase {
-                PhaseRule::Fixed(phase) => phase,
-                PhaseRule::Current | PhaseRule::FromPayload(_) => Self::Planning,
-            },
-            EventNameResolution::DeprecatedIgnored(kind) => kind.phase(),
-            EventNameResolution::Unknown => {
-                panic!("unknown legacy runtime event `{event_name}` has no phase definition")
-            }
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -92,19 +78,6 @@ pub enum AgentTurnItemKind {
     FileReference,
     Error,
     SystemNotice,
-}
-
-impl AgentTurnItemKind {
-    #[cfg(test)]
-    pub fn for_legacy_event(event_name: &str) -> Option<Self> {
-        match resolve_event_name(event_name) {
-            EventNameResolution::Canonical(kind) => kind.definition().item_kind,
-            EventNameResolution::DeprecatedIgnored(_) => None,
-            EventNameResolution::Unknown => {
-                panic!("unknown legacy runtime event `{event_name}` has no item definition")
-            }
-        }
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -351,43 +324,4 @@ pub struct AgentTimelinePatch {
     pub turn_id: String,
     pub snapshot_revision: u64,
     pub item: AgentTurnItem,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LegacyNativeAgentEventEnvelopeInput {
-    pub session_id: String,
-    #[serde(default)]
-    pub thread_id: Option<String>,
-    pub turn_id: String,
-    #[serde(default)]
-    pub parent_turn_id: Option<String>,
-    #[serde(default)]
-    pub item_id: Option<String>,
-    pub event_name: String,
-    pub sequence: u64,
-    pub timestamp: String,
-    pub payload: Value,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AgentRuntimeEventAppendInput {
-    #[serde(default)]
-    pub parent_turn_id: Option<String>,
-    #[serde(default)]
-    pub item_id: Option<String>,
-    pub event_name: String,
-    pub phase: AgentRuntimePhase,
-    pub timestamp: String,
-    pub source: AgentRuntimeEventSource,
-    pub visibility: AgentRuntimeEventVisibility,
-    pub payload: Value,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct LegacyNativeAgentEventProjection {
-    #[serde(rename = "eventName")]
-    pub event_name: String,
-    pub payload: Value,
 }

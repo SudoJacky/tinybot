@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { createDesktopChatSessionController } from "../app-core/chat/desktopChatSessionController";
-import type { NativeChatReference, NativeChatSession } from "../app-core/chat/nativeChat";
+import type { AgentInputReference } from "../app-core/chat/agentInputReference";
 import {
   createAgentUiEventState,
   normalizeAgentUiEvents,
@@ -9,11 +9,8 @@ import {
   type AgentUiForm,
 } from "../app-core/agent-ui/agentUiEvents";
 import type { DesktopCommand, DesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
-import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "../app-core/gateway/gatewayConfig";
-import { ensureGatewayReady } from "../app-core/gateway/desktopGatewayStartup";
 import { createDesktopNativeConfigApi } from "../app-core/native/desktopNativeConfig";
 import { applyNativeConfigPatch } from "../app-core/native/desktopNativeConfigPatch";
-import { createDesktopNativeSessionsApi } from "../app-core/native/desktopNativeSessions";
 import { createDesktopNativeSkillsApi } from "../app-core/native/desktopNativeSkills";
 import {
   createDesktopNativeThreadsApi,
@@ -59,16 +56,14 @@ import {
   type TinyOsCommand,
   type TinyOsDirectHostCommand,
   type TinyOsHostCommand,
-} from "../app-core/chat/tinyOsCommandGateway";
+} from "../app-core/chat/tinyOsCommand";
 import { normalizeTinyOsEffectiveCapabilities } from "../app-core/chat/tinyOsCapabilities";
 
 type Listener = (event: ChatEvent) => void;
 
 export function createDesktopAppServices(): AppServices {
-  const config = resolveGatewayConfig(DEFAULT_GATEWAY_CONFIG);
   const nativeMode = hasTauriRuntime();
   const nativeConfig = nativeMode ? createDesktopNativeConfigApi({ invoke }) : undefined;
-  const nativeSessions = nativeMode ? createDesktopNativeSessionsApi({ invoke }) : undefined;
   const nativeSkills = nativeMode ? createDesktopNativeSkillsApi({ invoke }) : undefined;
   const nativeThreads = nativeMode ? createDesktopNativeThreadsApi({ invoke }) : undefined;
   const nativeHostCommands = nativeMode ? createDesktopNativeHostCommandApi({ invoke }) : undefined;
@@ -82,14 +77,14 @@ export function createDesktopAppServices(): AppServices {
 
   const controller = createDesktopChatSessionController({
     api: {
-      listSessions: listConversationThreads,
-      listTurns: (sessionKey) => requireNative(nativeSessions, "Session").turns?.(sessionKey) ?? Promise.resolve({ turns: [] }),
-      getAgentTurnRuntimeState: (sessionKey, turnId) => requireNative(nativeSessions, "Session").agentTurnRuntimeState?.(sessionKey, turnId) ?? Promise.resolve(null),
-      deleteSession: (threadId) => requireNative(nativeThreads, "Thread").delete({
+      listThreads: listConversationThreads,
+      listTurns: (threadId) => requireNative(nativeThreads, "Thread").listTurns(threadId),
+      getAgentTurnRuntimeState: (threadId, turnId) => requireNative(nativeThreads, "Thread").getTurnRuntimeState(threadId, turnId),
+      deleteThread: (threadId) => requireNative(nativeThreads, "Thread").delete({
         threadId,
         deleteChildren: true,
       }),
-      patchSession: (threadId, body) => requireNative(nativeThreads, "Thread").updateMetadata({
+      patchThread: (threadId, body) => requireNative(nativeThreads, "Thread").updateMetadata({
         threadId,
         metadata: nativeThreadMetadataPatch(body),
       }),
@@ -132,14 +127,13 @@ export function createDesktopAppServices(): AppServices {
       if (!nativeMode) {
         throw new Error("Tinybot chat requires the Tauri native runtime");
       }
-      await ensureGatewayReady(config, { invoke, hasTauriRuntime });
-      await registerNativeChatEvents();
+      await registerNativeRuntimeEvents();
       await controller.loadSessions();
     })();
     return initialized;
   }
 
-  async function registerNativeChatEvents(): Promise<void> {
+  async function registerNativeRuntimeEvents(): Promise<void> {
     await Promise.all([
       listen(toDesktopNativeTauriEventName("agent.timeline.patch"), async (event) => {
         const payload = normalizeNativeBackendEventPayload(event.payload);
@@ -265,11 +259,11 @@ export function createDesktopAppServices(): AppServices {
 
   async function dispatchTinyOsCommand(command: TinyOsCommand): Promise<void> {
     await initialize();
-    const session = controller.state.sessions.find((item) => item.key === command.target.sessionId);
-    if (session && controller.state.activeSessionKey !== session.key) {
-      await controller.selectSession(session.key, session.chatId);
+    const thread = controller.state.threads.find((item) => item.threadId === command.target.sessionId);
+    if (thread && controller.state.activeThreadId !== thread.threadId) {
+      await controller.selectSession(thread.threadId);
     }
-    const threadId = session?.threadId || command.target.threadId || command.target.sessionId;
+    const threadId = thread?.threadId || command.target.threadId || command.target.sessionId;
     if (command.kind === "agent.cancel") {
       await requireNative(nativeThreads, "Thread").interrupt({
         threadId,
@@ -277,8 +271,6 @@ export function createDesktopAppServices(): AppServices {
         clientEventId: command.commandId,
         reason: "user_requested",
       });
-    } else if (command.kind === "approval.resolve") {
-      throw new Error("Native agent approval continuation is not supported");
     } else if (command.kind === "form.submit" || command.kind === "form.cancel") {
       await requireNative(nativeThreads, "Thread").submitForm({
         threadId,
@@ -312,10 +304,10 @@ export function createDesktopAppServices(): AppServices {
   async function dispatchTurnSubmit(command: DesktopTurnSubmitCommand): Promise<void> {
     await initialize();
     const sessionId = command.target.sessionId;
-    const session = controller.state.sessions.find((item) => item.key === sessionId);
-    if (!session) throw new Error(`Cannot send to unknown Thread ${sessionId}`);
-    if (controller.state.activeSessionKey !== session.key) {
-      await controller.selectSession(session.key, session.chatId);
+    const thread = controller.state.threads.find((item) => item.threadId === sessionId);
+    if (!thread) throw new Error(`Cannot send to unknown Thread ${sessionId}`);
+    if (controller.state.activeThreadId !== thread.threadId) {
+      await controller.selectSession(thread.threadId);
     }
     const input = command.input;
     const result = await controller.submitMessage(input.text, {
@@ -358,7 +350,6 @@ export function createDesktopAppServices(): AppServices {
       const turn = [...timeline.turns].reverse().find((candidate) => (
         candidate.status === "pending"
         || candidate.status === "running"
-        || candidate.status === "awaiting_approval"
         || candidate.status === "awaiting_user"
       ));
       if (!turn) throw new Error("Cannot cancel: the session has no active turn");
@@ -423,7 +414,10 @@ export function createDesktopAppServices(): AppServices {
     sessionStore: {
       async list() {
         await initialize();
-        return controller.state.sessions.map((session) => mapSession(session, controller.state.respondingSessionKeys.has(session.key)));
+        return controller.state.threads.map((thread) => mapSession(
+          thread,
+          controller.state.respondingThreadIds.has(thread.threadId),
+        ));
       },
       async create(input) {
         await initialize();
@@ -438,10 +432,10 @@ export function createDesktopAppServices(): AppServices {
         });
         await controller.loadSessions();
         const sessionId = thread.threadId;
-        const session = controller.state.sessions.find((candidate) => candidate.key === sessionId);
-        if (!session) throw new Error(`Created Thread ${thread.threadId} is missing from the Thread list`);
-        await controller.selectSession(session.key, session.chatId);
-        const created = mapSession(session, false);
+        const createdThread = controller.state.threads.find((candidate) => candidate.threadId === sessionId);
+        if (!createdThread) throw new Error(`Created Thread ${thread.threadId} is missing from the Thread list`);
+        await controller.selectSession(createdThread.threadId);
+        const created = mapSession(createdThread, false);
         notifySession(created.id, { type: "session-created" });
         return created;
       },
@@ -462,10 +456,10 @@ export function createDesktopAppServices(): AppServices {
       },
       async archive(id) {
         await initialize();
-        const session = controller.state.sessions.find((candidate) => candidate.key === id);
-        if (!session) throw new Error(`Cannot archive unknown Thread ${id}`);
+        const thread = controller.state.threads.find((candidate) => candidate.threadId === id);
+        if (!thread) throw new Error(`Cannot archive unknown Thread ${id}`);
         await requireNative(nativeThreads, "Thread").archive({
-          threadId: session.threadId || session.key,
+          threadId: thread.threadId,
           archived: true,
         });
         await controller.loadSessions();
@@ -476,17 +470,17 @@ export function createDesktopAppServices(): AppServices {
       browserRuntime: nativeBrowser,
       async load(sessionId) {
         await initialize();
-        const session = controller.state.sessions.find((item) => item.key === sessionId);
-        if (session && controller.state.activeSessionKey !== session.key) {
-          await controller.selectSession(session.key, session.chatId);
+        const thread = controller.state.threads.find((item) => item.threadId === sessionId);
+        if (thread && controller.state.activeThreadId !== thread.threadId) {
+          await controller.selectSession(thread.threadId);
         }
         return controller.loadTimeline(sessionId);
       },
-      async loadTinyOsCapabilities(sessionId) {
+      async loadTinyOsCapabilities(threadId) {
         await initialize();
         return normalizeTinyOsEffectiveCapabilities(
-          await requireNative(nativeSessions, "Session").effectiveCapabilities?.(sessionId),
-          sessionId,
+          await requireNative(nativeThreads, "Thread").getEffectiveCapabilities(threadId),
+          threadId,
         );
       },
       async dispatch(command) {
@@ -506,8 +500,8 @@ export function createDesktopAppServices(): AppServices {
       },
       async branchFromMessage(sessionId, messageId) {
         await initialize();
-        const sourceSession = controller.state.sessions.find((session) => session.key === sessionId);
-        if (!sourceSession) {
+        const sourceThread = controller.state.threads.find((thread) => thread.threadId === sessionId);
+        if (!sourceThread) {
           throw new Error(`Cannot branch from unknown Thread ${sessionId}`);
         }
         const timeline = await controller.loadTimeline(sessionId);
@@ -520,7 +514,7 @@ export function createDesktopAppServices(): AppServices {
         if (!canonicalItem) {
           throw new Error(`Cannot fork Thread ${sessionId} at unknown canonical message ${messageId}`);
         }
-        const sourceThreadId = sourceSession.threadId || sourceSession.key;
+        const sourceThreadId = sourceThread.threadId;
         const forkAfterSequence = await resolveForkSequence(sourceThreadId, new Set([
           messageId,
           canonicalItem.itemId,
@@ -529,28 +523,21 @@ export function createDesktopAppServices(): AppServices {
         if (forkAfterSequence === undefined) {
           throw new Error(`Cannot resolve persisted fork boundary for canonical message ${messageId}`);
         }
-        const title = `${sourceSession.title} · 分叉`;
-        const payload = await requireNative(nativeThreads, "Thread").fork({
+        const title = `${sourceThread.title} · 分叉`;
+        const forkedThread = await requireNative(nativeThreads, "Thread").fork({
           threadId: sourceThreadId,
           clientEventId: `fork:${sourceThreadId}:${messageId}`,
           title,
           forkAfterSequence,
         });
         await controller.loadSessions();
-        const payloadRecord = isRecord(payload) ? payload : {};
-        const branchKey = stringValue(
-          payloadRecord.sessionKey
-          ?? payloadRecord.session_key
-          ?? payloadRecord.threadId
-          ?? payloadRecord.thread_id,
-        );
-        const branchSession = controller.state.sessions.find((session) => (
-          session.key === branchKey || session.threadId === branchKey
+        const branchThread = controller.state.threads.find((thread) => (
+          thread.threadId === forkedThread.threadId
         ));
-        if (!branchKey || !branchSession) {
-          throw new Error(`Forked Thread ${branchKey || "<missing>"} is missing from the Thread list`);
+        if (!branchThread) {
+          throw new Error(`Forked Thread ${forkedThread.threadId} is missing from the Thread list`);
         }
-        return mapSession(branchSession, false, payload);
+        return mapSession(branchThread, false, forkedThread);
       },
       async copyMarkdown(sessionId) {
         await initialize();
@@ -600,7 +587,7 @@ export function createDesktopAppServices(): AppServices {
       async load() {
         await initialize();
         const snapshot = await loadSettingsSnapshot();
-        return normalizeSettingsSummary(snapshot, config);
+        return normalizeSettingsSummary(snapshot);
       },
       async loadChatModels() {
         await initialize();
@@ -714,25 +701,23 @@ export function createDesktopAppServices(): AppServices {
   };
 }
 
-function mapSession(session: NativeChatSession, responding: boolean, fallbackPayload?: unknown): SessionSummary {
-  const threadStatus = session.status;
+function mapSession(thread: NativeThreadRecord, responding: boolean, fallbackPayload?: unknown): SessionSummary {
+  const extra = isRecord(thread.metadata?.extra) ? thread.metadata.extra : {};
   return {
-    id: session.key,
-    chatId: session.chatId,
-    title: session.title || "New session",
-    updatedAtMs: timestampMs(session.updatedAt) ?? timestampFromPayload(fallbackPayload) ?? Date.now(),
-    ...(session.pinned ? { pinned: true } : {}),
-    ...(session.archived ? { archived: true } : {}),
-    ...(session.workingDirectory ? { workingDirectory: session.workingDirectory } : {}),
-    status: responding || threadStatus === "running" || threadStatus === "cancelling"
+    id: thread.threadId,
+    chatId: thread.threadId,
+    title: thread.title || "New session",
+    updatedAtMs: timestampMs(thread.updatedAt) ?? timestampFromPayload(fallbackPayload) ?? Date.now(),
+    ...(extra.pinned === true ? { pinned: true } : {}),
+    ...(thread.archivedAt || thread.status === "archived" ? { archived: true } : {}),
+    ...(thread.metadata?.workingDirectory ? { workingDirectory: thread.metadata.workingDirectory } : {}),
+    status: responding || thread.status === "running" || thread.status === "cancelling"
       ? "running"
-      : threadStatus === "waiting_for_approval"
-        ? "waiting_approval"
-        : threadStatus === "failed" ? "failed" : "idle",
+      : thread.status === "failed" ? "failed" : "idle",
   };
 }
 
-function createOptimisticUserMessage(clientEventId: string, text: string, references: NativeChatReference[] = []): ReactChatMessage {
+function createOptimisticUserMessage(clientEventId: string, text: string, references: AgentInputReference[] = []): ReactChatMessage {
   return {
     id: clientEventId,
     role: "user",
@@ -900,7 +885,6 @@ function normalizeToolCatalog(payload: unknown): ToolCatalogSummary {
 }
 
 function normalizeToolSummary(item: Record<string, unknown>): ToolSummary {
-  const approval = isRecord(item.approval) ? item.approval : {};
   const name = stringValue(item.name ?? item.id);
   return {
     id: stringValue(item.id) || name,
@@ -912,7 +896,6 @@ function normalizeToolSummary(item: Record<string, unknown>): ToolSummary {
     enabled: item.enabled !== false,
     available: item.available !== false,
     reason: stringValue(item.reason) || undefined,
-    approvalRequired: approval.required === true,
   };
 }
 
@@ -928,12 +911,8 @@ function normalizeMcpServerSummary(item: Record<string, unknown>): McpServerSumm
   };
 }
 
-function normalizeSettingsSummary(snapshot: unknown, config: { httpBaseUrl: string; requestTimeoutMs: number; wsUrl: string }) {
-  const rows = [
-    { label: "Gateway URL", value: config.httpBaseUrl },
-    { label: "WebSocket URL", value: config.wsUrl },
-    { label: "Request timeout", value: `${config.requestTimeoutMs} ms` },
-  ];
+function normalizeSettingsSummary(snapshot: unknown) {
+  const rows: Array<{ label: string; value: string }> = [];
   if (!isRecord(snapshot)) {
     return rows;
   }

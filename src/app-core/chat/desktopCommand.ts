@@ -1,10 +1,10 @@
-import type { NativeChatReference } from "./nativeChat";
-import type { TinyOsCommand, TinyOsCommandSource } from "./tinyOsCommandGateway";
+import type { AgentInputReference } from "./agentInputReference";
+import type { TinyOsCommand, TinyOsCommandSource } from "./tinyOsCommand";
 
 export type DesktopChatInput = {
   text: string;
   model?: string;
-  references?: NativeChatReference[];
+  references?: AgentInputReference[];
 };
 
 export type DesktopTurnSubmitCommand = {

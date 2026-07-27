@@ -1,13 +1,59 @@
 #[cfg(test)]
+use super::PendingAgentEvent;
 use super::{
-    AgentEventKind, AgentRuntimePhase, LegacyNativeAgentEventEnvelopeInput, PendingAgentEvent,
-};
-use super::{
-    AgentRuntimeEventAppendInput, AgentRuntimeEventEnvelope, AgentTraceContext,
+    AgentEventKind, AgentRuntimeEventEnvelope, AgentRuntimePhase, AgentTraceContext,
     AGENT_RUNTIME_EVENT_SCHEMA_VERSION,
 };
-#[cfg(test)]
 use serde_json::Value;
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AgentRuntimeEventAppendInput {
+    pub(crate) parent_turn_id: Option<String>,
+    pub(crate) item_id: Option<String>,
+    pub(crate) event_kind: AgentEventKind,
+    pub(crate) phase: AgentRuntimePhase,
+    pub(crate) timestamp: String,
+    pub(crate) payload: Value,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AgentRuntimeEventEnvelopeInput {
+    pub(crate) session_id: String,
+    pub(crate) thread_id: Option<String>,
+    pub(crate) turn_id: String,
+    pub(crate) parent_turn_id: Option<String>,
+    pub(crate) item_id: Option<String>,
+    pub(crate) event_kind: AgentEventKind,
+    pub(crate) phase: AgentRuntimePhase,
+    pub(crate) sequence: u64,
+    pub(crate) timestamp: String,
+    pub(crate) trace_context: Option<AgentTraceContext>,
+    pub(crate) payload: Value,
+}
+
+impl AgentRuntimeEventEnvelope {
+    pub(crate) fn from_event_kind(input: AgentRuntimeEventEnvelopeInput) -> Self {
+        let definition = input.event_kind.definition();
+        let event_name = definition.wire_name.to_string();
+        Self {
+            schema_version: AGENT_RUNTIME_EVENT_SCHEMA_VERSION.to_string(),
+            event_id: deterministic_event_id(&input.turn_id, &event_name, input.sequence),
+            sequence: input.sequence,
+            session_id: input.session_id,
+            thread_id: input.thread_id,
+            turn_id: input.turn_id,
+            parent_turn_id: input.parent_turn_id,
+            item_id: input.item_id,
+            event_name,
+            phase: input.phase,
+            timestamp: input.timestamp,
+            source: definition.source,
+            visibility: definition.visibility,
+            trace_context: input.trace_context,
+            payload: input.payload,
+        }
+    }
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AgentRuntimeEventAppender {
@@ -86,50 +132,41 @@ impl AgentRuntimeEventAppender {
 
     pub fn append(&mut self, input: AgentRuntimeEventAppendInput) -> AgentRuntimeEventEnvelope {
         let sequence = self.take_next_sequence();
-        AgentRuntimeEventEnvelope {
-            schema_version: AGENT_RUNTIME_EVENT_SCHEMA_VERSION.to_string(),
-            event_id: deterministic_event_id(&self.turn_id, &input.event_name, sequence),
-            sequence,
+        AgentRuntimeEventEnvelope::from_event_kind(AgentRuntimeEventEnvelopeInput {
             session_id: self.session_id.clone(),
             thread_id: self.thread_id.clone(),
             turn_id: self.turn_id.clone(),
-            parent_turn_id: input.parent_turn_id,
-            item_id: input.item_id,
-            event_name: input.event_name,
+            trace_context: self.trace_context.clone(),
+            sequence,
+            event_kind: input.event_kind,
             phase: input.phase,
             timestamp: input.timestamp,
-            source: input.source,
-            visibility: input.visibility,
-            trace_context: self.trace_context.clone(),
             payload: input.payload,
-        }
+            parent_turn_id: input.parent_turn_id,
+            item_id: input.item_id,
+        })
     }
 
     #[cfg(test)]
-    pub fn append_legacy_native_event(
+    pub fn append_event(
         &mut self,
-        event_name: impl Into<String>,
+        event_kind: AgentEventKind,
         item_id: Option<String>,
         timestamp: impl Into<String>,
         payload: Value,
     ) -> AgentRuntimeEventEnvelope {
-        let event_name = event_name.into();
-        let sequence = self.take_next_sequence();
-        let mut event = AgentRuntimeEventEnvelope::from_legacy_native_event(
-            LegacyNativeAgentEventEnvelopeInput {
-                session_id: self.session_id.clone(),
-                thread_id: self.thread_id.clone(),
-                turn_id: self.turn_id.clone(),
-                parent_turn_id: None,
-                item_id,
-                event_name,
-                sequence,
-                timestamp: timestamp.into(),
-                payload,
-            },
-        );
-        event.trace_context = self.trace_context.clone();
-        event
+        let definition = event_kind.definition();
+        let phase = definition
+            .resolve_phase(&AgentRuntimePhase::Planning, &payload)
+            .expect("typed test event must resolve catalog metadata");
+        self.append(AgentRuntimeEventAppendInput {
+            parent_turn_id: None,
+            item_id,
+            event_kind,
+            phase,
+            timestamp: timestamp.into(),
+            payload,
+        })
     }
 
     #[cfg(test)]
@@ -212,11 +249,9 @@ impl AgentTurnEmitter {
         self.emit(AgentRuntimeEventAppendInput {
             parent_turn_id,
             item_id,
-            event_name: definition.wire_name.to_string(),
+            event_kind: kind,
             phase,
             timestamp: timestamp.into(),
-            source: definition.source,
-            visibility: definition.visibility,
             payload,
         })
     }
@@ -403,25 +438,6 @@ impl AgentTurnEmitter {
             .with_item_id(Some(tool_call_id)),
         )
     }
-
-    #[cfg(test)]
-    pub fn done(
-        &mut self,
-        timestamp: impl Into<String>,
-        stop_reason: impl Into<String>,
-        payload: Value,
-    ) -> AgentRuntimeEventEnvelope {
-        let mut payload = object_payload(payload);
-        payload.insert("stopReason".to_string(), Value::String(stop_reason.into()));
-        self.emit_pending(
-            timestamp,
-            PendingAgentEvent::new(AgentEventKind::Done, Value::Object(payload)),
-        )
-    }
-}
-#[cfg(test)]
-fn object_payload(payload: Value) -> serde_json::Map<String, Value> {
-    payload.as_object().cloned().unwrap_or_default()
 }
 pub(super) fn deterministic_event_id(turn_id: &str, event_name: &str, sequence: u64) -> String {
     format!(

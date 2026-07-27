@@ -1,4 +1,3 @@
-use serde::Serialize;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -9,9 +8,8 @@ use crate::config::application::{
     default_tinybot_config_path, ensure_default_config_file, native_backend_workspace_root,
 };
 use crate::config::store::ConfigDiagnosticCode;
-use crate::desktop_commands::gateway::{
-    gateway_exit_policy_preference_path, load_gateway_exit_policy,
-    start_gateway_with_workspace_root, stop_owned_gateway_for_window_close,
+use crate::desktop_commands::runtime::{
+    shutdown_native_runtime_for_window_close, start_native_runtime_with_workspace_root,
 };
 use crate::native_browser;
 use crate::system_prompt::{load_or_create_system_prompt, SYSTEM_PROMPT_FILE_NAME};
@@ -21,37 +19,20 @@ use super::menu::{
     install_desktop_application_menu, is_desktop_menu_command, DesktopMenuCommandPayload,
 };
 use super::state::{
-    append_log, lock_runtime, push_log, GatewayRuntime, SharedGateway, NATIVE_BACKEND_LOG_MAX_BYTES,
+    append_log, lock_runtime, push_log, NativeRuntimeState, SharedNativeRuntime,
+    NATIVE_BACKEND_LOG_MAX_BYTES,
 };
-
-#[derive(Serialize)]
-struct DesktopStatus {
-    app_name: &'static str,
-    gateway_http: &'static str,
-    gateway_ws: &'static str,
-    browser_mode: &'static str,
-}
-
-#[tauri::command]
-fn desktop_status() -> DesktopStatus {
-    DesktopStatus {
-        app_name: "Tinybot Desktop",
-        gateway_http: "http://127.0.0.1:18790",
-        gateway_ws: "ws://127.0.0.1:18790/ws",
-        browser_mode: "External browser",
-    }
-}
 
 #[tauri::command]
 fn record_renderer_diagnostic(
     input: serde_json::Value,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<(), String> {
     record_renderer_diagnostic_with_options(state.inner(), input)
 }
 
 pub(crate) fn record_renderer_diagnostic_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     input: serde_json::Value,
 ) -> Result<(), String> {
     let line = renderer_diagnostic_log_line(input);
@@ -88,19 +69,16 @@ pub(crate) fn truncate_utf8_with_ellipsis(mut value: String, max_bytes: usize) -
 }
 
 pub(crate) fn run() {
-    let gateway_state = Arc::new(Mutex::new(GatewayRuntime {
-        keep_background: load_gateway_exit_policy(&gateway_exit_policy_preference_path()),
-        ..GatewayRuntime::default()
-    }));
-    let close_state = gateway_state.clone();
-    let setup_state = gateway_state.clone();
+    let runtime_state = Arc::new(Mutex::new(NativeRuntimeState::default()));
+    let close_state = runtime_state.clone();
+    let setup_state = runtime_state.clone();
     let close_started = Arc::new(AtomicBool::new(false));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(gateway_state)
+        .manage(runtime_state)
         .setup(move |app| {
             let browser_runtime = native_browser::create_runtime(app.handle())?;
             {
@@ -145,7 +123,7 @@ pub(crate) fn run() {
                 ),
             }
             if let Err(error) =
-                start_gateway_with_workspace_root(&setup_state, workspace_root.clone())
+                start_native_runtime_with_workspace_root(&setup_state, workspace_root.clone())
             {
                 push_log(
                     &setup_state,
@@ -156,22 +134,10 @@ pub(crate) fn run() {
             }
             #[cfg(windows)]
             super::update::spawn_startup_auto_update(app.handle().clone(), setup_state.clone());
-            push_log(
-                &setup_state,
-                "Rust backend startup skipped legacy heartbeat worker",
-            );
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            desktop_status,
             record_renderer_diagnostic,
-            crate::desktop_commands::gateway::gateway_status,
-            crate::desktop_commands::gateway::start_gateway,
-            crate::desktop_commands::gateway::stop_gateway,
-            crate::desktop_commands::gateway::set_gateway_keep_running,
-            crate::desktop_commands::webui::worker_probe_status,
-            crate::desktop_commands::agent::worker_run_agent,
-            crate::desktop_commands::agent::worker_run_agent_input,
             crate::desktop_commands::agent::worker_submit_thread_turn,
             crate::desktop_commands::skills::worker_skills_list,
             crate::desktop_commands::skills::worker_skills_detail,
@@ -184,16 +150,6 @@ pub(crate) fn run() {
             crate::desktop_commands::workspace::worker_workspace_put_file,
             crate::desktop_commands::workspace::worker_workspace_directory,
             crate::desktop_commands::workspace::worker_workspace_file_chunk,
-            crate::desktop_commands::session::worker_sessions_list,
-            crate::desktop_commands::session::worker_session_messages,
-            crate::desktop_commands::session::worker_turns_list,
-            crate::desktop_commands::session::worker_turn_runtime_state,
-            crate::desktop_commands::session::worker_session_effective_capabilities,
-            crate::desktop_commands::session::worker_session_delete,
-            crate::desktop_commands::session::worker_session_patch,
-            crate::desktop_commands::session::worker_session_branch,
-            crate::desktop_commands::session::worker_session_clear,
-            crate::desktop_commands::session::worker_session_task_progress,
             crate::desktop_commands::thread::worker_thread_create,
             crate::desktop_commands::thread::worker_thread_read,
             crate::desktop_commands::thread::worker_thread_resume,
@@ -213,11 +169,11 @@ pub(crate) fn run() {
             crate::desktop_commands::thread::worker_thread_fork,
             crate::desktop_commands::thread::worker_thread_events,
             crate::desktop_commands::thread::worker_thread_restore_checkpoint,
-            crate::desktop_commands::webui::worker_cowork_route,
+            crate::desktop_commands::thread::thread_list_turns,
+            crate::desktop_commands::thread::thread_get_turn_runtime_state,
+            crate::desktop_commands::thread::thread_get_effective_capabilities,
             crate::desktop_commands::webui::worker_webui_route,
             crate::desktop_commands::transport::worker_dispatch_tinyos_host_command,
-            crate::desktop_commands::agent::worker_cancel_agent,
-            crate::desktop_commands::agent::worker_restore_agent_checkpoint,
             crate::desktop_commands::agent::worker_background_trace_list,
             crate::desktop_commands::agent::worker_background_trace_get_delegate_trace,
             crate::desktop_commands::agent::worker_background_trace_get_artifact,
@@ -235,7 +191,6 @@ pub(crate) fn run() {
             crate::desktop_commands::agent::worker_task_plan_get,
             crate::desktop_commands::agent::worker_task_plan_save,
             crate::desktop_commands::agent::worker_task_plan_delete,
-            crate::desktop_commands::agent::worker_submit_agent_form,
             crate::desktop_commands::agent::worker_submit_thread_form,
             crate::desktop_commands::config::get_settings_snapshot,
             crate::desktop_commands::config::get_config_editor_snapshot,
@@ -286,11 +241,11 @@ pub(crate) fn run() {
                             eprintln!("desktop_window_close_browser_cleanup_completed");
                         }
                         if let Err(error) =
-                            stop_owned_gateway_for_window_close(close_state, false).await
+                            shutdown_native_runtime_for_window_close(close_state, false).await
                         {
-                            eprintln!("desktop_window_close_gateway_cleanup_failed error={error}");
+                            eprintln!("desktop_window_close_runtime_cleanup_failed error={error}");
                         } else {
-                            eprintln!("desktop_window_close_gateway_cleanup_completed");
+                            eprintln!("desktop_window_close_runtime_cleanup_completed");
                         }
                         if let Err(error) = window.destroy() {
                             close_started.store(false, Ordering::Release);

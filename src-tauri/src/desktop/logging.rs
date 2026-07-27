@@ -1,5 +1,4 @@
 use std::{
-    collections::VecDeque,
     io::Write,
     path::{Path, PathBuf},
 };
@@ -44,27 +43,6 @@ fn native_backend_rotated_log_path(path: &Path) -> PathBuf {
         return path.with_extension("1");
     };
     path.with_file_name(format!("{file_name}.1"))
-}
-
-pub(crate) fn gateway_runtime_logs(runtime_logs: &VecDeque<String>) -> Vec<String> {
-    runtime_logs.iter().cloned().collect()
-}
-
-pub(crate) fn read_native_backend_log_tail(path: &Path, max_lines: usize) -> Vec<String> {
-    if max_lines == 0 {
-        return Vec::new();
-    }
-    let Ok(contents) = std::fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    let lines = contents
-        .lines()
-        .map(str::trim_end)
-        .filter(|line| !line.is_empty())
-        .map(str::to_string)
-        .collect::<Vec<_>>();
-    let start = lines.len().saturating_sub(max_lines);
-    lines[start..].to_vec()
 }
 
 fn now_unix_ms() -> u128 {

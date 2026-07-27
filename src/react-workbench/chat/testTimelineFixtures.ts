@@ -50,14 +50,12 @@ export function timelineFromReactMessages(
           ? "completed"
           : toolCall.status === "failed"
             ? "failed"
-            : toolCall.status === "blocked" || toolCall.status.includes("approval")
+            : toolCall.status === "blocked"
               ? "blocked"
               : "running",
         toolCall: {
           id: toolCall.id,
           name: toolCall.name,
-          approvalId: toolCall.approvalId,
-          approvalStatus: toolCall.approvalStatus,
           argsPreview: toolCall.argsText,
           resultPreview: toolCall.responseText || toolCall.summary,
         },

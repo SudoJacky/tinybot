@@ -19,9 +19,9 @@ describe("desktop native WebUI API", () => {
     }));
     const api = createDesktopNativeWebuiApi({ invoke });
 
-    await expect(api.route({ method: "GET", path: "/api/status" })).resolves.toEqual({ ok: true });
+    await expect(api.route({ method: "GET", path: "/api/tools" })).resolves.toEqual({ ok: true });
     expect(invoke).toHaveBeenCalledWith("worker_webui_route", {
-      input: { method: "GET", path: "/api/status" },
+      input: { method: "GET", path: "/api/tools" },
     });
   });
 
@@ -33,14 +33,14 @@ describe("desktop native WebUI API", () => {
     const api = createDesktopNativeWebuiApi({ invoke });
 
     await expect(api.route({
-      method: "POST",
-      path: "/webui/refresh-token",
+      method: "GET",
+      path: "/api/tools",
       headers: { Authorization: "Bearer token-1" },
     })).resolves.toEqual({ token: "token-1" });
     expect(invoke).toHaveBeenCalledWith("worker_webui_route", {
       input: {
-        method: "POST",
-        path: "/webui/refresh-token",
+        method: "GET",
+        path: "/api/tools",
         headers: { Authorization: "Bearer token-1" },
       },
     });
@@ -85,7 +85,7 @@ describe("desktop native WebUI API", () => {
       body: { ok: true },
       headers: {
         "content-type": "application/json",
-        "x-tinybot-route-group": "status",
+        "x-tinybot-route-group": "tools",
         "x-tinybot-route-owner": "rust",
       },
     }));
@@ -93,20 +93,20 @@ describe("desktop native WebUI API", () => {
 
     await expect(api.routeResponse({
       method: "GET",
-      path: "/api/status",
+      path: "/api/tools",
     })).resolves.toEqual({
       status: 200,
       body: { ok: true },
       headers: {
         "content-type": "application/json",
-        "x-tinybot-route-group": "status",
+        "x-tinybot-route-group": "tools",
         "x-tinybot-route-owner": "rust",
       },
     });
     expect(invoke).toHaveBeenCalledWith("worker_webui_route", {
       input: {
         method: "GET",
-        path: "/api/status",
+        path: "/api/tools",
       },
     });
   });
@@ -114,12 +114,12 @@ describe("desktop native WebUI API", () => {
   test("surfaces native WebUI error body messages", async () => {
     const invoke = vi.fn(async (_command: string, _args?: unknown) => ({
       status: 500,
-      body: { error: { message: "Cowork session could not be created" } },
+      body: { error: { message: "Skill could not be created" } },
     }));
     const api = createDesktopNativeWebuiApi({ invoke });
 
-    await expect(api.route({ method: "POST", path: "/api/cowork/sessions" }))
+    await expect(api.route({ method: "POST", path: "/api/skills" }))
       .rejects
-      .toThrow("Cowork session could not be created");
+      .toThrow("Skill could not be created");
   });
 });

@@ -243,7 +243,7 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
         ) -> Result<NativeAgentProviderResponse, String> {
             let checkpoint = self
                 .checkpoints
-                .restore(&context.session_id)
+                .restore_for_turn(&context.session_id, &context.turn_id)
                 .expect("active turn checkpoint should be present during provider call");
             assert_eq!(checkpoint["phase"], "calling_model");
             let mut calls = self
@@ -286,7 +286,7 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
         ) -> Result<NativeAgentToolResult, String> {
             let checkpoint = self
                 .checkpoints
-                .restore(&context.session_id)
+                .restore_for_turn(&context.session_id, &context.turn_id)
                 .expect("tool wait checkpoint should be present during tool dispatch");
             assert_eq!(checkpoint["phase"], "tool_running");
             assert_eq!(checkpoint["schemaVersion"], 1);
@@ -340,9 +340,11 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
     .expect("checkpoint-aware run should complete");
 
     assert_eq!(result["stopReason"], "final_response");
-    assert!(
-        services.restore_checkpoint("websocket:chat-checkpoint-storage")["checkpoint"].is_null()
-    );
+    assert!(services.restore_turn_checkpoint(
+        "websocket:chat-checkpoint-storage",
+        "turn-checkpoint-storage"
+    )["checkpoint"]
+        .is_null());
 
     services.cancel("turn-cancel-checkpoint");
     let cancelled = run_native_agent_turn_with_services(
@@ -358,7 +360,9 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
     assert_eq!(cancelled["stopReason"], "cancelled");
     assert_eq!(cancelled["checkpoint"]["phase"], "cancelled");
     assert_eq!(
-        services.restore_checkpoint("websocket:chat-cancel-checkpoint")["checkpoint"]["phase"],
+        services
+            .restore_turn_checkpoint("websocket:chat-cancel-checkpoint", "turn-cancel-checkpoint")
+            ["checkpoint"]["phase"],
         "cancelled"
     );
 }
@@ -400,33 +404,6 @@ fn runtime_checkpoint_store_isolates_same_session_turns() {
         services.restore_turn_checkpoint("websocket:chat-1", "turn-2")["checkpoint"]["turnId"],
         "turn-2"
     );
-}
-
-#[test]
-fn runtime_checkpoint_restore_by_session_uses_latest_resumable_turn() {
-    let services = NativeAgentRuntimeServices::default();
-    services.save_turn_checkpoint(
-        "websocket:chat-1",
-        "turn-old",
-        json!({
-            "sessionId": "websocket:chat-1",
-            "turnId": "turn-old",
-            "phase": "tool_running"
-        }),
-    );
-    services.save_turn_checkpoint(
-        "websocket:chat-1",
-        "turn-new",
-        json!({
-            "sessionId": "websocket:chat-1",
-            "turnId": "turn-new",
-            "phase": "awaiting_form"
-        }),
-    );
-
-    let restored = services.restore_checkpoint("websocket:chat-1");
-
-    assert_eq!(restored["checkpoint"]["turnId"], "turn-new");
 }
 
 #[test]
@@ -919,7 +896,7 @@ fn guidance_continuation_is_inserted_before_next_model_call_after_tools() {
     assert!(seen_messages[1].iter().any(
         |message| message["role"] == "tool" && message["tool_call_id"] == "call-guidance-read"
     ));
-    assert!(result["events"]
+    assert!(result["runtimeEvents"]
         .as_array()
         .expect("events should be an array")
         .iter()
@@ -985,21 +962,21 @@ fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
     )
     .expect("streaming provider run should succeed");
 
-    let deltas = result["events"]
+    let deltas = result["runtimeEvents"]
         .as_array()
         .expect("events should be an array")
         .iter()
         .filter(|event| event["eventName"] == "agent.delta")
         .map(|event| event["payload"]["delta"].as_str().unwrap_or_default())
         .collect::<Vec<_>>();
-    let reasoning_deltas = result["events"]
+    let reasoning_deltas = result["runtimeEvents"]
         .as_array()
         .expect("events should be an array")
         .iter()
         .filter(|event| event["eventName"] == "agent.reasoning_delta")
         .map(|event| event["payload"]["delta"].as_str().unwrap_or_default())
         .collect::<Vec<_>>();
-    let reasoning_completed = result["events"]
+    let reasoning_completed = result["runtimeEvents"]
         .as_array()
         .expect("events should be an array")
         .iter()
@@ -1491,11 +1468,6 @@ fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_turn() {
             },
             required_capabilities: Vec::new(),
             available: true,
-            approval: ToolApprovalMetadata {
-                required: false,
-                scope: None,
-                lifetime: None,
-            },
             input_schema: json!({ "type": "object" }),
             output_schema: json!({ "type": "object" }),
             execution_target: ToolExecutionTarget::WorkerRpc {
@@ -1544,7 +1516,7 @@ fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_turn() {
         assert!(dropped.load(Ordering::SeqCst));
         assert_eq!(services.task_runtime().active_count(), 0);
         assert_eq!(services.task_runtime().draining_count(), 0);
-        assert!(result["events"]
+        assert!(result["runtimeEvents"]
             .as_array()
             .expect("cleanup timeout events should be an array")
             .iter()

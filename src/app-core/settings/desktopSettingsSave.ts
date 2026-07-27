@@ -2,11 +2,9 @@ import type { DesktopNativeConfigPatchResponse } from "../native/desktopNativeCo
 
 export type DesktopSettingsSaveDeps = {
   applyNativeConfigPatch?: (currentConfig: unknown, patch: unknown) => Promise<DesktopNativeConfigPatchResponse>;
-  applyGatewayConfigPatch?: (patch: unknown) => Promise<unknown>;
-  onNativeFallback?: (error: unknown) => void;
 };
 
-export type DesktopSettingsSaveTransport = "native" | "gateway-fallback";
+export type DesktopSettingsSaveTransport = "native";
 
 export type DesktopSettingsSaveResult = {
   config: unknown;
@@ -24,45 +22,14 @@ export async function saveDesktopSettingsConfig(
   patch: unknown,
   deps: DesktopSettingsSaveDeps,
 ): Promise<DesktopSettingsSaveResult> {
-  let fallbackError: unknown = null;
-  if (deps.applyNativeConfigPatch) {
-    let result: DesktopNativeConfigPatchResponse | null = null;
-    try {
-      result = await deps.applyNativeConfigPatch(currentConfig, patch);
-    } catch (error) {
-      fallbackError = error;
-      deps.onNativeFallback?.(error);
-    }
-    if (result) {
-      if (result.ok) {
-        return buildNativeSaveResult(result);
-      }
-      throw new Error(result.error ?? "native config patch failed");
-    }
+  if (!deps.applyNativeConfigPatch) {
+    throw new Error("native config patch is unavailable");
   }
-  if (!deps.applyGatewayConfigPatch) {
-    throw fallbackError instanceof Error
-      ? fallbackError
-      : new Error("native config patch is unavailable");
+  const result = await deps.applyNativeConfigPatch(currentConfig, patch);
+  if (result.ok) {
+    return buildNativeSaveResult(result);
   }
-  const gatewayResult = await deps.applyGatewayConfigPatch(patch);
-  return {
-    config: unwrapGatewayConfigPatchResult(gatewayResult),
-    transport: "gateway-fallback",
-    persistedRevision: extractGatewayRevision(gatewayResult),
-    updatedFields: [],
-    applied: [],
-    restartRequired: [],
-    reloadRequired: [],
-    warnings: fallbackError ? [`Saved through gateway fallback after native config patch failed: ${stringifyError(fallbackError)}`] : [],
-  };
-}
-
-function unwrapGatewayConfigPatchResult(result: unknown): unknown {
-  if (result && typeof result === "object" && !Array.isArray(result) && "config" in result) {
-    return (result as { config?: unknown }).config;
-  }
-  return result;
+  throw new Error(result.error ?? "native config patch failed");
 }
 
 function buildNativeSaveResult(result: DesktopNativeConfigPatchResponse): DesktopSettingsSaveResult {
@@ -78,24 +45,4 @@ function buildNativeSaveResult(result: DesktopNativeConfigPatchResponse): Deskto
     reloadRequired,
     warnings: result.sideEffects.warnings,
   };
-}
-
-function extractGatewayRevision(result: unknown): string | undefined {
-  if (!result || typeof result !== "object" || Array.isArray(result)) {
-    return undefined;
-  }
-  const record = result as { revision?: unknown; configRevision?: unknown; config_revision?: unknown };
-  for (const value of [record.revision, record.configRevision, record.config_revision]) {
-    if (typeof value === "string" && value.trim()) {
-      return value;
-    }
-  }
-  return undefined;
-}
-
-function stringifyError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return typeof error === "string" ? error : JSON.stringify(error);
 }

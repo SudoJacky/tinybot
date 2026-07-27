@@ -1,8 +1,6 @@
 import type { TokenUsage } from "../../app-core/chat/chatTurnModel";
 
 export type ToolCallSummary = {
-  approvalId?: string;
-  approvalStatus?: string;
   argsText?: string;
   childTurnId?: string;
   delegateId?: string;

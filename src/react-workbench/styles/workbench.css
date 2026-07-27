@@ -5629,28 +5629,6 @@ button.tinyos-overlay-backdrop:focus-visible {
   font-weight: 650;
 }
 
-.react-tool-detail__approval-actions > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.react-tool-detail__approval-actions button {
-  min-height: 32px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  background: #fff;
-  padding: 0 10px;
-  color: var(--color-ink);
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.react-tool-detail__approval-actions button:hover,
-.react-tool-detail__approval-actions button:focus-visible {
-  background: var(--color-surface-soft);
-}
-
 .react-tool-detail pre {
   overflow: auto;
   max-height: 180px;

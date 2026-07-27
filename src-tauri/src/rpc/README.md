@@ -42,8 +42,8 @@ background work, subagents, tools/MCP/permissions, and runtime operations.
   configuration, and provider-secret requests.
 - `persistence_facade.rs`, `thread_dispatch.rs`: session, agent-turn, and typed
   Thread methods, including compatibility projections.
-- `interaction_dispatch.rs`, `approval.rs`, `form.rs`, `channel.rs`: shell,
-  approval, form, diagnostics, and channel interactions.
+- `interaction_dispatch.rs`, `form.rs`, `channel.rs`: shell, form,
+  diagnostics, and channel interactions.
 - `memory_dispatch.rs`, `background_dispatch.rs`, `subagent_dispatch.rs`:
   durable background and collaboration services.
 - `tool_dispatch.rs`, `mcp.rs`: tool registry/execution, permission profiles,
@@ -69,8 +69,8 @@ background work, subagents, tools/MCP/permissions, and runtime operations.
 - Protocol failures, capability denials, and service failures remain distinct
   structured errors.
 - Unknown methods fail explicitly; dispatch must not silently no-op.
-- Tool methods validate typed parameters and availability, then dispatch
-  without a pre-execution approval or sandbox boundary.
+- Tool methods validate typed parameters, capability grants, and availability
+  before dispatch.
 - Session/Thread compatibility reads may merge projections, but canonical
   writes still go through the owning persistence service.
 - Shared runtimes such as shell and MCP must be injected rather than recreated

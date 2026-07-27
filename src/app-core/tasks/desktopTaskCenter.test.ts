@@ -15,15 +15,6 @@ describe("desktop task center projection", () => {
           cancelable: true,
         },
       ],
-      coworkRuns: [
-        {
-          id: "cowork:session-1",
-          title: "Ship task center",
-          status: "blocked",
-          detail: "1 blocker",
-          canonical: { module: "cowork", entityId: "session-1", href: "/cowork" },
-        },
-      ],
       providerRefreshes: [
         {
           id: "provider:openai:models",
@@ -44,33 +35,11 @@ describe("desktop task center projection", () => {
           diagnostics: "HTTP 409",
         },
       ],
-      gatewayOperations: [
-        {
-          id: "gateway:start",
-          title: "Start Tinybot gateway",
-          status: "starting",
-          detail: "Tauri Rust backend",
-          canonical: { module: "gateway", href: "/api/status" },
-        },
-      ],
-      approvals: [
-        {
-          id: "approval:tool-1",
-          title: "Approve tool execution",
-          status: "waiting",
-          detail: "Shell command approval required",
-          canonical: { module: "approvals", entityId: "tool-1", href: "/chat/chat-1" },
-          approval: { approvalId: "tool-1", sessionKey: "WebSocket:chat-1" },
-        },
-      ],
     });
 
     expect(items.map((item) => `${item.source}:${item.state}:${item.title}`)).toEqual([
-      "approval:blocked:Approve tool execution",
-      "cowork:blocked:Ship task center",
       "file:failed:Save AGENTS.md",
       "chat:active:Streaming response",
-      "gateway:active:Start Tinybot gateway",
       "provider:completed:Refresh OpenAI models",
     ]);
     expect(items.find((item) => item.id === "file:workspace:AGENTS.md:save")?.actions.map((action) => action.id)).toEqual([
@@ -85,17 +54,6 @@ describe("desktop task center projection", () => {
       "open",
       "inspect",
     ]);
-    expect(items.find((item) => item.id === "approval:tool-1")?.actions.map((action) => action.id)).toEqual([
-      "approveOnce",
-      "approveSession",
-      "deny",
-      "open",
-      "inspect",
-    ]);
-    expect(items.find((item) => item.id === "approval:tool-1")?.approval).toEqual({
-      approvalId: "tool-1",
-      sessionKey: "WebSocket:chat-1",
-    });
   });
 
   test("keeps terminal and non-cancelable tasks safe by limiting actions", () => {
@@ -137,15 +95,6 @@ describe("desktop task center projection", () => {
           cancelable: true,
         },
       ],
-      approvals: [
-        {
-          id: "approval:tool",
-          title: "Approve shell command",
-          status: "waiting",
-          canonical: { module: "approvals", entityId: "tool", href: "/chat" },
-          approval: { approvalId: "tool", sessionKey: "WebSocket:chat" },
-        },
-      ],
       fileOperations: [
         {
           id: "file:save",
@@ -159,10 +108,9 @@ describe("desktop task center projection", () => {
 
     const attention = buildDesktopTaskCenterAttention(items);
 
-    expect(attention.compactLabel).toBe("1 running · 1 blocked · 1 failed");
-    expect(attention.autoOpenReason).toBe("blocked");
+    expect(attention.compactLabel).toBe("1 running · 0 blocked · 1 failed");
+    expect(attention.autoOpenReason).toBe("failed");
     expect(attention.rows.map((row) => `${row.id}:${row.primaryAction?.id}`)).toEqual([
-      "approval:tool:approveOnce",
       "file:save:retry",
       "chat:stream:cancel",
     ]);

@@ -1,6 +1,5 @@
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum WorkerRpcNamespace {
-    Approval,
     Background,
     Channel,
     Config,
@@ -26,7 +25,6 @@ pub enum WorkerRpcNamespace {
 impl WorkerRpcNamespace {
     pub fn as_str(self) -> &'static str {
         match self {
-            WorkerRpcNamespace::Approval => "approval",
             WorkerRpcNamespace::Background => "background",
             WorkerRpcNamespace::Channel => "channel",
             WorkerRpcNamespace::Config => "config",
@@ -53,7 +51,6 @@ impl WorkerRpcNamespace {
 
 pub fn classify_method(method: &str) -> WorkerRpcNamespace {
     match method.split_once('.').map(|(namespace, _method)| namespace) {
-        Some("approval") => WorkerRpcNamespace::Approval,
         Some("background") => WorkerRpcNamespace::Background,
         Some("channel") => WorkerRpcNamespace::Channel,
         Some("config") => WorkerRpcNamespace::Config,

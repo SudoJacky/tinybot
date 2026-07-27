@@ -125,28 +125,9 @@ pub(crate) async fn submit_thread_turn_with_services(
     let thread_start_invocation =
         AgentHookInvocation::lifecycle(AgentHookStage::ThreadStart, trace_context.clone());
     let thread_start_evaluation =
-        thread_hook_services.evaluate_hook_invocation(thread_start_invocation.clone())?;
+        thread_hook_services.evaluate_hook_invocation(thread_start_invocation)?;
     if let Some(reason) = thread_start_evaluation.denied_reason.clone() {
-        return Ok(serde_json::json!({
-            "threadId": thread_id,
-            "sessionId": session_id,
-            "turnId": turn_id,
-            "agentResult": {
-                "runtime": "rust",
-                "turnId": turn_id,
-                "sessionId": session_id,
-                "threadId": thread_id,
-                "stopReason": "hook_denied",
-                "finalContent": "",
-                "messages": [],
-                "toolsUsed": [],
-                "error": reason,
-                "traceContext": trace_context,
-                "threadHookDiagnostics": [
-                    thread_start_evaluation.event_payload(&thread_start_invocation)
-                ],
-            }
-        }));
+        return Err(format!("thread start hook denied: {reason}"));
     }
 
     start_native_agent_thread_turn(
@@ -157,36 +138,21 @@ pub(crate) async fn submit_thread_turn_with_services(
         &thread_store,
         config_snapshot.clone(),
     )?;
-    let mut agent_result = run_agent_with_services(
+    run_agent_with_services(
         base_services,
         spec,
-        workspace_root.clone(),
-        config_snapshot.clone(),
+        workspace_root,
+        config_snapshot,
         live_trace_sink,
     )
     .await?;
-    let snapshot = read_thread_snapshot(
-        &thread_id,
-        &thread_store,
-        config_snapshot.clone(),
-        "submitted thread turn snapshot",
-    )?;
-    agent_result["threadId"] = serde_json::Value::String(thread_id.clone());
-    agent_result["threadSnapshot"] = snapshot.clone();
     let thread_stop_invocation =
         AgentHookInvocation::lifecycle(AgentHookStage::ThreadStop, trace_context);
-    let thread_stop_evaluation =
-        thread_hook_services.evaluate_hook_invocation(thread_stop_invocation.clone())?;
-    agent_result["threadHookDiagnostics"] = serde_json::json!([
-        thread_start_evaluation.event_payload(&thread_start_invocation),
-        thread_stop_evaluation.event_payload(&thread_stop_invocation),
-    ]);
+    thread_hook_services.evaluate_hook_invocation(thread_stop_invocation)?;
     Ok(serde_json::json!({
         "threadId": thread_id,
         "sessionId": session_id,
         "turnId": turn_id,
-        "agentResult": agent_result,
-        "snapshot": snapshot,
     }))
 }
 

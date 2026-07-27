@@ -50,6 +50,9 @@ describe("desktop settings and provider helpers", () => {
             docs: { command: "docs-mcp" },
           },
         },
+        gateway: {
+          heartbeat: { enabled: true, interval_s: 1800 },
+        },
       },
       [{ id: "openai", displayName: "OpenAI" }],
     );
@@ -67,6 +70,7 @@ describe("desktop settings and provider helpers", () => {
       supportsModelDiscovery: false,
     });
     expect(state.tools.mcpServersText).toContain("docs-mcp");
+    expect(state).not.toHaveProperty("gateway");
   });
 
   test("builds the same config PATCH shape as the root WebUI settings form", () => {
@@ -145,7 +149,6 @@ describe("desktop settings and provider helpers", () => {
     const state = buildDesktopSettingsFormState({});
     state.agent.model = "";
     state.agent.timezone = "Shanghai";
-    state.gateway.port = 70000;
     state.tools.mcpServersText = "[]";
     state.providerEditor.apiBase = "not a url";
     state.embedding.apiBase = "https://embedding.example/v1";
@@ -153,7 +156,6 @@ describe("desktop settings and provider helpers", () => {
     expect(validateDesktopSettingsForm(state)).toEqual([
       { field: "model", errorKey: "modelEmpty" },
       { field: "timezone", errorKey: "timezoneError" },
-      { field: "gatewayPort", errorKey: "portRange" },
       { field: "mcpServers", errorKey: "jsonObjectError" },
       { field: "providerApiBase", errorKey: "urlError" },
     ]);
@@ -309,13 +311,12 @@ describe("desktop settings and provider helpers", () => {
     expect(pane.groups.map((group) => [group.id, group.label])).toEqual([
       ["general", "General"],
       ["provider-models", "Provider & Models"],
-      ["tools-approvals", "Tools & MCP"],
+      ["tools-mcp", "Tools & MCP"],
       ["files-workspace", "Files & Workspace"],
       ["memory-experience", "Memory & Experience"],
       ["skills", "Skills"],
       ["channels", "Channels"],
       ["automations", "Automations"],
-      ["gateway-runtime", "Gateway & Runtime"],
       ["logs-diagnostics", "Logs & Diagnostics"],
     ]);
     expect(pane.groups.find((group) => group.id === "general")?.fields).toEqual(expect.arrayContaining([
@@ -333,10 +334,6 @@ describe("desktop settings and provider helpers", () => {
       expect.objectContaining({ id: "workspaceFiles", label: "Workspace files", value: "Workspace file", control: "readonly", requirement: "readonly", configurationMode: "readonly" }),
     ]));
     expect(pane.groups.find((group) => group.id === "general")?.fields.find((field) => field.id === "workspace")).toBeUndefined();
-    expect(pane.groups.find((group) => group.id === "gateway-runtime")?.fields).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "host", label: "Host", requirement: "required", configurationMode: "freeform" }),
-      expect.objectContaining({ id: "port", label: "Port", state: "normal", requirement: "required", configurationMode: "numeric" }),
-    ]));
     expect(pane.providerCatalog).toEqual([
       expect.objectContaining({
         id: "openai",
@@ -377,18 +374,16 @@ describe("desktop settings and provider helpers", () => {
     const state = buildDesktopSettingsFormState({
       agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work" } },
       providers: { profiles: { work: { provider: "openai", api_key: "sk-live", models: ["gpt-4.1-mini"] } } },
-      gateway: { port: 18790 },
     }, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
 
     const withModel = applyDesktopSettingsFieldEdit(state, "model", "gpt-4.1");
     const withApiKey = applyDesktopSettingsFieldEdit(withModel, "apiKey", "********");
     const withReplacementKey = applyDesktopSettingsFieldEdit(withApiKey, "apiKey", "sk-replacement");
-    const withPort = applyDesktopSettingsFieldEdit(withReplacementKey, "port", "18888");
-    const patch = createDesktopSettingsPatch(withPort, {}, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
+    const patch = createDesktopSettingsPatch(withReplacementKey, {}, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
 
     expect(patch.agents).toMatchObject({ defaults: { model: "gpt-4.1" } });
     expect(patch.providers).toMatchObject({ openai: { api_key: "sk-replacement" } });
-    expect(patch.gateway).toMatchObject({ port: 18888 });
+    expect(patch).not.toHaveProperty("gateway");
   });
 
   test("generates touched-path patches for individual field edits without hidden settings", () => {
@@ -407,21 +402,16 @@ describe("desktop settings and provider helpers", () => {
         },
       },
       gateway: {
-        host: "127.0.0.1",
-        port: 18790,
+        heartbeat: { enabled: false, interval_s: 1800 },
         hidden_gateway_only: "preserve",
       },
     };
     const state = buildDesktopSettingsFormState(existingConfig, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
 
     const withTimezone = applyDesktopSettingsFieldEdit(state, "timezone", "Asia/Shanghai");
-    const withGatewayPort = applyDesktopSettingsFieldEdit(state, "port", "18888");
 
     expect(createDesktopSettingsPatch(withTimezone, existingConfig, [{ id: "openai", displayName: "OpenAI", status: "ready" }])).toEqual({
       agents: { defaults: { timezone: "Asia/Shanghai" } },
-    });
-    expect(createDesktopSettingsPatch(withGatewayPort, existingConfig, [{ id: "openai", displayName: "OpenAI", status: "ready" }])).toEqual({
-      gateway: { port: 18888 },
     });
   });
 
@@ -541,7 +531,6 @@ describe("desktop settings and provider helpers", () => {
       },
       tools: { exec: { enable: true, timeout: 120 }, web: { enable: true, search: { provider: "duckduckgo" } } },
       channels: { send_progress: true, send_tool_hints: false, send_max_retries: 3 },
-      gateway: { host: "127.0.0.1", port: 18790, heartbeat: { enabled: true, interval_s: 1800 } },
     };
 
     const cases: Array<[string, string, string | boolean, unknown]> = [
@@ -552,9 +541,8 @@ describe("desktop settings and provider helpers", () => {
           profiles: { work: { api_key: "sk-replacement" } },
         },
       }],
-      ["tools-approvals", "execTimeout", "90", { tools: { exec: { timeout: 90 } } }],
+      ["tools-mcp", "execTimeout", "90", { tools: { exec: { timeout: 90 } } }],
       ["channels", "sendMaxRetries", "5", { channels: { send_max_retries: 5 } }],
-      ["gateway-runtime", "heartbeatIntervalS", "900", { gateway: { heartbeat: { interval_s: 900 } } }],
       ["files-workspace", "sessionFiles", "ignored", {}],
       ["memory-experience", "memory", "ignored", {}],
       ["skills", "skills", "ignored", {}],
@@ -687,8 +675,8 @@ describe("desktop settings and provider helpers", () => {
     expect(fields["general.temperature"]).toMatchObject({ control: "number", requirement: "optional", configurationMode: "numeric", advanced: true });
     expect(fields["general.contextWindowStrategy"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
     expect(fields["general.reasoningEffort"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
-    expect(fields["tools-approvals.mcpServers"]).toMatchObject({ control: "textarea", requirement: "optional", configurationMode: "json", advanced: true });
-    expect(fields["tools-approvals.searchProvider"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
+    expect(fields["tools-mcp.mcpServers"]).toMatchObject({ control: "textarea", requirement: "optional", configurationMode: "json", advanced: true });
+    expect(fields["tools-mcp.searchProvider"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
     expect(fields["memory-experience.memory"]).toMatchObject({ control: "readonly", requirement: "readonly", configurationMode: "readonly" });
   });
 
@@ -703,9 +691,6 @@ describe("desktop settings and provider helpers", () => {
         send_progress: true,
         send_tool_hints: true,
       },
-      gateway: {
-        heartbeat: { enabled: true },
-      },
     });
 
     const pane = buildDesktopSettingsPaneModel(state);
@@ -713,16 +698,15 @@ describe("desktop settings and provider helpers", () => {
       group.fields.map((field) => [`${group.id}.${field.id}`, field] as const),
     ));
 
-    expect(fields["tools-approvals.webEnable"]).toMatchObject({ commitMode: "auto" });
+    expect(fields["tools-mcp.webEnable"]).toMatchObject({ commitMode: "auto" });
     expect(fields["channels.sendProgress"]).toMatchObject({ commitMode: "auto" });
     expect(fields["channels.sendToolHints"]).toMatchObject({ commitMode: "auto" });
-    expect(fields["gateway-runtime.heartbeat"]).toMatchObject({ commitMode: "auto" });
 
-    expect(fields["tools-approvals.execEnable"]).toMatchObject({
+    expect(fields["tools-mcp.execEnable"]).toMatchObject({
       commitMode: "auto",
       confirmation: expect.objectContaining({ when: "enable" }),
     });
-    expect(fields["tools-approvals.restrictToWorkspace"]).toMatchObject({
+    expect(fields["tools-mcp.restrictToWorkspace"]).toMatchObject({
       commitMode: "auto",
       confirmation: expect.objectContaining({ when: "disable" }),
     });
@@ -749,7 +733,6 @@ describe("desktop settings and provider helpers", () => {
           },
         },
       },
-      gateway: { host: "127.0.0.1", port: 18790 },
       tools: { mcp: { servers: { local: { command: "node" } } } },
     }, [{ id: "deepseek", displayName: "DeepSeek", status: "ready" }]);
 
@@ -770,10 +753,6 @@ describe("desktop settings and provider helpers", () => {
       navigationArea: "application",
       navigationMode: "section",
     });
-    expect(groups["gateway-runtime"]).toMatchObject({
-      navigationArea: "system",
-      navigationMode: "section",
-    });
     expect(groups["memory-experience"]).toMatchObject({
       navigationMode: "preview",
     });
@@ -792,17 +771,13 @@ describe("desktop settings and provider helpers", () => {
       applyEffect: "workspace-reload",
       i18nKey: "settings.fields.files-workspace.workspace",
     });
-    expect(fields["gateway-runtime.host"]).toMatchObject({
-      applyEffect: "gateway-restart",
-      aliases: ["bind host", "listen address", "gateway endpoint"],
-    });
-    expect(fields["tools-approvals.mcpServers"]).toMatchObject({
+    expect(fields["tools-mcp.mcpServers"]).toMatchObject({
       validationField: "mcpServers",
-      i18nKey: "settings.fields.tools-approvals.mcpServers",
+      i18nKey: "settings.fields.tools-mcp.mcpServers",
     });
-    expect(groups["tools-approvals"]).toMatchObject({
+    expect(groups["tools-mcp"]).toMatchObject({
       label: "Tools & MCP",
-      description: "Tool toggles and MCP server access. Approval controls are not exposed here yet.",
+      description: "Tool toggles and MCP server access.",
     });
   });
 
@@ -827,7 +802,6 @@ describe("desktop settings and provider helpers", () => {
           },
         },
       },
-      gateway: { host: "127.0.0.1", port: 18790 },
     }, [{ id: "deepseek", displayName: "DeepSeek", status: "ready" }]);
 
     const pane = buildDesktopSettingsPaneModel(state, {
@@ -859,7 +833,6 @@ describe("desktop settings and provider helpers", () => {
       "provider-models.selectedProvider": { sourceKind: "local-ui-preference" },
       "provider-models.apiKey": { persistentPath: "providers.deepseek.api_key", sensitive: true },
       "files-workspace.workspace": { persistentPath: "agents.defaults.workspace", applyEffect: "workspace-reload" },
-      "gateway-runtime.port": { persistentPath: "gateway.port", applyEffect: "gateway-restart" },
     });
   });
 
@@ -1107,7 +1080,7 @@ describe("desktop settings and provider helpers", () => {
     ]));
   });
 
-  test("preserves save warnings and gateway fallback details in the pane model", () => {
+  test("preserves native save warnings and details in the pane model", () => {
     const state = buildDesktopSettingsFormState({
       agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "UTC" } },
       providers: {
@@ -1126,20 +1099,20 @@ describe("desktop settings and provider helpers", () => {
       providerCatalog: [{ id: "openai", displayName: "OpenAI", status: "ready" }],
       saveStatus: "saved",
       saveDetails: {
-        transport: "gateway-fallback",
+        transport: "native",
         updatedFields: ["agents.defaults.model"],
         applied: ["agents.defaults.model"],
         restartRequired: [],
         reloadRequired: [],
-        warnings: ["Native patch failed; gateway fallback applied."],
+        warnings: ["Provider runtime will use the new model on the next request."],
       },
     });
 
-    expect(pane.save.message).toBe("Settings persisted through gateway fallback");
-    expect(pane.save.transport).toBe("gateway-fallback");
+    expect(pane.save.message).toBe("Settings persisted with warnings");
+    expect(pane.save.transport).toBe("native");
     expect(pane.save.updatedFields).toEqual(["agents.defaults.model"]);
     expect(pane.save.applied).toEqual(["agents.defaults.model"]);
-    expect(pane.save.warnings).toEqual(["Native patch failed; gateway fallback applied."]);
+    expect(pane.save.warnings).toEqual(["Provider runtime will use the new model on the next request."]);
   });
 
   test("promotes saved restart and reload side effects to distinct save states", () => {
@@ -1162,9 +1135,9 @@ describe("desktop settings and provider helpers", () => {
       saveStatus: "saved",
       saveDetails: {
         transport: "native",
-        updatedFields: ["gateway.port"],
-        applied: ["gatewayRuntimeChanged"],
-        restartRequired: ["gatewayRestartRequired"],
+        updatedFields: ["runtime.logging"],
+        applied: ["runtimeChanged"],
+        restartRequired: ["applicationRestartRequired"],
         reloadRequired: [],
         warnings: [],
       },
@@ -1184,12 +1157,12 @@ describe("desktop settings and provider helpers", () => {
     });
 
     expect(restartPane.save.status).toBe("restart-required");
-    expect(restartPane.save.message).toBe("Settings persisted. Gateway restart required");
+    expect(restartPane.save.message).toBe("Settings persisted. Application restart required");
     expect(reloadPane.save.status).toBe("reload-required");
     expect(reloadPane.save.message).toBe("Settings persisted. Workspace reload required");
   });
 
-  test("builds copyable save diagnostics for fallback and warning results", () => {
+  test("builds copyable save diagnostics for native warning results", () => {
     const state = buildDesktopSettingsFormState({
       agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "UTC" } },
       providers: {
@@ -1208,18 +1181,18 @@ describe("desktop settings and provider helpers", () => {
       providerCatalog: [{ id: "openai", displayName: "OpenAI", status: "ready" }],
       saveStatus: "saved",
       saveDetails: {
-        transport: "gateway-fallback",
+        transport: "native",
         updatedFields: ["agents.defaults.model"],
         applied: [],
         restartRequired: [],
         reloadRequired: [],
-        warnings: ["Saved through gateway fallback after native config patch failed: boom"],
+        warnings: ["Provider runtime will use the new model on the next request."],
       },
     });
 
     expect(pane.save.diagnostics).toContain("Status: saved");
-    expect(pane.save.diagnostics).toContain("Transport: gateway-fallback");
+    expect(pane.save.diagnostics).toContain("Transport: native");
     expect(pane.save.diagnostics).toContain("Updated fields: agents.defaults.model");
-    expect(pane.save.diagnostics).toContain("Warnings: Saved through gateway fallback after native config patch failed: boom");
+    expect(pane.save.diagnostics).toContain("Warnings: Provider runtime will use the new model on the next request.");
   });
 });

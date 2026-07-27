@@ -239,10 +239,6 @@ pub(crate) fn native_default_config_snapshot() -> Value {
                     "capabilities": ["reasoning"]
                 }
             }
-        },
-        "gateway": {
-            "host": "127.0.0.1",
-            "port": 18790
         }
     })
 }

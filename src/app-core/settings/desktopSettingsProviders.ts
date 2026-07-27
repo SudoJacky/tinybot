@@ -59,12 +59,6 @@ export interface DesktopSettingsFormState {
     mcpServersText: string;
     restrictToWorkspace: boolean;
   };
-  gateway: {
-    host: string | null;
-    port: number | null;
-    heartbeatEnabled: boolean;
-    heartbeatIntervalS: number | null;
-  };
   channels: {
     sendProgress: boolean;
     sendToolHints: boolean;
@@ -80,14 +74,13 @@ export interface DesktopSettingsFormState {
 export type DesktopSettingsValidationField =
   | "model"
   | "timezone"
-  | "gatewayPort"
   | "mcpServers"
   | "providerApiBase"
   | "embeddingApiBase";
 
 export interface DesktopSettingsValidationError {
   field: DesktopSettingsValidationField;
-  errorKey: "modelEmpty" | "timezoneError" | "portRange" | "jsonObjectError" | "urlError";
+  errorKey: "modelEmpty" | "timezoneError" | "jsonObjectError" | "urlError";
 }
 
 export type DesktopSettingsSavePatchResult =
@@ -133,7 +126,7 @@ function workbenchFileScopeLabel(scope: DesktopWorkbenchFileScopeId): string {
 }
 
 export type DesktopSettingsSaveStatus = "idle" | "saving" | "saved" | "failed" | "restart-required" | "reload-required";
-export type DesktopSettingsSaveTransport = "native" | "gateway-fallback";
+export type DesktopSettingsSaveTransport = "native";
 export interface DesktopSettingsPaneSaveDetails {
   transport: DesktopSettingsSaveTransport;
   persistedRevision?: string;
@@ -158,7 +151,7 @@ export type DesktopSettingsPaneFieldConfigurationMode =
   | "toggle"
   | "url";
 export type DesktopSettingsEditableValue = string | boolean;
-export type DesktopSettingsPaneApplyEffect = "immediate" | "gateway-restart" | "workspace-reload";
+export type DesktopSettingsPaneApplyEffect = "immediate" | "workspace-reload";
 export type DesktopSettingsPaneCommitMode = "manual" | "auto";
 export type DesktopSettingsPaneConfirmationWhen = "enable" | "disable" | "change";
 
@@ -233,13 +226,12 @@ export interface DesktopSettingsPaneGroup {
   id:
     | "general"
     | "provider-models"
-    | "tools-approvals"
+    | "tools-mcp"
     | "files-workspace"
     | "memory-experience"
     | "skills"
     | "channels"
     | "automations"
-    | "gateway-runtime"
     | "logs-diagnostics";
   label: string;
   description?: string;
@@ -269,11 +261,11 @@ const DESKTOP_SETTINGS_GROUP_METADATA: Record<DesktopSettingsPaneGroupId, Deskto
     navigationArea: "core",
     navigationMode: "section",
   },
-  "tools-approvals": {
+  "tools-mcp": {
     label: "Tools & MCP",
-    description: "Tool toggles and MCP server access. Approval controls are not exposed here yet.",
+    description: "Tool toggles and MCP server access.",
     aliases: ["tools", "mcp", "security"],
-    i18nKey: "settings.groups.tools-approvals",
+    i18nKey: "settings.groups.tools-mcp",
     navigationArea: "core",
     navigationMode: "section",
   },
@@ -316,14 +308,6 @@ const DESKTOP_SETTINGS_GROUP_METADATA: Record<DesktopSettingsPaneGroupId, Deskto
     i18nKey: "settings.groups.automations",
     navigationArea: "application",
     navigationMode: "preview",
-  },
-  "gateway-runtime": {
-    label: "Gateway & Runtime",
-    description: "Local gateway connection, heartbeat, and runtime controls.",
-    aliases: ["gateway", "runtime", "host", "port"],
-    i18nKey: "settings.groups.gateway-runtime",
-    navigationArea: "system",
-    navigationMode: "section",
   },
   "logs-diagnostics": {
     label: "Logs & Diagnostics",
@@ -397,47 +381,30 @@ const DESKTOP_SETTINGS_FIELD_METADATA: Record<string, DesktopSettingsPaneFieldMe
     validationField: "providerApiBase",
     i18nKey: "settings.fields.provider-models.apiBase",
   },
-  "tools-approvals.mcpServers": {
+  "tools-mcp.mcpServers": {
     label: "MCP servers",
     description: "JSON object of MCP server definitions.",
     aliases: ["mcp", "servers", "tools json"],
     validationField: "mcpServers",
     sensitive: true,
-    i18nKey: "settings.fields.tools-approvals.mcpServers",
-  },
-  "gateway-runtime.host": {
-    label: "Host",
-    description: "Host interface where the desktop gateway listens.",
-    aliases: ["bind host", "listen address", "gateway endpoint"],
-    applyEffect: "gateway-restart",
-    i18nKey: "settings.fields.gateway-runtime.host",
-  },
-  "gateway-runtime.port": {
-    label: "Port",
-    description: "Port used by the local gateway endpoint.",
-    aliases: ["gateway port", "listen port"],
-    validationField: "gatewayPort",
-    applyEffect: "gateway-restart",
-    unit: "TCP port",
-    i18nKey: "settings.fields.gateway-runtime.port",
+    i18nKey: "settings.fields.tools-mcp.mcpServers",
   },
 };
 
 const DESKTOP_SETTINGS_AUTO_COMMIT_FIELDS = new Set([
-  "tools-approvals.webEnable",
-  "tools-approvals.execEnable",
-  "tools-approvals.restrictToWorkspace",
+  "tools-mcp.webEnable",
+  "tools-mcp.execEnable",
+  "tools-mcp.restrictToWorkspace",
   "channels.sendProgress",
   "channels.sendToolHints",
-  "gateway-runtime.heartbeat",
 ]);
 
 const DESKTOP_SETTINGS_FIELD_CONFIRMATIONS: Record<string, DesktopSettingsPaneFieldConfirmation> = {
-  "tools-approvals.execEnable": {
+  "tools-mcp.execEnable": {
     when: "enable",
     message: "Enable local command execution for agent workflows? Only enable this when you trust the active workspace.",
   },
-  "tools-approvals.restrictToWorkspace": {
+  "tools-mcp.restrictToWorkspace": {
     when: "disable",
     message: "Allow execution outside the workspace boundary? This broadens local file access for command workflows.",
   },
@@ -474,16 +441,9 @@ export interface DesktopSettingsPaneModel {
     warnings?: string[];
     diagnostics?: string;
   };
-  runtime?: {
-    intent: "local-only" | "local-network" | "advanced-custom";
-    currentEndpoint: string;
-    pendingEndpoint: string;
-    portStatus: string;
-    heartbeatDependency: string;
-  };
   diagnostics?: {
     runtimeSummary: string;
-    gatewayOwnership: string;
+    runtimeOwnership: string;
     version: string;
     activeConfigPath: string;
     lastConfigError: string;
@@ -533,8 +493,6 @@ export function buildDesktopSettingsFormState(
   const tools = asRecord(root.tools);
   const web = asRecord(tools.web);
   const exec = asRecord(tools.exec);
-  const gateway = asRecord(root.gateway);
-  const heartbeat = asRecord(gateway.heartbeat);
   const channels = asRecord(root.channels);
   const providers = asRecord(root.providers);
   const rawProvider = stringValue(pick(defaults, "provider")) || "auto";
@@ -578,12 +536,6 @@ export function buildDesktopSettingsFormState(
       execTimeout: numberOrDefault(exec.timeout, 60),
       mcpServersText: stringifyDesktopJsonObject(pick(tools, "mcpServers", "mcp_servers")),
       restrictToWorkspace: boolValue(pick(tools, "restrictToWorkspace", "restrict_to_workspace")),
-    },
-    gateway: {
-      host: stringOrDefault(gateway.host, "0.0.0.0"),
-      port: numberOrDefault(gateway.port, 18790),
-      heartbeatEnabled: heartbeat.enabled === true,
-      heartbeatIntervalS: numberOrDefault(pick(heartbeat, "intervalS", "interval_s"), 1800),
     },
     channels: {
       sendProgress: boolValue(pick(channels, "sendProgress", "send_progress")),
@@ -847,14 +799,6 @@ function createDesktopSettingsFullPatch(
       mcp_servers: parseDesktopJsonObject(state.tools.mcpServersText),
       restrict_to_workspace: state.tools.restrictToWorkspace,
     },
-    gateway: {
-      host: state.gateway.host,
-      port: state.gateway.port,
-      heartbeat: {
-        enabled: state.gateway.heartbeatEnabled,
-        interval_s: state.gateway.heartbeatIntervalS,
-      },
-    },
     channels: {
       send_progress: state.channels.sendProgress,
       send_tool_hints: state.channels.sendToolHints,
@@ -922,14 +866,6 @@ function getDesktopSettingsPatchPathValue(state: DesktopSettingsFormState, path:
       return parseDesktopJsonObject(state.tools.mcpServersText);
     case "tools.restrict_to_workspace":
       return state.tools.restrictToWorkspace;
-    case "gateway.host":
-      return state.gateway.host;
-    case "gateway.port":
-      return state.gateway.port;
-    case "gateway.heartbeat.enabled":
-      return state.gateway.heartbeatEnabled;
-    case "gateway.heartbeat.interval_s":
-      return state.gateway.heartbeatIntervalS;
     case "channels.send_progress":
       return state.channels.sendProgress;
     case "channels.send_tool_hints":
@@ -1005,9 +941,6 @@ export function validateDesktopSettingsForm(state: DesktopSettingsFormState): De
   if (!validateDesktopTimezone(state.agent.timezone || "")) {
     errors.push({ field: "timezone", errorKey: "timezoneError" });
   }
-  if (state.gateway.port !== null && !validateDesktopPortRange(state.gateway.port)) {
-    errors.push({ field: "gatewayPort", errorKey: "portRange" });
-  }
   if (state.tools.mcpServersText.trim() && !validateDesktopJsonObject(state.tools.mcpServersText)) {
     errors.push({ field: "mcpServers", errorKey: "jsonObjectError" });
   }
@@ -1052,8 +985,7 @@ export function buildDesktopSettingsPaneModel(
     save.warnings = saveDetails.warnings;
     save.diagnostics = formatDesktopSettingsSaveDiagnostics(saveStatus, saveDetails);
   }
-  const runtime = buildDesktopSettingsRuntimeSummary(state, options.lastSavedState ?? state, save);
-  const diagnostics = buildDesktopSettingsDiagnosticsSummary(runtime, save);
+  const diagnostics = buildDesktopSettingsDiagnosticsSummary(save);
   const providerCatalog = providerSummaries.map((provider) => ({
     id: provider.id,
     label: provider.label,
@@ -1070,7 +1002,6 @@ export function buildDesktopSettingsPaneModel(
     dirty,
     validationErrors,
     save,
-    runtime,
     diagnostics,
     groups: buildDesktopSettingsPaneGroups(state, validationErrors, providerSummaries),
     providerCatalog,
@@ -1100,13 +1031,12 @@ export function buildDesktopProviderModelRequest(
 }
 
 function buildDesktopSettingsDiagnosticsSummary(
-  runtime: NonNullable<DesktopSettingsPaneModel["runtime"]>,
   save: DesktopSettingsPaneModel["save"],
 ): NonNullable<DesktopSettingsPaneModel["diagnostics"]> {
   const saveStatus = `Settings save status: ${save.status}`;
   return {
-    runtimeSummary: `Runtime summary: current ${runtime.currentEndpoint}; pending ${runtime.pendingEndpoint}; ${saveStatus}.`,
-    gatewayOwnership: "Gateway ownership: Desktop-managed local gateway.",
+    runtimeSummary: `Runtime summary: in-process Rust backend; ${saveStatus}.`,
+    runtimeOwnership: "Runtime ownership: Tauri-managed native backend.",
     version: "Version: Current desktop build.",
     activeConfigPath: "Active config path: Managed by native runtime.",
     lastConfigError: save.status === "failed"
@@ -1114,46 +1044,6 @@ function buildDesktopSettingsDiagnosticsSummary(
       : "Last config error: None.",
     logLevel: "info",
   };
-}
-
-function buildDesktopSettingsRuntimeSummary(
-  state: DesktopSettingsFormState,
-  lastSavedState: DesktopSettingsFormState,
-  save: DesktopSettingsPaneModel["save"],
-): NonNullable<DesktopSettingsPaneModel["runtime"]> {
-  const pendingEndpoint = formatDesktopGatewayEndpoint(state.gateway.host, state.gateway.port);
-  const currentEndpoint = save.restartRequired?.length
-    ? formatDesktopGatewayEndpoint(lastSavedState.gateway.host, lastSavedState.gateway.port)
-    : pendingEndpoint;
-  const intent = classifyDesktopGatewayIntent(state.gateway.host);
-  const port = state.gateway.port;
-  return {
-    intent,
-    currentEndpoint,
-    pendingEndpoint,
-    portStatus: port && validateDesktopPortRange(port)
-      ? `Port ${port} will be checked for availability before the gateway restarts.`
-      : "Port availability cannot be checked until a valid port is configured.",
-    heartbeatDependency: state.gateway.heartbeatEnabled
-      ? "Heartbeat interval is active while heartbeat is enabled."
-      : "Heartbeat interval is disabled while heartbeat is off.",
-  };
-}
-
-function classifyDesktopGatewayIntent(host: string | null): NonNullable<DesktopSettingsPaneModel["runtime"]>["intent"] {
-  if (host === "127.0.0.1" || host === "localhost" || host === "::1") {
-    return "local-only";
-  }
-  if (host === "0.0.0.0" || host === "::") {
-    return "local-network";
-  }
-  return "advanced-custom";
-}
-
-function formatDesktopGatewayEndpoint(host: string | null, port: number | null): string {
-  const safeHost = host || "127.0.0.1";
-  const safePort = port ?? 18790;
-  return `${safeHost}:${safePort}`;
 }
 
 function buildDesktopDefaultRouting(
@@ -1331,22 +1221,6 @@ export function applyDesktopSettingsFieldEdit(
       nextState.tools.restrictToWorkspace = Boolean(value);
       markDesktopSettingsTouched(nextState, "tools.restrict_to_workspace");
       break;
-    case "host":
-      nextState.gateway.host = stringOrNullInput(text);
-      markDesktopSettingsTouched(nextState, "gateway.host");
-      break;
-    case "port":
-      nextState.gateway.port = numberOrNullInput(text);
-      markDesktopSettingsTouched(nextState, "gateway.port");
-      break;
-    case "heartbeat":
-      nextState.gateway.heartbeatEnabled = Boolean(value);
-      markDesktopSettingsTouched(nextState, "gateway.heartbeat.enabled");
-      break;
-    case "heartbeatIntervalS":
-      nextState.gateway.heartbeatIntervalS = numberOrNullInput(text);
-      markDesktopSettingsTouched(nextState, "gateway.heartbeat.interval_s");
-      break;
     case "sendProgress":
       nextState.channels.sendProgress = Boolean(value);
       markDesktopSettingsTouched(nextState, "channels.send_progress");
@@ -1474,11 +1348,6 @@ export function validateDesktopUrl(value: string): boolean {
   }
 }
 
-export function validateDesktopPortRange(value: number | string): boolean {
-  const port = typeof value === "number" ? value : Number.parseInt(value, 10);
-  return Number.isInteger(port) && port >= 1 && port <= 65535;
-}
-
 export function validateDesktopJsonObject(value: string): boolean {
   try {
     const parsed = JSON.parse(value);
@@ -1509,7 +1378,6 @@ function cloneSettingsState(state: DesktopSettingsFormState): DesktopSettingsFor
     agent: { ...state.agent },
     embedding: { ...state.embedding },
     tools: { ...state.tools },
-    gateway: { ...state.gateway },
     channels: { ...state.channels },
     providerEditor: { ...state.providerEditor },
     providerSummaries: (state.providerSummaries ?? []).map((provider) => ({ ...provider })),
@@ -1971,8 +1839,8 @@ function buildDesktopSettingsPaneGroups(
       ],
     },
     {
-      id: "tools-approvals",
-      label: "Tools & Approvals",
+      id: "tools-mcp",
+      label: "Tools & MCP",
       fields: [
         field("webEnable", "Web tools", state.tools.webEnable, { control: "checkbox" }),
         field("execEnable", "Exec tools", state.tools.execEnable, { control: "checkbox" }),
@@ -2054,31 +1922,6 @@ function buildDesktopSettingsPaneGroups(
       label: "Automations",
       fields: [
         field("automations", "Automations", "Planned after core workbench stability", { control: "readonly" }),
-      ],
-    },
-    {
-      id: "gateway-runtime",
-      label: "Gateway & Runtime",
-      fields: [
-        field("host", "Host", state.gateway.host, { requirement: "required", configurationMode: "freeform" }),
-        field("port", "Port", state.gateway.port, {
-          validationField: "gatewayPort",
-          control: "number",
-          requirement: "required",
-          configurationMode: "numeric",
-          min: 1,
-          max: 65535,
-          step: 1,
-        }),
-        field("heartbeat", "Heartbeat", state.gateway.heartbeatEnabled, { control: "checkbox" }),
-        field("heartbeatIntervalS", "Heartbeat interval", state.gateway.heartbeatIntervalS, {
-          control: "number",
-          configurationMode: "numeric",
-          advanced: true,
-          disabled: !state.gateway.heartbeatEnabled,
-          min: 1,
-          step: 1,
-        }),
       ],
     },
     {
@@ -2243,21 +2086,17 @@ function getDesktopSettingsPaneFieldPersistentPath(
     "general.reasoningEffort": "agents.defaults.reasoningEffort",
     "provider-models.selectedProvider": "desktop.ui.settings.providerEditor.selectedProvider",
     "provider-models.profileId": "agents.defaults.activeProfile",
-    "tools-approvals.webEnable": "tools.web.enable",
-    "tools-approvals.execEnable": "tools.exec.enable",
-    "tools-approvals.webProxy": "tools.web.proxy",
-    "tools-approvals.searchProvider": "tools.web.search.provider",
-    "tools-approvals.execTimeout": "tools.exec.timeout",
-    "tools-approvals.restrictToWorkspace": "tools.restrictToWorkspace",
-    "tools-approvals.mcpServers": "tools.mcpServers",
+    "tools-mcp.webEnable": "tools.web.enable",
+    "tools-mcp.execEnable": "tools.exec.enable",
+    "tools-mcp.webProxy": "tools.web.proxy",
+    "tools-mcp.searchProvider": "tools.web.search.provider",
+    "tools-mcp.execTimeout": "tools.exec.timeout",
+    "tools-mcp.restrictToWorkspace": "tools.restrictToWorkspace",
+    "tools-mcp.mcpServers": "tools.mcpServers",
     "files-workspace.workspace": "agents.defaults.workspace",
     "channels.sendProgress": "channels.sendProgress",
     "channels.sendToolHints": "channels.sendToolHints",
     "channels.sendMaxRetries": "channels.sendMaxRetries",
-    "gateway-runtime.host": "gateway.host",
-    "gateway-runtime.port": "gateway.port",
-    "gateway-runtime.heartbeat": "gateway.heartbeat.enabled",
-    "gateway-runtime.heartbeatIntervalS": "gateway.heartbeat.intervalS",
   };
   if (field.persistentPath) {
     return field.persistentPath;
@@ -2308,9 +2147,6 @@ function formatDesktopSettingsSaveMessage(
     return "Saving settings";
   }
   if (status === "saved") {
-    if (saveDetails?.transport === "gateway-fallback") {
-      return "Settings persisted through gateway fallback";
-    }
     if (saveDetails?.warnings.length) {
       return "Settings persisted with warnings";
     }
@@ -2320,7 +2156,7 @@ function formatDesktopSettingsSaveMessage(
     return "Settings persisted";
   }
   if (status === "restart-required") {
-    return "Settings persisted. Gateway restart required";
+    return "Settings persisted. Application restart required";
   }
   if (status === "reload-required") {
     return "Settings persisted. Workspace reload required";

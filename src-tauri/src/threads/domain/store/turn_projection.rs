@@ -96,21 +96,9 @@ fn update_turn_summary_from_item(turn: &mut ThreadTurnSummary, item: &ThreadItem
             if turn.completed_at.is_none() {
                 match string_field(payload, "label").as_deref() {
                     Some("awaiting_form") => turn.status = ThreadStatus::WaitingForInput,
-                    Some("awaiting_approval") => turn.status = ThreadStatus::WaitingForApproval,
                     _ => {}
                 }
                 turn.active = true;
-            }
-        }
-        ThreadItemKind::ApprovalRequested(_) => {
-            if turn.completed_at.is_none() {
-                turn.status = ThreadStatus::WaitingForApproval;
-                turn.active = true;
-            }
-        }
-        ThreadItemKind::ApprovalResolved(_) => {
-            if turn.active && turn.completed_at.is_none() {
-                turn.status = ThreadStatus::Running;
             }
         }
         _ => {}

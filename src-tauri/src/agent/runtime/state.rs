@@ -1,17 +1,13 @@
 use super::context_manager::ContextManager;
 use super::continuations::guidance_continuation_message;
-use super::events::{
-    legacy_result_events_from_runtime_events, prepare_runtime_event_input, runtime_event_timestamp,
-    runtime_status_label,
-};
+use super::events::{prepare_runtime_event_input, runtime_event_timestamp, runtime_status_label};
 use super::hooks::AgentHookEvaluation;
 use super::trace_commit::TraceCommitter;
 use super::usage::{
     enrich_usage_with_context_window, latest_cumulative_usage_tokens, usage_context_used_tokens,
 };
 use super::{
-    string_field, AgentHookInvocation, AgentTurnContext, NativeAgentEvent, NativeAgentToolCall,
-    NativeAgentTraceSink,
+    string_field, AgentHookInvocation, AgentTurnContext, NativeAgentToolCall, NativeAgentTraceSink,
 };
 use crate::agent::runtime_protocol::{
     AgentEventKind, AgentRuntimeEventEnvelope, AgentRuntimePhase, AgentTurnEmitter,
@@ -458,10 +454,6 @@ impl AgentTurnState {
 
     pub(super) fn runtime_events(&self) -> Vec<AgentRuntimeEventEnvelope> {
         self.emitter.events().to_vec()
-    }
-
-    pub(super) fn legacy_events(&self) -> Vec<NativeAgentEvent> {
-        legacy_result_events_from_runtime_events(self.emitter.events())
     }
 
     pub(super) fn take_runtime_events(&mut self) -> Vec<AgentRuntimeEventEnvelope> {

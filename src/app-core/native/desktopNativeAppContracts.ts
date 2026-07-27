@@ -2,12 +2,12 @@ export function buildNativeAppSettingsCenterContract() {
   return {
     categories: [
       category("provider-models", "Provider & Models"),
-      category("tools-approvals", "Tools & Approvals"),
+      category("tools-mcp", "Tools & MCP"),
       category("files-workspace", "Files & Workspace"),
       category("memory-experience", "Memory & Experience"),
       category("skills", "Skills"),
       category("channels", "Channels"),
-      category("gateway-runtime", "Gateway & Runtime"),
+      category("runtime", "Runtime"),
       category("logs-diagnostics", "Logs & Diagnostics"),
     ],
     providerModels: {
@@ -15,9 +15,6 @@ export function buildNativeAppSettingsCenterContract() {
       cards: ["current-provider", "available-models", "health"],
       actions: ["discover", "test-connection", "validate", "save"],
       states: ["dirty", "validating", "invalid", "saved", "health-check"],
-    },
-    toolsApprovals: {
-      policyDefaults: ["ask-before-shell", "deny-browser-by-default", "require-mcp-allowlist"],
     },
     verification: ["unsaved-changes", "validation-failures", "danger-confirmations", "runtime-modes", "channel-controls"],
   };

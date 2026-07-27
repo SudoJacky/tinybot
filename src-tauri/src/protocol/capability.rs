@@ -21,10 +21,6 @@ pub enum WorkerCapability {
     SessionWrite,
     #[serde(rename = "diagnostics.write")]
     DiagnosticsWrite,
-    #[serde(rename = "approval.request")]
-    ApprovalRequest,
-    #[serde(rename = "approval.resolve")]
-    ApprovalResolve,
     #[serde(rename = "form.request")]
     FormRequest,
     #[serde(rename = "memory.read")]
@@ -93,8 +89,6 @@ pub fn default_desktop_capability_policy() -> CapabilityPolicy {
         WorkerCapability::FsWorkspaceWrite,
         WorkerCapability::ShellExecute,
         WorkerCapability::DiagnosticsWrite,
-        WorkerCapability::ApprovalRequest,
-        WorkerCapability::ApprovalResolve,
         WorkerCapability::FormRequest,
         WorkerCapability::MemoryRead,
         WorkerCapability::MemoryWrite,

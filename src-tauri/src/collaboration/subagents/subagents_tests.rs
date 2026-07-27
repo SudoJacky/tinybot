@@ -157,7 +157,6 @@ fn lifecycle_transitions_preserve_diagnostics() {
         status: SubagentThreadStatus::Failed,
         result_summary: None,
         blocker_summary: Some("tool failed".to_string()),
-        pending_approval: None,
         metadata: serde_json::json!({ "error": "boom" }),
     });
     assert!(failed.accepted);
@@ -178,7 +177,6 @@ fn restart_interrupts_non_terminal_children_only() {
         status: SubagentThreadStatus::Completed,
         result_summary: Some("done".to_string()),
         blocker_summary: None,
-        pending_approval: None,
         metadata: Value::Null,
     });
     let interrupted = manager.interrupt_non_terminal("session-a");
@@ -330,7 +328,6 @@ fn wait_blocks_until_a_child_reaches_a_lifecycle_boundary() {
             status: SubagentThreadStatus::Completed,
             result_summary: Some("done".to_string()),
             blocker_summary: None,
-            pending_approval: None,
             metadata: Value::Null,
         })
     });

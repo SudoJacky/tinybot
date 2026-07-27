@@ -16,7 +16,7 @@ export type {
 } from "../app-core/workspace/workspaceExplorer";
 import type { AgentDefaultsSettingsData } from "../app-core/settings/agentDefaultsSettings";
 import type { DesktopChatInput, DesktopCommand } from "../app-core/chat/desktopCommand";
-import type { TinyOsCommand } from "../app-core/chat/tinyOsCommandGateway";
+import type { TinyOsCommand } from "../app-core/chat/tinyOsCommand";
 import type { TinyOsEffectiveCapabilities } from "../app-core/chat/tinyOsCapabilities";
 import type {
   ProviderModelFetchInput,
@@ -38,7 +38,7 @@ export type SessionSummary = {
   updatedAtMs: number;
   pinned?: boolean;
   archived?: boolean;
-  status?: "idle" | "running" | "waiting_approval" | "failed";
+  status?: "idle" | "running" | "failed";
   workingDirectory?: string;
 };
 
@@ -57,8 +57,6 @@ export type ChatEvent = {
   timeline?: ChatTimelineSnapshot;
 };
 
-export type ApprovalAction = "approveOnce" | "approveSession" | "deny";
-
 export type SessionStore = {
   list(): Promise<SessionSummary[]>;
   create(input?: { title?: string; workingDirectory?: string }): Promise<SessionSummary>;
@@ -71,7 +69,7 @@ export type SessionStore = {
 export type ChatStore = {
   browserRuntime?: NativeBrowserRuntimeApi;
   load(sessionId: string): Promise<ChatTimelineSnapshot>;
-  loadTinyOsCapabilities(sessionId: string): Promise<TinyOsEffectiveCapabilities>;
+  loadTinyOsCapabilities(threadId: string): Promise<TinyOsEffectiveCapabilities>;
   dispatch(command: DesktopCommand): Promise<void>;
   listAgentUiForms(sessionId: string): Promise<AgentUiForm[]>;
   loadDelegateTrace?(selection: { sessionKey: string; delegateId?: string; traceRef?: string }): Promise<unknown>;
@@ -114,7 +112,6 @@ export type ToolSummary = {
   enabled: boolean;
   available: boolean;
   reason?: string;
-  approvalRequired: boolean;
 };
 
 export type McpServerSummary = {

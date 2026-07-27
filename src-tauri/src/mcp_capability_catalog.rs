@@ -37,18 +37,8 @@ pub(crate) struct McpToolCapability {
     pub(crate) callable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) reason: Option<String>,
-    pub(crate) approval: McpApprovalCapability,
     pub(crate) parameters: Value,
     pub(crate) raw: Value,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct McpApprovalCapability {
-    pub(crate) required: bool,
-    pub(crate) scope: &'static str,
-    pub(crate) lifetime: &'static str,
-    pub(crate) configured_policy: String,
 }
 
 pub(crate) async fn build_mcp_capability_catalog(
@@ -139,12 +129,6 @@ pub(crate) async fn build_mcp_capability_catalog(
                 available: callable,
                 callable,
                 reason,
-                approval: McpApprovalCapability {
-                    required: false,
-                    scope: "none",
-                    lifetime: "none",
-                    configured_policy: "disabled".to_string(),
-                },
                 parameters: definition
                     .get("inputSchema")
                     .or_else(|| definition.get("input_schema"))

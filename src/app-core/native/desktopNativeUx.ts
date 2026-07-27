@@ -1,42 +1,3 @@
-interface RouteIntent {
-  href?: string;
-  sessionId?: string;
-}
-
-export function buildDesktopSafeModeRecoveryUx(input: {
-  phase: "starting" | "connecting" | "loading" | "ready" | "failed";
-  owner?: "shell" | "external" | "";
-  failureType?: "port-conflict" | "command-failed" | "bootstrap-incompatible" | "missing-runtime";
-  responseClass?: string;
-  routeIntent?: RouteIntent;
-}) {
-  const failed = input.phase === "failed";
-  const completeThrough = failed ? 1 : phaseIndex(input.phase);
-  const summary = failed
-    ? "Startup failed; choose a recovery action"
-    : input.owner === "external"
-      ? "Using an existing gateway"
-      : input.phase === "ready"
-        ? "Tinybot is ready"
-        : "Tinybot is starting";
-  return {
-    summary,
-    diagnosticsDefaultOpen: failed,
-    progressSteps: [
-      progressStep("start", "Starting Tinybot", completeThrough, 0),
-      progressStep("connect", "Connecting to local gateway", completeThrough, 1),
-      progressStep("workspace", "Loading workspace", completeThrough, 2),
-      progressStep("ready", "Ready", completeThrough, 3),
-    ],
-    recoveryCards: failed ? [recoveryCard(input.failureType ?? "command-failed", input.responseClass)] : [],
-    safeModeAction: {
-      id: "open-browser-compatible-webui",
-      label: "Open native workbench",
-      href: safeModeHref(input.routeIntent),
-    },
-  };
-}
-
 export function buildDesktopWorkbenchShellUx(input: {
   activeModule: string;
   selectedEntityId?: string;
@@ -76,7 +37,7 @@ export function buildDesktopChatSessionUx(input: {
   activities?: Array<{ id: string; kind: "tool" | "reference"; label: string }>;
 }) {
   const sessions = input.sessions ?? [];
-  const runningStatuses = new Set(["running", "streaming", "approval_required", "requires_approval", "blocked", "failed", "interrupted"]);
+  const runningStatuses = new Set(["running", "streaming", "blocked", "failed", "interrupted"]);
   const pinned = sessions.filter((session) => session.pinned);
   const running = sessions.filter((session) => !session.pinned && runningStatuses.has((session.status ?? "").toLowerCase()));
   const recent = sessions.filter((session) => !session.pinned && !running.includes(session));
@@ -84,7 +45,6 @@ export function buildDesktopChatSessionUx(input: {
     starters: [
       { id: "ask", label: "Ask a question", href: "/chat/new" },
       { id: "analyze-file", label: "Analyze a file", href: "/files" },
-      { id: "plan-cowork", label: "Plan multi-step work", href: "/cowork" },
       { id: "edit-workspace-file", label: "Edit workspace file", href: "/workspace" },
     ],
     sessionGroups: [
@@ -166,7 +126,7 @@ export function buildDesktopSettingsProviderSetupUx(input: {
       ["ai-provider-model", "AI provider and model"],
       ["workspace-files", "Workspace and files"],
       ["tools-skills", "Tools and skills"],
-      ["gateway-runtime", "Gateway/runtime"],
+      ["runtime", "Runtime"],
       ["diagnostics", "Diagnostics"],
       ["advanced", "Advanced"],
     ].map(([id, label], index) => ({ id, label, collapsed: id === "advanced", order: index })),
@@ -223,38 +183,14 @@ export function buildDesktopToolsSkillsManagementUx(input: {
   };
 }
 
-export function buildDesktopCoworkCockpitUx(input: {
-  nativeReady?: boolean;
-  selected?: { type: string; id: string };
-  session?: { id: string; status?: string; finalDraft?: string };
-}) {
-  return {
-    readiness: {
-      mode: input.nativeReady ? "native" : "preview",
-      fallbackHref: "/cowork",
-    },
-    stages: ["goal", "plan", "run", "review-outputs", "finalize"].map((id) => ({ id, label: titleCase(id) })),
-    primarySurface: "timeline-task-feed",
-    graphFocus: {
-      rootId: input.selected?.id ?? input.session?.id ?? "",
-      type: input.selected?.type ?? "session",
-    },
-    confirmations: ["emergencyStopSession", "selectFinalResult", "mergeFinalResult", "deleteSession"].map((action) => ({
-      action,
-      consequence: "This changes the Cowork session output or execution state.",
-    })),
-    handoffActions: ["insertSummaryIntoChat", "saveFinalDraftToWorkspace", "exportTrace", "createFollowUpTask"].map((id) => ({ id })),
-  };
-}
-
 export function buildDesktopLoadingPerformanceUx(input: {
   route?: string;
-  longListCounts?: { sessions?: number; taskRows?: number; coworkTraces?: number };
+  longListCounts?: { sessions?: number; taskRows?: number };
 }) {
   const counts = input.longListCounts ?? {};
   return {
     immediate: ["startup-shell", "chat-shell", "composer", "session-list-metadata", "task-center-shell", "command-palette-shell"],
-    lazy: ["cowork-cockpit", "provider-model-discovery", "tools-skills-editor", "docs-pages"],
+    lazy: ["provider-model-discovery", "tools-skills-editor", "docs-pages"],
     routeHydration: {
       skeleton: `${titleCase(input.route ?? "route")} skeleton`,
       keepStaleData: true,
@@ -262,7 +198,6 @@ export function buildDesktopLoadingPerformanceUx(input: {
     virtualization: {
       sessions: { enabled: (counts.sessions ?? 0) > 80 },
       taskRows: { enabled: (counts.taskRows ?? 0) > 60 },
-      coworkTraces: { enabled: (counts.coworkTraces ?? 0) > 80 },
     },
     memoizedProjections: ["turn-chain-items", "task-center-items", "command-palette-data"],
     refreshPolicy: { commandPaletteDebounceMs: 180, idlePrefetch: true },
@@ -275,59 +210,6 @@ export function buildDesktopLoadingPerformanceUx(input: {
       "graph-memory-after-open",
     ].map((id) => ({ id })),
   };
-}
-
-function progressStep(id: string, label: string, completeThrough: number, index: number) {
-  return {
-    id,
-    label,
-    state: completeThrough > index ? "complete" : completeThrough === index ? "current" : "pending",
-  };
-}
-
-function phaseIndex(phase: string): number {
-  if (phase === "ready") return 4;
-  if (phase === "loading") return 2;
-  if (phase === "connecting") return 1;
-  return 0;
-}
-
-function recoveryCard(failureType: string, responseClass = "") {
-  const cards: Record<string, { title: string; primaryAction: string; hint: string }> = {
-    "port-conflict": {
-      title: "Port already in use",
-      primaryAction: "Use existing gateway",
-      hint: "A local process is already listening on the gateway port.",
-    },
-    "command-failed": {
-      title: "Gateway command failed",
-      primaryAction: "Copy diagnostics",
-      hint: "The gateway command exited before Tinybot could load.",
-    },
-    "bootstrap-incompatible": {
-      title: "Bootstrap incompatible",
-      primaryAction: "Open native workbench",
-      hint: `The local gateway responded${responseClass ? ` with ${responseClass}` : ""}, but not with the WebUI bootstrap shape this desktop build expects.`,
-    },
-    "missing-runtime": {
-      title: "Missing runtime dependency",
-      primaryAction: "Show setup steps",
-      hint: "A required local runtime dependency is unavailable.",
-    },
-  };
-  return { id: failureType, ...(cards[failureType] ?? cards["command-failed"]) };
-}
-
-function safeModeHref(routeIntent?: RouteIntent): string {
-  const params = new URLSearchParams();
-  if (routeIntent?.href) {
-    params.set("route", routeIntent.href);
-  }
-  if (routeIntent?.sessionId) {
-    params.set("session", routeIntent.sessionId);
-  }
-  const query = params.toString();
-  return query ? `/?${query}` : "/";
 }
 
 function attentionBadges(attention: { taskUpdates?: number; references?: number; blocked?: number; failed?: number } = {}) {
@@ -343,7 +225,6 @@ function helpHref(moduleId: string): string {
   const routes: Record<string, string> = {
     workspace: "/docs/webui",
     files: "/docs/webui",
-    cowork: "/docs/tasks",
     chat: "/docs/quickstart",
   };
   return routes[moduleId] ?? "/docs";
@@ -432,12 +313,10 @@ function toolGroups(tools: Array<{ name: string; description?: string; riskHint?
     { id: "files", tools: [] as typeof tools },
     { id: "execution", tools: [] as typeof tools },
     { id: "workspace", tools: [] as typeof tools },
-    { id: "requires-approval", tools: [] as typeof tools },
     { id: "other", tools: [] as typeof tools },
   ];
   for (const tool of tools) {
     const text = `${tool.name} ${tool.description ?? ""} ${tool.riskHint ?? ""}`.toLowerCase();
-    if (text.includes("approval")) groups.find((group) => group.id === "requires-approval")?.tools.push(tool);
     if (text.includes("exec") || text.includes("command") || text.includes("shell")) groups.find((group) => group.id === "execution")?.tools.push(tool);
     else if (text.includes("web") || text.includes("browser")) groups.find((group) => group.id === "web")?.tools.push(tool);
     else if (text.includes("file")) groups.find((group) => group.id === "files")?.tools.push(tool);

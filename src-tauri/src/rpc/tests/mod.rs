@@ -20,10 +20,10 @@ use std::{
 
 static WORKSPACE_FIXTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-mod approval_and_shell;
 mod automation_and_collaboration;
 mod request_boundary;
 mod threads_and_tools;
+mod workspace_and_shell;
 
 #[cfg(target_os = "windows")]
 fn blocking_shell_command_with_marker() -> String {

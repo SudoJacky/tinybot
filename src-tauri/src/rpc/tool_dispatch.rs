@@ -32,14 +32,6 @@ impl WorkerRpcRouter {
                 serde_json::to_value(self.permission_profile.evaluate_tool(&tool, params)?)
                     .map_err(serialization_error)
             }
-            "permission_profile.request_tool_approval" => {
-                let params: PermissionRequestToolApprovalRequest = parse_params(request)?;
-                self.request_tool_approval(request, params)
-            }
-            "permission_profile.resolve_tool_approval" => {
-                let params: PermissionResolveToolApprovalRequest = parse_params(request)?;
-                self.resolve_tool_approval(request, params)
-            }
             "tool_executor.execute" => {
                 let params: ToolExecutorExecuteRequest = parse_params(request)?;
                 self.execute_registered_tool(request, params)
@@ -75,7 +67,6 @@ impl WorkerRpcRouter {
                     "enabled": tool.available,
                     "available": tool.available,
                     "callable": tool.available,
-                    "approval": tool.approval,
                     "parameters": tool.input_schema,
                     "outputSchema": tool.output_schema,
                     "exposure": tool.exposure,

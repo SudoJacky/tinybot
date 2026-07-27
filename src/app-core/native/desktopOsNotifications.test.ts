@@ -53,7 +53,7 @@ describe("desktop OS notifications", () => {
     });
 
     expect(await bridge.canNotify()).toBe(false);
-    expect(await bridge.notify({ title: "Tinybot", body: "Approval required" })).toBe(false);
+    expect(await bridge.notify({ title: "Tinybot", body: "Input required" })).toBe(false);
     expect(requests).toBe(1);
     expect(sends).toBe(0);
   });

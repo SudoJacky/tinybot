@@ -53,7 +53,6 @@ pub(crate) enum AgentEventKind {
     DelegateSpawned,
     DelegateMessage,
     DelegateCompleted,
-    DelegateAwaitingApproval,
     DelegateCancelled,
     DelegateClosed,
     DelegateFailed,
@@ -100,12 +99,6 @@ pub(crate) enum EventDurability {
     Ephemeral,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum LegacyPolicy {
-    Include,
-    Exclude,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct AgentEventDefinition {
     pub(crate) wire_name: &'static str,
@@ -115,7 +108,6 @@ pub(crate) struct AgentEventDefinition {
     pub(crate) item_kind: Option<AgentTurnItemKind>,
     pub(crate) identity: ItemIdentityRule,
     pub(crate) durability: EventDurability,
-    pub(crate) legacy: LegacyPolicy,
 }
 
 impl AgentEventDefinition {
@@ -325,7 +317,6 @@ impl AgentEventKind {
         Self::DelegateSpawned,
         Self::DelegateMessage,
         Self::DelegateCompleted,
-        Self::DelegateAwaitingApproval,
         Self::DelegateCancelled,
         Self::DelegateClosed,
         Self::DelegateFailed,
@@ -352,7 +343,6 @@ impl AgentEventKind {
             AgentItem, Form as FormIdentity, Message, None as NoIdentity,
             Reasoning as ReasoningIdentity, Tool as ToolIdentity,
         };
-        use LegacyPolicy::{Exclude, Include};
 
         match self {
             Self::TurnStarted => definition(
@@ -363,7 +353,6 @@ impl AgentEventKind {
                 Some(UserMessage),
                 NoIdentity,
                 Durable,
-                Exclude,
             ),
             Self::PhaseChanged => definition(
                 "agent.phase.changed",
@@ -373,7 +362,6 @@ impl AgentEventKind {
                 None,
                 NoIdentity,
                 Ephemeral,
-                Exclude,
             ),
             Self::Status => definition(
                 "agent.status",
@@ -383,7 +371,6 @@ impl AgentEventKind {
                 None,
                 NoIdentity,
                 Ephemeral,
-                Exclude,
             ),
             Self::ContextHydrated => definition(
                 "agent.context.hydrated",
@@ -393,7 +380,6 @@ impl AgentEventKind {
                 None,
                 NoIdentity,
                 Ephemeral,
-                Include,
             ),
             Self::ContextCompacted => definition(
                 "agent.context.compacted",
@@ -403,7 +389,6 @@ impl AgentEventKind {
                 Some(ContextCompaction),
                 AgentItem,
                 Ephemeral,
-                Include,
             ),
             Self::ContextTrimmed => definition(
                 "agent.context.trimmed",
@@ -413,7 +398,6 @@ impl AgentEventKind {
                 Some(ContextCompaction),
                 AgentItem,
                 Ephemeral,
-                Include,
             ),
             Self::ContextCompactionFailed => definition(
                 "agent.context.compaction_failed",
@@ -423,7 +407,6 @@ impl AgentEventKind {
                 Some(Error),
                 AgentItem,
                 Ephemeral,
-                Include,
             ),
             Self::HookDecision => definition(
                 "agent.hook.decision",
@@ -433,7 +416,6 @@ impl AgentEventKind {
                 None,
                 NoIdentity,
                 Ephemeral,
-                Exclude,
             ),
             Self::Guidance => definition(
                 "agent.guidance",
@@ -443,7 +425,6 @@ impl AgentEventKind {
                 None,
                 NoIdentity,
                 Ephemeral,
-                Include,
             ),
             Self::Paused => definition(
                 "agent.paused",
@@ -453,7 +434,6 @@ impl AgentEventKind {
                 Some(SystemNotice),
                 NoIdentity,
                 Ephemeral,
-                Include,
             ),
             Self::Resumed => definition(
                 "agent.resumed",
@@ -463,7 +443,6 @@ impl AgentEventKind {
                 Some(SystemNotice),
                 NoIdentity,
                 Ephemeral,
-                Include,
             ),
             Self::ReasoningDelta => definition(
                 "agent.reasoning_delta",
@@ -473,7 +452,6 @@ impl AgentEventKind {
                 Some(Reasoning),
                 ReasoningIdentity,
                 Ephemeral,
-                Include,
             ),
             Self::ReasoningCompleted => definition(
                 "agent.reasoning.completed",
@@ -483,7 +461,6 @@ impl AgentEventKind {
                 Some(Reasoning),
                 ReasoningIdentity,
                 Durable,
-                Include,
             ),
             Self::MessageDelta => definition(
                 "agent.delta",
@@ -493,7 +470,6 @@ impl AgentEventKind {
                 Some(AssistantMessage),
                 Message,
                 Ephemeral,
-                Include,
             ),
             Self::MessagePhase => definition(
                 "agent.message.phase",
@@ -503,7 +479,6 @@ impl AgentEventKind {
                 Some(AssistantMessage),
                 Message,
                 Ephemeral,
-                Include,
             ),
             Self::MessageClassified => definition(
                 "agent.message.classified",
@@ -513,7 +488,6 @@ impl AgentEventKind {
                 Some(AssistantMessage),
                 Message,
                 Durable,
-                Include,
             ),
             Self::MessageCompleted => definition(
                 "agent.message.completed",
@@ -523,7 +497,6 @@ impl AgentEventKind {
                 Some(AssistantMessage),
                 Message,
                 Durable,
-                Include,
             ),
             Self::ToolCallDelta => definition(
                 "agent.tool_call.delta",
@@ -533,7 +506,6 @@ impl AgentEventKind {
                 Some(ToolCall),
                 ToolIdentity,
                 Durable,
-                Include,
             ),
             Self::ToolStarted => definition(
                 "agent.tool.start",
@@ -543,7 +515,6 @@ impl AgentEventKind {
                 Some(ToolCall),
                 ToolIdentity,
                 Ephemeral,
-                Include,
             ),
             Self::ToolResult => definition(
                 "agent.tool.result",
@@ -553,7 +524,6 @@ impl AgentEventKind {
                 Some(ToolCall),
                 ToolIdentity,
                 Durable,
-                Include,
             ),
             Self::ToolDebug => definition(
                 "agent.tool.debug",
@@ -563,7 +533,6 @@ impl AgentEventKind {
                 None,
                 NoIdentity,
                 Ephemeral,
-                Include,
             ),
             Self::ToolCleanupTimeout => definition(
                 "agent.tool.cleanup_timeout",
@@ -573,7 +542,6 @@ impl AgentEventKind {
                 Some(Error),
                 AgentItem,
                 Ephemeral,
-                Include,
             ),
             Self::PlanProgress => definition(
                 "agent.plan.progress",
@@ -583,7 +551,6 @@ impl AgentEventKind {
                 Some(PlanProgress),
                 AgentItem,
                 Ephemeral,
-                Include,
             ),
             Self::TaskProgress => definition(
                 "agent.task_progress",
@@ -593,7 +560,6 @@ impl AgentEventKind {
                 Some(PlanProgress),
                 AgentItem,
                 Ephemeral,
-                Include,
             ),
             Self::AwaitingForm => definition(
                 "agent.awaiting_form",
@@ -603,7 +569,6 @@ impl AgentEventKind {
                 Some(Form),
                 FormIdentity,
                 Ephemeral,
-                Include,
             ),
             Self::FormResolution => definition(
                 "agent.form.resolution",
@@ -613,7 +578,6 @@ impl AgentEventKind {
                 Some(Form),
                 FormIdentity,
                 Ephemeral,
-                Include,
             ),
             Self::Checkpoint => definition(
                 "agent.checkpoint",
@@ -623,7 +587,6 @@ impl AgentEventKind {
                 Some(SystemNotice),
                 NoIdentity,
                 Ephemeral,
-                Include,
             ),
             Self::ModelCallCompleted => definition(
                 "agent.model_call.completed",
@@ -633,7 +596,6 @@ impl AgentEventKind {
                 None,
                 NoIdentity,
                 Ephemeral,
-                Include,
             ),
             Self::TokenCount => definition(
                 "agent.token_count",
@@ -643,7 +605,6 @@ impl AgentEventKind {
                 None,
                 NoIdentity,
                 Ephemeral,
-                Include,
             ),
             Self::Usage => definition(
                 "agent.usage",
@@ -653,7 +614,6 @@ impl AgentEventKind {
                 Some(Usage),
                 AgentItem,
                 Ephemeral,
-                Include,
             ),
             Self::FileReference => definition(
                 "agent.file.reference",
@@ -663,7 +623,6 @@ impl AgentEventKind {
                 Some(FileReference),
                 AgentItem,
                 Ephemeral,
-                Include,
             ),
             Self::CommandAcknowledged => definition(
                 "agent.command.acknowledged",
@@ -673,7 +632,6 @@ impl AgentEventKind {
                 Some(SystemNotice),
                 NoIdentity,
                 Ephemeral,
-                Include,
             ),
             Self::Done => definition(
                 "agent.done",
@@ -683,7 +641,6 @@ impl AgentEventKind {
                 Some(AssistantMessage),
                 NoIdentity,
                 Ephemeral,
-                Include,
             ),
             Self::Error => definition(
                 "agent.error",
@@ -693,7 +650,6 @@ impl AgentEventKind {
                 Some(Error),
                 AgentItem,
                 Durable,
-                Include,
             ),
             Self::Cancelled => definition(
                 "agent.cancelled",
@@ -703,7 +659,6 @@ impl AgentEventKind {
                 Some(Error),
                 AgentItem,
                 Durable,
-                Include,
             ),
             Self::CleanupTimeout => definition(
                 "agent.cleanup_timeout",
@@ -713,7 +668,6 @@ impl AgentEventKind {
                 Some(Error),
                 AgentItem,
                 Durable,
-                Include,
             ),
             Self::DelegateUserMessage | Self::DelegateMessage => {
                 delegate_definition(self.delegate_wire_name(), Some(SubagentMessage), Durable)
@@ -729,7 +683,6 @@ impl AgentEventKind {
             | Self::DelegateNotification
             | Self::DelegateQueried
             | Self::DelegateMessageQueued
-            | Self::DelegateAwaitingApproval
             | Self::DelegateCancelled
             | Self::DelegateClosed
             | Self::DelegateFailed
@@ -766,7 +719,6 @@ impl AgentEventKind {
             Self::DelegateSpawned => "agent.delegate.spawned",
             Self::DelegateMessage => "agent.delegate.message",
             Self::DelegateCompleted => "agent.delegate.completed",
-            Self::DelegateAwaitingApproval => "agent.delegate.awaiting_approval",
             Self::DelegateCancelled => "agent.delegate.cancelled",
             Self::DelegateClosed => "agent.delegate.closed",
             Self::DelegateFailed => "agent.delegate.failed",
@@ -787,18 +739,6 @@ impl DeprecatedEventKind {
             Self::ProviderRequested => "agent.provider.requested",
             Self::ProviderCompleted => "agent.provider.completed",
         }
-    }
-
-    pub(crate) fn phase(self) -> AgentRuntimePhase {
-        AgentRuntimePhase::Planning
-    }
-
-    pub(crate) fn source(self) -> AgentRuntimeEventSource {
-        AgentRuntimeEventSource::Provider
-    }
-
-    pub(crate) fn visibility(self) -> AgentRuntimeEventVisibility {
-        AgentRuntimeEventVisibility::Debug
     }
 }
 
@@ -828,7 +768,6 @@ fn definition(
     item_kind: Option<AgentTurnItemKind>,
     identity: ItemIdentityRule,
     durability: EventDurability,
-    legacy: LegacyPolicy,
 ) -> AgentEventDefinition {
     AgentEventDefinition {
         wire_name,
@@ -838,7 +777,6 @@ fn definition(
         item_kind,
         identity,
         durability,
-        legacy,
     }
 }
 
@@ -855,7 +793,6 @@ fn delegate_definition(
         item_kind,
         ItemIdentityRule::Delegate,
         durability,
-        LegacyPolicy::Include,
     )
 }
 

@@ -13,7 +13,7 @@ projection details.
 
 - Define typed Thread records, metadata, items, events, requests, and results.
 - Create, read, list, search, archive, delete, and fork Threads.
-- Apply turn, tool, approval, form, subagent, checkpoint, and terminal
+- Apply turn, tool, form, subagent, checkpoint, and terminal
   operations as append-only Thread items.
 - Provide idempotency through client event IDs.
 - Project status, activity, Turns, checkpoints, and timeline events from stored
@@ -69,7 +69,7 @@ canonical Rollout.
   return the existing result instead of appending duplicates.
 - Parent/child relationships are explicit and fork/archive policies must state
   whether children are included.
-- Runtime status, activity, checkpoints, approvals, and agent-turn views are
+- Runtime status, activity, checkpoints, and agent-turn views are
   projections from canonical Rollout items.
 - Capability checks occur before reading or appending Thread state.
 - `MemoryThreadStore` must not gain a journal or database.

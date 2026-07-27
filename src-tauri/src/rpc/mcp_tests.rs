@@ -456,8 +456,7 @@ fn mcp_capability_catalog_exposes_discovered_and_allowlisted_state() {
                 "remote": {
                     "transport": "http",
                     "url": fixture.endpoint,
-                    "enabled_tools": ["echo"],
-                    "approval": "always"
+                    "enabled_tools": ["echo"]
                 }
             }
         }
@@ -472,11 +471,6 @@ fn mcp_capability_catalog_exposes_discovered_and_allowlisted_state() {
     assert_eq!(catalog["tools"].as_array().map(Vec::len), Some(2));
     assert_eq!(catalog["tools"][0]["name"], "remote.echo");
     assert_eq!(catalog["tools"][0]["callable"], true);
-    assert_eq!(catalog["tools"][0]["approval"]["required"], false);
-    assert_eq!(
-        catalog["tools"][0]["approval"]["configuredPolicy"],
-        "disabled"
-    );
     assert_eq!(catalog["tools"][1]["enabled"], false);
     assert_eq!(
         catalog["tools"][1]["reason"],

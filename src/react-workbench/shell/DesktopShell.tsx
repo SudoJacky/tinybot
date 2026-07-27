@@ -17,7 +17,7 @@ import { ConfigSettingsPage, type ConfigSettingsGroupId } from "../settings/Conf
 import { ProviderModelsSettingsPage } from "../settings/ProviderModelsSettingsPage";
 import type { AppServices, ToolCatalogSummary, WorkspaceFileSummary } from "../services";
 
-type AppRoute = "chat" | "files" | "cowork" | "github" | "docs" | "tools" | "settings";
+type AppRoute = "chat" | "files" | "github" | "docs" | "tools" | "settings";
 
 type RouteHistory = {
   back: AppRoute[];
@@ -34,7 +34,6 @@ export type DesktopShellProps = {
 const routeLabels: Record<AppRoute, string> = {
   chat: "Chat",
   files: "Workspace Files",
-  cowork: "Cowork",
   github: "GitHub",
   docs: "Docs",
   tools: "Tools & Skills",
@@ -55,7 +54,6 @@ type TopMenuCommandId =
   | "search-sessions"
   | "open-chat"
   | "open-files"
-  | "open-cowork"
   | "open-github"
   | "open-tools"
   | "open-tinybot-repo"
@@ -66,8 +64,7 @@ type TopMenuCommandId =
   | "open-backend-logs"
   | "open-safe-mode"
   | "toggle-theme"
-  | "toggle-sidebar"
-  | "refresh-gateway-status";
+  | "toggle-sidebar";
 
 type TopMenuCommand = {
   id: TopMenuCommandId;
@@ -114,7 +111,6 @@ const topMenuItems: TopMenuItem[] = [
     entries: [
       menuCommand({ id: "open-chat", label: routeLabels.chat, route: "chat" }),
       menuCommand({ id: "open-files", label: routeLabels.files, route: "files" }),
-      menuCommand({ id: "open-cowork", label: routeLabels.cowork, route: "cowork" }),
       menuCommand({ id: "open-github", label: routeLabels.github, route: "github" }),
       menuCommand({ id: "open-tools", label: routeLabels.tools, route: "tools" }),
     ],
@@ -125,8 +121,6 @@ const topMenuItems: TopMenuItem[] = [
     icon: Settings,
     entries: [
       menuCommand({ id: "open-settings", label: routeLabels.settings, route: "settings", shortcut: "Ctrl+," }),
-      menuSeparator("system-status-separator"),
-      menuCommand({ id: "refresh-gateway-status", label: "Gateway Status", shortcut: "Ctrl+Shift+G", enabled: false }),
     ],
   },
   {
@@ -571,7 +565,6 @@ function RouteSurface({
       return <ToolsPage services={services} />;
     case "settings":
       return <SettingsPage services={services} />;
-    case "cowork":
     case "github":
     case "docs":
       return <PlaceholderPage title={routeLabels[route]} />;
@@ -664,7 +657,7 @@ function ToolsPage({ services }: { services: AppServices }) {
 function toolMeta(tool: ToolCatalogSummary["tools"][number]): string {
   const source = tool.serverId ? `MCP: ${tool.serverId}` : tool.source;
   const status = !tool.available ? tool.reason || "unavailable" : !tool.enabled ? tool.reason || "disabled" : "available";
-  return [source, status, tool.approvalRequired ? "approval required" : ""].filter(Boolean).join(" / ");
+  return [source, status].filter(Boolean).join(" / ");
 }
 
 function skillMeta(skill: Awaited<ReturnType<AppServices["toolsStore"]["listSkills"]>>[number]): string {
@@ -741,9 +734,8 @@ type SettingsModuleId = "provider-models" | "agent-defaults" | ConfigSettingsGro
 const settingsModules: Array<{ id: SettingsModuleId; label: string; description: string; groupId?: ConfigSettingsGroupId }> = [
   { id: "provider-models", label: "Provider & Models", description: "Providers, API keys, and model defaults" },
   { id: "agent-defaults", label: "Agent Defaults", description: "Runtime behavior for new agent turns" },
-  { id: "tools-approvals", label: "Tools & MCP", description: "Tool access and MCP server configuration", groupId: "tools-approvals" },
+  { id: "tools-mcp", label: "Tools & MCP", description: "Tool access and MCP server configuration", groupId: "tools-mcp" },
   { id: "channels", label: "Channels", description: "Progress signals and delivery retries", groupId: "channels" },
-  { id: "gateway-runtime", label: "Gateway & Runtime", description: "Local port and heartbeat behavior", groupId: "gateway-runtime" },
 ];
 
 function SettingsLayout({

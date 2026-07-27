@@ -1,7 +1,6 @@
 use super::*;
 use crate::agent::runtime_protocol::{
-    AgentRuntimeEventAppendInput, AgentRuntimeEventSource, AgentRuntimeEventVisibility,
-    AgentRuntimePhase, AgentTurnEmitter,
+    AgentEventKind, AgentRuntimeEventAppendInput, AgentRuntimePhase, AgentTurnEmitter,
 };
 
 #[derive(Default)]
@@ -167,11 +166,9 @@ fn buffered_trace_sink_keeps_all_status_progress_live_only() {
     let phase = emitter.emit(AgentRuntimeEventAppendInput {
         parent_turn_id: None,
         item_id: None,
-        event_name: "agent.phase.changed".to_string(),
+        event_kind: AgentEventKind::PhaseChanged,
         phase: AgentRuntimePhase::Planning,
         timestamp: "unix-ms:1".to_string(),
-        source: AgentRuntimeEventSource::RustBackend,
-        visibility: AgentRuntimeEventVisibility::Debug,
         payload: serde_json::json!({
             "previousPhase": "queued",
             "nextPhase": "planning",
@@ -181,11 +178,9 @@ fn buffered_trace_sink_keeps_all_status_progress_live_only() {
     let status = emitter.emit(AgentRuntimeEventAppendInput {
         parent_turn_id: None,
         item_id: None,
-        event_name: "agent.status".to_string(),
+        event_kind: AgentEventKind::Status,
         phase: AgentRuntimePhase::Planning,
         timestamp: "unix-ms:2".to_string(),
-        source: AgentRuntimeEventSource::RustBackend,
-        visibility: AgentRuntimeEventVisibility::User,
         payload: serde_json::json!({
             "phase": "planning",
             "label": "Planning",
@@ -196,11 +191,9 @@ fn buffered_trace_sink_keeps_all_status_progress_live_only() {
     let blocking_status = emitter.emit(AgentRuntimeEventAppendInput {
         parent_turn_id: None,
         item_id: None,
-        event_name: "agent.status".to_string(),
+        event_kind: AgentEventKind::Status,
         phase: AgentRuntimePhase::AwaitingForm,
         timestamp: "unix-ms:3".to_string(),
-        source: AgentRuntimeEventSource::RustBackend,
-        visibility: AgentRuntimeEventVisibility::User,
         payload: serde_json::json!({
             "phase": "awaiting_form",
             "label": "Waiting for input",

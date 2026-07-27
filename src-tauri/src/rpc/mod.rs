@@ -39,10 +39,7 @@ use crate::tools::executor::{
     tool_not_found_error, tool_unavailable_error, ToolExecutorExecuteRequest,
     ToolExecutorExecuteResult,
 };
-use crate::tools::permissions::{
-    PermissionDecision, PermissionEvaluateToolRequest, PermissionRequestToolApprovalRequest,
-    PermissionResolveToolApprovalRequest, WorkerPermissionProfileRpc,
-};
+use crate::tools::permissions::{PermissionEvaluateToolRequest, WorkerPermissionProfileRpc};
 use crate::tools::registry::{
     ToolExecutionTarget, ToolExposure, ToolRegistrySearchRequest, WorkerToolRegistryRpc,
 };
@@ -57,7 +54,6 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::path::PathBuf;
 
-mod approval;
 mod background_dispatch;
 mod channel;
 mod config_dispatch;
@@ -75,7 +71,6 @@ mod tool_dispatch;
 mod turn_dispatch;
 mod workspace_dispatch;
 
-use self::approval::WorkerApprovalRpc;
 use self::channel::WorkerChannelConnectorRpc;
 use self::errors::unknown_method_error;
 use self::form::WorkerFormRpc;
@@ -93,7 +88,6 @@ pub struct WorkerRpcRouter {
     secret: WorkerSecretRpc,
     diagnostics: WorkerDiagnosticsRpc,
     shell: WorkerShellRpc,
-    approval: WorkerApprovalRpc,
     form: WorkerFormRpc,
     memory: WorkerMemoryRpc,
     task: WorkerTaskRpc,
@@ -141,7 +135,6 @@ impl WorkerRpcRouter {
             secret: WorkerSecretRpc::new(config_snapshot.clone(), policy.clone()),
             diagnostics: WorkerDiagnosticsRpc::new(diagnostic_capacity, policy.clone()),
             shell: WorkerShellRpc::new(workspace_root.clone(), policy.clone()),
-            approval: WorkerApprovalRpc::new(policy.clone()),
             form: WorkerFormRpc::new(policy.clone()),
             memory: WorkerMemoryRpc::new(workspace_root.clone(), policy.clone()),
             task: WorkerTaskRpc::new(workspace_root.clone(), policy.clone()),
@@ -280,7 +273,6 @@ impl WorkerRpcRouter {
                 if method == "diagnostics.append"
                     || method.starts_with("channel.connector.")
                     || method.starts_with("shell.")
-                    || method.starts_with("approval.")
                     || method == "form.request" =>
             {
                 self.dispatch_interaction_method(request)
@@ -308,169 +300,6 @@ impl WorkerRpcRouter {
         }
     }
 
-    fn request_tool_approval(
-        &mut self,
-        request: &WorkerRequest,
-        params: PermissionRequestToolApprovalRequest,
-    ) -> Result<Value, crate::protocol::WorkerProtocolError> {
-        let tool = self
-            .tool_registry
-            .get_tool(&params.tool_id)
-            .ok_or_else(|| {
-                self.permission_profile
-                    .tool_not_found_error(&params.tool_id)
-            })?;
-        let evaluation = self.permission_profile.evaluate_tool(
-            &tool,
-            PermissionEvaluateToolRequest {
-                tool_id: params.tool_id.clone(),
-                arguments: params.arguments,
-                session_id: params.session_id.clone(),
-                turn_id: params.turn_id.clone(),
-            },
-        )?;
-
-        if evaluation.decision == PermissionDecision::Allow {
-            return Ok(serde_json::json!({
-                "status": "allowed",
-                "evaluation": evaluation,
-                "appendedItems": []
-            }));
-        }
-        if evaluation.decision == PermissionDecision::Deny {
-            return Ok(serde_json::json!({
-                "status": "denied",
-                "evaluation": evaluation,
-                "appendedItems": []
-            }));
-        }
-
-        let approval_request = evaluation.approval_request.clone().ok_or_else(|| {
-            WorkerProtocolError::new(
-                WorkerProtocolErrorCode::InvalidProtocol,
-                "tool approval request is unavailable",
-                serde_json::json!({
-                    "method": request.method,
-                    "toolId": params.tool_id,
-                }),
-                false,
-                WorkerProtocolErrorSource::RustCore,
-            )
-        })?;
-        let turn_id = params
-            .turn_id
-            .clone()
-            .or_else(|| approval_request.turn_id.clone())
-            .unwrap_or_else(|| tool.method.to_string());
-        let approval = self.approval.request_from_request(&WorkerRequest::new(
-            format!("{}:approval-request", request.id),
-            request.trace_id.clone(),
-            "approval.request",
-            serde_json::json!({
-                "turn_id": turn_id,
-                "session_id": params.session_id,
-                "operation": approval_request.operation,
-                "classification": {
-                    "category": approval_request.category,
-                    "risk": approval_request.risk,
-                    "reason": approval_request.reason
-                },
-                "fingerprint": approval_request.fingerprint,
-                "sessionFingerprint": approval_request.session_fingerprint,
-                "summary": approval_request.summary,
-                "scope": approval_request.scope,
-                "lifetime": approval_request.lifetime,
-                "effects": approval_request.effects
-            }),
-        ))?;
-
-        let mut appended_items = Vec::new();
-        if let Some(thread_id) = params.thread_id.as_deref() {
-            let approval_id = approval
-                .get("approvalId")
-                .and_then(Value::as_str)
-                .map(str::to_string);
-            let summary = approval
-                .get("summary")
-                .and_then(Value::as_str)
-                .map(str::to_string);
-            let client_event_id = params
-                .client_event_id
-                .clone()
-                .unwrap_or_else(|| format!("{}:approval-request", request.id));
-            appended_items.extend(
-                self.apply_thread_op(
-                    thread_id,
-                    client_event_id,
-                    ThreadOp::ApprovalRequest {
-                        turn_id: params.turn_id,
-                        approval_id,
-                        summary,
-                        scope: approval
-                            .get("scope")
-                            .and_then(Value::as_str)
-                            .map(str::to_string),
-                        payload: approval.clone(),
-                    },
-                )?,
-            );
-        }
-
-        Ok(serde_json::json!({
-            "status": "awaiting_approval",
-            "evaluation": evaluation,
-            "approval": approval,
-            "appendedItems": appended_items
-        }))
-    }
-
-    fn resolve_tool_approval(
-        &mut self,
-        request: &WorkerRequest,
-        params: PermissionResolveToolApprovalRequest,
-    ) -> Result<Value, crate::protocol::WorkerProtocolError> {
-        let resolution = self.approval.resolve_from_request(&WorkerRequest::new(
-            format!("{}:approval-resolve", request.id),
-            request.trace_id.clone(),
-            "approval.resolve",
-            serde_json::json!({
-                "session_id": params.session_id,
-                "approval_id": params.approval_id,
-                "approved": params.approved,
-                "scope": params.scope
-            }),
-        ))?;
-
-        let mut appended_items = Vec::new();
-        if let Some(thread_id) = params.thread_id.as_deref() {
-            let client_event_id = params
-                .client_event_id
-                .clone()
-                .unwrap_or_else(|| format!("{}:approval-resolve", request.id));
-            appended_items.extend(self.apply_thread_op(
-                thread_id,
-                client_event_id,
-                ThreadOp::ApprovalDecision {
-                    turn_id: params.turn_id,
-                    approval_id: Some(params.approval_id),
-                    approved: params.approved,
-                    scope: params.scope,
-                    guidance: params.guidance,
-                    payload: resolution.clone(),
-                },
-            )?);
-        }
-
-        Ok(serde_json::json!({
-            "status": resolution
-                .get("status")
-                .and_then(Value::as_str)
-                .unwrap_or(if params.approved { "approved" } else { "denied" }),
-            "resolution": resolution,
-            "appendedItems": appended_items
-        }))
-    }
-
     fn execute_registered_tool(
         &mut self,
         request: &WorkerRequest,
@@ -489,8 +318,6 @@ impl WorkerRpcRouter {
             PermissionEvaluateToolRequest {
                 tool_id: params.tool_id.clone(),
                 arguments: params.arguments.clone(),
-                session_id: params.session_id.clone(),
-                turn_id: params.turn_id.clone(),
             },
         )?;
         let tool_call_id = params.thread_id.as_ref().map(|_| {

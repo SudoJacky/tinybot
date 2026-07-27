@@ -51,6 +51,60 @@ fn rollout_reconstruction_rejects_turnless_thread_items() {
 }
 
 #[test]
+fn rollout_reconstruction_skips_historical_approval_items_without_losing_other_history() {
+    let thread_item = |ordinal, item_id: &str, kind: Value| ThreadLogLine {
+        timestamp: format!("2026-07-23T00:00:0{ordinal}Z"),
+        ordinal: Some(ordinal),
+        item: value_event(
+            EventKind::ThreadItem,
+            serde_json::json!({
+                "item": {
+                    "itemId": item_id,
+                    "threadId": "thread-history",
+                    "turnId": "turn-1",
+                    "sequence": ordinal + 1,
+                    "createdAt": "2026-07-23T00:00:00Z",
+                    "kind": kind
+                }
+            }),
+        ),
+    };
+    let lines = vec![
+        thread_item(
+            0,
+            "old-request",
+            serde_json::json!({
+                "type": "approval_requested",
+                "payload": { "approvalId": "old-1" }
+            }),
+        ),
+        thread_item(
+            1,
+            "message-1",
+            serde_json::json!({
+                "type": "user_message",
+                "payload": { "content": "keep this message" }
+            }),
+        ),
+        thread_item(
+            2,
+            "old-decision",
+            serde_json::json!({
+                "type": "approval_resolved",
+                "payload": { "approvalId": "old-1" }
+            }),
+        ),
+    ];
+
+    let items = thread_items_from_effective_rollout(&lines, &[0, 1, 2], "thread-history")
+        .expect("historical compatibility items should not prevent reconstruction");
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].item_id, "message-1");
+    assert!(matches!(items[0].kind, ThreadItemKind::UserMessage(_)));
+}
+
+#[test]
 fn repeated_identical_thread_record_does_not_append_metadata_snapshot() {
     let root = std::env::temp_dir().join(format!(
         "tinybot-thread-metadata-noop-{}-{}",

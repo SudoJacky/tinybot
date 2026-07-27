@@ -69,24 +69,6 @@ function taskNotificationForItem(item: DesktopTaskCenterItem): DesktopTaskNotifi
       body: notificationBody(item),
     };
   }
-  if (item.source === "gateway" && item.state === "failed") {
-    return {
-      title: "Tinybot gateway needs attention",
-      body: notificationBody(item),
-    };
-  }
-  if (item.source === "approval" && item.state === "blocked") {
-    return {
-      title: "Tinybot approval required",
-      body: notificationBody(item),
-    };
-  }
-  if (item.source === "cowork" && item.state === "blocked") {
-    return {
-      title: "Tinybot Cowork intervention needed",
-      body: notificationBody(item),
-    };
-  }
   if (item.state === "failed") {
     return {
       title: "Tinybot task failed",

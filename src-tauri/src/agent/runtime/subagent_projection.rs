@@ -112,9 +112,6 @@ fn subagent_activity_events(
                         .get("blockerSummary")
                         .and_then(Value::as_str)
                         .is_some()
-                        || status
-                            .get("pendingApproval")
-                            .is_some_and(|value| !value.is_null())
                     {
                         events.push(subagent_status_activity_event(
                             context,
@@ -198,7 +195,6 @@ fn subagent_status_activity_event(
         "status",
         "terminalResult",
         "blockerSummary",
-        "pendingApproval",
     ] {
         copy_field(&mut payload, subagent, field);
     }

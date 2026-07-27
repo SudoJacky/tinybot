@@ -1,46 +1,37 @@
 use super::item_event_projection::attach_agent_item;
-use super::{string_field, NativeAgentEvent};
+use super::string_field;
 use crate::agent::runtime_protocol::{
-    project_legacy_native_agent_event, resolve_event_name, AgentEventKind,
-    AgentRuntimeEventAppendInput, AgentRuntimeEventEnvelope, AgentRuntimePhase,
-    EventNameResolution, ItemIdentityRule, LegacyPolicy, PendingAgentEvent,
+    AgentEventKind, AgentRuntimeEventAppendInput, AgentRuntimePhase, ItemIdentityRule,
+    PendingAgentEvent,
 };
 use serde_json::Value;
 
-pub(super) fn event(kind: AgentEventKind, payload: Value) -> NativeAgentEvent {
+pub(crate) fn standalone_runtime_event(
+    turn_id: &str,
+    session_id: &str,
+    kind: AgentEventKind,
+    payload: Value,
+) -> crate::agent::runtime_protocol::AgentRuntimeEventEnvelope {
     let definition = kind.definition();
-    NativeAgentEvent {
-        event_name: definition.wire_name.to_string(),
-        payload: attach_agent_item(kind, payload),
-    }
-}
-
-pub(super) fn legacy_result_events_from_runtime_events(
-    runtime_events: &[AgentRuntimeEventEnvelope],
-) -> Vec<NativeAgentEvent> {
-    runtime_events
-        .iter()
-        .filter_map(|event| match resolve_event_name(&event.event_name) {
-            EventNameResolution::Canonical(kind)
-                if kind.definition().legacy == LegacyPolicy::Include =>
-            {
-                Some(NativeAgentEvent::from(project_legacy_native_agent_event(
-                    event,
-                )))
-            }
-            EventNameResolution::Canonical(_) => None,
-            EventNameResolution::DeprecatedIgnored(_) => {
-                log_deprecated_event_ignored(event);
-                None
-            }
-            EventNameResolution::Unknown => {
-                panic!(
-                    "unknown legacy runtime event `{}` cannot be projected",
-                    event.event_name
-                )
-            }
-        })
-        .collect()
+    let payload = attach_agent_item(kind, payload);
+    let phase = definition
+        .resolve_phase(&AgentRuntimePhase::Planning, &payload)
+        .expect("typed standalone runtime event must resolve catalog metadata");
+    crate::agent::runtime_protocol::AgentRuntimeEventEnvelope::from_event_kind(
+        crate::agent::runtime_protocol::AgentRuntimeEventEnvelopeInput {
+            session_id: session_id.to_string(),
+            thread_id: None,
+            turn_id: turn_id.to_string(),
+            parent_turn_id: None,
+            item_id: runtime_event_item_id(kind, &payload),
+            event_kind: kind,
+            phase,
+            sequence: 1,
+            timestamp: runtime_event_timestamp(),
+            trace_context: None,
+            payload,
+        },
+    )
 }
 
 pub(super) fn runtime_status_label(phase: &AgentRuntimePhase) -> Option<&'static str> {
@@ -86,11 +77,9 @@ pub(super) fn prepare_runtime_event_input(
     Ok(AgentRuntimeEventAppendInput {
         parent_turn_id,
         item_id,
-        event_name: definition.wire_name.to_string(),
+        event_kind: kind,
         phase,
         timestamp,
-        source: definition.source,
-        visibility: definition.visibility,
         payload,
     })
 }
@@ -156,11 +145,4 @@ fn validate_identity_field(
         ));
     }
     Ok(())
-}
-
-pub(super) fn log_deprecated_event_ignored(event: &AgentRuntimeEventEnvelope) {
-    eprintln!(
-        "agent_runtime_deprecated_event_ignored event_name={} session_id={} turn_id={}",
-        event.event_name, event.session_id, event.turn_id
-    );
 }

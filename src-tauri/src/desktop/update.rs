@@ -2,11 +2,11 @@ use serde::Serialize;
 
 use super::{
     logging::append_native_backend_log_line,
-    state::{append_log, lock_runtime, SharedGateway, NATIVE_BACKEND_LOG_MAX_BYTES},
+    state::{append_log, lock_runtime, SharedNativeRuntime, NATIVE_BACKEND_LOG_MAX_BYTES},
 };
 
 #[cfg(windows)]
-use crate::desktop_commands::gateway::stop_owned_gateway;
+use crate::desktop_commands::runtime::shutdown_native_runtime;
 #[cfg(windows)]
 use tauri::AppHandle;
 #[cfg(windows)]
@@ -39,7 +39,7 @@ fn update_diagnostic_line(
 }
 
 fn record_update_event(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     event: &str,
     current_version: Option<&str>,
     available_version: Option<&str>,
@@ -55,7 +55,7 @@ fn record_update_event(
 }
 
 fn report_update_event(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     event: &str,
     current_version: Option<&str>,
     available_version: Option<&str>,
@@ -75,7 +75,7 @@ fn require_clean_shutdown(shutdown_result: Result<(), String>) -> Result<(), Str
 }
 
 #[cfg(windows)]
-pub(crate) fn spawn_startup_auto_update(app: AppHandle, shared: SharedGateway) {
+pub(crate) fn spawn_startup_auto_update(app: AppHandle, shared: SharedNativeRuntime) {
     tauri::async_runtime::spawn(async move {
         if let Err(error) = run_startup_auto_update(app, shared.clone()).await {
             report_update_event(&shared, "update_failed", None, None, Some(&error));
@@ -85,7 +85,10 @@ pub(crate) fn spawn_startup_auto_update(app: AppHandle, shared: SharedGateway) {
 }
 
 #[cfg(windows)]
-async fn run_startup_auto_update(app: AppHandle, shared: SharedGateway) -> Result<(), String> {
+async fn run_startup_auto_update(
+    app: AppHandle,
+    shared: SharedNativeRuntime,
+) -> Result<(), String> {
     let current_version = app.package_info().version.to_string();
     report_update_event(&shared, "check_started", Some(&current_version), None, None);
 
@@ -128,10 +131,11 @@ async fn run_startup_auto_update(app: AppHandle, shared: SharedGateway) -> Resul
     );
 
     let shutdown_shared = shared.clone();
-    let shutdown_result =
-        tauri::async_runtime::spawn_blocking(move || stop_owned_gateway(&shutdown_shared, true))
-            .await
-            .map_err(|error| format!("runtime shutdown task failed: {error}"))?;
+    let shutdown_result = tauri::async_runtime::spawn_blocking(move || {
+        shutdown_native_runtime(&shutdown_shared, true)
+    })
+    .await
+    .map_err(|error| format!("runtime shutdown task failed: {error}"))?;
     require_clean_shutdown(shutdown_result)?;
     report_update_event(
         &shared,

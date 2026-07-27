@@ -994,7 +994,7 @@ fn dispatches_thread_runtime_turn_requests() {
         "thread.continue_turn",
         json!({
             "threadId": thread_id,
-            "input": { "approval": "continue" }
+            "input": { "continuation": "continue" }
         }),
     ));
     assert_eq!(continue_turn.error, None);
@@ -1136,7 +1136,7 @@ fn dispatches_thread_runtime_turn_requests_idempotently() {
         json!({
             "threadId": "thread-runtime-idempotent",
             "clientEventId": "direct-continue-client-1",
-            "input": { "approval": "continue" }
+            "input": { "continuation": "continue" }
         }),
     ));
     assert_eq!(continue_turn.error, None);
@@ -1167,7 +1167,7 @@ fn dispatches_thread_runtime_turn_requests_idempotently() {
         json!({
             "threadId": "thread-runtime-idempotent",
             "clientEventId": "direct-continue-client-1",
-            "input": { "approval": "retry must replay" }
+            "input": { "continuation": "retry must replay" }
         }),
     ));
     assert_eq!(continue_retry.error, None);
@@ -1423,8 +1423,6 @@ fn dispatches_tool_registry_list_with_capability_metadata() {
     assert_eq!(shell["exposure"], "hidden");
     assert_eq!(shell["available"], false);
     assert_eq!(shell["requiredCapabilities"], json!(["shell.execute"]));
-    assert_eq!(shell["approval"]["required"], false);
-    assert_eq!(shell["approval"]["scope"], Value::Null);
 
     let mcp = tools
         .iter()
@@ -1442,7 +1440,6 @@ fn dispatches_tool_registry_list_with_capability_metadata() {
         write_file["requiredCapabilities"],
         json!(["fs.workspace.write"])
     );
-    assert_eq!(write_file["approval"]["required"], false);
     assert_eq!(write_file["available"], false);
 }
 
@@ -1524,7 +1521,6 @@ fn dispatches_permission_profile_current_with_tool_decisions() {
         CapabilityPolicy::new([
             WorkerCapability::FsWorkspaceRead,
             WorkerCapability::FsWorkspaceWrite,
-            WorkerCapability::ApprovalRequest,
             WorkerCapability::MemoryRead,
         ]),
     );
@@ -1539,7 +1535,6 @@ fn dispatches_permission_profile_current_with_tool_decisions() {
     assert_eq!(response.error, None);
     let result = response.result.as_ref().unwrap();
     assert_eq!(result["profileId"], "local-worker");
-    assert_eq!(result["approvalPolicy"], "disabled");
     assert_eq!(result["sandbox"]["mode"], "none");
     assert_eq!(result["sandbox"]["filesystem"], "current_user");
     assert_eq!(result["sandbox"]["network"], "current_user");
@@ -1562,7 +1557,6 @@ fn dispatches_permission_profile_current_with_tool_decisions() {
         .find(|tool| tool["toolId"] == "memory.search")
         .expect("memory.search decision should be present");
     assert_eq!(memory_search["decision"], "allow");
-    assert_eq!(memory_search["requiresApproval"], false);
     let write_file = result["tools"]
         .as_array()
         .unwrap()
@@ -1570,8 +1564,6 @@ fn dispatches_permission_profile_current_with_tool_decisions() {
         .find(|tool| tool["toolId"] == "workspace.write_file")
         .expect("workspace.write_file decision should be present");
     assert_eq!(write_file["decision"], "allow");
-    assert_eq!(write_file["requiresApproval"], false);
-    assert_eq!(write_file["approval"]["scope"], Value::Null);
     let shell = result["tools"]
         .as_array()
         .unwrap()
@@ -1583,17 +1575,14 @@ fn dispatches_permission_profile_current_with_tool_decisions() {
 }
 
 #[test]
-fn dispatches_permission_profile_evaluate_tool_without_approval() {
+fn dispatches_permission_profile_evaluate_tool() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
         vec![],
         20,
-        CapabilityPolicy::new([
-            WorkerCapability::ShellExecute,
-            WorkerCapability::ApprovalRequest,
-        ]),
+        CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     );
 
     let response = router.dispatch(&WorkerRequest::new(
@@ -1612,8 +1601,6 @@ fn dispatches_permission_profile_evaluate_tool_without_approval() {
     let result = response.result.as_ref().unwrap();
     assert_eq!(result["tool"]["toolId"], "shell.execute");
     assert_eq!(result["decision"], "allow");
-    assert_eq!(result["requiresApproval"], false);
-    assert!(result.get("approvalRequest").is_none());
     assert_eq!(result["effects"]["network"]["mode"], "unrestricted");
 }
 
@@ -1642,104 +1629,25 @@ fn dispatches_permission_profile_evaluate_tool_denies_missing_capability() {
     let result = response.result.as_ref().unwrap();
     assert_eq!(result["tool"]["toolId"], "mcp.call_tool");
     assert_eq!(result["decision"], "deny");
-    assert_eq!(result["requiresApproval"], false);
     assert_eq!(result["missingCapabilities"], json!(["mcp.call"]));
-    assert!(result.get("approvalRequest").is_none());
 }
 
 #[test]
-fn permission_profile_request_reports_allowed_without_creating_approval_item() {
+fn shell_runs_directly() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
         vec![],
         20,
-        CapabilityPolicy::new([
-            WorkerCapability::ShellExecute,
-            WorkerCapability::ApprovalRequest,
-            WorkerCapability::SessionMetadataRead,
-            WorkerCapability::SessionWrite,
-        ]),
-    );
-    let create = router.dispatch(&WorkerRequest::new(
-        "req-permission-approval-thread-create",
-        "trace-permission-approval",
-        "thread.create",
-        json!({
-            "threadId": "thread-permission-approval",
-            "title": "Permission approval thread"
-        }),
-    ));
-    assert_eq!(create.error, None);
-    let start = router.dispatch(&WorkerRequest::new(
-        "req-permission-approval-thread-start",
-        "trace-permission-approval",
-        "thread.start_turn",
-        json!({
-            "threadId": "thread-permission-approval",
-            "turnId": "turn-permission-approval",
-            "input": { "content": "run shell" }
-        }),
-    ));
-    assert_eq!(start.error, None);
-
-    let response = router.dispatch(&WorkerRequest::new(
-        "req-permission-approval-request",
-        "trace-permission-approval",
-        "permission_profile.request_tool_approval",
-        json!({
-            "toolId": "shell.execute",
-            "threadId": "thread-permission-approval",
-            "turnId": "turn-permission-approval",
-            "sessionId": "session-permission-approval",
-            "arguments": { "command": "echo needs approval" }
-        }),
-    ));
-
-    assert_eq!(response.error, None);
-    let result = response.result.as_ref().unwrap();
-    assert_eq!(result["status"], "allowed");
-    assert_eq!(result["evaluation"]["decision"], "allow");
-    assert!(result.get("approval").is_none());
-    assert_eq!(result["appendedItems"].as_array().unwrap().len(), 0);
-
-    let snapshot = router.dispatch(&WorkerRequest::new(
-        "req-permission-approval-thread-snapshot",
-        "trace-permission-approval",
-        "thread.read",
-        json!({ "threadId": "thread-permission-approval" }),
-    ));
-    assert_eq!(snapshot.error, None);
-    let item_kinds = snapshot.result.as_ref().unwrap()["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|item| item["kind"]["type"].as_str().unwrap().to_string())
-        .collect::<Vec<_>>();
-    assert_eq!(item_kinds, vec!["user_message", "turn_started"]);
-}
-
-#[test]
-fn shell_runs_directly_without_permission_profile_approval() {
-    let fixture = WorkspaceFixture::new();
-    let mut router = WorkerRpcRouter::new(
-        fixture.root.clone(),
-        json!({}),
-        vec![],
-        20,
-        CapabilityPolicy::new([
-            WorkerCapability::ShellExecute,
-            WorkerCapability::ApprovalRequest,
-            WorkerCapability::ApprovalResolve,
-        ]),
+        CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     );
     let shell_response = router.dispatch(&WorkerRequest::new(
         "req-permission-grant-shell",
         "trace-permission-grant",
         "shell.execute",
         json!({
-            "command": "echo approval grant works",
+            "command": "echo direct shell works",
             "working_dir": ".",
             "timeout": 5,
             "session_id": "session-permission-grant",
@@ -1753,22 +1661,18 @@ fn shell_runs_directly_without_permission_profile_approval() {
     assert!(result["content"]
         .as_str()
         .unwrap()
-        .contains("approval grant works"));
+        .contains("direct shell works"));
 }
 
 #[test]
-fn tool_executor_forwards_top_level_context_without_approval() {
+fn tool_executor_forwards_top_level_context() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
         vec![],
         20,
-        CapabilityPolicy::new([
-            WorkerCapability::ShellExecute,
-            WorkerCapability::ApprovalRequest,
-            WorkerCapability::ApprovalResolve,
-        ]),
+        CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     );
     let executor_response = router.dispatch(&WorkerRequest::new(
         "req-executor-grant-shell",
@@ -2027,11 +1931,10 @@ fn dispatches_thread_agent_registry_for_parent_and_child_threads() {
                         "depth": 1,
                         "capacity": { "maxActivePerSession": 4 },
                         "lifecycle": {
-                            "status": "awaiting_approval",
+                            "status": "running",
                             "active": true,
                             "terminal": false,
-                            "mailboxDepth": 2,
-                            "pendingApproval": { "approvalId": "approval-child-1" }
+                            "mailboxDepth": 2
                         }
                     }
                 }
@@ -2065,22 +1968,6 @@ fn dispatches_thread_agent_registry_for_parent_and_child_threads() {
         }),
     ));
     assert_eq!(checkpoint.error, None);
-    let approval = router.dispatch(&WorkerRequest::new(
-        "req-thread-agent-registry-child-approval",
-        "trace-thread-agent-registry",
-        "thread.apply_op",
-        json!({
-            "threadId": "thread-agent-child",
-            "op": {
-                "type": "approval_request",
-                "turnId": "turn-agent-child",
-                "approvalId": "approval-child-1",
-                "summary": "Allow child tool?"
-            }
-        }),
-    ));
-    assert_eq!(approval.error, None);
-
     let response = router.dispatch(&WorkerRequest::new(
         "req-thread-agent-registry",
         "trace-thread-agent-registry",
@@ -2093,7 +1980,6 @@ fn dispatches_thread_agent_registry_for_parent_and_child_threads() {
     assert_eq!(result["rootThreadId"], "thread-agent-parent");
     assert_eq!(result["total"], 2);
     assert_eq!(result["activeCount"], 2);
-    assert_eq!(result["waitingForApprovalCount"], 1);
     assert_eq!(result["agents"][0]["threadId"], "thread-agent-parent");
     assert_eq!(result["agents"][0]["role"], "main");
     assert_eq!(result["agents"][0]["childCount"], 1);
@@ -2104,15 +1990,6 @@ fn dispatches_thread_agent_registry_for_parent_and_child_threads() {
     assert_eq!(
         result["agents"][1]["latestCheckpoint"]["checkpointId"],
         "checkpoint-child-agent"
-    );
-    assert!(result["agents"][1]["turnItems"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|item| item["kind"] != "approval"));
-    assert_eq!(
-        result["agents"][1]["pendingApproval"]["approvalId"],
-        "approval-child-1"
     );
 }
 
@@ -2170,15 +2047,6 @@ fn dispatches_thread_activity_for_activity_rail_summary() {
                 "toolCallId": "tool-activity-1",
                 "toolName": "workspace.read_file",
                 "args": { "path": "notes/today.md" }
-            }),
-        ),
-        (
-            "req-thread-activity-approval",
-            json!({
-                "type": "approval_request",
-                "turnId": "turn-activity-parent",
-                "approvalId": "approval-activity-1",
-                "summary": "Allow workspace read?"
             }),
         ),
     ] {
@@ -2246,14 +2114,9 @@ fn dispatches_thread_activity_for_activity_rail_summary() {
     assert_eq!(response.error, None);
     let result = response.result.as_ref().unwrap();
     assert_eq!(result["threadId"], "thread-activity-parent");
-    assert_eq!(result["summary"]["pendingApprovals"], 1);
     assert_eq!(result["summary"]["runningTools"], 1);
     assert_eq!(result["summary"]["checkpoints"], 1);
     assert_eq!(result["summary"]["activeChildren"], 1);
-    assert_eq!(
-        result["pendingApprovals"][0]["approvalId"],
-        "approval-activity-1"
-    );
     assert_eq!(result["runningTools"][0]["toolCallId"], "tool-activity-1");
     assert_eq!(
         result["checkpoints"][0]["checkpointId"],
@@ -2388,9 +2251,7 @@ fn dispatches_tool_executor_execute_for_registered_memory_tool() {
     assert_eq!(result["method"], "memory.search");
     assert_eq!(result["namespace"], "memory");
     assert_eq!(result["exposure"], "deferred");
-    assert_eq!(result["approval"]["required"], false);
     assert_eq!(result["permission"]["decision"], "allow");
-    assert_eq!(result["permission"]["requiresApproval"], false);
     assert_eq!(result["permission"]["tool"]["toolId"], "memory.search");
     assert_eq!(result["result"]["notes"], json!([]));
 }
@@ -2533,7 +2394,7 @@ fn dispatches_tool_executor_rejects_unavailable_registered_tool() {
 }
 
 #[test]
-fn dispatches_tool_executor_shell_without_approval_boundary() {
+fn dispatches_tool_executor_shell() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -2544,13 +2405,13 @@ fn dispatches_tool_executor_shell_without_approval_boundary() {
     );
 
     let response = router.dispatch(&WorkerRequest::new(
-        "req-tool-executor-shell-approval",
+        "req-tool-executor-shell",
         "trace-tool-executor",
         "tool_executor.execute",
         json!({
             "toolId": "shell.execute",
             "arguments": {
-                "command": "echo needs approval",
+                "command": "echo tool executor",
                 "sessionId": "session-1",
                 "turnId": "turn-1"
             }
@@ -2562,7 +2423,7 @@ fn dispatches_tool_executor_shell_without_approval_boundary() {
 }
 
 #[test]
-fn mcp_tool_calls_reach_mcp_validation_without_approval_boundary() {
+fn mcp_tool_calls_reach_mcp_validation() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -2914,7 +2775,7 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
             "clientEventId": "continue-client-1",
             "op": {
                 "type": "continue_turn",
-                "input": { "approval": "continue" }
+                "input": { "continuation": "continue" }
             }
         }),
     ));
@@ -2941,7 +2802,7 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
             "clientEventId": "continue-client-1",
             "op": {
                 "type": "continue_turn",
-                "input": { "approval": "retry should not append" }
+                "input": { "continuation": "retry should not append" }
             }
         }),
     ));
@@ -2952,7 +2813,7 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
     );
     assert_eq!(
         continue_turn_retry.result.as_ref().unwrap()["appendedItems"][0]["kind"]["payload"]
-            ["payload"]["approval"],
+            ["payload"]["continuation"],
         "continue"
     );
 
@@ -2988,34 +2849,6 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
         "outlined"
     );
 
-    let approval_request = router.dispatch(&WorkerRequest::new(
-        "req-thread-op-approval-request",
-        "trace-thread-op",
-        "thread.apply_op",
-        json!({
-            "threadId": thread_id,
-            "op": {
-                "type": "approval_request",
-                "approvalId": "approval-op-1",
-                "summary": "Allow workspace read",
-                "scope": "once",
-                "payload": {
-                    "reason": "Read workspace file"
-                }
-            }
-        }),
-    ));
-    assert_eq!(approval_request.error, None);
-    assert_eq!(
-        approval_request.result.as_ref().unwrap()["appendedItems"][0]["kind"]["type"],
-        "approval_requested"
-    );
-    let approval_request_item_id = approval_request.result.as_ref().unwrap()["appendedItems"][0]
-        ["itemId"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
     let tool_call_start = router.dispatch(&WorkerRequest::new(
         "req-thread-op-tool-call-start",
         "trace-thread-op",
@@ -3042,43 +2875,6 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
         .as_str()
         .unwrap()
         .to_string();
-
-    let approval = router.dispatch(&WorkerRequest::new(
-        "req-thread-op-approval",
-        "trace-thread-op",
-        "thread.apply_op",
-        json!({
-            "threadId": thread_id,
-            "op": {
-                "type": "approval_decision",
-                "approvalId": "approval-op-1",
-                "approved": true,
-                "scope": "once",
-                "guidance": "Allowed for this turn"
-            }
-        }),
-    ));
-    assert_eq!(approval.error, None);
-    assert_eq!(
-        approval.result.as_ref().unwrap()["turn"]["turnId"],
-        "turn-op-1"
-    );
-    assert_eq!(
-        approval.result.as_ref().unwrap()["appendedItems"][0]["kind"]["type"],
-        "approval_resolved"
-    );
-    assert_eq!(
-        approval.result.as_ref().unwrap()["appendedItems"][0]["kind"]["payload"]["approvalId"],
-        "approval-op-1"
-    );
-    assert_eq!(
-        approval.result.as_ref().unwrap()["appendedItems"][0]["parentItemId"],
-        approval_request_item_id
-    );
-    assert_eq!(
-        approval.result.as_ref().unwrap()["snapshot"]["thread"]["status"],
-        "running"
-    );
 
     let tool_result = router.dispatch(&WorkerRequest::new(
         "req-thread-op-tool-result",
@@ -3291,7 +3087,7 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
             "threadId": thread_id,
             "op": {
                 "type": "continue_turn",
-                "input": { "approval": "late continue" }
+                "input": { "continuation": "late continue" }
             }
         }),
     ));
@@ -4425,23 +4221,20 @@ fn agent_turn_requests_ignore_thread_only_items() {
         json!({
             "threadId": "thread-session-1",
             "items": [{
-                "itemId": "agent-turn:session-1:turn-thread-only:trace:approval-1",
+                "itemId": "agent-turn:session-1:turn-thread-only:checkpoint-1",
                 "threadId": "",
                 "turnId": "turn-thread-only",
                 "sequence": 0,
                 "createdAt": "2026-07-05T00:00:00Z",
                 "kind": {
-                    "type": "approval_requested",
+                    "type": "checkpoint_created",
                     "payload": {
-                        "eventId": "approval-1",
-                        "sessionId": "session-1",
+                        "checkpointId": "checkpoint-1",
+                        "threadId": "thread-session-1",
                         "turnId": "turn-thread-only",
                         "sequence": 1,
-                        "timestamp": "2026-07-05T00:00:00Z",
-                        "payload": {
-                            "approvalId": "approval-1",
-                            "summary": "Allow workspace.write_file?"
-                        }
+                        "createdAt": "2026-07-05T00:00:00Z",
+                        "restorePayload": { "phase": "awaiting_tool" }
                     }
                 }
             }]
@@ -4630,23 +4423,16 @@ fn dispatches_thread_status_includes_active_child_activity() {
         json!({
             "threadId": "thread-child-activity",
             "items": [{
-                "itemId": "agent-turn:session-activity:turn-child-active:trace:approval-child",
+                "itemId": "agent-turn:session-activity:turn-child-active:started",
                 "threadId": "",
                 "turnId": "turn-child-active",
                 "sequence": 0,
                 "createdAt": "2026-07-05T00:01:00Z",
                 "kind": {
-                    "type": "approval_requested",
+                    "type": "turn_started",
                     "payload": {
-                        "eventId": "approval-child",
-                        "sessionId": "session-activity",
                         "turnId": "turn-child-active",
-                        "sequence": 1,
-                        "timestamp": "2026-07-05T00:01:00Z",
-                        "payload": {
-                            "approvalId": "approval-child",
-                            "summary": "Allow child write?"
-                        }
+                        "startedAt": "2026-07-05T00:01:00Z"
                     }
                 }
             }]
@@ -4717,8 +4503,7 @@ fn dispatches_thread_status_includes_active_child_activity() {
         events.result.as_ref().unwrap()["childActivities"][0]["turnItems"]
             .as_array()
             .unwrap()
-            .iter()
-            .all(|item| item["kind"] != "approval")
+            .is_empty()
     );
     assert_eq!(
         events.result.as_ref().unwrap()["events"][2]["type"],
@@ -4732,8 +4517,7 @@ fn dispatches_thread_status_includes_active_child_activity() {
         events.result.as_ref().unwrap()["events"][2]["childActivity"]["turnItems"]
             .as_array()
             .unwrap()
-            .iter()
-            .all(|item| item["kind"] != "approval")
+            .is_empty()
     );
 }
 

@@ -13,7 +13,7 @@ import type {
   SettingsStore,
 } from "../services";
 
-export type ConfigSettingsGroupId = "tools-approvals" | "channels" | "gateway-runtime";
+export type ConfigSettingsGroupId = "tools-mcp" | "channels";
 
 type ConfigSettingsPageProps = {
   groupId: ConfigSettingsGroupId;
@@ -21,17 +21,13 @@ type ConfigSettingsPageProps = {
 };
 
 const GROUP_COPY: Record<ConfigSettingsGroupId, { title: string; description: string }> = {
-  "tools-approvals": {
+  "tools-mcp": {
     title: "Tools & MCP",
     description: "Configure built-in tools, workspace boundaries, and raw MCP server definitions.",
   },
   channels: {
     title: "Channels",
     description: "Choose which progress signals are emitted and how failed deliveries are retried.",
-  },
-  "gateway-runtime": {
-    title: "Gateway & Runtime",
-    description: "Manage the desktop-owned local gateway port and heartbeat behavior.",
   },
 };
 
@@ -46,13 +42,10 @@ const FIELD_COPY: Record<string, string> = {
   sendProgress: "Send intermediate progress events to connected clients.",
   sendToolHints: "Include tool activity hints with progress events.",
   sendMaxRetries: "Maximum delivery retries after a channel send failure.",
-  port: "TCP port used by the local Tinybot gateway. Changing it requires a gateway restart.",
-  heartbeat: "Send a periodic heartbeat while the gateway is running.",
-  heartbeatIntervalS: "Seconds between heartbeat events.",
 };
 
 const EXPOSED_FIELDS: Record<ConfigSettingsGroupId, readonly string[]> = {
-  "tools-approvals": [
+  "tools-mcp": [
     "webEnable",
     "execEnable",
     "webProxy",
@@ -62,7 +55,6 @@ const EXPOSED_FIELDS: Record<ConfigSettingsGroupId, readonly string[]> = {
     "mcpServers",
   ],
   channels: ["sendProgress", "sendToolHints", "sendMaxRetries"],
-  "gateway-runtime": ["port", "heartbeat", "heartbeatIntervalS"],
 };
 
 export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPageProps) {
@@ -347,9 +339,6 @@ function invalidFieldMessage(field: DesktopSettingsPaneField): string {
   if (field.id === "mcpServers") {
     return "MCP servers must be a valid JSON object.";
   }
-  if (field.id === "port") {
-    return "Gateway port must be an integer between 1 and 65535.";
-  }
   if (field.configurationMode === "url") {
     return `${field.label} must be a valid URL.`;
   }
@@ -367,12 +356,12 @@ function confirmationApplies(field: DesktopSettingsPaneField, value: string | bo
 
 function formatSaveStatus(saved: DesktopConfigSettingsSaveResult): string {
   if (saved.saveDetails.restartRequired.length) {
-    return "Saved. Restart the Tinybot gateway to apply this change.";
+    return "Saved. Restart Tinybot to apply this change.";
   }
   if (saved.saveDetails.reloadRequired.length) {
     return "Saved. Reload the active workspace to apply this change.";
   }
-  return saved.saveDetails.transport === "native" ? "Saved to Tinybot config." : "Saved through the gateway.";
+  return "Saved to Tinybot config.";
 }
 
 function revisionFromConfig(config: unknown): string {

@@ -84,7 +84,6 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
             source: "builtin",
             enabled: true,
             available: true,
-            approvalRequired: false,
           },
         ],
         mcpServers: [],
@@ -188,7 +187,7 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     const resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
-    for (const item of ["Chat", "Workspace Files", "Cowork", "GitHub", "Tools & Skills"]) {
+    for (const item of ["Chat", "Workspace Files", "GitHub", "Tools & Skills"]) {
       expect(within(resourcesMenu).getByRole("menuitem", { name: item })).toBeTruthy();
     }
     expect(within(resourcesMenu).getByRole("menuitem", { name: "Chat" }).getAttribute("aria-current")).toBe("page");
@@ -196,7 +195,7 @@ describe("DesktopShell", () => {
     await user.click(screen.getByRole("button", { name: "System" }));
     const systemMenu = screen.getByRole("menu", { name: "System menu" });
     expect(within(systemMenu).getByRole("menuitem", { name: "Settings (Ctrl+,)" })).toBeTruthy();
-    expect(within(systemMenu).getByRole("menuitem", { name: "Gateway Status (Ctrl+Shift+G)" })).toBeTruthy();
+    expect(within(systemMenu).queryByRole("menuitem", { name: /Runtime Status/ })).toBeNull();
 
     await user.click(within(systemMenu).getByRole("menuitem", { name: "Settings (Ctrl+,)" }));
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
@@ -290,12 +289,6 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
-    expect(within(resourcesMenu).getByRole("menuitem", { name: "Workspace Files" }).getAttribute("aria-current")).toBe("page");
-    await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Cowork" }));
-    expect(await screen.findByRole("heading", { name: "Cowork" })).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "Resources" }));
-    resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
     await user.click(within(resourcesMenu).getByRole("menuitem", { name: "GitHub" }));
     expect(await screen.findByRole("heading", { name: "GitHub" })).toBeTruthy();
 
@@ -384,6 +377,7 @@ describe("DesktopShell", () => {
 
     expect(await screen.findByRole("heading", { name: "Provider & Models" })).toBeTruthy();
     expect(screen.getByRole("navigation", { name: "Settings categories" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Runtime" })).toBeNull();
     expect(screen.getByRole("button", { name: "Provider & Models" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("region", { name: "Provider & Models" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Default model" })).toBeTruthy();

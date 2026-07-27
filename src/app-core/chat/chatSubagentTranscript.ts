@@ -123,8 +123,8 @@ function toolStatusFromTraceEvent(event: TraceEventRecord): ToolCallStatus {
   if (value === "error") {
     return "failed";
   }
-  if (value === "awaiting_approval" || value === "approval_required" || value === "blocked") {
-    return "waiting_approval";
+  if (value === "blocked") {
+    return "pending";
   }
   const eventType = event.eventType.toLowerCase();
   if (eventType.endsWith(".completed")) {
@@ -132,9 +132,6 @@ function toolStatusFromTraceEvent(event: TraceEventRecord): ToolCallStatus {
   }
   if (eventType.endsWith(".failed")) {
     return "failed";
-  }
-  if (eventType.includes("approval")) {
-    return "waiting_approval";
   }
   if (eventType.endsWith(".running") || eventType.endsWith(".started")) {
     return "running";

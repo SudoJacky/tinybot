@@ -96,13 +96,6 @@ const DESKTOP_MENU_ITEM_DESCRIPTORS: &[DesktopMenuItemDescriptor] = &[
         enabled: true,
         checked: false,
     },
-    DesktopMenuItemDescriptor {
-        id: "refresh-gateway-status",
-        label: "Gateway Status",
-        accelerator: Some("Ctrl+Shift+G"),
-        enabled: true,
-        checked: false,
-    },
 ];
 
 pub(crate) fn desktop_menu_item_descriptors() -> &'static [DesktopMenuItemDescriptor] {
@@ -126,7 +119,6 @@ fn build_desktop_application_menu<R: Runtime>(app: &tauri::AppHandle<R>) -> taur
     let toggle_theme = check_menu_item(app, "toggle-theme")?;
     let toggle_sidebar = check_menu_item(app, "toggle-sidebar")?;
     let open_command_palette = menu_item(app, "open-command-palette")?;
-    let refresh_gateway_status = menu_item(app, "refresh-gateway-status")?;
 
     let file_menu = Submenu::with_items(
         app,
@@ -143,12 +135,7 @@ fn build_desktop_application_menu<R: Runtime>(app: &tauri::AppHandle<R>) -> taur
         app,
         "Navigate",
         true,
-        &[
-            &search_sessions,
-            &open_settings,
-            &open_docs,
-            &refresh_gateway_status,
-        ],
+        &[&search_sessions, &open_settings, &open_docs],
     )?;
     let view_menu = Submenu::with_items(app, "View", true, &[&toggle_theme, &toggle_sidebar])?;
 

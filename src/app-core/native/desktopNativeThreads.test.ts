@@ -34,6 +34,18 @@ describe("desktop native threads API", () => {
       command: "worker_thread_apply_op",
       args: { input: { body: { threadId: "thread-1", op: { type: "interrupt" } } } },
     });
+    await expect(api.listTurns("thread-1")).resolves.toEqual({
+      command: "thread_list_turns",
+      args: { input: { body: { threadId: "thread-1" } } },
+    });
+    await expect(api.getTurnRuntimeState("thread-1", "turn-1")).resolves.toEqual({
+      command: "thread_get_turn_runtime_state",
+      args: { input: { body: { threadId: "thread-1", turnId: "turn-1" } } },
+    });
+    await expect(api.getEffectiveCapabilities("thread-1")).resolves.toEqual({
+      command: "thread_get_effective_capabilities",
+      args: { input: { body: { threadId: "thread-1" } } },
+    });
   });
 
   test("maps thread-first agent commands to direct command input", async () => {

@@ -93,19 +93,20 @@ fn turn_item_serializes_stable_shape() {
 }
 
 #[test]
-fn legacy_native_event_maps_to_runtime_envelope() {
-    let envelope =
-        AgentRuntimeEventEnvelope::from_legacy_native_event(LegacyNativeAgentEventEnvelopeInput {
-            session_id: "session-1".to_string(),
-            thread_id: None,
-            turn_id: "turn-1".to_string(),
-            parent_turn_id: None,
-            item_id: Some("item-1".to_string()),
-            event_name: "agent.tool.start".to_string(),
-            sequence: 7,
-            timestamp: "2026-07-03T00:00:07Z".to_string(),
-            payload: json!({ "toolName": "read_file" }),
-        });
+fn event_kind_maps_to_runtime_envelope() {
+    let envelope = AgentRuntimeEventEnvelope::from_event_kind(AgentRuntimeEventEnvelopeInput {
+        session_id: "session-1".to_string(),
+        thread_id: None,
+        turn_id: "turn-1".to_string(),
+        parent_turn_id: None,
+        item_id: Some("item-1".to_string()),
+        event_kind: AgentEventKind::ToolStarted,
+        phase: AgentRuntimePhase::ToolRunning,
+        sequence: 7,
+        timestamp: "2026-07-03T00:00:07Z".to_string(),
+        trace_context: None,
+        payload: json!({ "toolName": "read_file" }),
+    });
 
     assert_eq!(
         serde_json::to_value(envelope).unwrap(),
@@ -123,22 +124,6 @@ fn legacy_native_event_maps_to_runtime_envelope() {
             "visibility": "user",
             "payload": { "toolName": "read_file" }
         })
-    );
-}
-
-#[test]
-fn legacy_native_event_name_maps_to_turn_item_kind() {
-    assert_eq!(
-        AgentTurnItemKind::for_legacy_event("agent.tool.result"),
-        Some(AgentTurnItemKind::ToolCall)
-    );
-    assert_eq!(
-        AgentTurnItemKind::for_legacy_event("agent.delegate.completed"),
-        Some(AgentTurnItemKind::SubagentLifecycle)
-    );
-    assert_eq!(
-        AgentRuntimePhase::for_legacy_event("agent.delegate.linked"),
-        AgentRuntimePhase::AwaitingSubagent
     );
 }
 
@@ -181,21 +166,17 @@ fn event_appender_assigns_monotonic_sequences_and_stable_ids() {
     let first = appender.append(AgentRuntimeEventAppendInput {
         parent_turn_id: None,
         item_id: None,
-        event_name: "agent.turn.started".to_string(),
+        event_kind: AgentEventKind::TurnStarted,
         phase: AgentRuntimePhase::Planning,
         timestamp: "2026-07-03T00:00:00Z".to_string(),
-        source: AgentRuntimeEventSource::RustBackend,
-        visibility: AgentRuntimeEventVisibility::User,
         payload: json!({}),
     });
     let second = appender.append(AgentRuntimeEventAppendInput {
         parent_turn_id: None,
         item_id: Some("item-1".to_string()),
-        event_name: "agent.delta".to_string(),
+        event_kind: AgentEventKind::MessageDelta,
         phase: AgentRuntimePhase::StreamingModel,
         timestamp: "2026-07-03T00:00:01Z".to_string(),
-        source: AgentRuntimeEventSource::Provider,
-        visibility: AgentRuntimeEventVisibility::User,
         payload: json!({ "delta": "hello" }),
     });
 
@@ -208,23 +189,24 @@ fn event_appender_assigns_monotonic_sequences_and_stable_ids() {
 
 #[test]
 fn event_appender_resumes_after_existing_events() {
-    let existing =
-        AgentRuntimeEventEnvelope::from_legacy_native_event(LegacyNativeAgentEventEnvelopeInput {
-            session_id: "session-1".to_string(),
-            thread_id: None,
-            turn_id: "turn-1".to_string(),
-            parent_turn_id: None,
-            item_id: None,
-            event_name: "agent.delta".to_string(),
-            sequence: 12,
-            timestamp: "2026-07-03T00:00:12Z".to_string(),
-            payload: json!({ "delta": "existing" }),
-        });
+    let existing = AgentRuntimeEventEnvelope::from_event_kind(AgentRuntimeEventEnvelopeInput {
+        session_id: "session-1".to_string(),
+        thread_id: None,
+        turn_id: "turn-1".to_string(),
+        parent_turn_id: None,
+        item_id: None,
+        event_kind: AgentEventKind::MessageDelta,
+        phase: AgentRuntimePhase::StreamingModel,
+        sequence: 12,
+        timestamp: "2026-07-03T00:00:12Z".to_string(),
+        trace_context: None,
+        payload: json!({ "delta": "existing" }),
+    });
     let mut appender =
         AgentRuntimeEventAppender::from_existing_events("session-1", "turn-1", &[existing]);
 
-    let next = appender.append_legacy_native_event(
-        "agent.done",
+    let next = appender.append_event(
+        AgentEventKind::Done,
         None,
         "2026-07-03T00:00:13Z",
         json!({ "finalContent": "done" }),
@@ -327,54 +309,23 @@ fn turn_emitter_helpers_emit_canonical_payloads() {
 }
 
 #[test]
-fn runtime_events_project_to_legacy_native_event_shape() {
-    let mut emitter = AgentTurnEmitter::new("session-1", "turn-1");
-    emitter.message_completed(
-        "2026-07-03T00:00:01Z",
-        Some("assistant-1".to_string()),
-        "Hello",
-    );
-    emitter.done(
-        "2026-07-03T00:00:02Z",
-        "final_response",
-        json!({ "iterationCount": 1 }),
-    );
-
-    let legacy = project_legacy_native_agent_events(emitter.events());
-
-    assert_eq!(legacy.len(), 2);
-    assert_eq!(
-        serde_json::to_value(&legacy[0]).unwrap(),
-        json!({
-            "eventName": "agent.message.completed",
-            "payload": {
-                "messageId": "assistant-1",
-                "content": "Hello"
-            }
-        })
-    );
-    assert_eq!(legacy[1].event_name, "agent.done");
-    assert_eq!(legacy[1].payload["stopReason"], "final_response");
-}
-
-#[test]
 fn trace_projection_combines_assistant_deltas_into_one_item() {
     let mut appender = AgentRuntimeEventAppender::new("session-1", "turn-1");
     let events = vec![
-        appender.append_legacy_native_event(
-            "agent.delta",
+        appender.append_event(
+            AgentEventKind::MessageDelta,
             None,
             "2026-07-03T00:00:01Z",
             json!({ "delta": "Hel" }),
         ),
-        appender.append_legacy_native_event(
-            "agent.delta",
+        appender.append_event(
+            AgentEventKind::MessageDelta,
             None,
             "2026-07-03T00:00:02Z",
             json!({ "delta": "lo" }),
         ),
-        appender.append_legacy_native_event(
-            "agent.done",
+        appender.append_event(
+            AgentEventKind::Done,
             None,
             "2026-07-03T00:00:03Z",
             json!({ "finalContent": "Hello" }),
@@ -398,11 +349,9 @@ fn trace_projection_restores_user_prompt_from_turn_started() {
     let events = vec![appender.append(AgentRuntimeEventAppendInput {
         parent_turn_id: None,
         item_id: None,
-        event_name: "agent.turn.started".to_string(),
+        event_kind: AgentEventKind::TurnStarted,
         phase: AgentRuntimePhase::Planning,
         timestamp: "2026-07-03T00:00:00Z".to_string(),
-        source: AgentRuntimeEventSource::RustBackend,
-        visibility: AgentRuntimeEventVisibility::User,
         payload: json!({
             "userMessageId": "user-1",
             "userMessage": { "id": "user-1", "content": "Approve the write" }
@@ -427,14 +376,14 @@ fn trace_projection_restores_user_prompt_from_turn_started() {
 fn trace_projection_ignores_waiting_done_without_final_content() {
     let mut appender = AgentRuntimeEventAppender::new("session-1", "turn-1");
     let events = vec![
-        appender.append_legacy_native_event(
-            "agent.awaiting_form",
+        appender.append_event(
+            AgentEventKind::AwaitingForm,
             Some("form-1".to_string()),
             "2026-07-03T00:00:01Z",
             json!({ "formId": "form-1", "title": "Configure turn" }),
         ),
-        appender.append_legacy_native_event(
-            "agent.done",
+        appender.append_event(
+            AgentEventKind::Done,
             None,
             "2026-07-03T00:00:02Z",
             json!({ "stopReason": "awaiting_user" }),
@@ -455,11 +404,9 @@ fn trace_projection_restores_message_completed_without_legacy_done_content() {
         appender.append(AgentRuntimeEventAppendInput {
             parent_turn_id: None,
             item_id: None,
-            event_name: "agent.message.completed".to_string(),
+            event_kind: AgentEventKind::MessageCompleted,
             phase: AgentRuntimePhase::Completed,
             timestamp: "2026-07-03T00:00:01Z".to_string(),
-            source: AgentRuntimeEventSource::RustBackend,
-            visibility: AgentRuntimeEventVisibility::User,
             payload: json!({
                 "messageId": "assistant-1",
                 "content": "Hello from canonical completion"
@@ -468,11 +415,9 @@ fn trace_projection_restores_message_completed_without_legacy_done_content() {
         appender.append(AgentRuntimeEventAppendInput {
             parent_turn_id: None,
             item_id: None,
-            event_name: "agent.done".to_string(),
+            event_kind: AgentEventKind::Done,
             phase: AgentRuntimePhase::Completed,
             timestamp: "2026-07-03T00:00:02Z".to_string(),
-            source: AgentRuntimeEventSource::RustBackend,
-            visibility: AgentRuntimeEventVisibility::Debug,
             payload: json!({ "stopReason": "final_response" }),
         }),
     ];
@@ -521,14 +466,14 @@ fn trace_projection_restores_canonical_phase_changed_without_turn_item() {
 fn trace_projection_combines_tool_lifecycle_into_one_item() {
     let mut appender = AgentRuntimeEventAppender::new("session-1", "turn-1");
     let events = vec![
-        appender.append_legacy_native_event(
-            "agent.tool.start",
+        appender.append_event(
+            AgentEventKind::ToolStarted,
             Some("call-1".to_string()),
             "2026-07-03T00:00:01Z",
             json!({ "toolName": "workspace.read_file" }),
         ),
-        appender.append_legacy_native_event(
-            "agent.tool.result",
+        appender.append_event(
+            AgentEventKind::ToolResult,
             Some("call-1".to_string()),
             "2026-07-03T00:00:02Z",
             json!({
@@ -570,8 +515,8 @@ fn trace_projection_combines_tool_lifecycle_into_one_item() {
 fn trace_projection_combines_form_request_and_resolution() {
     let mut appender = AgentRuntimeEventAppender::new("session-1", "turn-1");
     let events = vec![
-        appender.append_legacy_native_event(
-            "agent.awaiting_form",
+        appender.append_event(
+            AgentEventKind::AwaitingForm,
             Some("form-1".to_string()),
             "2026-07-03T00:00:01Z",
             json!({
@@ -583,8 +528,8 @@ fn trace_projection_combines_form_request_and_resolution() {
                 "errors": { "destination": "Required" }
             }),
         ),
-        appender.append_legacy_native_event(
-            "agent.form.resolution",
+        appender.append_event(
+            AgentEventKind::FormResolution,
             Some("form-1".to_string()),
             "2026-07-03T00:00:02Z",
             json!({
@@ -1216,7 +1161,6 @@ fn canonical_timeline_ignores_deprecated_provider_lifecycle_events() {
 
     assert_eq!(snapshot.snapshot_revision, 0);
     assert!(snapshot.items.is_empty());
-    assert!(project_legacy_native_agent_events(&events).is_empty());
 }
 
 #[test]

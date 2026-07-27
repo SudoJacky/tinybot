@@ -56,8 +56,8 @@ Build a desktop package from the repository root:
 npm run tauri -- build
 ```
 
-The desktop shell starts the Rust native backend in-process. Tauri mode does not require a listener
-on port `18790`. Chat uses typed Thread commands and typed Tauri events directly; the native WebUI
+The desktop shell starts the Rust native backend in-process. Tauri mode does not bind a local HTTP
+or WebSocket listener. Chat uses typed Thread commands and typed Tauri events directly; the native WebUI
 route wrapper remains available only for non-chat HTTP-compatible surfaces. Routes or commands that
 are not implemented in Rust return explicit errors.
 
@@ -76,9 +76,9 @@ are not implemented in Rust return explicit errors.
 1. Open the desktop app.
 2. A compact startup state waits for the Rust native backend to become ready.
 3. The Tauri shell initializes and checks the in-process native runtime directly.
-4. The desktop window installs the workbench shell without probing `/webui/bootstrap` or reserving
-   port `18790`.
-5. Use the desktop app through native workbench modules for chat, sessions, approvals, settings, providers, tools, skills, workspace files, browser frames, Cowork, language toggle, and theme toggle where Rust support exists.
+4. The desktop window installs the workbench shell without an HTTP bootstrap probe or a local TCP
+   port.
+5. Use the desktop app through native workbench modules for chat, sessions, approvals, settings, providers, tools, skills, workspace files, browser frames, language toggle, and theme toggle where Rust support exists.
 
 The app owns the native runtime lifecycle. The configured exit policy applies to managed native backend state.
 
@@ -87,7 +87,7 @@ The app owns the native runtime lifecycle. The configured exit policy applies to
 The desktop route keeps the Rust backend contract as the source of truth and layers native capabilities around it:
 
 - chat creation, turns, interruption, approvals, and forms use the native Thread API;
-- live chat rendering consumes typed native Tauri events without projecting them into Gateway frames;
+- live chat rendering consumes typed native Tauri events without an intermediate transport-frame projection;
 - non-chat WebUI-compatible requests use the native WebUI route wrapper where needed;
 - menu and keyboard commands route through native workbench navigation and actions;
 - native file picking feeds native workbench upload actions;

@@ -251,10 +251,6 @@ fn durable_subagent_summary(entry: &ThreadAgentRegistryEntry) -> Option<Subagent
             .unwrap_or(0),
         terminal_result: string_value(lifecycle, "terminalResult"),
         blocker_summary: string_value(lifecycle, "blockerSummary"),
-        pending_approval: lifecycle
-            .get("pendingApproval")
-            .filter(|value| !value.is_null())
-            .cloned(),
         metadata: control
             .get("metadata")
             .cloned()

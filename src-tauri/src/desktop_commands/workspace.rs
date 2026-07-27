@@ -1,5 +1,5 @@
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
-use crate::desktop::{lock_runtime, SharedGateway};
+use crate::desktop::{lock_runtime, SharedNativeRuntime};
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::{call_rust_state_service, native_request_router};
@@ -37,7 +37,7 @@ pub(crate) struct WorkerWorkspaceFileChunkInput {
 
 #[tauri::command]
 pub(crate) fn worker_workspace_files(
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_workspace_files_with_options(
         state.inner(),
@@ -50,7 +50,7 @@ pub(crate) fn worker_workspace_files(
 #[tauri::command]
 pub(crate) fn worker_workspace_file(
     input: WorkerWorkspaceFileInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_workspace_file_with_options(
         state.inner(),
@@ -64,7 +64,7 @@ pub(crate) fn worker_workspace_file(
 #[tauri::command]
 pub(crate) fn worker_workspace_put_file(
     input: WorkerWorkspacePutFileInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_workspace_put_file_with_options(
         state.inner(),
@@ -79,7 +79,7 @@ pub(crate) fn worker_workspace_put_file(
 #[tauri::command]
 pub(crate) fn worker_workspace_directory(
     input: WorkerWorkspaceDirectoryInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_workspace_directory_with_options(
         state.inner(),
@@ -95,7 +95,7 @@ pub(crate) fn worker_workspace_directory(
 #[tauri::command]
 pub(crate) fn worker_workspace_file_chunk(
     input: WorkerWorkspaceFileChunkInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_workspace_file_chunk_with_options(
         state.inner(),
@@ -108,7 +108,7 @@ pub(crate) fn worker_workspace_file_chunk(
 }
 
 pub(crate) fn worker_workspace_files_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
@@ -130,7 +130,7 @@ pub(crate) fn worker_workspace_files_with_options(
 }
 
 pub(crate) fn worker_workspace_file_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     path: String,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -152,7 +152,7 @@ pub(crate) fn worker_workspace_file_with_options(
 }
 
 pub(crate) fn worker_workspace_put_file_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     path: String,
     body: serde_json::Value,
     _workspace_root: PathBuf,
@@ -188,7 +188,7 @@ pub(crate) fn worker_workspace_put_file_with_options(
 }
 
 pub(crate) fn worker_workspace_directory_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     path: String,
     cursor: Option<String>,
     name_query: Option<String>,
@@ -229,7 +229,7 @@ pub(crate) fn worker_workspace_directory_with_options(
 }
 
 pub(crate) fn worker_workspace_file_chunk_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     path: String,
     cursor: Option<String>,
     _workspace_root: PathBuf,

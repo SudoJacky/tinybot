@@ -2,10 +2,8 @@ import { describe, expect, test } from "vitest";
 import {
   buildDesktopChatSessionUx,
   buildDesktopCommandPaletteUx,
-  buildDesktopCoworkCockpitUx,
   buildDesktopFileLifecycleUx,
   buildDesktopLoadingPerformanceUx,
-  buildDesktopSafeModeRecoveryUx,
   buildDesktopSettingsProviderSetupUx,
   buildDesktopTaskCenterAttentionUx,
   buildDesktopToolsSkillsManagementUx,
@@ -13,35 +11,6 @@ import {
 } from "./desktopNativeUx";
 
 describe("desktop native UX projections", () => {
-  test("maps startup and gateway states to safe-mode recovery actions", () => {
-    const ready = buildDesktopSafeModeRecoveryUx({
-      phase: "ready",
-      owner: "external",
-      routeIntent: { href: "/chat/session-1", sessionId: "session-1" },
-    });
-    expect(ready.progressSteps.map((step) => `${step.id}:${step.state}`)).toEqual([
-      "start:complete",
-      "connect:complete",
-      "workspace:complete",
-      "ready:complete",
-    ]);
-    expect(ready.diagnosticsDefaultOpen).toBe(false);
-    expect(ready.summary).toBe("Using an existing gateway");
-    expect(ready.safeModeAction.href).toBe("/?route=%2Fchat%2Fsession-1&session=session-1");
-
-    const incompatible = buildDesktopSafeModeRecoveryUx({
-      phase: "failed",
-      failureType: "bootstrap-incompatible",
-      responseClass: "html",
-    });
-    expect(incompatible.diagnosticsDefaultOpen).toBe(true);
-    expect(incompatible.recoveryCards[0]).toMatchObject({
-      id: "bootstrap-incompatible",
-      primaryAction: "Open native workbench",
-    });
-    expect(incompatible.recoveryCards[0].hint).toContain("not with the WebUI bootstrap shape");
-  });
-
   test("defines workbench shell regions, attention badges, inspector tabs, and contextual help", () => {
     const shell = buildDesktopWorkbenchShellUx({
       activeModule: "workspace",
@@ -65,7 +34,7 @@ describe("desktop native UX projections", () => {
       sessions: [
         { key: "s1", title: "Pinned", pinned: true, status: "idle" },
         { key: "s2", title: "Running", status: "running" },
-        { key: "s3", title: "Approval", status: "approval_required" },
+        { key: "s3", title: "Blocked", status: "blocked" },
       ],
       attachments: [
         { id: "tmp-1", source: "session", title: "notes.txt" },
@@ -75,7 +44,7 @@ describe("desktop native UX projections", () => {
       scroll: { distanceFromBottom: 160, viewportHeight: 800 },
       activities: [{ id: "tool-1", kind: "tool", label: "Read file" }],
     });
-    expect(chat.starters.map((starter) => starter.id)).toEqual(["ask", "analyze-file", "plan-cowork", "edit-workspace-file"]);
+    expect(chat.starters.map((starter) => starter.id)).toEqual(["ask", "analyze-file", "edit-workspace-file"]);
     expect(chat.sessionGroups.map((group) => `${group.id}:${group.sessions.map((session) => session.key).join(",")}`)).toEqual([
       "pinned:s1",
       "running:s2,s3",
@@ -90,16 +59,16 @@ describe("desktop native UX projections", () => {
     expect(chat.activityChips[0]).toMatchObject({ opensInspector: true });
   });
 
-  test("summarizes task-center attention and approval actions", () => {
+  test("summarizes task-center attention and primary actions", () => {
     const attention = buildDesktopTaskCenterAttentionUx([
       { id: "a", state: "active", source: "chat", title: "Streaming", actions: [{ id: "cancel", label: "Cancel" }] },
-      { id: "b", state: "blocked", source: "approval", title: "Approve", actions: [{ id: "approveOnce", label: "Approve once" }] },
+      { id: "b", state: "blocked", source: "chat", title: "Waiting", actions: [{ id: "inspect", label: "Inspect" }] },
       { id: "c", state: "failed", source: "file", title: "Save failed", actions: [{ id: "retry", label: "Retry" }] },
       { id: "d", state: "completed", source: "provider", title: "Refreshed", actions: [{ id: "open", label: "Open" }] },
     ]);
     expect(attention.compactLabel).toBe("1 running · 1 blocked · 1 failed");
     expect(attention.autoOpenReason).toBe("blocked");
-    expect(attention.rows.map((row) => `${row.id}:${row.primaryAction?.id}`)).toEqual(["b:approveOnce", "c:retry", "a:cancel", "d:open"]);
+    expect(attention.rows.map((row) => `${row.id}:${row.primaryAction?.id}`)).toEqual(["b:inspect", "c:retry", "a:cancel", "d:open"]);
     expect(attention.notificationPolicy({ appFocused: true }).shouldNotify).toBe(false);
     expect(attention.notificationPolicy({ appFocused: false }).deepLink?.entityId).toBe("b");
   });
@@ -128,7 +97,7 @@ describe("desktop native UX projections", () => {
     });
     expect(settings.firstRun.required).toBe(true);
     expect(settings.firstRun.steps.map((step) => step.id)).toEqual(["choose-provider", "enter-key", "test-connection", "pick-default-model", "start-chat"]);
-    expect(settings.intentGroups.map((group) => group.id)).toEqual(["ai-provider-model", "workspace-files", "tools-skills", "gateway-runtime", "diagnostics", "advanced"]);
+    expect(settings.intentGroups.map((group) => group.id)).toEqual(["ai-provider-model", "workspace-files", "tools-skills", "runtime", "diagnostics", "advanced"]);
     expect(settings.secretStates[0].label).toBe("Saved key will be reused");
     expect(settings.modelDiscoveryByProvider.openai.status).toBe("failed");
     expect(settings.unsavedBar.actions).toEqual(["Save", "Reset", "Test connection"]);
@@ -154,7 +123,7 @@ describe("desktop native UX projections", () => {
   test("groups tools and skills with risk, validation, and delete safeguards", () => {
     const toolsSkills = buildDesktopToolsSkillsManagementUx({
       tools: [
-        { name: "exec_shell", description: "Run command", riskHint: "Requires approval", enabled: true },
+        { name: "exec_shell", description: "Run command", riskHint: "Runs in the current user context", enabled: true },
         { name: "memory_search", description: "Search memory", riskHint: "", enabled: true },
       ],
       skills: [
@@ -162,35 +131,19 @@ describe("desktop native UX projections", () => {
       ],
     });
     expect(toolsSkills.conceptCopy.tools).toContain("assistant can call");
-    expect(toolsSkills.toolGroups.map((group) => group.id)).toContain("requires-approval");
     expect(toolsSkills.toolGroups.find((group) => group.id === "execution")?.tools[0].name).toBe("exec_shell");
     expect(toolsSkills.skillRows[0].badges).toEqual(["Enabled", "Needs validation"]);
     expect(toolsSkills.editorActions.map((action) => action.id)).toEqual(["validate", "previewDiff", "exampleInvocation", "dryRun"]);
     expect(toolsSkills.deleteConfirmation.requiredText).toBe("planner");
   });
 
-  test("stages Cowork cockpit readiness, confirmations, graph focus, and handoff", () => {
-    const cowork = buildDesktopCoworkCockpitUx({
-      nativeReady: false,
-      selected: { type: "task", id: "task-1" },
-      session: { id: "cowork-1", status: "running", finalDraft: "Draft" },
-    });
-    expect(cowork.readiness.mode).toBe("preview");
-    expect(cowork.readiness.fallbackHref).toBe("/cowork");
-    expect(cowork.stages.map((stage) => stage.id)).toEqual(["goal", "plan", "run", "review-outputs", "finalize"]);
-    expect(cowork.primarySurface).toBe("timeline-task-feed");
-    expect(cowork.graphFocus.rootId).toBe("task-1");
-    expect(cowork.confirmations.map((item) => item.action)).toContain("selectFinalResult");
-    expect(cowork.handoffActions.map((action) => action.id)).toEqual(["insertSummaryIntoChat", "saveFinalDraftToWorkspace", "exportTrace", "createFollowUpTask"]);
-  });
-
   test("defines loading boundaries, virtualization, memoization, and measurement hooks", () => {
     const performance = buildDesktopLoadingPerformanceUx({
       route: "chat",
-      longListCounts: { sessions: 120, taskRows: 80, coworkTraces: 0 },
+      longListCounts: { sessions: 120, taskRows: 80 },
     });
     expect(performance.immediate).toEqual(["startup-shell", "chat-shell", "composer", "session-list-metadata", "task-center-shell", "command-palette-shell"]);
-    expect(performance.lazy).toContain("cowork-cockpit");
+    expect(performance.lazy).toEqual(["provider-model-discovery", "tools-skills-editor", "docs-pages"]);
     expect(performance.routeHydration.skeleton).toBe("Chat skeleton");
     expect(performance.virtualization.sessions.enabled).toBe(true);
     expect(performance.memoizedProjections).toEqual(["turn-chain-items", "task-center-items", "command-palette-data"]);

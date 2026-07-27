@@ -25,9 +25,8 @@ Use Tauri's `invoke` API:
 ```ts
 import { invoke } from "@tauri-apps/api/core";
 
-const status = await invoke("gateway_status");
-const messages = await invoke("worker_session_messages", {
-  input: { key: "websocket:chat-1" },
+const threads = await invoke("worker_threads_list", {
+  input: { body: {} },
 });
 ```
 
@@ -90,74 +89,21 @@ Known worker error sources:
 - `rust_core`
 - `worker`
 
-## Core Desktop Commands
+## Native Runtime Lifecycle
 
-| Command | Args | Response |
-| --- | --- | --- |
-| `desktop_status` | none | `{ app_name, gateway_http, gateway_ws, browser_mode }` |
-| `gateway_status` | none | `GatewayRuntimeStatus` |
-| `start_gateway` | none | `GatewayRuntimeStatus` |
-| `stop_gateway` | none | `GatewayRuntimeStatus` |
-| `set_gateway_keep_running` | `{ keepRunning: boolean }` | `GatewayRuntimeStatus` |
-| `worker_probe_status` | none | `WorkerRuntimeStatus` |
+The Rust backend is an in-process Native Runtime. Tauri setup starts it before the renderer uses
+typed commands, and window close or updater installation runs its bounded shutdown path. There are
+no renderer commands for starting, stopping, or querying a separate Gateway process, and the runtime
+cannot be configured to remain alive after the App exits.
 
-`GatewayRuntimeStatus` includes:
-
-```json
-{
-  "state": "running",
-  "owner": "shell",
-  "http_ok": false,
-  "gateway_http": "http://127.0.0.1:18790",
-  "gateway_ws": "ws://127.0.0.1:18790/ws",
-  "command": "Tauri Rust backend",
-  "port": 18790,
-  "repo_root": "...",
-  "log_path": "...",
-  "log_tail": [],
-  "logs": [],
-  "last_error": null,
-  "exit_policy": "stop_on_exit",
-  "bootstrap_status": "not_required",
-  "response_class": "tauri-native",
-  "recovery_hint": null,
-  "worker_runtime": {},
-  "agent_tasks": {
-    "accepting": true,
-    "activeTurns": 0,
-    "drainingTurns": 0
-  },
-  "route_owner_summary": { "rustOwned": 0, "unsupported": 0 },
-  "webui_route_inventory": [],
-  "compatibility_fallback_diagnostics": [],
-  "lifecycle": {
-    "startupReconciled": true,
-    "lastStartupRecovery": {
-      "scannedThreads": 0,
-      "scannedTurnRecords": 0,
-      "interruptedTurns": [],
-      "awaitingInteractionTurns": [],
-      "resumableTurns": []
-    },
-    "lastShutdown": null,
-    "diagnostics": []
-  }
-}
-```
-
-In Tauri mode, readiness is derived from the in-process Rust lifecycle and worker status. The
-compatibility `gateway_http`, `gateway_ws`, and `port` fields do not imply that Tinybot binds a local
-HTTP server, and another process listening on `18790` does not make the Rust runtime fail. External
-browser mode still performs its own `/webui/bootstrap` check.
-
-`lifecycle` is the queryable native-runtime recovery and cleanup record. Startup pauses new agent
+The internal lifecycle state records native-runtime recovery and cleanup. Startup pauses new agent
 continues until canonical Rollouts and their rebuildable SQLite index pass consistency checks. The
 startup report includes `sessionLogIndex` and `sessionLogIndexMigration`; an actual Rollout/index
 divergence fails startup and requires an explicit repair command. A persisted `running` turn with no
 live owner is then closed as
 `status: "interrupted"`, `phase: "interrupted"`, and
 `stopReason: "runtime_restarted"`; waiting turns and their checkpoints remain unchanged. A storage
-error leaves the task runtime non-accepting, sets `state: "failed"`/`last_error`, and appends a
+error leaves the task runtime non-accepting, sets `last_error`, and appends a
 `startup_recovery` diagnostic instead of silently continuing.
 
 ## File Dialog Commands
@@ -225,7 +171,6 @@ a schema v1 default config with:
 - `agents.defaults.activeProfile: "deepseek-default"`
 - `agents.defaults.model: "deepseek-v4-pro"`
 - `providers.profiles.deepseek-default` with DeepSeek V4 models and the built-in `reasoning` capability
-- `gateway.host: "127.0.0.1"` and `gateway.port: 18790`
 
 Existing files are never overwritten by this initialization path, including invalid JSON or non-object
 config files. If default creation succeeds, config snapshots include an info diagnostic with code
@@ -304,14 +249,14 @@ First-version group ids returned by `get_settings_snapshot`:
 - `mcp-servers`
 - `skills`
 - `automations`
-- `gateway-runtime`
-- `security-approvals`
+- `runtime`
 - `logs-diagnostics`
 - `expert-config`
 
-The first version intentionally does not include Memory, Cowork, Channels, generic
+The first version intentionally does not include Memory, Channels, generic
 web/exec/browser tool toggles, telemetry/crash-report controls, or raw JSON editing fields.
-`gateway.host` is projected as readonly `127.0.0.1`; `gateway.port` is editable. Secret fields
+The `runtime` group only projects native runtime metadata; it does not expose legacy
+gateway endpoint or heartbeat configuration. Secret fields
 return `value: null` with `secret` metadata and must remain redacted in exported/public config.
 Provider selection is profile-based. New config should use `agents.defaults.activeProfile` and
 `providers.profiles.<profileId>.provider`; `agents.defaults.provider: "auto"` is a legacy value only.
@@ -328,7 +273,7 @@ OpenAI-compatible provider profiles accept separate network deadlines:
   defaults to the resolved request timeout.
 
 The `mcp-servers` group projects live MCP runtime state. Each configured server has readonly
-`status` and `tool_count` fields populated from the Gateway-owned runtime rather than static
+`status` and `tool_count` fields populated from the Native Runtime rather than static
 placeholders. Status values are `disabled`, `starting`, `ready`, `failed`, `stopping`, or `stopped`.
 Streamable HTTP servers also expose endpoint, bearer-token environment-variable, static header,
 environment-backed header, and timeout settings. Sensitive static headers such as
@@ -398,15 +343,11 @@ UI should prefer `SettingsSnapshot` once the frontend is migrated to the Rust-ow
 }
 ```
 
-## Agent Runtime Commands
+## Agent Runtime
 
-| Command | Args | Response |
-| --- | --- | --- |
-| `worker_run_agent` | `{ input: { spec: object } }` | JSON result from native agent runtime |
-| `worker_run_agent_input` | `{ input: { input: unknown } }` | JSON result from native agent runtime |
-| `worker_cancel_agent` | `{ input: { turnId: string } }` | JSON result |
-| `worker_restore_agent_checkpoint` | `{ input: { sessionId: string } }` | JSON result |
-| `worker_submit_agent_form` | `{ input: { sessionId, formId, values?, action? } }` | JSON result |
+The native renderer enters the Agent Runtime through Thread-owned typed commands:
+`worker_submit_thread_turn`, `worker_thread_interrupt`, and `worker_submit_thread_form`. Direct
+Agent command façades are not part of the desktop contract.
 
 Workspace-backed agent results include:
 
@@ -422,7 +363,7 @@ Workspace-backed agent results include:
   `referenceCount`, safe reference identifiers, and `truncated`.
 
 The instruction provenance and instruction diagnostics are stored on the durable agent-turn record, so
-`worker_turns_list` and `worker_turn_runtime_state` can explain the instruction inputs of
+`thread_list_turns` and `thread_get_turn_runtime_state` can explain the instruction inputs of
 a historical turn without persisting a second write authority.
 
 ### Extension contributors and context hydration
@@ -562,8 +503,6 @@ Turn-level runtime controls are also typed and validated before MCP discovery or
   workspace are accepted; relative paths are resolved from the workspace root. The composed
   instruction provenance and provider context use that directory, and shell tools inherit it when
   their call does not provide `workingDir`.
-- `approvalPolicy` is no longer an active runtime control. Tool calls do not pause for
-  pre-execution approval.
 - `permissionProfile` currently accepts only `local-worker`, which selects the native desktop
   capability policy. Unknown profiles fail explicitly.
 - `selectedTools` is an optional exact allowlist of tool IDs or methods. Deferred selections activate
@@ -581,7 +520,8 @@ generation only after the previous execution task has completed into a non-termi
 Cancellation is idempotent and writes one owner terminal outcome. Normal async turns remain active in
 the `cancelling` phase while owned child operations perform their bounded cleanup. The owner is
 removed only after the turn returns a cancellation or cleanup-timeout result. A late result cannot
-replace that terminal result. `worker_cancel_agent` includes the cancellation request transition:
+replace that terminal result. `worker_thread_interrupt` includes the cancellation request transition
+as `taskCancellation`:
 
 ```json
 {
@@ -604,17 +544,16 @@ Possible task states are `cancel_requested`, `cancelled_waiting`, `already_termi
 without starting another task.
 
 The desktop `thread.interrupt` path first persists the thread cancellation item and then cancels the
-same turn owner. Its existing thread result gains `taskCancellation`, containing the same
-`worker_cancel_agent` payload. Gateway shutdown follows one ordered path: stop accepting starts,
+same turn owner. Native Runtime shutdown follows one ordered path: stop accepting starts,
 cancel and drain owned turns, terminate retained shell process trees, stop MCP clients/stdio children,
 interrupt non-terminal subagents, stop the background worker, and emit a `RuntimeShutdownReport`.
 For cooperative agent tasks, shutdown requests cancellation without publishing a terminal result;
 the cancellation or cleanup-timeout result becomes visible only after the owned operation has
 finished its bounded cleanup. Shutdown waits for both cancelling active tasks and draining tasks.
 Each bounded stage continues after an earlier failure. Cleanup failures are returned as a combined
-error, retained in `GatewayRuntimeStatus.lifecycle.diagnostics`, mirrored to `last_error`, and written
+error, retained in the internal lifecycle diagnostics, mirrored to `last_error`, and written
 to the persistent native-backend log. The report includes agent cleanup, shell process IDs, MCP,
-subagent, worker, state-persistence, elapsed-time, and failure details. A same-process gateway restart
+subagent, worker, state-persistence, elapsed-time, and failure details. A same-process runtime restart
 reopens agent and shell start admission only after cleanup is complete.
 
 ### Async provider execution
@@ -771,8 +710,7 @@ does not inherit them. Calls to deferred tools that were not activated fail with
 Resumable form checkpoints include the validated activation set. Form continuations revalidate every
 `activatedToolIds` entry against the current registry and capability policy; stale IDs, malformed
 arrays, and provider-name collisions return explicit errors. Cancelled and other terminal
-checkpoints expose an empty activation set. Tool calls never create an approval checkpoint or an
-`awaiting_approval` stop reason.
+checkpoints expose an empty activation set.
 
 ### Model-requested user input
 
@@ -807,26 +745,17 @@ type fail explicitly.
 
 The tool persists an `awaiting_form` checkpoint with `kind: "user_input"`, the pending tool call,
 the assistant message that owns it, and the current model context. It then emits
-`agent.awaiting_form` and returns `stopReason: "awaiting_form"`. `worker_submit_agent_form` must use
-the matching `sessionId` and `formId`. A valid submit becomes the real tool observation and resumes
+`agent.awaiting_form` and returns `stopReason: "awaiting_form"`. `worker_submit_thread_form` must use
+the matching `threadId` and `formId`. A valid submit becomes the real tool observation and resumes
 the same provider chain; it is not converted into a synthetic final answer. Cancel clears the
 checkpoint and returns `stopReason: "form_cancelled"` with an observable resolution/error event.
 
-## Session Commands
+## Thread Timeline Queries
 
-| Command | Args | Response |
-| --- | --- | --- |
-| `worker_sessions_list` | none | session list payload |
-| `worker_session_messages` | `{ input: { key: string } }` | `{ messages: [...] }` style payload |
-| `worker_turns_list` | `{ input: { key: string } }` | agent turn list |
-| `worker_turn_runtime_state` | `{ input: { sessionKey: string, turnId: string } }` | `AgentTurnRuntimeState` |
-| `worker_session_delete` | `{ input: { key: string } }` | delete result |
-| `worker_session_patch` | `{ input: { key: string, body: { title?, metadata?, archived? } } }` | patched session payload |
-| `worker_session_branch` | `{ input: { body: unknown } }` | branch result |
-| `worker_session_clear` | `{ input: { key: string } }` | clear result |
-| `worker_session_task_progress` | `{ input: { key: string, body: { turnId: string, ... } } }` | task progress result |
+The renderer queries canonical Turn summaries and runtime state through the Thread commands
+documented below. These commands accept `threadId` directly and do not resolve legacy Session keys.
 
-`worker_turn_runtime_state` returns runtime events projected from the session's canonical
+`thread_get_turn_runtime_state` returns runtime events projected from the Thread's canonical
 Rollout plus one canonical timeline snapshot for product rendering. Rollout ordinals define event
 order; embedded event sequence values and in-memory thread items are not reconstruction sources.
 The former `turnItems` response field is not part of the contract.
@@ -885,7 +814,7 @@ delta into a separate timeline item after reload.
 phase is used immediately. For providers without phases, a model response followed by Tool calls is
 classified as `commentary`; a terminal response without Tool calls is classified as
 `final_answer`. Only `unknown` may transition to a classified phase. Reclassifying commentary as a
-final answer, changing a classified phase, or emitting Tool, Plan, Reasoning, Approval, Form, or
+final answer, changing a classified phase, or emitting Tool, Plan, Reasoning, Form, or
 Subagent work after the final answer is a protocol error and fails visibly. Plan completion is not a
 final-answer signal.
 
@@ -958,7 +887,7 @@ UI event is emitted only after runtime completion.
 `operation.retry` also uses the native `command` frame, but separates the new target `turn_id` from
 the failed source identified by `source_turn_id` and `item_id`. Rust rejects reused target IDs,
 stale/non-failed source turns, and non-failed source items before starting provider work. A valid
-retry hydrates the existing session history into a new turn, emits its correlated
+retry hydrates the existing Thread history into a new turn, emits its correlated
 `agent.command.acknowledged` item before the provider call, and uses the new turn's terminal canonical
 item as operation completion.
 
@@ -1001,7 +930,7 @@ samples the first, middle, and final boundaries of a 2,000-event replay against 
 current projector remains below that threshold, so canonical reconstruction does not create or
 persist checkpoints yet.
 
-TinyOS controlled-host actions use the same `tinybot.command.v1` gateway and dedicated
+TinyOS controlled-host actions use the same `tinybot.command.v1` contract and dedicated
 `tinyos-host-*` operation identities. They are never inferred from local window state:
 
 - `file.save` carries `path`, `content`, `create_only`, `confirmed`, and, for an existing file,
@@ -1059,8 +988,8 @@ The effective capability declares `projectionContract: "structured_projection_v1
 They are available only in a supported Windows build with `native-browser-runtime`; otherwise the
 desktop reports the exact feature/platform unavailable reason and does not create a fallback browser.
 
-`GET /api/sessions/{key}/effective-capabilities` and the native
-`worker_session_effective_capabilities` command return `tinybot.effective_capabilities.v1` decisions.
+The native `thread_get_effective_capabilities` command returns
+`tinybot.effective_capabilities.v2` decisions keyed by `threadId`.
 Unavailable decisions include both `reasonCode` and a user-facing `reason`; the response identifies
 the evaluated turn used for the decision when present. Retry is available only when that latest turn
 is failed and no active turn supersedes it. `files.requestChange` is available when workspace read
@@ -1134,10 +1063,9 @@ Key response shapes used by the lower-level session RPC:
 ## Thread and Turn Persistence
 
 The Rust persistence RPC exposes only `thread.*` and `thread.turn.*`. The removed `session.*`
-namespace is not routed or accepted. Desktop `worker_session_*` Tauri commands remain UI adapters:
-they resolve a UI session key to a canonical Thread ID and call the Thread/Turn RPCs, but they are
-not a second persistence interface. All conversation and runtime state has one persistence
-authority: typed, append-only Rollout files under
+namespace is not routed or accepted. The removed `/api/sessions/**` WebUI routes and
+`worker_session_*` Tauri adapters do not provide a second persistence interface. All conversation
+and runtime state has one persistence authority: typed, append-only Rollout files under
 `.tinybot/threads/YYYY/MM/DD/thread-*.jsonl`.
 `.tinybot/state/state.sqlite` is only a rebuildable discovery and metadata index. Deleting the
 index and restarting rebuilds it from Rollouts; it is never a second conversation authority.
@@ -1179,10 +1107,9 @@ agent result is not replayed through `thread.apply_op`, so each logical value ha
 payload. The turn-start seed retains instruction provenance and diagnostics, so derived
 `thread.turn.get` projections preserve the effective working directory and instruction sources.
 Form continuation restores `latestCheckpoint.restorePayload` from Rollout, including
-after a new runtime instance starts; a later terminal item makes that checkpoint inactive. Direct
-non-thread agent commands use the same start, semantic, checkpoint, and terminal batches.
+after a new runtime instance starts; a later terminal item makes that checkpoint inactive.
 
-`clientEventId` is the retry/idempotency key for thread appends, starts, continuations, approvals,
+`clientEventId` is the retry/idempotency key for thread appends, starts, continuations,
 forms, and forks. A successful retry projects the original item IDs instead of appending another
 logical operation. `MemoryThreadStore` is an in-process derived projection; it has no durable
 journal or database.
@@ -1231,6 +1158,9 @@ Thread Tauri commands all use `{ input: { body } }`, except the continuation hel
 | `worker_thread_fork` | `thread.fork` | `ForkThreadRequest` |
 | `worker_thread_events` | `thread.events` | `ThreadEventsRequest` |
 | `worker_thread_restore_checkpoint` | `thread.restore_checkpoint` | `RestoreThreadCheckpointRequest` |
+| `thread_list_turns` | `thread.turn.list` | `{ threadId }` |
+| `thread_get_turn_runtime_state` | `thread.turn.runtime_state` | `{ threadId, turnId }` |
+| `thread_get_effective_capabilities` | composite Thread capability query | `{ threadId }` |
 
 Thread continuation helper commands:
 
@@ -1239,8 +1169,7 @@ Thread continuation helper commands:
 | `worker_submit_thread_turn` | `{ input: { threadId?: string, input: unknown, spec?: unknown } }` |
 | `worker_submit_thread_form` | `{ input: { threadId, formId, values?, action? } }` |
 
-Agent checkpoint continuation supports structured forms only. Tool permission approvals remain
-available through the worker approval RPC and are not projected into the agent runtime timeline.
+Agent checkpoint continuation supports structured forms only.
 
 The renderer prepares the final user text before calling `worker_submit_thread_turn`. When the user
 mentions files, it prepends their absolute paths to that text; the backend persists and forwards the
@@ -1314,7 +1243,6 @@ Thread statuses:
 - `idle`
 - `running`
 - `waiting_for_input`
-- `waiting_for_approval`
 - `cancelling`
 - `failed`
 - `archived`
@@ -1449,11 +1377,9 @@ Result shape:
 }
 ```
 
+After typed parameter, JSON-schema, capability, and availability validation,
 `workspace.apply_patch`, `workspace.write_file`, `workspace.delete_file`, `shell.execute`,
-`shell.start`, browser interaction, and MCP tool calls do not have a pre-execution approval
-boundary. After typed parameter and JSON-schema validation, an available tool dispatches directly.
-The legacy `approval.*` and `permission_profile.*approval` methods remain compatibility APIs for
-older clients, but the native tool execution path neither creates nor consumes those grants.
+`shell.start`, browser interaction, and MCP tool calls dispatch directly.
 
 `permission_profile.evaluate_tool` still reports normalized `effects` as descriptive metadata:
 
@@ -1501,10 +1427,10 @@ or terminated safely.
 
 Model-visible deferred tools map to the richer RPC surface:
 
-| Tool | Worker RPC target | Pre-execution approval | Cancellation policy |
-| --- | --- | --- | --- |
-| `exec_command` | `shell.start` | none | `terminate_process` |
-| `write_stdin` | `shell.write_stdin` | none | `detach_forbidden` |
+| Tool | Worker RPC target | Cancellation policy |
+| --- | --- | --- |
+| `exec_command` | `shell.start` | `terminate_process` |
+| `write_stdin` | `shell.write_stdin` | `detach_forbidden` |
 
 The worker overwrites tool-supplied identity fields with the active `sessionId`, `ownerId`, and
 `toolCallId` when these tools dispatch. An owned process cannot be polled, written, resized,
@@ -1550,7 +1476,7 @@ directory, including one outside the workspace, or a path relative to the worksp
 
 Windows pipe processes receive a dedicated kill-on-close Job Object immediately
 after creation. Failure to create or assign that job fails the start and terminates the direct child.
-`shell.terminate`, turn cancellation, and gateway shutdown terminate the job and verify the root
+`shell.terminate`, turn cancellation, and Native Runtime shutdown terminate the job and verify the root
 record reaches terminal state, preventing descendants from retaining inherited pipe handles or
 surviving the owner.
 
@@ -1598,7 +1524,6 @@ and shutdown terminate descendant processes as well as the root process.
 | Subagent manager | `worker_subagent_spawn`, `worker_subagent_list`, `worker_subagent_query`, `worker_subagent_send_input`, `worker_subagent_wait`, `worker_subagent_cancel`, `worker_subagent_close`, `worker_subagent_resume` |
 | Task plans | `worker_task_plan_list`, `worker_task_plan_get`, `worker_task_plan_save`, `worker_task_plan_delete` |
 | TinyOS host operations | `worker_dispatch_tinyos_host_command` |
-| Cowork proxy | `worker_cowork_route` |
 | WebUI proxy | `worker_webui_route` |
 
 ### Subagent lifecycle
@@ -1620,7 +1545,7 @@ and depth failures are explicit control errors and do not create partial durable
 - `parent_turn` copies user and completed assistant messages from the latest user turn;
 - `full_history` copies all user and completed assistant messages.
 
-Reasoning, tool calls and outputs, approvals, and private trace items are never inherited. Copied
+Reasoning, tool calls and outputs, and private trace items are never inherited. Copied
 messages contain source-thread and source-item provenance and use deterministic child item IDs.
 
 After a process restart, canonically persisted active children are restored as `interrupted`.
@@ -1646,7 +1571,7 @@ await invoke("worker_dispatch_tinyos_host_command", {
 ```
 
 This dispatcher accepts only remaining non-chat TinyOS host operations. Chat turns, interruption,
-approvals, and forms must use the typed Thread commands.
+and forms must use the typed Thread commands.
 
 ## WebUI Route Wrapper
 
@@ -1656,7 +1581,7 @@ Call:
 const response = await invoke("worker_webui_route", {
   input: {
     method: "GET",
-    path: "/api/status",
+    path: "/api/tools",
     headers: {},
     body: null
   }
@@ -1671,7 +1596,7 @@ Response:
   "body": {},
   "headers": {
     "x-tinybot-route-owner": "rust",
-    "x-tinybot-route-group": "status"
+    "x-tinybot-route-group": "tools"
   }
 }
 ```
@@ -1681,30 +1606,31 @@ Use `routeResponse()` if the status and headers are needed.
 
 ### Rust-owned WebUI Routes
 
-Desktop chat submits native Thread/Turn commands and is not exposed as an OpenAI-compatible
-endpoint. `POST /v1/chat/completions` is unsupported and returns the standard `404`
+Desktop chat uses native Thread/Turn commands, while desktop model settings use
+`POST /api/provider-models`; neither surface is exposed through OpenAI-compatible inbound endpoints.
+`POST /v1/chat/completions` and `GET /v1/models` are unsupported and return the standard `404`
 `unsupported-route` response. Outbound provider requests may still use OpenAI-compatible
-chat/completions protocols.
+chat/completions and model discovery protocols.
+
+Configuration reads and writes use the typed `get_config_editor_snapshot` and
+`apply_config_operations` Tauri commands. `GET` and `PATCH /api/config` are not part of the WebUI
+route surface and return the standard `404` `unsupported-route` response.
+
+Native startup and readiness are handled in process. `/health`, `/webui/bootstrap`,
+`/webui/refresh-token`, and `/api/status` are not part of the WebUI route surface and return the
+standard `404` `unsupported-route` response.
+
+The legacy `/api/sessions/**` namespace is not part of the WebUI route surface. Native chat uses
+typed Thread/Turn Tauri commands and unknown Session routes return the standard `404`
+`unsupported-route` response.
 
 | Method | Path | Group | Notes |
 | --- | --- | --- | --- |
-| `GET` | `/health` | health | Native health check |
-| `GET` | `/webui/bootstrap` | bootstrap | Returns `{ token, ws_path, refresh_token_path, token_ttl_s }` |
-| `POST` | `/webui/refresh-token` | bootstrap | Returns a fresh bootstrap token |
-| `GET` | `/api/status` | status | Runtime status body |
-| `GET` | `/api/config` | config | Public config snapshot |
 | `GET` | `/api/tools` | tools | Effective built-in and MCP capability catalog |
 | `GET` | `/api/providers` | providers | Provider catalog |
 | `POST` | `/api/provider-models` | providers | Provider model resolution |
-| `GET` | `/v1/models` | openai | OpenAI-compatible model list |
 | `POST` | `/api/agent-ui/forms/{form_id}/submit` | agent-ui | Form continuation |
 | `POST` | `/api/agent-ui/forms/{form_id}/cancel` | agent-ui | Form cancellation |
-| `GET` | `/api/sessions` | sessions | List sessions |
-| `GET` | `/api/sessions/{key}/messages` | sessions | List session messages |
-| `POST` | `/api/sessions/branch` | sessions | Branch from message/session body |
-| `PATCH` | `/api/sessions/{key}` | sessions | Patch session metadata/title/archive state |
-| `DELETE` | `/api/sessions/{key}` | sessions | Delete session |
-| `POST` | `/api/sessions/{key}/clear` | sessions | Clear messages/profile/checkpoint |
 | `GET` | `/api/skills` | skills | List skills |
 | `POST` | `/api/skills` | skills | Create skill |
 | `GET` | `/api/skills/{name}` | skills | Skill detail |
@@ -1715,14 +1641,7 @@ chat/completions protocols.
 | `GET` | `/api/workspace/files/{path:.+}` | workspace | Read workspace file |
 | `PUT` | `/api/workspace/files/{path:.+}` | workspace | Write workspace file |
 
-### Inventoried But Unsupported WebUI Routes
-
-These return status `501` through `worker_webui_route`:
-
-| Method | Path | Reason |
-| --- | --- | --- |
-| `PATCH` | `/api/config` | Config patch route is not implemented in Rust WebUI route surface |
-| `GET/POST/PATCH/DELETE` | `/api/cowork/{path:.+}` | Cowork HTTP routes are not exposed by Rust WebUI route inventory |
+### Unsupported WebUI Routes
 
 Unknown, non-inventoried routes return status `404` with:
 
@@ -1762,13 +1681,12 @@ External callers should usually prefer the Tauri commands above.
 | Namespace | Methods |
 | --- | --- |
 | `thread.turn` | `append_semantic_batch`, `clear_checkpoint`, `get`, `get_checkpoint`, `list`, `mark_cancelled`, `mark_completed`, `mark_failed`, `mark_interrupted`, `runtime_state`, `set_checkpoint`, `start` |
-| `approval` | `list_pending`, `request`, `resolve` |
 | `config` | `apply_operations`, `apply_patch_result`, `get`, `snapshot_public` |
 | `diagnostics` | `append` |
 | `form` | `request` |
 | `mcp` | `call_tool`, `diagnostics`, `list_tools`, `server_status`, `shutdown` |
 | `memory` | `capture_evidence`, `dream_apply`, `dream_log`, `dream_pending`, `dream_restore`, `dream_run`, `list_evidence`, `migrate_legacy_notes`, `rebuild_index`, `recall`, `refresh_views`, `reject`, `save`, `search`, `supersede`, `trace` |
-| `permission_profile` | `current`, `evaluate_tool`, `request_tool_approval`, `resolve_tool_approval` |
+| `permission_profile` | `current`, `evaluate_tool` |
 | `provider` | `resolve_secret` |
 | `runtime` | `metrics`, `now`, `restart` |
 | `session` | `append_messages`, `clear`, `clear_checkpoint`, `delete`, `get_checkpoint`, `get_history`, `get_metadata`, `list_metadata`, `patch_metadata`, `patch_user_profile`, `persist_turn`, `set_checkpoint`, `trim` |
@@ -1782,15 +1700,15 @@ External callers should usually prefer the Tauri commands above.
 
 `thread.turn.start` atomically appends the minimal turn seed, turn context, changed materialized
 instructions, and current user message. `thread.turn.append_semantic_batch` accepts only stable events
-that can be materialized as typed message, reasoning, tool, approval, usage, or terminal records;
+that can be materialized as typed message, reasoning, tool, usage, or terminal records;
 delta, phase, status, provider-start, and generic trace envelopes are rejected or kept live-only.
 Agent-turn reads are derived from the thread JSONL and never fall back to the in-memory thread store.
 
 ### MCP Runtime RPC
 
-The Gateway owns one long-lived MCP runtime shared by Worker RPC adapters and native agent turns.
+The Native Runtime owns one long-lived MCP runtime shared by Worker RPC adapters and native agent turns.
 Short-lived adapters do not own child processes or HTTP sessions. A configuration update with the
-`mcpConfigChanged` side effect reconciles changed, disabled, and removed servers; Gateway shutdown
+`mcpConfigChanged` side effect reconciles changed, disabled, and removed servers; Native Runtime shutdown
 closes HTTP sessions and terminates stdio children before stopping the worker.
 
 Accepted transport values:
@@ -1804,10 +1722,8 @@ Configured server maps are normalized from `tools.mcp_servers`, `tools.mcpServer
 paths use the same normalized map.
 
 `mcp.capability_catalog` and `GET /api/tools` expose one effective snapshot containing configured
-servers, runtime status, discovered tools, allowlist state, callable state, denial reasons, input
-schemas, and compatibility approval metadata. One failed or disabled server remains visible without
-hiding tools from healthy servers. Configured approval policy is reported as disabled and MCP tools
-dispatch without a per-request approval.
+servers, runtime status, discovered tools, allowlist state, callable state, denial reasons, and input
+schemas. One failed or disabled server remains visible without hiding tools from healthy servers.
 
 Stdio configuration example:
 
@@ -1943,8 +1859,6 @@ The Rust backend can emit live events through Tauri. Dotted worker event names a
 - `agent.delegate.started`
 - `agent.delegate.running`
 - `agent.delegate.message_queued`
-- `agent.delegate.awaiting_approval`
-- `agent.delegate.tool.approval_required`
 - `agent.delegate.tool.completed`
 - `agent.delegate.trace.updated`
 - `agent.delegate.completed`
@@ -1959,13 +1873,9 @@ The Rust backend can emit live events through Tauri. Dotted worker event names a
 - `diagnostics.log`
 - `worker.status`
 
-Approval event names in this compatibility list are retained only for decoding historical persisted
-records and older clients. The native runtime no longer emits new approval-wait or
-approval-required events for tool calls.
-
 Semantic runtime events retain their existing compatibility fields and also include a typed
 `payload.agentItem` object. The discriminator is `type`. Current production projections cover
-approval requests/decisions, form requests/responses, task-plan progress, subagent activity,
+form requests/responses, task-plan progress, subagent activity,
 context compaction/trimming, errors/cancellation, usage updates, and user file/image references.
 Runtime event `itemId` is derived from the same typed item ID, so live delivery, trace persistence,
 and replay refer to one semantic item. Unknown or malformed internally constructed semantic events
@@ -2053,35 +1963,25 @@ Prefer these wrappers instead of direct command strings:
 | Wrapper | File | Commands/routes covered |
 | --- | --- | --- |
 | `createDesktopNativeConfigApi` | `src/app-core/native/desktopNativeConfig.ts` | Config snapshot |
-| `createDesktopNativeSessionsApi` | `src/app-core/native/desktopNativeSessions.ts` | Session commands |
-| `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread commands |
+| `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread, Turn timeline, and effective-capability commands |
 | `createDesktopNativeHostCommandApi` | `src/app-core/native/desktopNativeHostCommand.ts` | Remaining non-chat TinyOS host commands |
 | `createDesktopNativeWebuiApi` | `src/app-core/native/desktopNativeWebui.ts` | `worker_webui_route` |
 
 ## Examples
 
-List sessions:
+List Thread turns:
 
 ```ts
-await invoke("worker_sessions_list");
-```
-
-Read session messages:
-
-```ts
-await invoke("worker_session_messages", {
-  input: { key: "websocket:chat-1" }
+await invoke("thread_list_turns", {
+  input: { body: { threadId: "thread-1" } }
 });
 ```
 
-Patch a session title:
+Read canonical Turn runtime state:
 
 ```ts
-await invoke("worker_session_patch", {
-  input: {
-    key: "websocket:chat-1",
-    body: { title: "Planning notes" }
-  }
+await invoke("thread_get_turn_runtime_state", {
+  input: { body: { threadId: "thread-1", turnId: "turn-1" } }
 });
 ```
 
@@ -2141,7 +2041,7 @@ Non-Windows builds return unavailable decisions with reason code `platform_unsup
 synthetic browser state.
 
 The native Agent registry keeps both `browser.observe` and `browser.interact` deferred in supported
-feature builds. Both dispatch without per-request approval directly to the `SharedBrowserRuntime`
+feature builds. Both dispatch directly to the `SharedBrowserRuntime`
 installed in Tauri state; they do not pass through a second
 Worker RPC browser implementation. `browser.observe` creates or reuses the browser session owned by
 the current chat and returns its active identities. `browser.interact` rejects sessions or tabs not

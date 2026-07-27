@@ -236,32 +236,6 @@ pub enum ThreadOp {
         #[serde(default)]
         reason: Option<String>,
     },
-    ApprovalRequest {
-        #[serde(default)]
-        turn_id: Option<String>,
-        #[serde(default)]
-        approval_id: Option<String>,
-        #[serde(default)]
-        summary: Option<String>,
-        #[serde(default)]
-        scope: Option<String>,
-        #[serde(default)]
-        payload: Value,
-    },
-    ApprovalDecision {
-        #[serde(default)]
-        turn_id: Option<String>,
-        #[serde(default)]
-        approval_id: Option<String>,
-        #[serde(default)]
-        approved: bool,
-        #[serde(default)]
-        scope: Option<String>,
-        #[serde(default)]
-        guidance: Option<String>,
-        #[serde(default)]
-        payload: Value,
-    },
     ToolCallStarted {
         #[serde(default)]
         turn_id: Option<String>,

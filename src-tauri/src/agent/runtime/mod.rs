@@ -1,6 +1,4 @@
-use crate::agent::runtime_protocol::{
-    AgentEventKind, AgentRuntimeEventEnvelope, AgentTraceContext, LegacyNativeAgentEventProjection,
-};
+use crate::agent::runtime_protocol::{AgentRuntimeEventEnvelope, AgentTraceContext};
 use crate::collaboration::subagents::SubagentThreadManager;
 #[cfg(test)]
 use crate::collaboration::subagents::{
@@ -44,6 +42,7 @@ mod usage;
 mod user_input;
 
 pub(crate) use self::context::{agent_trace_context_from_value, ensure_agent_trace_context};
+pub(crate) use self::events::standalone_runtime_event;
 pub(crate) use self::hooks::AgentHookEvaluation;
 
 #[cfg(test)]
@@ -63,7 +62,6 @@ pub use self::items::{
 #[cfg(test)]
 use self::provider::agent_chat_completion_request;
 use self::provider::{agent_provider_config, chat_completion_content, RustNativeAgentProvider};
-use self::result::event_value;
 pub use self::settings::AgentTurnSettings;
 use self::tool_router::NativeToolRouter;
 use self::usage::context_window_messages_async;
@@ -161,22 +159,6 @@ impl fmt::Debug for NativeAgentCancellationContext {
 impl crate::protocol::WorkerRequestCancellation for NativeAgentCancellationContext {
     fn is_cancelled(&self) -> bool {
         self.is_cancelled()
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct NativeAgentEvent {
-    #[serde(rename = "eventName")]
-    pub event_name: String,
-    pub payload: Value,
-}
-
-impl From<LegacyNativeAgentEventProjection> for NativeAgentEvent {
-    fn from(event: LegacyNativeAgentEventProjection) -> Self {
-        Self {
-            event_name: event.event_name,
-            payload: event.payload,
-        }
     }
 }
 
@@ -453,7 +435,6 @@ pub trait NativeAgentToolDispatcher: Send + Sync + 'static {
 pub trait NativeAgentCheckpointStore: Send + Sync {
     fn save(&self, session_id: &str, checkpoint: Value);
     fn save_for_turn(&self, session_id: &str, turn_id: &str, checkpoint: Value);
-    fn restore(&self, session_id: &str) -> Option<Value>;
     fn restore_for_turn(&self, session_id: &str, turn_id: &str) -> Option<Value>;
     fn clear_for_turn(&self, session_id: &str, turn_id: &str);
 }
@@ -799,21 +780,6 @@ impl NativeAgentRuntimeServices {
             "messages": [],
             "toolsUsed": [],
             "task": task,
-            "events": [event_value(AgentEventKind::Cancelled, serde_json::json!({
-                "turnId": turn_id,
-                "cancelled": true,
-                "commandId": command_id,
-                "stopReason": "cancelled",
-                "error": "cancelled",
-            }))],
-        })
-    }
-
-    pub fn restore_checkpoint(&self, session_id: &str) -> Value {
-        serde_json::json!({
-            "runtime": "rust",
-            "sessionId": session_id,
-            "checkpoint": self.checkpoints.restore(session_id),
         })
     }
 

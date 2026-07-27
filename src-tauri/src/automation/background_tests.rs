@@ -55,41 +55,6 @@ fn list_runs_reads_existing_background_registry_fixture() {
 }
 
 #[test]
-fn upsert_accepts_awaiting_approval_runs() {
-    let root = temp_workspace_root("awaiting-approval-store");
-    let _cleanup = TempWorkspaceCleanup(root.clone());
-    let rpc = WorkerBackgroundRpc::new(
-        root,
-        CapabilityPolicy::new([WorkerCapability::BackgroundWrite]),
-    );
-
-    let result = rpc
-        .upsert_run(BackgroundRunUpsertParams {
-            run: BackgroundRun {
-                id: "run-awaiting".to_string(),
-                kind: BackgroundRunKind::Subagent,
-                source: BackgroundRunSource::Subagent,
-                status: BackgroundRunStatus::AwaitingApproval,
-                label: Some("Writer".to_string()),
-                session_key: Some("desktop:session-1".to_string()),
-                plan_id: None,
-                subtask_id: None,
-                cron_job_id: None,
-                started_at_ms: 1710000000000,
-                updated_at_ms: 1710000005000,
-                completed_at_ms: None,
-                result: Some("Waiting for approval.".to_string()),
-                error: None,
-                metadata: json!({ "stopReason": "awaiting_approval" }),
-            },
-        })
-        .expect("awaiting approval should be a valid non-final background status");
-
-    assert_eq!(result.run.status, BackgroundRunStatus::AwaitingApproval);
-    assert_eq!(result.run.metadata["stopReason"], "awaiting_approval");
-}
-
-#[test]
 fn appends_and_filters_trace_events() {
     let root = temp_workspace_root("trace-event-store");
     let _cleanup = TempWorkspaceCleanup(root.clone());
@@ -190,24 +155,20 @@ fn reconstructs_delegate_trace_from_journal_events() {
     rpc.append_trace_event(BackgroundTraceAppendParams {
         event: BackgroundTraceEvent {
             event_id: "event-2".to_string(),
-            event_type: "child.approval.resolved".to_string(),
+            event_type: "child.tool.completed".to_string(),
             session_key: "WebSocket:chat-1".to_string(),
             turn_id: "turn-1".to_string(),
             parent_step_id: None,
             delegate_id: Some("delegate-1".to_string()),
             child_turn_id: Some("child-1".to_string()),
-            child_step_id: Some("approval-1".to_string()),
+            child_step_id: Some("tool-1".to_string()),
             trace_ref: Some("trace-delegate-1".to_string()),
             sequence: 2,
             created_at: "2026-06-28T00:00:01.000Z".to_string(),
-            payload: json!({
-                "approvalId": "approval-1",
-                "status": "approved",
-                "toolName": "write_file"
-            }),
+            payload: json!({ "status": "completed", "toolName": "write_file" }),
         },
     })
-    .expect("approval event should append");
+    .expect("tool event should append");
     rpc.append_trace_event(BackgroundTraceAppendParams {
         event: BackgroundTraceEvent {
             event_id: "event-3".to_string(),
@@ -245,8 +206,6 @@ fn reconstructs_delegate_trace_from_journal_events() {
     assert_eq!(result.trace.status.as_deref(), Some("completed"));
     assert_eq!(result.trace.final_output.as_deref(), Some("Done"));
     assert_eq!(result.trace.events.len(), 3);
-    assert_eq!(result.trace.approvals.len(), 1);
-    assert_eq!(result.trace.approvals[0]["approvalId"], "approval-1");
 }
 
 #[test]

@@ -22,7 +22,6 @@ describe("desktop settings schema coverage", () => {
     expect(canonicalizeDesktopSettingsPersistentPath("agents.defaults.max_tool_iterations")).toBe("agents.defaults.maxIterations");
     expect(canonicalizeDesktopSettingsPersistentPath("agents.defaults.context_window_strategy")).toBe("agents.defaults.contextWindowStrategy");
     expect(canonicalizeDesktopSettingsPersistentPath("tools.mcp_servers.docs.command")).toBe("tools.mcpServers.docs.command");
-    expect(canonicalizeDesktopSettingsPersistentPath("gateway.heartbeat.interval_s")).toBe("gateway.heartbeat.intervalS");
   });
 
   test("all rendered persistent settings paths have dispositions", () => {
@@ -45,7 +44,6 @@ describe("desktop settings schema coverage", () => {
           models: ["deepseek-chat"],
         },
       },
-      gateway: { host: "127.0.0.1", port: 18790 },
     }, providerCatalog);
     const pane = buildDesktopSettingsPaneModel(state, { providerCatalog });
 
@@ -153,8 +151,8 @@ describe("desktop settings schema coverage", () => {
     expect(owners["default-route"]).toMatchObject({ role: "editable-owner", groupId: "general" });
     expect(owners["provider-profile"]).toMatchObject({ role: "editable-owner", groupId: "provider-models" });
     expect(owners.workspace).toMatchObject({ role: "editable-owner", groupId: "files-workspace", fieldId: "workspace" });
-    expect(owners["gateway-endpoint"]).toMatchObject({ role: "editable-owner", groupId: "gateway-runtime" });
-    expect(owners["mcp-servers"]).toMatchObject({ role: "editable-owner", groupId: "tools-approvals", fieldId: "mcpServers" });
+    expect(owners["runtime-endpoint"]).toBeUndefined();
+    expect(owners["mcp-servers"]).toMatchObject({ role: "editable-owner", groupId: "tools-mcp", fieldId: "mcpServers" });
     expect(owners.memory).toMatchObject({ role: "feature-preview", groupId: "memory-experience" });
     expect(owners.skills).toMatchObject({ role: "feature-preview", groupId: "skills" });
     expect(owners.automations).toMatchObject({ role: "feature-preview", groupId: "automations" });

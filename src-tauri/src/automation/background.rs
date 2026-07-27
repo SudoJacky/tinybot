@@ -159,14 +159,12 @@ impl WorkerBackgroundRpc {
                     status: None,
                     final_output: None,
                     events,
-                    approvals: Vec::new(),
                     artifacts: Vec::new(),
                 },
             });
         };
         let mut status = None;
         let mut final_output = None;
-        let mut approvals = Vec::new();
         let mut artifacts = Vec::new();
         for event in &events {
             if let Some(value) = json_string(&event.payload, "status") {
@@ -175,10 +173,6 @@ impl WorkerBackgroundRpc {
                 status = Some("completed".to_string());
             } else if event.event_type.ends_with(".failed") {
                 status = Some("failed".to_string());
-            } else if event.event_type.ends_with(".requested")
-                || event.event_type.ends_with(".awaiting_approval")
-            {
-                status = Some("awaiting_approval".to_string());
             }
             if let Some(value) = json_string(&event.payload, "finalOutput")
                 .or_else(|| json_string(&event.payload, "final_output"))
@@ -186,12 +180,6 @@ impl WorkerBackgroundRpc {
                 .or_else(|| json_string(&event.payload, "result_preview"))
             {
                 final_output = Some(value);
-            }
-            if event.event_type.starts_with("child.approval.")
-                || event.payload.get("approvalId").is_some()
-                || event.payload.get("approval_id").is_some()
-            {
-                approvals.push(event.payload.clone());
             }
             if event.event_type.starts_with("child.artifact.")
                 || event.payload.get("artifactId").is_some()
@@ -210,7 +198,6 @@ impl WorkerBackgroundRpc {
                 status,
                 final_output,
                 events,
-                approvals,
                 artifacts,
             },
         })
@@ -438,8 +425,6 @@ pub enum BackgroundRunSource {
     Task,
     Subagent,
     Cron,
-    Approval,
-    Cowork,
     File,
     Provider,
 }
@@ -449,7 +434,6 @@ pub enum BackgroundRunSource {
 pub enum BackgroundRunStatus {
     Queued,
     Running,
-    AwaitingApproval,
     Completed,
     Failed,
     Cancelled,
@@ -550,7 +534,6 @@ pub struct BackgroundDelegateTrace {
     pub status: Option<String>,
     pub final_output: Option<String>,
     pub events: Vec<BackgroundTraceEvent>,
-    pub approvals: Vec<Value>,
     pub artifacts: Vec<Value>,
 }
 

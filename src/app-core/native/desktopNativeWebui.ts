@@ -1,7 +1,19 @@
-import type { NativeWebuiRouteRequest, NativeWebuiRouteResponse } from "../gateway/gatewayHttpClient";
 import { logDesktopNativeDebug } from "./desktopNativeChatDebug";
 
 type InvokeFn = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+
+export type NativeWebuiRouteRequest = {
+  method: string;
+  path: string;
+  headers?: Record<string, unknown>;
+  body?: unknown;
+};
+
+export type NativeWebuiRouteResponse = {
+  status: number;
+  body?: unknown;
+  headers?: Record<string, unknown>;
+};
 
 export function createDesktopNativeWebuiApi(options: { invoke: InvokeFn; now?: () => number }) {
   const now = options.now ?? readMonotonicNow;

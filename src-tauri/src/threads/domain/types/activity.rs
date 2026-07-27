@@ -49,7 +49,6 @@ pub struct ThreadAgentRegistryResult {
     pub agents: Vec<ThreadAgentRegistryEntry>,
     pub total: usize,
     pub active_count: usize,
-    pub waiting_for_approval_count: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -88,8 +87,6 @@ pub struct ThreadAgentRegistryEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mailbox_depth: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pending_approval: Option<Value>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capacity: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_control: Option<Value>,
@@ -119,8 +116,6 @@ pub struct ThreadActivityResult {
     #[serde(default)]
     pub active_children: Vec<ThreadChildActivity>,
     #[serde(default)]
-    pub pending_approvals: Vec<ThreadPendingApproval>,
-    #[serde(default)]
     pub running_tools: Vec<ThreadRunningTool>,
     #[serde(default)]
     pub checkpoints: Vec<ThreadCheckpoint>,
@@ -132,24 +127,8 @@ pub struct ThreadActivityResult {
 #[serde(rename_all = "camelCase")]
 pub struct ThreadActivitySummary {
     pub active_children: usize,
-    pub pending_approvals: usize,
     pub running_tools: usize,
     pub checkpoints: usize,
-}
-
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ThreadPendingApproval {
-    pub thread_id: String,
-    pub item_id: String,
-    pub turn_id: String,
-    pub approval_id: String,
-    #[serde(default)]
-    pub summary: Option<String>,
-    #[serde(default)]
-    pub scope: Option<String>,
-    pub created_at: String,
-    pub payload: Value,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]

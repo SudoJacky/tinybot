@@ -285,17 +285,6 @@ impl ConfigStore {
                 ),
             });
         }
-        if let Some(error) = validate_config_snapshot(&next_snapshot) {
-            return Ok(ConfigPatchApplyResult {
-                ok: false,
-                config: public_config_snapshot(latest.snapshot()),
-                revision: Some(latest_revision),
-                updated_fields: Vec::new(),
-                side_effects: ConfigPatchSideEffects::default(),
-                error: Some(error),
-            });
-        }
-
         self.snapshot = next_snapshot;
         self.save_snapshot()?;
 
@@ -580,9 +569,6 @@ fn canonical_config_segment(parent: &[String], _index: usize, segment: &str) -> 
     if parent == ["channels"] && segment == "send_progress" {
         return "sendProgress".to_string();
     }
-    if parent == ["gateway", "heartbeat"] && segment == "interval_s" {
-        return "intervalS".to_string();
-    }
     if parent.len() == 3 && parent[0] == "providers" && parent[1] == "profiles" {
         return match segment {
             "display_name" => "displayName".to_string(),
@@ -685,21 +671,6 @@ fn canonicalize_config_aliases_at_path(value: &mut Value, path: &mut Vec<String>
         }
         _ => {}
     }
-}
-
-fn validate_config_snapshot(snapshot: &Value) -> Option<String> {
-    if let Some(port) = snapshot
-        .get("gateway")
-        .and_then(|gateway| gateway.get("port"))
-    {
-        let valid_port = port
-            .as_u64()
-            .is_some_and(|port| (1..=65535).contains(&port));
-        if !valid_port {
-            return Some("validation_failed: gateway.port".to_string());
-        }
-    }
-    None
 }
 
 fn public_config_snapshot(snapshot: &Value) -> Value {
@@ -875,13 +846,6 @@ fn plan_config_patch_side_effects(updated_fields: &[String]) -> ConfigPatchSideE
             push_unique(
                 &mut warnings,
                 "agents.defaults.workspace requires an explicit workspace reload".to_string(),
-            );
-        }
-        if field == "gateway.host" || field == "gateway.port" {
-            push_unique(&mut restart_required, "gatewayRestartRequired".to_string());
-            push_unique(
-                &mut warnings,
-                "gateway host or port changes require restart".to_string(),
             );
         }
     }

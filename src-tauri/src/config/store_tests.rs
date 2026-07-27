@@ -510,41 +510,18 @@ fn apply_operations_rejects_conflicting_aliases_without_writing() {
 }
 
 #[test]
-fn apply_operations_rejects_invalid_gateway_port_without_writing() {
-    let fixture = ConfigStoreFixture::new();
-    let path = fixture.write("config.json", r#"{"gateway":{"port":18790}}"#);
-    let mut store =
-        ConfigStore::load(path.clone(), default_snapshot()).expect("fixture config should load");
-
-    let result = store
-        .apply_operations(ConfigOperationRequest {
-            expected_revision: Some(store.revision()),
-            operations: vec![ConfigOperation::Replace {
-                path: "gateway.port".to_string(),
-                value: json!(70000),
-            }],
-        })
-        .expect("validation failure should be a protocol result");
-
-    assert!(!result.ok);
-    assert_eq!(
-        result.error.as_deref(),
-        Some("validation_failed: gateway.port")
-    );
-    let saved = serde_json::from_str::<serde_json::Value>(
-        &fs::read_to_string(path).expect("original config should remain"),
-    )
-    .expect("saved config should be JSON");
-    assert_eq!(saved["gateway"]["port"], 18790);
-}
-
-#[test]
 fn save_snapshot_reports_atomic_write_failure_without_changing_authoritative_file() {
     let fixture = ConfigStoreFixture::new();
-    let path = fixture.write("config.json", r#"{"gateway":{"port":18790}}"#);
+    let path = fixture.write(
+        "config.json",
+        r#"{"agents":{"defaults":{"model":"original"}}}"#,
+    );
     let blocking_temp_path = path.with_extension("json.tmp");
     fs::create_dir_all(&blocking_temp_path).expect("blocking temp directory should create");
-    let mut store = ConfigStore::from_snapshot(path.clone(), json!({"gateway":{"port":18888}}));
+    let mut store = ConfigStore::from_snapshot(
+        path.clone(),
+        json!({"agents":{"defaults":{"model":"updated"}}}),
+    );
 
     let error = store
         .save_snapshot()
@@ -560,7 +537,7 @@ fn save_snapshot_reports_atomic_write_failure_without_changing_authoritative_fil
         &fs::read_to_string(path).expect("authoritative config should remain"),
     )
     .expect("saved config should be JSON");
-    assert_eq!(saved["gateway"]["port"], 18790);
+    assert_eq!(saved["agents"]["defaults"]["model"], "original");
 }
 
 fn default_snapshot() -> serde_json::Value {

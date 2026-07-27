@@ -1,8 +1,7 @@
 use super::support::*;
 use crate::desktop::state::lock_runtime;
-use crate::desktop::state::GatewayRuntime;
+use crate::desktop::state::NativeRuntimeState;
 use crate::desktop_commands::agent::worker_run_agent_with_options;
-use crate::desktop_commands::session::worker_turn_runtime_state_with_options;
 use crate::desktop_commands::transport::native_websocket_transport_result;
 use crate::desktop_commands::transport::validate_tinyos_host_command_frame;
 use crate::desktop_commands::transport::worker_transport_dispatch_websocket_message_with_options;
@@ -27,12 +26,7 @@ fn tinyos_host_command_interface_rejects_chat_frames() {
         assert!(error.contains("accepts only TinyOS host commands"));
     }
 
-    for command_kind in [
-        "agent.cancel",
-        "approval.resolve",
-        "form.submit",
-        "form.cancel",
-    ] {
+    for command_kind in ["agent.cancel", "form.submit", "form.cancel"] {
         let error = validate_tinyos_host_command_frame(&serde_json::json!({
             "type": "command",
             "command_kind": command_kind,
@@ -107,7 +101,7 @@ fn worker_transport_websocket_maps_controlled_host_commands() {
 #[test]
 fn worker_transport_dispatches_a_revision_guarded_file_command_and_rejects_fake_browser_control() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let session_id = "websocket:chat-host-file";
@@ -393,7 +387,7 @@ fn worker_transport_websocket_maps_correlated_agent_pause_command() {
 #[test]
 fn worker_transport_agent_request_change_starts_new_correlated_turn() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let session_id = "websocket:chat-agent-request";
@@ -486,24 +480,22 @@ fn worker_transport_agent_request_change_starts_new_correlated_turn() {
         Duration::from_millis(100),
     )
     .expect("Agent request should start a new Agent turn");
-    let request_state = worker_turn_runtime_state_with_options(
-        &shared,
-        session_id.to_string(),
-        request_turn_id.to_string(),
-        fixture.root.clone(),
+    let request_state = read_thread_turn_runtime_state(
+        &fixture.thread_store,
         serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("Agent request runtime state should be readable");
+        session_id,
+        request_turn_id,
+    );
     let items = request_state["timeline"]["items"]
         .as_array()
         .expect("Agent request timeline items should exist");
 
-    assert_eq!(dispatched["agent"]["stopReason"], "final_response");
-    assert_eq!(
-        dispatched["agent"]["finalContent"],
-        "The selected line is the project heading."
-    );
+    assert_eq!(dispatched["sessionId"], session_id);
+    assert_eq!(dispatched["turnId"], request_turn_id);
+    assert!(items.iter().any(|item| {
+        item["kind"] == "assistant_message"
+            && item["data"]["content"] == "The selected line is the project heading."
+    }));
     assert!(items.iter().any(|item| {
         item["kind"] == "tool_call"
             && item["data"]["toolCallId"] == "command-agent-request-1"
@@ -523,7 +515,7 @@ fn worker_transport_agent_request_change_starts_new_correlated_turn() {
 #[test]
 fn worker_transport_operation_retry_starts_new_correlated_turn() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let session_id = "websocket:chat-operation-retry";
@@ -558,15 +550,12 @@ fn worker_transport_operation_retry_starts_new_correlated_turn() {
         Duration::from_millis(100),
     )
     .expect("source Agent turn should persist a canonical failure");
-    let source_state = worker_turn_runtime_state_with_options(
-        &shared,
-        session_id.to_string(),
-        source_turn_id.to_string(),
-        fixture.root.clone(),
+    let source_state = read_thread_turn_runtime_state(
+        &fixture.thread_store,
         serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("failed source runtime state should be readable");
+        session_id,
+        source_turn_id,
+    );
     let source_item_id = source_state["timeline"]["items"]
         .as_array()
         .and_then(|items| items.iter().rev().find(|item| item["status"] == "failed"))
@@ -606,18 +595,15 @@ fn worker_transport_operation_retry_starts_new_correlated_turn() {
         Duration::from_millis(100),
     )
     .expect("operation retry should start a new Agent turn");
-    let retry_state = worker_turn_runtime_state_with_options(
-        &shared,
-        session_id.to_string(),
-        retry_turn_id.to_string(),
-        fixture.root.clone(),
+    let retry_state = read_thread_turn_runtime_state(
+        &fixture.thread_store,
         serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("retry runtime state should be readable");
+        session_id,
+        retry_turn_id,
+    );
 
-    assert_eq!(dispatched["agent"]["stopReason"], "final_response");
-    assert_eq!(dispatched["agent"]["finalContent"], "Recovered after retry");
+    assert_eq!(dispatched["sessionId"], session_id);
+    assert_eq!(dispatched["turnId"], retry_turn_id);
     assert!(retry_state["timeline"]["items"]
         .as_array()
         .expect("retry timeline items should exist")
@@ -627,12 +613,20 @@ fn worker_transport_operation_retry_starts_new_correlated_turn() {
                 && item["data"]["toolCallId"] == "command-operation-retry-1"
                 && item["data"]["name"] == "operation.retry"
         }));
+    assert!(retry_state["timeline"]["items"]
+        .as_array()
+        .expect("retry timeline items should exist")
+        .iter()
+        .any(|item| {
+            item["kind"] == "assistant_message"
+                && item["data"]["content"] == "Recovered after retry"
+        }));
 }
 
 #[test]
 fn tinyos_terminal_execute_runs_without_sandbox_and_can_be_cancelled() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let session_id = "websocket:chat-host-terminal";
@@ -712,7 +706,7 @@ fn tinyos_terminal_execute_runs_without_sandbox_and_can_be_cancelled() {
 #[test]
 fn tinyos_effective_capabilities_are_backend_authored_and_turn_scoped() {
     let policy = default_desktop_capability_policy();
-    let running = crate::desktop_commands::session::build_worker_session_effective_capabilities(
+    let running = crate::desktop_commands::thread::build_thread_effective_capabilities(
         "websocket:chat-1",
         &serde_json::json!({
             "turns": [{ "turnId": "turn-1", "status": "running" }]
@@ -722,9 +716,9 @@ fn tinyos_effective_capabilities_are_backend_authored_and_turn_scoped() {
     );
     assert_eq!(
         running["schemaVersion"],
-        "tinybot.effective_capabilities.v1"
+        "tinybot.effective_capabilities.v2"
     );
-    assert_eq!(running["sessionId"], "websocket:chat-1");
+    assert_eq!(running["threadId"], "websocket:chat-1");
     assert_eq!(running["evaluatedTurnId"], "turn-1");
     assert_eq!(
         running["capabilities"]["agent"]["cancel"]["available"],
@@ -741,7 +735,7 @@ fn tinyos_effective_capabilities_are_backend_authored_and_turn_scoped() {
         "turn_active"
     );
 
-    let waiting = crate::desktop_commands::session::build_worker_session_effective_capabilities(
+    let waiting = crate::desktop_commands::thread::build_thread_effective_capabilities(
         "websocket:chat-1",
         &serde_json::json!({
             "turns": [{ "turnId": "turn-wait", "status": "waiting" }]
@@ -758,7 +752,7 @@ fn tinyos_effective_capabilities_are_backend_authored_and_turn_scoped() {
         "turn_waiting"
     );
 
-    let paused = crate::desktop_commands::session::build_worker_session_effective_capabilities(
+    let paused = crate::desktop_commands::thread::build_thread_effective_capabilities(
         "websocket:chat-1",
         &serde_json::json!({
             "turns": [{ "turnId": "turn-paused", "status": "waiting", "phase": "paused" }]
@@ -770,7 +764,7 @@ fn tinyos_effective_capabilities_are_backend_authored_and_turn_scoped() {
     assert_eq!(paused["capabilities"]["agent"]["cancel"]["available"], true);
     assert_eq!(paused["capabilities"]["agent"]["pause"]["available"], false);
 
-    let failed = crate::desktop_commands::session::build_worker_session_effective_capabilities(
+    let failed = crate::desktop_commands::thread::build_thread_effective_capabilities(
         "websocket:chat-1",
         &serde_json::json!({
             "turns": [

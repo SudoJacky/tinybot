@@ -6,7 +6,6 @@ import {
   createTinyOsAgentCancelCommand,
   createTinyOsAgentRequestChangeCommand,
   createTinyOsAgentTurnControlCommand,
-  createTinyOsApprovalResolveCommand,
   createTinyOsFormCancelCommand,
   createTinyOsFormSubmitCommand,
   createTinyOsBrowserInteractCommand,
@@ -20,7 +19,7 @@ import {
   isTinyOsCommandPending,
   reduceTinyOsCommandLifecycle,
   type TinyOsCommandLifecycle,
-} from "./tinyOsCommandGateway";
+} from "./tinyOsCommand";
 
 const command = createTinyOsAgentCancelCommand({
   commandId: "command-1",
@@ -31,22 +30,6 @@ const command = createTinyOsAgentCancelCommand({
 });
 
 describe("TinyOS command lifecycle", () => {
-  test("creates a correlated approval resolution command", () => {
-    expect(createTinyOsApprovalResolveCommand({
-      action: "approveSession",
-      approvalId: "approval-1",
-      commandId: "command-approval-1",
-      issuedAt: "2026-07-13T00:00:00Z",
-      turnId: "turn-1",
-      sessionId: "websocket:chat-1",
-      source: { control: "inspector-approval", surface: "tinyos" },
-    })).toMatchObject({
-      approval: { approvalId: "approval-1", approved: true, scope: "session" },
-      commandId: "command-approval-1",
-      kind: "approval.resolve",
-    });
-  });
-
   test("creates a correlated form submission command", () => {
     expect(createTinyOsFormSubmitCommand({
       commandId: "command-form-1",
@@ -262,32 +245,6 @@ describe("TinyOS command lifecycle", () => {
     expect(isTinyOsCommandInFlight(state)).toBe(false);
   });
 
-  test("acknowledges approval delivery as soon as the backend accepts the decision", () => {
-    const approvalCommand = createTinyOsApprovalResolveCommand({
-      action: "approveOnce",
-      approvalId: "approval-1",
-      commandId: "command-approval-1",
-      issuedAt: "2026-07-13T00:00:00Z",
-      turnId: "turn-1",
-      sessionId: "websocket:chat-1",
-      source: { control: "inspector-approval", surface: "tinyos" },
-    });
-    let state: TinyOsCommandLifecycle = { stage: "idle" };
-    state = reduceTinyOsCommandLifecycle(state, { command: approvalCommand, nowMs: 10, type: "dispatch" });
-    state = reduceTinyOsCommandLifecycle(state, {
-      commandId: approvalCommand.commandId,
-      nowMs: 20,
-      type: "transport_accepted",
-    });
-
-    expect(state).toMatchObject({
-      acknowledgement: { itemId: "approval-1", revision: 0 },
-      stage: "acknowledged",
-    });
-    expect(isTinyOsCommandPending(state)).toBe(false);
-    expect(isTinyOsCommandInFlight(state)).toBe(false);
-  });
-
   test("ignores acknowledgements for a different correlation id", () => {
     const state = reduceTinyOsCommandLifecycle(
       { command, dispatchedAtMs: 10, stage: "sending" },
@@ -367,38 +324,6 @@ describe("TinyOS command lifecycle", () => {
       status: "cancelled",
     });
     expect(canonicalTinyOsCommandAcknowledgement([turn], "command-other")).toBeUndefined();
-  });
-
-  test("recognizes a correlated approval decision as command completion", () => {
-    const turn = {
-      canonicalItems: [{
-        createdAt: "2026-07-13T00:00:01Z",
-        data: {
-          approvalId: "approval-1",
-          commandId: "command-approval-1",
-          decision: "approved",
-          status: "completed",
-          type: "approval",
-        },
-        itemId: "turn-1:approval:approval-1",
-        kind: "approval",
-        revision: 2,
-        schemaVersion: "tinybot.turn_item.v2",
-        sequence: 6,
-        sessionId: "websocket:chat-1",
-        status: "completed",
-        turnId: "turn-1",
-      }],
-    } as unknown as ChatTurn;
-    expect(canonicalTinyOsCommandAcknowledgement([turn], "command-approval-1")).toEqual({
-      itemId: "turn-1:approval:approval-1",
-      revision: 2,
-    });
-    expect(canonicalTinyOsCommandCompletion([turn], "command-approval-1")).toEqual({
-      itemId: "turn-1:approval:approval-1",
-      revision: 2,
-      status: "completed",
-    });
   });
 
   test("recognizes a correlated form resolution as command completion", () => {

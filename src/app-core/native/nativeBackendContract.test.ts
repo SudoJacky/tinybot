@@ -9,13 +9,9 @@ import {
 } from "./nativeBackendContract";
 
 describe("native backend contract", () => {
-  test("keeps the existing Tauri command names as compatibility entry points", () => {
+  test("exposes the current typed Tauri command surface", () => {
     expect(NATIVE_BACKEND_COMMAND_NAMES).toEqual(expect.arrayContaining([
-      "worker_run_agent",
       "worker_submit_thread_turn",
-      "worker_cancel_agent",
-      "worker_restore_agent_checkpoint",
-      "worker_submit_agent_form",
       "worker_submit_thread_form",
       "worker_thread_read",
       "worker_thread_resume",
@@ -28,8 +24,20 @@ describe("native backend contract", () => {
       "worker_thread_continue_turn",
       "worker_thread_interrupt",
       "worker_thread_apply_op",
+      "thread_list_turns",
+      "thread_get_turn_runtime_state",
+      "thread_get_effective_capabilities",
       "worker_subagent_resume",
     ]));
+    for (const removedCommand of [
+      "worker_run_agent",
+      "worker_run_agent_input",
+      "worker_cancel_agent",
+      "worker_restore_agent_checkpoint",
+      "worker_submit_agent_form",
+    ]) {
+      expect(NATIVE_BACKEND_COMMAND_NAMES).not.toContain(removedCommand);
+    }
   });
 
   test("covers Rust-owned agent events consumed by native surfaces", () => {

@@ -5,9 +5,8 @@ use crate::agent::bridge::{
     native_agent_turn_completed_at, native_agent_turn_id, native_agent_turn_phase_from_stop_reason,
     native_agent_turn_status, native_agent_usage,
 };
-use crate::agent::runtime::{agent_trace_context_from_value, NativeAgentRuntimeServices};
-use crate::agent::runtime_protocol::{AgentEventKind, AgentTraceContext};
-use crate::protocol::request_id::next_worker_request_correlation;
+use crate::agent::runtime::agent_trace_context_from_value;
+use crate::agent::runtime_protocol::AgentTraceContext;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
 use crate::threads::workspace_store::WorkspaceThreadStore;
@@ -101,16 +100,6 @@ fn terminal_turn_rejection(
             "status": status,
             "phase": phase,
         },
-        "events": [{
-            "eventName": AgentEventKind::Error.wire_name(),
-            "payload": {
-                "turnId": turn_id,
-                "sessionId": session_id,
-                "stopReason": "terminal_turn",
-                "message": message,
-                "error": message,
-            }
-        }],
     })
 }
 
@@ -221,11 +210,6 @@ fn native_agent_turn_context(
         },
         "current_date": spec.get("currentDate").cloned().unwrap_or(serde_json::Value::Null),
         "timezone": spec.get("timezone").cloned().unwrap_or(serde_json::Value::Null),
-        "approval_policy": spec
-            .get("approvalPolicy")
-            .or_else(|| defaults.get("approvalPolicy"))
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!("on_request")),
         "sandbox_policy": spec
             .get("sandboxPolicy")
             .or_else(|| defaults.get("sandboxPolicy"))
@@ -480,79 +464,6 @@ pub(crate) fn persist_native_agent_checkpoint_if_present(
         "write",
     )?;
     Ok(())
-}
-
-pub(crate) fn cancel_agent_with_services(
-    services: NativeAgentRuntimeServices,
-    turn_id: &str,
-) -> serde_json::Value {
-    services.cancel(turn_id)
-}
-
-pub(crate) fn restore_agent_checkpoint_with_services(
-    services: NativeAgentRuntimeServices,
-    session_id: String,
-    config_snapshot: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    let thread_store = services.thread_store()?;
-    let restored = services.restore_checkpoint(&session_id);
-    if !restored
-        .get("checkpoint")
-        .is_some_and(|value| !value.is_null())
-    {
-        return restore_native_agent_checkpoint_from_session_store(
-            session_id,
-            &thread_store,
-            config_snapshot,
-        );
-    }
-    validate_native_agent_checkpoint_version(restored.get("checkpoint"))?;
-    Ok(restored)
-}
-
-fn restore_native_agent_checkpoint_from_session_store(
-    session_id: String,
-    thread_store: &WorkspaceThreadStore,
-    config_snapshot: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    let request_id = next_worker_request_correlation();
-    let checkpoint = call_rust_state_service(
-        thread_store,
-        config_snapshot,
-        WorkerRequest::new(
-            request_id.id("session-get-native-checkpoint"),
-            request_id.trace_id("session-get-native-checkpoint"),
-            "thread.latest_checkpoint",
-            serde_json::json!({ "threadId": session_id.clone() }),
-        ),
-        "native agent checkpoint restore",
-    )?;
-    validate_native_agent_checkpoint_version(Some(&checkpoint))?;
-    Ok(serde_json::json!({
-        "runtime": "rust",
-        "sessionId": session_id,
-        "checkpoint": checkpoint,
-    }))
-}
-
-fn validate_native_agent_checkpoint_version(
-    checkpoint: Option<&serde_json::Value>,
-) -> Result<(), String> {
-    let Some(checkpoint) = checkpoint.filter(|value| !value.is_null()) else {
-        return Ok(());
-    };
-    let Some(schema_version) = checkpoint
-        .get("schemaVersion")
-        .and_then(serde_json::Value::as_u64)
-    else {
-        return Ok(());
-    };
-    if schema_version == 1 {
-        return Ok(());
-    }
-    Err(format!(
-        "unsupported Rust agent checkpoint schemaVersion {schema_version}"
-    ))
 }
 
 fn trace_context_from_result_or_spec(

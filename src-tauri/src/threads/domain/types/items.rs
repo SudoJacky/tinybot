@@ -23,8 +23,6 @@ pub enum ThreadItemKind {
     Reasoning(Value),
     ToolCallStarted(Value),
     ToolCallOutput(Value),
-    ApprovalRequested(Value),
-    ApprovalResolved(Value),
     TurnStarted(Value),
     TurnStep(Value),
     TurnCompleted(Value),
