@@ -60,8 +60,6 @@ export interface DesktopSettingsFormState {
     restrictToWorkspace: boolean;
   };
   gateway: {
-    host: string | null;
-    port: number | null;
     heartbeatEnabled: boolean;
     heartbeatIntervalS: number | null;
   };
@@ -80,14 +78,13 @@ export interface DesktopSettingsFormState {
 export type DesktopSettingsValidationField =
   | "model"
   | "timezone"
-  | "gatewayPort"
   | "mcpServers"
   | "providerApiBase"
   | "embeddingApiBase";
 
 export interface DesktopSettingsValidationError {
   field: DesktopSettingsValidationField;
-  errorKey: "modelEmpty" | "timezoneError" | "portRange" | "jsonObjectError" | "urlError";
+  errorKey: "modelEmpty" | "timezoneError" | "jsonObjectError" | "urlError";
 }
 
 export type DesktopSettingsSavePatchResult =
@@ -158,7 +155,7 @@ export type DesktopSettingsPaneFieldConfigurationMode =
   | "toggle"
   | "url";
 export type DesktopSettingsEditableValue = string | boolean;
-export type DesktopSettingsPaneApplyEffect = "immediate" | "gateway-restart" | "workspace-reload";
+export type DesktopSettingsPaneApplyEffect = "immediate" | "workspace-reload";
 export type DesktopSettingsPaneCommitMode = "manual" | "auto";
 export type DesktopSettingsPaneConfirmationWhen = "enable" | "disable" | "change";
 
@@ -319,8 +316,8 @@ const DESKTOP_SETTINGS_GROUP_METADATA: Record<DesktopSettingsPaneGroupId, Deskto
   },
   "gateway-runtime": {
     label: "Gateway & Runtime",
-    description: "Local gateway connection, heartbeat, and runtime controls.",
-    aliases: ["gateway", "runtime", "host", "port"],
+    description: "Legacy heartbeat and runtime controls.",
+    aliases: ["gateway", "runtime", "heartbeat"],
     i18nKey: "settings.groups.gateway-runtime",
     navigationArea: "system",
     navigationMode: "section",
@@ -405,22 +402,6 @@ const DESKTOP_SETTINGS_FIELD_METADATA: Record<string, DesktopSettingsPaneFieldMe
     sensitive: true,
     i18nKey: "settings.fields.tools-approvals.mcpServers",
   },
-  "gateway-runtime.host": {
-    label: "Host",
-    description: "Host interface where the desktop gateway listens.",
-    aliases: ["bind host", "listen address", "gateway endpoint"],
-    applyEffect: "gateway-restart",
-    i18nKey: "settings.fields.gateway-runtime.host",
-  },
-  "gateway-runtime.port": {
-    label: "Port",
-    description: "Port used by the local gateway endpoint.",
-    aliases: ["gateway port", "listen port"],
-    validationField: "gatewayPort",
-    applyEffect: "gateway-restart",
-    unit: "TCP port",
-    i18nKey: "settings.fields.gateway-runtime.port",
-  },
 };
 
 const DESKTOP_SETTINGS_AUTO_COMMIT_FIELDS = new Set([
@@ -475,10 +456,6 @@ export interface DesktopSettingsPaneModel {
     diagnostics?: string;
   };
   runtime?: {
-    intent: "local-only" | "local-network" | "advanced-custom";
-    currentEndpoint: string;
-    pendingEndpoint: string;
-    portStatus: string;
     heartbeatDependency: string;
   };
   diagnostics?: {
@@ -580,8 +557,6 @@ export function buildDesktopSettingsFormState(
       restrictToWorkspace: boolValue(pick(tools, "restrictToWorkspace", "restrict_to_workspace")),
     },
     gateway: {
-      host: stringOrDefault(gateway.host, "0.0.0.0"),
-      port: numberOrDefault(gateway.port, 18790),
       heartbeatEnabled: heartbeat.enabled === true,
       heartbeatIntervalS: numberOrDefault(pick(heartbeat, "intervalS", "interval_s"), 1800),
     },
@@ -848,8 +823,6 @@ function createDesktopSettingsFullPatch(
       restrict_to_workspace: state.tools.restrictToWorkspace,
     },
     gateway: {
-      host: state.gateway.host,
-      port: state.gateway.port,
       heartbeat: {
         enabled: state.gateway.heartbeatEnabled,
         interval_s: state.gateway.heartbeatIntervalS,
@@ -922,10 +895,6 @@ function getDesktopSettingsPatchPathValue(state: DesktopSettingsFormState, path:
       return parseDesktopJsonObject(state.tools.mcpServersText);
     case "tools.restrict_to_workspace":
       return state.tools.restrictToWorkspace;
-    case "gateway.host":
-      return state.gateway.host;
-    case "gateway.port":
-      return state.gateway.port;
     case "gateway.heartbeat.enabled":
       return state.gateway.heartbeatEnabled;
     case "gateway.heartbeat.interval_s":
@@ -1005,9 +974,6 @@ export function validateDesktopSettingsForm(state: DesktopSettingsFormState): De
   if (!validateDesktopTimezone(state.agent.timezone || "")) {
     errors.push({ field: "timezone", errorKey: "timezoneError" });
   }
-  if (state.gateway.port !== null && !validateDesktopPortRange(state.gateway.port)) {
-    errors.push({ field: "gatewayPort", errorKey: "portRange" });
-  }
   if (state.tools.mcpServersText.trim() && !validateDesktopJsonObject(state.tools.mcpServersText)) {
     errors.push({ field: "mcpServers", errorKey: "jsonObjectError" });
   }
@@ -1052,8 +1018,8 @@ export function buildDesktopSettingsPaneModel(
     save.warnings = saveDetails.warnings;
     save.diagnostics = formatDesktopSettingsSaveDiagnostics(saveStatus, saveDetails);
   }
-  const runtime = buildDesktopSettingsRuntimeSummary(state, options.lastSavedState ?? state, save);
-  const diagnostics = buildDesktopSettingsDiagnosticsSummary(runtime, save);
+  const runtime = buildDesktopSettingsRuntimeSummary(state);
+  const diagnostics = buildDesktopSettingsDiagnosticsSummary(save);
   const providerCatalog = providerSummaries.map((provider) => ({
     id: provider.id,
     label: provider.label,
@@ -1100,13 +1066,12 @@ export function buildDesktopProviderModelRequest(
 }
 
 function buildDesktopSettingsDiagnosticsSummary(
-  runtime: NonNullable<DesktopSettingsPaneModel["runtime"]>,
   save: DesktopSettingsPaneModel["save"],
 ): NonNullable<DesktopSettingsPaneModel["diagnostics"]> {
   const saveStatus = `Settings save status: ${save.status}`;
   return {
-    runtimeSummary: `Runtime summary: current ${runtime.currentEndpoint}; pending ${runtime.pendingEndpoint}; ${saveStatus}.`,
-    gatewayOwnership: "Gateway ownership: Desktop-managed local gateway.",
+    runtimeSummary: `Runtime summary: in-process Rust backend; ${saveStatus}.`,
+    gatewayOwnership: "Runtime ownership: Tauri-managed native backend.",
     version: "Version: Current desktop build.",
     activeConfigPath: "Active config path: Managed by native runtime.",
     lastConfigError: save.status === "failed"
@@ -1118,42 +1083,12 @@ function buildDesktopSettingsDiagnosticsSummary(
 
 function buildDesktopSettingsRuntimeSummary(
   state: DesktopSettingsFormState,
-  lastSavedState: DesktopSettingsFormState,
-  save: DesktopSettingsPaneModel["save"],
 ): NonNullable<DesktopSettingsPaneModel["runtime"]> {
-  const pendingEndpoint = formatDesktopGatewayEndpoint(state.gateway.host, state.gateway.port);
-  const currentEndpoint = save.restartRequired?.length
-    ? formatDesktopGatewayEndpoint(lastSavedState.gateway.host, lastSavedState.gateway.port)
-    : pendingEndpoint;
-  const intent = classifyDesktopGatewayIntent(state.gateway.host);
-  const port = state.gateway.port;
   return {
-    intent,
-    currentEndpoint,
-    pendingEndpoint,
-    portStatus: port && validateDesktopPortRange(port)
-      ? `Port ${port} will be checked for availability before the gateway restarts.`
-      : "Port availability cannot be checked until a valid port is configured.",
     heartbeatDependency: state.gateway.heartbeatEnabled
       ? "Heartbeat interval is active while heartbeat is enabled."
       : "Heartbeat interval is disabled while heartbeat is off.",
   };
-}
-
-function classifyDesktopGatewayIntent(host: string | null): NonNullable<DesktopSettingsPaneModel["runtime"]>["intent"] {
-  if (host === "127.0.0.1" || host === "localhost" || host === "::1") {
-    return "local-only";
-  }
-  if (host === "0.0.0.0" || host === "::") {
-    return "local-network";
-  }
-  return "advanced-custom";
-}
-
-function formatDesktopGatewayEndpoint(host: string | null, port: number | null): string {
-  const safeHost = host || "127.0.0.1";
-  const safePort = port ?? 18790;
-  return `${safeHost}:${safePort}`;
 }
 
 function buildDesktopDefaultRouting(
@@ -1331,14 +1266,6 @@ export function applyDesktopSettingsFieldEdit(
       nextState.tools.restrictToWorkspace = Boolean(value);
       markDesktopSettingsTouched(nextState, "tools.restrict_to_workspace");
       break;
-    case "host":
-      nextState.gateway.host = stringOrNullInput(text);
-      markDesktopSettingsTouched(nextState, "gateway.host");
-      break;
-    case "port":
-      nextState.gateway.port = numberOrNullInput(text);
-      markDesktopSettingsTouched(nextState, "gateway.port");
-      break;
     case "heartbeat":
       nextState.gateway.heartbeatEnabled = Boolean(value);
       markDesktopSettingsTouched(nextState, "gateway.heartbeat.enabled");
@@ -1472,11 +1399,6 @@ export function validateDesktopUrl(value: string): boolean {
   } catch {
     return false;
   }
-}
-
-export function validateDesktopPortRange(value: number | string): boolean {
-  const port = typeof value === "number" ? value : Number.parseInt(value, 10);
-  return Number.isInteger(port) && port >= 1 && port <= 65535;
 }
 
 export function validateDesktopJsonObject(value: string): boolean {
@@ -2060,16 +1982,6 @@ function buildDesktopSettingsPaneGroups(
       id: "gateway-runtime",
       label: "Gateway & Runtime",
       fields: [
-        field("host", "Host", state.gateway.host, { requirement: "required", configurationMode: "freeform" }),
-        field("port", "Port", state.gateway.port, {
-          validationField: "gatewayPort",
-          control: "number",
-          requirement: "required",
-          configurationMode: "numeric",
-          min: 1,
-          max: 65535,
-          step: 1,
-        }),
         field("heartbeat", "Heartbeat", state.gateway.heartbeatEnabled, { control: "checkbox" }),
         field("heartbeatIntervalS", "Heartbeat interval", state.gateway.heartbeatIntervalS, {
           control: "number",
@@ -2254,8 +2166,6 @@ function getDesktopSettingsPaneFieldPersistentPath(
     "channels.sendProgress": "channels.sendProgress",
     "channels.sendToolHints": "channels.sendToolHints",
     "channels.sendMaxRetries": "channels.sendMaxRetries",
-    "gateway-runtime.host": "gateway.host",
-    "gateway-runtime.port": "gateway.port",
     "gateway-runtime.heartbeat": "gateway.heartbeat.enabled",
     "gateway-runtime.heartbeatIntervalS": "gateway.heartbeat.intervalS",
   };
@@ -2320,7 +2230,7 @@ function formatDesktopSettingsSaveMessage(
     return "Settings persisted";
   }
   if (status === "restart-required") {
-    return "Settings persisted. Gateway restart required";
+    return "Settings persisted. Application restart required";
   }
   if (status === "reload-required") {
     return "Settings persisted. Workspace reload required";

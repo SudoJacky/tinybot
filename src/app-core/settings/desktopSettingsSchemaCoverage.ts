@@ -29,7 +29,7 @@ const DISPOSITION_RULES: DispositionRule[] = [
   { pattern: /^tools\.(restrictToWorkspace|ssrfWhitelist)(\.|$)/, disposition: "advanced" },
   { pattern: /^tools\.(web|exec)(\.|$)/, disposition: "advanced" },
   { pattern: /^channels\..+$/, disposition: "advanced" },
-  { pattern: /^gateway\.(host|port|heartbeat\.(enabled|intervalS))$/, disposition: "essential" },
+  { pattern: /^gateway\.heartbeat\.(enabled|intervalS)$/, disposition: "essential" },
   { pattern: /^desktop\.ui\..+$/, disposition: "managed-elsewhere" },
 ];
 

@@ -6,54 +6,46 @@ import {
 } from "./desktopGatewayRuntimeControls";
 import { DEFAULT_NATIVE_BACKEND_COMMAND, type GatewayRuntimeStatus } from "./desktopGatewayRuntime";
 
-describe("desktop gateway runtime controls", () => {
-  test("projects ownership, command, port, repo root, logs, errors, and exit policy", () => {
-    const status: GatewayRuntimeStatus = {
-      state: "starting",
-      owner: "shell",
-      http_ok: false,
-      gateway_http: "http://127.0.0.1:18790",
-      gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: DEFAULT_NATIVE_BACKEND_COMMAND,
-      port: 18790,
-      repo_root: "D:/Code/tinybot/tinybot",
-      logs: ["stdout: booting", "stderr: warning", "stdout: listening"],
-      last_error: "HTTP 503",
-      exit_policy: "stop_on_exit",
-    };
+function runtimeStatus(overrides: Partial<GatewayRuntimeStatus> = {}): GatewayRuntimeStatus {
+  return {
+    state: "running",
+    owner: "shell",
+    command: DEFAULT_NATIVE_BACKEND_COMMAND,
+    repo_root: "D:/Code/tinybot/tinybot",
+    logs: [],
+    last_error: null,
+    exit_policy: "stop_on_exit",
+    ...overrides,
+  };
+}
 
-    expect(buildDesktopGatewayRuntimeRows(status, "http://127.0.0.1:18790")).toEqual([
+describe("desktop gateway runtime controls", () => {
+  test("projects native runtime state without nonexistent network endpoint fields", () => {
+    const status = runtimeStatus({
+      state: "starting",
+      logs: ["stdout: booting", "stderr: warning", "stdout: ready"],
+      last_error: "Runtime unavailable",
+    });
+
+    expect(buildDesktopGatewayRuntimeRows(status)).toEqual([
       { label: "State", value: "Starting" },
       { label: "Owner", value: "Shell-owned" },
       { label: "Command", value: DEFAULT_NATIVE_BACKEND_COMMAND },
-      { label: "Port", value: "18790" },
       { label: "Repo root", value: "D:/Code/tinybot/tinybot" },
-      { label: "Recent logs", value: "stdout: booting\nstderr: warning\nstdout: listening" },
-      { label: "Last error", value: "HTTP 503" },
+      { label: "Recent logs", value: "stdout: booting\nstderr: warning\nstdout: ready" },
+      { label: "Last error", value: "Runtime unavailable" },
       { label: "Exit policy", value: "Stop native backend on exit" },
     ]);
   });
 
   test("exposes only ownership-safe runtime actions", () => {
-    const baseStatus: GatewayRuntimeStatus = {
-      state: "running",
-      owner: "external",
-      http_ok: true,
-      gateway_http: "http://127.0.0.1:18790",
-      gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: DEFAULT_NATIVE_BACKEND_COMMAND,
-      port: 18790,
-      repo_root: "D:/Code/tinybot/tinybot",
-      logs: ["external gateway reachable"],
-      last_error: null,
-      exit_policy: "stop_on_exit",
-    };
+    const external = runtimeStatus({ owner: "external" });
 
-    expect(buildDesktopGatewayRuntimeActions(baseStatus).map((action) => action.id)).toEqual([
+    expect(buildDesktopGatewayRuntimeActions(external).map((action) => action.id)).toEqual([
       "copyDiagnostics",
       "openLogs",
     ]);
-    expect(buildDesktopGatewayRuntimeActions({ ...baseStatus, owner: "shell" }).map((action) => action.id)).toEqual([
+    expect(buildDesktopGatewayRuntimeActions({ ...external, owner: "shell" }).map((action) => action.id)).toEqual([
       "stop",
       "restart",
       "keepRunningOnExit",
@@ -61,11 +53,10 @@ describe("desktop gateway runtime controls", () => {
       "openLogs",
     ]);
     expect(buildDesktopGatewayRuntimeActions({
-      ...baseStatus,
+      ...external,
       state: "offline",
       owner: "none",
-      http_ok: false,
-      last_error: "connection refused",
+      last_error: "runtime stopped",
     }).map((action) => action.id)).toEqual([
       "start",
       "retry",
@@ -75,21 +66,9 @@ describe("desktop gateway runtime controls", () => {
   });
 
   test("runs lifecycle commands with ownership guards", async () => {
-    const status: GatewayRuntimeStatus = {
-      state: "running",
-      owner: "shell",
-      http_ok: true,
-      gateway_http: "http://127.0.0.1:18790",
-      gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: DEFAULT_NATIVE_BACKEND_COMMAND,
-      port: 18790,
-      repo_root: "D:/Code/tinybot/tinybot",
-      logs: [],
-      last_error: null,
-      exit_policy: "stop_on_exit",
-    };
+    const status = runtimeStatus();
     const commands: string[] = [];
-    const nextStatus = { ...status, state: "starting" as const };
+    const nextStatus = runtimeStatus({ state: "starting" });
 
     await runDesktopGatewayRuntimeCommand("restart", status, {
       runCommand: async (command) => {
@@ -108,19 +87,7 @@ describe("desktop gateway runtime controls", () => {
   });
 
   test("toggles native backend exit policy through a persisted runtime command", async () => {
-    const status: GatewayRuntimeStatus = {
-      state: "running",
-      owner: "shell",
-      http_ok: true,
-      gateway_http: "http://127.0.0.1:18790",
-      gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: DEFAULT_NATIVE_BACKEND_COMMAND,
-      port: 18790,
-      repo_root: "D:/Code/tinybot/tinybot",
-      logs: [],
-      last_error: null,
-      exit_policy: "stop_on_exit",
-    };
+    const status = runtimeStatus();
     const calls: Array<{ command: string; payload?: unknown }> = [];
 
     await runDesktopGatewayRuntimeCommand("keepRunningOnExit", status, {
@@ -132,7 +99,7 @@ describe("desktop gateway runtime controls", () => {
     await runDesktopGatewayRuntimeCommand("stopOnExit", { ...status, exit_policy: "keep_running" }, {
       runCommand: async (command, payload) => {
         calls.push({ command, payload });
-        return { ...status, exit_policy: "stop_on_exit" };
+        return status;
       },
     });
 
@@ -142,45 +109,27 @@ describe("desktop gateway runtime controls", () => {
     ]);
   });
 
-  test("explains incompatible bootstrap responses with recovery guidance", () => {
-    const status: GatewayRuntimeStatus = {
+  test("projects bootstrap diagnostics without reconstructing an HTTP endpoint", () => {
+    const status = runtimeStatus({
       state: "failed",
       owner: "none",
-      http_ok: false,
-      gateway_http: "http://127.0.0.1:18790",
-      gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: DEFAULT_NATIVE_BACKEND_COMMAND,
-      port: 18790,
-      repo_root: "D:/Code/tinybot/tinybot",
-      logs: [],
-      last_error: "Port 18790 is occupied by an incompatible service",
-      exit_policy: "stop_on_exit",
+      last_error: "Native runtime startup failed",
       bootstrap_status: "incompatible",
-      response_class: "incompatible-bootstrap",
-      recovery_hint: "Stop the conflicting process on port 18790, then retry Tinybot gateway startup.",
-    };
+      response_class: "incompatible-runtime",
+      recovery_hint: "Restart the desktop runtime and try again.",
+    });
 
-    expect(buildDesktopGatewayRuntimeRows(status, "http://127.0.0.1:18790")).toEqual(expect.arrayContaining([
+    expect(buildDesktopGatewayRuntimeRows(status)).toEqual(expect.arrayContaining([
       { label: "Bootstrap", value: "Incompatible" },
-      { label: "Response class", value: "incompatible-bootstrap" },
-      { label: "Recovery", value: "Stop the conflicting process on port 18790, then retry Tinybot gateway startup." },
+      { label: "Response class", value: "incompatible-runtime" },
+      { label: "Recovery", value: "Restart the desktop runtime and try again." },
     ]));
     expect(buildDesktopGatewayRuntimeActions(status).map((action) => action.id)).toContain("retry");
   });
 
-  test("projects worker runtime state and diagnostics without changing gateway actions", () => {
-    const status: GatewayRuntimeStatus = {
-      state: "running",
+  test("projects worker runtime state and diagnostics without changing runtime actions", () => {
+    const status = runtimeStatus({
       owner: "external",
-      http_ok: true,
-      gateway_http: "http://127.0.0.1:18790",
-      gateway_ws: "ws://127.0.0.1:18790/ws",
-      command: DEFAULT_NATIVE_BACKEND_COMMAND,
-      port: 18790,
-      repo_root: "D:/Code/tinybot/tinybot",
-      logs: [],
-      last_error: null,
-      exit_policy: "stop_on_exit",
       worker_runtime: {
         state: "running",
         transport_mode: "stdio",
@@ -191,9 +140,9 @@ describe("desktop gateway runtime controls", () => {
         last_error: null,
         recovery_hint: null,
       },
-    };
+    });
 
-    expect(buildDesktopGatewayRuntimeRows(status, "http://127.0.0.1:18790")).toEqual(expect.arrayContaining([
+    expect(buildDesktopGatewayRuntimeRows(status)).toEqual(expect.arrayContaining([
       { label: "Rust backend", value: "Running via stdio" },
       { label: "Rust diagnostics", value: "stdout: worker ready\nstderr: worker warning" },
     ]));

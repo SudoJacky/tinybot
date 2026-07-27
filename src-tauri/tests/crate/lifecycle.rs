@@ -744,10 +744,6 @@ fn native_config_defaults_to_schema_v1_deepseek_profile_without_config_file() {
                         "capabilities": ["reasoning"]
                     }
                 }
-            },
-            "gateway": {
-                "host": "127.0.0.1",
-                "port": 18790
             }
         })
     );

@@ -70,9 +70,6 @@ describe("desktop task center source projections", () => {
     const starting: GatewayRuntimeStatus = {
       state: "starting",
       owner: "shell",
-      http_ok: false,
-      gateway_http: "http://127.0.0.1:18790",
-      gateway_ws: "ws://127.0.0.1:18790/ws",
       command: DEFAULT_NATIVE_BACKEND_COMMAND,
       repo_root: "D:/Code/tinybot/tinybot",
       logs: ["booting"],

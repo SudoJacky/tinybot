@@ -27,8 +27,6 @@ use super::state::{
 #[derive(Serialize)]
 struct DesktopStatus {
     app_name: &'static str,
-    gateway_http: &'static str,
-    gateway_ws: &'static str,
     browser_mode: &'static str,
 }
 
@@ -36,8 +34,6 @@ struct DesktopStatus {
 fn desktop_status() -> DesktopStatus {
     DesktopStatus {
         app_name: "Tinybot Desktop",
-        gateway_http: "http://127.0.0.1:18790",
-        gateway_ws: "ws://127.0.0.1:18790/ws",
         browser_mode: "External browser",
     }
 }

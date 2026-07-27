@@ -56,8 +56,8 @@ Build a desktop package from the repository root:
 npm run tauri -- build
 ```
 
-The desktop shell starts the Rust native backend in-process. Tauri mode does not require a listener
-on port `18790`. Chat uses typed Thread commands and typed Tauri events directly; the native WebUI
+The desktop shell starts the Rust native backend in-process. Tauri mode does not bind a local HTTP
+or WebSocket listener. Chat uses typed Thread commands and typed Tauri events directly; the native WebUI
 route wrapper remains available only for non-chat HTTP-compatible surfaces. Routes or commands that
 are not implemented in Rust return explicit errors.
 
@@ -77,7 +77,7 @@ are not implemented in Rust return explicit errors.
 2. A compact startup state waits for the Rust native backend to become ready.
 3. The Tauri shell initializes and checks the in-process native runtime directly.
 4. The desktop window installs the workbench shell without probing `/webui/bootstrap` or reserving
-   port `18790`.
+   a local TCP port.
 5. Use the desktop app through native workbench modules for chat, sessions, approvals, settings, providers, tools, skills, workspace files, browser frames, Cowork, language toggle, and theme toggle where Rust support exists.
 
 The app owns the native runtime lifecycle. The configured exit policy applies to managed native backend state.

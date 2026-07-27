@@ -3,11 +3,7 @@ import type { NativeBackendKind } from "../native/nativeBackendContract";
 export type GatewayRuntimeStatus = {
   state: "running" | "starting" | "offline" | "failed";
   owner: "shell" | "external" | "none";
-  http_ok: boolean;
-  gateway_http: string;
-  gateway_ws: string;
   command: string;
-  port?: number | string | null;
   repo_root: string;
   log_path?: string | null;
   log_tail?: string[];

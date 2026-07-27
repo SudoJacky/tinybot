@@ -214,9 +214,9 @@ fn config_snapshot_public_preserves_non_secret_runtime_sections() {
                 "sendProgress": true,
                 "token": "channel-secret"
             },
-            "gateway": {
-                "port": 18790,
-                "accessToken": "gateway-secret"
+            "automations": {
+                "enabled": true,
+                "accessToken": "automation-secret"
             },
             "tools": {
                 "mcpServers": {
@@ -246,7 +246,7 @@ fn config_snapshot_public_preserves_non_secret_runtime_sections() {
         "medium"
     );
     assert_eq!(result.value["channels"]["sendProgress"], true);
-    assert_eq!(result.value["gateway"]["port"], 18790);
+    assert_eq!(result.value["automations"]["enabled"], true);
     assert_eq!(
         result.value["tools"]["mcpServers"]["docs"]["command"],
         "docs-mcp"
@@ -258,7 +258,7 @@ fn config_snapshot_public_preserves_non_secret_runtime_sections() {
     assert_eq!(result.value["skills"]["enabled"][0], "planner");
     assert!(result.value["agents"]["defaults"].get("apiKey").is_none());
     assert!(result.value["channels"].get("token").is_none());
-    assert!(result.value["gateway"].get("accessToken").is_none());
+    assert!(result.value["automations"].get("accessToken").is_none());
     assert!(result.value["tools"]["mcpServers"]["docs"]["env"]
         .get("DOCS_TOKEN")
         .is_none());

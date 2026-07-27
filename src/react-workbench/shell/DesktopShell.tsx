@@ -743,7 +743,7 @@ const settingsModules: Array<{ id: SettingsModuleId; label: string; description:
   { id: "agent-defaults", label: "Agent Defaults", description: "Runtime behavior for new agent turns" },
   { id: "tools-approvals", label: "Tools & MCP", description: "Tool access and MCP server configuration", groupId: "tools-approvals" },
   { id: "channels", label: "Channels", description: "Progress signals and delivery retries", groupId: "channels" },
-  { id: "gateway-runtime", label: "Gateway & Runtime", description: "Local port and heartbeat behavior", groupId: "gateway-runtime" },
+  { id: "gateway-runtime", label: "Gateway & Runtime", description: "Legacy heartbeat and runtime behavior", groupId: "gateway-runtime" },
 ];
 
 function SettingsLayout({

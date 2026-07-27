@@ -31,7 +31,7 @@ const GROUP_COPY: Record<ConfigSettingsGroupId, { title: string; description: st
   },
   "gateway-runtime": {
     title: "Gateway & Runtime",
-    description: "Manage the desktop-owned local gateway port and heartbeat behavior.",
+    description: "Manage legacy heartbeat behavior for the native runtime.",
   },
 };
 
@@ -46,7 +46,6 @@ const FIELD_COPY: Record<string, string> = {
   sendProgress: "Send intermediate progress events to connected clients.",
   sendToolHints: "Include tool activity hints with progress events.",
   sendMaxRetries: "Maximum delivery retries after a channel send failure.",
-  port: "TCP port used by the local Tinybot gateway. Changing it requires a gateway restart.",
   heartbeat: "Send a periodic heartbeat while the gateway is running.",
   heartbeatIntervalS: "Seconds between heartbeat events.",
 };
@@ -62,7 +61,7 @@ const EXPOSED_FIELDS: Record<ConfigSettingsGroupId, readonly string[]> = {
     "mcpServers",
   ],
   channels: ["sendProgress", "sendToolHints", "sendMaxRetries"],
-  "gateway-runtime": ["port", "heartbeat", "heartbeatIntervalS"],
+  "gateway-runtime": ["heartbeat", "heartbeatIntervalS"],
 };
 
 export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPageProps) {
@@ -347,9 +346,6 @@ function invalidFieldMessage(field: DesktopSettingsPaneField): string {
   if (field.id === "mcpServers") {
     return "MCP servers must be a valid JSON object.";
   }
-  if (field.id === "port") {
-    return "Gateway port must be an integer between 1 and 65535.";
-  }
   if (field.configurationMode === "url") {
     return `${field.label} must be a valid URL.`;
   }
@@ -367,7 +363,7 @@ function confirmationApplies(field: DesktopSettingsPaneField, value: string | bo
 
 function formatSaveStatus(saved: DesktopConfigSettingsSaveResult): string {
   if (saved.saveDetails.restartRequired.length) {
-    return "Saved. Restart the Tinybot gateway to apply this change.";
+    return "Saved. Restart Tinybot to apply this change.";
   }
   if (saved.saveDetails.reloadRequired.length) {
     return "Saved. Reload the active workspace to apply this change.";

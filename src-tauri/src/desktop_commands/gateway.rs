@@ -21,11 +21,7 @@ const RUST_BACKEND_COMMAND: &str = "Tauri Rust backend";
 pub(crate) struct GatewayRuntimeStatus {
     pub(crate) state: String,
     pub(crate) owner: String,
-    pub(crate) http_ok: bool,
-    pub(crate) gateway_http: &'static str,
-    pub(crate) gateway_ws: &'static str,
     pub(crate) command: &'static str,
-    pub(crate) port: u16,
     pub(crate) repo_root: String,
     pub(crate) log_path: String,
     pub(crate) log_tail: Vec<String>,
@@ -233,11 +229,7 @@ pub(crate) fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
     GatewayRuntimeStatus {
         state: state.to_string(),
         owner: owner.to_string(),
-        http_ok: false,
-        gateway_http: "http://127.0.0.1:18790",
-        gateway_ws: "ws://127.0.0.1:18790/ws",
         command: RUST_BACKEND_COMMAND,
-        port: 18790,
         repo_root: repo_root().display().to_string(),
         log_path: runtime.persistent_log_path.display().to_string(),
         log_tail: read_native_backend_log_tail(

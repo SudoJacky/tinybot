@@ -123,7 +123,6 @@ pub enum SettingRisk {
 #[serde(rename_all = "kebab-case")]
 pub enum SettingSideEffect {
     None,
-    GatewayRestart,
     WorkspaceReload,
     AppRestart,
 }
@@ -430,51 +429,6 @@ pub fn build_settings_snapshot(input: SettingsSnapshotInput) -> SettingsSnapshot
             "Gateway & Runtime",
             SettingsArea::System,
             vec![
-                readonly_field(
-                    "gateway-host",
-                    "Gateway host",
-                    "gateway.host",
-                    SettingScope::Global,
-                    SettingSource::Computed,
-                    Value::String("127.0.0.1".to_string()),
-                )
-                .with_side_effect(SettingSideEffect::GatewayRestart),
-                config_field(
-                    "gateway-port",
-                    "Gateway port",
-                    "gateway.port",
-                    SettingScope::Global,
-                    SettingValueType::Number,
-                    true,
-                    get_path(config, &["gateway", "port"]).or_else(|| Some(Value::from(18790))),
-                )
-                .with_side_effect(SettingSideEffect::GatewayRestart),
-                readonly_field(
-                    "gateway-http-base-url",
-                    "Gateway HTTP base URL",
-                    "gateway.http_base_url",
-                    SettingScope::Session,
-                    SettingSource::Computed,
-                    Value::String(format!(
-                        "http://127.0.0.1:{}",
-                        get_path(config, &["gateway", "port"])
-                            .and_then(|value| value.as_i64().map(|port| port.to_string()))
-                            .unwrap_or_else(|| "18790".to_string())
-                    )),
-                ),
-                readonly_field(
-                    "gateway-ws-url",
-                    "Gateway WebSocket URL",
-                    "gateway.ws_url",
-                    SettingScope::Session,
-                    SettingSource::Computed,
-                    Value::String(format!(
-                        "ws://127.0.0.1:{}/ws",
-                        get_path(config, &["gateway", "port"])
-                            .and_then(|value| value.as_i64().map(|port| port.to_string()))
-                            .unwrap_or_else(|| "18790".to_string())
-                    )),
-                ),
                 config_field(
                     "gateway-heartbeat-enabled",
                     "Gateway heartbeat enabled",
@@ -1073,11 +1027,6 @@ fn secret_field(
 impl SettingsField {
     fn with_risk(mut self, risk: SettingRisk) -> Self {
         self.risk = Some(risk);
-        self
-    }
-
-    fn with_side_effect(mut self, side_effect: SettingSideEffect) -> Self {
-        self.side_effect = Some(side_effect);
         self
     }
 }

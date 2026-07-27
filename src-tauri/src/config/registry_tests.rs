@@ -59,7 +59,7 @@ fn provider_api_key_is_secret_modeled_and_revealable() {
 }
 
 #[test]
-fn gateway_host_is_readonly_but_port_is_editable() {
+fn gateway_runtime_ignores_legacy_endpoint_fields() {
     let snapshot = build_settings_snapshot(SettingsSnapshotInput {
         config: config_fixture(),
         config_path: PathBuf::from("C:/Users/example/.tinybot/config.json"),
@@ -67,20 +67,12 @@ fn gateway_host_is_readonly_but_port_is_editable() {
         diagnostics: Vec::new(),
     });
 
-    let host = snapshot
-        .field("gateway.host")
-        .expect("gateway host field should exist");
-    let port = snapshot
-        .field("gateway.port")
-        .expect("gateway port field should exist");
-
-    assert!(!host.editable);
-    assert_eq!(host.source, SettingSource::Computed);
-    assert_eq!(host.value, json!("127.0.0.1"));
-
-    assert!(port.editable);
-    assert_eq!(port.source, SettingSource::Config);
-    assert_eq!(port.value, json!(18791));
+    assert!(snapshot.field("gateway.host").is_none());
+    assert!(snapshot.field("gateway.port").is_none());
+    assert!(snapshot.field("gateway.http_base_url").is_none());
+    assert!(snapshot.field("gateway.ws_url").is_none());
+    assert!(snapshot.field("gateway.heartbeat.enabled").is_some());
+    assert!(snapshot.field("gateway.heartbeat.interval_s").is_some());
 }
 
 #[test]

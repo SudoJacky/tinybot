@@ -116,8 +116,7 @@ fn ensure_default_config_file_creates_schema_v1_deepseek_profile_when_missing() 
         saved["providers"]["profiles"]["deepseek-default"]["models"],
         serde_json::json!(["deepseek-v4-pro", "deepseek-v4-flash"])
     );
-    assert_eq!(saved["gateway"]["host"], "127.0.0.1");
-    assert_eq!(saved["gateway"]["port"], 18790);
+    assert!(saved.get("gateway").is_none());
     assert!(!fixture.root.join(".tinybot").join("workspace").exists());
 }
 
@@ -238,11 +237,8 @@ fn native_settings_snapshot_returns_registry_projection() {
     )
     .expect("fixture config should write");
 
-    let snapshot = get_settings_snapshot_from_path(
-        &config_path,
-        serde_json::json!({ "gateway": { "host": "127.0.0.1", "port": 18790 } }),
-    )
-    .expect("settings snapshot should load");
+    let snapshot = get_settings_snapshot_from_path(&config_path, native_default_config_snapshot())
+        .expect("settings snapshot should load");
 
     let group_ids: Vec<&str> = snapshot
         .groups
@@ -278,13 +274,10 @@ fn native_settings_snapshot_returns_registry_projection() {
         .iter()
         .find(|group| group.id == "gateway-runtime")
         .expect("gateway group should exist");
-    let host = gateway_group
-        .fields
-        .iter()
-        .find(|field| field.path == "gateway.host")
-        .expect("host field should exist");
-    assert!(!host.editable);
-    assert_eq!(host.value, serde_json::json!("127.0.0.1"));
+    assert!(gateway_group.fields.iter().all(|field| !matches!(
+        field.path.as_str(),
+        "gateway.host" | "gateway.port" | "gateway.http_base_url" | "gateway.ws_url"
+    )));
 }
 
 #[test]

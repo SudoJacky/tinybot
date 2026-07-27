@@ -42,7 +42,6 @@ const DESKTOP_SETTINGS_CONCEPT_OWNERS: DesktopSettingsConceptOwner[] = [
   { concept: "workspace", groupId: "files-workspace", fieldId: "workspace", role: "editable-owner" },
   { concept: "session-files", groupId: "files-workspace", fieldId: "sessionFiles", role: "read-only-summary" },
   { concept: "channels", groupId: "channels", fieldId: "sendProgress", role: "editable-owner" },
-  { concept: "gateway-endpoint", groupId: "gateway-runtime", fieldId: "host", role: "editable-owner" },
   { concept: "diagnostics", groupId: "logs-diagnostics", fieldId: "diagnostics", role: "read-only-summary" },
   { concept: "memory", groupId: "memory-experience", fieldId: "memory", role: "feature-preview" },
   { concept: "skills", groupId: "skills", fieldId: "skills", role: "feature-preview" },

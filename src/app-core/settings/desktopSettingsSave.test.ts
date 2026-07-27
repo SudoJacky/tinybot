@@ -213,26 +213,26 @@ describe("desktop settings native save bridge", () => {
   test("splits native restart and reload requirements", async () => {
     const currentConfig = {
       agents: { defaults: { workspace: "old" } },
-      gateway: { port: 18790 },
+      runtime: { logLevel: "info" },
     };
     const patch = {
       agents: { defaults: { workspace: "new" } },
-      gateway: { port: 18888 },
+      runtime: { logLevel: "debug" },
     };
     const nativeConfig = {
       agents: { defaults: { workspace: "new" } },
-      gateway: { port: 18888 },
+      runtime: { logLevel: "debug" },
     };
     const applyNativeConfigPatch = vi.fn().mockResolvedValue({
       ok: true,
       config: nativeConfig,
-      updatedFields: ["agents.defaults.workspace", "gateway.port"],
+      updatedFields: ["agents.defaults.workspace", "runtime.logLevel"],
       sideEffects: {
         applied: [],
-        restartRequired: ["workspaceReloadRequired", "gatewayRestartRequired"],
+        restartRequired: ["workspaceReloadRequired", "applicationRestartRequired"],
         warnings: [
           "agents.defaults.workspace requires an explicit workspace reload",
-          "gateway host or port changes require restart",
+          "runtime log level changes require restart",
         ],
       },
     });
@@ -244,13 +244,13 @@ describe("desktop settings native save bridge", () => {
     })).resolves.toMatchObject({
       config: nativeConfig,
       transport: "native",
-      updatedFields: ["agents.defaults.workspace", "gateway.port"],
+      updatedFields: ["agents.defaults.workspace", "runtime.logLevel"],
       applied: [],
-      restartRequired: ["gatewayRestartRequired"],
+      restartRequired: ["applicationRestartRequired"],
       reloadRequired: ["workspaceReloadRequired"],
       warnings: [
         "agents.defaults.workspace requires an explicit workspace reload",
-        "gateway host or port changes require restart",
+        "runtime log level changes require restart",
       ],
     });
   });

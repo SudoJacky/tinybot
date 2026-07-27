@@ -17,14 +17,14 @@ describe("desktop settings config persistence smoke", () => {
           workspace: "D:/work/old",
         },
       },
-      gateway: { port: 18790 },
+      runtime: { logLevel: "info" },
       configMetadata: {
         revision: "hash:old",
         origins: {
           "agents.defaults.model": "default",
           "agents.defaults.timezone": "environment",
           "agents.defaults.workspace": "file",
-          "gateway.port": "file",
+          "runtime.logLevel": "file",
         },
       },
     };
@@ -38,7 +38,7 @@ describe("desktop settings config persistence smoke", () => {
 
     const patch = {
       agents: { defaults: { workspace: "D:/work/new" } },
-      gateway: { port: 18888 },
+      runtime: { logLevel: "debug" },
     };
     const invoke = vi.fn().mockResolvedValue({
       ok: true,
@@ -46,13 +46,13 @@ describe("desktop settings config persistence smoke", () => {
         ...currentConfig,
         revision: "hash:new",
         agents: { defaults: { ...currentConfig.agents.defaults, workspace: "D:/work/new" } },
-        gateway: { port: 18888 },
+        runtime: { logLevel: "debug" },
       },
       revision: "hash:new",
-      updatedFields: ["agents.defaults.workspace", "gateway.port"],
+      updatedFields: ["agents.defaults.workspace", "runtime.logLevel"],
       sideEffects: {
         applied: [],
-        restartRequired: ["workspaceReloadRequired", "gatewayRestartRequired"],
+        restartRequired: ["workspaceReloadRequired", "applicationRestartRequired"],
         warnings: [],
       },
     });
@@ -67,16 +67,16 @@ describe("desktop settings config persistence smoke", () => {
         expectedRevision: "hash:old",
         operations: [
           { op: "replace", path: "agents.defaults.workspace", value: "D:/work/new" },
-          { op: "replace", path: "gateway.port", value: 18888 },
+          { op: "replace", path: "runtime.logLevel", value: "debug" },
         ],
       },
     });
     expect(result).toMatchObject({
       transport: "native",
       persistedRevision: "hash:new",
-      updatedFields: ["agents.defaults.workspace", "gateway.port"],
+      updatedFields: ["agents.defaults.workspace", "runtime.logLevel"],
       applied: [],
-      restartRequired: ["gatewayRestartRequired"],
+      restartRequired: ["applicationRestartRequired"],
       reloadRequired: ["workspaceReloadRequired"],
     });
 
@@ -94,10 +94,10 @@ describe("desktop settings config persistence smoke", () => {
       },
     });
     expect(savedPane.save.status).toBe("restart-required");
-    expect(savedPane.save.message).toBe("Settings persisted. Gateway restart required");
+    expect(savedPane.save.message).toBe("Settings persisted. Application restart required");
     expect(savedPane.save.diagnostics).toContain("Persisted revision: hash:new");
     expect(savedPane.save.diagnostics).toContain("Applied: none");
-    expect(savedPane.save.diagnostics).toContain("Restart required: gatewayRestartRequired");
+    expect(savedPane.save.diagnostics).toContain("Restart required: applicationRestartRequired");
     expect(savedPane.save.diagnostics).toContain("Reload required: workspaceReloadRequired");
   });
 

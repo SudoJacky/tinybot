@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 #[test]
-fn gateway_status_exposes_port_and_exit_policy() {
+fn gateway_status_exposes_native_runtime_and_exit_policy() {
     let shared = Arc::new(Mutex::new(GatewayRuntime {
         logs: VecDeque::with_capacity(200),
         last_error: None,
@@ -28,10 +28,8 @@ fn gateway_status_exposes_port_and_exit_policy() {
 
     let status = current_status(&shared);
 
-    assert_eq!(status.port, 18790);
     assert_eq!(status.exit_policy, "keep_running");
     assert_eq!(status.state, "running");
-    assert!(!status.http_ok);
     assert_eq!(status.bootstrap_status, "not_required");
     assert_eq!(status.response_class, Some("tauri-native".to_string()));
     assert!(status.recovery_hint.is_none());
@@ -149,11 +147,7 @@ fn gateway_runtime_status_serializes_worker_runtime_status() {
     let status = GatewayRuntimeStatus {
         state: "running".to_string(),
         owner: "external".to_string(),
-        http_ok: true,
-        gateway_http: "http://127.0.0.1:18790",
-        gateway_ws: "ws://127.0.0.1:18790/ws",
         command: "Tauri Rust backend",
-        port: 18790,
         repo_root: "/repo".to_string(),
         log_path: "/logs/native-backend.log".to_string(),
         log_tail: vec![],

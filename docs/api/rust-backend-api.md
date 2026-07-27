@@ -94,7 +94,7 @@ Known worker error sources:
 
 | Command | Args | Response |
 | --- | --- | --- |
-| `desktop_status` | none | `{ app_name, gateway_http, gateway_ws, browser_mode }` |
+| `desktop_status` | none | `{ app_name, browser_mode }` |
 | `gateway_status` | none | `GatewayRuntimeStatus` |
 | `start_gateway` | none | `GatewayRuntimeStatus` |
 | `stop_gateway` | none | `GatewayRuntimeStatus` |
@@ -107,11 +107,7 @@ Known worker error sources:
 {
   "state": "running",
   "owner": "shell",
-  "http_ok": false,
-  "gateway_http": "http://127.0.0.1:18790",
-  "gateway_ws": "ws://127.0.0.1:18790/ws",
   "command": "Tauri Rust backend",
-  "port": 18790,
   "repo_root": "...",
   "log_path": "...",
   "log_tail": [],
@@ -145,10 +141,9 @@ Known worker error sources:
 }
 ```
 
-In Tauri mode, readiness is derived from the in-process Rust lifecycle and worker status. The
-compatibility `gateway_http`, `gateway_ws`, and `port` fields do not imply that Tinybot binds a local
-HTTP server, and another process listening on `18790` does not make the Rust runtime fail. External
-browser mode still performs its own `/webui/bootstrap` check.
+In Tauri mode, readiness is derived from the in-process Rust lifecycle and worker status.
+`GatewayRuntimeStatus`, `desktop_status`, and the Settings registry do not expose a local HTTP port
+or HTTP/WebSocket URLs because the native runtime does not bind those endpoints.
 
 `lifecycle` is the queryable native-runtime recovery and cleanup record. Startup pauses new agent
 continues until canonical Rollouts and their rebuildable SQLite index pass consistency checks. The
@@ -225,7 +220,6 @@ a schema v1 default config with:
 - `agents.defaults.activeProfile: "deepseek-default"`
 - `agents.defaults.model: "deepseek-v4-pro"`
 - `providers.profiles.deepseek-default` with DeepSeek V4 models and the built-in `reasoning` capability
-- `gateway.host: "127.0.0.1"` and `gateway.port: 18790`
 
 Existing files are never overwritten by this initialization path, including invalid JSON or non-object
 config files. If default creation succeeds, config snapshots include an info diagnostic with code
@@ -311,7 +305,7 @@ First-version group ids returned by `get_settings_snapshot`:
 
 The first version intentionally does not include Memory, Cowork, Channels, generic
 web/exec/browser tool toggles, telemetry/crash-report controls, or raw JSON editing fields.
-`gateway.host` is projected as readonly `127.0.0.1`; `gateway.port` is editable. Secret fields
+The `gateway-runtime` group no longer projects a host, port, HTTP URL, or WebSocket URL. Secret fields
 return `value: null` with `secret` metadata and must remain redacted in exported/public config.
 Provider selection is profile-based. New config should use `agents.defaults.activeProfile` and
 `providers.profiles.<profileId>.provider`; `agents.defaults.provider: "auto"` is a legacy value only.

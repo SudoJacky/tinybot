@@ -44,15 +44,12 @@ const ACTION_LABELS: Record<DesktopGatewayRuntimeActionId, string> = {
 
 export function buildDesktopGatewayRuntimeRows(
   status: GatewayRuntimeStatus | null,
-  fallbackGatewayHttp: string,
 ): DesktopGatewayRuntimeRow[] {
-  const gatewayHttp = status?.gateway_http || fallbackGatewayHttp;
   const logs = (status?.logs ?? []).slice(-4);
   return [
     { label: "State", value: formatState(status?.state ?? "running") },
     { label: "Owner", value: formatOwner(status?.owner ?? "external") },
     { label: "Command", value: status?.command || DEFAULT_NATIVE_BACKEND_COMMAND },
-    { label: "Port", value: formatPort(status?.port, gatewayHttp) },
     { label: "Repo root", value: status?.repo_root || "Unknown" },
     { label: "Recent logs", value: logs.length ? logs.join("\n") : "No recent logs" },
     { label: "Last error", value: status?.last_error || "No recent error" },
@@ -81,9 +78,8 @@ export function buildDesktopGatewayRuntimeActions(status: GatewayRuntimeStatus |
 
 export function buildDesktopGatewayRuntimeDiagnostics(
   status: GatewayRuntimeStatus | null,
-  fallbackGatewayHttp: string,
 ): string {
-  return buildDesktopGatewayRuntimeRows(status, fallbackGatewayHttp)
+  return buildDesktopGatewayRuntimeRows(status)
     .map((row) => `${row.label}: ${row.value}`)
     .join("\n");
 }
@@ -124,17 +120,6 @@ function formatOwner(owner: GatewayRuntimeStatus["owner"]): string {
     return "External";
   }
   return "None";
-}
-
-function formatPort(port: GatewayRuntimeStatus["port"], gatewayHttp: string): string {
-  if (port !== undefined && port !== null && String(port).trim()) {
-    return String(port);
-  }
-  try {
-    return new URL(gatewayHttp).port || "default";
-  } catch {
-    return "Unknown";
-  }
 }
 
 function bootstrapRows(status: GatewayRuntimeStatus | null): DesktopGatewayRuntimeRow[] {
