@@ -22,8 +22,8 @@ export const TINYOS_CAPABILITY_IDS = [
 ] as const;
 
 export type TinyOsEffectiveCapabilities = {
-  schemaVersion: "tinybot.effective_capabilities.v1";
-  sessionId: string;
+  schemaVersion: "tinybot.effective_capabilities.v2";
+  threadId: string;
   evaluatedTurnId?: string;
   capabilities: {
     agent: {
@@ -59,15 +59,15 @@ export type TinyOsEffectiveCapabilities = {
 
 export function normalizeTinyOsEffectiveCapabilities(
   value: unknown,
-  expectedSessionId: string,
+  expectedThreadId: string,
 ): TinyOsEffectiveCapabilities {
   const root = recordValue(value);
-  if (root.schemaVersion !== "tinybot.effective_capabilities.v1") {
+  if (root.schemaVersion !== "tinybot.effective_capabilities.v2") {
     throw new Error("TinyOS effective capabilities use an unsupported schema");
   }
-  const sessionId = requiredString(root, "sessionId");
-  if (sessionId !== expectedSessionId) {
-    throw new Error(`TinyOS capability session mismatch: ${sessionId}, expected ${expectedSessionId}`);
+  const threadId = requiredString(root, "threadId");
+  if (threadId !== expectedThreadId) {
+    throw new Error(`TinyOS capability thread mismatch: ${threadId}, expected ${expectedThreadId}`);
   }
   const capabilities = recordValue(root.capabilities);
   const agent = recordValue(capabilities.agent);
@@ -75,8 +75,8 @@ export function normalizeTinyOsEffectiveCapabilities(
   const terminal = recordValue(capabilities.terminal);
   const browser = recordValue(capabilities.browser);
   return {
-    schemaVersion: "tinybot.effective_capabilities.v1",
-    sessionId,
+    schemaVersion: "tinybot.effective_capabilities.v2",
+    threadId,
     ...(optionalString(root.evaluatedTurnId) ? { evaluatedTurnId: optionalString(root.evaluatedTurnId) } : {}),
     capabilities: {
       agent: {
@@ -112,14 +112,14 @@ export function normalizeTinyOsEffectiveCapabilities(
 }
 
 export function unavailableTinyOsEffectiveCapabilities(
-  sessionId: string,
+  threadId: string,
   reasonCode: string,
   reason: string,
 ): TinyOsEffectiveCapabilities {
   const unavailable = (): TinyOsCapabilityDecision => ({ available: false, reason, reasonCode });
   return {
-    schemaVersion: "tinybot.effective_capabilities.v1",
-    sessionId,
+    schemaVersion: "tinybot.effective_capabilities.v2",
+    threadId,
     capabilities: {
       agent: { pause: unavailable(), resume: unavailable(), cancel: unavailable(), retry: unavailable() },
       files: { read: unavailable(), requestChange: unavailable(), directEdit: unavailable(), save: unavailable() },

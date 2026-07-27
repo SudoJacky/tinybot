@@ -71,7 +71,7 @@ export type SessionStore = {
 export type ChatStore = {
   browserRuntime?: NativeBrowserRuntimeApi;
   load(sessionId: string): Promise<ChatTimelineSnapshot>;
-  loadTinyOsCapabilities(sessionId: string): Promise<TinyOsEffectiveCapabilities>;
+  loadTinyOsCapabilities(threadId: string): Promise<TinyOsEffectiveCapabilities>;
   dispatch(command: DesktopCommand): Promise<void>;
   listAgentUiForms(sessionId: string): Promise<AgentUiForm[]>;
   loadDelegateTrace?(selection: { sessionKey: string; delegateId?: string; traceRef?: string }): Promise<unknown>;

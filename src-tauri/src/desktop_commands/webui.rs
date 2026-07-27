@@ -2,12 +2,6 @@ use crate::agent::bridge::resolve_agent_ui_form_body_with_services;
 use crate::collaboration::cowork::WorkerCoworkRuntime;
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
 use crate::desktop::{state::lock_runtime, SharedNativeRuntime};
-use crate::desktop_commands::session::{
-    worker_session_branch_with_options, worker_session_clear_with_options,
-    worker_session_delete_with_options, worker_session_effective_capabilities_with_options,
-    worker_session_messages_with_options, worker_session_patch_with_options,
-    worker_sessions_list_with_options,
-};
 use crate::desktop_commands::skills::{
     worker_skills_create_with_options, worker_skills_delete_with_options,
     worker_skills_detail_with_options, worker_skills_list_with_options,
@@ -329,19 +323,6 @@ async fn worker_webui_rust_route_with_options(
             &config_snapshot,
             &body,
         ))),
-        ("GET", "/api/sessions") => Some(worker_sessions_list_with_options(
-            shared,
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            timeout,
-        )),
-        ("POST", "/api/sessions/branch") => Some(worker_session_branch_with_options(
-            shared,
-            body,
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            timeout,
-        )),
         ("GET", "/api/skills") => Some(worker_skills_list_with_options(
             shared,
             workspace_root.clone(),
@@ -452,59 +433,6 @@ async fn worker_webui_rust_dynamic_route(
     config_snapshot: serde_json::Value,
     timeout: Duration,
 ) -> Option<Result<serde_json::Value, String>> {
-    if let Some(key) = webui_session_route_key(path, "/effective-capabilities") {
-        if method == "GET" {
-            return Some(worker_session_effective_capabilities_with_options(
-                shared,
-                key,
-                workspace_root,
-                config_snapshot,
-                timeout,
-            ));
-        }
-    }
-    if let Some(key) = webui_session_route_key(path, "/messages") {
-        if method == "GET" {
-            return Some(worker_session_messages_with_options(
-                shared,
-                key,
-                workspace_root,
-                config_snapshot,
-                timeout,
-            ));
-        }
-    }
-    if let Some(key) = webui_session_route_key(path, "/clear") {
-        if method == "POST" {
-            return Some(worker_session_clear_with_options(
-                shared,
-                key,
-                workspace_root,
-                config_snapshot,
-                timeout,
-            ));
-        }
-    }
-    if let Some(key) = webui_session_item_key(path) {
-        return match method {
-            "PATCH" => Some(worker_session_patch_with_options(
-                shared,
-                key,
-                body.clone(),
-                workspace_root,
-                config_snapshot,
-                timeout,
-            )),
-            "DELETE" => Some(worker_session_delete_with_options(
-                shared,
-                key,
-                workspace_root,
-                config_snapshot,
-                timeout,
-            )),
-            _ => None,
-        };
-    }
     if let Some(path) = webui_workspace_file_path(path) {
         return match method {
             "GET" => Some(worker_workspace_file_with_options(
@@ -674,23 +602,6 @@ fn percent_decode(input: &str) -> String {
     String::from_utf8_lossy(&output).to_string()
 }
 
-fn webui_session_route_key(path: &str, suffix: &str) -> Option<String> {
-    let rest = path.strip_prefix("/api/sessions/")?;
-    let key = rest.strip_suffix(suffix)?;
-    if key.is_empty() || key.contains('/') {
-        return None;
-    }
-    Some(percent_decode(key))
-}
-
-fn webui_session_item_key(path: &str) -> Option<String> {
-    let rest = path.strip_prefix("/api/sessions/")?;
-    if rest.is_empty() || rest.contains('/') {
-        return None;
-    }
-    Some(percent_decode(rest))
-}
-
 fn webui_workspace_file_path(path: &str) -> Option<String> {
     let rest = path.strip_prefix("/api/workspace/files/")?;
     if rest.is_empty() {
@@ -732,9 +643,7 @@ fn webui_agent_ui_form_route_id(path: &str, suffix: &str) -> Option<String> {
 }
 
 fn webui_route_group(path: &str) -> &'static str {
-    if path.starts_with("/api/sessions") {
-        "sessions"
-    } else if path.starts_with("/api/workspace") {
+    if path.starts_with("/api/workspace") {
         "workspace"
     } else if path.starts_with("/api/skills") {
         "skills"

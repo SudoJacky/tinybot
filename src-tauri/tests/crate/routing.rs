@@ -17,15 +17,6 @@ use crate::desktop_commands::agent::WorkerBackgroundTraceGetArtifactInput;
 use crate::desktop_commands::agent::WorkerBackgroundTraceGetDelegateTraceInput;
 use crate::desktop_commands::agent::WorkerBackgroundTraceListInput;
 use crate::desktop_commands::agent::WorkerTaskPlanListInput;
-use crate::desktop_commands::session::worker_session_branch_with_options;
-use crate::desktop_commands::session::worker_session_clear_with_options;
-use crate::desktop_commands::session::worker_session_delete_with_options;
-use crate::desktop_commands::session::worker_session_messages_with_options;
-use crate::desktop_commands::session::worker_session_patch_with_options;
-use crate::desktop_commands::session::worker_session_task_progress_with_options;
-use crate::desktop_commands::session::worker_sessions_list_with_options;
-use crate::desktop_commands::session::worker_turn_runtime_state_with_options;
-use crate::desktop_commands::session::worker_turns_list_with_options;
 use crate::desktop_commands::skills::build_worker_skills_create_request;
 use crate::desktop_commands::skills::build_worker_skills_delete_request;
 use crate::desktop_commands::skills::build_worker_skills_detail_request;
@@ -215,57 +206,6 @@ fn worker_workspace_file_commands_use_rust_workspace() {
 }
 
 #[test]
-fn worker_session_read_commands_use_rollout_state() {
-    let fixture = WorkspaceFixture::new();
-    fixture.seed_rollout_sessions(serde_json::json!({
-        "version": 1,
-        "sessions": [{
-            "session_id": "websocket:chat-1",
-            "title": "Native session",
-            "workspace_dir": "D:/Code/py/tinybot",
-            "created_at": "2026-06-29T08:00:00Z",
-            "updated_at": "2026-06-29T08:30:00Z",
-            "extra": {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": "Use Rust state",
-                        "message_id": "msg-1",
-                        "timestamp": "2026-06-29T08:00:01Z"
-                    }
-                ]
-            }
-        }]
-    }));
-    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
-        fixture.thread_store.clone(),
-    )));
-
-    let sessions = worker_sessions_list_with_options(
-        &shared,
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("session list should be served by Rust session state");
-    let messages = worker_session_messages_with_options(
-        &shared,
-        "websocket:chat-1".to_string(),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("session messages should be served by Rust session state");
-
-    assert_eq!(sessions["items"][0]["key"], "websocket:chat-1");
-    assert_eq!(sessions["items"][0]["chat_id"], "chat-1");
-    assert_eq!(sessions["items"][0]["title"], "Native session");
-    assert_eq!(messages["key"], "websocket:chat-1");
-    assert_eq!(messages["chat_id"], "chat-1");
-    assert_eq!(messages["messages"][0]["content"], "Use Rust state");
-}
-
-#[test]
 fn worker_agent_turn_runtime_commands_use_thread_log_turn_store() {
     let fixture = WorkspaceFixture::new();
     let record = serde_json::json!({
@@ -335,27 +275,17 @@ fn worker_agent_turn_runtime_commands_use_thread_log_turn_store() {
         "agent turn semantic seed",
     )
     .expect("agent turn semantic records should seed thread log store");
-    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
-        fixture.thread_store.clone(),
-    )));
-
-    let turns = worker_turns_list_with_options(
-        &shared,
-        "websocket:chat-1".to_string(),
-        fixture.root.clone(),
+    let turns = list_thread_turns(
+        &fixture.thread_store,
         serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("agent turn list should be served by thread log store");
-    let runtime_state = worker_turn_runtime_state_with_options(
-        &shared,
-        "websocket:chat-1".to_string(),
-        "turn-1".to_string(),
-        fixture.root.clone(),
+        "websocket:chat-1",
+    );
+    let runtime_state = read_thread_turn_runtime_state(
+        &fixture.thread_store,
         serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("agent turn runtime state should be served by thread log store");
+        "websocket:chat-1",
+        "turn-1",
+    );
 
     assert_eq!(turns["turns"][0]["turnId"], "turn-1");
     assert_eq!(runtime_state["timeline"]["sessionId"], "websocket:chat-1");
@@ -371,152 +301,48 @@ fn worker_agent_turn_runtime_commands_use_thread_log_turn_store() {
 }
 
 #[test]
-fn worker_session_write_commands_use_rollout_state_on_rust_backend() {
+fn thread_clear_removes_persisted_history() {
     let fixture = WorkspaceFixture::new();
     fixture.seed_rollout_sessions(serde_json::json!({
         "version": 1,
         "sessions": [{
             "session_id": "websocket:chat-1",
-            "title": "Native session",
+            "title": "Native thread",
             "workspace_dir": "D:/Code/py/tinybot",
             "created_at": "2026-06-29T08:00:00Z",
             "updated_at": "2026-06-29T08:30:00Z",
             "extra": {
-                "messages": [{ "role": "user", "content": "Keep this" }],
-                "metadata": { "pinned": false }
+                "messages": [{ "role": "user", "content": "Clear this" }]
             }
         }]
     }));
-    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
-        fixture.thread_store.clone(),
-    )));
-
-    let patch = worker_session_patch_with_options(
-        &shared,
-        "websocket:chat-1".to_string(),
-        serde_json::json!({ "metadata": { "pinned": true } }),
-        fixture.root.clone(),
+    let before = read_thread_history(
+        &fixture.thread_store,
         serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("session patch should be served by Rust session state");
-    let cleared_session = worker_session_clear_with_options(
-        &shared,
-        "websocket:chat-1".to_string(),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("session clear should be served by Rust session state");
-    let progress = worker_session_task_progress_with_options(
-        &shared,
-        "websocket:chat-1".to_string(),
-        serde_json::json!({
-            "turnId": "turn-task-progress-1",
-            "planId": "plan-1",
-            "progress": {
-                "completed": 1,
-                "total": 2,
-                "steps": [
-                    { "step": "Inspect session", "status": "completed" },
-                    { "step": "Finish session", "status": "in_progress" }
-                ]
-            },
-            "content": "Half done"
-        }),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("task progress should be served by Rust session state");
-    let deleted = worker_session_delete_with_options(
-        &shared,
-        "websocket:chat-1".to_string(),
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("session delete should be served by Rust session state");
-
-    assert_eq!(patch["key"], "websocket:chat-1");
-    assert_eq!(patch["metadata"]["pinned"], true);
-    assert_eq!(cleared_session["messages_before"], 1);
-    assert_eq!(progress["key"], "websocket:chat-1");
-    assert_eq!(
-        progress["extra"]["messages"][0]["_task_progress"]["completed"],
-        1
+        "websocket:chat-1",
     );
-    assert_eq!(deleted["key"], "websocket:chat-1");
-    assert_eq!(deleted["deleted"], true);
-}
-
-#[test]
-fn worker_session_branch_creates_new_session_without_runtime_state() {
-    let fixture = WorkspaceFixture::new();
-    fixture.seed_rollout_sessions(serde_json::json!({
-        "version": 1,
-        "sessions": [{
-            "session_id": "websocket:chat-1",
-            "title": "Source session",
-            "workspace_dir": "D:/Code/py/tinybot",
-            "created_at": "2026-06-29T08:00:00Z",
-            "updated_at": "2026-06-29T08:30:00Z",
-            "extra": {
-                "messages": [{ "role": "user", "content": "Keep this", "message_id": "m1" }],
-                "runtime_checkpoint": { "phase": "running" }
-            }
-        }]
-    }));
-    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
-        fixture.thread_store.clone(),
-    )));
-
-    let branch = worker_session_branch_with_options(
-        &shared,
-        serde_json::json!({
-            "title": "Source session · 分叉",
-            "branchedFromSessionId": "websocket:chat-1",
-            "branchedFromMessageId": "m1",
-            "messages": [
-                { "messageId": "m1", "role": "user", "content": "Keep this" },
-                { "messageId": "m2", "role": "assistant", "content": "Use this point" }
-            ],
-            "portableContext": {
-                "chatId": "chat-1",
-                "sessionKey": "websocket:chat-1"
-            },
-            "runtimeState": {
-                "queuedInputs": [{ "id": "queued-1" }],
-                "pendingApprovals": [{ "id": "approval-1" }]
-            }
-        }),
-        fixture.root.clone(),
+    let cleared = call_rust_state_service(
+        &fixture.thread_store,
         serde_json::json!({}),
-        Duration::from_millis(10),
+        WorkerRequest::new(
+            "req-thread-clear",
+            "trace-thread-clear",
+            "thread.clear",
+            serde_json::json!({ "threadId": "websocket:chat-1" }),
+        ),
+        "thread clear",
     )
-    .expect("branch session should be created by Rust session state");
-    let branch_key = branch["key"].as_str().expect("branch should include key");
-    let history = worker_session_messages_with_options(
-        &shared,
-        branch_key.to_string(),
-        fixture.root.clone(),
+    .expect("thread history should clear");
+    let after = read_thread_history(
+        &fixture.thread_store,
         serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("branch history should be readable");
-
-    assert!(branch_key.starts_with("websocket:branch-"));
-    assert_eq!(branch["title"], "Source session · 分叉");
-    assert_eq!(history["messages"][0]["content"], "Keep this");
-    assert_eq!(history["messages"][1]["content"], "Use this point");
-    assert_eq!(
-        history["branch"]["branchedFromSessionId"],
-        "websocket:chat-1"
+        "websocket:chat-1",
     );
-    assert_eq!(history["branch"]["branchedFromMessageId"], "m1");
-    assert_eq!(history["branch"]["portableContext"]["chatId"], "chat-1");
-    assert!(history["runtimeState"].is_null());
-    assert!(history["runtime_checkpoint"].is_null());
+
+    assert_eq!(before["messages"].as_array().map(Vec::len), Some(1));
+    assert_eq!(cleared["messagesBefore"], 1);
+    assert_eq!(cleared["messagesAfter"], 0);
+    assert_eq!(after["messages"].as_array().map(Vec::len), Some(0));
 }
 
 #[test]
@@ -685,70 +511,10 @@ fn worker_webui_tools_route_returns_effective_catalog() {
 fn worker_webui_route_serves_rust_owned_routes_on_rust_backend() {
     let fixture = WorkspaceFixture::new();
     fixture.write("docs/readme.md", "hello route");
-    fixture.seed_rollout_sessions(serde_json::json!({
-        "version": 1,
-        "sessions": [{
-            "session_id": "websocket:chat-1",
-            "title": "Route session",
-            "workspace_dir": "D:/Code/py/tinybot",
-            "created_at": "2026-06-29T08:00:00Z",
-            "updated_at": "2026-06-29T08:30:00Z",
-            "extra": { "messages": [{ "role": "user", "content": "route" }] }
-        }]
-    }));
     let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
 
-    let sessions = worker_webui_route_with_options(
-        &shared,
-        WorkerWebuiRouteInput {
-            method: "GET".to_string(),
-            path: "/api/sessions".to_string(),
-            headers: None,
-            body: None,
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("session route should be Rust-owned");
-    let effective_capabilities = worker_webui_route_with_options(
-        &shared,
-        WorkerWebuiRouteInput {
-            method: "GET".to_string(),
-            path: "/api/sessions/websocket%3Achat-1/effective-capabilities".to_string(),
-            headers: None,
-            body: None,
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("effective capabilities route should be Rust-owned");
-    let branch = worker_webui_route_with_options(
-        &shared,
-        WorkerWebuiRouteInput {
-            method: "POST".to_string(),
-            path: "/api/sessions/branch".to_string(),
-            headers: None,
-            body: Some(serde_json::json!({
-                "title": "Route session · 分叉",
-                "branchedFromSessionId": "websocket:chat-1",
-                "branchedFromMessageId": "route-m1",
-                "messages": [{
-                    "messageId": "route-m1",
-                    "role": "user",
-                    "content": "route"
-                }],
-                "portableContext": { "chatId": "chat-1" }
-            })),
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("session branch route should be Rust-owned");
     let workspace_file = worker_webui_route_with_options(
         &shared,
         WorkerWebuiRouteInput {
@@ -807,21 +573,6 @@ fn worker_webui_route_serves_rust_owned_routes_on_rust_backend() {
         Duration::from_millis(10),
     )
     .expect("provider models route should be Rust-owned");
-    assert_eq!(sessions["body"]["items"][0]["title"], "Route session");
-    assert_eq!(
-        effective_capabilities["headers"]["x-tinybot-route-owner"],
-        "rust"
-    );
-    assert_eq!(
-        effective_capabilities["body"]["schemaVersion"],
-        "tinybot.effective_capabilities.v1"
-    );
-    assert_eq!(
-        effective_capabilities["body"]["capabilities"]["agent"]["cancel"]["reasonCode"],
-        "no_active_turn"
-    );
-    assert_eq!(branch["headers"]["x-tinybot-route-owner"], "rust");
-    assert_eq!(branch["body"]["title"], "Route session · 分叉");
     assert_eq!(workspace_file["body"]["content"], "hello route");
     assert_eq!(providers["headers"]["x-tinybot-route-owner"], "rust");
     assert_eq!(providers["headers"]["x-tinybot-route-group"], "providers");
@@ -948,6 +699,46 @@ fn worker_webui_route_rejects_removed_config_routes() {
         assert_eq!(response["body"]["routeGroup"], "unsupported");
         assert_eq!(response["body"]["method"], method);
         assert_eq!(response["body"]["path"], "/api/config");
+    }
+}
+
+#[test]
+fn worker_webui_route_rejects_removed_session_routes() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
+
+    for (method, path) in [
+        ("GET", "/api/sessions"),
+        ("POST", "/api/sessions/branch"),
+        ("GET", "/api/sessions/thread-1/messages"),
+        ("GET", "/api/sessions/thread-1/effective-capabilities"),
+        ("POST", "/api/sessions/thread-1/clear"),
+        ("PATCH", "/api/sessions/thread-1"),
+        ("DELETE", "/api/sessions/thread-1"),
+    ] {
+        let response = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: method.to_string(),
+                path: path.to_string(),
+                headers: None,
+                body: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("removed Session route should return a structured response");
+
+        assert_eq!(response["status"], 404);
+        assert_eq!(response["headers"]["x-tinybot-route-owner"], "unsupported");
+        assert_eq!(response["body"]["diagnostic"], "unsupported-route");
+        assert_eq!(response["body"]["inventoryStatus"], "not-inventoried");
+        assert_eq!(response["body"]["routeGroup"], "unsupported");
+        assert_eq!(response["body"]["method"], method);
+        assert_eq!(response["body"]["path"], path);
     }
 }
 

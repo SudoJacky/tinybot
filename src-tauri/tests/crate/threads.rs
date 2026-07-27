@@ -8,7 +8,6 @@ use crate::desktop_commands::agent::worker_restore_agent_checkpoint_with_options
 use crate::desktop_commands::agent::worker_run_agent_with_options;
 use crate::desktop_commands::agent::worker_submit_thread_turn_with_options;
 use crate::desktop_commands::agent::WorkerSubmitThreadTurnInput;
-use crate::desktop_commands::session::worker_turn_runtime_state_with_options;
 use crate::desktop_commands::thread::worker_thread_request_with_options;
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
@@ -1031,9 +1030,6 @@ fn worker_thread_commands_expose_thread_service_surface() {
 #[test]
 fn native_agent_semantic_sink_updates_runtime_state_before_final_persistence() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
-        fixture.thread_store.clone(),
-    )));
     let config = serde_json::json!({});
     let session_id = "websocket:chat-trace-sink";
     let turn_id = "turn-trace-sink";
@@ -1057,15 +1053,8 @@ fn native_agent_semantic_sink_updates_runtime_state_before_final_persistence() {
 
     sink.append_trace_event(session_id, turn_id, &event)
         .expect("trace sink should append event");
-    let runtime_state = worker_turn_runtime_state_with_options(
-        &shared,
-        session_id.to_string(),
-        turn_id.to_string(),
-        fixture.root.clone(),
-        config,
-        Duration::from_millis(10),
-    )
-    .expect("runtime state should read appended trace event");
+    let runtime_state =
+        read_thread_turn_runtime_state(&fixture.thread_store, config, session_id, turn_id);
 
     assert!(runtime_state["runtimeEvents"]
         .as_array()

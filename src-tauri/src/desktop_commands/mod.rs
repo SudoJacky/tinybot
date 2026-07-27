@@ -1,7 +1,6 @@
 pub(crate) mod agent;
 pub(crate) mod config;
 pub(crate) mod runtime;
-pub(crate) mod session;
 pub(crate) mod skills;
 pub(crate) mod thread;
 pub(crate) mod transport;

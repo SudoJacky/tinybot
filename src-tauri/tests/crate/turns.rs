@@ -3,8 +3,6 @@ use crate::agent::bridge::native_agent_turn_record;
 use crate::agent::runtime::NativeAgentRuntimeServices;
 use crate::desktop::state::NativeRuntimeState;
 use crate::desktop_commands::agent::worker_run_agent_with_options;
-use crate::desktop_commands::session::worker_session_messages_with_options;
-use crate::desktop_commands::session::worker_turn_runtime_state_with_options;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
 use std::path::PathBuf;
@@ -193,14 +191,7 @@ fn worker_run_agent_persists_rust_turn_messages_in_canonical_rollout() {
         Duration::from_millis(10),
     )
     .expect("Rust runtime should complete fixture-backed turn");
-    let history = worker_session_messages_with_options(
-        &shared,
-        "websocket:chat-persist".to_string(),
-        fixture.root.clone(),
-        config,
-        Duration::from_millis(10),
-    )
-    .expect("session messages route should read persisted Rust turn");
+    let history = read_thread_history(&fixture.thread_store, config, "websocket:chat-persist");
 
     assert_eq!(result["stopReason"], "final_response");
     assert_eq!(history["messages"][0]["role"], "user");
@@ -244,23 +235,9 @@ fn worker_run_agent_persists_one_lossless_long_final_response() {
         Duration::from_millis(10),
     )
     .expect("Rust runtime should durably complete a long final response");
-    let runtime_state = worker_turn_runtime_state_with_options(
-        &shared,
-        session_id.to_string(),
-        turn_id.to_string(),
-        fixture.root.clone(),
-        config.clone(),
-        Duration::from_millis(10),
-    )
-    .expect("long final response should project from canonical Rollout");
-    let history = worker_session_messages_with_options(
-        &shared,
-        session_id.to_string(),
-        fixture.root.clone(),
-        config.clone(),
-        Duration::from_millis(10),
-    )
-    .expect("long final response should reload from canonical Rollout");
+    let runtime_state =
+        read_thread_turn_runtime_state(&fixture.thread_store, config.clone(), session_id, turn_id);
+    let history = read_thread_history(&fixture.thread_store, config.clone(), session_id);
     let metadata = call_rust_state_service(
         &fixture.thread_store,
         config,
@@ -662,7 +639,7 @@ impl crate::agent::runtime::NativeAgentProvider for MultiExchangeRecallProvider 
 }
 
 #[test]
-fn worker_run_agent_hydrates_session_history_before_provider_call() {
+fn worker_run_agent_hydrates_thread_history_before_provider_call() {
     let fixture = WorkspaceFixture::new();
     let calls = Arc::new(Mutex::new(Vec::new()));
     let shared = Arc::new(Mutex::new(NativeRuntimeState {
@@ -714,7 +691,7 @@ fn worker_run_agent_hydrates_session_history_before_provider_call() {
 }
 
 #[test]
-fn worker_run_agent_combines_session_history_with_current_tool_results() {
+fn worker_run_agent_combines_thread_history_with_current_tool_results() {
     let fixture = WorkspaceFixture::new();
     fixture.write("README.md", "README durable body");
     let calls = Arc::new(Mutex::new(Vec::new()));
@@ -755,14 +732,11 @@ fn worker_run_agent_combines_session_history_with_current_tool_results() {
         Duration::from_millis(10),
     )
     .expect("Rust runtime should complete with history and tool context");
-    let history = worker_session_messages_with_options(
-        &shared,
-        "websocket:chat-tool-memory".to_string(),
-        fixture.root.clone(),
+    let history = read_thread_history(
+        &fixture.thread_store,
         config.clone(),
-        Duration::from_millis(10),
-    )
-    .expect("session messages should stay compact after hydrated run");
+        "websocket:chat-tool-memory",
+    );
     let metadata = call_rust_state_service(
         &fixture.thread_store,
         config,
@@ -911,14 +885,7 @@ fn worker_run_agent_recalls_history_after_multiple_exchanges() {
         Duration::from_millis(10),
     )
     .expect("third exchange should hydrate prior history");
-    let history = worker_session_messages_with_options(
-        &shared,
-        session_id.to_string(),
-        fixture.root.clone(),
-        config,
-        Duration::from_millis(10),
-    )
-    .expect("history should include all compact exchanges");
+    let history = read_thread_history(&fixture.thread_store, config, session_id);
     let calls = calls
         .lock()
         .expect("recall provider calls lock should not be poisoned");
@@ -1060,14 +1027,7 @@ fn worker_run_agent_persists_agent_turn_record_and_keeps_history_compact() {
         "agent turn read",
     )
     .expect("agent turn record should persist");
-    let history = worker_session_messages_with_options(
-        &shared,
-        "websocket:chat-run-trace".to_string(),
-        fixture.root.clone(),
-        config,
-        Duration::from_millis(10),
-    )
-    .expect("session messages should read");
+    let history = read_thread_history(&fixture.thread_store, config, "websocket:chat-run-trace");
 
     assert_eq!(result["stopReason"], "final_response");
     assert_eq!(run["status"], "completed");
@@ -1099,7 +1059,7 @@ fn worker_run_agent_persists_agent_turn_record_and_keeps_history_compact() {
 }
 
 #[test]
-fn worker_run_agent_projects_real_rust_run_into_canonical_session_history() {
+fn worker_run_agent_projects_real_rust_run_into_canonical_thread_history() {
     let fixture = WorkspaceFixture::new();
     fixture.write("README.md", "README thread body");
     let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
@@ -1146,17 +1106,10 @@ fn worker_run_agent_projects_real_rust_run_into_canonical_session_history() {
     .expect("Rust runtime should complete tool-backed turn");
     assert_eq!(result["stopReason"], "final_response");
 
-    let history = worker_session_messages_with_options(
-        &shared,
-        session_id.to_string(),
-        fixture.root.clone(),
-        config.clone(),
-        Duration::from_millis(10),
-    )
-    .expect("real Rust run should be visible in canonical session history");
+    let history = read_thread_history(&fixture.thread_store, config.clone(), session_id);
     let messages = history["messages"]
         .as_array()
-        .expect("session messages should be an array");
+        .expect("thread history messages should be an array");
     assert!(messages.iter().any(|message| {
         message["role"] == "user" && message["content"] == "read README into thread"
     }));
@@ -1190,7 +1143,7 @@ fn worker_run_agent_projects_real_rust_run_into_canonical_session_history() {
 }
 
 #[test]
-fn session_owned_compaction_commits_installed_checkpoint_before_final_turn_persistence() {
+fn agent_run_compaction_commits_installed_checkpoint_before_final_turn_persistence() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),

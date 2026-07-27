@@ -366,7 +366,7 @@ export function ChatPage({
   const canCancelTurn = Boolean(
     activeSession
     && activeTurn
-    && tinyOsCapabilities.sessionId === activeSession.id
+    && tinyOsCapabilities.threadId === activeSession.id
     && capabilityTargetsActiveTurn
     && cancelCapability.available
   );
@@ -378,14 +378,14 @@ export function ChatPage({
   const canPauseTurn = Boolean(
     activeSession
     && activeTurn
-    && tinyOsCapabilities.sessionId === activeSession.id
+    && tinyOsCapabilities.threadId === activeSession.id
     && capabilityTargetsActiveTurn
     && pauseCapability.available
   );
   const canResumeTurn = Boolean(
     activeSession
     && activeTurn
-    && tinyOsCapabilities.sessionId === activeSession.id
+    && tinyOsCapabilities.threadId === activeSession.id
     && capabilityTargetsActiveTurn
     && resumeCapability.available
   );
@@ -399,7 +399,7 @@ export function ChatPage({
   const requestChangeCapability = tinyOsCapabilities.capabilities.files.requestChange;
   const canRequestChange = Boolean(
     activeSession
-    && tinyOsCapabilities.sessionId === activeSession.id
+    && tinyOsCapabilities.threadId === activeSession.id
     && requestChangeCapability.available
     && !cancelInFlight
   );
@@ -443,7 +443,7 @@ export function ChatPage({
   const canRetryTurn = Boolean(
     activeSession
     && latestFailedTurnId
-    && tinyOsCapabilities.sessionId === activeSession.id
+    && tinyOsCapabilities.threadId === activeSession.id
     && tinyOsCapabilities.evaluatedTurnId === latestFailedTurnId
     && retryCapability.available
   );
@@ -529,7 +529,7 @@ export function ChatPage({
     fromHistory: boolean,
   ): Promise<void> {
     if (!activeSession || isTinyOsCommandInFlight(commandLifecycle)) return;
-    if (tinyOsCapabilities.sessionId !== activeSession.id || !requestChangeCapability.available) {
+    if (tinyOsCapabilities.threadId !== activeSession.id || !requestChangeCapability.available) {
       setTimelineError(requestChangeUnavailableReason);
       return;
     }
@@ -1302,7 +1302,7 @@ export function ChatPage({
     setRecoveringTurnId(turn.id);
     try {
       if (action === "retry") {
-        if (tinyOsCapabilities.sessionId !== activeSession.id
+        if (tinyOsCapabilities.threadId !== activeSession.id
           || tinyOsCapabilities.evaluatedTurnId !== turn.id
           || !tinyOsCapabilities.capabilities.agent.retry.available) {
           setTimelineError(tinyOsCapabilities.capabilities.agent.retry.reason || "Retry is unavailable for this failed Agent turn.");

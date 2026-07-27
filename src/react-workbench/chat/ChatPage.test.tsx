@@ -55,12 +55,12 @@ function dragTransfer(): DataTransfer {
   } as unknown as DataTransfer;
 }
 
-function effectiveCapabilities(sessionId: string, cancelAvailable = true): TinyOsEffectiveCapabilities {
+function effectiveCapabilities(threadId: string, cancelAvailable = true): TinyOsEffectiveCapabilities {
   const unavailable = { available: false, reasonCode: "runtime_unsupported", reason: "Not supported." };
   const available = { available: true };
   return {
-    schemaVersion: "tinybot.effective_capabilities.v1",
-    sessionId,
+    schemaVersion: "tinybot.effective_capabilities.v2",
+    threadId,
     capabilities: {
       agent: { pause: unavailable, resume: unavailable, cancel: cancelAvailable ? available : unavailable, retry: unavailable },
       files: { read: available, requestChange: unavailable, directEdit: unavailable, save: unavailable },

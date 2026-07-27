@@ -1,7 +1,9 @@
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
 use crate::desktop::{lock_runtime, SharedNativeRuntime};
 use crate::native_browser::SharedBrowserRuntime;
-use crate::protocol::capability::default_desktop_capability_policy;
+use crate::protocol::capability::{
+    default_desktop_capability_policy, CapabilityPolicy, WorkerCapability,
+};
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
@@ -118,7 +120,7 @@ pub(crate) fn thread_get_effective_capabilities(
         native_config_snapshot(),
         Duration::from_secs(10),
     )?;
-    let mut capabilities = super::session::build_worker_session_effective_capabilities(
+    let mut capabilities = build_thread_effective_capabilities(
         &thread_id,
         &turns,
         workspace_root.is_dir(),
@@ -126,6 +128,193 @@ pub(crate) fn thread_get_effective_capabilities(
     );
     project_browser_capabilities(&mut capabilities, browser_runtime.inner())?;
     Ok(capabilities)
+}
+
+pub(crate) fn build_thread_effective_capabilities(
+    thread_id: &str,
+    turns: &serde_json::Value,
+    workspace_available: bool,
+    policy: &CapabilityPolicy,
+) -> serde_json::Value {
+    let evaluated_turn = turns
+        .get("turns")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|items| {
+            items
+                .iter()
+                .find(|turn| {
+                    matches!(
+                        turn.get("status").and_then(serde_json::Value::as_str),
+                        Some("running" | "waiting")
+                    )
+                })
+                .or_else(|| items.first())
+        });
+    let evaluated_turn_id = evaluated_turn
+        .and_then(|turn| turn.get("turnId"))
+        .and_then(serde_json::Value::as_str);
+    let evaluated_turn_status = evaluated_turn
+        .and_then(|turn| turn.get("status"))
+        .and_then(serde_json::Value::as_str);
+    let evaluated_turn_phase = evaluated_turn
+        .and_then(|turn| turn.get("phase"))
+        .and_then(serde_json::Value::as_str);
+    let cancel = match (evaluated_turn_status, evaluated_turn_phase) {
+        (Some("running"), _) | (Some("waiting"), Some("paused")) => available_capability(),
+        (Some("waiting"), _) => unavailable_capability(
+            "turn_waiting",
+            "Cancellation of a turn waiting for user input is not supported yet.",
+        ),
+        _ => unavailable_capability("no_active_turn", "The thread has no active Agent turn."),
+    };
+    let pause = if evaluated_turn_status == Some("running") {
+        available_capability()
+    } else {
+        unavailable_capability(
+            "turn_not_running",
+            "Only a running Agent turn can be paused.",
+        )
+    };
+    let resume =
+        if evaluated_turn_status == Some("waiting") && evaluated_turn_phase == Some("paused") {
+            available_capability()
+        } else {
+            unavailable_capability("turn_not_paused", "The Agent turn is not paused.")
+        };
+    let retry = match evaluated_turn_status {
+        Some("failed") => available_capability(),
+        Some("running" | "waiting") => unavailable_capability(
+            "turn_active",
+            "Retry is unavailable while an Agent turn is active.",
+        ),
+        _ => unavailable_capability(
+            "no_failed_turn",
+            "The thread has no latest failed Agent turn to retry.",
+        ),
+    };
+    let files_read = if policy.allows(&WorkerCapability::FsWorkspaceRead) && workspace_available {
+        available_capability()
+    } else if !workspace_available {
+        unavailable_capability(
+            "workspace_unavailable",
+            "The configured workspace root is unavailable.",
+        )
+    } else {
+        unavailable_capability(
+            "permission_denied",
+            "Workspace read permission is not granted.",
+        )
+    };
+    let request_change = if matches!(evaluated_turn_status, Some("running" | "waiting")) {
+        unavailable_capability(
+            "turn_active",
+            "Agent requests are unavailable while a turn is active.",
+        )
+    } else if policy.allows(&WorkerCapability::FsWorkspaceRead) && workspace_available {
+        available_capability()
+    } else if !workspace_available {
+        unavailable_capability(
+            "workspace_unavailable",
+            "The configured workspace root is unavailable.",
+        )
+    } else {
+        unavailable_capability(
+            "permission_denied",
+            "Workspace read permission is not granted.",
+        )
+    };
+    let turn_active = matches!(evaluated_turn_status, Some("running" | "waiting"));
+    let workspace_write = if turn_active {
+        unavailable_capability(
+            "turn_active",
+            "Direct file operations are unavailable while another turn is active.",
+        )
+    } else if policy.allows(&WorkerCapability::FsWorkspaceWrite) && workspace_available {
+        available_capability()
+    } else if !workspace_available {
+        unavailable_capability(
+            "workspace_unavailable",
+            "The configured workspace root is unavailable.",
+        )
+    } else {
+        unavailable_capability(
+            "permission_denied",
+            "Workspace write permission is not granted.",
+        )
+    };
+    let terminal_execute = if turn_active {
+        unavailable_capability(
+            "turn_active",
+            "Terminal execution is unavailable while another turn is active.",
+        )
+    } else if !workspace_available {
+        unavailable_capability(
+            "workspace_unavailable",
+            "The configured workspace root is unavailable.",
+        )
+    } else if !policy.allows(&WorkerCapability::ShellExecute) {
+        unavailable_capability(
+            "permission_denied",
+            "Shell execution permission is not granted.",
+        )
+    } else {
+        unavailable_capability(
+            "network_enforcement_unavailable",
+            "Terminal execution requires denied-network enforcement, which is unavailable in the current native shell backend.",
+        )
+    };
+    let terminal_cancel = unavailable_capability(
+        "no_active_terminal",
+        "There is no running TinyOS terminal process to cancel.",
+    );
+
+    serde_json::json!({
+        "schemaVersion": "tinybot.effective_capabilities.v2",
+        "threadId": thread_id,
+        "evaluatedTurnId": evaluated_turn_id,
+        "capabilities": {
+            "agent": {
+                "pause": pause,
+                "resume": resume,
+                "cancel": cancel,
+                "retry": retry,
+            },
+            "files": {
+                "read": files_read,
+                "requestChange": request_change,
+                "directEdit": workspace_write.clone(),
+                "save": workspace_write,
+            },
+            "terminal": {
+                "contract": "retained_execution_v1",
+                "persistentPty": false,
+                "inspect": available_capability(),
+                "execute": terminal_execute,
+                "cancel": terminal_cancel,
+            },
+            "browser": {
+                "interactionRequires": "current_real_capture",
+                "structured": available_capability(),
+                "projectionContract": "structured_projection_v1",
+                "realCapture": unavailable_capability("backend_unavailable", "No real browser capture backend is configured."),
+                "sessionContract": "browser_session_v1",
+                "sessionSnapshot": false,
+                "interact": unavailable_capability("backend_unavailable", "No real browser interaction backend is configured."),
+            },
+        },
+    })
+}
+
+fn available_capability() -> serde_json::Value {
+    serde_json::json!({ "available": true })
+}
+
+fn unavailable_capability(reason_code: &str, reason: &str) -> serde_json::Value {
+    serde_json::json!({
+        "available": false,
+        "reasonCode": reason_code,
+        "reason": reason,
+    })
 }
 
 pub(crate) fn worker_thread_request_with_options(

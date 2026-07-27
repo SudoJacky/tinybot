@@ -47,6 +47,70 @@ pub(super) fn read_agent_turn_record(
     .expect("agent turn record should persist")
 }
 
+pub(super) fn read_thread_history(
+    thread_store: &WorkspaceThreadStore,
+    config_snapshot: serde_json::Value,
+    thread_id: &str,
+) -> serde_json::Value {
+    call_rust_state_service(
+        thread_store,
+        config_snapshot,
+        WorkerRequest::new(
+            "req-thread-history",
+            "trace-thread-history",
+            "thread.history",
+            serde_json::json!({
+                "threadId": thread_id,
+                "limit": 500,
+            }),
+        ),
+        "thread history read",
+    )
+    .expect("thread history should be readable")
+}
+
+pub(super) fn read_thread_turn_runtime_state(
+    thread_store: &WorkspaceThreadStore,
+    config_snapshot: serde_json::Value,
+    thread_id: &str,
+    turn_id: &str,
+) -> serde_json::Value {
+    call_rust_state_service(
+        thread_store,
+        config_snapshot,
+        WorkerRequest::new(
+            "req-thread-turn-runtime-state",
+            "trace-thread-turn-runtime-state",
+            "thread.turn.runtime_state",
+            serde_json::json!({
+                "threadId": thread_id,
+                "turnId": turn_id,
+            }),
+        ),
+        "thread turn runtime state read",
+    )
+    .expect("thread turn runtime state should be readable")
+}
+
+pub(super) fn list_thread_turns(
+    thread_store: &WorkspaceThreadStore,
+    config_snapshot: serde_json::Value,
+    thread_id: &str,
+) -> serde_json::Value {
+    call_rust_state_service(
+        thread_store,
+        config_snapshot,
+        WorkerRequest::new(
+            "req-thread-turn-list",
+            "trace-thread-turn-list",
+            "thread.turn.list",
+            serde_json::json!({ "threadId": thread_id }),
+        ),
+        "thread turn list",
+    )
+    .expect("thread turns should be readable")
+}
+
 pub(super) fn test_request_correlation(suffix: &str) -> WorkerRequestCorrelation {
     WorkerRequestCorrelation::from_suffix(suffix)
 }

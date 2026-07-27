@@ -476,11 +476,11 @@ export function createDesktopAppServices(): AppServices {
         }
         return controller.loadTimeline(sessionId);
       },
-      async loadTinyOsCapabilities(sessionId) {
+      async loadTinyOsCapabilities(threadId) {
         await initialize();
         return normalizeTinyOsEffectiveCapabilities(
-          await requireNative(nativeThreads, "Thread").getEffectiveCapabilities(sessionId),
-          sessionId,
+          await requireNative(nativeThreads, "Thread").getEffectiveCapabilities(threadId),
+          threadId,
         );
       },
       async dispatch(command) {

@@ -917,7 +917,7 @@ describe("chat turn model", () => {
       created_at: "2026-06-27T04:00:02.000Z",
       payload: {
         artifact: {
-          fetch_path: "/api/sessions/WebSocket:chat-1/artifacts/artifact-log",
+          fetch_path: "output/artifact-log",
           id: "artifact-log",
           kind: "terminal_output",
           mime_type: "text/plain",
@@ -929,7 +929,7 @@ describe("chat turn model", () => {
     });
 
     expect(getArtifactRef(state, "WebSocket:chat-1", "artifact-log")).toMatchObject({
-      fetchPath: "/api/sessions/WebSocket:chat-1/artifacts/artifact-log",
+      fetchPath: "output/artifact-log",
       preview: "npm test summary",
       sizeBytes: 4096,
     });

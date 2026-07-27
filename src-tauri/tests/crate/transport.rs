@@ -2,7 +2,6 @@ use super::support::*;
 use crate::desktop::state::lock_runtime;
 use crate::desktop::state::NativeRuntimeState;
 use crate::desktop_commands::agent::worker_run_agent_with_options;
-use crate::desktop_commands::session::worker_turn_runtime_state_with_options;
 use crate::desktop_commands::transport::native_websocket_transport_result;
 use crate::desktop_commands::transport::validate_tinyos_host_command_frame;
 use crate::desktop_commands::transport::worker_transport_dispatch_websocket_message_with_options;
@@ -486,15 +485,12 @@ fn worker_transport_agent_request_change_starts_new_correlated_turn() {
         Duration::from_millis(100),
     )
     .expect("Agent request should start a new Agent turn");
-    let request_state = worker_turn_runtime_state_with_options(
-        &shared,
-        session_id.to_string(),
-        request_turn_id.to_string(),
-        fixture.root.clone(),
+    let request_state = read_thread_turn_runtime_state(
+        &fixture.thread_store,
         serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("Agent request runtime state should be readable");
+        session_id,
+        request_turn_id,
+    );
     let items = request_state["timeline"]["items"]
         .as_array()
         .expect("Agent request timeline items should exist");
@@ -558,15 +554,12 @@ fn worker_transport_operation_retry_starts_new_correlated_turn() {
         Duration::from_millis(100),
     )
     .expect("source Agent turn should persist a canonical failure");
-    let source_state = worker_turn_runtime_state_with_options(
-        &shared,
-        session_id.to_string(),
-        source_turn_id.to_string(),
-        fixture.root.clone(),
+    let source_state = read_thread_turn_runtime_state(
+        &fixture.thread_store,
         serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("failed source runtime state should be readable");
+        session_id,
+        source_turn_id,
+    );
     let source_item_id = source_state["timeline"]["items"]
         .as_array()
         .and_then(|items| items.iter().rev().find(|item| item["status"] == "failed"))
@@ -606,15 +599,12 @@ fn worker_transport_operation_retry_starts_new_correlated_turn() {
         Duration::from_millis(100),
     )
     .expect("operation retry should start a new Agent turn");
-    let retry_state = worker_turn_runtime_state_with_options(
-        &shared,
-        session_id.to_string(),
-        retry_turn_id.to_string(),
-        fixture.root.clone(),
+    let retry_state = read_thread_turn_runtime_state(
+        &fixture.thread_store,
         serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("retry runtime state should be readable");
+        session_id,
+        retry_turn_id,
+    );
 
     assert_eq!(dispatched["agent"]["stopReason"], "final_response");
     assert_eq!(dispatched["agent"]["finalContent"], "Recovered after retry");
@@ -712,7 +702,7 @@ fn tinyos_terminal_execute_runs_without_sandbox_and_can_be_cancelled() {
 #[test]
 fn tinyos_effective_capabilities_are_backend_authored_and_turn_scoped() {
     let policy = default_desktop_capability_policy();
-    let running = crate::desktop_commands::session::build_worker_session_effective_capabilities(
+    let running = crate::desktop_commands::thread::build_thread_effective_capabilities(
         "websocket:chat-1",
         &serde_json::json!({
             "turns": [{ "turnId": "turn-1", "status": "running" }]
@@ -722,9 +712,9 @@ fn tinyos_effective_capabilities_are_backend_authored_and_turn_scoped() {
     );
     assert_eq!(
         running["schemaVersion"],
-        "tinybot.effective_capabilities.v1"
+        "tinybot.effective_capabilities.v2"
     );
-    assert_eq!(running["sessionId"], "websocket:chat-1");
+    assert_eq!(running["threadId"], "websocket:chat-1");
     assert_eq!(running["evaluatedTurnId"], "turn-1");
     assert_eq!(
         running["capabilities"]["agent"]["cancel"]["available"],
@@ -741,7 +731,7 @@ fn tinyos_effective_capabilities_are_backend_authored_and_turn_scoped() {
         "turn_active"
     );
 
-    let waiting = crate::desktop_commands::session::build_worker_session_effective_capabilities(
+    let waiting = crate::desktop_commands::thread::build_thread_effective_capabilities(
         "websocket:chat-1",
         &serde_json::json!({
             "turns": [{ "turnId": "turn-wait", "status": "waiting" }]
@@ -758,7 +748,7 @@ fn tinyos_effective_capabilities_are_backend_authored_and_turn_scoped() {
         "turn_waiting"
     );
 
-    let paused = crate::desktop_commands::session::build_worker_session_effective_capabilities(
+    let paused = crate::desktop_commands::thread::build_thread_effective_capabilities(
         "websocket:chat-1",
         &serde_json::json!({
             "turns": [{ "turnId": "turn-paused", "status": "waiting", "phase": "paused" }]
@@ -770,7 +760,7 @@ fn tinyos_effective_capabilities_are_backend_authored_and_turn_scoped() {
     assert_eq!(paused["capabilities"]["agent"]["cancel"]["available"], true);
     assert_eq!(paused["capabilities"]["agent"]["pause"]["available"], false);
 
-    let failed = crate::desktop_commands::session::build_worker_session_effective_capabilities(
+    let failed = crate::desktop_commands::thread::build_thread_effective_capabilities(
         "websocket:chat-1",
         &serde_json::json!({
             "turns": [

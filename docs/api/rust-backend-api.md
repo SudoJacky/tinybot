@@ -895,7 +895,7 @@ UI event is emitted only after runtime completion.
 `operation.retry` also uses the native `command` frame, but separates the new target `turn_id` from
 the failed source identified by `source_turn_id` and `item_id`. Rust rejects reused target IDs,
 stale/non-failed source turns, and non-failed source items before starting provider work. A valid
-retry hydrates the existing session history into a new turn, emits its correlated
+retry hydrates the existing Thread history into a new turn, emits its correlated
 `agent.command.acknowledged` item before the provider call, and uses the new turn's terminal canonical
 item as operation completion.
 
@@ -996,8 +996,8 @@ The effective capability declares `projectionContract: "structured_projection_v1
 They are available only in a supported Windows build with `native-browser-runtime`; otherwise the
 desktop reports the exact feature/platform unavailable reason and does not create a fallback browser.
 
-The compatibility route `GET /api/sessions/{key}/effective-capabilities` and the native
-`thread_get_effective_capabilities` command return `tinybot.effective_capabilities.v1` decisions.
+The native `thread_get_effective_capabilities` command returns
+`tinybot.effective_capabilities.v2` decisions keyed by `threadId`.
 Unavailable decisions include both `reasonCode` and a user-facing `reason`; the response identifies
 the evaluated turn used for the decision when present. Retry is available only when that latest turn
 is failed and no active turn supersedes it. `files.requestChange` is available when workspace read
@@ -1071,10 +1071,9 @@ Key response shapes used by the lower-level session RPC:
 ## Thread and Turn Persistence
 
 The Rust persistence RPC exposes only `thread.*` and `thread.turn.*`. The removed `session.*`
-namespace is not routed or accepted. Desktop `worker_session_*` Tauri commands remain UI adapters:
-they resolve a UI session key to a canonical Thread ID and call the Thread/Turn RPCs, but they are
-not a second persistence interface. All conversation and runtime state has one persistence
-authority: typed, append-only Rollout files under
+namespace is not routed or accepted. The removed `/api/sessions/**` WebUI routes and
+`worker_session_*` Tauri adapters do not provide a second persistence interface. All conversation
+and runtime state has one persistence authority: typed, append-only Rollout files under
 `.tinybot/threads/YYYY/MM/DD/thread-*.jsonl`.
 `.tinybot/state/state.sqlite` is only a rebuildable discovery and metadata index. Deleting the
 index and restarting rebuilds it from Rollouts; it is never a second conversation authority.
@@ -1635,6 +1634,10 @@ Native startup and readiness are handled in process. `/health`, `/webui/bootstra
 `/webui/refresh-token`, and `/api/status` are not part of the WebUI route surface and return the
 standard `404` `unsupported-route` response.
 
+The legacy `/api/sessions/**` namespace is not part of the WebUI route surface. Native chat uses
+typed Thread/Turn Tauri commands and unknown Session routes return the standard `404`
+`unsupported-route` response.
+
 | Method | Path | Group | Notes |
 | --- | --- | --- | --- |
 | `GET` | `/api/tools` | tools | Effective built-in and MCP capability catalog |
@@ -1642,12 +1645,6 @@ standard `404` `unsupported-route` response.
 | `POST` | `/api/provider-models` | providers | Provider model resolution |
 | `POST` | `/api/agent-ui/forms/{form_id}/submit` | agent-ui | Form continuation |
 | `POST` | `/api/agent-ui/forms/{form_id}/cancel` | agent-ui | Form cancellation |
-| `GET` | `/api/sessions` | sessions | List sessions |
-| `GET` | `/api/sessions/{key}/messages` | sessions | List session messages |
-| `POST` | `/api/sessions/branch` | sessions | Branch from message/session body |
-| `PATCH` | `/api/sessions/{key}` | sessions | Patch session metadata/title/archive state |
-| `DELETE` | `/api/sessions/{key}` | sessions | Delete session |
-| `POST` | `/api/sessions/{key}/clear` | sessions | Clear messages/profile/checkpoint |
 | `GET` | `/api/skills` | skills | List skills |
 | `POST` | `/api/skills` | skills | Create skill |
 | `GET` | `/api/skills/{name}` | skills | Skill detail |

@@ -82,8 +82,8 @@ describe("desktop native app services", () => {
       if (command === "thread_list_turns") return { turns: [] };
       if (command === "thread_get_turn_runtime_state") return null;
       if (command === "thread_get_effective_capabilities") return {
-        schemaVersion: "tinybot.effective_capabilities.v1",
-        sessionId: "thread-1",
+        schemaVersion: "tinybot.effective_capabilities.v2",
+        threadId: "thread-1",
         capabilities: {},
       };
       if (command === "worker_submit_thread_turn") return {
