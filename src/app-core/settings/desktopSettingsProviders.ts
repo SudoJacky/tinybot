@@ -126,7 +126,7 @@ function workbenchFileScopeLabel(scope: DesktopWorkbenchFileScopeId): string {
 }
 
 export type DesktopSettingsSaveStatus = "idle" | "saving" | "saved" | "failed" | "restart-required" | "reload-required";
-export type DesktopSettingsSaveTransport = "native" | "gateway-fallback";
+export type DesktopSettingsSaveTransport = "native";
 export interface DesktopSettingsPaneSaveDetails {
   transport: DesktopSettingsSaveTransport;
   persistedRevision?: string;
@@ -2147,9 +2147,6 @@ function formatDesktopSettingsSaveMessage(
     return "Saving settings";
   }
   if (status === "saved") {
-    if (saveDetails?.transport === "gateway-fallback") {
-      return "Settings persisted through gateway fallback";
-    }
     if (saveDetails?.warnings.length) {
       return "Settings persisted with warnings";
     }

@@ -361,7 +361,7 @@ function formatSaveStatus(saved: DesktopConfigSettingsSaveResult): string {
   if (saved.saveDetails.reloadRequired.length) {
     return "Saved. Reload the active workspace to apply this change.";
   }
-  return saved.saveDetails.transport === "native" ? "Saved to Tinybot config." : "Saved through the gateway.";
+  return "Saved to Tinybot config.";
 }
 
 function revisionFromConfig(config: unknown): string {

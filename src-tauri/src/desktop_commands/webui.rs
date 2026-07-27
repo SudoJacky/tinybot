@@ -20,7 +20,7 @@ use crate::desktop_commands::workspace::{
 };
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
-use crate::rpc::{call_rust_state_service, native_request_router};
+use crate::rpc::native_request_router;
 use crate::transport::stdio_worker::status::WorkerRuntimeStatus;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf, time::Duration};
@@ -339,11 +339,6 @@ async fn worker_webui_rust_route_with_options(
         ("GET", "/webui/bootstrap") => Some(Ok(native_webui_bootstrap_body())),
         ("POST", "/webui/refresh-token") => Some(Ok(native_webui_bootstrap_body())),
         ("GET", "/api/status") => Some(Ok(native_webui_status_body(shared))),
-        ("GET", "/api/config") => Some(worker_webui_config_body(
-            shared,
-            workspace_root.clone(),
-            config_snapshot.clone(),
-        )),
         ("GET", "/api/tools") => Some(
             worker_webui_tools_body(shared, workspace_root.clone(), config_snapshot.clone()).await,
         ),
@@ -636,27 +631,6 @@ fn native_webui_status_body(shared: &SharedGateway) -> serde_json::Value {
     })
 }
 
-fn worker_webui_config_body(
-    shared: &SharedGateway,
-    _workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    let thread_store = { lock_runtime(shared).thread_store.clone() };
-    let request_id = next_worker_request_correlation();
-    let snapshot = call_rust_state_service(
-        &thread_store,
-        config_snapshot,
-        WorkerRequest::new(
-            request_id.id("webui-config"),
-            request_id.trace_id("webui-config"),
-            "config.snapshot_public",
-            serde_json::json!({}),
-        ),
-        "worker webui config",
-    )?;
-    Ok(snapshot.get("value").cloned().unwrap_or(snapshot))
-}
-
 async fn worker_webui_tools_body(
     shared: &SharedGateway,
     _workspace_root: PathBuf,
@@ -829,8 +803,6 @@ fn webui_route_group(path: &str) -> &'static str {
         "bootstrap"
     } else if path == "/api/status" {
         "status"
-    } else if path == "/api/config" {
-        "config"
     } else if path.starts_with("/api/sessions") {
         "sessions"
     } else if path.starts_with("/api/workspace") {
@@ -881,13 +853,6 @@ struct UnsupportedWebuiRoute {
 }
 
 fn unsupported_webui_route(method: &str, path: &str) -> Option<UnsupportedWebuiRoute> {
-    if method.eq_ignore_ascii_case("PATCH") && path == "/api/config" {
-        return Some(UnsupportedWebuiRoute {
-            route_group: "config",
-            reason: "config patch is not implemented in the Rust backend",
-            replacement_plan: "add validated Rust config patch support before enabling",
-        });
-    }
     if matches!(
         method.to_ascii_uppercase().as_str(),
         "GET" | "POST" | "PATCH" | "DELETE"

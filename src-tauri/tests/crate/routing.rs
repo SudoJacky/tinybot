@@ -938,16 +938,45 @@ fn worker_webui_route_rejects_removed_openai_and_unknown_routes() {
 }
 
 #[test]
+fn worker_webui_route_rejects_removed_config_routes() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
+
+    for method in ["GET", "PATCH"] {
+        let response = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: method.to_string(),
+                path: "/api/config".to_string(),
+                headers: None,
+                body: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("removed config route should return a structured response");
+
+        assert_eq!(response["status"], 404);
+        assert_eq!(response["headers"]["x-tinybot-route-owner"], "unsupported");
+        assert_eq!(response["body"]["diagnostic"], "unsupported-route");
+        assert_eq!(response["body"]["inventoryStatus"], "not-inventoried");
+        assert_eq!(response["body"]["routeGroup"], "unsupported");
+        assert_eq!(response["body"]["method"], method);
+        assert_eq!(response["body"]["path"], "/api/config");
+    }
+}
+
+#[test]
 fn worker_webui_known_unsupported_routes_keep_targeted_policy_metadata() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
         fixture.thread_store.clone(),
     )));
 
-    for (method, path, route_group) in [
-        ("PATCH", "/api/config", "config"),
-        ("GET", "/api/cowork/not-implemented", "cowork"),
-    ] {
+    for (method, path, route_group) in [("GET", "/api/cowork/not-implemented", "cowork")] {
         let response = worker_webui_route_with_options(
             &shared,
             WorkerWebuiRouteInput {

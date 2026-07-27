@@ -1080,7 +1080,7 @@ describe("desktop settings and provider helpers", () => {
     ]));
   });
 
-  test("preserves save warnings and gateway fallback details in the pane model", () => {
+  test("preserves native save warnings and details in the pane model", () => {
     const state = buildDesktopSettingsFormState({
       agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "UTC" } },
       providers: {
@@ -1099,20 +1099,20 @@ describe("desktop settings and provider helpers", () => {
       providerCatalog: [{ id: "openai", displayName: "OpenAI", status: "ready" }],
       saveStatus: "saved",
       saveDetails: {
-        transport: "gateway-fallback",
+        transport: "native",
         updatedFields: ["agents.defaults.model"],
         applied: ["agents.defaults.model"],
         restartRequired: [],
         reloadRequired: [],
-        warnings: ["Native patch failed; gateway fallback applied."],
+        warnings: ["Provider runtime will use the new model on the next request."],
       },
     });
 
-    expect(pane.save.message).toBe("Settings persisted through gateway fallback");
-    expect(pane.save.transport).toBe("gateway-fallback");
+    expect(pane.save.message).toBe("Settings persisted with warnings");
+    expect(pane.save.transport).toBe("native");
     expect(pane.save.updatedFields).toEqual(["agents.defaults.model"]);
     expect(pane.save.applied).toEqual(["agents.defaults.model"]);
-    expect(pane.save.warnings).toEqual(["Native patch failed; gateway fallback applied."]);
+    expect(pane.save.warnings).toEqual(["Provider runtime will use the new model on the next request."]);
   });
 
   test("promotes saved restart and reload side effects to distinct save states", () => {
@@ -1162,7 +1162,7 @@ describe("desktop settings and provider helpers", () => {
     expect(reloadPane.save.message).toBe("Settings persisted. Workspace reload required");
   });
 
-  test("builds copyable save diagnostics for fallback and warning results", () => {
+  test("builds copyable save diagnostics for native warning results", () => {
     const state = buildDesktopSettingsFormState({
       agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work", timezone: "UTC" } },
       providers: {
@@ -1181,18 +1181,18 @@ describe("desktop settings and provider helpers", () => {
       providerCatalog: [{ id: "openai", displayName: "OpenAI", status: "ready" }],
       saveStatus: "saved",
       saveDetails: {
-        transport: "gateway-fallback",
+        transport: "native",
         updatedFields: ["agents.defaults.model"],
         applied: [],
         restartRequired: [],
         reloadRequired: [],
-        warnings: ["Saved through gateway fallback after native config patch failed: boom"],
+        warnings: ["Provider runtime will use the new model on the next request."],
       },
     });
 
     expect(pane.save.diagnostics).toContain("Status: saved");
-    expect(pane.save.diagnostics).toContain("Transport: gateway-fallback");
+    expect(pane.save.diagnostics).toContain("Transport: native");
     expect(pane.save.diagnostics).toContain("Updated fields: agents.defaults.model");
-    expect(pane.save.diagnostics).toContain("Warnings: Saved through gateway fallback after native config patch failed: boom");
+    expect(pane.save.diagnostics).toContain("Warnings: Provider runtime will use the new model on the next request.");
   });
 });

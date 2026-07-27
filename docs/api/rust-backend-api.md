@@ -1682,13 +1682,16 @@ Desktop chat uses native Thread/Turn commands, while desktop model settings use
 `unsupported-route` response. Outbound provider requests may still use OpenAI-compatible
 chat/completions and model discovery protocols.
 
+Configuration reads and writes use the typed `get_config_editor_snapshot` and
+`apply_config_operations` Tauri commands. `GET` and `PATCH /api/config` are not part of the WebUI
+route surface and return the standard `404` `unsupported-route` response.
+
 | Method | Path | Group | Notes |
 | --- | --- | --- | --- |
 | `GET` | `/health` | health | Native health check |
 | `GET` | `/webui/bootstrap` | bootstrap | Returns `{ token, ws_path, refresh_token_path, token_ttl_s }` |
 | `POST` | `/webui/refresh-token` | bootstrap | Returns a fresh bootstrap token |
 | `GET` | `/api/status` | status | Runtime status body |
-| `GET` | `/api/config` | config | Public config snapshot |
 | `GET` | `/api/tools` | tools | Effective built-in and MCP capability catalog |
 | `GET` | `/api/providers` | providers | Provider catalog |
 | `POST` | `/api/provider-models` | providers | Provider model resolution |
@@ -1716,7 +1719,6 @@ These return status `501` through `worker_webui_route`:
 
 | Method | Path | Reason |
 | --- | --- | --- |
-| `PATCH` | `/api/config` | Config patch route is not implemented in Rust WebUI route surface |
 | `GET/POST/PATCH/DELETE` | `/api/cowork/{path:.+}` | Cowork HTTP routes are not exposed by Rust WebUI route inventory |
 
 Unknown, non-inventoried routes return status `404` with:
