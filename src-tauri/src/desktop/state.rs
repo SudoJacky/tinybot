@@ -12,11 +12,11 @@ use std::{
 
 use super::logging::append_native_backend_log_line;
 
-pub(crate) type SharedGateway = Arc<Mutex<GatewayRuntime>>;
+pub(crate) type SharedNativeRuntime = Arc<Mutex<NativeRuntimeState>>;
 
 pub(crate) const NATIVE_BACKEND_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
 
-pub(crate) struct GatewayRuntime {
+pub(crate) struct NativeRuntimeState {
     pub(crate) native_agent_runtime: NativeAgentRuntimeServices,
     pub(crate) mcp_runtime: McpRuntime,
     pub(crate) subagent_manager: SubagentThreadManager,
@@ -27,13 +27,13 @@ pub(crate) struct GatewayRuntime {
     pub(crate) last_error: Option<String>,
 }
 
-impl Default for GatewayRuntime {
+impl Default for NativeRuntimeState {
     fn default() -> Self {
         Self::new(crate::config::application::native_backend_workspace_root())
     }
 }
 
-impl GatewayRuntime {
+impl NativeRuntimeState {
     pub(crate) fn new(workspace_root: PathBuf) -> Self {
         Self::with_thread_store(WorkspaceThreadStore::new(
             workspace_root,
@@ -67,13 +67,15 @@ impl GatewayRuntime {
     }
 }
 
-pub(crate) fn lock_runtime(shared: &SharedGateway) -> std::sync::MutexGuard<'_, GatewayRuntime> {
+pub(crate) fn lock_runtime(
+    shared: &SharedNativeRuntime,
+) -> std::sync::MutexGuard<'_, NativeRuntimeState> {
     shared
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-pub(crate) fn push_log(shared: &SharedGateway, line: &str) {
+pub(crate) fn push_log(shared: &SharedNativeRuntime, line: &str) {
     let log_path = {
         let mut runtime = lock_runtime(shared);
         append_log(&mut runtime, line);
@@ -83,7 +85,7 @@ pub(crate) fn push_log(shared: &SharedGateway, line: &str) {
         append_native_backend_log_line(&log_path, NATIVE_BACKEND_LOG_MAX_BYTES, "runtime", line);
 }
 
-pub(crate) fn append_log(runtime: &mut GatewayRuntime, line: &str) {
+pub(crate) fn append_log(runtime: &mut NativeRuntimeState, line: &str) {
     if runtime.logs.len() >= 200 {
         runtime.logs.pop_front();
     }

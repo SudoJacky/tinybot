@@ -1,5 +1,5 @@
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
-use crate::desktop::{lock_runtime, SharedGateway};
+use crate::desktop::{lock_runtime, SharedNativeRuntime};
 use crate::protocol::request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
@@ -28,7 +28,7 @@ pub(crate) struct WorkerSkillUpdateInput {
 
 #[tauri::command]
 pub(crate) fn worker_skills_list(
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_skills_list_with_options(
         state.inner(),
@@ -41,7 +41,7 @@ pub(crate) fn worker_skills_list(
 #[tauri::command]
 pub(crate) fn worker_skills_detail(
     input: WorkerSkillDetailInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_skills_detail_with_options(
         state.inner(),
@@ -55,7 +55,7 @@ pub(crate) fn worker_skills_detail(
 #[tauri::command]
 pub(crate) fn worker_skills_create(
     input: WorkerSkillCreateInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_skills_create_with_options(
         state.inner(),
@@ -69,7 +69,7 @@ pub(crate) fn worker_skills_create(
 #[tauri::command]
 pub(crate) fn worker_skills_update(
     input: WorkerSkillUpdateInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_skills_update_with_options(
         state.inner(),
@@ -84,7 +84,7 @@ pub(crate) fn worker_skills_update(
 #[tauri::command]
 pub(crate) fn worker_skills_delete(
     input: WorkerSkillDetailInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_skills_delete_with_options(
         state.inner(),
@@ -98,7 +98,7 @@ pub(crate) fn worker_skills_delete(
 #[tauri::command]
 pub(crate) fn worker_skills_validate(
     input: WorkerSkillDetailInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_skills_validate_with_options(
         state.inner(),
@@ -110,7 +110,7 @@ pub(crate) fn worker_skills_validate(
 }
 
 pub(crate) fn worker_skills_list_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
@@ -136,7 +136,7 @@ pub(crate) fn build_worker_skills_list_request(
 }
 
 pub(crate) fn worker_skills_detail_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     name: String,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -164,7 +164,7 @@ pub(crate) fn build_worker_skills_detail_request(
 }
 
 pub(crate) fn worker_skills_create_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     body: serde_json::Value,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -192,7 +192,7 @@ pub(crate) fn build_worker_skills_create_request(
 }
 
 pub(crate) fn worker_skills_update_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     name: String,
     body: serde_json::Value,
     _workspace_root: PathBuf,
@@ -222,7 +222,7 @@ pub(crate) fn build_worker_skills_update_request(
 }
 
 pub(crate) fn worker_skills_delete_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     name: String,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -250,7 +250,7 @@ pub(crate) fn build_worker_skills_delete_request(
 }
 
 pub(crate) fn worker_skills_validate_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     name: String,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,

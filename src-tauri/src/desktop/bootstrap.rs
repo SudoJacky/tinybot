@@ -19,19 +19,20 @@ use super::menu::{
     install_desktop_application_menu, is_desktop_menu_command, DesktopMenuCommandPayload,
 };
 use super::state::{
-    append_log, lock_runtime, push_log, GatewayRuntime, SharedGateway, NATIVE_BACKEND_LOG_MAX_BYTES,
+    append_log, lock_runtime, push_log, NativeRuntimeState, SharedNativeRuntime,
+    NATIVE_BACKEND_LOG_MAX_BYTES,
 };
 
 #[tauri::command]
 fn record_renderer_diagnostic(
     input: serde_json::Value,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<(), String> {
     record_renderer_diagnostic_with_options(state.inner(), input)
 }
 
 pub(crate) fn record_renderer_diagnostic_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     input: serde_json::Value,
 ) -> Result<(), String> {
     let line = renderer_diagnostic_log_line(input);
@@ -68,16 +69,16 @@ pub(crate) fn truncate_utf8_with_ellipsis(mut value: String, max_bytes: usize) -
 }
 
 pub(crate) fn run() {
-    let gateway_state = Arc::new(Mutex::new(GatewayRuntime::default()));
-    let close_state = gateway_state.clone();
-    let setup_state = gateway_state.clone();
+    let runtime_state = Arc::new(Mutex::new(NativeRuntimeState::default()));
+    let close_state = runtime_state.clone();
+    let setup_state = runtime_state.clone();
     let close_started = Arc::new(AtomicBool::new(false));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .manage(gateway_state)
+        .manage(runtime_state)
         .setup(move |app| {
             let browser_runtime = native_browser::create_runtime(app.handle())?;
             {
@@ -255,9 +256,9 @@ pub(crate) fn run() {
                         if let Err(error) =
                             stop_owned_gateway_for_window_close(close_state, false).await
                         {
-                            eprintln!("desktop_window_close_gateway_cleanup_failed error={error}");
+                            eprintln!("desktop_window_close_runtime_cleanup_failed error={error}");
                         } else {
-                            eprintln!("desktop_window_close_gateway_cleanup_completed");
+                            eprintln!("desktop_window_close_runtime_cleanup_completed");
                         }
                         if let Err(error) = window.destroy() {
                             close_started.store(false, Ordering::Release);

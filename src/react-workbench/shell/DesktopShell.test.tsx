@@ -384,7 +384,7 @@ describe("DesktopShell", () => {
 
     expect(await screen.findByRole("heading", { name: "Provider & Models" })).toBeTruthy();
     expect(screen.getByRole("navigation", { name: "Settings categories" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Gateway & Runtime" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Runtime" })).toBeNull();
     expect(screen.getByRole("button", { name: "Provider & Models" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("region", { name: "Provider & Models" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Default model" })).toBeTruthy();

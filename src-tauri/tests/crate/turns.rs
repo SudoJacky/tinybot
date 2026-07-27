@@ -1,7 +1,7 @@
 use super::support::*;
 use crate::agent::bridge::native_agent_turn_record;
 use crate::agent::runtime::NativeAgentRuntimeServices;
-use crate::desktop::state::GatewayRuntime;
+use crate::desktop::state::NativeRuntimeState;
 use crate::desktop_commands::agent::worker_run_agent_with_options;
 use crate::desktop_commands::session::worker_session_messages_with_options;
 use crate::desktop_commands::session::worker_turn_runtime_state_with_options;
@@ -15,7 +15,7 @@ use std::time::Duration;
 #[test]
 fn worker_run_agent_uses_rust_runtime_when_selected() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
 
@@ -56,7 +56,7 @@ fn worker_run_agent_uses_rust_runtime_when_selected() {
 #[test]
 fn worker_run_agent_preserves_trace_context_without_persisting_runtime_trace() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({
@@ -106,7 +106,7 @@ fn worker_run_agent_preserves_trace_context_without_persisting_runtime_trace() {
 fn worker_run_agent_preserves_runtime_tool_content_with_envelope_payload() {
     let fixture = WorkspaceFixture::new();
     fixture.write("README.md", "README excerpt");
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
 
@@ -166,14 +166,14 @@ fn worker_run_agent_preserves_runtime_tool_content_with_envelope_payload() {
 #[test]
 fn worker_run_agent_persists_rust_turn_messages_in_canonical_rollout() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime {
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
         native_agent_runtime: NativeAgentRuntimeServices::new(
             Arc::new(UsageNativeAgentProvider),
             Arc::new(crate::agent::runtime::FakeNativeAgentToolDispatcher),
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
-        ..GatewayRuntime::with_thread_store(fixture.thread_store.clone())
+        ..NativeRuntimeState::with_thread_store(fixture.thread_store.clone())
     }));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
@@ -215,14 +215,14 @@ fn worker_run_agent_persists_rust_turn_messages_in_canonical_rollout() {
 #[test]
 fn worker_run_agent_persists_one_lossless_long_final_response() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime {
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
         native_agent_runtime: NativeAgentRuntimeServices::new(
             Arc::new(LongFinalNativeAgentProvider),
             Arc::new(crate::agent::runtime::FakeNativeAgentToolDispatcher),
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
-        ..GatewayRuntime::with_thread_store(fixture.thread_store.clone())
+        ..NativeRuntimeState::with_thread_store(fixture.thread_store.clone())
     }));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
@@ -360,7 +360,7 @@ fn worker_run_agent_stops_before_provider_when_run_start_persistence_fails() {
     let fixture = WorkspaceFixture::new();
     fixture.write(".tinybot/threads", "blocks thread-log directory creation");
     let calls = Arc::new(Mutex::new(0));
-    let shared = Arc::new(Mutex::new(GatewayRuntime {
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
         native_agent_runtime: NativeAgentRuntimeServices::new(
             Arc::new(CountingProvider {
                 calls: calls.clone(),
@@ -369,7 +369,7 @@ fn worker_run_agent_stops_before_provider_when_run_start_persistence_fails() {
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
-        ..GatewayRuntime::with_thread_store(fixture.thread_store.clone())
+        ..NativeRuntimeState::with_thread_store(fixture.thread_store.clone())
     }));
 
     let error = worker_run_agent_with_options(
@@ -428,7 +428,7 @@ fn worker_run_agent_fails_when_trace_persistence_breaks_after_provider_response(
 
     let fixture = WorkspaceFixture::new();
     let calls = Arc::new(Mutex::new(0));
-    let shared = Arc::new(Mutex::new(GatewayRuntime {
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
         native_agent_runtime: NativeAgentRuntimeServices::new(
             Arc::new(PersistenceBreakingProvider {
                 workspace_root: fixture.root.clone(),
@@ -438,7 +438,7 @@ fn worker_run_agent_fails_when_trace_persistence_breaks_after_provider_response(
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
-        ..GatewayRuntime::with_thread_store(fixture.thread_store.clone())
+        ..NativeRuntimeState::with_thread_store(fixture.thread_store.clone())
     }));
 
     let error = worker_run_agent_with_options(
@@ -665,7 +665,7 @@ impl crate::agent::runtime::NativeAgentProvider for MultiExchangeRecallProvider 
 fn worker_run_agent_hydrates_session_history_before_provider_call() {
     let fixture = WorkspaceFixture::new();
     let calls = Arc::new(Mutex::new(Vec::new()));
-    let shared = Arc::new(Mutex::new(GatewayRuntime {
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
         native_agent_runtime: NativeAgentRuntimeServices::new(
             Arc::new(RecordingNativeAgentProvider {
                 calls: calls.clone(),
@@ -674,7 +674,7 @@ fn worker_run_agent_hydrates_session_history_before_provider_call() {
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
-        ..GatewayRuntime::with_thread_store(fixture.thread_store.clone())
+        ..NativeRuntimeState::with_thread_store(fixture.thread_store.clone())
     }));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
@@ -718,7 +718,7 @@ fn worker_run_agent_combines_session_history_with_current_tool_results() {
     let fixture = WorkspaceFixture::new();
     fixture.write("README.md", "README durable body");
     let calls = Arc::new(Mutex::new(Vec::new()));
-    let shared = Arc::new(Mutex::new(GatewayRuntime {
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
         native_agent_runtime: NativeAgentRuntimeServices::new(
             Arc::new(ToolLoopRecordingNativeAgentProvider {
                 calls: calls.clone(),
@@ -727,7 +727,7 @@ fn worker_run_agent_combines_session_history_with_current_tool_results() {
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
-        ..GatewayRuntime::with_thread_store(fixture.thread_store.clone())
+        ..NativeRuntimeState::with_thread_store(fixture.thread_store.clone())
     }));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
@@ -856,7 +856,7 @@ fn worker_run_agent_combines_session_history_with_current_tool_results() {
 fn worker_run_agent_recalls_history_after_multiple_exchanges() {
     let fixture = WorkspaceFixture::new();
     let calls = Arc::new(Mutex::new(Vec::new()));
-    let shared = Arc::new(Mutex::new(GatewayRuntime {
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
         native_agent_runtime: NativeAgentRuntimeServices::new(
             Arc::new(MultiExchangeRecallProvider {
                 calls: calls.clone(),
@@ -865,7 +865,7 @@ fn worker_run_agent_recalls_history_after_multiple_exchanges() {
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
-        ..GatewayRuntime::with_thread_store(fixture.thread_store.clone())
+        ..NativeRuntimeState::with_thread_store(fixture.thread_store.clone())
     }));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
@@ -941,7 +941,7 @@ fn worker_run_agent_recalls_history_after_multiple_exchanges() {
 fn worker_run_agent_rejects_terminal_run_reentry_before_provider_call() {
     let fixture = WorkspaceFixture::new();
     let calls = Arc::new(Mutex::new(Vec::new()));
-    let shared = Arc::new(Mutex::new(GatewayRuntime {
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
         native_agent_runtime: NativeAgentRuntimeServices::new(
             Arc::new(RecordingNativeAgentProvider {
                 calls: calls.clone(),
@@ -950,7 +950,7 @@ fn worker_run_agent_rejects_terminal_run_reentry_before_provider_call() {
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
         ),
-        ..GatewayRuntime::with_thread_store(fixture.thread_store.clone())
+        ..NativeRuntimeState::with_thread_store(fixture.thread_store.clone())
     }));
     let config = serde_json::json!({
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
@@ -1008,7 +1008,7 @@ fn worker_run_agent_rejects_terminal_run_reentry_before_provider_call() {
 fn worker_run_agent_persists_agent_turn_record_and_keeps_history_compact() {
     let fixture = WorkspaceFixture::new();
     fixture.write("README.md", "README trace body");
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({
@@ -1102,7 +1102,7 @@ fn worker_run_agent_persists_agent_turn_record_and_keeps_history_compact() {
 fn worker_run_agent_projects_real_rust_run_into_canonical_session_history() {
     let fixture = WorkspaceFixture::new();
     fixture.write("README.md", "README thread body");
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({
@@ -1192,7 +1192,7 @@ fn worker_run_agent_projects_real_rust_run_into_canonical_session_history() {
 #[test]
 fn session_owned_compaction_commits_installed_checkpoint_before_final_turn_persistence() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let session_id = "session-context-commit-integration";
@@ -1310,7 +1310,7 @@ fn session_owned_compaction_commits_installed_checkpoint_before_final_turn_persi
 fn worker_run_agent_uses_native_tool_executor_for_registered_memory_tool() {
     let fixture = WorkspaceFixture::new();
     fixture.write("README.md", "actual executor README body");
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({
@@ -1372,7 +1372,7 @@ fn worker_run_agent_uses_native_tool_executor_for_registered_memory_tool() {
 #[test]
 fn worker_run_agent_returns_executor_error_to_agent_without_fixture_fallback() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({

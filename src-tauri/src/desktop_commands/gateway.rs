@@ -2,12 +2,12 @@ use std::{path::PathBuf, time::Duration};
 
 use crate::desktop::{
     state::{lock_runtime, push_log},
-    SharedGateway,
+    SharedNativeRuntime,
 };
 use crate::runtime::lifecycle::RuntimeLifecycle;
 
 pub(crate) fn start_gateway_with_workspace_root(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     workspace_root: PathBuf,
 ) -> Result<(), String> {
     let (agent_task_runtime, shell_runtime, thread_store, startup_reconciled) = {
@@ -86,19 +86,22 @@ pub(crate) fn native_backend_log_path() -> PathBuf {
     base.join("tinybot").join("logs").join("native-backend.log")
 }
 
-pub(crate) fn stop_owned_gateway(shared: &SharedGateway, explicit: bool) -> Result<(), String> {
+pub(crate) fn stop_owned_gateway(
+    shared: &SharedNativeRuntime,
+    explicit: bool,
+) -> Result<(), String> {
     stop_owned_gateway_with_timeout(shared, explicit, Duration::from_secs(5))
 }
 
 pub(crate) async fn stop_owned_gateway_for_window_close(
-    shared: SharedGateway,
+    shared: SharedNativeRuntime,
     explicit: bool,
 ) -> Result<(), String> {
     stop_owned_gateway_async_with_timeout(&shared, explicit, Duration::from_secs(5)).await
 }
 
 pub(crate) fn stop_owned_gateway_with_timeout(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     explicit: bool,
     timeout: Duration,
 ) -> Result<(), String> {
@@ -108,7 +111,7 @@ pub(crate) fn stop_owned_gateway_with_timeout(
 }
 
 async fn stop_owned_gateway_async_with_timeout(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     explicit: bool,
     timeout: Duration,
 ) -> Result<(), String> {

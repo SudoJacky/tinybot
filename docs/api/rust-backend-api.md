@@ -249,14 +249,14 @@ First-version group ids returned by `get_settings_snapshot`:
 - `mcp-servers`
 - `skills`
 - `automations`
-- `gateway-runtime`
+- `runtime`
 - `security-approvals`
 - `logs-diagnostics`
 - `expert-config`
 
 The first version intentionally does not include Memory, Cowork, Channels, generic
 web/exec/browser tool toggles, telemetry/crash-report controls, or raw JSON editing fields.
-The `gateway-runtime` group only projects native runtime metadata; it no longer exposes legacy
+The `runtime` group only projects native runtime metadata; it does not expose legacy
 gateway endpoint or heartbeat configuration. Secret fields
 return `value: null` with `secret` metadata and must remain redacted in exported/public config.
 Provider selection is profile-based. New config should use `agents.defaults.activeProfile` and

@@ -273,12 +273,12 @@ fn native_settings_snapshot_returns_registry_projection() {
         true
     );
 
-    let gateway_group = snapshot
+    let runtime_group = snapshot
         .groups
         .iter()
-        .find(|group| group.id == "gateway-runtime")
-        .expect("gateway group should exist");
-    assert!(gateway_group.fields.iter().all(|field| !matches!(
+        .find(|group| group.id == "runtime")
+        .expect("runtime group should exist");
+    assert!(runtime_group.fields.iter().all(|field| !matches!(
         field.path.as_str(),
         "gateway.host"
             | "gateway.port"
@@ -287,11 +287,11 @@ fn native_settings_snapshot_returns_registry_projection() {
             | "gateway.heartbeat.enabled"
             | "gateway.heartbeat.interval_s"
     )));
-    assert!(gateway_group
+    assert!(runtime_group
         .fields
         .iter()
         .any(|field| field.path == "runtime.config_path"));
-    assert!(gateway_group
+    assert!(runtime_group
         .fields
         .iter()
         .any(|field| field.path == "runtime.config_revision"));

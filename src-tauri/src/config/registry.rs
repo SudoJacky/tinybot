@@ -425,8 +425,8 @@ pub fn build_settings_snapshot(input: SettingsSnapshotInput) -> SettingsSnapshot
             ],
         ),
         group(
-            "gateway-runtime",
-            "Gateway & Runtime",
+            "runtime",
+            "Runtime",
             SettingsArea::System,
             vec![
                 readonly_field(

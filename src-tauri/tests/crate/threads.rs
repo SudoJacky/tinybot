@@ -3,7 +3,7 @@ use crate::agent::bridge::persist_native_agent_turn_start;
 use crate::agent::runtime::NativeAgentRuntimeServices;
 use crate::agent::runtime::NativeAgentTraceSink;
 use crate::desktop::state::lock_runtime;
-use crate::desktop::state::GatewayRuntime;
+use crate::desktop::state::NativeRuntimeState;
 use crate::desktop_commands::agent::worker_restore_agent_checkpoint_with_options;
 use crate::desktop_commands::agent::worker_run_agent_with_options;
 use crate::desktop_commands::agent::worker_submit_thread_turn_with_options;
@@ -20,7 +20,7 @@ use std::time::Duration;
 #[test]
 fn worker_submit_thread_turn_creates_thread_and_runs_native_agent() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({
@@ -230,9 +230,9 @@ fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
         Arc::new(crate::agent::runtime::InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(crate::agent::runtime::InMemoryNativeAgentCancellation::default()),
     );
-    let shared = Arc::new(Mutex::new(GatewayRuntime {
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
         native_agent_runtime: services,
-        ..GatewayRuntime::with_thread_store(fixture.thread_store.clone())
+        ..NativeRuntimeState::with_thread_store(fixture.thread_store.clone())
     }));
     let sink = Arc::new(LivePatchSink::default());
 
@@ -296,7 +296,7 @@ fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
 #[test]
 fn thread_owned_compaction_commits_installed_checkpoint_before_finalization() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({
@@ -387,7 +387,7 @@ fn thread_owned_terminal_reentry_uses_rollout_authority_after_restart() {
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
         "providers": { "fixture": { "responses": [{ "content": "terminal answer" }] } }
     });
-    let first_shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let first_shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let first = worker_submit_thread_turn_with_options(
@@ -407,7 +407,7 @@ fn thread_owned_terminal_reentry_uses_rollout_authority_after_restart() {
     .expect("initial thread turn should complete");
     let thread_id = first["threadId"].as_str().unwrap().to_string();
 
-    let restarted_shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let restarted_shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let retry = worker_submit_thread_turn_with_options(
@@ -444,7 +444,7 @@ fn worker_submit_thread_turn_uses_thread_id_as_rollout_id() {
         "existing thread project instructions",
     )
     .expect("existing thread project instructions should write");
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({
@@ -682,7 +682,7 @@ fn thread_working_directory_mutations_fail_before_persisting_invalid_paths() {
 #[test]
 fn worker_submit_thread_turn_does_not_require_a_session_key() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({
@@ -739,7 +739,7 @@ fn worker_submit_thread_turn_does_not_require_a_session_key() {
 #[test]
 fn worker_thread_commands_expose_thread_service_surface() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({});
@@ -1031,7 +1031,7 @@ fn worker_thread_commands_expose_thread_service_surface() {
 #[test]
 fn native_agent_semantic_sink_updates_runtime_state_before_final_persistence() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({});
@@ -1085,7 +1085,7 @@ fn native_agent_semantic_sink_updates_runtime_state_before_final_persistence() {
 #[test]
 fn worker_run_agent_persists_recovered_tool_error_with_typed_results() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({
@@ -1159,7 +1159,7 @@ fn worker_run_agent_persists_recovered_tool_error_with_typed_results() {
 #[test]
 fn worker_run_agent_persists_cancelled_run_as_cancelled() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({});
@@ -1197,7 +1197,7 @@ fn worker_run_agent_persists_cancelled_run_as_cancelled() {
 fn worker_run_agent_projects_redacted_bounded_tool_result() {
     let fixture = WorkspaceFixture::new();
     fixture.write("README.md", "secret-token ABCDEFGHIJKLMNOP");
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let config = serde_json::json!({
@@ -1258,7 +1258,7 @@ fn worker_run_agent_projects_redacted_bounded_tool_result() {
 #[test]
 fn worker_run_agent_omits_large_raw_tool_trace_from_persisted_run_record() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let large_output = "A".repeat(12_000);
@@ -1323,7 +1323,7 @@ fn worker_run_agent_omits_large_raw_tool_trace_from_persisted_run_record() {
 #[test]
 fn worker_rust_agent_restore_rejects_unknown_checkpoint_schema_version() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     {

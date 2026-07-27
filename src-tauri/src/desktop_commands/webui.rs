@@ -1,7 +1,7 @@
 use crate::agent::bridge::resolve_agent_ui_form_body_with_services;
 use crate::collaboration::cowork::WorkerCoworkRuntime;
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
-use crate::desktop::{state::lock_runtime, SharedGateway};
+use crate::desktop::{state::lock_runtime, SharedNativeRuntime};
 use crate::desktop_commands::session::{
     worker_session_branch_with_options, worker_session_clear_with_options,
     worker_session_delete_with_options, worker_session_effective_capabilities_with_options,
@@ -51,7 +51,7 @@ pub(crate) struct WorkerWebuiRouteInput {
 #[tauri::command]
 pub(crate) fn worker_cowork_route(
     input: WorkerCoworkRouteInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_cowork_route_with_options(
         state.inner(),
@@ -65,7 +65,7 @@ pub(crate) fn worker_cowork_route(
 #[tauri::command]
 pub(crate) async fn worker_webui_route(
     input: WorkerWebuiRouteInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     let timeout = worker_webui_route_timeout(&input);
     let shared = state.inner().clone();
@@ -80,7 +80,7 @@ pub(crate) async fn worker_webui_route(
 }
 
 pub(crate) fn worker_cowork_route_with_options(
-    _shared: &SharedGateway,
+    _shared: &SharedNativeRuntime,
     input: WorkerCoworkRouteInput,
     workspace_root: PathBuf,
     _config_snapshot: serde_json::Value,
@@ -244,7 +244,7 @@ fn worker_cowork_rust_dynamic_route(
 
 #[cfg(test)]
 pub(crate) fn worker_webui_route_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     input: WorkerWebuiRouteInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -260,7 +260,7 @@ pub(crate) fn worker_webui_route_with_options(
 }
 
 pub(crate) async fn worker_webui_route_with_options_async(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     input: WorkerWebuiRouteInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -288,7 +288,7 @@ pub(crate) async fn worker_webui_route_with_options_async(
 }
 
 async fn worker_webui_rust_route_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     input: &WorkerWebuiRouteInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -444,7 +444,7 @@ async fn worker_webui_rust_route_with_options(
 }
 
 async fn worker_webui_rust_dynamic_route(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     method: &str,
     path: &str,
     body: &serde_json::Value,
@@ -567,7 +567,7 @@ async fn worker_webui_rust_dynamic_route(
 }
 
 async fn worker_webui_tools_body(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
@@ -597,7 +597,7 @@ async fn worker_webui_tools_body(
 }
 
 pub(crate) async fn native_webui_agent_ui_form_resolution_body_async(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     form_id: String,
     body: &serde_json::Value,
     cancelled: bool,

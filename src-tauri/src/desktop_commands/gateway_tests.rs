@@ -1,10 +1,10 @@
 use super::*;
-use crate::desktop::state::{lock_runtime, GatewayRuntime};
+use crate::desktop::state::{lock_runtime, NativeRuntimeState};
 use std::sync::{Arc, Mutex};
 
 #[test]
 fn window_close_always_shuts_down_the_native_runtime() {
-    let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::default()));
 
     let result =
         tauri::async_runtime::block_on(stop_owned_gateway_for_window_close(shared.clone(), false));

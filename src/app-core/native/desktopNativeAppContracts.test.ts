@@ -19,7 +19,7 @@ describe("native app cross-surface contracts", () => {
       "memory-experience",
       "skills",
       "channels",
-      "gateway-runtime",
+      "runtime",
       "logs-diagnostics",
     ]);
     expect(contract.providerModels).toEqual({

@@ -7,7 +7,7 @@ export function buildNativeAppSettingsCenterContract() {
       category("memory-experience", "Memory & Experience"),
       category("skills", "Skills"),
       category("channels", "Channels"),
-      category("gateway-runtime", "Gateway & Runtime"),
+      category("runtime", "Runtime"),
       category("logs-diagnostics", "Logs & Diagnostics"),
     ],
     providerModels: {

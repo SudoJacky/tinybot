@@ -26,7 +26,7 @@ fn snapshot_contains_only_first_version_settings_groups() {
             "mcp-servers",
             "skills",
             "automations",
-            "gateway-runtime",
+            "runtime",
             "logs-diagnostics",
             "expert-config",
         ]
@@ -59,7 +59,7 @@ fn provider_api_key_is_secret_modeled_and_revealable() {
 }
 
 #[test]
-fn gateway_runtime_ignores_legacy_gateway_config_fields() {
+fn runtime_group_ignores_legacy_gateway_config_fields() {
     let snapshot = build_settings_snapshot(SettingsSnapshotInput {
         config: config_fixture(),
         config_path: PathBuf::from("C:/Users/example/.tinybot/config.json"),

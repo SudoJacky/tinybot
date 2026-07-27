@@ -127,7 +127,7 @@ export function buildDesktopSettingsProviderSetupUx(input: {
       ["ai-provider-model", "AI provider and model"],
       ["workspace-files", "Workspace and files"],
       ["tools-skills", "Tools and skills"],
-      ["gateway-runtime", "Gateway/runtime"],
+      ["runtime", "Runtime"],
       ["diagnostics", "Diagnostics"],
       ["advanced", "Advanced"],
     ].map(([id, label], index) => ({ id, label, collapsed: id === "advanced", order: index })),

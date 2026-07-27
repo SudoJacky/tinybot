@@ -1,6 +1,6 @@
 use super::support::*;
 use crate::desktop::state::lock_runtime;
-use crate::desktop::state::GatewayRuntime;
+use crate::desktop::state::NativeRuntimeState;
 use crate::desktop_commands::agent::worker_run_agent_with_options;
 use crate::desktop_commands::session::worker_turn_runtime_state_with_options;
 use crate::desktop_commands::transport::native_websocket_transport_result;
@@ -107,7 +107,7 @@ fn worker_transport_websocket_maps_controlled_host_commands() {
 #[test]
 fn worker_transport_dispatches_a_revision_guarded_file_command_and_rejects_fake_browser_control() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let session_id = "websocket:chat-host-file";
@@ -393,7 +393,7 @@ fn worker_transport_websocket_maps_correlated_agent_pause_command() {
 #[test]
 fn worker_transport_agent_request_change_starts_new_correlated_turn() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let session_id = "websocket:chat-agent-request";
@@ -523,7 +523,7 @@ fn worker_transport_agent_request_change_starts_new_correlated_turn() {
 #[test]
 fn worker_transport_operation_retry_starts_new_correlated_turn() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let session_id = "websocket:chat-operation-retry";
@@ -632,7 +632,7 @@ fn worker_transport_operation_retry_starts_new_correlated_turn() {
 #[test]
 fn tinyos_terminal_execute_runs_without_sandbox_and_can_be_cancelled() {
     let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
     let session_id = "websocket:chat-host-terminal";

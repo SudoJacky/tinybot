@@ -8,7 +8,7 @@ use crate::config::registry::{apply_mcp_runtime_statuses, SettingsSnapshot};
 use crate::config::store::{
     ConfigEditorSnapshot, ConfigOperationRequest, ConfigPatchApplyResult, ConfigPatchBridgeResult,
 };
-use crate::desktop::{state::lock_runtime, SharedGateway};
+use crate::desktop::{state::lock_runtime, SharedNativeRuntime};
 use serde::Serialize;
 use std::path::PathBuf;
 use tauri::State;
@@ -54,7 +54,7 @@ impl From<ConfigApplicationError> for ConfigIpcError {
 #[tauri::command]
 pub(crate) fn apply_config_patch_result(
     result: ConfigPatchBridgeResult,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<ConfigPatchApplyResult, ConfigIpcError> {
     let applied = apply_config_patch_result_to_path(
         &default_tinybot_config_path(),
@@ -73,7 +73,7 @@ pub(crate) fn get_config_editor_snapshot() -> Result<ConfigEditorSnapshot, Confi
 
 #[tauri::command]
 pub(crate) fn get_settings_snapshot(
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<SettingsSnapshot, ConfigIpcError> {
     let config_path = default_tinybot_config_path();
     let mut snapshot =
@@ -90,7 +90,7 @@ pub(crate) fn get_settings_snapshot(
 #[tauri::command]
 pub(crate) fn apply_config_operations(
     request: ConfigOperationRequest,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<ConfigPatchApplyResult, ConfigIpcError> {
     let applied = apply_config_operations_to_path(
         &default_tinybot_config_path(),
@@ -102,7 +102,7 @@ pub(crate) fn apply_config_operations(
 }
 
 fn reconcile_mcp_runtime_if_changed(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     result: &ConfigPatchApplyResult,
 ) -> Result<(), ConfigIpcError> {
     if !result.ok

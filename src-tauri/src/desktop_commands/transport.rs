@@ -2,7 +2,7 @@ use crate::agent::bridge::desktop_agent_event_sink;
 use crate::agent::runtime::NativeAgentTraceSink;
 use crate::agent::runtime_protocol::AgentEventKind;
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
-use crate::desktop::{state::lock_runtime, SharedGateway};
+use crate::desktop::{state::lock_runtime, SharedNativeRuntime};
 use crate::desktop_commands::agent::worker_run_agent_with_live_trace_sink_async;
 use crate::native_browser::{BrowserInteractionInput, SharedBrowserRuntime};
 use crate::protocol::capability::default_desktop_capability_policy;
@@ -66,7 +66,7 @@ type TinyOsHostOperationSink =
 #[tauri::command]
 pub(crate) async fn worker_dispatch_tinyos_host_command<R: Runtime + 'static>(
     input: WorkerTransportWebSocketDispatchInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
     browser_runtime: State<'_, SharedBrowserRuntime>,
     app: tauri::AppHandle<R>,
 ) -> Result<serde_json::Value, String> {
@@ -93,7 +93,7 @@ pub(crate) async fn worker_dispatch_tinyos_host_command<R: Runtime + 'static>(
 
 #[cfg(test)]
 pub(crate) fn worker_transport_dispatch_websocket_message_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     input: WorkerTransportWebSocketDispatchInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -114,7 +114,7 @@ pub(crate) fn worker_transport_dispatch_websocket_message_with_options(
 }
 
 async fn worker_transport_dispatch_websocket_message_with_live_trace_sink_async(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     input: WorkerTransportWebSocketDispatchInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -309,7 +309,7 @@ pub(crate) fn native_websocket_transport_result(
     Some(transport)
 }
 async fn dispatch_tinyos_command(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     transport: serde_json::Value,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -392,7 +392,7 @@ async fn dispatch_tinyos_command(
 }
 
 async fn dispatch_tinyos_agent_turn_control_command(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     mut transport: serde_json::Value,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -461,7 +461,7 @@ async fn dispatch_tinyos_agent_turn_control_command(
 }
 
 async fn dispatch_tinyos_file_command(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     mut transport: serde_json::Value,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -574,7 +574,7 @@ async fn dispatch_tinyos_file_command(
 }
 
 async fn dispatch_tinyos_terminal_command(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     mut transport: serde_json::Value,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -767,7 +767,7 @@ async fn dispatch_tinyos_terminal_command(
 }
 
 async fn dispatch_tinyos_retry_command(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     transport: serde_json::Value,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -823,7 +823,7 @@ async fn dispatch_tinyos_retry_command(
 }
 
 async fn dispatch_tinyos_agent_request_change_command(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     transport: serde_json::Value,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -942,7 +942,7 @@ fn validate_tinyos_agent_request_reference(reference: &serde_json::Value) -> Res
 }
 
 async fn dispatch_tinyos_new_turn_command(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     mut transport: serde_json::Value,
     content: String,
     command_metadata: serde_json::Value,

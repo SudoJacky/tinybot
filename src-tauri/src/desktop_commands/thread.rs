@@ -1,5 +1,5 @@
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
-use crate::desktop::{lock_runtime, SharedGateway};
+use crate::desktop::{lock_runtime, SharedNativeRuntime};
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
@@ -23,7 +23,7 @@ macro_rules! thread_command {
         #[tauri::command]
         pub(crate) fn $command(
             input: WorkerThreadRequestInput,
-            state: State<'_, SharedGateway>,
+            state: State<'_, SharedNativeRuntime>,
         ) -> Result<serde_json::Value, String> {
             worker_thread_request_with_options(
                 state.inner(),
@@ -87,7 +87,7 @@ thread_command!(
 );
 
 pub(crate) fn worker_thread_request_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     request_suffix: &str,
     method: &str,
     body: serde_json::Value,

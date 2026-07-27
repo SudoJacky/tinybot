@@ -1,5 +1,5 @@
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
-use crate::desktop::{lock_runtime, SharedGateway};
+use crate::desktop::{lock_runtime, SharedNativeRuntime};
 use crate::native_browser::SharedBrowserRuntime;
 use crate::protocol::capability::{
     default_desktop_capability_policy, CapabilityPolicy, WorkerCapability,
@@ -47,7 +47,7 @@ pub(crate) struct WorkerSessionTaskProgressInput {
 
 #[tauri::command]
 pub(crate) fn worker_sessions_list(
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_sessions_list_with_options(
         state.inner(),
@@ -60,7 +60,7 @@ pub(crate) fn worker_sessions_list(
 #[tauri::command]
 pub(crate) fn worker_session_messages(
     input: WorkerSessionInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_session_messages_with_options(
         state.inner(),
@@ -74,7 +74,7 @@ pub(crate) fn worker_session_messages(
 #[tauri::command]
 pub(crate) fn worker_turns_list(
     input: WorkerSessionInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_turns_list_with_options(
         state.inner(),
@@ -88,7 +88,7 @@ pub(crate) fn worker_turns_list(
 #[tauri::command]
 pub(crate) fn worker_turn_runtime_state(
     input: WorkerAgentTurnInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_turn_runtime_state_with_options(
         state.inner(),
@@ -103,7 +103,7 @@ pub(crate) fn worker_turn_runtime_state(
 #[tauri::command]
 pub(crate) fn worker_session_effective_capabilities(
     input: WorkerSessionInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
     browser_runtime: State<'_, SharedBrowserRuntime>,
 ) -> Result<serde_json::Value, String> {
     let mut capabilities = worker_session_effective_capabilities_with_options(
@@ -141,7 +141,7 @@ pub(crate) fn worker_session_effective_capabilities(
 #[tauri::command]
 pub(crate) fn worker_session_delete(
     input: WorkerSessionInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_session_delete_with_options(
         state.inner(),
@@ -155,7 +155,7 @@ pub(crate) fn worker_session_delete(
 #[tauri::command]
 pub(crate) fn worker_session_patch(
     input: WorkerSessionPatchInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_session_patch_with_options(
         state.inner(),
@@ -170,7 +170,7 @@ pub(crate) fn worker_session_patch(
 #[tauri::command]
 pub(crate) fn worker_session_branch(
     input: WorkerSessionBranchInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_session_branch_with_options(
         state.inner(),
@@ -184,7 +184,7 @@ pub(crate) fn worker_session_branch(
 #[tauri::command]
 pub(crate) fn worker_session_clear(
     input: WorkerSessionInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_session_clear_with_options(
         state.inner(),
@@ -198,7 +198,7 @@ pub(crate) fn worker_session_clear(
 #[tauri::command]
 pub(crate) fn worker_session_task_progress(
     input: WorkerSessionTaskProgressInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_session_task_progress_with_options(
         state.inner(),
@@ -211,7 +211,7 @@ pub(crate) fn worker_session_task_progress(
 }
 
 pub(crate) fn worker_sessions_list_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
@@ -243,7 +243,7 @@ pub(crate) fn worker_sessions_list_with_options(
 }
 
 pub(crate) fn worker_session_messages_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     key: String,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -291,7 +291,7 @@ pub(crate) fn worker_session_messages_with_options(
 }
 
 pub(crate) fn worker_turns_list_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     session_key: String,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -314,7 +314,7 @@ pub(crate) fn worker_turns_list_with_options(
 }
 
 pub(crate) fn worker_turn_runtime_state_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     session_key: String,
     turn_id: String,
     _workspace_root: PathBuf,
@@ -351,7 +351,7 @@ pub(crate) fn worker_turn_runtime_state_with_options(
 }
 
 pub(crate) fn worker_session_effective_capabilities_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     session_key: String,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -561,7 +561,7 @@ fn unavailable_capability(reason_code: &str, reason: &str) -> serde_json::Value 
 }
 
 pub(crate) fn worker_session_delete_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     key: String,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -587,7 +587,7 @@ pub(crate) fn worker_session_delete_with_options(
 }
 
 pub(crate) fn worker_session_patch_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     key: String,
     body: serde_json::Value,
     _workspace_root: PathBuf,
@@ -619,7 +619,7 @@ pub(crate) fn worker_session_patch_with_options(
 }
 
 pub(crate) fn worker_session_branch_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     body: serde_json::Value,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -699,7 +699,7 @@ pub(crate) fn worker_session_branch_with_options(
 }
 
 pub(crate) fn worker_session_clear_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     key: String,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -733,7 +733,7 @@ pub(crate) fn worker_session_clear_with_options(
 }
 
 pub(crate) fn worker_session_task_progress_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     key: String,
     body: serde_json::Value,
     _workspace_root: PathBuf,

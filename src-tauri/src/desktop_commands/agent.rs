@@ -8,7 +8,7 @@ use crate::collaboration::subagents::{
     SubagentSendInputParams, SubagentSpawnParams, SubagentTargetParams, SubagentWaitParams,
 };
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
-use crate::desktop::{state::lock_runtime, SharedGateway};
+use crate::desktop::{state::lock_runtime, SharedNativeRuntime};
 use crate::desktop_commands::webui::native_webui_agent_ui_form_resolution_body_async;
 use crate::protocol::request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
 use crate::protocol::WorkerRequest;
@@ -147,7 +147,7 @@ pub(crate) struct WorkerTaskPlanSaveInput {
 #[tauri::command]
 pub(crate) async fn worker_run_agent(
     input: WorkerRunAgentInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     let shared = state.inner().clone();
     worker_run_agent_with_options_async(
@@ -163,7 +163,7 @@ pub(crate) async fn worker_run_agent(
 #[tauri::command]
 pub(crate) async fn worker_run_agent_input(
     input: WorkerRunAgentWithInputInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     let shared = state.inner().clone();
     worker_run_agent_input_with_options_async(
@@ -179,7 +179,7 @@ pub(crate) async fn worker_run_agent_input(
 #[tauri::command]
 pub(crate) async fn worker_submit_thread_turn<R: Runtime + 'static>(
     input: WorkerSubmitThreadTurnInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
     app: AppHandle<R>,
 ) -> Result<serde_json::Value, String> {
     let shared = state.inner().clone();
@@ -197,7 +197,7 @@ pub(crate) async fn worker_submit_thread_turn<R: Runtime + 'static>(
 #[tauri::command]
 pub(crate) fn worker_cancel_agent(
     input: WorkerCancelAgentInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_cancel_agent_with_options(
         state.inner(),
@@ -210,7 +210,7 @@ pub(crate) fn worker_cancel_agent(
 #[tauri::command]
 pub(crate) fn worker_restore_agent_checkpoint(
     input: WorkerRestoreAgentCheckpointInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_restore_agent_checkpoint_with_options(
         state.inner(),
@@ -224,7 +224,7 @@ pub(crate) fn worker_restore_agent_checkpoint(
 #[tauri::command]
 pub(crate) async fn worker_submit_agent_form(
     input: WorkerSubmitAgentFormInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     let shared = state.inner().clone();
     worker_submit_agent_form_with_options_async(
@@ -243,7 +243,7 @@ pub(crate) async fn worker_submit_agent_form(
 #[tauri::command]
 pub(crate) async fn worker_submit_thread_form<R: Runtime + 'static>(
     input: WorkerSubmitThreadFormInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
     app: AppHandle<R>,
 ) -> Result<serde_json::Value, String> {
     let shared = state.inner().clone();
@@ -261,7 +261,7 @@ pub(crate) async fn worker_submit_thread_form<R: Runtime + 'static>(
 #[tauri::command]
 pub(crate) fn worker_background_trace_list(
     input: WorkerBackgroundTraceListInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_background_trace_list_with_options(
         state.inner(),
@@ -275,7 +275,7 @@ pub(crate) fn worker_background_trace_list(
 #[tauri::command]
 pub(crate) fn worker_background_trace_get_delegate_trace(
     input: WorkerBackgroundTraceGetDelegateTraceInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_background_trace_get_delegate_trace_with_options(
         state.inner(),
@@ -289,7 +289,7 @@ pub(crate) fn worker_background_trace_get_delegate_trace(
 #[tauri::command]
 pub(crate) fn worker_background_trace_get_artifact(
     input: WorkerBackgroundTraceGetArtifactInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_background_trace_get_artifact_with_options(
         state.inner(),
@@ -303,7 +303,7 @@ pub(crate) fn worker_background_trace_get_artifact(
 #[tauri::command]
 pub(crate) fn worker_background_trace_append(
     input: WorkerBackgroundTraceAppendInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_background_trace_append_with_options(
         state.inner(),
@@ -317,7 +317,7 @@ pub(crate) fn worker_background_trace_append(
 #[tauri::command]
 pub(crate) fn worker_background_subagent_enqueue_input(
     input: WorkerBackgroundSubagentInputInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_background_subagent_enqueue_input_with_options(
         state.inner(),
@@ -331,7 +331,7 @@ pub(crate) fn worker_background_subagent_enqueue_input(
 #[tauri::command]
 pub(crate) fn worker_subagent_spawn(
     input: SubagentSpawnParams,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     dispatch_worker_subagent_request(
         state.inner(),
@@ -344,7 +344,7 @@ pub(crate) fn worker_subagent_spawn(
 #[tauri::command]
 pub(crate) fn worker_subagent_list(
     input: WorkerSubagentListInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     dispatch_worker_subagent_request(
         state.inner(),
@@ -357,7 +357,7 @@ pub(crate) fn worker_subagent_list(
 #[tauri::command]
 pub(crate) fn worker_subagent_query(
     input: SubagentTargetParams,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     dispatch_worker_subagent_request(
         state.inner(),
@@ -370,7 +370,7 @@ pub(crate) fn worker_subagent_query(
 #[tauri::command]
 pub(crate) fn worker_subagent_send_input(
     input: SubagentSendInputParams,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     dispatch_worker_subagent_request(
         state.inner(),
@@ -383,7 +383,7 @@ pub(crate) fn worker_subagent_send_input(
 #[tauri::command]
 pub(crate) fn worker_subagent_wait(
     input: SubagentWaitParams,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     dispatch_worker_subagent_request(
         state.inner(),
@@ -396,7 +396,7 @@ pub(crate) fn worker_subagent_wait(
 #[tauri::command]
 pub(crate) fn worker_subagent_cancel(
     input: SubagentTargetParams,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     dispatch_worker_subagent_request(
         state.inner(),
@@ -409,7 +409,7 @@ pub(crate) fn worker_subagent_cancel(
 #[tauri::command]
 pub(crate) fn worker_subagent_close(
     input: SubagentTargetParams,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     dispatch_worker_subagent_request(
         state.inner(),
@@ -422,7 +422,7 @@ pub(crate) fn worker_subagent_close(
 #[tauri::command]
 pub(crate) fn worker_subagent_resume(
     input: SubagentTargetParams,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     dispatch_worker_subagent_request(
         state.inner(),
@@ -435,7 +435,7 @@ pub(crate) fn worker_subagent_resume(
 #[tauri::command]
 pub(crate) fn worker_task_plan_list(
     input: WorkerTaskPlanListInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_task_plan_list_with_options(
         state.inner(),
@@ -449,7 +449,7 @@ pub(crate) fn worker_task_plan_list(
 #[tauri::command]
 pub(crate) fn worker_task_plan_get(
     input: WorkerTaskPlanIdInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_task_plan_get_with_options(
         state.inner(),
@@ -463,7 +463,7 @@ pub(crate) fn worker_task_plan_get(
 #[tauri::command]
 pub(crate) fn worker_task_plan_save(
     input: WorkerTaskPlanSaveInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_task_plan_save_with_options(
         state.inner(),
@@ -477,7 +477,7 @@ pub(crate) fn worker_task_plan_save(
 #[tauri::command]
 pub(crate) fn worker_task_plan_delete(
     input: WorkerTaskPlanIdInput,
-    state: State<'_, SharedGateway>,
+    state: State<'_, SharedNativeRuntime>,
 ) -> Result<serde_json::Value, String> {
     worker_task_plan_delete_with_options(
         state.inner(),
@@ -490,7 +490,7 @@ pub(crate) fn worker_task_plan_delete(
 
 #[cfg(test)]
 pub(crate) fn worker_run_agent_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     spec: serde_json::Value,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -506,7 +506,7 @@ pub(crate) fn worker_run_agent_with_options(
 }
 
 pub(crate) async fn worker_run_agent_with_options_async(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     spec: serde_json::Value,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -524,7 +524,7 @@ pub(crate) async fn worker_run_agent_with_options_async(
 }
 
 pub(crate) async fn worker_run_agent_with_live_trace_sink_async(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     spec: serde_json::Value,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -547,7 +547,7 @@ pub(crate) async fn worker_run_agent_with_live_trace_sink_async(
 }
 
 pub(crate) async fn worker_run_agent_input_with_options_async(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     input: serde_json::Value,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -559,7 +559,7 @@ pub(crate) async fn worker_run_agent_input_with_options_async(
 
 #[cfg(test)]
 pub(crate) fn worker_submit_thread_turn_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     input: WorkerSubmitThreadTurnInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -576,7 +576,7 @@ pub(crate) fn worker_submit_thread_turn_with_options(
 
 #[cfg(test)]
 pub(crate) async fn worker_submit_thread_turn_with_options_async(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     input: WorkerSubmitThreadTurnInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -594,7 +594,7 @@ pub(crate) async fn worker_submit_thread_turn_with_options_async(
 }
 
 pub(crate) async fn worker_submit_thread_turn_with_live_trace_sink_async(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     input: WorkerSubmitThreadTurnInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -621,7 +621,7 @@ pub(crate) async fn worker_submit_thread_turn_with_live_trace_sink_async(
 }
 
 pub(crate) fn worker_background_trace_list_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     input: WorkerBackgroundTraceListInput,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -651,7 +651,7 @@ pub(crate) fn build_worker_background_trace_list_request(
 }
 
 pub(crate) fn worker_background_trace_get_delegate_trace_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     input: WorkerBackgroundTraceGetDelegateTraceInput,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -683,7 +683,7 @@ pub(crate) fn build_worker_background_trace_get_delegate_trace_request(
 }
 
 pub(crate) fn worker_background_trace_get_artifact_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     input: WorkerBackgroundTraceGetArtifactInput,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -715,7 +715,7 @@ pub(crate) fn build_worker_background_trace_get_artifact_request(
 }
 
 pub(crate) fn worker_background_trace_append_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     input: WorkerBackgroundTraceAppendInput,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -738,7 +738,7 @@ pub(crate) fn worker_background_trace_append_with_options(
 }
 
 pub(crate) fn worker_background_subagent_enqueue_input_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     input: WorkerBackgroundSubagentInputInput,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -806,7 +806,7 @@ fn dispatch_worker_background_trace_request(
         .ok_or_else(|| format!("{context} response missing result"))
 }
 fn dispatch_worker_subagent_request(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     method: &str,
     input: impl Serialize,
     context: &str,
@@ -838,7 +838,7 @@ fn dispatch_worker_subagent_request(
 }
 
 pub(crate) fn worker_cancel_agent_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     turn_id: String,
     config_snapshot: serde_json::Value,
     timeout: Duration,
@@ -852,7 +852,7 @@ pub(crate) fn worker_cancel_agent_with_options(
 }
 
 pub(crate) fn worker_restore_agent_checkpoint_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     session_id: String,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -867,7 +867,7 @@ pub(crate) fn worker_restore_agent_checkpoint_with_options(
 }
 
 pub(crate) async fn worker_submit_agent_form_with_options_async(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     session_id: String,
     form_id: String,
     values: serde_json::Value,
@@ -895,7 +895,7 @@ pub(crate) async fn worker_submit_agent_form_with_options_async(
 }
 
 pub(crate) async fn worker_submit_thread_form_with_live_trace_sink_async(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     input: WorkerSubmitThreadFormInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -929,7 +929,7 @@ fn thread_form_action_is_cancel(action: Option<&str>) -> bool {
 }
 
 pub(crate) fn worker_task_plan_list_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     input: WorkerTaskPlanListInput,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -951,7 +951,7 @@ pub(crate) fn worker_task_plan_list_with_options(
 }
 
 pub(crate) fn worker_task_plan_get_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     plan_id: String,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -973,7 +973,7 @@ pub(crate) fn worker_task_plan_get_with_options(
 }
 
 pub(crate) fn worker_task_plan_save_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     plan: serde_json::Value,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
@@ -995,7 +995,7 @@ pub(crate) fn worker_task_plan_save_with_options(
 }
 
 pub(crate) fn worker_task_plan_delete_with_options(
-    shared: &SharedGateway,
+    shared: &SharedNativeRuntime,
     plan_id: String,
     _workspace_root: PathBuf,
     config_snapshot: serde_json::Value,

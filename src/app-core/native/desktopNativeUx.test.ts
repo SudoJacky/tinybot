@@ -98,7 +98,7 @@ describe("desktop native UX projections", () => {
     });
     expect(settings.firstRun.required).toBe(true);
     expect(settings.firstRun.steps.map((step) => step.id)).toEqual(["choose-provider", "enter-key", "test-connection", "pick-default-model", "start-chat"]);
-    expect(settings.intentGroups.map((group) => group.id)).toEqual(["ai-provider-model", "workspace-files", "tools-skills", "gateway-runtime", "diagnostics", "advanced"]);
+    expect(settings.intentGroups.map((group) => group.id)).toEqual(["ai-provider-model", "workspace-files", "tools-skills", "runtime", "diagnostics", "advanced"]);
     expect(settings.secretStates[0].label).toBe("Saved key will be reused");
     expect(settings.modelDiscoveryByProvider.openai.status).toBe("failed");
     expect(settings.unsavedBar.actions).toEqual(["Save", "Reset", "Test connection"]);

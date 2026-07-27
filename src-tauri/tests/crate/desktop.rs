@@ -5,7 +5,7 @@ use crate::desktop::files::upload_file_from_path;
 use crate::desktop::files::write_export_file;
 use crate::desktop::logging::append_native_backend_log_line;
 use crate::desktop::menu::desktop_menu_item_descriptors;
-use crate::desktop::state::GatewayRuntime;
+use crate::desktop::state::NativeRuntimeState;
 use crate::desktop::{record_renderer_diagnostic_with_options, truncate_utf8_with_ellipsis};
 use std::path::Path;
 use std::sync::Arc;
@@ -15,9 +15,9 @@ use std::sync::Mutex;
 fn renderer_diagnostics_append_to_persistent_backend_log() {
     let fixture = WorkspaceFixture::new();
     let log_path = fixture.root.join("logs").join("native-backend.log");
-    let shared = Arc::new(Mutex::new(GatewayRuntime {
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
         persistent_log_path: log_path.clone(),
-        ..GatewayRuntime::default()
+        ..NativeRuntimeState::default()
     }));
 
     record_renderer_diagnostic_with_options(
