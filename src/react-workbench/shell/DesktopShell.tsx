@@ -17,7 +17,7 @@ import { ConfigSettingsPage, type ConfigSettingsGroupId } from "../settings/Conf
 import { ProviderModelsSettingsPage } from "../settings/ProviderModelsSettingsPage";
 import type { AppServices, ToolCatalogSummary, WorkspaceFileSummary } from "../services";
 
-type AppRoute = "chat" | "files" | "cowork" | "github" | "docs" | "tools" | "settings";
+type AppRoute = "chat" | "files" | "github" | "docs" | "tools" | "settings";
 
 type RouteHistory = {
   back: AppRoute[];
@@ -34,7 +34,6 @@ export type DesktopShellProps = {
 const routeLabels: Record<AppRoute, string> = {
   chat: "Chat",
   files: "Workspace Files",
-  cowork: "Cowork",
   github: "GitHub",
   docs: "Docs",
   tools: "Tools & Skills",
@@ -55,7 +54,6 @@ type TopMenuCommandId =
   | "search-sessions"
   | "open-chat"
   | "open-files"
-  | "open-cowork"
   | "open-github"
   | "open-tools"
   | "open-tinybot-repo"
@@ -113,7 +111,6 @@ const topMenuItems: TopMenuItem[] = [
     entries: [
       menuCommand({ id: "open-chat", label: routeLabels.chat, route: "chat" }),
       menuCommand({ id: "open-files", label: routeLabels.files, route: "files" }),
-      menuCommand({ id: "open-cowork", label: routeLabels.cowork, route: "cowork" }),
       menuCommand({ id: "open-github", label: routeLabels.github, route: "github" }),
       menuCommand({ id: "open-tools", label: routeLabels.tools, route: "tools" }),
     ],
@@ -568,7 +565,6 @@ function RouteSurface({
       return <ToolsPage services={services} />;
     case "settings":
       return <SettingsPage services={services} />;
-    case "cowork":
     case "github":
     case "docs":
       return <PlaceholderPage title={routeLabels[route]} />;

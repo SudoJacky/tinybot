@@ -473,9 +473,9 @@ describe("chat turn model", () => {
       sequence: 3,
       created_at: "2026-06-27T04:00:02.000Z",
       payload: {
-        agent_context: { id: "cowork-1", title: "Cowork", type: "cowork" },
-        delegate_id: "cowork-1",
-        delegate_type: "cowork",
+        agent_context: { id: "subagent-1", title: "Reviewer", type: "subagent" },
+        delegate_id: "subagent-1",
+        delegate_type: "subagent",
         task: "Review implementation",
         title: "Review implementation",
       },
@@ -537,8 +537,8 @@ describe("chat turn model", () => {
       title: "npm test",
     }]);
     expect(turns[0].steps[1].delegate).toMatchObject({
-      id: "cowork-1",
-      type: "cowork",
+      id: "subagent-1",
+      type: "subagent",
       task: "Review implementation",
     });
     expect(turns[0].finalMessage?.text).toBe("Tests passed.");
@@ -1126,11 +1126,11 @@ describe("chat turn model", () => {
       sequence: 3,
       payload: { form: { title: "Travel preferences" } },
     });
-    for (const [index, delegateType] of ["spawn", "subagent", "cowork", "team"].entries()) {
+    for (const [index, delegateType] of ["spawn", "subagent", "team"].entries()) {
       reduceAgentEvent(state, {
         ...base,
         event_id: `delegate-${delegateType}`,
-        event_type: index === 3 ? "agent.delegate.completed" : "agent.delegate.started",
+        event_type: delegateType === "team" ? "agent.delegate.completed" : "agent.delegate.started",
         step_id: `step-${delegateType}`,
         sequence: 4 + index,
         payload: {
@@ -1138,9 +1138,9 @@ describe("chat turn model", () => {
           artifacts: [{ id: `artifact-${delegateType}`, kind: "markdown", preview: `${delegateType} notes`, title: `${delegateType} notes` }],
           delegate_id: delegateType,
           delegate_type: delegateType,
-          final_output: index === 3 ? "Team finished" : "",
+          final_output: delegateType === "team" ? "Team finished" : "",
           latest_activity: `${delegateType} active`,
-          status: index === 3 ? "completed" : "running",
+          status: delegateType === "team" ? "completed" : "running",
           task: `${delegateType} task`,
           workflow: "review",
         },
@@ -1186,12 +1186,11 @@ describe("chat turn model", () => {
       "delegate",
       "delegate",
       "delegate",
-      "delegate",
       "artifact",
       "artifact",
       "error",
     ]);
-    expect(turn?.steps.filter((step) => step.kind === "delegate").map((step) => step.delegate?.type)).toEqual(["spawn", "subagent", "cowork", "team"]);
+    expect(turn?.steps.filter((step) => step.kind === "delegate").map((step) => step.delegate?.type)).toEqual(["spawn", "subagent", "team"]);
     expect(getArtifactRef(state, "WebSocket:chat-1", "artifact-team")).toMatchObject({ kind: "markdown", preview: "team notes" });
     expect(getArtifactRef(state, "WebSocket:chat-1", "browser-1")).toMatchObject({ kind: "browser_snapshot" });
     expect(getArtifactRef(state, "WebSocket:chat-1", "diff-1")).toMatchObject({ kind: "file_diff" });

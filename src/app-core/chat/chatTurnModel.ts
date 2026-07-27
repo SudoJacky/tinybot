@@ -3,7 +3,7 @@ import type { NativeChatMessage, NativeChatReference } from "./nativeChat";
 export type ChatTurnStatus = "pending" | "running" | "awaiting_approval" | "awaiting_user" | "completed" | "failed" | "interrupted";
 export type ChatStepStatus = "pending" | "running" | "awaiting_approval" | "blocked" | "completed" | "failed" | "cancelled";
 export type AssistantMessagePhase = "unknown" | "commentary" | "final_answer";
-export type AgentContextType = "main" | "spawn" | "subagent" | "cowork" | "team";
+export type AgentContextType = "main" | "spawn" | "subagent" | "team";
 export type ArtifactKind =
   | "terminal_output"
   | "file_diff"
@@ -2219,7 +2219,7 @@ function mainContext(): AgentContext {
 }
 
 function agentContextType(value: string): AgentContextType {
-  return ["spawn", "subagent", "cowork", "team"].includes(value) ? value as AgentContextType : "main";
+  return ["spawn", "subagent", "team"].includes(value) ? value as AgentContextType : "main";
 }
 
 function statusValue(value: unknown): ChatStepStatus | "" {

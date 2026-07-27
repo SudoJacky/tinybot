@@ -32,7 +32,6 @@ fn snapshot_contains_only_first_version_settings_groups() {
         ]
     );
     assert!(!group_ids.contains(&"memory-experience"));
-    assert!(!group_ids.contains(&"cowork-tasks"));
     assert!(!group_ids.contains(&"channels"));
 }
 
@@ -286,9 +285,6 @@ fn config_fixture() -> serde_json::Value {
             }
         },
         "memory": {
-            "enabled": true
-        },
-        "cowork": {
             "enabled": true
         },
         "channels": {

@@ -439,7 +439,6 @@ pub enum BackgroundRunSource {
     Subagent,
     Cron,
     Approval,
-    Cowork,
     File,
     Provider,
 }

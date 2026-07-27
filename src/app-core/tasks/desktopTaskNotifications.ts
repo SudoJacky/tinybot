@@ -75,12 +75,6 @@ function taskNotificationForItem(item: DesktopTaskCenterItem): DesktopTaskNotifi
       body: notificationBody(item),
     };
   }
-  if (item.source === "cowork" && item.state === "blocked") {
-    return {
-      title: "Tinybot Cowork intervention needed",
-      body: notificationBody(item),
-    };
-  }
   if (item.state === "failed") {
     return {
       title: "Tinybot task failed",

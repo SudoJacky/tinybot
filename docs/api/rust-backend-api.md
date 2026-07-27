@@ -254,7 +254,7 @@ First-version group ids returned by `get_settings_snapshot`:
 - `logs-diagnostics`
 - `expert-config`
 
-The first version intentionally does not include Memory, Cowork, Channels, generic
+The first version intentionally does not include Memory, Channels, generic
 web/exec/browser tool toggles, telemetry/crash-report controls, or raw JSON editing fields.
 The `runtime` group only projects native runtime metadata; it does not expose legacy
 gateway endpoint or heartbeat configuration. Secret fields
@@ -1537,7 +1537,6 @@ and shutdown terminate descendant processes as well as the root process.
 | Subagent manager | `worker_subagent_spawn`, `worker_subagent_list`, `worker_subagent_query`, `worker_subagent_send_input`, `worker_subagent_wait`, `worker_subagent_cancel`, `worker_subagent_close`, `worker_subagent_resume` |
 | Task plans | `worker_task_plan_list`, `worker_task_plan_get`, `worker_task_plan_save`, `worker_task_plan_delete` |
 | TinyOS host operations | `worker_dispatch_tinyos_host_command` |
-| Cowork proxy | `worker_cowork_route` |
 | WebUI proxy | `worker_webui_route` |
 
 ### Subagent lifecycle
@@ -1655,13 +1654,7 @@ typed Thread/Turn Tauri commands and unknown Session routes return the standard 
 | `GET` | `/api/workspace/files/{path:.+}` | workspace | Read workspace file |
 | `PUT` | `/api/workspace/files/{path:.+}` | workspace | Write workspace file |
 
-### Inventoried But Unsupported WebUI Routes
-
-These return status `501` through `worker_webui_route`:
-
-| Method | Path | Reason |
-| --- | --- | --- |
-| `GET/POST/PATCH/DELETE` | `/api/cowork/{path:.+}` | Cowork HTTP routes are not exposed by Rust WebUI route inventory |
+### Unsupported WebUI Routes
 
 Unknown, non-inventoried routes return status `404` with:
 

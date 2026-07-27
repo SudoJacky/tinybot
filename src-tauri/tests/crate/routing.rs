@@ -24,9 +24,7 @@ use crate::desktop_commands::skills::build_worker_skills_list_request;
 use crate::desktop_commands::skills::build_worker_skills_update_request;
 use crate::desktop_commands::skills::build_worker_skills_validate_request;
 use crate::desktop_commands::skills::worker_skills_list_with_options;
-use crate::desktop_commands::webui::worker_cowork_route_with_options;
 use crate::desktop_commands::webui::worker_webui_route_with_options;
-use crate::desktop_commands::webui::WorkerCoworkRouteInput;
 use crate::desktop_commands::webui::WorkerWebuiRouteInput;
 use crate::desktop_commands::workspace::worker_workspace_file_with_options;
 use crate::desktop_commands::workspace::worker_workspace_files_with_options;
@@ -346,138 +344,6 @@ fn thread_clear_removes_persisted_history() {
 }
 
 #[test]
-fn worker_cowork_route_serves_rust_sessions_on_rust_backend() {
-    let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
-        fixture.thread_store.clone(),
-    )));
-
-    let created = worker_cowork_route_with_options(
-        &shared,
-        WorkerCoworkRouteInput {
-            method: "POST".to_string(),
-            path: "/api/cowork/sessions".to_string(),
-            body: Some(serde_json::json!({
-                "goal": "Plan the Rust migration",
-                "title": "Rust migration"
-            })),
-            query: None,
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("Cowork create route should be Rust-owned");
-    let session_id = created["body"]["id"]
-        .as_str()
-        .expect("created cowork session should include id")
-        .to_string();
-    let listed = worker_cowork_route_with_options(
-        &shared,
-        WorkerCoworkRouteInput {
-            method: "GET".to_string(),
-            path: "/api/cowork/sessions".to_string(),
-            body: None,
-            query: Some(serde_json::json!({ "include_completed": "true" })),
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("Cowork list route should be Rust-owned");
-    let trace = worker_cowork_route_with_options(
-        &shared,
-        WorkerCoworkRouteInput {
-            method: "GET".to_string(),
-            path: format!("/api/cowork/sessions/{session_id}/trace"),
-            body: None,
-            query: None,
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("Cowork trace route should be Rust-owned");
-    let run = worker_cowork_route_with_options(
-        &shared,
-        WorkerCoworkRouteInput {
-            method: "POST".to_string(),
-            path: format!("/api/cowork/sessions/{session_id}/run"),
-            body: Some(serde_json::json!({ "delegateId": "delegate-rust" })),
-            query: None,
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("Cowork run route should be Rust-owned");
-    let task = worker_cowork_route_with_options(
-        &shared,
-        WorkerCoworkRouteInput {
-            method: "POST".to_string(),
-            path: format!("/api/cowork/sessions/{session_id}/tasks"),
-            body: Some(serde_json::json!({ "id": "task-rust", "title": "Rust task" })),
-            query: None,
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("Cowork task route should be Rust-owned");
-    let budget = worker_cowork_route_with_options(
-        &shared,
-        WorkerCoworkRouteInput {
-            method: "PATCH".to_string(),
-            path: format!("/api/cowork/sessions/{session_id}/budget"),
-            body: Some(serde_json::json!({ "max_spawned_agents": 1 })),
-            query: None,
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("Cowork budget route should be Rust-owned");
-    let activity = worker_cowork_route_with_options(
-        &shared,
-        WorkerCoworkRouteInput {
-            method: "GET".to_string(),
-            path: format!("/api/cowork/sessions/{session_id}/agents/delegate-rust/activity"),
-            body: None,
-            query: Some(serde_json::json!({ "limit": "10" })),
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("Cowork agent activity route should be Rust-owned");
-    let blueprint = worker_cowork_route_with_options(
-        &shared,
-        WorkerCoworkRouteInput {
-            method: "POST".to_string(),
-            path: "/api/cowork/blueprints/validate".to_string(),
-            body: Some(serde_json::json!({ "title": "Rust blueprint" })),
-            query: None,
-        },
-        fixture.root.clone(),
-        serde_json::json!({}),
-        Duration::from_millis(10),
-    )
-    .expect("Cowork blueprint route should be Rust-owned");
-
-    assert_eq!(created["headers"]["x-tinybot-route-owner"], "rust");
-    assert_eq!(listed["body"]["sessions"][0]["id"], session_id);
-    assert_eq!(trace["body"]["events"][0]["type"], "session.created");
-    assert_eq!(
-        run["body"]["agents"]["delegate-rust"]["status"],
-        "completed"
-    );
-    assert_eq!(task["body"]["id"], "task-rust");
-    assert_eq!(budget["body"]["budget_limits"]["max_spawned_agents"], 1);
-    assert_eq!(activity["body"]["agent_id"], "delegate-rust");
-    assert_eq!(blueprint["body"]["valid"], true);
-}
-
-#[test]
 fn worker_webui_tools_route_returns_effective_catalog() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
@@ -776,36 +642,6 @@ fn worker_webui_route_rejects_removed_bootstrap_and_status_routes() {
         assert_eq!(response["body"]["routeGroup"], "unsupported");
         assert_eq!(response["body"]["method"], method);
         assert_eq!(response["body"]["path"], path);
-    }
-}
-
-#[test]
-fn worker_webui_known_unsupported_routes_keep_targeted_policy_metadata() {
-    let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
-        fixture.thread_store.clone(),
-    )));
-
-    for (method, path, route_group) in [("GET", "/api/cowork/not-implemented", "cowork")] {
-        let response = worker_webui_route_with_options(
-            &shared,
-            WorkerWebuiRouteInput {
-                method: method.to_string(),
-                path: path.to_string(),
-                headers: None,
-                body: None,
-            },
-            fixture.root.clone(),
-            serde_json::json!({}),
-            Duration::from_millis(10),
-        )
-        .expect("known unsupported route should return a targeted response");
-
-        assert_eq!(response["status"], 501);
-        assert_eq!(response["body"]["inventoryStatus"], "unsupported");
-        assert_eq!(response["body"]["routeGroup"], route_group);
-        assert!(response["body"]["reason"].is_string());
-        assert!(response["body"]["replacementPlan"].is_string());
     }
 }
 

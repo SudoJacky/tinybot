@@ -45,7 +45,6 @@ export function buildDesktopChatSessionUx(input: {
     starters: [
       { id: "ask", label: "Ask a question", href: "/chat/new" },
       { id: "analyze-file", label: "Analyze a file", href: "/files" },
-      { id: "plan-cowork", label: "Plan multi-step work", href: "/cowork" },
       { id: "edit-workspace-file", label: "Edit workspace file", href: "/workspace" },
     ],
     sessionGroups: [
@@ -184,38 +183,14 @@ export function buildDesktopToolsSkillsManagementUx(input: {
   };
 }
 
-export function buildDesktopCoworkCockpitUx(input: {
-  nativeReady?: boolean;
-  selected?: { type: string; id: string };
-  session?: { id: string; status?: string; finalDraft?: string };
-}) {
-  return {
-    readiness: {
-      mode: input.nativeReady ? "native" : "preview",
-      fallbackHref: "/cowork",
-    },
-    stages: ["goal", "plan", "run", "review-outputs", "finalize"].map((id) => ({ id, label: titleCase(id) })),
-    primarySurface: "timeline-task-feed",
-    graphFocus: {
-      rootId: input.selected?.id ?? input.session?.id ?? "",
-      type: input.selected?.type ?? "session",
-    },
-    confirmations: ["emergencyStopSession", "selectFinalResult", "mergeFinalResult", "deleteSession"].map((action) => ({
-      action,
-      consequence: "This changes the Cowork session output or execution state.",
-    })),
-    handoffActions: ["insertSummaryIntoChat", "saveFinalDraftToWorkspace", "exportTrace", "createFollowUpTask"].map((id) => ({ id })),
-  };
-}
-
 export function buildDesktopLoadingPerformanceUx(input: {
   route?: string;
-  longListCounts?: { sessions?: number; taskRows?: number; coworkTraces?: number };
+  longListCounts?: { sessions?: number; taskRows?: number };
 }) {
   const counts = input.longListCounts ?? {};
   return {
     immediate: ["startup-shell", "chat-shell", "composer", "session-list-metadata", "task-center-shell", "command-palette-shell"],
-    lazy: ["cowork-cockpit", "provider-model-discovery", "tools-skills-editor", "docs-pages"],
+    lazy: ["provider-model-discovery", "tools-skills-editor", "docs-pages"],
     routeHydration: {
       skeleton: `${titleCase(input.route ?? "route")} skeleton`,
       keepStaleData: true,
@@ -223,7 +198,6 @@ export function buildDesktopLoadingPerformanceUx(input: {
     virtualization: {
       sessions: { enabled: (counts.sessions ?? 0) > 80 },
       taskRows: { enabled: (counts.taskRows ?? 0) > 60 },
-      coworkTraces: { enabled: (counts.coworkTraces ?? 0) > 80 },
     },
     memoizedProjections: ["turn-chain-items", "task-center-items", "command-palette-data"],
     refreshPolicy: { commandPaletteDebounceMs: 180, idlePrefetch: true },
@@ -251,7 +225,6 @@ function helpHref(moduleId: string): string {
   const routes: Record<string, string> = {
     workspace: "/docs/webui",
     files: "/docs/webui",
-    cowork: "/docs/tasks",
     chat: "/docs/quickstart",
   };
   return routes[moduleId] ?? "/docs";

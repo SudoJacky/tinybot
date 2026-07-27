@@ -188,7 +188,7 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     const resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
-    for (const item of ["Chat", "Workspace Files", "Cowork", "GitHub", "Tools & Skills"]) {
+    for (const item of ["Chat", "Workspace Files", "GitHub", "Tools & Skills"]) {
       expect(within(resourcesMenu).getByRole("menuitem", { name: item })).toBeTruthy();
     }
     expect(within(resourcesMenu).getByRole("menuitem", { name: "Chat" }).getAttribute("aria-current")).toBe("page");
@@ -287,12 +287,6 @@ describe("DesktopShell", () => {
     expect(await screen.findByRole("heading", { name: "Workspace Files" })).toBeTruthy();
     expect(screen.getByText("src/main.ts")).toBeTruthy();
     expect(services.workspaceStore.listFiles).toHaveBeenCalled();
-
-    await user.click(screen.getByRole("button", { name: "Resources" }));
-    resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
-    expect(within(resourcesMenu).getByRole("menuitem", { name: "Workspace Files" }).getAttribute("aria-current")).toBe("page");
-    await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Cowork" }));
-    expect(await screen.findByRole("heading", { name: "Cowork" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });

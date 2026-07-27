@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 import {
   buildDesktopChatSessionUx,
   buildDesktopCommandPaletteUx,
-  buildDesktopCoworkCockpitUx,
   buildDesktopFileLifecycleUx,
   buildDesktopLoadingPerformanceUx,
   buildDesktopSettingsProviderSetupUx,
@@ -45,7 +44,7 @@ describe("desktop native UX projections", () => {
       scroll: { distanceFromBottom: 160, viewportHeight: 800 },
       activities: [{ id: "tool-1", kind: "tool", label: "Read file" }],
     });
-    expect(chat.starters.map((starter) => starter.id)).toEqual(["ask", "analyze-file", "plan-cowork", "edit-workspace-file"]);
+    expect(chat.starters.map((starter) => starter.id)).toEqual(["ask", "analyze-file", "edit-workspace-file"]);
     expect(chat.sessionGroups.map((group) => `${group.id}:${group.sessions.map((session) => session.key).join(",")}`)).toEqual([
       "pinned:s1",
       "running:s2,s3",
@@ -139,28 +138,13 @@ describe("desktop native UX projections", () => {
     expect(toolsSkills.deleteConfirmation.requiredText).toBe("planner");
   });
 
-  test("stages Cowork cockpit readiness, confirmations, graph focus, and handoff", () => {
-    const cowork = buildDesktopCoworkCockpitUx({
-      nativeReady: false,
-      selected: { type: "task", id: "task-1" },
-      session: { id: "cowork-1", status: "running", finalDraft: "Draft" },
-    });
-    expect(cowork.readiness.mode).toBe("preview");
-    expect(cowork.readiness.fallbackHref).toBe("/cowork");
-    expect(cowork.stages.map((stage) => stage.id)).toEqual(["goal", "plan", "run", "review-outputs", "finalize"]);
-    expect(cowork.primarySurface).toBe("timeline-task-feed");
-    expect(cowork.graphFocus.rootId).toBe("task-1");
-    expect(cowork.confirmations.map((item) => item.action)).toContain("selectFinalResult");
-    expect(cowork.handoffActions.map((action) => action.id)).toEqual(["insertSummaryIntoChat", "saveFinalDraftToWorkspace", "exportTrace", "createFollowUpTask"]);
-  });
-
   test("defines loading boundaries, virtualization, memoization, and measurement hooks", () => {
     const performance = buildDesktopLoadingPerformanceUx({
       route: "chat",
-      longListCounts: { sessions: 120, taskRows: 80, coworkTraces: 0 },
+      longListCounts: { sessions: 120, taskRows: 80 },
     });
     expect(performance.immediate).toEqual(["startup-shell", "chat-shell", "composer", "session-list-metadata", "task-center-shell", "command-palette-shell"]);
-    expect(performance.lazy).toContain("cowork-cockpit");
+    expect(performance.lazy).toEqual(["provider-model-discovery", "tools-skills-editor", "docs-pages"]);
     expect(performance.routeHydration.skeleton).toBe("Chat skeleton");
     expect(performance.virtualization.sessions.enabled).toBe(true);
     expect(performance.memoizedProjections).toEqual(["turn-chain-items", "task-center-items", "command-palette-data"]);

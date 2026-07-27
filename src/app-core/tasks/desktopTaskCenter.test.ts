@@ -15,15 +15,6 @@ describe("desktop task center projection", () => {
           cancelable: true,
         },
       ],
-      coworkRuns: [
-        {
-          id: "cowork:session-1",
-          title: "Ship task center",
-          status: "blocked",
-          detail: "1 blocker",
-          canonical: { module: "cowork", entityId: "session-1", href: "/cowork" },
-        },
-      ],
       providerRefreshes: [
         {
           id: "provider:openai:models",
@@ -58,7 +49,6 @@ describe("desktop task center projection", () => {
 
     expect(items.map((item) => `${item.source}:${item.state}:${item.title}`)).toEqual([
       "approval:blocked:Approve tool execution",
-      "cowork:blocked:Ship task center",
       "file:failed:Save AGENTS.md",
       "chat:active:Streaming response",
       "provider:completed:Refresh OpenAI models",

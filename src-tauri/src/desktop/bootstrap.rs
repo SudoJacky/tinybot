@@ -174,7 +174,6 @@ pub(crate) fn run() {
             crate::desktop_commands::thread::thread_list_turns,
             crate::desktop_commands::thread::thread_get_turn_runtime_state,
             crate::desktop_commands::thread::thread_get_effective_capabilities,
-            crate::desktop_commands::webui::worker_cowork_route,
             crate::desktop_commands::webui::worker_webui_route,
             crate::desktop_commands::transport::worker_dispatch_tinyos_host_command,
             crate::desktop_commands::agent::worker_cancel_agent,

@@ -44,25 +44,12 @@ describe("desktop task notifications", () => {
           canonical: { module: "approvals", href: "/chat/chat-1" },
         },
       ],
-      coworkRuns: [
-        {
-          id: "cowork:session-1",
-          title: "Review swarm plan",
-          status: "intervention_needed",
-          detail: "Needs review",
-          canonical: { module: "cowork", href: "/cowork" },
-        },
-      ],
     }));
 
     expect(sent).toEqual([
       {
         title: "Tinybot approval required",
         body: "Approve shell_command - Shell command approval required",
-      },
-      {
-        title: "Tinybot Cowork intervention needed",
-        body: "Review swarm plan - Needs review",
       },
       {
         title: "Tinybot task completed",
@@ -81,7 +68,7 @@ describe("desktop task notifications", () => {
         },
       ],
     }));
-    expect(sent).toHaveLength(3);
+    expect(sent).toHaveLength(2);
   });
 
   test("skips OS notification when disabled, focused, unsupported, or permission is unavailable", async () => {

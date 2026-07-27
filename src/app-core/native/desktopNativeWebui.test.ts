@@ -114,12 +114,12 @@ describe("desktop native WebUI API", () => {
   test("surfaces native WebUI error body messages", async () => {
     const invoke = vi.fn(async (_command: string, _args?: unknown) => ({
       status: 500,
-      body: { error: { message: "Cowork session could not be created" } },
+      body: { error: { message: "Skill could not be created" } },
     }));
     const api = createDesktopNativeWebuiApi({ invoke });
 
-    await expect(api.route({ method: "POST", path: "/api/cowork/sessions" }))
+    await expect(api.route({ method: "POST", path: "/api/skills" }))
       .rejects
-      .toThrow("Cowork session could not be created");
+      .toThrow("Skill could not be created");
   });
 });
