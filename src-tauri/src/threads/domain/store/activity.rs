@@ -3,8 +3,8 @@ use super::index::ThreadIndex;
 use super::turn_projection::turn_summaries_from_items;
 use super::{bool_field, string_field, turn_items_from_thread_items, u64_field};
 use crate::threads::domain::types::{
-    ThreadAgentRegistryEntry, ThreadItem, ThreadItemKind, ThreadPendingApproval, ThreadRecord,
-    ThreadRunningTool, ThreadStatus,
+    ThreadAgentRegistryEntry, ThreadItem, ThreadItemKind, ThreadRecord, ThreadRunningTool,
+    ThreadStatus,
 };
 use serde_json::Value;
 
@@ -121,10 +121,6 @@ pub(super) fn agent_registry_entry(
             .as_ref()
             .and_then(|control| string_field(control, "historyMode")),
         mailbox_depth: lifecycle.and_then(|value| u64_field(value, "mailboxDepth")),
-        pending_approval: lifecycle
-            .and_then(|value| value.get("pendingApproval"))
-            .filter(|value| !value.is_null())
-            .cloned(),
         capacity: agent_control
             .as_ref()
             .and_then(|control| control.get("capacity"))
@@ -135,47 +131,6 @@ pub(super) fn agent_registry_entry(
         latest_checkpoint,
         turn_items,
     }
-}
-
-pub(super) fn pending_approvals_from_items(
-    thread_id: &str,
-    items: &[ThreadItem],
-) -> Vec<ThreadPendingApproval> {
-    items
-        .iter()
-        .filter_map(|item| {
-            let ThreadItemKind::ApprovalRequested(payload) = &item.kind else {
-                return None;
-            };
-            let approval_id = string_field(payload, "approvalId")
-                .or_else(|| string_field(payload, "approval_id"))?;
-            let resolved = items.iter().any(|candidate| {
-                candidate.sequence > item.sequence
-                    && candidate.turn_id == item.turn_id
-                    && matches!(
-                        &candidate.kind,
-                        ThreadItemKind::ApprovalResolved(candidate_payload)
-                            if string_field(candidate_payload, "approvalId")
-                                .or_else(|| string_field(candidate_payload, "approval_id"))
-                                .as_deref()
-                                == Some(approval_id.as_str())
-                    )
-            });
-            if resolved {
-                return None;
-            }
-            Some(ThreadPendingApproval {
-                thread_id: thread_id.to_string(),
-                item_id: item.item_id.clone(),
-                turn_id: item.turn_id.clone(),
-                approval_id,
-                summary: string_field(payload, "summary"),
-                scope: string_field(payload, "scope"),
-                created_at: item.created_at.clone(),
-                payload: payload.clone(),
-            })
-        })
-        .collect()
 }
 
 pub(super) fn running_tools_from_items(

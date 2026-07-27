@@ -54,11 +54,12 @@ function timeline(): BackendAgentTurnItem[] {
       toolCallId: "call-1",
       type: "tool_call",
     }, { sequence: 2, title: "Read workspace file" }),
-    item("approval-1", "approval", "pending", {
-      approvalId: "approval-1",
+    item("form-1", "form", "pending", {
+      fieldIds: ["query"],
+      formId: "form-1",
       status: "pending",
       toolCallId: "call-1",
-      type: "approval",
+      type: "form",
     }, { sequence: 3 }),
     item("subagent-1", "subagent_lifecycle", "completed", {
       action: "completed",
@@ -101,7 +102,7 @@ describe("TinyOS simulation kernel", () => {
     const snapshot = projectTinyOsKernel(timeline());
     const turn = snapshot.processes.find((process) => process.kind === "agent_turn");
     const tool = snapshot.processes.find((process) => process.kind === "tool_operation");
-    const approval = snapshot.processes.find((process) => process.kind === "user_input_wait");
+    const inputWait = snapshot.processes.find((process) => process.kind === "user_input_wait");
     const subagent = snapshot.processes.find((process) => process.kind === "subagent");
     const mainGroup = snapshot.agentGroups.find(({ agentId }) => agentId === "agent-main");
     const subagentGroup = snapshot.agentGroups.find(({ agentId }) => agentId === "agent-child");
@@ -113,7 +114,7 @@ describe("TinyOS simulation kernel", () => {
     expect(turn).toMatchObject({ state: "completed", provenance: { kind: "canonical_event", sourceId: "answer-1" } });
     expect(tool).toMatchObject({ parentProcessId: turn?.id, state: "running" });
     expect(tool?.parentProcessId).not.toBe(tool?.id);
-    expect(approval).toMatchObject({ parentProcessId: tool?.id, state: "waiting_for_user" });
+    expect(inputWait).toMatchObject({ parentProcessId: tool?.id, state: "waiting_for_user" });
     expect(subagent).toMatchObject({ parentProcessId: turn?.id, state: "completed" });
     expect(mainGroup).toMatchObject({
       agentId: "agent-main",
@@ -140,12 +141,12 @@ describe("TinyOS simulation kernel", () => {
     const reloaded = JSON.parse(JSON.stringify(source)) as BackendAgentTurnItem[];
     const live = projectTinyOsKernel(source);
     const liveAfterReload = projectTinyOsKernel(reloaded);
-    const history = projectTinyOsKernel(reloaded, { eventIndex: 2, itemId: "approval-1", mode: "history" });
+    const history = projectTinyOsKernel(reloaded, { eventIndex: 2, itemId: "form-1", mode: "history" });
 
     expect(liveAfterReload.processes.map((process) => process.id)).toEqual(live.processes.map((process) => process.id));
     expect(liveAfterReload.agentGroups).toEqual(live.agentGroups);
     expect(history.cursor).toMatchObject({
-      boundary: { itemId: "approval-1", sequence: 3 },
+      boundary: { itemId: "form-1", sequence: 3 },
       eventCount: 5,
       eventIndex: 2,
       mode: "history",

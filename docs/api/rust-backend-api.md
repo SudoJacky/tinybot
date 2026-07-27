@@ -250,7 +250,6 @@ First-version group ids returned by `get_settings_snapshot`:
 - `skills`
 - `automations`
 - `runtime`
-- `security-approvals`
 - `logs-diagnostics`
 - `expert-config`
 
@@ -504,8 +503,6 @@ Turn-level runtime controls are also typed and validated before MCP discovery or
   workspace are accepted; relative paths are resolved from the workspace root. The composed
   instruction provenance and provider context use that directory, and shell tools inherit it when
   their call does not provide `workingDir`.
-- `approvalPolicy` is no longer an active runtime control. Tool calls do not pause for
-  pre-execution approval.
 - `permissionProfile` currently accepts only `local-worker`, which selects the native desktop
   capability policy. Unknown profiles fail explicitly.
 - `selectedTools` is an optional exact allowlist of tool IDs or methods. Deferred selections activate
@@ -713,8 +710,7 @@ does not inherit them. Calls to deferred tools that were not activated fail with
 Resumable form checkpoints include the validated activation set. Form continuations revalidate every
 `activatedToolIds` entry against the current registry and capability policy; stale IDs, malformed
 arrays, and provider-name collisions return explicit errors. Cancelled and other terminal
-checkpoints expose an empty activation set. Tool calls never create an approval checkpoint or an
-`awaiting_approval` stop reason.
+checkpoints expose an empty activation set.
 
 ### Model-requested user input
 
@@ -818,7 +814,7 @@ delta into a separate timeline item after reload.
 phase is used immediately. For providers without phases, a model response followed by Tool calls is
 classified as `commentary`; a terminal response without Tool calls is classified as
 `final_answer`. Only `unknown` may transition to a classified phase. Reclassifying commentary as a
-final answer, changing a classified phase, or emitting Tool, Plan, Reasoning, Approval, Form, or
+final answer, changing a classified phase, or emitting Tool, Plan, Reasoning, Form, or
 Subagent work after the final answer is a protocol error and fails visibly. Plan completion is not a
 final-answer signal.
 
@@ -1113,7 +1109,7 @@ payload. The turn-start seed retains instruction provenance and diagnostics, so 
 Form continuation restores `latestCheckpoint.restorePayload` from Rollout, including
 after a new runtime instance starts; a later terminal item makes that checkpoint inactive.
 
-`clientEventId` is the retry/idempotency key for thread appends, starts, continuations, approvals,
+`clientEventId` is the retry/idempotency key for thread appends, starts, continuations,
 forms, and forks. A successful retry projects the original item IDs instead of appending another
 logical operation. `MemoryThreadStore` is an in-process derived projection; it has no durable
 journal or database.
@@ -1173,8 +1169,7 @@ Thread continuation helper commands:
 | `worker_submit_thread_turn` | `{ input: { threadId?: string, input: unknown, spec?: unknown } }` |
 | `worker_submit_thread_form` | `{ input: { threadId, formId, values?, action? } }` |
 
-Agent checkpoint continuation supports structured forms only. Tool permission approvals remain
-available through the worker approval RPC and are not projected into the agent runtime timeline.
+Agent checkpoint continuation supports structured forms only.
 
 The renderer prepares the final user text before calling `worker_submit_thread_turn`. When the user
 mentions files, it prepends their absolute paths to that text; the backend persists and forwards the
@@ -1248,7 +1243,6 @@ Thread statuses:
 - `idle`
 - `running`
 - `waiting_for_input`
-- `waiting_for_approval`
 - `cancelling`
 - `failed`
 - `archived`
@@ -1383,11 +1377,9 @@ Result shape:
 }
 ```
 
+After typed parameter, JSON-schema, capability, and availability validation,
 `workspace.apply_patch`, `workspace.write_file`, `workspace.delete_file`, `shell.execute`,
-`shell.start`, browser interaction, and MCP tool calls do not have a pre-execution approval
-boundary. After typed parameter and JSON-schema validation, an available tool dispatches directly.
-The legacy `approval.*` and `permission_profile.*approval` methods remain compatibility APIs for
-older clients, but the native tool execution path neither creates nor consumes those grants.
+`shell.start`, browser interaction, and MCP tool calls dispatch directly.
 
 `permission_profile.evaluate_tool` still reports normalized `effects` as descriptive metadata:
 
@@ -1435,10 +1427,10 @@ or terminated safely.
 
 Model-visible deferred tools map to the richer RPC surface:
 
-| Tool | Worker RPC target | Pre-execution approval | Cancellation policy |
-| --- | --- | --- | --- |
-| `exec_command` | `shell.start` | none | `terminate_process` |
-| `write_stdin` | `shell.write_stdin` | none | `detach_forbidden` |
+| Tool | Worker RPC target | Cancellation policy |
+| --- | --- | --- |
+| `exec_command` | `shell.start` | `terminate_process` |
+| `write_stdin` | `shell.write_stdin` | `detach_forbidden` |
 
 The worker overwrites tool-supplied identity fields with the active `sessionId`, `ownerId`, and
 `toolCallId` when these tools dispatch. An owned process cannot be polled, written, resized,
@@ -1553,7 +1545,7 @@ and depth failures are explicit control errors and do not create partial durable
 - `parent_turn` copies user and completed assistant messages from the latest user turn;
 - `full_history` copies all user and completed assistant messages.
 
-Reasoning, tool calls and outputs, approvals, and private trace items are never inherited. Copied
+Reasoning, tool calls and outputs, and private trace items are never inherited. Copied
 messages contain source-thread and source-item provenance and use deterministic child item IDs.
 
 After a process restart, canonically persisted active children are restored as `interrupted`.
@@ -1579,7 +1571,7 @@ await invoke("worker_dispatch_tinyos_host_command", {
 ```
 
 This dispatcher accepts only remaining non-chat TinyOS host operations. Chat turns, interruption,
-approvals, and forms must use the typed Thread commands.
+and forms must use the typed Thread commands.
 
 ## WebUI Route Wrapper
 
@@ -1689,13 +1681,12 @@ External callers should usually prefer the Tauri commands above.
 | Namespace | Methods |
 | --- | --- |
 | `thread.turn` | `append_semantic_batch`, `clear_checkpoint`, `get`, `get_checkpoint`, `list`, `mark_cancelled`, `mark_completed`, `mark_failed`, `mark_interrupted`, `runtime_state`, `set_checkpoint`, `start` |
-| `approval` | `list_pending`, `request`, `resolve` |
 | `config` | `apply_operations`, `apply_patch_result`, `get`, `snapshot_public` |
 | `diagnostics` | `append` |
 | `form` | `request` |
 | `mcp` | `call_tool`, `diagnostics`, `list_tools`, `server_status`, `shutdown` |
 | `memory` | `capture_evidence`, `dream_apply`, `dream_log`, `dream_pending`, `dream_restore`, `dream_run`, `list_evidence`, `migrate_legacy_notes`, `rebuild_index`, `recall`, `refresh_views`, `reject`, `save`, `search`, `supersede`, `trace` |
-| `permission_profile` | `current`, `evaluate_tool`, `request_tool_approval`, `resolve_tool_approval` |
+| `permission_profile` | `current`, `evaluate_tool` |
 | `provider` | `resolve_secret` |
 | `runtime` | `metrics`, `now`, `restart` |
 | `session` | `append_messages`, `clear`, `clear_checkpoint`, `delete`, `get_checkpoint`, `get_history`, `get_metadata`, `list_metadata`, `patch_metadata`, `patch_user_profile`, `persist_turn`, `set_checkpoint`, `trim` |
@@ -1709,7 +1700,7 @@ External callers should usually prefer the Tauri commands above.
 
 `thread.turn.start` atomically appends the minimal turn seed, turn context, changed materialized
 instructions, and current user message. `thread.turn.append_semantic_batch` accepts only stable events
-that can be materialized as typed message, reasoning, tool, approval, usage, or terminal records;
+that can be materialized as typed message, reasoning, tool, usage, or terminal records;
 delta, phase, status, provider-start, and generic trace envelopes are rejected or kept live-only.
 Agent-turn reads are derived from the thread JSONL and never fall back to the in-memory thread store.
 
@@ -1731,10 +1722,8 @@ Configured server maps are normalized from `tools.mcp_servers`, `tools.mcpServer
 paths use the same normalized map.
 
 `mcp.capability_catalog` and `GET /api/tools` expose one effective snapshot containing configured
-servers, runtime status, discovered tools, allowlist state, callable state, denial reasons, input
-schemas, and compatibility approval metadata. One failed or disabled server remains visible without
-hiding tools from healthy servers. Configured approval policy is reported as disabled and MCP tools
-dispatch without a per-request approval.
+servers, runtime status, discovered tools, allowlist state, callable state, denial reasons, and input
+schemas. One failed or disabled server remains visible without hiding tools from healthy servers.
 
 Stdio configuration example:
 
@@ -1870,8 +1859,6 @@ The Rust backend can emit live events through Tauri. Dotted worker event names a
 - `agent.delegate.started`
 - `agent.delegate.running`
 - `agent.delegate.message_queued`
-- `agent.delegate.awaiting_approval`
-- `agent.delegate.tool.approval_required`
 - `agent.delegate.tool.completed`
 - `agent.delegate.trace.updated`
 - `agent.delegate.completed`
@@ -1886,13 +1873,9 @@ The Rust backend can emit live events through Tauri. Dotted worker event names a
 - `diagnostics.log`
 - `worker.status`
 
-Approval event names in this compatibility list are retained only for decoding historical persisted
-records and older clients. The native runtime no longer emits new approval-wait or
-approval-required events for tool calls.
-
 Semantic runtime events retain their existing compatibility fields and also include a typed
 `payload.agentItem` object. The discriminator is `type`. Current production projections cover
-approval requests/decisions, form requests/responses, task-plan progress, subagent activity,
+form requests/responses, task-plan progress, subagent activity,
 context compaction/trimming, errors/cancellation, usage updates, and user file/image references.
 Runtime event `itemId` is derived from the same typed item ID, so live delivery, trace persistence,
 and replay refer to one semantic item. Unknown or malformed internally constructed semantic events
@@ -2058,7 +2041,7 @@ Non-Windows builds return unavailable decisions with reason code `platform_unsup
 synthetic browser state.
 
 The native Agent registry keeps both `browser.observe` and `browser.interact` deferred in supported
-feature builds. Both dispatch without per-request approval directly to the `SharedBrowserRuntime`
+feature builds. Both dispatch directly to the `SharedBrowserRuntime`
 installed in Tauri state; they do not pass through a second
 Worker RPC browser implementation. `browser.observe` creates or reuses the browser session owned by
 the current chat and returns its active identities. `browser.interact` rejects sessions or tabs not

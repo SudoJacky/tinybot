@@ -37,7 +37,7 @@ export function buildDesktopChatSessionUx(input: {
   activities?: Array<{ id: string; kind: "tool" | "reference"; label: string }>;
 }) {
   const sessions = input.sessions ?? [];
-  const runningStatuses = new Set(["running", "streaming", "approval_required", "requires_approval", "blocked", "failed", "interrupted"]);
+  const runningStatuses = new Set(["running", "streaming", "blocked", "failed", "interrupted"]);
   const pinned = sessions.filter((session) => session.pinned);
   const running = sessions.filter((session) => !session.pinned && runningStatuses.has((session.status ?? "").toLowerCase()));
   const recent = sessions.filter((session) => !session.pinned && !running.includes(session));
@@ -313,12 +313,10 @@ function toolGroups(tools: Array<{ name: string; description?: string; riskHint?
     { id: "files", tools: [] as typeof tools },
     { id: "execution", tools: [] as typeof tools },
     { id: "workspace", tools: [] as typeof tools },
-    { id: "requires-approval", tools: [] as typeof tools },
     { id: "other", tools: [] as typeof tools },
   ];
   for (const tool of tools) {
     const text = `${tool.name} ${tool.description ?? ""} ${tool.riskHint ?? ""}`.toLowerCase();
-    if (text.includes("approval")) groups.find((group) => group.id === "requires-approval")?.tools.push(tool);
     if (text.includes("exec") || text.includes("command") || text.includes("shell")) groups.find((group) => group.id === "execution")?.tools.push(tool);
     else if (text.includes("web") || text.includes("browser")) groups.find((group) => group.id === "web")?.tools.push(tool);
     else if (text.includes("file")) groups.find((group) => group.id === "files")?.tools.push(tool);

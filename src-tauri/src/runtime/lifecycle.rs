@@ -330,8 +330,7 @@ impl RuntimeLifecycle {
                 thread_id: Some(status.thread.thread_id.clone()),
             };
             match active_turn.status {
-                crate::threads::domain::ThreadStatus::WaitingForApproval
-                | crate::threads::domain::ThreadStatus::WaitingForInput => {
+                crate::threads::domain::ThreadStatus::WaitingForInput => {
                     if status
                         .latest_checkpoint
                         .as_ref()

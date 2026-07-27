@@ -80,14 +80,12 @@ function canvasProps(entries: LiveCanvasEntry[], overrides: Record<string, unkno
     onAttachContext: vi.fn(),
     onClose: vi.fn(),
     onOpenArtifact: vi.fn(),
-    onResolveApproval: vi.fn(),
     onRetryOperation: vi.fn(),
     onReturnToLive: vi.fn(),
     onResumeTurn: vi.fn(),
     onSelectEntry: vi.fn(),
     onSubmitForm: vi.fn(),
     onWidthChange: vi.fn(),
-    resolvingApprovalId: "",
     widthPx: 480,
     ...overrides,
   };
@@ -452,43 +450,19 @@ describe("LiveCanvas TinyOS", () => {
     expect(within(inspector).getAllByText(/canonical_event · versioned-file/)).toHaveLength(2);
   });
 
-  it("resolves approvals directly from a TinyOS system dialog", async () => {
-    const user = userEvent.setup();
-    const onResolveApproval = vi.fn();
-    const approval = entry(step({
-      approval: { approvalId: "approval-1", riskLevel: "high" },
-      id: "approval",
-      kind: "approval",
-      summary: "npm test -- --runInBand",
-      status: "blocked",
-      title: "Run shell command",
-    }));
-
-    render(<LiveCanvas {...canvasProps([approval], { onResolveApproval })} />);
-
-    const dialog = screen.getByRole("dialog", { name: "TinyOS approval request" });
-    expect(within(dialog).getByText("high")).toBeTruthy();
-    expect(within(dialog).getByText("npm test -- --runInBand")).toBeTruthy();
-    expect(within(dialog).getByRole("button", { name: "Approve for session" })).toBeTruthy();
-    await user.click(within(dialog).getByRole("button", { name: "Approve once" }));
-    expect(onResolveApproval).toHaveBeenCalledWith("approval-1", "approveOnce");
-  });
-
   it("renders historical requests as read-only evidence", () => {
-    const onResolveApproval = vi.fn();
-    const approval = entry(step({
-      approval: { approvalId: "approval-history", riskLevel: "high" },
-      id: "approval-history",
-      kind: "approval",
+    const form = entry(step({
+      form: { fieldIds: ["query"], formId: "form-history" },
+      id: "form-history",
+      kind: "form",
       status: "blocked",
-      title: "Historical approval",
+      title: "Historical input request",
     }));
 
-    render(<LiveCanvas {...canvasProps([approval], { mode: "history", onResolveApproval, selection: approval })} />);
+    render(<LiveCanvas {...canvasProps([form], { mode: "history", selection: form })} />);
 
     expect(screen.getByLabelText("Historical TinyOS request")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Approve once" })).toBeNull();
-    expect(onResolveApproval).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Submit" })).toBeNull();
   });
 
   it("exposes the expanded route-surface mode", async () => {
@@ -1088,15 +1062,15 @@ describe("LiveCanvas TinyOS", () => {
     await user.click(screen.getByRole("button", { name: "Close TinyOS overlay" }));
     expect(onClose).toHaveBeenCalledTimes(1);
 
-    const approval = entry(step({
-      approval: { approvalId: "approval-1", riskLevel: "high" },
-      id: "approval",
-      kind: "approval",
+    const form = entry(step({
+      form: { fieldIds: ["query"], formId: "form-1" },
+      id: "form",
+      kind: "form",
       status: "blocked",
-      title: "Run shell command",
+      title: "Clarify request",
     }));
-    rerender(<LiveCanvas {...canvasProps([approval], { onClose })} />);
+    rerender(<LiveCanvas {...canvasProps([form], { onClose })} />);
     expect(screen.queryByRole("button", { name: "Close TinyOS overlay" })).toBeNull();
-    expect(screen.getByRole("dialog", { name: "TinyOS approval request" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "TinyOS input request" })).toBeTruthy();
   });
 });

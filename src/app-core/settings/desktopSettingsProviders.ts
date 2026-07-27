@@ -226,7 +226,7 @@ export interface DesktopSettingsPaneGroup {
   id:
     | "general"
     | "provider-models"
-    | "tools-approvals"
+    | "tools-mcp"
     | "files-workspace"
     | "memory-experience"
     | "skills"
@@ -261,11 +261,11 @@ const DESKTOP_SETTINGS_GROUP_METADATA: Record<DesktopSettingsPaneGroupId, Deskto
     navigationArea: "core",
     navigationMode: "section",
   },
-  "tools-approvals": {
+  "tools-mcp": {
     label: "Tools & MCP",
-    description: "Tool toggles and MCP server access. Approval controls are not exposed here yet.",
+    description: "Tool toggles and MCP server access.",
     aliases: ["tools", "mcp", "security"],
-    i18nKey: "settings.groups.tools-approvals",
+    i18nKey: "settings.groups.tools-mcp",
     navigationArea: "core",
     navigationMode: "section",
   },
@@ -381,30 +381,30 @@ const DESKTOP_SETTINGS_FIELD_METADATA: Record<string, DesktopSettingsPaneFieldMe
     validationField: "providerApiBase",
     i18nKey: "settings.fields.provider-models.apiBase",
   },
-  "tools-approvals.mcpServers": {
+  "tools-mcp.mcpServers": {
     label: "MCP servers",
     description: "JSON object of MCP server definitions.",
     aliases: ["mcp", "servers", "tools json"],
     validationField: "mcpServers",
     sensitive: true,
-    i18nKey: "settings.fields.tools-approvals.mcpServers",
+    i18nKey: "settings.fields.tools-mcp.mcpServers",
   },
 };
 
 const DESKTOP_SETTINGS_AUTO_COMMIT_FIELDS = new Set([
-  "tools-approvals.webEnable",
-  "tools-approvals.execEnable",
-  "tools-approvals.restrictToWorkspace",
+  "tools-mcp.webEnable",
+  "tools-mcp.execEnable",
+  "tools-mcp.restrictToWorkspace",
   "channels.sendProgress",
   "channels.sendToolHints",
 ]);
 
 const DESKTOP_SETTINGS_FIELD_CONFIRMATIONS: Record<string, DesktopSettingsPaneFieldConfirmation> = {
-  "tools-approvals.execEnable": {
+  "tools-mcp.execEnable": {
     when: "enable",
     message: "Enable local command execution for agent workflows? Only enable this when you trust the active workspace.",
   },
-  "tools-approvals.restrictToWorkspace": {
+  "tools-mcp.restrictToWorkspace": {
     when: "disable",
     message: "Allow execution outside the workspace boundary? This broadens local file access for command workflows.",
   },
@@ -1839,8 +1839,8 @@ function buildDesktopSettingsPaneGroups(
       ],
     },
     {
-      id: "tools-approvals",
-      label: "Tools & Approvals",
+      id: "tools-mcp",
+      label: "Tools & MCP",
       fields: [
         field("webEnable", "Web tools", state.tools.webEnable, { control: "checkbox" }),
         field("execEnable", "Exec tools", state.tools.execEnable, { control: "checkbox" }),
@@ -2086,13 +2086,13 @@ function getDesktopSettingsPaneFieldPersistentPath(
     "general.reasoningEffort": "agents.defaults.reasoningEffort",
     "provider-models.selectedProvider": "desktop.ui.settings.providerEditor.selectedProvider",
     "provider-models.profileId": "agents.defaults.activeProfile",
-    "tools-approvals.webEnable": "tools.web.enable",
-    "tools-approvals.execEnable": "tools.exec.enable",
-    "tools-approvals.webProxy": "tools.web.proxy",
-    "tools-approvals.searchProvider": "tools.web.search.provider",
-    "tools-approvals.execTimeout": "tools.exec.timeout",
-    "tools-approvals.restrictToWorkspace": "tools.restrictToWorkspace",
-    "tools-approvals.mcpServers": "tools.mcpServers",
+    "tools-mcp.webEnable": "tools.web.enable",
+    "tools-mcp.execEnable": "tools.exec.enable",
+    "tools-mcp.webProxy": "tools.web.proxy",
+    "tools-mcp.searchProvider": "tools.web.search.provider",
+    "tools-mcp.execTimeout": "tools.exec.timeout",
+    "tools-mcp.restrictToWorkspace": "tools.restrictToWorkspace",
+    "tools-mcp.mcpServers": "tools.mcpServers",
     "files-workspace.workspace": "agents.defaults.workspace",
     "channels.sendProgress": "channels.sendProgress",
     "channels.sendToolHints": "channels.sendToolHints",

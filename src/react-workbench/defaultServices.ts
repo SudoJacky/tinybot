@@ -271,8 +271,6 @@ export function createDesktopAppServices(): AppServices {
         clientEventId: command.commandId,
         reason: "user_requested",
       });
-    } else if (command.kind === "approval.resolve") {
-      throw new Error("Native agent approval continuation is not supported");
     } else if (command.kind === "form.submit" || command.kind === "form.cancel") {
       await requireNative(nativeThreads, "Thread").submitForm({
         threadId,
@@ -352,7 +350,6 @@ export function createDesktopAppServices(): AppServices {
       const turn = [...timeline.turns].reverse().find((candidate) => (
         candidate.status === "pending"
         || candidate.status === "running"
-        || candidate.status === "awaiting_approval"
         || candidate.status === "awaiting_user"
       ));
       if (!turn) throw new Error("Cannot cancel: the session has no active turn");
@@ -716,9 +713,7 @@ function mapSession(thread: NativeThreadRecord, responding: boolean, fallbackPay
     ...(thread.metadata?.workingDirectory ? { workingDirectory: thread.metadata.workingDirectory } : {}),
     status: responding || thread.status === "running" || thread.status === "cancelling"
       ? "running"
-      : thread.status === "waiting_for_approval"
-        ? "waiting_approval"
-        : thread.status === "failed" ? "failed" : "idle",
+      : thread.status === "failed" ? "failed" : "idle",
   };
 }
 
@@ -890,7 +885,6 @@ function normalizeToolCatalog(payload: unknown): ToolCatalogSummary {
 }
 
 function normalizeToolSummary(item: Record<string, unknown>): ToolSummary {
-  const approval = isRecord(item.approval) ? item.approval : {};
   const name = stringValue(item.name ?? item.id);
   return {
     id: stringValue(item.id) || name,
@@ -902,7 +896,6 @@ function normalizeToolSummary(item: Record<string, unknown>): ToolSummary {
     enabled: item.enabled !== false,
     available: item.available !== false,
     reason: stringValue(item.reason) || undefined,
-    approvalRequired: approval.required === true,
   };
 }
 

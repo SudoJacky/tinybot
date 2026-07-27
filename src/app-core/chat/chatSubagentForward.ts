@@ -1,7 +1,5 @@
 import type { LiveSubagent, SubagentStatus } from "./chatUiProjection";
 
-export type ForwardComposerMode = "normal" | "approval_guidance";
-
 export type SubagentForwardMessage = {
   id: string;
   role: string;
@@ -48,10 +46,6 @@ export function createSubagentForwardBlock(
       ...messages.map((message) => `${message.role}: ${message.content}`),
     ].join("\n"),
   };
-}
-
-export function requiresForwardApprovalGuidanceConfirmation(mode: ForwardComposerMode): boolean {
-  return mode === "approval_guidance";
 }
 
 export function reconcileSubagentSyncState(

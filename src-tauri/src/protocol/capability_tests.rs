@@ -9,8 +9,6 @@ fn default_worker_policy_denies_sensitive_capabilities() {
     assert!(!policy.allows(&WorkerCapability::FsWorkspaceRead));
     assert!(!policy.allows(&WorkerCapability::SessionMetadataRead));
     assert!(!policy.allows(&WorkerCapability::ProviderSecretRead));
-    assert!(!policy.allows(&WorkerCapability::ApprovalRequest));
-    assert!(!policy.allows(&WorkerCapability::ApprovalResolve));
     assert!(!policy.allows(&WorkerCapability::FormRequest));
     assert!(!policy.allows(&WorkerCapability::MemoryRead));
     assert!(!policy.allows(&WorkerCapability::MemoryWrite));
@@ -72,42 +70,6 @@ fn form_request_capability_name_serializes_as_protocol_string() {
         json!({
             "capability": "form.request",
             "scope": "agent-ui://current"
-        })
-    );
-}
-
-#[test]
-fn approval_request_capability_name_serializes_as_protocol_string() {
-    let grant = CapabilityGrant {
-        capability: WorkerCapability::ApprovalRequest,
-        scope: "approval://current".to_string(),
-    };
-
-    let value = serde_json::to_value(grant).expect("grant should serialize");
-
-    assert_eq!(
-        value,
-        json!({
-            "capability": "approval.request",
-            "scope": "approval://current"
-        })
-    );
-}
-
-#[test]
-fn approval_resolve_capability_name_serializes_as_protocol_string() {
-    let grant = CapabilityGrant {
-        capability: WorkerCapability::ApprovalResolve,
-        scope: "approval://current".to_string(),
-    };
-
-    let value = serde_json::to_value(grant).expect("grant should serialize");
-
-    assert_eq!(
-        value,
-        json!({
-            "capability": "approval.resolve",
-            "scope": "approval://current"
         })
     );
 }

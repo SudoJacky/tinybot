@@ -53,7 +53,6 @@ pub(crate) enum AgentEventKind {
     DelegateSpawned,
     DelegateMessage,
     DelegateCompleted,
-    DelegateAwaitingApproval,
     DelegateCancelled,
     DelegateClosed,
     DelegateFailed,
@@ -318,7 +317,6 @@ impl AgentEventKind {
         Self::DelegateSpawned,
         Self::DelegateMessage,
         Self::DelegateCompleted,
-        Self::DelegateAwaitingApproval,
         Self::DelegateCancelled,
         Self::DelegateClosed,
         Self::DelegateFailed,
@@ -685,7 +683,6 @@ impl AgentEventKind {
             | Self::DelegateNotification
             | Self::DelegateQueried
             | Self::DelegateMessageQueued
-            | Self::DelegateAwaitingApproval
             | Self::DelegateCancelled
             | Self::DelegateClosed
             | Self::DelegateFailed
@@ -722,7 +719,6 @@ impl AgentEventKind {
             Self::DelegateSpawned => "agent.delegate.spawned",
             Self::DelegateMessage => "agent.delegate.message",
             Self::DelegateCompleted => "agent.delegate.completed",
-            Self::DelegateAwaitingApproval => "agent.delegate.awaiting_approval",
             Self::DelegateCancelled => "agent.delegate.cancelled",
             Self::DelegateClosed => "agent.delegate.closed",
             Self::DelegateFailed => "agent.delegate.failed",

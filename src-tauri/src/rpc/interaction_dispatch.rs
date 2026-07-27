@@ -78,9 +78,6 @@ impl WorkerRpcRouter {
             "shell.shutdown" => {
                 serde_json::to_value(self.shell.shutdown()).map_err(serialization_error)
             }
-            "approval.request" => self.approval.request_from_request(request),
-            "approval.resolve" => self.approval.resolve_from_request(request),
-            "approval.list_pending" => self.approval.list_pending_from_request(request),
             "form.request" => self.form.request_from_request(request),
             _ => Err(unknown_method_error(request)),
         }

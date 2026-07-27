@@ -33,7 +33,6 @@ pub enum SubagentThreadStatus {
     Running,
     WaitingMainAgent,
     WaitingUser,
-    AwaitingApproval,
     Completed,
     Failed,
     Cancelled,
@@ -47,7 +46,6 @@ impl SubagentThreadStatus {
             Self::Running => "running",
             Self::WaitingMainAgent => "waiting_main_agent",
             Self::WaitingUser => "waiting_user",
-            Self::AwaitingApproval => "awaiting_approval",
             Self::Completed => "completed",
             Self::Failed => "failed",
             Self::Cancelled => "cancelled",
@@ -59,7 +57,7 @@ impl SubagentThreadStatus {
     pub(crate) fn is_active(&self) -> bool {
         matches!(
             self,
-            Self::Running | Self::WaitingMainAgent | Self::WaitingUser | Self::AwaitingApproval
+            Self::Running | Self::WaitingMainAgent | Self::WaitingUser
         )
     }
 
@@ -182,9 +180,6 @@ pub struct SubagentTransitionParams {
     pub result_summary: Option<String>,
     #[serde(default)]
     pub blocker_summary: Option<String>,
-    #[serde(default)]
-    pub pending_approval: Option<Value>,
-    #[serde(default)]
     pub metadata: Value,
 }
 
@@ -208,7 +203,6 @@ pub struct SubagentThreadSummary {
     pub mailbox_depth: usize,
     pub terminal_result: Option<String>,
     pub blocker_summary: Option<String>,
-    pub pending_approval: Option<Value>,
     pub metadata: Value,
 }
 
@@ -242,7 +236,6 @@ struct SubagentThreadRecord {
     mailbox: VecDeque<SubagentMailboxInput>,
     terminal_result: Option<String>,
     blocker_summary: Option<String>,
-    pending_approval: Option<Value>,
     metadata: Value,
 }
 
@@ -575,7 +568,6 @@ impl SubagentThreadManager {
             mailbox: VecDeque::new(),
             terminal_result: None,
             blocker_summary: None,
-            pending_approval: None,
             metadata,
         };
         state.records.insert(key, record.clone());
@@ -803,9 +795,7 @@ impl SubagentThreadManager {
                 status.status.is_terminal()
                     || matches!(
                         status.status,
-                        SubagentThreadStatus::WaitingMainAgent
-                            | SubagentThreadStatus::WaitingUser
-                            | SubagentThreadStatus::AwaitingApproval
+                        SubagentThreadStatus::WaitingMainAgent | SubagentThreadStatus::WaitingUser
                     )
             });
             if has_ready {
@@ -907,13 +897,6 @@ impl SubagentThreadManager {
             .clone()
             .and_then(|value| non_empty(Some(&value)))
             .or_else(|| record.blocker_summary.clone());
-        record.pending_approval = params.pending_approval.clone().or_else(|| {
-            if matches!(record.status, SubagentThreadStatus::AwaitingApproval) {
-                Some(serde_json::json!({}))
-            } else {
-                None
-            }
-        });
         let summary = record.summary();
         self.changed.notify_all();
         let event_kind = match summary.status {
@@ -922,7 +905,6 @@ impl SubagentThreadManager {
             SubagentThreadStatus::Cancelled => AgentEventKind::DelegateCancelled,
             SubagentThreadStatus::Closed => AgentEventKind::DelegateClosed,
             SubagentThreadStatus::Interrupted => AgentEventKind::DelegateInterrupted,
-            SubagentThreadStatus::AwaitingApproval => AgentEventKind::DelegateAwaitingApproval,
             _ => AgentEventKind::DelegateRunning,
         };
         let event = next_event(
@@ -940,7 +922,6 @@ impl SubagentThreadManager {
                 "status": summary.status.as_str(),
                 "resultSummary": summary.terminal_result,
                 "blockerSummary": summary.blocker_summary,
-                "pendingApproval": summary.pending_approval,
                 "metadata": params.metadata,
             }),
         );
@@ -959,7 +940,6 @@ impl SubagentThreadManager {
             status: SubagentThreadStatus::Closed,
             result_summary: None,
             blocker_summary: None,
-            pending_approval: None,
             metadata: serde_json::json!({ "source": "close" }),
         })
     }
@@ -1026,7 +1006,6 @@ impl SubagentThreadManager {
         record.updated_at = now_timestamp();
         record.closed_at = None;
         record.blocker_summary = None;
-        record.pending_approval = None;
         if let Some(metadata) = record.metadata.as_object_mut() {
             let resume_count = metadata
                 .get("resumeCount")
@@ -1071,7 +1050,6 @@ impl SubagentThreadManager {
             status: SubagentThreadStatus::Cancelled,
             result_summary: None,
             blocker_summary: None,
-            pending_approval: None,
             metadata: serde_json::json!({ "source": "cancel" }),
         })
     }
@@ -1100,7 +1078,6 @@ impl SubagentThreadManager {
                     blocker_summary: Some(
                         "Runtime restarted before subagent completed.".to_string(),
                     ),
-                    pending_approval: None,
                     metadata: serde_json::json!({ "source": "runtime_restart" }),
                 })
             })
@@ -1133,7 +1110,6 @@ impl SubagentThreadManager {
                         "Application shutdown interrupted the subagent before completion."
                             .to_string(),
                     ),
-                    pending_approval: None,
                     metadata: serde_json::json!({ "source": "application_shutdown" }),
                 })
             })
@@ -1231,7 +1207,6 @@ impl SubagentThreadManager {
                 mailbox: VecDeque::new(),
                 terminal_result: None,
                 blocker_summary: Some("Runtime restarted before subagent completed.".to_string()),
-                pending_approval: None,
                 metadata: serde_json::json!({
                     "source": "background_trace_restore",
                     "lastEventType": event.event_type,
@@ -1307,11 +1282,6 @@ impl SubagentThreadManager {
                 } else {
                     summary.blocker_summary.clone()
                 },
-                pending_approval: if persisted_status.is_active() {
-                    None
-                } else {
-                    summary.pending_approval.clone()
-                },
                 metadata,
             };
             restored.push(record.summary());
@@ -1344,7 +1314,6 @@ impl SubagentThreadRecord {
             mailbox_depth: self.mailbox.len(),
             terminal_result: self.terminal_result.clone(),
             blocker_summary: self.blocker_summary.clone(),
-            pending_approval: self.pending_approval.clone(),
             metadata: self.metadata.clone(),
         }
     }

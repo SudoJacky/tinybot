@@ -54,7 +54,6 @@ impl ToolContributor for BuiltinMcpToolContributor {
             true,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, true),
             vec![WorkerCapability::McpCall],
-            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["server", "tool"],
@@ -144,7 +143,6 @@ pub(super) fn workspace_tool_entries() -> Vec<ToolRegistryEntry> {
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
             vec![WorkerCapability::FsWorkspaceWrite],
-            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["path", "contents"],
@@ -164,7 +162,6 @@ pub(super) fn workspace_tool_entries() -> Vec<ToolRegistryEntry> {
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
             vec![WorkerCapability::FsWorkspaceWrite],
-            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["patch"],
@@ -187,7 +184,6 @@ pub(super) fn workspace_tool_entries() -> Vec<ToolRegistryEntry> {
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
             vec![WorkerCapability::FsWorkspaceWrite],
-            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["patch"],
@@ -209,7 +205,6 @@ pub(super) fn workspace_tool_entries() -> Vec<ToolRegistryEntry> {
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
             vec![WorkerCapability::FsWorkspaceWrite],
-            approval(false, None, None),
             json!({
                 "type": "object",
                 "required": ["path"],
@@ -313,7 +308,6 @@ pub(super) fn build_discovered_mcp_tool_entries(
             runtime_policy,
             required_capabilities: vec![WorkerCapability::McpCall],
             available: false,
-            approval: approval(false, None, None),
             input_schema,
             output_schema,
             execution_target: ToolExecutionTarget::Mcp {

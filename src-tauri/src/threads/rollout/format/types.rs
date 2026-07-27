@@ -566,7 +566,6 @@ pub struct TurnContextItem {
     pub current_date: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,
-    pub approval_policy: Value,
     pub sandbox_policy: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_profile: Option<Value>,

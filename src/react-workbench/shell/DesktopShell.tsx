@@ -657,7 +657,7 @@ function ToolsPage({ services }: { services: AppServices }) {
 function toolMeta(tool: ToolCatalogSummary["tools"][number]): string {
   const source = tool.serverId ? `MCP: ${tool.serverId}` : tool.source;
   const status = !tool.available ? tool.reason || "unavailable" : !tool.enabled ? tool.reason || "disabled" : "available";
-  return [source, status, tool.approvalRequired ? "approval required" : ""].filter(Boolean).join(" / ");
+  return [source, status].filter(Boolean).join(" / ");
 }
 
 function skillMeta(skill: Awaited<ReturnType<AppServices["toolsStore"]["listSkills"]>>[number]): string {
@@ -734,7 +734,7 @@ type SettingsModuleId = "provider-models" | "agent-defaults" | ConfigSettingsGro
 const settingsModules: Array<{ id: SettingsModuleId; label: string; description: string; groupId?: ConfigSettingsGroupId }> = [
   { id: "provider-models", label: "Provider & Models", description: "Providers, API keys, and model defaults" },
   { id: "agent-defaults", label: "Agent Defaults", description: "Runtime behavior for new agent turns" },
-  { id: "tools-approvals", label: "Tools & MCP", description: "Tool access and MCP server configuration", groupId: "tools-approvals" },
+  { id: "tools-mcp", label: "Tools & MCP", description: "Tool access and MCP server configuration", groupId: "tools-mcp" },
   { id: "channels", label: "Channels", description: "Progress signals and delivery retries", groupId: "channels" },
 ];
 

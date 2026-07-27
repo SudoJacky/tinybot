@@ -3093,9 +3093,22 @@ fn thread_items_from_effective_rollout(
                     kind: response_item_thread_kind(item.as_value()),
                 })
             }
-            ThreadLogItem::EventMsg(event) if event.kind() == &EventKind::ThreadItem => Some(
-                thread_item_from_event_payload(event.payload(), thread_id, sequence, line)?,
-            ),
+            ThreadLogItem::EventMsg(event) if event.kind() == &EventKind::ThreadItem => {
+                if let Some(item_type) = ignored_historical_thread_item_type(event.payload()) {
+                    eprintln!(
+                        "thread_history_item_ignored thread_id={} ordinal={:?} item_type={}",
+                        thread_id, line.ordinal, item_type
+                    );
+                    None
+                } else {
+                    Some(thread_item_from_event_payload(
+                        event.payload(),
+                        thread_id,
+                        sequence,
+                        line,
+                    )?)
+                }
+            }
             ThreadLogItem::EventMsg(event)
                 if matches!(
                     event.kind(),
@@ -3240,6 +3253,13 @@ fn thread_item_from_event_payload(
     }
     item.created_at = line.timestamp.clone();
     Ok(item)
+}
+
+fn ignored_historical_thread_item_type(payload: &Value) -> Option<&str> {
+    payload
+        .pointer("/item/kind/type")
+        .and_then(Value::as_str)
+        .filter(|item_type| matches!(*item_type, "approval_requested" | "approval_resolved"))
 }
 
 fn thread_boundary_item_from_rollout_event(
@@ -3506,9 +3526,6 @@ fn thread_turn_summary_from_turn(
     );
     let status = match &turn.status {
         AgentTurnStatus::Running => ThreadStatus::Running,
-        AgentTurnStatus::Waiting if turn.phase.contains("approval") => {
-            ThreadStatus::WaitingForApproval
-        }
         AgentTurnStatus::Waiting => ThreadStatus::WaitingForInput,
         AgentTurnStatus::Failed => ThreadStatus::Failed,
         AgentTurnStatus::Cancelled | AgentTurnStatus::Interrupted | AgentTurnStatus::Completed => {

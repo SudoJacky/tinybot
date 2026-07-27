@@ -35,22 +35,9 @@ describe("desktop task notifications", () => {
           canonical: { module: "files", href: "/files" },
         },
       ],
-      approvals: [
-        {
-          id: "approval:tool-1",
-          title: "Approve shell_command",
-          status: "waiting",
-          detail: "Shell command approval required",
-          canonical: { module: "approvals", href: "/chat/chat-1" },
-        },
-      ],
     }));
 
     expect(sent).toEqual([
-      {
-        title: "Tinybot approval required",
-        body: "Approve shell_command - Shell command approval required",
-      },
       {
         title: "Tinybot task completed",
         body: "Process Desktop Notes - File ready",
@@ -68,7 +55,7 @@ describe("desktop task notifications", () => {
         },
       ],
     }));
-    expect(sent).toHaveLength(2);
+    expect(sent).toHaveLength(1);
   });
 
   test("skips OS notification when disabled, focused, unsupported, or permission is unavailable", async () => {

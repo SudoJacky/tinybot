@@ -42,7 +42,6 @@ fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(AgentEventKind,
                 "content": value.get("output").cloned().unwrap_or(Value::Null),
             }),
         )),
-        ThreadItemKind::ApprovalRequested(_) | ThreadItemKind::ApprovalResolved(_) => None,
         ThreadItemKind::SubagentSpawned(value) => {
             Some((AgentEventKind::DelegateSpawned, value.clone()))
         }

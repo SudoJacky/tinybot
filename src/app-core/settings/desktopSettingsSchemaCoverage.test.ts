@@ -152,7 +152,7 @@ describe("desktop settings schema coverage", () => {
     expect(owners["provider-profile"]).toMatchObject({ role: "editable-owner", groupId: "provider-models" });
     expect(owners.workspace).toMatchObject({ role: "editable-owner", groupId: "files-workspace", fieldId: "workspace" });
     expect(owners["runtime-endpoint"]).toBeUndefined();
-    expect(owners["mcp-servers"]).toMatchObject({ role: "editable-owner", groupId: "tools-approvals", fieldId: "mcpServers" });
+    expect(owners["mcp-servers"]).toMatchObject({ role: "editable-owner", groupId: "tools-mcp", fieldId: "mcpServers" });
     expect(owners.memory).toMatchObject({ role: "feature-preview", groupId: "memory-experience" });
     expect(owners.skills).toMatchObject({ role: "feature-preview", groupId: "skills" });
     expect(owners.automations).toMatchObject({ role: "feature-preview", groupId: "automations" });

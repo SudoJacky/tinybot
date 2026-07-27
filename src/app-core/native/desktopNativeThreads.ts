@@ -7,7 +7,6 @@ export type NativeThreadStatus =
   | "idle"
   | "running"
   | "waiting_for_input"
-  | "waiting_for_approval"
   | "cancelling"
   | "failed"
   | "archived";

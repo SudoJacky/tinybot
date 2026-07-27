@@ -352,15 +352,6 @@ pub fn build_settings_snapshot(input: SettingsSnapshotInput) -> SettingsSnapshot
                     true,
                     get_path(config, &["skills", "disabled_skills"]),
                 ),
-                config_field(
-                    "require-approval-for-new-skill",
-                    "Require approval for new skill",
-                    "skills.require_approval_for_new_skill",
-                    SettingScope::Global,
-                    SettingValueType::Boolean,
-                    true,
-                    get_path(config, &["skills", "require_approval_for_new_skill"]),
-                ),
             ],
         ),
         group(
@@ -802,18 +793,6 @@ fn mcp_servers_group(config: &Value) -> SettingsGroup {
                     .or_else(|| server.get("startupTimeoutSeconds"))
                     .cloned(),
             ));
-            fields.push(
-                config_field(
-                    &format!("mcp-{server_id}-approval"),
-                    "Approval policy",
-                    &format!("{prefix}.approval"),
-                    SettingScope::Workspace,
-                    SettingValueType::Select,
-                    true,
-                    server.get("approval").cloned(),
-                )
-                .with_risk(SettingRisk::Sensitive),
-            );
             if let Some(env) = server.get("env").and_then(Value::as_object) {
                 for (env_key, env_value) in env {
                     let env_path = format!("{prefix}.env.{env_key}");

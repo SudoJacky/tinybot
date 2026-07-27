@@ -3,7 +3,6 @@ export type ProjectionCapability =
   | "partial_transcript"
   | "full_transcript"
   | "can_forward"
-  | "can_approve_session_scope"
   | "can_branch_session";
 
 export type ToolCallStatus =
@@ -11,19 +10,7 @@ export type ToolCallStatus =
   | "running"
   | "completed"
   | "failed"
-  | "waiting_approval"
   | "unknown";
-
-export type ApprovalRequest = {
-  id: string;
-  sessionKey: string;
-  toolName: string;
-  status: "pending" | "approved" | "denied";
-  scopeKey?: string;
-  scopeLabel?: string;
-  prompt: string;
-  choices: Array<"allow_once" | "allow_session" | "deny">;
-};
 
 export type SubagentStatus =
   | "waiting_main_agent"

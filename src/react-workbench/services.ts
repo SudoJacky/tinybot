@@ -38,7 +38,7 @@ export type SessionSummary = {
   updatedAtMs: number;
   pinned?: boolean;
   archived?: boolean;
-  status?: "idle" | "running" | "waiting_approval" | "failed";
+  status?: "idle" | "running" | "failed";
   workingDirectory?: string;
 };
 
@@ -56,8 +56,6 @@ export type ChatEvent = {
   operationStatus?: "running" | "completed" | "failed" | "cancelled";
   timeline?: ChatTimelineSnapshot;
 };
-
-export type ApprovalAction = "approveOnce" | "approveSession" | "deny";
 
 export type SessionStore = {
   list(): Promise<SessionSummary[]>;
@@ -114,7 +112,6 @@ export type ToolSummary = {
   enabled: boolean;
   available: boolean;
   reason?: string;
-  approvalRequired: boolean;
 };
 
 export type McpServerSummary = {

@@ -194,9 +194,9 @@ fn startup_reconciles_orphaned_turn_and_preserves_waiting_checkpoint() {
             &serde_json::json!({
                 "turnId": "turn-waiting",
                 "sessionId": "session-recovery",
-                "stopReason": "awaiting_approval",
+                "stopReason": "awaiting_form",
                 "checkpoint": {
-                    "phase": "awaiting_approval",
+                    "phase": "awaiting_form",
                     "turnId": "turn-waiting"
                 }
             }),
@@ -275,7 +275,7 @@ fn startup_reconciles_orphaned_turn_and_preserves_waiting_checkpoint() {
     assert_eq!(active_turn.turn_id, "turn-waiting");
     assert_eq!(
         active_turn.status,
-        crate::threads::domain::ThreadStatus::WaitingForApproval
+        crate::threads::domain::ThreadStatus::WaitingForInput
     );
 
     let lifecycle = lock_runtime(&shared).lifecycle_status.clone();

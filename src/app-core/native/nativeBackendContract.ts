@@ -80,8 +80,6 @@ export const NATIVE_BACKEND_AGENT_EVENT_NAMES = [
   "agent.delegate.started",
   "agent.delegate.running",
   "agent.delegate.message_queued",
-  "agent.delegate.awaiting_approval",
-  "agent.delegate.tool.approval_required",
   "agent.delegate.tool.completed",
   "agent.delegate.trace.updated",
   "agent.delegate.completed",

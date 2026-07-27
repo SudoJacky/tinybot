@@ -271,8 +271,7 @@ fn config_fixture() -> serde_json::Value {
                     "args": ["-y", "@modelcontextprotocol/server-github"],
                     "env": {
                         "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp-secret"
-                    },
-                    "approval": "always"
+                    }
                 }
             }
         },

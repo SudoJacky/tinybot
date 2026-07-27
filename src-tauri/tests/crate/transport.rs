@@ -26,12 +26,7 @@ fn tinyos_host_command_interface_rejects_chat_frames() {
         assert!(error.contains("accepts only TinyOS host commands"));
     }
 
-    for command_kind in [
-        "agent.cancel",
-        "approval.resolve",
-        "form.submit",
-        "form.cancel",
-    ] {
+    for command_kind in ["agent.cancel", "form.submit", "form.cancel"] {
         let error = validate_tinyos_host_command_frame(&serde_json::json!({
             "type": "command",
             "command_kind": command_kind,

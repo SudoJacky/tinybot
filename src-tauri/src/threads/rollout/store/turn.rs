@@ -1637,7 +1637,6 @@ fn turn_status_from_checkpoint(checkpoint: &Value) -> AgentTurnStatus {
         | Some("policy_denied")
         | Some("max_iterations")
         | Some("invalid_request")
-        | Some("approval_denied")
         | Some("form_cancelled")
         | Some("failed") => AgentTurnStatus::Failed,
         _ => AgentTurnStatus::Waiting,

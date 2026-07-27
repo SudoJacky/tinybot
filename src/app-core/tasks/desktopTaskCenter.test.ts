@@ -35,20 +35,9 @@ describe("desktop task center projection", () => {
           diagnostics: "HTTP 409",
         },
       ],
-      approvals: [
-        {
-          id: "approval:tool-1",
-          title: "Approve tool execution",
-          status: "waiting",
-          detail: "Shell command approval required",
-          canonical: { module: "approvals", entityId: "tool-1", href: "/chat/chat-1" },
-          approval: { approvalId: "tool-1", sessionKey: "WebSocket:chat-1" },
-        },
-      ],
     });
 
     expect(items.map((item) => `${item.source}:${item.state}:${item.title}`)).toEqual([
-      "approval:blocked:Approve tool execution",
       "file:failed:Save AGENTS.md",
       "chat:active:Streaming response",
       "provider:completed:Refresh OpenAI models",
@@ -65,17 +54,6 @@ describe("desktop task center projection", () => {
       "open",
       "inspect",
     ]);
-    expect(items.find((item) => item.id === "approval:tool-1")?.actions.map((action) => action.id)).toEqual([
-      "approveOnce",
-      "approveSession",
-      "deny",
-      "open",
-      "inspect",
-    ]);
-    expect(items.find((item) => item.id === "approval:tool-1")?.approval).toEqual({
-      approvalId: "tool-1",
-      sessionKey: "WebSocket:chat-1",
-    });
   });
 
   test("keeps terminal and non-cancelable tasks safe by limiting actions", () => {
@@ -117,15 +95,6 @@ describe("desktop task center projection", () => {
           cancelable: true,
         },
       ],
-      approvals: [
-        {
-          id: "approval:tool",
-          title: "Approve shell command",
-          status: "waiting",
-          canonical: { module: "approvals", entityId: "tool", href: "/chat" },
-          approval: { approvalId: "tool", sessionKey: "WebSocket:chat" },
-        },
-      ],
       fileOperations: [
         {
           id: "file:save",
@@ -139,10 +108,9 @@ describe("desktop task center projection", () => {
 
     const attention = buildDesktopTaskCenterAttention(items);
 
-    expect(attention.compactLabel).toBe("1 running · 1 blocked · 1 failed");
-    expect(attention.autoOpenReason).toBe("blocked");
+    expect(attention.compactLabel).toBe("1 running · 0 blocked · 1 failed");
+    expect(attention.autoOpenReason).toBe("failed");
     expect(attention.rows.map((row) => `${row.id}:${row.primaryAction?.id}`)).toEqual([
-      "approval:tool:approveOnce",
       "file:save:retry",
       "chat:stream:cancel",
     ]);

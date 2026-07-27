@@ -109,11 +109,7 @@ fn dispatches_workspace_write_file_version_conflict() {
         json!({}),
         vec![],
         20,
-        CapabilityPolicy::new([
-            WorkerCapability::ApprovalRequest,
-            WorkerCapability::ApprovalResolve,
-            WorkerCapability::FsWorkspaceWrite,
-        ]),
+        CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]),
     );
     let request = WorkerRequest::new(
         "req-1",
@@ -176,58 +172,6 @@ fn dispatches_workspace_apply_patch_request_with_structured_change_summary() {
     assert_eq!(result["changed_files"][0]["operation"], "update");
     assert_eq!(result["changed_files"][1]["path"], "notes/new.md");
     assert_eq!(result["changed_files"][1]["operation"], "add");
-}
-
-#[test]
-fn workspace_apply_patch_executes_without_approval_grant() {
-    let fixture = WorkspaceFixture::new();
-    let mut router = WorkerRpcRouter::new(
-        fixture.root.clone(),
-        json!({}),
-        vec![],
-        20,
-        CapabilityPolicy::new([
-            WorkerCapability::ApprovalRequest,
-            WorkerCapability::ApprovalResolve,
-            WorkerCapability::FsWorkspaceWrite,
-        ]),
-    );
-    let patch = "*** Begin Patch\n*** Add File: notes/today.md\n+approved\n*** End Patch\n";
-
-    let response = router.dispatch(&WorkerRequest::new(
-        "req-apply-patch",
-        "trace-1",
-        "workspace.apply_patch",
-        json!({ "patch": patch }),
-    ));
-
-    assert!(response.error.is_none());
-    assert_eq!(fixture.read("notes/today.md"), "approved\n");
-}
-
-#[test]
-fn workspace_apply_patch_ignores_removed_internal_approval_marker() {
-    let fixture = WorkspaceFixture::new();
-    let mut router = WorkerRpcRouter::new(
-        fixture.root.clone(),
-        json!({}),
-        vec![],
-        20,
-        CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]),
-    );
-
-    let response = router.dispatch(&WorkerRequest::new(
-        "req-apply-patch-spoofed",
-        "trace-1",
-        "workspace.apply_patch",
-        json!({
-            "patch": "*** Begin Patch\n*** Add File: notes/today.md\n+unsafe\n*** End Patch\n",
-            "internal_operation": true
-        }),
-    ));
-
-    assert!(response.error.is_none());
-    assert_eq!(fixture.read("notes/today.md"), "unsafe\n");
 }
 
 #[test]
@@ -359,6 +303,35 @@ fn dispatch_rejects_unknown_method() {
         crate::protocol::WorkerProtocolErrorCode::InvalidProtocol
     );
     assert_eq!(error.details["method"], "shell.execute");
+}
+
+#[test]
+fn dispatch_rejects_removed_approval_method_as_unknown() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([]),
+    );
+    let request = WorkerRequest::new(
+        "req-removed-approval",
+        "trace-removed-approval",
+        "approval.request",
+        json!({}),
+    );
+
+    let response = router.dispatch(&request);
+
+    let error = response.error.expect("response should contain error");
+    assert_eq!(
+        error.code,
+        crate::protocol::WorkerProtocolErrorCode::InvalidProtocol
+    );
+    assert_eq!(error.message, "unknown worker RPC method");
+    assert_eq!(error.details["method"], "approval.request");
+    assert_eq!(error.details["namespace"], "unknown");
 }
 
 #[test]

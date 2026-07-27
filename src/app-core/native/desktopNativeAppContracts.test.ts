@@ -14,7 +14,7 @@ describe("native app cross-surface contracts", () => {
 
     expect(contract.categories.map((category) => category.id)).toEqual([
       "provider-models",
-      "tools-approvals",
+      "tools-mcp",
       "files-workspace",
       "memory-experience",
       "skills",
@@ -28,7 +28,6 @@ describe("native app cross-surface contracts", () => {
       actions: ["discover", "test-connection", "validate", "save"],
       states: ["dirty", "validating", "invalid", "saved", "health-check"],
     });
-    expect(contract.toolsApprovals.policyDefaults).toEqual(["ask-before-shell", "deny-browser-by-default", "require-mcp-allowlist"]);
     expect(contract.verification).toEqual(["unsaved-changes", "validation-failures", "danger-confirmations", "runtime-modes", "channel-controls"]);
   });
 

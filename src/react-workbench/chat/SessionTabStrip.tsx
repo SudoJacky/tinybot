@@ -167,9 +167,6 @@ function SessionTabStatus({ tab }: { tab: SessionTabItem }) {
   if (tab.status === "running") {
     return <Loader2 aria-hidden="true" className="react-session-tab__status" data-kind="running" size={11} />;
   }
-  if (tab.status === "waiting_approval") {
-    return <AlertTriangle aria-hidden="true" className="react-session-tab__status" data-kind="waiting" size={11} />;
-  }
   if (tab.status === "failed") {
     return <AlertTriangle aria-hidden="true" className="react-session-tab__status" data-kind="failed" size={11} />;
   }
@@ -181,7 +178,6 @@ function SessionTabStatus({ tab }: { tab: SessionTabItem }) {
 
 function sessionTabStatusLabel(tab: SessionTabItem): string {
   if (tab.status === "running") return "running";
-  if (tab.status === "waiting_approval") return "waiting for approval";
   if (tab.status === "failed") return "failed";
   if (tab.unread) return "unread activity";
   return "";

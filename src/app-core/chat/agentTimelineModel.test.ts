@@ -471,20 +471,6 @@ describe("canonical agent timeline model", () => {
         result: { summary: "README loaded" },
         timing: {},
       }),
-      canonicalItem("approval-1", 6, 1, "approval", "waiting", {
-        type: "approval",
-        approvalId: "approval-1",
-        toolCallId: "tool-1",
-        status: "waiting",
-        reason: "Confirm read",
-      }),
-      canonicalItem("approval-1", 6, 2, "approval", "completed", {
-        type: "approval",
-        approvalId: "approval-1",
-        toolCallId: "tool-1",
-        status: "completed",
-        decision: "approved",
-      }),
       canonicalItem("plan-1", 8, 1, "plan_progress", "running", {
         type: "plan_progress",
         id: "plan-1",
@@ -560,7 +546,7 @@ describe("canonical agent timeline model", () => {
     )]);
 
     expect(live).toEqual(reloaded);
-    expect(live.turnRevisions).toEqual({ [turnId]: 12 });
+    expect(live.turnRevisions).toEqual({ [turnId]: 10 });
     expect(live.turns[0]).toMatchObject({
       id: turnId,
       status: "completed",
@@ -579,7 +565,6 @@ describe("canonical agent timeline model", () => {
     expect(live.turns[0].steps.map((step) => [step.id, step.status])).toEqual([
       ["reasoning-1", "completed"],
       ["tool-1", "completed"],
-      ["approval-1", "completed"],
       ["plan-1", "completed"],
     ]);
   });

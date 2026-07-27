@@ -150,7 +150,6 @@ pub(super) fn subagent_child_status_item(
             ThreadItemKind::Error(payload)
         }
         SubagentThreadStatus::Cancelled => ThreadItemKind::Cancelled(payload),
-        SubagentThreadStatus::AwaitingApproval => ThreadItemKind::ApprovalRequested(payload),
         SubagentThreadStatus::Running
         | SubagentThreadStatus::WaitingMainAgent
         | SubagentThreadStatus::WaitingUser => ThreadItemKind::SubagentMessage(payload),
@@ -208,8 +207,7 @@ pub(super) fn active_child_turn_id_for_status(summary: &SubagentThreadSummary) -
     match summary.status {
         SubagentThreadStatus::Running
         | SubagentThreadStatus::WaitingMainAgent
-        | SubagentThreadStatus::WaitingUser
-        | SubagentThreadStatus::AwaitingApproval => Some(summary.child_turn_id.clone()),
+        | SubagentThreadStatus::WaitingUser => Some(summary.child_turn_id.clone()),
         SubagentThreadStatus::Completed
         | SubagentThreadStatus::Failed
         | SubagentThreadStatus::Cancelled
@@ -224,7 +222,6 @@ pub(super) fn thread_status_for_subagent(status: &SubagentThreadStatus) -> Threa
         SubagentThreadStatus::WaitingMainAgent | SubagentThreadStatus::WaitingUser => {
             ThreadStatus::WaitingForInput
         }
-        SubagentThreadStatus::AwaitingApproval => ThreadStatus::WaitingForApproval,
         SubagentThreadStatus::Failed | SubagentThreadStatus::Interrupted => ThreadStatus::Failed,
         SubagentThreadStatus::Cancelled
         | SubagentThreadStatus::Completed
@@ -278,7 +275,6 @@ pub(super) fn subagent_agent_control_payload(
             "closedAt": summary.closed_at,
             "terminalResult": summary.terminal_result,
             "blockerSummary": summary.blocker_summary,
-            "pendingApproval": summary.pending_approval,
         }
     })
 }
@@ -299,7 +295,6 @@ fn subagent_summary_payload(summary: &SubagentThreadSummary, event: Option<Value
         "mailboxDepth": summary.mailbox_depth,
         "terminalResult": summary.terminal_result,
         "blockerSummary": summary.blocker_summary,
-        "pendingApproval": summary.pending_approval,
         "metadata": summary.metadata,
         "event": event,
     })
@@ -326,7 +321,6 @@ fn status_string(status: &SubagentThreadStatus) -> &'static str {
         SubagentThreadStatus::Running => "running",
         SubagentThreadStatus::WaitingMainAgent => "waiting_main_agent",
         SubagentThreadStatus::WaitingUser => "waiting_user",
-        SubagentThreadStatus::AwaitingApproval => "awaiting_approval",
         SubagentThreadStatus::Completed => "completed",
         SubagentThreadStatus::Failed => "failed",
         SubagentThreadStatus::Cancelled => "cancelled",

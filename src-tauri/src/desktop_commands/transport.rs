@@ -152,7 +152,7 @@ pub(crate) fn validate_tinyos_host_command_frame(frame: &serde_json::Value) -> R
             .get("command_kind")
             .or_else(|| frame.get("commandKind"))
             .and_then(serde_json::Value::as_str),
-        Some("agent.cancel" | "approval.resolve" | "form.submit" | "form.cancel")
+        Some("agent.cancel" | "form.submit" | "form.cancel")
     ) {
         return Err(
             "chat control commands must use the typed Thread API instead of the TinyOS host command dispatcher"

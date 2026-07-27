@@ -34,7 +34,7 @@ function canonicalRuntimeState(
 }
 
 describe("chat turn model", () => {
-  test("projects canonical messages, tools, approvals, and references into a chat turn", () => {
+  test("projects canonical messages, tools, and references into a chat turn", () => {
     const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("turn-1", [
       {
         itemId: "user-1",
@@ -80,26 +80,13 @@ describe("chat turn model", () => {
           timing: {},
         },
       },
-      {
-        itemId: "approval-1",
-        kind: "approval",
-        status: "waiting",
-        title: "Run command?",
-        data: {
-          type: "approval",
-          approvalId: "approval-1",
-          toolCallId: "call-shell",
-          status: "waiting",
-          reason: "Needs command approval",
-        },
-      },
     ]));
 
     const [turn] = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
 
     expect(turn).toMatchObject({
       id: "turn-1",
-      status: "awaiting_approval",
+      status: "running",
       userMessage: {
         references: [expect.objectContaining({ evidenceId: "item-file-1", sourcePath: "README.md" })],
         text: "Check the README",
@@ -108,7 +95,6 @@ describe("chat turn model", () => {
     expect(turn.steps.map((step) => [step.kind, step.title, step.status])).toEqual([
       ["reasoning", "Thinking complete", "completed"],
       ["tool_call", "read_file", "completed"],
-      ["approval", "Run command?", "awaiting_approval"],
     ]);
     expect(turn.steps[1].toolCall).toMatchObject({
       id: "call-read",

@@ -4,7 +4,6 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { createDesktopAppServices } from "./defaultServices";
 import type { ChatEvent } from "./services";
 import { createDesktopStopCommand, createDesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
-import { createTinyOsApprovalResolveCommand } from "../app-core/chat/tinyOsCommand";
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -457,27 +456,6 @@ describe("desktop native app services", () => {
         clientEventId: "command-stop-1",
       }) },
     });
-  });
-
-  test("rejects native approval continuation commands", async () => {
-    mocks.invoke.mockImplementation(async (command: string) => {
-      if (command === "worker_threads_list") return { threads: [thread], total: 1 };
-      if (command === "thread_list_turns") return { turns: [{ turnId: "turn-live" }] };
-      if (command === "thread_get_turn_runtime_state") return canonicalRuntimeState("turn-live");
-      return {};
-    });
-    const services = createDesktopAppServices();
-    await services.sessionStore.list();
-
-    await expect(services.chatStore.dispatch(createTinyOsApprovalResolveCommand({
-      action: "approveOnce",
-      approvalId: "approval-1",
-      commandId: "command-approval-1",
-      sessionId: "thread-1",
-      source: { control: "test", surface: "chat" },
-      threadId: "thread-1",
-      turnId: "turn-live",
-    }))).rejects.toThrow("Native agent approval continuation is not supported");
   });
 
   test("forks a completed canonical turn into a registered Thread at the selected message boundary", async () => {

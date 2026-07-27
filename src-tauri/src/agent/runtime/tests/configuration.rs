@@ -715,11 +715,6 @@ fn tool_search_activates_dispatches_and_expires_a_deferred_tool() {
         },
         required_capabilities: Vec::new(),
         available: true,
-        approval: ToolApprovalMetadata {
-            required: false,
-            scope: None,
-            lifetime: None,
-        },
         input_schema: json!({
             "type": "object",
             "required": ["text"],

@@ -3,8 +3,6 @@ use crate::protocol::WorkerProtocolError;
 use crate::tools::registry::{ToolExecutionTarget, ToolRegistryEntry};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
-use std::fmt::Write as _;
 
 const CURRENT_WORKSPACE: &str = "workspace://current";
 
@@ -163,21 +161,6 @@ pub fn mcp_permission_effects(server: &str, tool: &str) -> PermissionEffects {
     effects
 }
 
-pub fn permission_fingerprint(
-    prefix: &str,
-    operation: &str,
-    effects: &PermissionEffects,
-) -> String {
-    let normalized_operation = operation.replace("\r\n", "\n");
-    let normalized_operation = normalized_operation.trim();
-    let canonical_effects = canonical_effects(effects);
-    let fingerprint_input = format!("{prefix}\0{normalized_operation}\0{canonical_effects}");
-    format!(
-        "{prefix}:sha256:{}",
-        sha256_hex(fingerprint_input.as_bytes())
-    )
-}
-
 pub fn normalize_permission_path(path: &str) -> String {
     let normalized = path.trim().replace('\\', "/");
     #[cfg(target_os = "windows")]
@@ -188,11 +171,6 @@ pub fn normalize_permission_path(path: &str) -> String {
     {
         normalized
     }
-}
-
-pub fn normalize_permission_effects(mut effects: PermissionEffects) -> PermissionEffects {
-    normalize_effect_lists(&mut effects);
-    effects
 }
 
 fn effects_from_capabilities(tool: &ToolRegistryEntry) -> PermissionEffects {
@@ -282,18 +260,4 @@ fn normalize_effect_lists(effects: &mut PermissionEffects) {
 fn sort_and_deduplicate(values: &mut Vec<String>) {
     values.sort();
     values.dedup();
-}
-
-fn canonical_effects(effects: &PermissionEffects) -> String {
-    let normalized = normalize_permission_effects(effects.clone());
-    serde_json::to_string(&normalized).expect("permission effects should serialize")
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    let mut encoded = String::with_capacity(digest.len() * 2);
-    for byte in digest {
-        write!(&mut encoded, "{byte:02x}").expect("writing to a String should not fail");
-    }
-    encoded
 }

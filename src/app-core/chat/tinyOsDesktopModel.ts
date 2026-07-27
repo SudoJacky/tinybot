@@ -51,7 +51,7 @@ export type TinyOsNotification = {
 export type TinyOsDialog = {
   entry: TinyOsTimelineEntry;
   id: string;
-  kind: "approval" | "form";
+  kind: "form";
 };
 
 export type TinyOsDesktopSnapshot = {
@@ -267,7 +267,7 @@ function replayEndIndex(entries: readonly TinyOsTimelineEntry[], cursor: TinyOsC
 function appForStep(step: ChatStep, appByStepId: ReadonlyMap<string, TinyOsAppId>): TinyOsAppId | undefined {
   if (step.kind === "reasoning" || step.kind === "message") return undefined;
   if (step.kind === "plan") return "plan";
-  if (step.kind === "approval" || step.kind === "form") return "inspector";
+  if (step.kind === "form") return "inspector";
   if (step.kind === "delegate") return "subagents";
   if (step.kind === "browser") return "browser";
   if (step.kind === "memory") return "memory";
@@ -305,9 +305,9 @@ function recentDistinctOperations(
 
 function dialogFromEntries(entries: readonly TinyOsTimelineEntry[]): Pick<TinyOsDesktopSnapshot, "dialog"> | object {
   const entry = [...entries].reverse().find(({ step }) => (
-    (step.kind === "approval" || step.kind === "form") && !isTerminalStatus(step.status)
+    step.kind === "form" && !isTerminalStatus(step.status)
   ));
-  if (!entry || (entry.step.kind !== "approval" && entry.step.kind !== "form")) return {};
+  if (!entry || entry.step.kind !== "form") return {};
   return {
     dialog: {
       entry,
@@ -352,7 +352,6 @@ function notificationsFromEntries(entries: readonly TinyOsTimelineEntry[]): Tiny
 }
 
 function operationTitle(step: ChatStep, appId: TinyOsAppId): string {
-  if (step.kind === "approval") return "Approval required";
   if (step.kind === "form") return "Input required";
   if (step.kind === "error") return step.title || "Operation failed";
   if (step.toolCall?.name) return step.toolCall.name;

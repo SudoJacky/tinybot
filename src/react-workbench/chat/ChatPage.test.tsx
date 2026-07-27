@@ -505,132 +505,6 @@ describe("ChatPage", () => {
     expect(within(canvas).getByRole("heading", { name: "TinyOS" })).toBeTruthy();
   });
 
-  it("keeps the current unresolved approval actionable when opened from Chat", async () => {
-    const user = userEvent.setup();
-    const stores = createStores({
-      sessions: [{
-        id: "s1",
-        chatId: "chat-1",
-        title: "Approval session",
-        updatedAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
-        status: "waiting_approval",
-      }],
-    });
-    const timeline = timelineFromReactMessages("s1", [{
-      id: "u-current-approval",
-      role: "user",
-      createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
-      text: "List the workspace files",
-      status: "complete",
-    }]);
-    const turn = timeline.turns[0];
-    const approvalStep = {
-      agentContext: { id: "main", title: "Tinybot", type: "main" } as const,
-      approval: { approvalId: "approval-current", riskLevel: "high" },
-      id: "approval-current",
-      kind: "approval" as const,
-      sequence: 1,
-      status: "awaiting_approval" as const,
-      summary: "Approval required: shell.execute",
-      title: "Approval required: shell.execute",
-    };
-    turn.status = "awaiting_approval";
-    turn.steps = [approvalStep];
-    turn.executionItems = turn.steps;
-    stores.chatStore.load = vi.fn(async () => timeline);
-
-    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
-
-    await user.click(await screen.findByRole("button", { name: "Open details for Approval required: shell.execute" }));
-
-    const canvas = screen.getByLabelText("TinyOS shared desktop");
-    expect(canvas.getAttribute("data-mode")).toBe("live_follow");
-    const dialog = within(canvas).getByRole("dialog", { name: "TinyOS approval request" });
-    expect(within(dialog).getByRole("button", { name: "Approve once" })).toBeTruthy();
-    expect(within(canvas).queryByLabelText("Historical TinyOS request")).toBeNull();
-  });
-
-  it("allows a second approval after the backend accepts the first decision", async () => {
-    const user = userEvent.setup();
-    const stores = createStores({
-      sessions: [{
-        id: "s1",
-        chatId: "chat-1",
-        title: "Approval session",
-        updatedAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
-        status: "waiting_approval",
-      }],
-    });
-    const timeline = timelineFromReactMessages("s1", [{
-      id: "u-consecutive-approvals",
-      role: "user",
-      createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
-      text: "Run two commands",
-      status: "complete",
-    }]);
-    const turn = timeline.turns[0];
-    const firstApproval = {
-      agentContext: { id: "main", title: "Tinybot", type: "main" } as const,
-      approval: { approvalId: "approval-1", riskLevel: "high" },
-      id: "approval-1",
-      kind: "approval" as const,
-      sequence: 1,
-      status: "awaiting_approval" as const,
-      summary: "Approval required: first command",
-      title: "Approval required: first command",
-    };
-    turn.status = "awaiting_approval";
-    turn.steps = [firstApproval];
-    turn.executionItems = turn.steps;
-    stores.chatStore.load = vi.fn(async () => timeline);
-    let listener: ((event: ChatEvent) => void) | undefined;
-    stores.chatStore.subscribe = vi.fn((_sessionId, nextListener) => {
-      listener = nextListener;
-      return () => undefined;
-    });
-    const dispatch = vi.fn(async (command) => {
-      listener?.({ commandId: command.commandId, type: "command.accepted" });
-    });
-    stores.chatStore.dispatch = dispatch;
-
-    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
-
-    await user.click(await screen.findByRole("button", { name: "Open details for Approval required: first command" }));
-    let dialog = within(screen.getByLabelText("TinyOS shared desktop")).getByRole("dialog", { name: "TinyOS approval request" });
-    await user.click(within(dialog).getByRole("button", { name: "Approve once" }));
-    expect(dispatch).toHaveBeenCalledTimes(1);
-
-    const secondApproval = {
-      ...firstApproval,
-      approval: { approvalId: "approval-2", riskLevel: "high" },
-      id: "approval-2",
-      sequence: 2,
-      summary: "Approval required: second command",
-      title: "Approval required: second command",
-    };
-    const nextTimeline = {
-      ...timeline,
-      turns: [{
-        ...turn,
-        executionItems: [firstApproval, secondApproval],
-        steps: [firstApproval, secondApproval],
-      }],
-    };
-    act(() => listener?.({ timeline: nextTimeline, type: "timeline.patch" }));
-
-    dialog = within(screen.getByLabelText("TinyOS shared desktop")).getByRole("dialog", { name: "TinyOS approval request" });
-    expect(within(dialog).getByText("Approval required: second command")).toBeTruthy();
-    const secondApprove = within(dialog).getByRole("button", { name: "Approve once" }) as HTMLButtonElement;
-    expect(secondApprove.disabled).toBe(false);
-    await user.click(secondApprove);
-
-    expect(dispatch).toHaveBeenCalledTimes(2);
-    expect(dispatch).toHaveBeenLastCalledWith(expect.objectContaining({
-      approval: expect.objectContaining({ approvalId: "approval-2" }),
-      kind: "approval.resolve",
-    }));
-  });
-
   it("collapses and expands the session sidebar without losing session access", async () => {
     const user = userEvent.setup();
     const stores = createStores();
@@ -1537,7 +1411,7 @@ describe("ChatPage", () => {
     expect(drawer.textContent).toContain("Done");
   });
 
-  it("shows canonical tool arguments, result, and approval fields in the details drawer", async () => {
+  it("shows canonical tool arguments and result in the details drawer", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     const detailedMessages: ReactChatMessage[] = [{
@@ -1547,8 +1421,6 @@ describe("ChatPage", () => {
       text: "I checked the workspace.",
       status: "complete",
       toolCalls: [{
-        approvalId: "approval-1",
-        approvalStatus: "approval_required",
         argsText: "{\"path\":\"src/main.ts\"}",
         childTurnId: "child-turn-1",
         delegateId: "delegate-1",
@@ -1577,52 +1449,6 @@ describe("ChatPage", () => {
     expect(drawer.textContent).toContain("{\"path\":\"src/main.ts\"}");
     expect(within(drawer).getByText("Response")).toBeTruthy();
     expect(drawer.textContent).toContain("file contents");
-    expect(within(drawer).getByText("Approval")).toBeTruthy();
-    expect(drawer.textContent).toContain("approval-1");
-  });
-
-  it("resolves pending approval steps from the details drawer", async () => {
-    const user = userEvent.setup();
-    const stores = createStores();
-    const dispatch = vi.fn(async () => undefined);
-    const approvalMessages: ReactChatMessage[] = [{
-      id: "a-approval",
-      role: "assistant",
-      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
-      text: "Waiting for approval.",
-      status: "complete",
-      turnStatus: "running",
-      toolCalls: [{
-        approvalId: "approval-1",
-        approvalStatus: "approval_required",
-        id: "tool-approval",
-        name: "shell",
-        sessionKey: "websocket:chat-1",
-        status: "approval_required",
-        summary: "Run npm test",
-      } as NonNullable<ReactChatMessage["toolCalls"]>[number]],
-    }];
-    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, approvalMessages));
-    stores.chatStore.dispatch = dispatch;
-
-    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
-
-    await user.click(await screen.findByRole("button", { name: /Agent steps, 1 step/i }));
-    await user.click(await screen.findByRole("button", { name: "Open details for shell" }));
-    const drawer = screen.getByLabelText("Details drawer");
-
-    expect(within(drawer).getByRole("button", { name: "Approve once" })).toBeTruthy();
-    expect(within(drawer).getByRole("button", { name: "Allow for session" })).toBeTruthy();
-    expect(within(drawer).getByRole("button", { name: "Deny" })).toBeTruthy();
-
-    await user.click(within(drawer).getByRole("button", { name: "Allow for session" }));
-
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({
-      approval: { approvalId: "approval-1", approved: true, scope: "session" },
-      kind: "approval.resolve",
-      source: { control: "tool-approval", surface: "chat" },
-      target: expect.objectContaining({ turnId: "turn:a-approval", sessionId: "s1" }),
-    }));
   });
 
   it("submits active agent-ui forms from the chat page", async () => {
@@ -2782,14 +2608,14 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const input = await screen.findByRole("textbox", { name: /message/i });
-    await user.type(input, "after approval{enter}");
+    await user.type(input, "after event{enter}");
 
     subscribed?.({ type: "message.completed" });
 
     expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
     expect(stores.sessionStore.list).toHaveBeenCalledTimes(1);
     const queuedInputs = screen.getByLabelText("Queued inputs");
-    expect(queuedInputs.textContent).toContain("after approval");
+    expect(queuedInputs.textContent).toContain("after event");
     expect(queuedInputs.textContent).toContain("Waiting");
   });
 

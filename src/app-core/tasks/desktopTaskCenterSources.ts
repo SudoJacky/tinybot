@@ -1,7 +1,4 @@
-import type { AgentUiState } from "../agent-ui/agentUiEvents";
 import type { DesktopTaskSourceOperation } from "./desktopTaskCenter";
-
-type UnknownRecord = Record<string, unknown>;
 
 export interface DesktopProviderModelTaskInput {
   provider: string;
@@ -57,44 +54,6 @@ export function buildDesktopFileTaskOperation(input: DesktopFileTaskInput): Desk
   };
 }
 
-export function buildDesktopApprovalTaskOperations(payload: unknown): DesktopTaskSourceOperation[] {
-  return arrayFromPayload(payload, "approvals", "items").map((approval, index) => {
-    const id = firstNonEmpty(approval.id, approval.approval_id, `approval-${index}`);
-    const toolName = firstNonEmpty(approval.tool_name, approval.tool, approval.category, id);
-    const sessionKey = firstNonEmpty(approval.session_key, approval.sessionKey, approval.chat_id);
-    return {
-      id: `approval:${id}`,
-      title: `Approve ${toolName}`,
-      status: firstNonEmpty(approval.status, "waiting"),
-      detail: firstNonEmpty(approval.summary, approval.reason, "Approval required"),
-      canonical: { module: "approvals", entityId: id, href: sessionKey ? `/chat/${encodeURIComponent(sessionKey)}` : "/chat" },
-      diagnostics: firstNonEmpty(approval.diagnostics),
-      retryable: false,
-      updatedAt: firstNonEmpty(approval.updated_at, approval.updatedAt, approval.created_at),
-      approval: { approvalId: id, sessionKey },
-    };
-  });
-}
-
-export function buildDesktopAgentUiApprovalTaskOperations(state: AgentUiState): DesktopTaskSourceOperation[] {
-  return [...state.forms.values()]
-    .filter((form) => !["submitted", "cancelled", "expired"].includes(stringValue(form.status)))
-    .map((form) => ({
-      id: `approval:form:${form.form_id}`,
-      title: form.title || "Approval required",
-      status: form.status === "pending" || !form.status ? "waiting" : form.status,
-      detail: form.description || "Agent UI form approval required",
-      canonical: {
-        module: "approvals" as const,
-        entityId: form.form_id,
-        href: form.chat_id ? `/chat/${encodeURIComponent(form.chat_id)}` : "/chat",
-      },
-      diagnostics: "",
-      retryable: false,
-      updatedAt: form.updated_at || "",
-    }));
-}
-
 function providerDisplayName(provider: string): string {
   const known: Record<string, string> = {
     openai: "OpenAI",
@@ -110,38 +69,6 @@ function normalizeStatus(value: unknown): string {
     return "failed";
   }
   return raw;
-}
-
-function arrayFromPayload(payload: unknown, ...keys: string[]): UnknownRecord[] {
-  if (Array.isArray(payload)) {
-    return payload.filter(isRecord);
-  }
-  const record = asRecord(payload);
-  for (const key of keys) {
-    const value = record[key];
-    if (Array.isArray(value)) {
-      return value.filter(isRecord);
-    }
-  }
-  return Object.keys(record).length ? [record] : [];
-}
-
-function firstNonEmpty(...values: unknown[]): string {
-  for (const value of values) {
-    const text = stringValue(value);
-    if (text) {
-      return text;
-    }
-  }
-  return "";
-}
-
-function asRecord(value: unknown): UnknownRecord {
-  return isRecord(value) ? value : {};
-}
-
-function isRecord(value: unknown): value is UnknownRecord {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 function stringValue(value: unknown): string {

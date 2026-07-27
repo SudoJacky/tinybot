@@ -4,18 +4,16 @@ export type DesktopTaskSource =
   | "chat"
   | "provider"
   | "file"
-  | "approval"
   | "failure";
 
 export type DesktopTaskState = "active" | "completed" | "failed" | "canceled" | "blocked";
 export type DesktopTaskTone = "normal" | "attention" | "danger" | "complete" | "muted";
-export type DesktopTaskActionId = "retry" | "cancel" | "open" | "inspect" | "dismiss" | "copyDiagnostics" | "approveOnce" | "approveSession" | "deny";
+export type DesktopTaskActionId = "retry" | "cancel" | "open" | "inspect" | "dismiss" | "copyDiagnostics";
 export type DesktopTaskDestinationModule =
   | "chat"
   | "settings"
   | "files"
-  | "workspace"
-  | "approvals";
+  | "workspace";
 
 export interface DesktopTaskDestination {
   module: DesktopTaskDestinationModule;
@@ -59,19 +57,12 @@ export interface DesktopTaskSourceOperation {
   relatedResources?: DesktopTaskRelatedResourceInput[];
   outputs?: DesktopTaskRelatedResourceInput[];
   updatedAt?: string;
-  approval?: DesktopTaskApprovalAction;
-}
-
-export interface DesktopTaskApprovalAction {
-  approvalId: string;
-  sessionKey: string;
 }
 
 export interface DesktopTaskProjectionInput {
   chatStreams?: DesktopTaskSourceOperation[];
   providerRefreshes?: DesktopTaskSourceOperation[];
   fileOperations?: DesktopTaskSourceOperation[];
-  approvals?: DesktopTaskSourceOperation[];
   failures?: DesktopTaskSourceOperation[];
 }
 
@@ -96,13 +87,12 @@ export interface DesktopTaskCenterItem {
   outputs: DesktopTaskRelatedResourceInput[];
   actions: DesktopTaskCenterAction[];
   updatedAt: string;
-  approval?: DesktopTaskApprovalAction;
 }
 
 export type DesktopTaskCenterAttention = ReturnType<typeof buildDesktopTaskCenterAttentionUx>;
 
 const ACTIVE_STATUSES = new Set(["active", "running", "streaming", "indexing", "starting", "refreshing", "saving", "uploading", "exporting", "pending"]);
-const BLOCKED_STATUSES = new Set(["blocked", "waiting", "requires_approval", "approval_required", "requires-approval", "approval-needed", "paused", "intervention-needed", "intervention_needed", "needs_intervention", "needs-intervention"]);
+const BLOCKED_STATUSES = new Set(["blocked", "waiting", "paused", "intervention-needed", "intervention_needed", "needs_intervention", "needs-intervention"]);
 const FAILED_STATUSES = new Set(["failed", "error", "conflict", "rejected", "timeout"]);
 const COMPLETED_STATUSES = new Set(["completed", "complete", "done", "success", "succeeded", "saved", "indexed"]);
 const CANCELED_STATUSES = new Set(["canceled", "cancelled", "aborted", "stopped"]);
@@ -113,11 +103,8 @@ const ACTION_LABELS: Record<DesktopTaskActionId, string> = {
   inspect: "Inspect",
   dismiss: "Dismiss",
   copyDiagnostics: "Copy diagnostics",
-  approveOnce: "Approve once",
-  approveSession: "Allow session",
-  deny: "Deny",
 };
-const SOURCE_ORDER: DesktopTaskSource[] = ["approval", "file", "chat", "provider", "failure"];
+const SOURCE_ORDER: DesktopTaskSource[] = ["file", "chat", "provider", "failure"];
 const STATE_ORDER: DesktopTaskState[] = ["blocked", "failed", "active", "canceled", "completed"];
 
 export function buildDesktopTaskCenterItems(input: DesktopTaskProjectionInput): DesktopTaskCenterItem[] {
@@ -125,7 +112,6 @@ export function buildDesktopTaskCenterItems(input: DesktopTaskProjectionInput): 
     ...projectOperations("chat", input.chatStreams),
     ...projectOperations("provider", input.providerRefreshes),
     ...projectOperations("file", input.fileOperations),
-    ...projectOperations("approval", input.approvals),
     ...projectOperations("failure", input.failures),
   ].sort(compareTaskItems);
 }
@@ -153,7 +139,6 @@ function projectOperations(source: DesktopTaskSource, operations: DesktopTaskSou
       outputs: operation.outputs ?? [],
       actions: taskActions(state, operation),
       updatedAt: operation.updatedAt ?? "",
-      ...(operation.approval ? { approval: operation.approval } : {}),
     };
   });
 }
@@ -196,9 +181,6 @@ function taskTone(state: DesktopTaskState): DesktopTaskTone {
 
 function taskActions(state: DesktopTaskState, operation: DesktopTaskSourceOperation): DesktopTaskCenterAction[] {
   const actions: DesktopTaskActionId[] = [];
-  if (state === "blocked" && operation.approval?.approvalId) {
-    actions.push("approveOnce", "approveSession", "deny");
-  }
   if ((state === "failed" || state === "canceled") && operation.retryable) {
     actions.push("retry");
   }

@@ -210,11 +210,6 @@ fn native_agent_turn_context(
         },
         "current_date": spec.get("currentDate").cloned().unwrap_or(serde_json::Value::Null),
         "timezone": spec.get("timezone").cloned().unwrap_or(serde_json::Value::Null),
-        "approval_policy": spec
-            .get("approvalPolicy")
-            .or_else(|| defaults.get("approvalPolicy"))
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!("on_request")),
         "sandbox_policy": spec
             .get("sandboxPolicy")
             .or_else(|| defaults.get("sandboxPolicy"))

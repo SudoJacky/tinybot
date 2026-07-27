@@ -38,7 +38,7 @@ const DESKTOP_SETTINGS_CONCEPT_OWNERS: DesktopSettingsConceptOwner[] = [
     ownerGroupId: "provider-models",
     ownerFieldId: "apiKey",
   },
-  { concept: "mcp-servers", groupId: "tools-approvals", fieldId: "mcpServers", role: "editable-owner" },
+  { concept: "mcp-servers", groupId: "tools-mcp", fieldId: "mcpServers", role: "editable-owner" },
   { concept: "workspace", groupId: "files-workspace", fieldId: "workspace", role: "editable-owner" },
   { concept: "session-files", groupId: "files-workspace", fieldId: "sessionFiles", role: "read-only-summary" },
   { concept: "channels", groupId: "channels", fieldId: "sendProgress", role: "editable-owner" },

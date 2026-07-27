@@ -42,7 +42,6 @@ describe("TinyOS pre-kernel contract parity", () => {
       "agent.cancel",
       "agent.pause",
       "agent.resume",
-      "approval.resolve",
       "form.submit",
       "form.cancel",
       "operation.retry",

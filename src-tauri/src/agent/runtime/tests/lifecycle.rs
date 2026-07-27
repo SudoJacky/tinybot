@@ -1468,11 +1468,6 @@ fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_turn() {
             },
             required_capabilities: Vec::new(),
             available: true,
-            approval: ToolApprovalMetadata {
-                required: false,
-                scope: None,
-                lifetime: None,
-            },
             input_schema: json!({ "type": "object" }),
             output_schema: json!({ "type": "object" }),
             execution_target: ToolExecutionTarget::WorkerRpc {

@@ -1048,7 +1048,7 @@ fn register_turn_execution(
     let prior_waiting_phase = state.statuses.get(&request.turn_id).and_then(|status| {
         matches!(
             status.phase.as_str(),
-            "awaiting_approval" | "awaiting_form" | "awaiting_tool" | "awaiting_subagent"
+            "awaiting_form" | "awaiting_tool" | "awaiting_subagent"
         )
         .then(|| status.phase.clone())
     });
@@ -1268,10 +1268,7 @@ fn apply_completion_status(
                     status.cancellation_requested = true;
                     status.terminal_outcome = Some("cancelled".to_string());
                 }
-                Some(
-                    phase @ ("awaiting_approval" | "awaiting_form" | "awaiting_tool"
-                    | "awaiting_subagent"),
-                ) => {
+                Some(phase @ ("awaiting_form" | "awaiting_tool" | "awaiting_subagent")) => {
                     status.phase = phase.to_string();
                     status.checkpoint_ref = result
                         .pointer("/checkpoint/resumeToken")

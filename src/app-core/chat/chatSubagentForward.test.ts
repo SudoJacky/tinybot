@@ -4,7 +4,6 @@ import type { LiveSubagent } from "./chatUiProjection";
 import {
   createSubagentForwardBlock,
   reconcileSubagentSyncState,
-  requiresForwardApprovalGuidanceConfirmation,
 } from "./chatSubagentForward";
 
 describe("chatSubagentForward", () => {
@@ -22,11 +21,6 @@ describe("chatSubagentForward", () => {
     expect(block.fallbackText).toContain("Researcher");
     expect(block.fallbackText).toContain("assistant: Found option A.");
     expect(block.fallbackText).toContain("user: Prefer lower risk.");
-  });
-
-  test("requires explicit confirmation when forwarding while approval guidance is active", () => {
-    expect(requiresForwardApprovalGuidanceConfirmation("approval_guidance")).toBe(true);
-    expect(requiresForwardApprovalGuidanceConfirmation("normal")).toBe(false);
   });
 
   test("clears unsynced intervention only after backend synchronization observes the revision", () => {

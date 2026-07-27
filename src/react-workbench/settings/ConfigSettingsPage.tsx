@@ -13,7 +13,7 @@ import type {
   SettingsStore,
 } from "../services";
 
-export type ConfigSettingsGroupId = "tools-approvals" | "channels";
+export type ConfigSettingsGroupId = "tools-mcp" | "channels";
 
 type ConfigSettingsPageProps = {
   groupId: ConfigSettingsGroupId;
@@ -21,7 +21,7 @@ type ConfigSettingsPageProps = {
 };
 
 const GROUP_COPY: Record<ConfigSettingsGroupId, { title: string; description: string }> = {
-  "tools-approvals": {
+  "tools-mcp": {
     title: "Tools & MCP",
     description: "Configure built-in tools, workspace boundaries, and raw MCP server definitions.",
   },
@@ -45,7 +45,7 @@ const FIELD_COPY: Record<string, string> = {
 };
 
 const EXPOSED_FIELDS: Record<ConfigSettingsGroupId, readonly string[]> = {
-  "tools-approvals": [
+  "tools-mcp": [
     "webEnable",
     "execEnable",
     "webProxy",

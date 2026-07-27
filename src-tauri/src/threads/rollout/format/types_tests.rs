@@ -62,7 +62,6 @@ fn turn_context_serializes_with_codex_snake_case_keys() {
         workspace_roots: Some(vec!["D:/workspace".to_string()]),
         current_date: Some("2026-07-20".to_string()),
         timezone: Some("Asia/Singapore".to_string()),
-        approval_policy: json!("on_request"),
         sandbox_policy: json!("workspace_write"),
         permission_profile: Some(json!({"name": "default"})),
         network: Some(json!({"enabled": true})),
@@ -78,12 +77,10 @@ fn turn_context_serializes_with_codex_snake_case_keys() {
     let value = serde_json::to_value(context).unwrap();
     assert_eq!(value["turn_id"], "turn-1");
     assert_eq!(value["workspace_roots"][0], "D:/workspace");
-    assert_eq!(value["approval_policy"], "on_request");
     assert_eq!(value["sandbox_policy"], "workspace_write");
     assert_eq!(value["comp_hash"], "hash");
     assert!(value.get("turnId").is_none());
     assert!(value.get("workspaceRoots").is_none());
-    assert!(value.get("approvalPolicy").is_none());
 }
 
 #[test]

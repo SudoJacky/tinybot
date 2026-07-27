@@ -38,32 +38,6 @@ fn shell_effects_are_current_user_and_ignore_removed_sandbox_fields() {
 }
 
 #[test]
-fn approval_fingerprint_preserves_semantic_internal_whitespace() {
-    let registry =
-        WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::ShellExecute]));
-    let tool = registry.get_tool("exec_command").unwrap();
-    let effects = normalize_tool_effects(&tool, &json!({ "command": "echo hi" })).unwrap();
-
-    assert_ne!(
-        permission_fingerprint("exec", "printf \"a  b\"", &effects),
-        permission_fingerprint("exec", "printf \"a b\"", &effects)
-    );
-    assert_eq!(
-        permission_fingerprint("apply_patch", "line one\r\nline two\r\n", &effects),
-        permission_fingerprint("apply_patch", "line one\nline two\n", &effects)
-    );
-
-    let mut one_value = effects.clone();
-    one_value.mcp = vec!["server.tool,other.value".to_string()];
-    let mut two_values = effects;
-    two_values.mcp = vec!["server.tool".to_string(), "other.value".to_string()];
-    assert_ne!(
-        permission_fingerprint("mcp", "server.tool", &one_value),
-        permission_fingerprint("mcp", "server.tool", &two_values)
-    );
-}
-
-#[test]
 fn mcp_and_subagent_effects_are_explicit() {
     let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
         WorkerCapability::McpCall,
@@ -89,7 +63,7 @@ fn mcp_and_subagent_effects_are_explicit() {
 }
 
 #[test]
-fn registered_shell_tool_is_allowed_without_approval_request() {
+fn registered_shell_tool_is_allowed_when_capability_is_granted() {
     let policy = CapabilityPolicy::new([WorkerCapability::ShellExecute]);
     let registry = WorkerToolRegistryRpc::new(policy.clone());
     let profile = WorkerPermissionProfileRpc::new(policy);
@@ -101,13 +75,9 @@ fn registered_shell_tool_is_allowed_without_approval_request() {
             PermissionEvaluateToolRequest {
                 tool_id: "exec_command".to_string(),
                 arguments: json!({ "command": "echo Hi" }),
-                session_id: Some("session-1".to_string()),
-                turn_id: Some("turn-1".to_string()),
             },
         )
         .expect("shell request should normalize");
 
     assert_eq!(evaluation.decision, PermissionDecision::Allow);
-    assert!(!evaluation.requires_approval);
-    assert!(evaluation.approval_request.is_none());
 }

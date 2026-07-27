@@ -34,7 +34,7 @@ describe("desktop native UX projections", () => {
       sessions: [
         { key: "s1", title: "Pinned", pinned: true, status: "idle" },
         { key: "s2", title: "Running", status: "running" },
-        { key: "s3", title: "Approval", status: "approval_required" },
+        { key: "s3", title: "Blocked", status: "blocked" },
       ],
       attachments: [
         { id: "tmp-1", source: "session", title: "notes.txt" },
@@ -59,16 +59,16 @@ describe("desktop native UX projections", () => {
     expect(chat.activityChips[0]).toMatchObject({ opensInspector: true });
   });
 
-  test("summarizes task-center attention and approval actions", () => {
+  test("summarizes task-center attention and primary actions", () => {
     const attention = buildDesktopTaskCenterAttentionUx([
       { id: "a", state: "active", source: "chat", title: "Streaming", actions: [{ id: "cancel", label: "Cancel" }] },
-      { id: "b", state: "blocked", source: "approval", title: "Approve", actions: [{ id: "approveOnce", label: "Approve once" }] },
+      { id: "b", state: "blocked", source: "chat", title: "Waiting", actions: [{ id: "inspect", label: "Inspect" }] },
       { id: "c", state: "failed", source: "file", title: "Save failed", actions: [{ id: "retry", label: "Retry" }] },
       { id: "d", state: "completed", source: "provider", title: "Refreshed", actions: [{ id: "open", label: "Open" }] },
     ]);
     expect(attention.compactLabel).toBe("1 running · 1 blocked · 1 failed");
     expect(attention.autoOpenReason).toBe("blocked");
-    expect(attention.rows.map((row) => `${row.id}:${row.primaryAction?.id}`)).toEqual(["b:approveOnce", "c:retry", "a:cancel", "d:open"]);
+    expect(attention.rows.map((row) => `${row.id}:${row.primaryAction?.id}`)).toEqual(["b:inspect", "c:retry", "a:cancel", "d:open"]);
     expect(attention.notificationPolicy({ appFocused: true }).shouldNotify).toBe(false);
     expect(attention.notificationPolicy({ appFocused: false }).deepLink?.entityId).toBe("b");
   });
@@ -123,7 +123,7 @@ describe("desktop native UX projections", () => {
   test("groups tools and skills with risk, validation, and delete safeguards", () => {
     const toolsSkills = buildDesktopToolsSkillsManagementUx({
       tools: [
-        { name: "exec_shell", description: "Run command", riskHint: "Requires approval", enabled: true },
+        { name: "exec_shell", description: "Run command", riskHint: "Runs in the current user context", enabled: true },
         { name: "memory_search", description: "Search memory", riskHint: "", enabled: true },
       ],
       skills: [
@@ -131,7 +131,6 @@ describe("desktop native UX projections", () => {
       ],
     });
     expect(toolsSkills.conceptCopy.tools).toContain("assistant can call");
-    expect(toolsSkills.toolGroups.map((group) => group.id)).toContain("requires-approval");
     expect(toolsSkills.toolGroups.find((group) => group.id === "execution")?.tools[0].name).toBe("exec_shell");
     expect(toolsSkills.skillRows[0].badges).toEqual(["Enabled", "Needs validation"]);
     expect(toolsSkills.editorActions.map((action) => action.id)).toEqual(["validate", "previewDiff", "exampleInvocation", "dryRun"]);

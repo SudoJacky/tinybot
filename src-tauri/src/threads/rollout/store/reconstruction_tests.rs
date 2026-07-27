@@ -267,7 +267,6 @@ fn turn_context(turn_id: &str, model: &str) -> TurnContextItem {
         workspace_roots: Some(vec!["D:/workspace".to_string()]),
         current_date: Some("2026-07-17".to_string()),
         timezone: Some("Asia/Singapore".to_string()),
-        approval_policy: json!("on-request"),
         sandbox_policy: json!({"mode": "workspace-write"}),
         permission_profile: None,
         network: None,

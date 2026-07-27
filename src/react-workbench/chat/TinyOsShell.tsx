@@ -63,7 +63,6 @@ import {
   type TinyOsContextReference,
   type TinyOsWindowRect,
 } from "../../app-core/chat/tinyOsUiState";
-import type { ApprovalAction } from "../services";
 import { AgentUiFormCard } from "./AgentUiFormCard";
 import { TinyOsFilesExplorer } from "./TinyOsFilesExplorer";
 import { TinyOsSideRays } from "./TinyOsSideRays";
@@ -133,12 +132,10 @@ export function TinyOsShell({
   onDeleteFile = async () => undefined,
   onExecuteTerminal = async () => undefined,
   onMoveFile = async () => undefined,
-  onResolveApproval,
   onRetryOperation,
   onSelectEntry,
   onSubmitForm,
   onSaveFile = async () => undefined,
-  resolvingApprovalId,
   requestChangeUnavailableReason,
   directEditUnavailableReason,
   retryTurnId,
@@ -176,12 +173,10 @@ export function TinyOsShell({
   onDeleteFile?: (input: TinyOsFileDeleteInput) => Promise<void>;
   onExecuteTerminal?: (input: TinyOsTerminalExecuteInput) => Promise<void>;
   onMoveFile?: (input: TinyOsFileMoveInput) => Promise<void>;
-  onResolveApproval: (approvalId: string, action: ApprovalAction) => void;
   onRetryOperation: (entry: TinyOsTimelineEntry) => void;
   onSelectEntry: (entry: TinyOsTimelineEntry) => void;
   onSubmitForm: (form: AgentUiForm, values: Record<string, unknown>) => void;
   onSaveFile?: (input: TinyOsFileSaveInput) => Promise<void>;
-  resolvingApprovalId: string;
   requestChangeUnavailableReason?: string;
   directEditUnavailableReason?: string;
   retryTurnId?: string;
@@ -1130,10 +1125,8 @@ export function TinyOsShell({
           <TinyOsSystemDialog
             agentUiForms={agentUiForms}
             dialog={snapshot.dialog}
-            resolvingApprovalId={resolvingApprovalId}
             submittingFormId={submittingFormId}
             onCancelForm={onCancelForm}
-            onResolveApproval={onResolveApproval}
             onSubmitForm={onSubmitForm}
           />
         ) : null}
@@ -2245,43 +2238,21 @@ function TinyOsSystemDialog({
   agentUiForms,
   dialog,
   onCancelForm,
-  onResolveApproval,
   onSubmitForm,
-  resolvingApprovalId,
   submittingFormId,
 }: {
   agentUiForms: AgentUiForm[];
   dialog: NonNullable<TinyOsDesktopSnapshot["dialog"]>;
   onCancelForm: (form: AgentUiForm) => void;
-  onResolveApproval: (approvalId: string, action: ApprovalAction) => void;
   onSubmitForm: (form: AgentUiForm, values: Record<string, unknown>) => void;
-  resolvingApprovalId: string;
   submittingFormId?: string;
 }) {
   const { step } = dialog.entry;
-  if (dialog.kind === "form") {
-    const form = agentUiForms.find((candidate) => candidate.form_id === step.form?.formId);
-    return (
-      <div aria-label="TinyOS input request" aria-modal="true" className="tinyos-system-dialog" role="dialog">
-        <div className="tinyos-system-dialog__heading"><ShieldCheck aria-hidden="true" size={20} /><div><small>TinyOS input request</small><strong>{step.title}</strong></div></div>
-        {form ? <AgentUiFormCard form={form} submitting={submittingFormId === form.form_id} onCancel={() => onCancelForm(form)} onSubmit={(values) => onSubmitForm(form, values)} /> : <EmptyCopy text="The form schema is still loading. The canonical request remains pending." />}
-      </div>
-    );
-  }
-  const approval = step.approval;
-  const resolving = Boolean(approval?.approvalId && resolvingApprovalId === approval.approvalId);
-  const request = approvalRequest(step);
+  const form = agentUiForms.find((candidate) => candidate.form_id === step.form?.formId);
   return (
-    <div aria-label="TinyOS approval request" aria-modal="true" className="tinyos-system-dialog" role="dialog">
-      <div className="tinyos-system-dialog__heading"><ShieldCheck aria-hidden="true" size={20} /><div><small>System permission</small><strong>Approval required</strong></div></div>
-      <p>The Agent needs permission to continue with this operation.</p>
-      <code className="tinyos-system-dialog__request">{request}</code>
-      <dl><div><dt>Risk</dt><dd>{approval?.riskLevel || "Unspecified"}</dd></div><div><dt>Agent</dt><dd>{step.agentContext.title}</dd></div></dl>
-      <div className="tinyos-system-dialog__actions">
-        <button disabled={resolving || !approval} type="button" onClick={() => approval && onResolveApproval(approval.approvalId, "approveOnce")}>Approve once</button>
-        <button disabled={resolving || !approval} type="button" onClick={() => approval && onResolveApproval(approval.approvalId, "approveSession")}>Approve for session</button>
-        <button disabled={resolving || !approval} type="button" onClick={() => approval && onResolveApproval(approval.approvalId, "deny")}>Deny</button>
-      </div>
+    <div aria-label="TinyOS input request" aria-modal="true" className="tinyos-system-dialog" role="dialog">
+      <div className="tinyos-system-dialog__heading"><ShieldCheck aria-hidden="true" size={20} /><div><small>TinyOS input request</small><strong>{step.title}</strong></div></div>
+      {form ? <AgentUiFormCard form={form} submitting={submittingFormId === form.form_id} onCancel={() => onCancelForm(form)} onSubmit={(values) => onSubmitForm(form, values)} /> : <EmptyCopy text="The form schema is still loading. The canonical request remains pending." />}
     </div>
   );
 }
@@ -2412,7 +2383,6 @@ function TinyOsHistoricalDialog({ dialog }: { dialog: NonNullable<TinyOsDesktopS
     <aside aria-label="Historical TinyOS request" className="tinyos-system-dialog tinyos-system-dialog--history">
       <div className="tinyos-system-dialog__heading"><ShieldCheck aria-hidden="true" size={20} /><div><small>Historical evidence · read-only</small><strong>{step.title}</strong></div></div>
       <p>This request is part of canonical History. Return to Live to act on the current request.</p>
-      {dialog.kind === "approval" ? <code className="tinyos-system-dialog__request">{approvalRequest(step)}</code> : null}
       <dl>
         <div><dt>Type</dt><dd>{dialog.kind}</dd></div>
         <div><dt>Status</dt><dd>{statusLabel(step.status)}</dd></div>
@@ -2485,7 +2455,6 @@ function tinyOsAppForResourceKind(kind: TinyOsKernelSnapshot["resources"][number
     case "artifact": return "artifacts";
     case "memory_result": return "memory";
     case "plan": return "plan";
-    case "approval":
     case "form": return "inspector";
   }
 }
@@ -2494,12 +2463,6 @@ function fileLanguage(path: string): string {
   const parts = fileName(path).split(".");
   const extension = parts[parts.length - 1]?.toLowerCase();
   return ({ css: "CSS", js: "JavaScript", json: "JSON", md: "Markdown", py: "Python", rs: "Rust", ts: "TypeScript", tsx: "TypeScript React" } as Record<string, string>)[extension || ""] || "Text";
-}
-
-function approvalRequest(step: ChatStep): string {
-  const args = recordValue(step.toolCall?.argsJson);
-  return firstString(args.cmd, args.command, args.script, step.toolCall?.argsPreview, step.summary, step.approval?.title, step.title)
-    || "Permission request";
 }
 
 function terminalCommand(step: ChatStep): string {

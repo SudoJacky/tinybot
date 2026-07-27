@@ -1,7 +1,7 @@
 import type { AgentInputReference } from "./agentInputReference";
 
-export type ChatTurnStatus = "pending" | "running" | "awaiting_approval" | "awaiting_user" | "completed" | "failed" | "interrupted";
-export type ChatStepStatus = "pending" | "running" | "awaiting_approval" | "blocked" | "completed" | "failed" | "cancelled";
+export type ChatTurnStatus = "pending" | "running" | "awaiting_user" | "completed" | "failed" | "interrupted";
+export type ChatStepStatus = "pending" | "running" | "blocked" | "completed" | "failed" | "cancelled";
 export type AssistantMessagePhase = "unknown" | "commentary" | "final_answer";
 export type AgentContextType = "main" | "spawn" | "subagent" | "team";
 export type ArtifactKind =
@@ -45,8 +45,6 @@ export type TokenUsage = {
 };
 
 export type ToolCallState = {
-  approvalId?: string;
-  approvalStatus?: string;
   argsJson?: unknown;
   argsPreview?: string;
   durationMs?: number;
@@ -60,9 +58,6 @@ export type ToolCallState = {
 
 export type DelegatedAgentState = {
   agentCount?: number;
-  approvalId?: string;
-  approvalPolicy?: string;
-  approvalStatus?: string;
   artifacts?: ArtifactRef[];
   childTurnId?: string;
   childToolCallId?: string;
@@ -84,7 +79,6 @@ export type DelegatedAgentState = {
 };
 
 export type DelegatedAgentTraceStep = {
-  approvalId?: string;
   argsPreview?: string;
   createdAt?: string;
   error?: string;
@@ -100,7 +94,6 @@ export type DelegatedAgentTraceStep = {
 };
 
 export type DelegatedAgentTraceState = {
-  approvals?: unknown[];
   artifacts?: ArtifactRef[];
   childTurnId?: string;
   delegateId: string;
@@ -110,18 +103,6 @@ export type DelegatedAgentTraceState = {
   status: ChatStepStatus;
   steps: DelegatedAgentTraceStep[];
   updatedAt?: string;
-};
-
-export type ApprovalState = {
-  actions?: string[];
-  approvalId: string;
-  decision?: string;
-  riskLevel?: string;
-  scopeKey?: string;
-  scopeLabel?: string;
-  title?: string;
-  toolCallId?: string;
-  toolName?: string;
 };
 
 export type LoadedArtifactDetail = {
@@ -208,7 +189,6 @@ export type ChatStepKind =
   | "message"
   | "tool_call"
   | "tool_result"
-  | "approval"
   | "delegate"
   | "artifact"
   | "browser"
@@ -220,7 +200,6 @@ export type ChatStepKind =
 
 export type ChatStep = {
   agentContext: AgentContext;
-  approval?: ApprovalState;
   artifacts?: ArtifactRef[];
   compaction?: CompactionState;
   completedAt?: string;
@@ -266,7 +245,6 @@ export type CanonicalTurnItemKind =
   | "assistant_message"
   | "reasoning"
   | "tool_call"
-  | "approval"
   | "form"
   | "subagent_lifecycle"
   | "subagent_message"
@@ -282,7 +260,6 @@ export type CanonicalTurnItemData = Record<string, unknown> & (
   | { type: "assistant_message"; messageId?: string | null; modelCallId: string; phase: AssistantMessagePhase; content: string }
   | { type: "reasoning"; modelCallId: string; summary: string }
   | { type: "tool_call"; toolCallId: string; name: string; status: string; args: unknown; result: unknown; detailId?: string | null; timing: unknown }
-  | { type: "approval"; approvalId: string; toolCallId?: string | null; status: string; reason?: string | null; decision?: string | null; scope?: string | null; guidance?: string | null; detailId?: string | null }
   | { type: "form"; formId: string; status: string; title?: string | null; action?: string | null; fieldIds: string[]; values: unknown; errors?: Record<string, string> | null; detailId?: string | null }
   | { type: "subagent_lifecycle"; agentId: string; action: string; status: string; message?: string | null; childTurnId?: string | null; childThreadId?: string | null; parentAgentId?: string | null; parentTurnId?: string | null; name?: string | null; task?: string | null; traceRef?: string | null }
   | { type: "subagent_message"; agentId: string; messageId: string; content: string; visibility: string }
@@ -403,7 +380,7 @@ export function normalizeAgentTimelinePatchPayload(payload: unknown): BackendAge
 }
 
 const CANONICAL_ITEM_KINDS = new Set<CanonicalTurnItemKind>([
-  "user_message", "assistant_message", "reasoning", "tool_call", "approval", "form",
+  "user_message", "assistant_message", "reasoning", "tool_call", "form",
   "subagent_lifecycle", "subagent_message", "plan_progress", "context_compaction", "usage",
   "file_reference", "error", "system_notice",
 ]);
@@ -475,7 +452,6 @@ function validateCanonicalFinalAnswerBoundary(items: BackendAgentTurnItem[], tur
     item.kind === "assistant_message"
       || item.kind === "reasoning"
       || item.kind === "tool_call"
-      || item.kind === "approval"
       || item.kind === "form"
       || item.kind === "subagent_lifecycle"
       || item.kind === "subagent_message"
@@ -651,16 +627,6 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem): void {
       status,
       title: item.title || toolCall.name,
       toolCall,
-    }));
-    return;
-  }
-  if (item.kind === "approval") {
-    turn.steps.push(runtimeStep(item, sequence, {
-      approval: approvalFromRuntimeItem(item),
-      kind: "approval",
-      status: status === "completed" ? "completed" : "awaiting_approval",
-      summary: safeArtifactText(stringValue(payload.summary ?? payload.reason ?? item.summary)),
-      title: item.title || "Approval",
     }));
     return;
   }
@@ -871,7 +837,6 @@ function runtimeStep(
     ...(item.updatedAt && (patch.status === "completed" || patch.status === "failed" || patch.status === "cancelled") ? { completedAt: item.updatedAt } : {}),
     status: patch.status,
     title: patch.title,
-    ...(patch.approval ? { approval: patch.approval } : {}),
     ...(patch.artifacts ? { artifacts: patch.artifacts } : {}),
     ...(patch.compaction ? { compaction: patch.compaction } : {}),
     ...(patch.delegate ? { delegate: patch.delegate } : {}),
@@ -892,8 +857,6 @@ function toolCallFromRuntimeItem(item: BackendAgentTurnItem): ToolCallState {
   const envelope = recordValue(payload.result);
   const timing = recordValue(payload.timing);
   return {
-    approvalId: stringValue(payload.approvalId ?? payload.approval_id),
-    approvalStatus: stringValue(payload.approvalStatus ?? payload.approval_status),
     argsJson: payload.args,
     argsPreview: safeArtifactPreview(payload.args),
     durationMs: numberValue(timing.durationMs ?? timing.duration_ms),
@@ -902,21 +865,6 @@ function toolCallFromRuntimeItem(item: BackendAgentTurnItem): ToolCallState {
     resultJson: payload.result,
     resultPreview: safeArtifactText(stringValue(item.summary ?? envelope.summary)),
     resultRef: stringValue(payload.detailId),
-  };
-}
-
-function approvalFromRuntimeItem(item: BackendAgentTurnItem): ApprovalState {
-  const payload = item.data;
-  return {
-    actions: Array.isArray(payload.actions) ? payload.actions.map(String) : undefined,
-    approvalId: stringValue(payload.approvalId) || item.itemId,
-    decision: stringValue(payload.decision),
-    riskLevel: stringValue(payload.riskLevel ?? payload.risk_level),
-    scopeKey: stringValue(payload.scopeKey ?? payload.scope_key),
-    scopeLabel: stringValue(payload.scopeLabel ?? payload.scope_label),
-    title: item.title || stringValue(payload.title),
-    toolCallId: stringValue(payload.toolCallId),
-    toolName: stringValue(payload.toolName ?? payload.name),
   };
 }
 
@@ -942,7 +890,7 @@ function itemStatusToStepStatus(status: string): ChatStepStatus {
     case "queued":
       return "pending";
     case "waiting":
-      return "awaiting_approval";
+      return "blocked";
     case "completed":
       return "completed";
     case "failed":
@@ -962,9 +910,6 @@ function statusForTurnItems(items: BackendAgentTurnItem[], fallback: ChatTurnSta
   }
   if (items.some((item) => item.status === "cancelled")) {
     return "interrupted";
-  }
-  if (items.some((item) => item.kind === "approval" && item.status === "waiting")) {
-    return "awaiting_approval";
   }
   if (items.some((item) => item.status === "waiting")) {
     return "awaiting_user";
@@ -1000,7 +945,7 @@ function reconcileTerminalStepStatuses(turn: ChatTurn): void {
       });
       step.plan.currentStep = undefined;
     }
-    if (step.status === "pending" || step.status === "running" || step.status === "awaiting_approval" || step.status === "blocked") {
+    if (step.status === "pending" || step.status === "running" || step.status === "blocked") {
       step.status = turn.status === "completed"
         ? "completed"
         : turn.status === "failed"
@@ -1075,7 +1020,6 @@ function delegatedTraceFromPayload(value: unknown): DelegatedAgentTraceState | u
     return undefined;
   }
   return {
-    approvals: Array.isArray(payload.approvals) ? [...payload.approvals] : undefined,
     artifacts: artifactArray(payload.artifacts),
     childTurnId: stringValue(payload.child_turn_id ?? payload.childTurnId),
     delegateId,
@@ -1120,7 +1064,6 @@ function backgroundTraceStepArray(value: unknown): DelegatedAgentTraceStep[] {
     const payload = recordValue(event.payload);
     const eventType = stringValue(event.event_type ?? event.eventType) || "trace_event";
     return {
-      approvalId: stringValue(payload.approvalId ?? payload.approval_id),
       argsPreview: safeArtifactText(stringValue(payload.argsPreview ?? payload.args_preview)),
       createdAt: stringValue(event.created_at ?? event.createdAt),
       error: safeArtifactText(stringValue(payload.error)),
@@ -1144,7 +1087,6 @@ function traceStepArray(value: unknown): DelegatedAgentTraceStep[] {
   return value.map((item) => {
     const payload = recordValue(item);
     return {
-      approvalId: stringValue(payload.approval_id ?? payload.approvalId),
       argsPreview: safeArtifactText(stringValue(payload.args_preview ?? payload.argsPreview)),
       createdAt: stringValue(payload.created_at ?? payload.createdAt),
       error: safeArtifactText(stringValue(payload.error)),
@@ -1292,11 +1234,11 @@ function mainContext(): AgentContext {
 
 function statusValue(value: unknown): ChatStepStatus | "" {
   const normalized = stringValue(value).toLowerCase().replace(/[\s-]+/g, "_");
-  if (["pending", "running", "awaiting_approval", "blocked", "completed", "failed", "cancelled"].includes(normalized)) {
+  if (["pending", "running", "blocked", "completed", "failed", "cancelled"].includes(normalized)) {
     return normalized as ChatStepStatus;
   }
-  if (["awaiting_approval", "approval_required"].includes(normalized)) {
-    return "awaiting_approval";
+  if (["waiting", "awaiting_user"].includes(normalized)) {
+    return "blocked";
   }
   if (["complete", "success", "succeeded", "done"].includes(normalized)) {
     return "completed";

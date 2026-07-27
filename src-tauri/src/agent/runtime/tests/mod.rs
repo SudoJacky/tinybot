@@ -3,8 +3,8 @@ use crate::memory::WorkerMemoryRpc;
 use crate::protocol::capability::{CapabilityPolicy, WorkerCapability};
 use crate::protocol::WorkerRequest;
 use crate::tools::registry::{
-    ToolApprovalMetadata, ToolCancellationMode, ToolExecutionTarget, ToolExposure,
-    ToolRegistryEntry, ToolRuntimePolicy, WorkerToolRegistryRpc,
+    ToolCancellationMode, ToolExecutionTarget, ToolExposure, ToolRegistryEntry, ToolRuntimePolicy,
+    WorkerToolRegistryRpc,
 };
 use serde_json::json;
 use std::path::PathBuf;
@@ -39,11 +39,6 @@ fn test_registry_with_model_tools(methods: &[&str]) -> Vec<ToolRegistryEntry> {
             },
             required_capabilities: vec![WorkerCapability::FsWorkspaceRead],
             available: true,
-            approval: ToolApprovalMetadata {
-                required: false,
-                scope: None,
-                lifetime: None,
-            },
             input_schema: json!({
                 "type": "object",
                 "required": ["path"],
@@ -59,28 +54,15 @@ fn test_registry_with_model_tools(methods: &[&str]) -> Vec<ToolRegistryEntry> {
     for entry in &mut entries {
         if methods.contains(&entry.method.as_str()) {
             entry.exposure = ToolExposure::Model;
-            entry.approval.required = false;
-            entry.approval.scope = None;
-            entry.approval.lifetime = None;
         }
     }
     entries
 }
 
-fn test_registry_without_approval(methods: &[&str]) -> Vec<ToolRegistryEntry> {
-    let mut entries = WorkerToolRegistryRpc::new(
-        crate::protocol::capability::default_desktop_capability_policy(),
-    )
-    .list_tools()
-    .tools;
-    for entry in &mut entries {
-        if methods.contains(&entry.method.as_str()) {
-            entry.approval.required = false;
-            entry.approval.scope = None;
-            entry.approval.lifetime = None;
-        }
-    }
-    entries
+fn test_registry_entries(_methods: &[&str]) -> Vec<ToolRegistryEntry> {
+    WorkerToolRegistryRpc::new(crate::protocol::capability::default_desktop_capability_policy())
+        .list_tools()
+        .tools
 }
 
 #[derive(Default)]

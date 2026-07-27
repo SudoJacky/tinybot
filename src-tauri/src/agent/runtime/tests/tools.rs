@@ -494,7 +494,6 @@ fn registry_marks_only_read_only_model_tools_as_parallel_safe() {
     let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
         WorkerCapability::FsWorkspaceRead,
         WorkerCapability::FsWorkspaceWrite,
-        WorkerCapability::ApprovalRequest,
         WorkerCapability::MemoryRead,
         WorkerCapability::McpCall,
         WorkerCapability::ShellExecute,
@@ -537,7 +536,6 @@ fn registry_exposes_runtime_policy_for_cancellation_and_mutation_classification(
     let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
         WorkerCapability::FsWorkspaceRead,
         WorkerCapability::FsWorkspaceWrite,
-        WorkerCapability::ApprovalRequest,
         WorkerCapability::MemoryRead,
         WorkerCapability::McpCall,
         WorkerCapability::ShellExecute,
@@ -802,7 +800,7 @@ fn mcp_call_scheduling_uses_registry_runtime_policy() {
             Arc::new(InMemoryNativeAgentCheckpointStore::default()),
             Arc::new(InMemoryNativeAgentCancellation::default()),
         )
-        .with_test_tool_registry_entries(test_registry_without_approval(&["mcp.call_tool"]))
+        .with_test_tool_registry_entries(test_registry_entries(&["mcp.call_tool"]))
         .with_test_activated_tools(&["mcp.call_tool"]),
         json!({
             "runtime": "rust",

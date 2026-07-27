@@ -311,7 +311,7 @@ describe("desktop settings and provider helpers", () => {
     expect(pane.groups.map((group) => [group.id, group.label])).toEqual([
       ["general", "General"],
       ["provider-models", "Provider & Models"],
-      ["tools-approvals", "Tools & MCP"],
+      ["tools-mcp", "Tools & MCP"],
       ["files-workspace", "Files & Workspace"],
       ["memory-experience", "Memory & Experience"],
       ["skills", "Skills"],
@@ -541,7 +541,7 @@ describe("desktop settings and provider helpers", () => {
           profiles: { work: { api_key: "sk-replacement" } },
         },
       }],
-      ["tools-approvals", "execTimeout", "90", { tools: { exec: { timeout: 90 } } }],
+      ["tools-mcp", "execTimeout", "90", { tools: { exec: { timeout: 90 } } }],
       ["channels", "sendMaxRetries", "5", { channels: { send_max_retries: 5 } }],
       ["files-workspace", "sessionFiles", "ignored", {}],
       ["memory-experience", "memory", "ignored", {}],
@@ -675,8 +675,8 @@ describe("desktop settings and provider helpers", () => {
     expect(fields["general.temperature"]).toMatchObject({ control: "number", requirement: "optional", configurationMode: "numeric", advanced: true });
     expect(fields["general.contextWindowStrategy"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
     expect(fields["general.reasoningEffort"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
-    expect(fields["tools-approvals.mcpServers"]).toMatchObject({ control: "textarea", requirement: "optional", configurationMode: "json", advanced: true });
-    expect(fields["tools-approvals.searchProvider"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
+    expect(fields["tools-mcp.mcpServers"]).toMatchObject({ control: "textarea", requirement: "optional", configurationMode: "json", advanced: true });
+    expect(fields["tools-mcp.searchProvider"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
     expect(fields["memory-experience.memory"]).toMatchObject({ control: "readonly", requirement: "readonly", configurationMode: "readonly" });
   });
 
@@ -698,15 +698,15 @@ describe("desktop settings and provider helpers", () => {
       group.fields.map((field) => [`${group.id}.${field.id}`, field] as const),
     ));
 
-    expect(fields["tools-approvals.webEnable"]).toMatchObject({ commitMode: "auto" });
+    expect(fields["tools-mcp.webEnable"]).toMatchObject({ commitMode: "auto" });
     expect(fields["channels.sendProgress"]).toMatchObject({ commitMode: "auto" });
     expect(fields["channels.sendToolHints"]).toMatchObject({ commitMode: "auto" });
 
-    expect(fields["tools-approvals.execEnable"]).toMatchObject({
+    expect(fields["tools-mcp.execEnable"]).toMatchObject({
       commitMode: "auto",
       confirmation: expect.objectContaining({ when: "enable" }),
     });
-    expect(fields["tools-approvals.restrictToWorkspace"]).toMatchObject({
+    expect(fields["tools-mcp.restrictToWorkspace"]).toMatchObject({
       commitMode: "auto",
       confirmation: expect.objectContaining({ when: "disable" }),
     });
@@ -771,13 +771,13 @@ describe("desktop settings and provider helpers", () => {
       applyEffect: "workspace-reload",
       i18nKey: "settings.fields.files-workspace.workspace",
     });
-    expect(fields["tools-approvals.mcpServers"]).toMatchObject({
+    expect(fields["tools-mcp.mcpServers"]).toMatchObject({
       validationField: "mcpServers",
-      i18nKey: "settings.fields.tools-approvals.mcpServers",
+      i18nKey: "settings.fields.tools-mcp.mcpServers",
     });
-    expect(groups["tools-approvals"]).toMatchObject({
+    expect(groups["tools-mcp"]).toMatchObject({
       label: "Tools & MCP",
-      description: "Tool toggles and MCP server access. Approval controls are not exposed here yet.",
+      description: "Tool toggles and MCP server access.",
     });
   });
 

@@ -107,46 +107,6 @@ impl<S: ThreadStore> ThreadRuntime<S> {
                 turn_id,
                 reason,
             }),
-            ThreadOp::ApprovalRequest {
-                turn_id,
-                approval_id,
-                summary,
-                scope,
-                payload,
-            } => self.apply_thread_item_op(request.thread_id, turn_id, request.client_event_id, {
-                move |thread_id, turn_id| {
-                    approval_request_item(thread_id, turn_id, approval_id, summary, scope, payload)
-                }
-            }),
-            ThreadOp::ApprovalDecision {
-                turn_id,
-                approval_id,
-                approved,
-                scope,
-                guidance,
-                payload,
-            } => self.apply_thread_item_op(request.thread_id, turn_id, request.client_event_id, {
-                let store = self.store.clone();
-                let parent_approval_id = approval_id.clone();
-                move |thread_id, turn_id| {
-                    let parent_item_id = find_request_parent_item_id(
-                        &store,
-                        thread_id,
-                        turn_id,
-                        RequestParentKind::Approval(parent_approval_id.as_deref()),
-                    );
-                    approval_decision_item(
-                        thread_id,
-                        turn_id,
-                        approval_id,
-                        approved,
-                        scope,
-                        guidance,
-                        payload,
-                        parent_item_id,
-                    )
-                }
-            }),
             ThreadOp::ToolCallStarted {
                 turn_id,
                 tool_call_id,
@@ -594,7 +554,6 @@ impl<S: ThreadStore> ThreadRuntime<S> {
 }
 
 enum RequestParentKind<'a> {
-    Approval(Option<&'a str>),
     Tool(Option<&'a str>),
 }
 
@@ -624,9 +583,6 @@ fn find_request_parent_item_id<S: ThreadStore>(
 
 fn request_parent_kind_matches(item: &ThreadItem, kind: &RequestParentKind<'_>) -> bool {
     match (&item.kind, kind) {
-        (ThreadItemKind::ApprovalRequested(payload), RequestParentKind::Approval(Some(id))) => {
-            payload_string(payload, &["approvalId", "approval_id"]) == Some(*id)
-        }
         (ThreadItemKind::ToolCallStarted(payload), RequestParentKind::Tool(Some(id))) => {
             payload_string(payload, &["toolCallId", "tool_call_id"]) == Some(*id)
         }
@@ -717,62 +673,6 @@ fn cancelled_item(thread_id: &str, turn_id: &str, reason: Option<String>) -> Thr
             "turnId": turn_id,
             "reason": reason,
             "source": "thread.interrupt"
-        })),
-    }
-}
-
-fn approval_request_item(
-    thread_id: &str,
-    turn_id: &str,
-    approval_id: Option<String>,
-    summary: Option<String>,
-    scope: Option<String>,
-    payload: Value,
-) -> ThreadItem {
-    let approval_id = approval_id.unwrap_or_else(|| format!("approval-{}", next_runtime_item_id()));
-    ThreadItem {
-        item_id: format!("thread-runtime:{thread_id}:{turn_id}:approval-request:{approval_id}"),
-        thread_id: String::new(),
-        turn_id: turn_id.to_string(),
-        parent_item_id: None,
-        sequence: 0,
-        created_at: String::new(),
-        kind: ThreadItemKind::ApprovalRequested(json!({
-            "approvalId": approval_id,
-            "turnId": turn_id,
-            "summary": summary,
-            "scope": scope,
-            "payload": payload,
-            "source": "thread.apply_op"
-        })),
-    }
-}
-
-fn approval_decision_item(
-    thread_id: &str,
-    turn_id: &str,
-    approval_id: Option<String>,
-    approved: bool,
-    scope: Option<String>,
-    guidance: Option<String>,
-    payload: Value,
-    parent_item_id: Option<String>,
-) -> ThreadItem {
-    let approval_id = approval_id.unwrap_or_else(|| format!("approval-{}", next_runtime_item_id()));
-    ThreadItem {
-        item_id: format!("thread-runtime:{thread_id}:{turn_id}:approval:{approval_id}"),
-        thread_id: String::new(),
-        turn_id: turn_id.to_string(),
-        parent_item_id,
-        sequence: 0,
-        created_at: String::new(),
-        kind: ThreadItemKind::ApprovalResolved(json!({
-            "approvalId": approval_id,
-            "approved": approved,
-            "scope": scope,
-            "guidance": guidance,
-            "payload": payload,
-            "source": "thread.apply_op"
         })),
     }
 }

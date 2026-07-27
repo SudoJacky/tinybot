@@ -245,7 +245,6 @@ export function createDesktopChatSessionController({
     const responding = snapshot.turns.some((turn) => (
       turn.status === "pending"
       || turn.status === "running"
-      || turn.status === "awaiting_approval"
       || turn.status === "awaiting_user"
     ));
     if (responding) {

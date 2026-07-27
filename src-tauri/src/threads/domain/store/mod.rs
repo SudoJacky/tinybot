@@ -28,9 +28,7 @@ use serde_json::Value;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use self::activity::{
-    agent_registry_entry, pending_approvals_from_items, running_tools_from_items,
-};
+use self::activity::{agent_registry_entry, running_tools_from_items};
 use self::checkpoint::{checkpoint_from_item, latest_checkpoint_from_items};
 pub use self::memory::MemoryThreadStore;
 use self::metadata::{apply_metadata_patch, recompute_dynamic_metadata};

@@ -84,7 +84,6 @@ export type TinyOsResourceKind =
   | "artifact"
   | "memory_result"
   | "plan"
-  | "approval"
   | "form";
 
 export type TinyOsResourceAccess = "read_only" | "read_write" | "execute" | "unavailable";
@@ -661,11 +660,6 @@ function projectCanonicalResources(
     if (item.kind === "plan_progress") {
       return [canonicalResource(item, "plan", item.title || "Plan", relatedProcessIds)];
     }
-    if (item.kind === "approval") {
-      return [canonicalResource(item, "approval", item.title || "Approval", relatedProcessIds, {
-        revision: item.revision,
-      })];
-    }
     if (item.kind === "form") {
       return [canonicalResource(item, "form", stringValue(item.data.title) || item.title || "Form", relatedProcessIds, {
         revision: item.revision,
@@ -826,7 +820,6 @@ function appendGrouped<T>(
 
 function isProcessItem(item: BackendAgentTurnItem): boolean {
   return item.kind === "tool_call"
-    || item.kind === "approval"
     || item.kind === "form"
     || item.kind === "subagent_lifecycle";
 }
@@ -888,7 +881,7 @@ function latestCanonicalOwnerAgentId(items: readonly BackendAgentTurnItem[]): st
 }
 
 function canonicalApplicationId(item: BackendAgentTurnItem): string {
-  if (item.kind === "approval" || item.kind === "form") return "inspector";
+  if (item.kind === "form") return "inspector";
   if (item.kind === "subagent_lifecycle") return "subagents";
   if (item.kind !== "tool_call") return "";
   const toolName = stringValue(item.data.name);
@@ -911,9 +904,9 @@ function canonicalProvenance(item: BackendAgentTurnItem): TinyOsProvenance {
 
 function canonicalItemState(item: BackendAgentTurnItem): TinyOsProcessState {
   const status = item.status.trim().toLowerCase();
-  if ((item.kind === "approval" || item.kind === "form") && !isTerminalStatus(status)) return "waiting_for_user";
+  if (item.kind === "form" && !isTerminalStatus(status)) return "waiting_for_user";
   if (status === "running" || status === "in_progress") return "running";
-  if (status === "waiting_for_user" || status === "awaiting_user" || status === "awaiting_approval") return "waiting_for_user";
+  if (status === "waiting_for_user" || status === "awaiting_user") return "waiting_for_user";
   if (status === "blocked" || status === "denied") return "blocked";
   if (status === "paused") return "paused";
   if (status === "completed" || status === "succeeded" || status === "success") return "completed";
@@ -964,7 +957,6 @@ function assertTinyOsProcessStateTransition(
 function canonicalProcessTitle(item: BackendAgentTurnItem): string {
   if (item.title?.trim()) return item.title;
   if (item.kind === "tool_call") return stringValue(item.data.name) || "Tool operation";
-  if (item.kind === "approval") return "Approval required";
   if (item.kind === "form") return stringValue(item.data.title) || "Input required";
   if (item.kind === "subagent_lifecycle") return stringValue(item.data.agentId) || "Subagent";
   return item.kind;

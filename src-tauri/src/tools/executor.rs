@@ -1,7 +1,7 @@
 use crate::protocol::capability::WorkerCapability;
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
 use crate::tools::permissions::PermissionToolEvaluation;
-use crate::tools::registry::{ToolApprovalMetadata, ToolExposure, ToolRegistryEntry};
+use crate::tools::registry::{ToolExposure, ToolRegistryEntry};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -30,7 +30,6 @@ pub struct ToolExecutorExecuteResult {
     pub namespace: String,
     pub exposure: ToolExposure,
     pub dynamic: bool,
-    pub approval: ToolApprovalMetadata,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -58,7 +57,6 @@ impl ToolExecutorExecuteResult {
             namespace: tool.namespace.to_string(),
             exposure: tool.exposure,
             dynamic: tool.dynamic,
-            approval: tool.approval.clone(),
             thread_id: request.thread_id.clone(),
             turn_id: request.turn_id.clone(),
             tool_call_id,

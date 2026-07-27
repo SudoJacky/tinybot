@@ -84,7 +84,6 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
             source: "builtin",
             enabled: true,
             available: true,
-            approvalRequired: false,
           },
         ],
         mcpServers: [],

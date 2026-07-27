@@ -63,7 +63,6 @@ pub(super) fn recompute_dynamic_metadata(record: &mut ThreadRecord, items: &[Thr
     #[derive(Default)]
     struct TurnLifecycle {
         active: bool,
-        waiting_for_approval: bool,
         terminal: bool,
         last_sequence: u64,
     }
@@ -110,7 +109,6 @@ pub(super) fn recompute_dynamic_metadata(record: &mut ThreadRecord, items: &[Thr
                 }
                 let lifecycle = turn_lifecycles.entry(turn_key).or_default();
                 lifecycle.active = true;
-                lifecycle.waiting_for_approval = false;
                 lifecycle.terminal = false;
                 lifecycle.last_sequence = item.sequence;
             }
@@ -127,7 +125,6 @@ pub(super) fn recompute_dynamic_metadata(record: &mut ThreadRecord, items: &[Thr
                 let lifecycle = turn_lifecycles.entry(turn_key).or_default();
                 if !lifecycle.terminal {
                     lifecycle.active = false;
-                    lifecycle.waiting_for_approval = false;
                     lifecycle.terminal = true;
                     lifecycle.last_sequence = item.sequence;
                     status_when_no_active = ThreadStatus::Idle;
@@ -137,33 +134,15 @@ pub(super) fn recompute_dynamic_metadata(record: &mut ThreadRecord, items: &[Thr
                 let lifecycle = turn_lifecycles.entry(turn_key).or_default();
                 if !lifecycle.terminal {
                     lifecycle.active = false;
-                    lifecycle.waiting_for_approval = false;
                     lifecycle.terminal = true;
                     lifecycle.last_sequence = item.sequence;
                     status_when_no_active = ThreadStatus::Idle;
-                }
-            }
-            ThreadItemKind::ApprovalRequested(_) => {
-                let lifecycle = turn_lifecycles.entry(turn_key).or_default();
-                if !lifecycle.terminal {
-                    lifecycle.active = true;
-                    lifecycle.waiting_for_approval = true;
-                    lifecycle.last_sequence = item.sequence;
-                }
-            }
-            ThreadItemKind::ApprovalResolved(_) => {
-                if let Some(lifecycle) = turn_lifecycles.get_mut(&turn_key) {
-                    if lifecycle.active && !lifecycle.terminal {
-                        lifecycle.waiting_for_approval = false;
-                        lifecycle.last_sequence = item.sequence;
-                    }
                 }
             }
             ThreadItemKind::Error(_) => {
                 let lifecycle = turn_lifecycles.entry(turn_key).or_default();
                 if !lifecycle.terminal {
                     lifecycle.active = false;
-                    lifecycle.waiting_for_approval = false;
                     lifecycle.terminal = true;
                     lifecycle.last_sequence = item.sequence;
                     status_when_no_active = ThreadStatus::Failed;
@@ -173,7 +152,6 @@ pub(super) fn recompute_dynamic_metadata(record: &mut ThreadRecord, items: &[Thr
                 let lifecycle = turn_lifecycles.entry(turn_key).or_default();
                 if !lifecycle.terminal {
                     lifecycle.active = false;
-                    lifecycle.waiting_for_approval = false;
                     lifecycle.terminal = true;
                     lifecycle.last_sequence = item.sequence;
                     status_when_no_active = ThreadStatus::Idle;
@@ -188,12 +166,7 @@ pub(super) fn recompute_dynamic_metadata(record: &mut ThreadRecord, items: &[Thr
         .filter(|(_, lifecycle)| lifecycle.active)
         .max_by_key(|(_, lifecycle)| lifecycle.last_sequence)
         .map(|(turn_id, _)| turn_id.clone());
-    let status = if turn_lifecycles
-        .values()
-        .any(|lifecycle| lifecycle.active && lifecycle.waiting_for_approval)
-    {
-        ThreadStatus::WaitingForApproval
-    } else if record.metadata.has_active_turn {
+    let status = if record.metadata.has_active_turn {
         ThreadStatus::Running
     } else {
         status_when_no_active

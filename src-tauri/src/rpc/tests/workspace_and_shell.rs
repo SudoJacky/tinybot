@@ -1,18 +1,14 @@
 use super::*;
 
 #[test]
-fn workspace_write_executes_without_approval_grant() {
+fn workspace_write_executes() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
         vec![],
         20,
-        CapabilityPolicy::new([
-            WorkerCapability::ApprovalRequest,
-            WorkerCapability::ApprovalResolve,
-            WorkerCapability::FsWorkspaceWrite,
-        ]),
+        CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]),
     );
 
     let response = router.dispatch(&WorkerRequest::new(
@@ -68,7 +64,7 @@ fn workspace_write_does_not_need_an_internal_trust_marker() {
 }
 
 #[test]
-fn shell_execute_runs_without_approval_grant() {
+fn shell_execute_runs() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -108,8 +104,6 @@ fn dispatches_workspace_list_dir_and_delete_file_requests() {
         vec![],
         20,
         CapabilityPolicy::new([
-            WorkerCapability::ApprovalRequest,
-            WorkerCapability::ApprovalResolve,
             WorkerCapability::FsWorkspaceRead,
             WorkerCapability::FsWorkspaceWrite,
         ]),
@@ -152,11 +146,7 @@ fn dispatches_shell_execute_request() {
         json!({}),
         vec![],
         20,
-        CapabilityPolicy::new([
-            WorkerCapability::ApprovalRequest,
-            WorkerCapability::ApprovalResolve,
-            WorkerCapability::ShellExecute,
-        ]),
+        CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     );
 
     let response = router.dispatch(&WorkerRequest::new(
@@ -186,11 +176,7 @@ fn removed_shell_sandbox_fields_do_not_restrict_execution() {
         json!({}),
         vec![],
         20,
-        CapabilityPolicy::new([
-            WorkerCapability::ApprovalRequest,
-            WorkerCapability::ApprovalResolve,
-            WorkerCapability::ShellExecute,
-        ]),
+        CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     );
     let command = "echo runs-with-current-user-permissions";
 
@@ -219,11 +205,7 @@ fn dispatches_owned_shell_process_lifecycle() {
         json!({}),
         vec![],
         20,
-        CapabilityPolicy::new([
-            WorkerCapability::ApprovalRequest,
-            WorkerCapability::ApprovalResolve,
-            WorkerCapability::ShellExecute,
-        ]),
+        CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     );
     let command = blocking_shell_command_with_marker();
     let started = router.dispatch(&WorkerRequest::new(
@@ -296,11 +278,7 @@ fn tool_executor_injects_turn_ownership_into_exec_command() {
         json!({}),
         vec![],
         20,
-        CapabilityPolicy::new([
-            WorkerCapability::ApprovalRequest,
-            WorkerCapability::ApprovalResolve,
-            WorkerCapability::ShellExecute,
-        ]),
+        CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     );
     let command = blocking_shell_command_with_marker();
     let response = router.dispatch(&WorkerRequest::new(
@@ -412,11 +390,7 @@ fn tool_executor_forwards_request_cancellation_to_shell_execute() {
         json!({}),
         vec![],
         20,
-        CapabilityPolicy::new([
-            WorkerCapability::ApprovalRequest,
-            WorkerCapability::ApprovalResolve,
-            WorkerCapability::ShellExecute,
-        ]),
+        CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     );
     let command = blocking_shell_command_with_marker();
     let cancellation = Arc::new(TestCancellation::default());
