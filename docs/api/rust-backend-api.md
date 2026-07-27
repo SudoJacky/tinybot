@@ -94,12 +94,10 @@ Known worker error sources:
 
 | Command | Args | Response |
 | --- | --- | --- |
-| `desktop_status` | none | `{ app_name, browser_mode }` |
 | `gateway_status` | none | `GatewayRuntimeStatus` |
 | `start_gateway` | none | `GatewayRuntimeStatus` |
 | `stop_gateway` | none | `GatewayRuntimeStatus` |
 | `set_gateway_keep_running` | `{ keepRunning: boolean }` | `GatewayRuntimeStatus` |
-| `worker_probe_status` | none | `WorkerRuntimeStatus` |
 
 `GatewayRuntimeStatus` includes:
 
@@ -142,8 +140,8 @@ Known worker error sources:
 ```
 
 In Tauri mode, readiness is derived from the in-process Rust lifecycle and worker status.
-`GatewayRuntimeStatus`, `desktop_status`, and the Settings registry do not expose a local HTTP port
-or HTTP/WebSocket URLs because the native runtime does not bind those endpoints.
+`GatewayRuntimeStatus` and the Settings registry do not expose a local HTTP port or HTTP/WebSocket
+URLs because the native runtime does not bind those endpoints.
 
 `lifecycle` is the queryable native-runtime recovery and cleanup record. Startup pauses new agent
 continues until canonical Rollouts and their rebuildable SQLite index pass consistency checks. The

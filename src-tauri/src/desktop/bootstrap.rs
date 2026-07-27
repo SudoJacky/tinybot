@@ -1,4 +1,3 @@
-use serde::Serialize;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
@@ -23,20 +22,6 @@ use super::menu::{
 use super::state::{
     append_log, lock_runtime, push_log, GatewayRuntime, SharedGateway, NATIVE_BACKEND_LOG_MAX_BYTES,
 };
-
-#[derive(Serialize)]
-struct DesktopStatus {
-    app_name: &'static str,
-    browser_mode: &'static str,
-}
-
-#[tauri::command]
-fn desktop_status() -> DesktopStatus {
-    DesktopStatus {
-        app_name: "Tinybot Desktop",
-        browser_mode: "External browser",
-    }
-}
 
 #[tauri::command]
 fn record_renderer_diagnostic(
@@ -155,13 +140,11 @@ pub(crate) fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            desktop_status,
             record_renderer_diagnostic,
             crate::desktop_commands::gateway::gateway_status,
             crate::desktop_commands::gateway::start_gateway,
             crate::desktop_commands::gateway::stop_gateway,
             crate::desktop_commands::gateway::set_gateway_keep_running,
-            crate::desktop_commands::webui::worker_probe_status,
             crate::desktop_commands::agent::worker_run_agent,
             crate::desktop_commands::agent::worker_run_agent_input,
             crate::desktop_commands::agent::worker_submit_thread_turn,

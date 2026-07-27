@@ -50,17 +50,6 @@ pub(crate) struct WorkerWebuiRouteInput {
 }
 
 #[tauri::command]
-pub(crate) fn worker_probe_status() -> WorkerRuntimeStatus {
-    WorkerRuntimeStatus::rust_backend_active(vec![crate::protocol::WorkerDiagnosticLine::new(
-        "stdout",
-        format!(
-            "rust backend protocol {}",
-            crate::protocol::WORKER_PROTOCOL_VERSION
-        ),
-    )])
-}
-
-#[tauri::command]
 pub(crate) fn worker_cowork_route(
     input: WorkerCoworkRouteInput,
     state: State<'_, SharedGateway>,

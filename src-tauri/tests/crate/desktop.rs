@@ -11,7 +11,6 @@ use crate::desktop_commands::gateway::current_status;
 use crate::desktop_commands::gateway::load_gateway_exit_policy;
 use crate::desktop_commands::gateway::persist_gateway_exit_policy;
 use crate::desktop_commands::gateway::GatewayRuntimeStatus;
-use crate::desktop_commands::webui::worker_probe_status;
 use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::Arc;
@@ -174,22 +173,6 @@ fn gateway_runtime_status_serializes_worker_runtime_status() {
     assert_eq!(value["agent_tasks"]["activeTurns"], 0);
     assert_eq!(value["lifecycle"]["startupReconciled"], false);
     assert!(value["worker_runtime"]["transport_mode"].is_null());
-}
-
-#[test]
-fn worker_probe_status_reports_protocol_metadata() {
-    let status = worker_probe_status();
-    let value = serde_json::to_value(status).expect("worker probe status should serialize");
-
-    assert_eq!(value["state"], "running");
-    assert!(value["transport_mode"].is_null());
-    assert_eq!(
-        value["diagnostics"][0]["line"],
-        format!(
-            "rust backend protocol {}",
-            crate::protocol::WORKER_PROTOCOL_VERSION
-        )
-    );
 }
 
 #[test]

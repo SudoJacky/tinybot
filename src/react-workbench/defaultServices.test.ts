@@ -105,7 +105,6 @@ describe("desktop native app services", () => {
     const commands = mocks.invoke.mock.calls.map(([command]) => command);
     expect(commands).not.toContain("gateway_status");
     expect(commands).not.toContain("start_gateway");
-    expect(commands).not.toContain("worker_probe_status");
     expect(commands).toContain("worker_threads_list");
   });
 
