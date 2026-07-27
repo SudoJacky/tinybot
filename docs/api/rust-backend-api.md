@@ -25,9 +25,8 @@ Use Tauri's `invoke` API:
 ```ts
 import { invoke } from "@tauri-apps/api/core";
 
-const status = await invoke("gateway_status");
-const messages = await invoke("worker_session_messages", {
-  input: { key: "websocket:chat-1" },
+const threads = await invoke("worker_threads_list", {
+  input: { body: {} },
 });
 ```
 
@@ -90,67 +89,21 @@ Known worker error sources:
 - `rust_core`
 - `worker`
 
-## Core Desktop Commands
+## Native Runtime Lifecycle
 
-| Command | Args | Response |
-| --- | --- | --- |
-| `gateway_status` | none | `GatewayRuntimeStatus` |
-| `start_gateway` | none | `GatewayRuntimeStatus` |
-| `stop_gateway` | none | `GatewayRuntimeStatus` |
-| `set_gateway_keep_running` | `{ keepRunning: boolean }` | `GatewayRuntimeStatus` |
+The Rust backend is an in-process Native Runtime. Tauri setup starts it before the renderer uses
+typed commands, and window close or updater installation runs its bounded shutdown path. There are
+no renderer commands for starting, stopping, or querying a separate Gateway process, and the runtime
+cannot be configured to remain alive after the App exits.
 
-`GatewayRuntimeStatus` includes:
-
-```json
-{
-  "state": "running",
-  "owner": "shell",
-  "command": "Tauri Rust backend",
-  "repo_root": "...",
-  "log_path": "...",
-  "log_tail": [],
-  "logs": [],
-  "last_error": null,
-  "exit_policy": "stop_on_exit",
-  "bootstrap_status": "not_required",
-  "response_class": "tauri-native",
-  "recovery_hint": null,
-  "worker_runtime": {},
-  "agent_tasks": {
-    "accepting": true,
-    "activeTurns": 0,
-    "drainingTurns": 0
-  },
-  "route_owner_summary": { "rustOwned": 0, "unsupported": 0 },
-  "webui_route_inventory": [],
-  "compatibility_fallback_diagnostics": [],
-  "lifecycle": {
-    "startupReconciled": true,
-    "lastStartupRecovery": {
-      "scannedThreads": 0,
-      "scannedTurnRecords": 0,
-      "interruptedTurns": [],
-      "awaitingInteractionTurns": [],
-      "resumableTurns": []
-    },
-    "lastShutdown": null,
-    "diagnostics": []
-  }
-}
-```
-
-In Tauri mode, readiness is derived from the in-process Rust lifecycle and worker status.
-`GatewayRuntimeStatus` and the Settings registry do not expose a local HTTP port or HTTP/WebSocket
-URLs because the native runtime does not bind those endpoints.
-
-`lifecycle` is the queryable native-runtime recovery and cleanup record. Startup pauses new agent
+The internal lifecycle state records native-runtime recovery and cleanup. Startup pauses new agent
 continues until canonical Rollouts and their rebuildable SQLite index pass consistency checks. The
 startup report includes `sessionLogIndex` and `sessionLogIndexMigration`; an actual Rollout/index
 divergence fails startup and requires an explicit repair command. A persisted `running` turn with no
 live owner is then closed as
 `status: "interrupted"`, `phase: "interrupted"`, and
 `stopReason: "runtime_restarted"`; waiting turns and their checkpoints remain unchanged. A storage
-error leaves the task runtime non-accepting, sets `state: "failed"`/`last_error`, and appends a
+error leaves the task runtime non-accepting, sets `last_error`, and appends a
 `startup_recovery` diagnostic instead of silently continuing.
 
 ## File Dialog Commands
@@ -321,7 +274,7 @@ OpenAI-compatible provider profiles accept separate network deadlines:
   defaults to the resolved request timeout.
 
 The `mcp-servers` group projects live MCP runtime state. Each configured server has readonly
-`status` and `tool_count` fields populated from the Gateway-owned runtime rather than static
+`status` and `tool_count` fields populated from the Native Runtime rather than static
 placeholders. Status values are `disabled`, `starting`, `ready`, `failed`, `stopping`, or `stopped`.
 Streamable HTTP servers also expose endpoint, bearer-token environment-variable, static header,
 environment-backed header, and timeout settings. Sensitive static headers such as
@@ -598,16 +551,16 @@ without starting another task.
 
 The desktop `thread.interrupt` path first persists the thread cancellation item and then cancels the
 same turn owner. Its existing thread result gains `taskCancellation`, containing the same
-`worker_cancel_agent` payload. Gateway shutdown follows one ordered path: stop accepting starts,
+`worker_cancel_agent` payload. Native Runtime shutdown follows one ordered path: stop accepting starts,
 cancel and drain owned turns, terminate retained shell process trees, stop MCP clients/stdio children,
 interrupt non-terminal subagents, stop the background worker, and emit a `RuntimeShutdownReport`.
 For cooperative agent tasks, shutdown requests cancellation without publishing a terminal result;
 the cancellation or cleanup-timeout result becomes visible only after the owned operation has
 finished its bounded cleanup. Shutdown waits for both cancelling active tasks and draining tasks.
 Each bounded stage continues after an earlier failure. Cleanup failures are returned as a combined
-error, retained in `GatewayRuntimeStatus.lifecycle.diagnostics`, mirrored to `last_error`, and written
+error, retained in the internal lifecycle diagnostics, mirrored to `last_error`, and written
 to the persistent native-backend log. The report includes agent cleanup, shell process IDs, MCP,
-subagent, worker, state-persistence, elapsed-time, and failure details. A same-process gateway restart
+subagent, worker, state-persistence, elapsed-time, and failure details. A same-process runtime restart
 reopens agent and shell start admission only after cleanup is complete.
 
 ### Async provider execution
@@ -1543,7 +1496,7 @@ directory, including one outside the workspace, or a path relative to the worksp
 
 Windows pipe processes receive a dedicated kill-on-close Job Object immediately
 after creation. Failure to create or assign that job fails the start and terminates the direct child.
-`shell.terminate`, turn cancellation, and gateway shutdown terminate the job and verify the root
+`shell.terminate`, turn cancellation, and Native Runtime shutdown terminate the job and verify the root
 record reaches terminal state, preventing descendants from retaining inherited pipe handles or
 surviving the owner.
 
@@ -1783,9 +1736,9 @@ Agent-turn reads are derived from the thread JSONL and never fall back to the in
 
 ### MCP Runtime RPC
 
-The Gateway owns one long-lived MCP runtime shared by Worker RPC adapters and native agent turns.
+The Native Runtime owns one long-lived MCP runtime shared by Worker RPC adapters and native agent turns.
 Short-lived adapters do not own child processes or HTTP sessions. A configuration update with the
-`mcpConfigChanged` side effect reconciles changed, disabled, and removed servers; Gateway shutdown
+`mcpConfigChanged` side effect reconciles changed, disabled, and removed servers; Native Runtime shutdown
 closes HTTP sessions and terminates stdio children before stopping the worker.
 
 Accepted transport values:

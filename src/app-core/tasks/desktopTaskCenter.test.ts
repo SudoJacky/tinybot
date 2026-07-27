@@ -44,15 +44,6 @@ describe("desktop task center projection", () => {
           diagnostics: "HTTP 409",
         },
       ],
-      gatewayOperations: [
-        {
-          id: "gateway:start",
-          title: "Start Tinybot gateway",
-          status: "starting",
-          detail: "Tauri Rust backend",
-          canonical: { module: "gateway" },
-        },
-      ],
       approvals: [
         {
           id: "approval:tool-1",
@@ -70,7 +61,6 @@ describe("desktop task center projection", () => {
       "cowork:blocked:Ship task center",
       "file:failed:Save AGENTS.md",
       "chat:active:Streaming response",
-      "gateway:active:Start Tinybot gateway",
       "provider:completed:Refresh OpenAI models",
     ]);
     expect(items.find((item) => item.id === "file:workspace:AGENTS.md:save")?.actions.map((action) => action.id)).toEqual([

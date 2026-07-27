@@ -5,7 +5,6 @@ export type DesktopTaskSource =
   | "cowork"
   | "provider"
   | "file"
-  | "gateway"
   | "approval"
   | "failure";
 
@@ -18,7 +17,6 @@ export type DesktopTaskDestinationModule =
   | "settings"
   | "files"
   | "workspace"
-  | "gateway"
   | "approvals";
 
 export interface DesktopTaskDestination {
@@ -77,7 +75,6 @@ export interface DesktopTaskProjectionInput {
   coworkRuns?: DesktopTaskSourceOperation[];
   providerRefreshes?: DesktopTaskSourceOperation[];
   fileOperations?: DesktopTaskSourceOperation[];
-  gatewayOperations?: DesktopTaskSourceOperation[];
   approvals?: DesktopTaskSourceOperation[];
   failures?: DesktopTaskSourceOperation[];
 }
@@ -124,7 +121,7 @@ const ACTION_LABELS: Record<DesktopTaskActionId, string> = {
   approveSession: "Allow session",
   deny: "Deny",
 };
-const SOURCE_ORDER: DesktopTaskSource[] = ["approval", "cowork", "file", "chat", "gateway", "provider", "failure"];
+const SOURCE_ORDER: DesktopTaskSource[] = ["approval", "cowork", "file", "chat", "provider", "failure"];
 const STATE_ORDER: DesktopTaskState[] = ["blocked", "failed", "active", "canceled", "completed"];
 
 export function buildDesktopTaskCenterItems(input: DesktopTaskProjectionInput): DesktopTaskCenterItem[] {
@@ -133,7 +130,6 @@ export function buildDesktopTaskCenterItems(input: DesktopTaskProjectionInput): 
     ...projectOperations("cowork", input.coworkRuns),
     ...projectOperations("provider", input.providerRefreshes),
     ...projectOperations("file", input.fileOperations),
-    ...projectOperations("gateway", input.gatewayOperations),
     ...projectOperations("approval", input.approvals),
     ...projectOperations("failure", input.failures),
   ].sort(compareTaskItems);

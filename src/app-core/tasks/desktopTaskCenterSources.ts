@@ -1,5 +1,4 @@
 import type { AgentUiState } from "../agent-ui/agentUiEvents";
-import { DEFAULT_NATIVE_BACKEND_COMMAND, type GatewayRuntimeStatus } from "../gateway/desktopGatewayRuntime";
 import type { DesktopTaskSourceOperation } from "./desktopTaskCenter";
 
 type UnknownRecord = Record<string, unknown>;
@@ -41,40 +40,6 @@ export function buildDesktopProviderModelDiscoveryTaskOperation(
     retryable: failed,
     updatedAt: stringValue(input.updatedAt),
   };
-}
-
-export function buildDesktopGatewayTaskOperation(
-  action: "startup" | "restart" | "stop",
-  status: GatewayRuntimeStatus | null,
-): DesktopTaskSourceOperation {
-  const gatewayStatus = status?.state === "offline" && status.last_error
-    ? "failed"
-    : status?.state === "running" || status === null
-      ? "completed"
-      : status?.state || "starting";
-  const command = status?.command || DEFAULT_NATIVE_BACKEND_COMMAND;
-  const owner = status?.owner || "external";
-  const diagnostics = status?.last_error || (status?.logs ?? []).slice(-4).join("\n");
-  return {
-    id: `gateway:${action}`,
-    title: gatewayTaskTitle(action),
-    status: gatewayStatus,
-    detail: `${owner} / ${command}`,
-    canonical: { module: "gateway" },
-    diagnostics,
-    retryable: gatewayStatus === "failed",
-    updatedAt: "",
-  };
-}
-
-function gatewayTaskTitle(action: "startup" | "restart" | "stop"): string {
-  if (action === "restart") {
-    return "Restart Tinybot gateway";
-  }
-  if (action === "stop") {
-    return "Stop Tinybot gateway";
-  }
-  return "Start Tinybot gateway";
 }
 
 export function buildDesktopFileTaskOperation(input: DesktopFileTaskInput): DesktopTaskSourceOperation {

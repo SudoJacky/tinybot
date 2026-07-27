@@ -97,14 +97,12 @@ describe("desktop native app services", () => {
     });
   });
 
-  test("initializes directly through native commands without legacy Gateway probes", async () => {
+  test("initializes directly through native Thread commands", async () => {
     const services = createDesktopAppServices();
 
     await services.sessionStore.list();
 
     const commands = mocks.invoke.mock.calls.map(([command]) => command);
-    expect(commands).not.toContain("gateway_status");
-    expect(commands).not.toContain("start_gateway");
     expect(commands).toContain("worker_threads_list");
   });
 

@@ -1,68 +1,15 @@
-use serde::{Deserialize, Serialize};
-use std::{
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::{path::PathBuf, time::Duration};
 
-use tauri::State;
-
-use crate::config::application::{native_backend_workspace_root, repo_root};
-use crate::desktop::logging::{gateway_runtime_logs, read_native_backend_log_tail};
 use crate::desktop::{
-    state::{append_log, lock_runtime, push_log, NATIVE_BACKEND_LOG_TAIL_LINES},
+    state::{lock_runtime, push_log},
     SharedGateway,
 };
-use crate::runtime::lifecycle::{RuntimeLifecycle, RuntimeLifecycleStatus};
-use crate::transport::stdio_worker::status::WorkerRuntimeStatus;
-
-const RUST_BACKEND_COMMAND: &str = "Tauri Rust backend";
-
-#[derive(Serialize)]
-pub(crate) struct GatewayRuntimeStatus {
-    pub(crate) state: String,
-    pub(crate) owner: String,
-    pub(crate) command: &'static str,
-    pub(crate) repo_root: String,
-    pub(crate) log_path: String,
-    pub(crate) log_tail: Vec<String>,
-    pub(crate) logs: Vec<String>,
-    pub(crate) last_error: Option<String>,
-    pub(crate) exit_policy: &'static str,
-    pub(crate) bootstrap_status: String,
-    pub(crate) response_class: Option<String>,
-    pub(crate) recovery_hint: Option<String>,
-    pub(crate) worker_runtime: WorkerRuntimeStatus,
-    pub(crate) agent_tasks: TurnExecutionRuntimeStatus,
-    pub(crate) lifecycle: RuntimeLifecycleStatus,
-}
-
-#[derive(Deserialize, Serialize)]
-struct GatewayExitPolicyPreference {
-    keep_running: bool,
-}
-
-#[tauri::command]
-pub(crate) fn gateway_status(state: State<'_, SharedGateway>) -> GatewayRuntimeStatus {
-    current_status(state.inner())
-}
-
-#[tauri::command]
-pub(crate) fn start_gateway(
-    state: State<'_, SharedGateway>,
-) -> Result<GatewayRuntimeStatus, String> {
-    start_gateway_with_options(state.inner())
-}
-
-pub(crate) fn start_gateway_with_options(
-    shared: &SharedGateway,
-) -> Result<GatewayRuntimeStatus, String> {
-    start_gateway_with_workspace_root(shared, native_backend_workspace_root())
-}
+use crate::runtime::lifecycle::RuntimeLifecycle;
 
 pub(crate) fn start_gateway_with_workspace_root(
     shared: &SharedGateway,
     workspace_root: PathBuf,
-) -> Result<GatewayRuntimeStatus, String> {
+) -> Result<(), String> {
     let (agent_task_runtime, shell_runtime, thread_store, startup_reconciled) = {
         let mut runtime = lock_runtime(shared);
         if runtime.thread_store.workspace_root() != workspace_root {
@@ -124,56 +71,7 @@ pub(crate) fn start_gateway_with_workspace_root(
     }
     agent_task_runtime.resume_accepting();
     push_log(shared, "Rust native backend active");
-    Ok(current_status(shared))
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct TurnExecutionRuntimeStatus {
-    pub(crate) accepting: bool,
-    pub(crate) active_turns: usize,
-    pub(crate) draining_turns: usize,
-}
-
-#[tauri::command]
-pub(crate) fn stop_gateway(
-    state: State<'_, SharedGateway>,
-) -> Result<GatewayRuntimeStatus, String> {
-    stop_owned_gateway(state.inner(), true)?;
-    Ok(current_status(state.inner()))
-}
-
-#[tauri::command]
-pub(crate) fn set_gateway_keep_running(
-    keep_running: bool,
-    state: State<'_, SharedGateway>,
-) -> Result<GatewayRuntimeStatus, String> {
-    persist_gateway_exit_policy(&gateway_exit_policy_preference_path(), keep_running)?;
-    {
-        let mut runtime = lock_runtime(state.inner());
-        runtime.keep_background = keep_running;
-        append_log(
-            &mut runtime,
-            if keep_running {
-                "configured native backend to keep running after desktop exits"
-            } else {
-                "configured native backend to stop when desktop exits"
-            },
-        );
-    }
-    Ok(current_status(state.inner()))
-}
-
-pub(crate) fn gateway_exit_policy_preference_path() -> PathBuf {
-    let base = std::env::var_os("LOCALAPPDATA")
-        .or_else(|| std::env::var_os("APPDATA"))
-        .or_else(|| std::env::var_os("XDG_CONFIG_HOME"))
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
-        .unwrap_or_else(std::env::temp_dir);
-    base.join("Tinybot")
-        .join("Desktop")
-        .join("gateway-exit-policy.json")
+    Ok(())
 }
 
 pub(crate) fn native_backend_log_path() -> PathBuf {
@@ -186,80 +84,6 @@ pub(crate) fn native_backend_log_path() -> PathBuf {
         })
         .unwrap_or_else(std::env::temp_dir);
     base.join("tinybot").join("logs").join("native-backend.log")
-}
-
-pub(crate) fn load_gateway_exit_policy(path: &Path) -> bool {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|contents| serde_json::from_str::<GatewayExitPolicyPreference>(&contents).ok())
-        .map(|preference| preference.keep_running)
-        .unwrap_or(false)
-}
-
-pub(crate) fn persist_gateway_exit_policy(path: &Path, keep_running: bool) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|error| format!("failed to create gateway preference directory: {error}"))?;
-    }
-    let contents = serde_json::to_string_pretty(&GatewayExitPolicyPreference { keep_running })
-        .map_err(|error| format!("failed to encode gateway preference: {error}"))?;
-    std::fs::write(path, contents)
-        .map_err(|error| format!("failed to persist gateway preference: {error}"))
-}
-
-pub(crate) fn current_status(shared: &SharedGateway) -> GatewayRuntimeStatus {
-    let runtime = lock_runtime(shared);
-    let agent_task_runtime = runtime.native_agent_runtime.task_runtime();
-    let accepting = agent_task_runtime.is_accepting();
-
-    let owner = "shell";
-    let state = if runtime.last_error.is_some() {
-        "failed"
-    } else if accepting {
-        "running"
-    } else {
-        "offline"
-    };
-    let exit_policy = if runtime.keep_background {
-        "keep_running"
-    } else {
-        "stop_on_exit"
-    };
-
-    GatewayRuntimeStatus {
-        state: state.to_string(),
-        owner: owner.to_string(),
-        command: RUST_BACKEND_COMMAND,
-        repo_root: repo_root().display().to_string(),
-        log_path: runtime.persistent_log_path.display().to_string(),
-        log_tail: read_native_backend_log_tail(
-            &runtime.persistent_log_path,
-            NATIVE_BACKEND_LOG_TAIL_LINES,
-        ),
-        logs: gateway_runtime_logs(&runtime.logs),
-        last_error: runtime.last_error.clone(),
-        exit_policy,
-        bootstrap_status: "not_required".to_string(),
-        response_class: Some("tauri-native".to_string()),
-        recovery_hint: None,
-        worker_runtime: gateway_worker_runtime_status(runtime.last_error.as_deref(), accepting),
-        agent_tasks: TurnExecutionRuntimeStatus {
-            accepting,
-            active_turns: agent_task_runtime.active_count(),
-            draining_turns: agent_task_runtime.draining_count(),
-        },
-        lifecycle: runtime.lifecycle_status.clone(),
-    }
-}
-
-fn gateway_worker_runtime_status(last_error: Option<&str>, accepting: bool) -> WorkerRuntimeStatus {
-    match last_error {
-        Some(error) => WorkerRuntimeStatus::startup_failed(error),
-        None if accepting => WorkerRuntimeStatus::rust_backend_active(vec![
-            crate::protocol::WorkerDiagnosticLine::new("stdout", "Rust backend services active"),
-        ]),
-        None => WorkerRuntimeStatus::rust_backend_stopped(),
-    }
 }
 
 pub(crate) fn stop_owned_gateway(shared: &SharedGateway, explicit: bool) -> Result<(), String> {
@@ -290,11 +114,6 @@ async fn stop_owned_gateway_async_with_timeout(
 ) -> Result<(), String> {
     let lifecycle = {
         let runtime = lock_runtime(shared);
-        if !explicit && runtime.keep_background {
-            drop(runtime);
-            push_log(shared, "leaving native backend running in background");
-            return Ok(());
-        }
         RuntimeLifecycle::new(
             runtime.native_agent_runtime.task_runtime(),
             runtime.native_agent_runtime.shell_runtime(),

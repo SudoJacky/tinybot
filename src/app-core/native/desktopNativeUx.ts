@@ -1,42 +1,3 @@
-interface RouteIntent {
-  href?: string;
-  sessionId?: string;
-}
-
-export function buildDesktopSafeModeRecoveryUx(input: {
-  phase: "starting" | "connecting" | "loading" | "ready" | "failed";
-  owner?: "shell" | "external" | "";
-  failureType?: "port-conflict" | "command-failed" | "bootstrap-incompatible" | "missing-runtime";
-  responseClass?: string;
-  routeIntent?: RouteIntent;
-}) {
-  const failed = input.phase === "failed";
-  const completeThrough = failed ? 1 : phaseIndex(input.phase);
-  const summary = failed
-    ? "Startup failed; choose a recovery action"
-    : input.owner === "external"
-      ? "Using an existing gateway"
-      : input.phase === "ready"
-        ? "Tinybot is ready"
-        : "Tinybot is starting";
-  return {
-    summary,
-    diagnosticsDefaultOpen: failed,
-    progressSteps: [
-      progressStep("start", "Starting Tinybot", completeThrough, 0),
-      progressStep("connect", "Connecting to local gateway", completeThrough, 1),
-      progressStep("workspace", "Loading workspace", completeThrough, 2),
-      progressStep("ready", "Ready", completeThrough, 3),
-    ],
-    recoveryCards: failed ? [recoveryCard(input.failureType ?? "command-failed", input.responseClass)] : [],
-    safeModeAction: {
-      id: "open-browser-compatible-webui",
-      label: "Open native workbench",
-      href: safeModeHref(input.routeIntent),
-    },
-  };
-}
-
 export function buildDesktopWorkbenchShellUx(input: {
   activeModule: string;
   selectedEntityId?: string;
@@ -275,59 +236,6 @@ export function buildDesktopLoadingPerformanceUx(input: {
       "graph-memory-after-open",
     ].map((id) => ({ id })),
   };
-}
-
-function progressStep(id: string, label: string, completeThrough: number, index: number) {
-  return {
-    id,
-    label,
-    state: completeThrough > index ? "complete" : completeThrough === index ? "current" : "pending",
-  };
-}
-
-function phaseIndex(phase: string): number {
-  if (phase === "ready") return 4;
-  if (phase === "loading") return 2;
-  if (phase === "connecting") return 1;
-  return 0;
-}
-
-function recoveryCard(failureType: string, responseClass = "") {
-  const cards: Record<string, { title: string; primaryAction: string; hint: string }> = {
-    "port-conflict": {
-      title: "Port already in use",
-      primaryAction: "Use existing gateway",
-      hint: "A local process is already listening on the gateway port.",
-    },
-    "command-failed": {
-      title: "Gateway command failed",
-      primaryAction: "Copy diagnostics",
-      hint: "The gateway command exited before Tinybot could load.",
-    },
-    "bootstrap-incompatible": {
-      title: "Bootstrap incompatible",
-      primaryAction: "Open native workbench",
-      hint: `The local gateway responded${responseClass ? ` with ${responseClass}` : ""}, but not with the WebUI bootstrap shape this desktop build expects.`,
-    },
-    "missing-runtime": {
-      title: "Missing runtime dependency",
-      primaryAction: "Show setup steps",
-      hint: "A required local runtime dependency is unavailable.",
-    },
-  };
-  return { id: failureType, ...(cards[failureType] ?? cards["command-failed"]) };
-}
-
-function safeModeHref(routeIntent?: RouteIntent): string {
-  const params = new URLSearchParams();
-  if (routeIntent?.href) {
-    params.set("route", routeIntent.href);
-  }
-  if (routeIntent?.sessionId) {
-    params.set("session", routeIntent.sessionId);
-  }
-  const query = params.toString();
-  return query ? `/?${query}` : "/";
 }
 
 function attentionBadges(attention: { taskUpdates?: number; references?: number; blocked?: number; failed?: number } = {}) {

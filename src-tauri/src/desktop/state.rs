@@ -15,7 +15,6 @@ use super::logging::append_native_backend_log_line;
 pub(crate) type SharedGateway = Arc<Mutex<GatewayRuntime>>;
 
 pub(crate) const NATIVE_BACKEND_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
-pub(crate) const NATIVE_BACKEND_LOG_TAIL_LINES: usize = 100;
 
 pub(crate) struct GatewayRuntime {
     pub(crate) native_agent_runtime: NativeAgentRuntimeServices,
@@ -26,7 +25,6 @@ pub(crate) struct GatewayRuntime {
     pub(crate) logs: VecDeque<String>,
     pub(crate) persistent_log_path: PathBuf,
     pub(crate) last_error: Option<String>,
-    pub(crate) keep_background: bool,
 }
 
 impl Default for GatewayRuntime {
@@ -59,7 +57,6 @@ impl GatewayRuntime {
             logs: VecDeque::with_capacity(200),
             persistent_log_path: native_backend_log_path(),
             last_error: None,
-            keep_background: false,
         }
     }
 

@@ -9,7 +9,6 @@ use crate::config::application::{
 };
 use crate::config::store::ConfigDiagnosticCode;
 use crate::desktop_commands::gateway::{
-    gateway_exit_policy_preference_path, load_gateway_exit_policy,
     start_gateway_with_workspace_root, stop_owned_gateway_for_window_close,
 };
 use crate::native_browser;
@@ -69,10 +68,7 @@ pub(crate) fn truncate_utf8_with_ellipsis(mut value: String, max_bytes: usize) -
 }
 
 pub(crate) fn run() {
-    let gateway_state = Arc::new(Mutex::new(GatewayRuntime {
-        keep_background: load_gateway_exit_policy(&gateway_exit_policy_preference_path()),
-        ..GatewayRuntime::default()
-    }));
+    let gateway_state = Arc::new(Mutex::new(GatewayRuntime::default()));
     let close_state = gateway_state.clone();
     let setup_state = gateway_state.clone();
     let close_started = Arc::new(AtomicBool::new(false));
@@ -141,10 +137,6 @@ pub(crate) fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             record_renderer_diagnostic,
-            crate::desktop_commands::gateway::gateway_status,
-            crate::desktop_commands::gateway::start_gateway,
-            crate::desktop_commands::gateway::stop_gateway,
-            crate::desktop_commands::gateway::set_gateway_keep_running,
             crate::desktop_commands::agent::worker_run_agent,
             crate::desktop_commands::agent::worker_run_agent_input,
             crate::desktop_commands::agent::worker_submit_thread_turn,

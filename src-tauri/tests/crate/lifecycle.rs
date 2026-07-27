@@ -8,7 +8,6 @@ use crate::desktop::files::reveal_workspace_file_path_from_config_path;
 use crate::desktop::state::lock_runtime;
 use crate::desktop::state::GatewayRuntime;
 use crate::desktop_commands::agent::worker_run_agent_with_options;
-use crate::desktop_commands::gateway::current_status;
 use crate::desktop_commands::gateway::stop_owned_gateway;
 use crate::protocol::capability::default_desktop_capability_policy;
 use crate::protocol::WorkerRequest;
@@ -279,10 +278,10 @@ fn startup_reconciles_orphaned_turn_and_preserves_waiting_checkpoint() {
         crate::threads::domain::ThreadStatus::WaitingForApproval
     );
 
-    let status = current_status(&shared);
-    let recovery = status
-        .lifecycle
+    let lifecycle = lock_runtime(&shared).lifecycle_status.clone();
+    let recovery = lifecycle
         .last_startup_recovery
+        .as_ref()
         .expect("startup recovery report should be exposed");
     assert!(recovery
         .interrupted_turns
@@ -300,7 +299,7 @@ fn startup_reconciles_orphaned_turn_and_preserves_waiting_checkpoint() {
         .resumable_turns
         .iter()
         .any(|turn| turn.turn_id == "turn-waiting"));
-    assert!(status.lifecycle.diagnostics.is_empty());
+    assert!(lifecycle.diagnostics.is_empty());
     let recovery_metrics_after =
         crate::runtime::observability::global_agent_runtime_metrics().snapshot();
     assert!(
@@ -328,9 +327,10 @@ fn startup_reconciles_orphaned_turn_and_preserves_waiting_checkpoint() {
         fixture.root.clone(),
     )
     .expect("repeated process startup recovery should be idempotent");
-    let repeated = current_status(&restarted)
-        .lifecycle
+    let repeated_lifecycle = lock_runtime(&restarted).lifecycle_status.clone();
+    let repeated = repeated_lifecycle
         .last_startup_recovery
+        .as_ref()
         .expect("repeated startup should expose its report");
     assert!(repeated.interrupted_turns.is_empty());
     assert!(repeated
@@ -356,16 +356,15 @@ fn startup_recovery_failure_pauses_runtime_and_exposes_diagnostic() {
     };
 
     assert!(error.contains("startup recovery failed"));
-    let status = current_status(&shared);
-    assert_eq!(status.state, "failed");
-    assert!(!status.agent_tasks.accepting);
-    assert!(!status.lifecycle.startup_reconciled);
-    assert!(status
-        .lifecycle
+    let runtime = lock_runtime(&shared);
+    assert!(!runtime.native_agent_runtime.task_runtime().is_accepting());
+    assert!(!runtime.lifecycle_status.startup_reconciled);
+    assert!(runtime
+        .lifecycle_status
         .diagnostics
         .iter()
         .any(|diagnostic| diagnostic.stage == "startup_recovery"));
-    assert!(status
+    assert!(runtime
         .last_error
         .as_deref()
         .is_some_and(|message| message.contains("startup recovery failed")));
@@ -426,16 +425,13 @@ fn close_shutdown_stops_shell_and_interrupts_subagents_with_report() {
         subagents.list("session-shutdown").subagents[0].status,
         crate::collaboration::subagents::SubagentThreadStatus::Interrupted
     );
-    let report = current_status(&shared)
-        .lifecycle
+    let runtime = lock_runtime(&shared);
+    let report = runtime
+        .lifecycle_status
         .last_shutdown
+        .as_ref()
         .expect("shutdown report should be exposed");
-    let stopped_status = current_status(&shared);
-    assert_eq!(stopped_status.state, "offline");
-    assert_eq!(
-        stopped_status.worker_runtime.state,
-        crate::transport::stdio_worker::status::WorkerRuntimeState::Stopped
-    );
+    assert!(!runtime.native_agent_runtime.task_runtime().is_accepting());
     assert!(report.completed);
     assert!(report
         .shell
@@ -447,6 +443,7 @@ fn close_shutdown_stops_shell_and_interrupts_subagents_with_report() {
         .iter()
         .any(|subagent| subagent.subagent_id == "delegate-shutdown"));
     assert!(report.failures.is_empty());
+    drop(runtime);
 
     crate::desktop_commands::gateway::start_gateway_with_workspace_root(
         &shared,
@@ -496,25 +493,27 @@ fn close_shutdown_exposes_cleanup_timeout_diagnostics() {
     )
     .expect_err("cleanup timeout must fail explicitly");
     assert!(error.contains("agent task cleanup timed out"));
-    let status = current_status(&shared);
-    let report = status
-        .lifecycle
+    let runtime = lock_runtime(&shared);
+    let report = runtime
+        .lifecycle_status
         .last_shutdown
+        .as_ref()
         .expect("failed shutdown should still expose its report");
     assert!(!report.completed);
     assert!(report
         .failures
         .iter()
         .any(|failure| failure.stage == "agent_tasks"));
-    assert!(status
-        .lifecycle
+    assert!(runtime
+        .lifecycle_status
         .diagnostics
         .iter()
         .any(|diagnostic| diagnostic.stage == "agent_tasks"));
-    assert!(status
+    assert!(runtime
         .last_error
         .as_deref()
         .is_some_and(|message| message.contains("agent task cleanup timed out")));
+    drop(runtime);
 
     release_sender
         .send(())
@@ -523,24 +522,19 @@ fn close_shutdown_exposes_cleanup_timeout_diagnostics() {
 }
 
 #[test]
-fn start_gateway_defaults_to_rust_backend() {
+fn native_runtime_starts_with_rust_backend() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
 
-    let status = crate::desktop_commands::gateway::start_gateway_with_workspace_root(
+    crate::desktop_commands::gateway::start_gateway_with_workspace_root(
         &shared,
         fixture.root.clone(),
     )
     .expect("Rust backend startup should not require TS worker");
 
-    assert_eq!(status.owner, "shell");
-    assert_eq!(status.state, "running");
-    assert_eq!(status.command, "Tauri Rust backend");
-    assert_eq!(
-        status.worker_runtime.state,
-        crate::transport::stdio_worker::status::WorkerRuntimeState::Running
-    );
-    assert!(lock_runtime(&shared)
+    let runtime = lock_runtime(&shared);
+    assert!(runtime.native_agent_runtime.task_runtime().is_accepting());
+    assert!(runtime
         .logs
         .iter()
         .any(|line| line == "Rust native backend active"));
@@ -550,7 +544,7 @@ fn start_gateway_defaults_to_rust_backend() {
 fn desktop_smoke_default_chat_runs_on_rust_backend() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::default()));
-    let status = crate::desktop_commands::gateway::start_gateway_with_workspace_root(
+    crate::desktop_commands::gateway::start_gateway_with_workspace_root(
         &shared,
         fixture.root.clone(),
     )
@@ -573,7 +567,6 @@ fn desktop_smoke_default_chat_runs_on_rust_backend() {
     )
     .expect("desktop smoke chat should use the native Rust Turn flow");
 
-    assert_eq!(status.command, "Tauri Rust backend");
     assert_eq!(chat["runtime"], "rust");
     assert_eq!(chat["finalContent"], "smoke response from rust");
 }

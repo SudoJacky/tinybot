@@ -23,14 +23,6 @@ describe("desktop task notifications", () => {
           canonical: { module: "files", href: "/files" },
         },
       ],
-      gatewayOperations: [
-        {
-          id: "gateway:startup",
-          title: "Start Tinybot gateway",
-          status: "starting",
-          canonical: { module: "gateway" },
-        },
-      ],
     }));
 
     await controller.update(buildDesktopTaskCenterItems({
@@ -41,17 +33,6 @@ describe("desktop task notifications", () => {
           status: "completed",
           detail: "File ready",
           canonical: { module: "files", href: "/files" },
-        },
-      ],
-      gatewayOperations: [
-        {
-          id: "gateway:startup",
-          title: "Start Tinybot gateway",
-          status: "failed",
-          detail: "shell / Tauri Rust backend",
-          diagnostics: "port occupied",
-          retryable: true,
-          canonical: { module: "gateway" },
         },
       ],
       approvals: [
@@ -84,10 +65,6 @@ describe("desktop task notifications", () => {
         body: "Review swarm plan - Needs review",
       },
       {
-        title: "Tinybot gateway needs attention",
-        body: "Start Tinybot gateway - port occupied",
-      },
-      {
         title: "Tinybot task completed",
         body: "Process Desktop Notes - File ready",
       },
@@ -104,7 +81,7 @@ describe("desktop task notifications", () => {
         },
       ],
     }));
-    expect(sent).toHaveLength(4);
+    expect(sent).toHaveLength(3);
   });
 
   test("skips OS notification when disabled, focused, unsupported, or permission is unavailable", async () => {

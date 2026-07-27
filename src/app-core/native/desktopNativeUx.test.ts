@@ -5,7 +5,6 @@ import {
   buildDesktopCoworkCockpitUx,
   buildDesktopFileLifecycleUx,
   buildDesktopLoadingPerformanceUx,
-  buildDesktopSafeModeRecoveryUx,
   buildDesktopSettingsProviderSetupUx,
   buildDesktopTaskCenterAttentionUx,
   buildDesktopToolsSkillsManagementUx,
@@ -13,35 +12,6 @@ import {
 } from "./desktopNativeUx";
 
 describe("desktop native UX projections", () => {
-  test("maps startup and gateway states to safe-mode recovery actions", () => {
-    const ready = buildDesktopSafeModeRecoveryUx({
-      phase: "ready",
-      owner: "external",
-      routeIntent: { href: "/chat/session-1", sessionId: "session-1" },
-    });
-    expect(ready.progressSteps.map((step) => `${step.id}:${step.state}`)).toEqual([
-      "start:complete",
-      "connect:complete",
-      "workspace:complete",
-      "ready:complete",
-    ]);
-    expect(ready.diagnosticsDefaultOpen).toBe(false);
-    expect(ready.summary).toBe("Using an existing gateway");
-    expect(ready.safeModeAction.href).toBe("/?route=%2Fchat%2Fsession-1&session=session-1");
-
-    const incompatible = buildDesktopSafeModeRecoveryUx({
-      phase: "failed",
-      failureType: "bootstrap-incompatible",
-      responseClass: "html",
-    });
-    expect(incompatible.diagnosticsDefaultOpen).toBe(true);
-    expect(incompatible.recoveryCards[0]).toMatchObject({
-      id: "bootstrap-incompatible",
-      primaryAction: "Open native workbench",
-    });
-    expect(incompatible.recoveryCards[0].hint).toContain("not with the WebUI bootstrap shape");
-  });
-
   test("defines workbench shell regions, attention badges, inspector tabs, and contextual help", () => {
     const shell = buildDesktopWorkbenchShellUx({
       activeModule: "workspace",

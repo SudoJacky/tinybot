@@ -1,11 +1,9 @@
 import { describe, expect, test } from "vitest";
 import { AGENT_UI_EVENT_TYPES, createAgentUiEventState, normalizeAgentUiEvents, reduceAgentUiEventState } from "../agent-ui/agentUiEvents";
-import { DEFAULT_NATIVE_BACKEND_COMMAND, type GatewayRuntimeStatus } from "../gateway/desktopGatewayRuntime";
 import {
   buildDesktopAgentUiApprovalTaskOperations,
   buildDesktopApprovalTaskOperations,
   buildDesktopFileTaskOperation,
-  buildDesktopGatewayTaskOperation,
   buildDesktopProviderModelDiscoveryTaskOperation,
 } from "./desktopTaskCenterSources";
 import { buildDesktopTaskCenterItems } from "./desktopTaskCenter";
@@ -64,38 +62,6 @@ describe("desktop task center source projections", () => {
         updatedAt: "",
       },
     ]);
-  });
-
-  test("projects gateway lifecycle snapshots into gateway task operations", () => {
-    const starting: GatewayRuntimeStatus = {
-      state: "starting",
-      owner: "shell",
-      command: DEFAULT_NATIVE_BACKEND_COMMAND,
-      repo_root: "D:/Code/tinybot/tinybot",
-      logs: ["booting"],
-      last_error: null,
-    };
-    const failed = { ...starting, state: "offline" as const, owner: "none" as const, last_error: "port occupied" };
-
-    expect(buildDesktopGatewayTaskOperation("startup", starting)).toEqual({
-      id: "gateway:startup",
-      title: "Start Tinybot gateway",
-      status: "starting",
-      detail: `shell / ${DEFAULT_NATIVE_BACKEND_COMMAND}`,
-      canonical: { module: "gateway" },
-      diagnostics: "booting",
-      retryable: false,
-      updatedAt: "",
-    });
-    expect(buildDesktopGatewayTaskOperation("restart", failed)).toMatchObject({
-      id: "gateway:restart",
-      title: "Restart Tinybot gateway",
-      status: "failed",
-      detail: `none / ${DEFAULT_NATIVE_BACKEND_COMMAND}`,
-      canonical: { module: "gateway" },
-      diagnostics: "port occupied",
-      retryable: true,
-    });
   });
 
   test("projects file operations and blocked approvals into task center items", () => {
