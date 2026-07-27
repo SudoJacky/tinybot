@@ -104,9 +104,6 @@ function canonicalConfigSegment(parent: readonly string[], segment: string): str
   if (parent.length === 1 && parent[0] === "channels" && segment === "send_progress") {
     return "sendProgress";
   }
-  if (parent.length === 2 && parent[0] === "gateway" && parent[1] === "heartbeat" && segment === "interval_s") {
-    return "intervalS";
-  }
   return segment;
 }
 

@@ -29,7 +29,6 @@ const DISPOSITION_RULES: DispositionRule[] = [
   { pattern: /^tools\.(restrictToWorkspace|ssrfWhitelist)(\.|$)/, disposition: "advanced" },
   { pattern: /^tools\.(web|exec)(\.|$)/, disposition: "advanced" },
   { pattern: /^channels\..+$/, disposition: "advanced" },
-  { pattern: /^gateway\.heartbeat\.(enabled|intervalS)$/, disposition: "essential" },
   { pattern: /^desktop\.ui\..+$/, disposition: "managed-elsewhere" },
 ];
 
@@ -51,7 +50,6 @@ export function canonicalizeDesktopSettingsPersistentPath(path: string): string 
     .replace(/^tools\.mcp_servers(?=\.|$)/, "tools.mcpServers")
     .replace(/^tools\.ssrf_whitelist(?=\.|$)/, "tools.ssrfWhitelist")
     .replace(/^channels\.send_progress(?=\.|$)/, "channels.sendProgress")
-    .replace(/^gateway\.heartbeat\.interval_s$/, "gateway.heartbeat.intervalS")
     .replace(/^tools\.restrict_to_workspace$/, "tools.restrictToWorkspace")
     .replace(/^channels\.send_tool_hints$/, "channels.sendToolHints")
     .replace(/^channels\.send_max_retries$/, "channels.sendMaxRetries");

@@ -22,7 +22,6 @@ describe("desktop settings schema coverage", () => {
     expect(canonicalizeDesktopSettingsPersistentPath("agents.defaults.max_tool_iterations")).toBe("agents.defaults.maxIterations");
     expect(canonicalizeDesktopSettingsPersistentPath("agents.defaults.context_window_strategy")).toBe("agents.defaults.contextWindowStrategy");
     expect(canonicalizeDesktopSettingsPersistentPath("tools.mcp_servers.docs.command")).toBe("tools.mcpServers.docs.command");
-    expect(canonicalizeDesktopSettingsPersistentPath("gateway.heartbeat.interval_s")).toBe("gateway.heartbeat.intervalS");
   });
 
   test("all rendered persistent settings paths have dispositions", () => {
@@ -45,7 +44,6 @@ describe("desktop settings schema coverage", () => {
           models: ["deepseek-chat"],
         },
       },
-      gateway: { heartbeat: { enabled: false, interval_s: 1800 } },
     }, providerCatalog);
     const pane = buildDesktopSettingsPaneModel(state, { providerCatalog });
 

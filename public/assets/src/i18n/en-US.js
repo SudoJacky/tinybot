@@ -278,12 +278,6 @@ export default {
     "settings.tools.mcpServersPlaceholder": "External MCP server config JSON",
     "settings.tools.restrictWorkspace": "Restrict to workspace",
 
-    "settings.gateway": "Gateway Config",
-    "settings.gateway.heartbeat": "Heartbeat",
-    "settings.gateway.heartbeatEnable": "Enable heartbeat",
-    "settings.gateway.interval": "Interval (seconds)",
-    "settings.gateway.intervalPlaceholder": "Heartbeat interval",
-
     "settings.channels": "Channels Config",
     "settings.channels.sendProgress": "Send progress messages",
     "settings.channels.sendToolHints": "Send tool hints",
@@ -318,8 +312,6 @@ export default {
     "help.execTimeout": "Command timeout in seconds\nAuto-kill on timeout",
     "help.mcpServers": "Configure external MCP servers\nSupports stdio, sse, streamableHttp\nReconnects after saving",
     "help.restrictWorkspace": "AI can only access workspace dir\nMore secure",
-    "help.heartbeatEnable": "Send periodic status updates\nKeeps connection stable",
-    "help.heartbeatInterval": "Heartbeat interval in seconds\nDefault: 30 minutes",
     "help.sendProgress": "Show AI thinking process text\nMore engaging responses",
     "help.sendToolHints": "Show active tool calls\ne.g. \"Reading file...\"",
     "help.sendMaxRetries": "Retry count on send failure\nIncludes initial attempt",

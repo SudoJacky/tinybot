@@ -152,10 +152,6 @@ pub(crate) fn run() {
             }
             #[cfg(windows)]
             super::update::spawn_startup_auto_update(app.handle().clone(), setup_state.clone());
-            push_log(
-                &setup_state,
-                "Rust backend startup skipped legacy heartbeat worker",
-            );
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

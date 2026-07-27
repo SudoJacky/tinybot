@@ -59,7 +59,7 @@ fn provider_api_key_is_secret_modeled_and_revealable() {
 }
 
 #[test]
-fn gateway_runtime_ignores_legacy_endpoint_fields() {
+fn gateway_runtime_ignores_legacy_gateway_config_fields() {
     let snapshot = build_settings_snapshot(SettingsSnapshotInput {
         config: config_fixture(),
         config_path: PathBuf::from("C:/Users/example/.tinybot/config.json"),
@@ -71,8 +71,10 @@ fn gateway_runtime_ignores_legacy_endpoint_fields() {
     assert!(snapshot.field("gateway.port").is_none());
     assert!(snapshot.field("gateway.http_base_url").is_none());
     assert!(snapshot.field("gateway.ws_url").is_none());
-    assert!(snapshot.field("gateway.heartbeat.enabled").is_some());
-    assert!(snapshot.field("gateway.heartbeat.interval_s").is_some());
+    assert!(snapshot.field("gateway.heartbeat.enabled").is_none());
+    assert!(snapshot.field("gateway.heartbeat.interval_s").is_none());
+    assert!(snapshot.field("runtime.config_path").is_some());
+    assert!(snapshot.field("runtime.config_revision").is_some());
 }
 
 #[test]
@@ -277,7 +279,11 @@ fn config_fixture() -> serde_json::Value {
         },
         "gateway": {
             "host": "0.0.0.0",
-            "port": 18791
+            "port": 18791,
+            "heartbeat": {
+                "enabled": true,
+                "interval_s": 1800
+            }
         },
         "memory": {
             "enabled": true

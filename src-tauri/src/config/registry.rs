@@ -429,24 +429,6 @@ pub fn build_settings_snapshot(input: SettingsSnapshotInput) -> SettingsSnapshot
             "Gateway & Runtime",
             SettingsArea::System,
             vec![
-                config_field(
-                    "gateway-heartbeat-enabled",
-                    "Gateway heartbeat enabled",
-                    "gateway.heartbeat.enabled",
-                    SettingScope::Global,
-                    SettingValueType::Boolean,
-                    true,
-                    get_path(config, &["gateway", "heartbeat", "enabled"]),
-                ),
-                config_field(
-                    "gateway-heartbeat-interval",
-                    "Gateway heartbeat interval",
-                    "gateway.heartbeat.interval_s",
-                    SettingScope::Global,
-                    SettingValueType::Number,
-                    true,
-                    get_path(config, &["gateway", "heartbeat", "interval_s"]),
-                ),
                 readonly_field(
                     "config-path",
                     "Config path",

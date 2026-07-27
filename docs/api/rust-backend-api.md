@@ -305,7 +305,8 @@ First-version group ids returned by `get_settings_snapshot`:
 
 The first version intentionally does not include Memory, Cowork, Channels, generic
 web/exec/browser tool toggles, telemetry/crash-report controls, or raw JSON editing fields.
-The `gateway-runtime` group no longer projects a host, port, HTTP URL, or WebSocket URL. Secret fields
+The `gateway-runtime` group only projects native runtime metadata; it no longer exposes legacy
+gateway endpoint or heartbeat configuration. Secret fields
 return `value: null` with `secret` metadata and must remain redacted in exported/public config.
 Provider selection is profile-based. New config should use `agents.defaults.activeProfile` and
 `providers.profiles.<profileId>.provider`; `agents.defaults.provider: "auto"` is a legacy value only.

@@ -276,12 +276,6 @@ export default {
     "settings.tools.mcpServersPlaceholder": "外部 MCP Server 配置 JSON",
     "settings.tools.restrictWorkspace": "限制在工作区",
 
-    "settings.gateway": "Gateway 配置",
-    "settings.gateway.heartbeat": "心跳服务",
-    "settings.gateway.heartbeatEnable": "启用心跳",
-    "settings.gateway.interval": "Interval (秒)",
-    "settings.gateway.intervalPlaceholder": "心跳间隔",
-
     "settings.channels": "Channels 配置",
     "settings.channels.sendProgress": "发送进度消息",
     "settings.channels.sendToolHints": "发送工具提示",
@@ -316,8 +310,6 @@ export default {
     "help.execTimeout": "命令执行超时秒数\n超时自动终止",
     "help.mcpServers": "配置外部 MCP Server\n支持 stdio、sse、streamableHttp\n保存后会重新连接",
     "help.restrictWorkspace": "AI只能在workspace目录操作文件\n更安全",
-    "help.heartbeatEnable": "定期发送状态更新\n保持连接稳定",
-    "help.heartbeatInterval": "心跳发送间隔秒数\n默认30分钟",
     "help.sendProgress": "显示AI思考过程中的文字\n让回复更有过程感",
     "help.sendToolHints": "显示AI正在调用的工具\n如\"正在读取文件...\"",
     "help.sendMaxRetries": "消息发送失败时的重试次数\n包括首次发送",

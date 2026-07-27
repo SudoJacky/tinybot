@@ -50,6 +50,9 @@ describe("desktop settings and provider helpers", () => {
             docs: { command: "docs-mcp" },
           },
         },
+        gateway: {
+          heartbeat: { enabled: true, interval_s: 1800 },
+        },
       },
       [{ id: "openai", displayName: "OpenAI" }],
     );
@@ -67,6 +70,7 @@ describe("desktop settings and provider helpers", () => {
       supportsModelDiscovery: false,
     });
     expect(state.tools.mcpServersText).toContain("docs-mcp");
+    expect(state).not.toHaveProperty("gateway");
   });
 
   test("builds the same config PATCH shape as the root WebUI settings form", () => {
@@ -313,7 +317,6 @@ describe("desktop settings and provider helpers", () => {
       ["skills", "Skills"],
       ["channels", "Channels"],
       ["automations", "Automations"],
-      ["gateway-runtime", "Gateway & Runtime"],
       ["logs-diagnostics", "Logs & Diagnostics"],
     ]);
     expect(pane.groups.find((group) => group.id === "general")?.fields).toEqual(expect.arrayContaining([
@@ -331,10 +334,6 @@ describe("desktop settings and provider helpers", () => {
       expect.objectContaining({ id: "workspaceFiles", label: "Workspace files", value: "Workspace file", control: "readonly", requirement: "readonly", configurationMode: "readonly" }),
     ]));
     expect(pane.groups.find((group) => group.id === "general")?.fields.find((field) => field.id === "workspace")).toBeUndefined();
-    expect(pane.groups.find((group) => group.id === "gateway-runtime")?.fields).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "heartbeat", label: "Heartbeat", configurationMode: "toggle" }),
-      expect.objectContaining({ id: "heartbeatIntervalS", label: "Heartbeat interval", configurationMode: "numeric" }),
-    ]));
     expect(pane.providerCatalog).toEqual([
       expect.objectContaining({
         id: "openai",
@@ -375,18 +374,16 @@ describe("desktop settings and provider helpers", () => {
     const state = buildDesktopSettingsFormState({
       agents: { defaults: { model: "gpt-4.1-mini", provider: "openai", active_profile: "work" } },
       providers: { profiles: { work: { provider: "openai", api_key: "sk-live", models: ["gpt-4.1-mini"] } } },
-      gateway: { heartbeat: { enabled: false, interval_s: 1800 } },
     }, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
 
     const withModel = applyDesktopSettingsFieldEdit(state, "model", "gpt-4.1");
     const withApiKey = applyDesktopSettingsFieldEdit(withModel, "apiKey", "********");
     const withReplacementKey = applyDesktopSettingsFieldEdit(withApiKey, "apiKey", "sk-replacement");
-    const withHeartbeat = applyDesktopSettingsFieldEdit(withReplacementKey, "heartbeat", true);
-    const patch = createDesktopSettingsPatch(withHeartbeat, {}, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
+    const patch = createDesktopSettingsPatch(withReplacementKey, {}, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
 
     expect(patch.agents).toMatchObject({ defaults: { model: "gpt-4.1" } });
     expect(patch.providers).toMatchObject({ openai: { api_key: "sk-replacement" } });
-    expect(patch.gateway).toMatchObject({ heartbeat: { enabled: true } });
+    expect(patch).not.toHaveProperty("gateway");
   });
 
   test("generates touched-path patches for individual field edits without hidden settings", () => {
@@ -412,13 +409,9 @@ describe("desktop settings and provider helpers", () => {
     const state = buildDesktopSettingsFormState(existingConfig, [{ id: "openai", displayName: "OpenAI", status: "ready" }]);
 
     const withTimezone = applyDesktopSettingsFieldEdit(state, "timezone", "Asia/Shanghai");
-    const withHeartbeatInterval = applyDesktopSettingsFieldEdit(state, "heartbeatIntervalS", "900");
 
     expect(createDesktopSettingsPatch(withTimezone, existingConfig, [{ id: "openai", displayName: "OpenAI", status: "ready" }])).toEqual({
       agents: { defaults: { timezone: "Asia/Shanghai" } },
-    });
-    expect(createDesktopSettingsPatch(withHeartbeatInterval, existingConfig, [{ id: "openai", displayName: "OpenAI", status: "ready" }])).toEqual({
-      gateway: { heartbeat: { interval_s: 900 } },
     });
   });
 
@@ -538,7 +531,6 @@ describe("desktop settings and provider helpers", () => {
       },
       tools: { exec: { enable: true, timeout: 120 }, web: { enable: true, search: { provider: "duckduckgo" } } },
       channels: { send_progress: true, send_tool_hints: false, send_max_retries: 3 },
-      gateway: { heartbeat: { enabled: true, interval_s: 1800 } },
     };
 
     const cases: Array<[string, string, string | boolean, unknown]> = [
@@ -551,7 +543,6 @@ describe("desktop settings and provider helpers", () => {
       }],
       ["tools-approvals", "execTimeout", "90", { tools: { exec: { timeout: 90 } } }],
       ["channels", "sendMaxRetries", "5", { channels: { send_max_retries: 5 } }],
-      ["gateway-runtime", "heartbeatIntervalS", "900", { gateway: { heartbeat: { interval_s: 900 } } }],
       ["files-workspace", "sessionFiles", "ignored", {}],
       ["memory-experience", "memory", "ignored", {}],
       ["skills", "skills", "ignored", {}],
@@ -700,9 +691,6 @@ describe("desktop settings and provider helpers", () => {
         send_progress: true,
         send_tool_hints: true,
       },
-      gateway: {
-        heartbeat: { enabled: true },
-      },
     });
 
     const pane = buildDesktopSettingsPaneModel(state);
@@ -713,7 +701,6 @@ describe("desktop settings and provider helpers", () => {
     expect(fields["tools-approvals.webEnable"]).toMatchObject({ commitMode: "auto" });
     expect(fields["channels.sendProgress"]).toMatchObject({ commitMode: "auto" });
     expect(fields["channels.sendToolHints"]).toMatchObject({ commitMode: "auto" });
-    expect(fields["gateway-runtime.heartbeat"]).toMatchObject({ commitMode: "auto" });
 
     expect(fields["tools-approvals.execEnable"]).toMatchObject({
       commitMode: "auto",
@@ -746,7 +733,6 @@ describe("desktop settings and provider helpers", () => {
           },
         },
       },
-      gateway: { heartbeat: { enabled: false, interval_s: 1800 } },
       tools: { mcp: { servers: { local: { command: "node" } } } },
     }, [{ id: "deepseek", displayName: "DeepSeek", status: "ready" }]);
 
@@ -767,10 +753,6 @@ describe("desktop settings and provider helpers", () => {
       navigationArea: "application",
       navigationMode: "section",
     });
-    expect(groups["gateway-runtime"]).toMatchObject({
-      navigationArea: "system",
-      navigationMode: "section",
-    });
     expect(groups["memory-experience"]).toMatchObject({
       navigationMode: "preview",
     });
@@ -788,10 +770,6 @@ describe("desktop settings and provider helpers", () => {
     expect(fields["files-workspace.workspace"]).toMatchObject({
       applyEffect: "workspace-reload",
       i18nKey: "settings.fields.files-workspace.workspace",
-    });
-    expect(groups["gateway-runtime"]).toMatchObject({
-      description: "Legacy heartbeat and runtime controls.",
-      aliases: ["gateway", "runtime", "heartbeat"],
     });
     expect(fields["tools-approvals.mcpServers"]).toMatchObject({
       validationField: "mcpServers",
@@ -824,7 +802,6 @@ describe("desktop settings and provider helpers", () => {
           },
         },
       },
-      gateway: { heartbeat: { enabled: false, interval_s: 1800 } },
     }, [{ id: "deepseek", displayName: "DeepSeek", status: "ready" }]);
 
     const pane = buildDesktopSettingsPaneModel(state, {
@@ -856,7 +833,6 @@ describe("desktop settings and provider helpers", () => {
       "provider-models.selectedProvider": { sourceKind: "local-ui-preference" },
       "provider-models.apiKey": { persistentPath: "providers.deepseek.api_key", sensitive: true },
       "files-workspace.workspace": { persistentPath: "agents.defaults.workspace", applyEffect: "workspace-reload" },
-      "gateway-runtime.heartbeat": { persistentPath: "gateway.heartbeat.enabled", applyEffect: "immediate" },
     });
   });
 

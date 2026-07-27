@@ -569,9 +569,6 @@ fn canonical_config_segment(parent: &[String], _index: usize, segment: &str) -> 
     if parent == ["channels"] && segment == "send_progress" {
         return "sendProgress".to_string();
     }
-    if parent == ["gateway", "heartbeat"] && segment == "interval_s" {
-        return "intervalS".to_string();
-    }
     if parent.len() == 3 && parent[0] == "providers" && parent[1] == "profiles" {
         return match segment {
             "display_name" => "displayName".to_string(),

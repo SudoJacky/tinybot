@@ -13,7 +13,7 @@ import type {
   SettingsStore,
 } from "../services";
 
-export type ConfigSettingsGroupId = "tools-approvals" | "channels" | "gateway-runtime";
+export type ConfigSettingsGroupId = "tools-approvals" | "channels";
 
 type ConfigSettingsPageProps = {
   groupId: ConfigSettingsGroupId;
@@ -29,10 +29,6 @@ const GROUP_COPY: Record<ConfigSettingsGroupId, { title: string; description: st
     title: "Channels",
     description: "Choose which progress signals are emitted and how failed deliveries are retried.",
   },
-  "gateway-runtime": {
-    title: "Gateway & Runtime",
-    description: "Manage legacy heartbeat behavior for the native runtime.",
-  },
 };
 
 const FIELD_COPY: Record<string, string> = {
@@ -46,8 +42,6 @@ const FIELD_COPY: Record<string, string> = {
   sendProgress: "Send intermediate progress events to connected clients.",
   sendToolHints: "Include tool activity hints with progress events.",
   sendMaxRetries: "Maximum delivery retries after a channel send failure.",
-  heartbeat: "Send a periodic heartbeat while the gateway is running.",
-  heartbeatIntervalS: "Seconds between heartbeat events.",
 };
 
 const EXPOSED_FIELDS: Record<ConfigSettingsGroupId, readonly string[]> = {
@@ -61,7 +55,6 @@ const EXPOSED_FIELDS: Record<ConfigSettingsGroupId, readonly string[]> = {
     "mcpServers",
   ],
   channels: ["sendProgress", "sendToolHints", "sendMaxRetries"],
-  "gateway-runtime": ["heartbeat", "heartbeatIntervalS"],
 };
 
 export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPageProps) {

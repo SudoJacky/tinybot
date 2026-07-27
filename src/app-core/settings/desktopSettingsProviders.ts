@@ -59,10 +59,6 @@ export interface DesktopSettingsFormState {
     mcpServersText: string;
     restrictToWorkspace: boolean;
   };
-  gateway: {
-    heartbeatEnabled: boolean;
-    heartbeatIntervalS: number | null;
-  };
   channels: {
     sendProgress: boolean;
     sendToolHints: boolean;
@@ -236,7 +232,6 @@ export interface DesktopSettingsPaneGroup {
     | "skills"
     | "channels"
     | "automations"
-    | "gateway-runtime"
     | "logs-diagnostics";
   label: string;
   description?: string;
@@ -313,14 +308,6 @@ const DESKTOP_SETTINGS_GROUP_METADATA: Record<DesktopSettingsPaneGroupId, Deskto
     i18nKey: "settings.groups.automations",
     navigationArea: "application",
     navigationMode: "preview",
-  },
-  "gateway-runtime": {
-    label: "Gateway & Runtime",
-    description: "Legacy heartbeat and runtime controls.",
-    aliases: ["gateway", "runtime", "heartbeat"],
-    i18nKey: "settings.groups.gateway-runtime",
-    navigationArea: "system",
-    navigationMode: "section",
   },
   "logs-diagnostics": {
     label: "Logs & Diagnostics",
@@ -410,7 +397,6 @@ const DESKTOP_SETTINGS_AUTO_COMMIT_FIELDS = new Set([
   "tools-approvals.restrictToWorkspace",
   "channels.sendProgress",
   "channels.sendToolHints",
-  "gateway-runtime.heartbeat",
 ]);
 
 const DESKTOP_SETTINGS_FIELD_CONFIRMATIONS: Record<string, DesktopSettingsPaneFieldConfirmation> = {
@@ -454,9 +440,6 @@ export interface DesktopSettingsPaneModel {
     reloadRequired?: string[];
     warnings?: string[];
     diagnostics?: string;
-  };
-  runtime?: {
-    heartbeatDependency: string;
   };
   diagnostics?: {
     runtimeSummary: string;
@@ -510,8 +493,6 @@ export function buildDesktopSettingsFormState(
   const tools = asRecord(root.tools);
   const web = asRecord(tools.web);
   const exec = asRecord(tools.exec);
-  const gateway = asRecord(root.gateway);
-  const heartbeat = asRecord(gateway.heartbeat);
   const channels = asRecord(root.channels);
   const providers = asRecord(root.providers);
   const rawProvider = stringValue(pick(defaults, "provider")) || "auto";
@@ -555,10 +536,6 @@ export function buildDesktopSettingsFormState(
       execTimeout: numberOrDefault(exec.timeout, 60),
       mcpServersText: stringifyDesktopJsonObject(pick(tools, "mcpServers", "mcp_servers")),
       restrictToWorkspace: boolValue(pick(tools, "restrictToWorkspace", "restrict_to_workspace")),
-    },
-    gateway: {
-      heartbeatEnabled: heartbeat.enabled === true,
-      heartbeatIntervalS: numberOrDefault(pick(heartbeat, "intervalS", "interval_s"), 1800),
     },
     channels: {
       sendProgress: boolValue(pick(channels, "sendProgress", "send_progress")),
@@ -822,12 +799,6 @@ function createDesktopSettingsFullPatch(
       mcp_servers: parseDesktopJsonObject(state.tools.mcpServersText),
       restrict_to_workspace: state.tools.restrictToWorkspace,
     },
-    gateway: {
-      heartbeat: {
-        enabled: state.gateway.heartbeatEnabled,
-        interval_s: state.gateway.heartbeatIntervalS,
-      },
-    },
     channels: {
       send_progress: state.channels.sendProgress,
       send_tool_hints: state.channels.sendToolHints,
@@ -895,10 +866,6 @@ function getDesktopSettingsPatchPathValue(state: DesktopSettingsFormState, path:
       return parseDesktopJsonObject(state.tools.mcpServersText);
     case "tools.restrict_to_workspace":
       return state.tools.restrictToWorkspace;
-    case "gateway.heartbeat.enabled":
-      return state.gateway.heartbeatEnabled;
-    case "gateway.heartbeat.interval_s":
-      return state.gateway.heartbeatIntervalS;
     case "channels.send_progress":
       return state.channels.sendProgress;
     case "channels.send_tool_hints":
@@ -1018,7 +985,6 @@ export function buildDesktopSettingsPaneModel(
     save.warnings = saveDetails.warnings;
     save.diagnostics = formatDesktopSettingsSaveDiagnostics(saveStatus, saveDetails);
   }
-  const runtime = buildDesktopSettingsRuntimeSummary(state);
   const diagnostics = buildDesktopSettingsDiagnosticsSummary(save);
   const providerCatalog = providerSummaries.map((provider) => ({
     id: provider.id,
@@ -1036,7 +1002,6 @@ export function buildDesktopSettingsPaneModel(
     dirty,
     validationErrors,
     save,
-    runtime,
     diagnostics,
     groups: buildDesktopSettingsPaneGroups(state, validationErrors, providerSummaries),
     providerCatalog,
@@ -1078,16 +1043,6 @@ function buildDesktopSettingsDiagnosticsSummary(
       ? `Last config error: ${save.message}`
       : "Last config error: None.",
     logLevel: "info",
-  };
-}
-
-function buildDesktopSettingsRuntimeSummary(
-  state: DesktopSettingsFormState,
-): NonNullable<DesktopSettingsPaneModel["runtime"]> {
-  return {
-    heartbeatDependency: state.gateway.heartbeatEnabled
-      ? "Heartbeat interval is active while heartbeat is enabled."
-      : "Heartbeat interval is disabled while heartbeat is off.",
   };
 }
 
@@ -1266,14 +1221,6 @@ export function applyDesktopSettingsFieldEdit(
       nextState.tools.restrictToWorkspace = Boolean(value);
       markDesktopSettingsTouched(nextState, "tools.restrict_to_workspace");
       break;
-    case "heartbeat":
-      nextState.gateway.heartbeatEnabled = Boolean(value);
-      markDesktopSettingsTouched(nextState, "gateway.heartbeat.enabled");
-      break;
-    case "heartbeatIntervalS":
-      nextState.gateway.heartbeatIntervalS = numberOrNullInput(text);
-      markDesktopSettingsTouched(nextState, "gateway.heartbeat.interval_s");
-      break;
     case "sendProgress":
       nextState.channels.sendProgress = Boolean(value);
       markDesktopSettingsTouched(nextState, "channels.send_progress");
@@ -1431,7 +1378,6 @@ function cloneSettingsState(state: DesktopSettingsFormState): DesktopSettingsFor
     agent: { ...state.agent },
     embedding: { ...state.embedding },
     tools: { ...state.tools },
-    gateway: { ...state.gateway },
     channels: { ...state.channels },
     providerEditor: { ...state.providerEditor },
     providerSummaries: (state.providerSummaries ?? []).map((provider) => ({ ...provider })),
@@ -1979,21 +1925,6 @@ function buildDesktopSettingsPaneGroups(
       ],
     },
     {
-      id: "gateway-runtime",
-      label: "Gateway & Runtime",
-      fields: [
-        field("heartbeat", "Heartbeat", state.gateway.heartbeatEnabled, { control: "checkbox" }),
-        field("heartbeatIntervalS", "Heartbeat interval", state.gateway.heartbeatIntervalS, {
-          control: "number",
-          configurationMode: "numeric",
-          advanced: true,
-          disabled: !state.gateway.heartbeatEnabled,
-          min: 1,
-          step: 1,
-        }),
-      ],
-    },
-    {
       id: "logs-diagnostics",
       label: "Logs & Diagnostics",
       fields: [
@@ -2166,8 +2097,6 @@ function getDesktopSettingsPaneFieldPersistentPath(
     "channels.sendProgress": "channels.sendProgress",
     "channels.sendToolHints": "channels.sendToolHints",
     "channels.sendMaxRetries": "channels.sendMaxRetries",
-    "gateway-runtime.heartbeat": "gateway.heartbeat.enabled",
-    "gateway-runtime.heartbeatIntervalS": "gateway.heartbeat.intervalS",
   };
   if (field.persistentPath) {
     return field.persistentPath;

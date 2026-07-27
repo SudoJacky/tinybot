@@ -232,7 +232,11 @@ fn native_settings_snapshot_returns_registry_projection() {
                   }
                 }
               },
-              "gateway": { "host": "0.0.0.0", "port": 18791 }
+              "gateway": {
+                "host": "0.0.0.0",
+                "port": 18791,
+                "heartbeat": { "enabled": true, "interval_s": 1800 }
+              }
             }"#,
     )
     .expect("fixture config should write");
@@ -276,8 +280,21 @@ fn native_settings_snapshot_returns_registry_projection() {
         .expect("gateway group should exist");
     assert!(gateway_group.fields.iter().all(|field| !matches!(
         field.path.as_str(),
-        "gateway.host" | "gateway.port" | "gateway.http_base_url" | "gateway.ws_url"
+        "gateway.host"
+            | "gateway.port"
+            | "gateway.http_base_url"
+            | "gateway.ws_url"
+            | "gateway.heartbeat.enabled"
+            | "gateway.heartbeat.interval_s"
     )));
+    assert!(gateway_group
+        .fields
+        .iter()
+        .any(|field| field.path == "runtime.config_path"));
+    assert!(gateway_group
+        .fields
+        .iter()
+        .any(|field| field.path == "runtime.config_revision"));
 }
 
 #[test]
