@@ -18,8 +18,6 @@ vi.mock("@tauri-apps/api/event", () => ({
     return () => mocks.listeners.delete(name);
   }),
 }));
-vi.mock("../app-core/gateway/desktopGatewayStartup", () => ({ ensureGatewayReady: vi.fn(async () => undefined) }));
-
 const thread = {
   threadId: "thread-1",
   sessionKey: "thread-1",
@@ -97,6 +95,18 @@ describe("desktop native app services", () => {
       };
       return { command, args };
     });
+  });
+
+  test("initializes directly through native commands without legacy Gateway probes", async () => {
+    const services = createDesktopAppServices();
+
+    await services.sessionStore.list();
+
+    const commands = mocks.invoke.mock.calls.map(([command]) => command);
+    expect(commands).not.toContain("gateway_status");
+    expect(commands).not.toContain("start_gateway");
+    expect(commands).not.toContain("worker_probe_status");
+    expect(commands).toContain("worker_threads_list");
   });
 
   test("lists and creates real Thread sessions", async () => {

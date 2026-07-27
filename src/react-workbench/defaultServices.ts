@@ -9,8 +9,6 @@ import {
   type AgentUiForm,
 } from "../app-core/agent-ui/agentUiEvents";
 import type { DesktopCommand, DesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
-import { DEFAULT_GATEWAY_CONFIG, resolveGatewayConfig } from "../app-core/gateway/gatewayConfig";
-import { ensureGatewayReady } from "../app-core/gateway/desktopGatewayStartup";
 import { createDesktopNativeConfigApi } from "../app-core/native/desktopNativeConfig";
 import { applyNativeConfigPatch } from "../app-core/native/desktopNativeConfigPatch";
 import { createDesktopNativeSessionsApi } from "../app-core/native/desktopNativeSessions";
@@ -65,7 +63,6 @@ import { normalizeTinyOsEffectiveCapabilities } from "../app-core/chat/tinyOsCap
 type Listener = (event: ChatEvent) => void;
 
 export function createDesktopAppServices(): AppServices {
-  const config = resolveGatewayConfig(DEFAULT_GATEWAY_CONFIG);
   const nativeMode = hasTauriRuntime();
   const nativeConfig = nativeMode ? createDesktopNativeConfigApi({ invoke }) : undefined;
   const nativeSessions = nativeMode ? createDesktopNativeSessionsApi({ invoke }) : undefined;
@@ -132,7 +129,6 @@ export function createDesktopAppServices(): AppServices {
       if (!nativeMode) {
         throw new Error("Tinybot chat requires the Tauri native runtime");
       }
-      await ensureGatewayReady(config, { invoke, hasTauriRuntime });
       await registerNativeChatEvents();
       await controller.loadSessions();
     })();
@@ -600,7 +596,7 @@ export function createDesktopAppServices(): AppServices {
       async load() {
         await initialize();
         const snapshot = await loadSettingsSnapshot();
-        return normalizeSettingsSummary(snapshot, config);
+        return normalizeSettingsSummary(snapshot);
       },
       async loadChatModels() {
         await initialize();
@@ -928,12 +924,8 @@ function normalizeMcpServerSummary(item: Record<string, unknown>): McpServerSumm
   };
 }
 
-function normalizeSettingsSummary(snapshot: unknown, config: { httpBaseUrl: string; requestTimeoutMs: number; wsUrl: string }) {
-  const rows = [
-    { label: "Gateway URL", value: config.httpBaseUrl },
-    { label: "WebSocket URL", value: config.wsUrl },
-    { label: "Request timeout", value: `${config.requestTimeoutMs} ms` },
-  ];
+function normalizeSettingsSummary(snapshot: unknown) {
+  const rows: Array<{ label: string; value: string }> = [];
   if (!isRecord(snapshot)) {
     return rows;
   }

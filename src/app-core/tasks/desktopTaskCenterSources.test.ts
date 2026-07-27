@@ -1,7 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { AGENT_UI_EVENT_TYPES, createAgentUiEventState, normalizeAgentUiEvents, reduceAgentUiEventState } from "../agent-ui/agentUiEvents";
-import { DEFAULT_NATIVE_BACKEND_COMMAND } from "../gateway/desktopGatewayStartup";
-import type { GatewayRuntimeStatus } from "../gateway/desktopGatewayStartup";
+import { DEFAULT_NATIVE_BACKEND_COMMAND, type GatewayRuntimeStatus } from "../gateway/desktopGatewayRuntime";
 import {
   buildDesktopAgentUiApprovalTaskOperations,
   buildDesktopApprovalTaskOperations,

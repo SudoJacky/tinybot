@@ -4,8 +4,7 @@ import {
   buildDesktopGatewayRuntimeRows,
   runDesktopGatewayRuntimeCommand,
 } from "./desktopGatewayRuntimeControls";
-import { DEFAULT_NATIVE_BACKEND_COMMAND } from "./desktopGatewayStartup";
-import type { GatewayRuntimeStatus } from "./desktopGatewayStartup";
+import { DEFAULT_NATIVE_BACKEND_COMMAND, type GatewayRuntimeStatus } from "./desktopGatewayRuntime";
 
 describe("desktop gateway runtime controls", () => {
   test("projects ownership, command, port, repo root, logs, errors, and exit policy", () => {

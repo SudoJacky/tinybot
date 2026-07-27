@@ -1,7 +1,17 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
-import type { NativeCoworkApi, NativeCoworkRouteRequest } from "../gateway/gatewayHttpClient";
 
 type TauriInvoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+
+export type NativeCoworkRouteRequest = {
+  method: string;
+  path: string;
+  query?: Record<string, string>;
+  body?: unknown;
+};
+
+export type NativeCoworkApi = {
+  route: (request: NativeCoworkRouteRequest) => Promise<unknown>;
+};
 
 export function createDesktopNativeCoworkApi(options: { invoke?: TauriInvoke } = {}): NativeCoworkApi {
   const invoke = options.invoke ?? tauriInvoke;

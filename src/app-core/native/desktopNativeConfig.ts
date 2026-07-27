@@ -1,7 +1,10 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
-import type { NativeConfigApi } from "../gateway/gatewayHttpClient";
 
 type TauriInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
+
+export type NativeConfigApi = {
+  get: () => Promise<unknown>;
+};
 
 type NativeConfigEditorSnapshot = {
   configPath?: string;

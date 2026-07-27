@@ -1,7 +1,14 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
-import type { NativeWorkspaceApi } from "../gateway/gatewayHttpClient";
 
 type TauriInvoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+
+export type NativeWorkspaceApi = {
+  files: () => Promise<unknown>;
+  file: (path: string) => Promise<unknown>;
+  putFile: (path: string, body: unknown) => Promise<unknown>;
+  directory: (request: { cursor?: string; nameQuery?: string; path: string }) => Promise<unknown>;
+  fileChunk: (request: { cursor?: string; path: string }) => Promise<unknown>;
+};
 
 export function createDesktopNativeWorkspaceApi(options: { invoke?: TauriInvoke } = {}): NativeWorkspaceApi {
   const invoke = options.invoke ?? tauriInvoke;

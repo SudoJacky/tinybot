@@ -1,6 +1,5 @@
 import type { AgentUiState } from "../agent-ui/agentUiEvents";
-import { DEFAULT_NATIVE_BACKEND_COMMAND } from "../gateway/desktopGatewayStartup";
-import type { GatewayRuntimeStatus } from "../gateway/desktopGatewayStartup";
+import { DEFAULT_NATIVE_BACKEND_COMMAND, type GatewayRuntimeStatus } from "../gateway/desktopGatewayRuntime";
 import type { DesktopTaskSourceOperation } from "./desktopTaskCenter";
 
 type UnknownRecord = Record<string, unknown>;

@@ -1,4 +1,3 @@
-import type { NormalizedGatewayEvent } from "../gateway/gatewayWebSocketClient";
 import { logDesktopNativeChatDebug, summarizeDebugText } from "../native/desktopNativeChatDebug";
 import {
   createChatTurnState,
@@ -9,6 +8,21 @@ import {
   type ChatTurnState,
   type TokenUsage,
 } from "./chatTurnModel";
+
+export type NativeChatEvent =
+  | { kind: "attached"; chatId: string; raw: Record<string, unknown> }
+  | { kind: "chat.created"; chatId: string; raw: Record<string, unknown> }
+  | { kind: "agent.event"; chatId?: string; raw: Record<string, unknown> }
+  | { kind: "usage"; chatId?: string; tokenUsage: string; usage?: Record<string, unknown>; raw: Record<string, unknown> }
+  | { kind: "browser.frame"; raw: Record<string, unknown> }
+  | { kind: "browser.snapshot"; raw: Record<string, unknown> }
+  | { kind: "agent-ui.form"; raw: Record<string, unknown> }
+  | { kind: "agent-ui.event"; eventType: string; raw: Record<string, unknown> }
+  | { kind: "interrupted"; chatId?: string; cancelled: boolean; raw: Record<string, unknown> }
+  | { kind: "command.accepted"; chatId?: string; commandId: string; raw: Record<string, unknown> }
+  | { kind: "command.canonical-updated"; chatId?: string; commandId: string; raw: Record<string, unknown> }
+  | { kind: "error"; commandId?: string; message: string; raw: Record<string, unknown> }
+  | { kind: "unknown"; event?: string; raw: Record<string, unknown> };
 
 export type NativeChatSession = {
   key: string;
@@ -538,7 +552,7 @@ export function appendUserMessage(state: NativeChatState, content: string, times
   state.respondingSessionKeys.add(state.activeSessionKey);
 }
 
-export function applyChatEvent(state: NativeChatState, event: NormalizedGatewayEvent) {
+export function applyChatEvent(state: NativeChatState, event: NativeChatEvent) {
   logDesktopNativeChatDebug("state.event.before", {
     event: summarizeChatEvent(event),
     state: summarizeNativeChatState(state),
@@ -867,7 +881,7 @@ function summarizeNativeChatState(state: NativeChatState): Record<string, unknow
   };
 }
 
-function summarizeChatEvent(event: NormalizedGatewayEvent): Record<string, unknown> {
+function summarizeChatEvent(event: NativeChatEvent): Record<string, unknown> {
   const messageId = "messageId" in event && typeof event.messageId === "string" ? event.messageId : "";
   const text = "text" in event && typeof event.text === "string" ? event.text : "";
   return {

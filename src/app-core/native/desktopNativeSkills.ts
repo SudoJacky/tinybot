@@ -1,7 +1,15 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
-import type { NativeSkillsApi } from "../gateway/gatewayHttpClient";
 
 type TauriInvoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+
+export type NativeSkillsApi = {
+  list: () => Promise<unknown>;
+  detail: (name: string) => Promise<unknown>;
+  create: (body: unknown) => Promise<unknown>;
+  update: (name: string, body: unknown) => Promise<unknown>;
+  delete: (name: string) => Promise<unknown>;
+  validate: (name: string) => Promise<unknown>;
+};
 
 export function createDesktopNativeSkillsApi(options: { invoke?: TauriInvoke } = {}): NativeSkillsApi {
   const invoke = options.invoke ?? tauriInvoke;

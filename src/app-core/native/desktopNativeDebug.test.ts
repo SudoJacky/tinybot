@@ -6,8 +6,6 @@ import {
   logDesktopNativeDebug,
   traceDesktopNativeDebugAsync,
 } from "./desktopNativeChatDebug";
-import { DEFAULT_GATEWAY_CONFIG } from "../gateway/gatewayConfig";
-import { createGatewayApiClient } from "../gateway/gatewayHttpClient";
 
 describe("desktop native debug logger", () => {
   afterEach(() => {
@@ -107,33 +105,4 @@ describe("desktop native debug logger", () => {
     });
   });
 
-  test("logs gateway HTTP request lifecycle without storing request bodies", async () => {
-    vi.spyOn(console, "info").mockImplementation(() => undefined);
-    window.localStorage.setItem("tinybot.desktop.nativeDebug", "on");
-    const fetchFn = vi.fn(async (url: RequestInfo | URL) => {
-      if (String(url).endsWith("/webui/bootstrap")) {
-        return new Response(JSON.stringify({ token: "token-1" }), { status: 200 });
-      }
-      return new Response(JSON.stringify({ ok: true }), { status: 200 });
-    });
-    const client = createGatewayApiClient({
-      config: DEFAULT_GATEWAY_CONFIG,
-      fetchFn,
-    });
-
-    await client.skills.create({ content: "sensitive long query" });
-
-    const entries = window.__tinybotNativeDebug ?? [];
-    expect(entries.map((entry) => entry.stage)).toEqual(expect.arrayContaining([
-      "gateway.bootstrap.start",
-      "gateway.bootstrap.complete",
-      "gateway.http.request",
-      "gateway.http.response",
-    ]));
-    expect(entries.find((entry) => entry.stage === "gateway.http.request")?.details).toMatchObject({
-      method: "POST",
-      path: "/api/skills",
-    });
-    expect(JSON.stringify(entries)).not.toContain("sensitive long query");
-  });
 });

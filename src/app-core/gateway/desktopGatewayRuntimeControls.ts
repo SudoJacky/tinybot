@@ -1,4 +1,4 @@
-import { DEFAULT_NATIVE_BACKEND_COMMAND, type GatewayRuntimeStatus } from "./desktopGatewayStartup";
+import { DEFAULT_NATIVE_BACKEND_COMMAND, type GatewayRuntimeStatus } from "./desktopGatewayRuntime";
 
 export interface DesktopGatewayRuntimeRow {
   label: string;
