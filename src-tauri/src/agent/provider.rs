@@ -1,6 +1,6 @@
 mod catalog;
 mod completion;
-mod sse;
+mod streaming;
 
 // Preserve the existing provider interface while implementation stays in focused modules.
 #[allow(unused_imports)]
@@ -11,20 +11,14 @@ pub use catalog::{
 };
 #[allow(unused_imports)]
 pub use completion::{
-    complete_chat_for_agent_with_observer_async, openai_chat_completions_route_async,
-    NativeProviderFailure, NativeProviderFailureKind,
+    complete_chat_for_agent_with_observer_async, NativeProviderFailure, NativeProviderFailureKind,
 };
-pub use sse::NativeProviderStreamEvent;
+pub use streaming::NativeProviderStreamEvent;
 
 #[cfg(test)]
-pub use completion::{
-    complete_chat_for_agent, complete_chat_for_agent_with_observer, openai_chat_completions_route,
-};
+pub use completion::{complete_chat_for_agent, complete_chat_for_agent_with_observer};
 #[cfg(test)]
-use sse::{
-    aggregate_chat_completion_sse, aggregate_chat_completion_sse_with_observer,
-    stream_message_phase,
-};
+use streaming::{stream_message_phase, StreamingChatCompletion};
 
 #[cfg(test)]
 #[path = "provider_tests.rs"]

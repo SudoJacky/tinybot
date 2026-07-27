@@ -876,7 +876,7 @@ fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
 }
 
 #[test]
-fn worker_webui_route_classifies_rust_owned_chat_and_unsupported_routes_on_rust_backend() {
+fn worker_webui_route_rejects_removed_chat_completion_and_unknown_routes() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
         fixture.thread_store.clone(),
@@ -900,7 +900,7 @@ fn worker_webui_route_classifies_rust_owned_chat_and_unsupported_routes_on_rust_
         }),
         Duration::from_millis(10),
     )
-    .expect("chat route should be Rust-owned");
+    .expect("removed chat route should return a structured response");
     let unsupported = worker_webui_route_with_options(
         &shared,
         WorkerWebuiRouteInput {
@@ -915,14 +915,13 @@ fn worker_webui_route_classifies_rust_owned_chat_and_unsupported_routes_on_rust_
     )
     .expect("unsupported route should return a structured response");
 
-    assert_eq!(chat["status"], 200);
-    assert_eq!(chat["headers"]["x-tinybot-route-owner"], "rust");
+    assert_eq!(chat["status"], 404);
+    assert_eq!(chat["headers"]["x-tinybot-route-owner"], "unsupported");
     assert_eq!(chat["headers"]["x-tinybot-route-group"], "openai");
-    assert_eq!(chat["headers"]["content-type"], "text/event-stream");
-    assert!(chat["body"]
-        .as_str()
-        .expect("streaming chat route should return text/event-stream body")
-        .contains("route stream"));
+    assert_eq!(chat["body"]["diagnostic"], "unsupported-route");
+    assert_eq!(chat["body"]["inventoryStatus"], "not-inventoried");
+    assert_eq!(chat["body"]["method"], "POST");
+    assert_eq!(chat["body"]["path"], "/v1/chat/completions");
     assert_eq!(unsupported["status"], 404);
     assert_eq!(
         unsupported["headers"]["x-tinybot-route-owner"],

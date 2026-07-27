@@ -310,12 +310,6 @@ async fn worker_webui_rust_route_with_options(
     let (path, query) = split_webui_route_path(&input.path);
     let body = input.body.clone().unwrap_or(serde_json::Value::Null);
 
-    if method == "POST" && path == "/v1/chat/completions" {
-        return Ok(Some(
-            crate::agent::provider::openai_chat_completions_route_async(&config_snapshot, &body)
-                .await,
-        ));
-    }
     if method == "POST" {
         if let Some((form_id, cancelled)) = webui_agent_ui_form_route(&path) {
             let (status, body) = native_webui_agent_ui_form_resolution_body_async(
