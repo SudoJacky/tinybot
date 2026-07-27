@@ -138,8 +138,6 @@ pub(crate) fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             record_renderer_diagnostic,
-            crate::desktop_commands::agent::worker_run_agent,
-            crate::desktop_commands::agent::worker_run_agent_input,
             crate::desktop_commands::agent::worker_submit_thread_turn,
             crate::desktop_commands::skills::worker_skills_list,
             crate::desktop_commands::skills::worker_skills_detail,
@@ -176,8 +174,6 @@ pub(crate) fn run() {
             crate::desktop_commands::thread::thread_get_effective_capabilities,
             crate::desktop_commands::webui::worker_webui_route,
             crate::desktop_commands::transport::worker_dispatch_tinyos_host_command,
-            crate::desktop_commands::agent::worker_cancel_agent,
-            crate::desktop_commands::agent::worker_restore_agent_checkpoint,
             crate::desktop_commands::agent::worker_background_trace_list,
             crate::desktop_commands::agent::worker_background_trace_get_delegate_trace,
             crate::desktop_commands::agent::worker_background_trace_get_artifact,
@@ -195,7 +191,6 @@ pub(crate) fn run() {
             crate::desktop_commands::agent::worker_task_plan_get,
             crate::desktop_commands::agent::worker_task_plan_save,
             crate::desktop_commands::agent::worker_task_plan_delete,
-            crate::desktop_commands::agent::worker_submit_agent_form,
             crate::desktop_commands::agent::worker_submit_thread_form,
             crate::desktop_commands::config::get_settings_snapshot,
             crate::desktop_commands::config::get_config_editor_snapshot,

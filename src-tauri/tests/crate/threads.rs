@@ -4,7 +4,6 @@ use crate::agent::runtime::NativeAgentRuntimeServices;
 use crate::agent::runtime::NativeAgentTraceSink;
 use crate::desktop::state::lock_runtime;
 use crate::desktop::state::NativeRuntimeState;
-use crate::desktop_commands::agent::worker_restore_agent_checkpoint_with_options;
 use crate::desktop_commands::agent::worker_run_agent_with_options;
 use crate::desktop_commands::agent::worker_submit_thread_turn_with_options;
 use crate::desktop_commands::agent::WorkerSubmitThreadTurnInput;
@@ -1307,42 +1306,4 @@ fn worker_run_agent_omits_large_raw_tool_trace_from_persisted_run_record() {
     );
     assert!(!serialized.contains(&"A".repeat(512)));
     assert!(run["completedToolResults"][0].get("envelope").is_none());
-}
-
-#[test]
-fn worker_rust_agent_restore_rejects_unknown_checkpoint_schema_version() {
-    let fixture = WorkspaceFixture::new();
-    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
-        fixture.thread_store.clone(),
-    )));
-    {
-        let services = {
-            let runtime = lock_runtime(&shared);
-            runtime.native_agent_runtime.clone()
-        };
-        services.save_checkpoint(
-            "websocket:chat-future-checkpoint",
-            serde_json::json!({
-                "schemaVersion": 999,
-                "runtime": "rust",
-                "turnId": "turn-future-checkpoint",
-                "sessionId": "websocket:chat-future-checkpoint",
-                "phase": "awaiting_approval"
-            }),
-        );
-    }
-
-    let error = worker_restore_agent_checkpoint_with_options(
-        &shared,
-        "websocket:chat-future-checkpoint".to_string(),
-        fixture.root.clone(),
-        serde_json::json!({ "desktop": { "nativeAgentRuntime": "rust" } }),
-        Duration::from_millis(10),
-    )
-    .expect_err("unknown checkpoint versions should fail visibly");
-
-    assert!(
-        error.contains("unsupported Rust agent checkpoint schemaVersion 999"),
-        "unexpected error: {error}"
-    );
 }

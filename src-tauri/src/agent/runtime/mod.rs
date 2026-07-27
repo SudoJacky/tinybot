@@ -453,7 +453,6 @@ pub trait NativeAgentToolDispatcher: Send + Sync + 'static {
 pub trait NativeAgentCheckpointStore: Send + Sync {
     fn save(&self, session_id: &str, checkpoint: Value);
     fn save_for_turn(&self, session_id: &str, turn_id: &str, checkpoint: Value);
-    fn restore(&self, session_id: &str) -> Option<Value>;
     fn restore_for_turn(&self, session_id: &str, turn_id: &str) -> Option<Value>;
     fn clear_for_turn(&self, session_id: &str, turn_id: &str);
 }
@@ -806,14 +805,6 @@ impl NativeAgentRuntimeServices {
                 "stopReason": "cancelled",
                 "error": "cancelled",
             }))],
-        })
-    }
-
-    pub fn restore_checkpoint(&self, session_id: &str) -> Value {
-        serde_json::json!({
-            "runtime": "rust",
-            "sessionId": session_id,
-            "checkpoint": self.checkpoints.restore(session_id),
         })
     }
 

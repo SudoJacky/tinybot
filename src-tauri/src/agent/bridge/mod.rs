@@ -17,9 +17,8 @@ pub(crate) use history::{
 #[cfg(test)]
 pub(crate) use persistence::native_agent_turn_record;
 pub(crate) use persistence::{
-    cancel_agent_with_services, persist_native_agent_checkpoint_if_present,
-    persist_native_agent_turn_start, persist_native_agent_turn_terminal_if_present,
-    reject_native_agent_terminal_turn_reentry, restore_agent_checkpoint_with_services,
+    persist_native_agent_checkpoint_if_present, persist_native_agent_turn_start,
+    persist_native_agent_turn_terminal_if_present, reject_native_agent_terminal_turn_reentry,
 };
 pub(crate) use result_projection::{
     native_agent_artifacts, native_agent_current_iteration, native_agent_max_iterations,

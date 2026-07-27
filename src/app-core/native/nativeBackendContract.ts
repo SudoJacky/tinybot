@@ -1,11 +1,6 @@
 export const NATIVE_BACKEND_COMMAND_NAMES = [
   "record_renderer_diagnostic",
-  "worker_run_agent",
-  "worker_run_agent_input",
   "worker_submit_thread_turn",
-  "worker_cancel_agent",
-  "worker_restore_agent_checkpoint",
-  "worker_submit_agent_form",
   "worker_submit_thread_form",
   "worker_background_trace_list",
   "worker_background_trace_get_delegate_trace",

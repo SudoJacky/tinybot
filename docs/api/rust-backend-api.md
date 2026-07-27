@@ -344,15 +344,11 @@ UI should prefer `SettingsSnapshot` once the frontend is migrated to the Rust-ow
 }
 ```
 
-## Agent Runtime Commands
+## Agent Runtime
 
-| Command | Args | Response |
-| --- | --- | --- |
-| `worker_run_agent` | `{ input: { spec: object } }` | JSON result from native agent runtime |
-| `worker_run_agent_input` | `{ input: { input: unknown } }` | JSON result from native agent runtime |
-| `worker_cancel_agent` | `{ input: { turnId: string } }` | JSON result |
-| `worker_restore_agent_checkpoint` | `{ input: { sessionId: string } }` | JSON result |
-| `worker_submit_agent_form` | `{ input: { sessionId, formId, values?, action? } }` | JSON result |
+The native renderer enters the Agent Runtime through Thread-owned typed commands:
+`worker_submit_thread_turn`, `worker_thread_interrupt`, and `worker_submit_thread_form`. Direct
+Agent command façades are not part of the desktop contract.
 
 Workspace-backed agent results include:
 
@@ -527,7 +523,8 @@ generation only after the previous execution task has completed into a non-termi
 Cancellation is idempotent and writes one owner terminal outcome. Normal async turns remain active in
 the `cancelling` phase while owned child operations perform their bounded cleanup. The owner is
 removed only after the turn returns a cancellation or cleanup-timeout result. A late result cannot
-replace that terminal result. `worker_cancel_agent` includes the cancellation request transition:
+replace that terminal result. `worker_thread_interrupt` includes the cancellation request transition
+as `taskCancellation`:
 
 ```json
 {
@@ -550,8 +547,7 @@ Possible task states are `cancel_requested`, `cancelled_waiting`, `already_termi
 without starting another task.
 
 The desktop `thread.interrupt` path first persists the thread cancellation item and then cancels the
-same turn owner. Its existing thread result gains `taskCancellation`, containing the same
-`worker_cancel_agent` payload. Native Runtime shutdown follows one ordered path: stop accepting starts,
+same turn owner. Native Runtime shutdown follows one ordered path: stop accepting starts,
 cancel and drain owned turns, terminate retained shell process trees, stop MCP clients/stdio children,
 interrupt non-terminal subagents, stop the background worker, and emit a `RuntimeShutdownReport`.
 For cooperative agent tasks, shutdown requests cancellation without publishing a terminal result;
@@ -753,8 +749,8 @@ type fail explicitly.
 
 The tool persists an `awaiting_form` checkpoint with `kind: "user_input"`, the pending tool call,
 the assistant message that owns it, and the current model context. It then emits
-`agent.awaiting_form` and returns `stopReason: "awaiting_form"`. `worker_submit_agent_form` must use
-the matching `sessionId` and `formId`. A valid submit becomes the real tool observation and resumes
+`agent.awaiting_form` and returns `stopReason: "awaiting_form"`. `worker_submit_thread_form` must use
+the matching `threadId` and `formId`. A valid submit becomes the real tool observation and resumes
 the same provider chain; it is not converted into a synthetic final answer. Cancel clears the
 checkpoint and returns `stopReason: "form_cancelled"` with an observable resolution/error event.
 
@@ -1115,8 +1111,7 @@ agent result is not replayed through `thread.apply_op`, so each logical value ha
 payload. The turn-start seed retains instruction provenance and diagnostics, so derived
 `thread.turn.get` projections preserve the effective working directory and instruction sources.
 Form continuation restores `latestCheckpoint.restorePayload` from Rollout, including
-after a new runtime instance starts; a later terminal item makes that checkpoint inactive. Direct
-non-thread agent commands use the same start, semantic, checkpoint, and terminal batches.
+after a new runtime instance starts; a later terminal item makes that checkpoint inactive.
 
 `clientEventId` is the retry/idempotency key for thread appends, starts, continuations, approvals,
 forms, and forks. A successful retry projects the original item IDs instead of appending another

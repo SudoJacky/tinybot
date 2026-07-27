@@ -1200,10 +1200,6 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
             self.inner.save_for_turn(session_id, turn_id, checkpoint);
         }
 
-        fn restore(&self, session_id: &str) -> Option<Value> {
-            self.inner.restore(session_id)
-        }
-
         fn restore_for_turn(&self, session_id: &str, turn_id: &str) -> Option<Value> {
             self.inner.restore_for_turn(session_id, turn_id)
         }

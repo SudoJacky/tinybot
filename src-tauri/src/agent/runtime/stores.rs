@@ -1,23 +1,10 @@
 use super::{NativeAgentCancellation, NativeAgentCheckpointStore};
 use serde_json::Value;
-use std::{
-    collections::HashMap,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Mutex,
-    },
-};
+use std::{collections::HashMap, sync::Mutex};
 
 #[derive(Default)]
 pub struct InMemoryNativeAgentCheckpointStore {
-    checkpoints: Mutex<HashMap<String, StoredNativeCheckpoint>>,
-    sequence: AtomicU64,
-}
-
-#[derive(Clone, Debug)]
-struct StoredNativeCheckpoint {
-    checkpoint: Value,
-    sequence: u64,
+    checkpoints: Mutex<HashMap<String, Value>>,
 }
 
 impl NativeAgentCheckpointStore for InMemoryNativeAgentCheckpointStore {
@@ -28,31 +15,10 @@ impl NativeAgentCheckpointStore for InMemoryNativeAgentCheckpointStore {
     }
 
     fn save_for_turn(&self, session_id: &str, turn_id: &str, checkpoint: Value) {
-        let sequence = self.sequence.fetch_add(1, Ordering::SeqCst);
         self.checkpoints
             .lock()
             .expect("checkpoint store lock should not be poisoned")
-            .insert(
-                checkpoint_key(session_id, turn_id),
-                StoredNativeCheckpoint {
-                    checkpoint,
-                    sequence,
-                },
-            );
-    }
-
-    fn restore(&self, session_id: &str) -> Option<Value> {
-        self.checkpoints
-            .lock()
-            .expect("checkpoint store lock should not be poisoned")
-            .iter()
-            .filter_map(|(key, stored)| {
-                checkpoint_key_session(key)
-                    .filter(|key_session_id| *key_session_id == session_id)
-                    .map(|_| stored)
-            })
-            .max_by_key(|stored| stored.sequence)
-            .map(|stored| stored.checkpoint.clone())
+            .insert(checkpoint_key(session_id, turn_id), checkpoint);
     }
 
     fn restore_for_turn(&self, session_id: &str, turn_id: &str) -> Option<Value> {
@@ -60,7 +26,7 @@ impl NativeAgentCheckpointStore for InMemoryNativeAgentCheckpointStore {
             .lock()
             .expect("checkpoint store lock should not be poisoned")
             .get(&checkpoint_key(session_id, turn_id))
-            .map(|stored| stored.checkpoint.clone())
+            .cloned()
     }
 
     fn clear_for_turn(&self, session_id: &str, turn_id: &str) {
@@ -73,11 +39,6 @@ impl NativeAgentCheckpointStore for InMemoryNativeAgentCheckpointStore {
 
 fn checkpoint_key(session_id: &str, turn_id: &str) -> String {
     format!("{session_id}\u{1f}{turn_id}")
-}
-
-fn checkpoint_key_session(key: &str) -> Option<&str> {
-    key.split_once('\u{1f}')
-        .map(|(session_id, _turn_id)| session_id)
 }
 
 fn checkpoint_turn_id(checkpoint: &Value) -> Option<String> {
