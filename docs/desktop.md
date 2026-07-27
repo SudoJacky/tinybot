@@ -76,8 +76,8 @@ are not implemented in Rust return explicit errors.
 1. Open the desktop app.
 2. A compact startup state waits for the Rust native backend to become ready.
 3. The Tauri shell initializes and checks the in-process native runtime directly.
-4. The desktop window installs the workbench shell without probing `/webui/bootstrap` or reserving
-   a local TCP port.
+4. The desktop window installs the workbench shell without an HTTP bootstrap probe or a local TCP
+   port.
 5. Use the desktop app through native workbench modules for chat, sessions, approvals, settings, providers, tools, skills, workspace files, browser frames, Cowork, language toggle, and theme toggle where Rust support exists.
 
 The app owns the native runtime lifecycle. The configured exit policy applies to managed native backend state.

@@ -21,7 +21,6 @@ use crate::desktop_commands::workspace::{
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::native_request_router;
-use crate::transport::stdio_worker::status::WorkerRuntimeStatus;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, path::PathBuf, time::Duration};
 use tauri::State;
@@ -320,14 +319,6 @@ async fn worker_webui_rust_route_with_options(
     }
 
     let result = match (method.as_str(), path.as_str()) {
-        ("GET", "/health") => Some(Ok(serde_json::json!({
-            "ok": true,
-            "status": "ok",
-            "runtime": "native-rust"
-        }))),
-        ("GET", "/webui/bootstrap") => Some(Ok(native_webui_bootstrap_body())),
-        ("POST", "/webui/refresh-token") => Some(Ok(native_webui_bootstrap_body())),
-        ("GET", "/api/status") => Some(Ok(native_webui_status_body(shared))),
         ("GET", "/api/tools") => Some(
             worker_webui_tools_body(shared, workspace_root.clone(), config_snapshot.clone()).await,
         ),
@@ -575,51 +566,6 @@ async fn worker_webui_rust_dynamic_route(
     None
 }
 
-fn native_webui_bootstrap_body() -> serde_json::Value {
-    serde_json::json!({
-        "token": "native-rust-local",
-        "ws_path": "/ws",
-        "refresh_token_path": "/webui/refresh-token",
-        "token_ttl_s": 300,
-    })
-}
-
-fn native_webui_status_body(shared: &SharedGateway) -> serde_json::Value {
-    let (last_error, accepting) = {
-        let runtime = lock_runtime(shared);
-        (
-            runtime.last_error.clone(),
-            runtime.native_agent_runtime.task_runtime().is_accepting(),
-        )
-    };
-    let status = match last_error {
-        Some(error) => WorkerRuntimeStatus::startup_failed(error),
-        None if accepting => WorkerRuntimeStatus::rust_backend_active(vec![]),
-        None => WorkerRuntimeStatus::rust_backend_stopped(),
-    };
-    let config = native_config_snapshot();
-    serde_json::json!({
-        "channels": {
-            "websocket": {
-                "enabled": true,
-                "running": accepting
-            }
-        },
-        "native_backend": status,
-        "provider": crate::agent::provider::resolve_provider_profile(
-            &config,
-            None,
-            None,
-        ).map(|profile| serde_json::json!({
-            "id": profile.provider_id,
-            "displayName": profile.display_name,
-            "api_base": profile.api_base,
-            "api_key_configured": profile.api_key_configured,
-        })),
-        "model": crate::agent::provider::configured_model(&config),
-    })
-}
-
 async fn worker_webui_tools_body(
     shared: &SharedGateway,
     _workspace_root: PathBuf,
@@ -786,13 +732,7 @@ fn webui_agent_ui_form_route_id(path: &str, suffix: &str) -> Option<String> {
 }
 
 fn webui_route_group(path: &str) -> &'static str {
-    if path == "/health" {
-        "health"
-    } else if path.starts_with("/webui/") {
-        "bootstrap"
-    } else if path == "/api/status" {
-        "status"
-    } else if path.starts_with("/api/sessions") {
+    if path.starts_with("/api/sessions") {
         "sessions"
     } else if path.starts_with("/api/workspace") {
         "workspace"

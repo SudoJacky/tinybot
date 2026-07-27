@@ -50,7 +50,7 @@ describe("desktop task center projection", () => {
           title: "Start Tinybot gateway",
           status: "starting",
           detail: "Tauri Rust backend",
-          canonical: { module: "gateway", href: "/api/status" },
+          canonical: { module: "gateway" },
         },
       ],
       approvals: [

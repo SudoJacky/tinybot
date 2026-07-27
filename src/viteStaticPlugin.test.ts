@@ -22,7 +22,7 @@ describe("desktop static routing", () => {
 
   test("leaves non-static and path traversal requests unresolved", () => {
     expect(resolveDesktopStaticFile(publicRoot, "/api/sessions")).toBeNull();
-    expect(resolveDesktopStaticFile(publicRoot, "/webui/bootstrap")).toBeNull();
+    expect(resolveDesktopStaticFile(publicRoot, "/api/tools")).toBeNull();
     expect(resolveDesktopStaticFile(publicRoot, "/assets/../index.html")).toBeNull();
   });
 

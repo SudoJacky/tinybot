@@ -682,7 +682,7 @@ fn worker_webui_tools_route_returns_effective_catalog() {
 }
 
 #[test]
-fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
+fn worker_webui_route_serves_rust_owned_routes_on_rust_backend() {
     let fixture = WorkspaceFixture::new();
     fixture.write("docs/readme.md", "hello route");
     fixture.seed_rollout_sessions(serde_json::json!({
@@ -700,19 +700,6 @@ fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
         fixture.thread_store.clone(),
     )));
 
-    let bootstrap = worker_webui_route_with_options(
-        &shared,
-        WorkerWebuiRouteInput {
-            method: "GET".to_string(),
-            path: "/webui/bootstrap".to_string(),
-            headers: None,
-            body: None,
-        },
-        fixture.root.clone(),
-        serde_json::json!({ "agents": { "defaults": { "provider": "auto" } } }),
-        Duration::from_millis(10),
-    )
-    .expect("bootstrap route should be Rust-owned");
     let sessions = worker_webui_route_with_options(
         &shared,
         WorkerWebuiRouteInput {
@@ -820,11 +807,6 @@ fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
         Duration::from_millis(10),
     )
     .expect("provider models route should be Rust-owned");
-    assert_eq!(bootstrap["status"], 200);
-    assert_eq!(bootstrap["headers"]["x-tinybot-route-owner"], "rust");
-    assert!(bootstrap["body"]["token"]
-        .as_str()
-        .is_some_and(|token| !token.is_empty()));
     assert_eq!(sessions["body"]["items"][0]["title"], "Route session");
     assert_eq!(
         effective_capabilities["headers"]["x-tinybot-route-owner"],
@@ -966,6 +948,43 @@ fn worker_webui_route_rejects_removed_config_routes() {
         assert_eq!(response["body"]["routeGroup"], "unsupported");
         assert_eq!(response["body"]["method"], method);
         assert_eq!(response["body"]["path"], "/api/config");
+    }
+}
+
+#[test]
+fn worker_webui_route_rejects_removed_bootstrap_and_status_routes() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
+
+    for (method, path) in [
+        ("GET", "/health"),
+        ("GET", "/webui/bootstrap"),
+        ("POST", "/webui/refresh-token"),
+        ("GET", "/api/status"),
+    ] {
+        let response = worker_webui_route_with_options(
+            &shared,
+            WorkerWebuiRouteInput {
+                method: method.to_string(),
+                path: path.to_string(),
+                headers: None,
+                body: None,
+            },
+            fixture.root.clone(),
+            serde_json::json!({}),
+            Duration::from_millis(10),
+        )
+        .expect("removed bootstrap/status route should return a structured response");
+
+        assert_eq!(response["status"], 404);
+        assert_eq!(response["headers"]["x-tinybot-route-owner"], "unsupported");
+        assert_eq!(response["body"]["diagnostic"], "unsupported-route");
+        assert_eq!(response["body"]["inventoryStatus"], "not-inventoried");
+        assert_eq!(response["body"]["routeGroup"], "unsupported");
+        assert_eq!(response["body"]["method"], method);
+        assert_eq!(response["body"]["path"], path);
     }
 }
 

@@ -82,7 +82,7 @@ describe("desktop task center source projections", () => {
       title: "Start Tinybot gateway",
       status: "starting",
       detail: `shell / ${DEFAULT_NATIVE_BACKEND_COMMAND}`,
-      canonical: { module: "gateway", href: "/api/status" },
+      canonical: { module: "gateway" },
       diagnostics: "booting",
       retryable: false,
       updatedAt: "",
@@ -92,7 +92,7 @@ describe("desktop task center source projections", () => {
       title: "Restart Tinybot gateway",
       status: "failed",
       detail: `none / ${DEFAULT_NATIVE_BACKEND_COMMAND}`,
-      canonical: { module: "gateway", href: "/api/status" },
+      canonical: { module: "gateway" },
       diagnostics: "port occupied",
       retryable: true,
     });

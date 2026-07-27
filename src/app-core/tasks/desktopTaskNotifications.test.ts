@@ -28,7 +28,7 @@ describe("desktop task notifications", () => {
           id: "gateway:startup",
           title: "Start Tinybot gateway",
           status: "starting",
-          canonical: { module: "gateway", href: "/api/status" },
+          canonical: { module: "gateway" },
         },
       ],
     }));
@@ -51,7 +51,7 @@ describe("desktop task notifications", () => {
           detail: "shell / Tauri Rust backend",
           diagnostics: "port occupied",
           retryable: true,
-          canonical: { module: "gateway", href: "/api/status" },
+          canonical: { module: "gateway" },
         },
       ],
       approvals: [

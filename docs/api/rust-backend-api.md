@@ -1649,7 +1649,7 @@ Call:
 const response = await invoke("worker_webui_route", {
   input: {
     method: "GET",
-    path: "/api/status",
+    path: "/api/tools",
     headers: {},
     body: null
   }
@@ -1664,7 +1664,7 @@ Response:
   "body": {},
   "headers": {
     "x-tinybot-route-owner": "rust",
-    "x-tinybot-route-group": "status"
+    "x-tinybot-route-group": "tools"
   }
 }
 ```
@@ -1684,12 +1684,12 @@ Configuration reads and writes use the typed `get_config_editor_snapshot` and
 `apply_config_operations` Tauri commands. `GET` and `PATCH /api/config` are not part of the WebUI
 route surface and return the standard `404` `unsupported-route` response.
 
+Native startup and readiness are handled in process. `/health`, `/webui/bootstrap`,
+`/webui/refresh-token`, and `/api/status` are not part of the WebUI route surface and return the
+standard `404` `unsupported-route` response.
+
 | Method | Path | Group | Notes |
 | --- | --- | --- | --- |
-| `GET` | `/health` | health | Native health check |
-| `GET` | `/webui/bootstrap` | bootstrap | Returns `{ token, ws_path, refresh_token_path, token_ttl_s }` |
-| `POST` | `/webui/refresh-token` | bootstrap | Returns a fresh bootstrap token |
-| `GET` | `/api/status` | status | Runtime status body |
 | `GET` | `/api/tools` | tools | Effective built-in and MCP capability catalog |
 | `GET` | `/api/providers` | providers | Provider catalog |
 | `POST` | `/api/provider-models` | providers | Provider model resolution |

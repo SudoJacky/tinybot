@@ -60,7 +60,7 @@ export function buildDesktopGatewayTaskOperation(
     title: gatewayTaskTitle(action),
     status: gatewayStatus,
     detail: `${owner} / ${command}`,
-    canonical: { module: "gateway", href: "/api/status" },
+    canonical: { module: "gateway" },
     diagnostics,
     retryable: gatewayStatus === "failed",
     updatedAt: "",
