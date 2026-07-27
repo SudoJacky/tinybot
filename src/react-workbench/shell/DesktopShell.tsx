@@ -66,8 +66,7 @@ type TopMenuCommandId =
   | "open-backend-logs"
   | "open-safe-mode"
   | "toggle-theme"
-  | "toggle-sidebar"
-  | "refresh-gateway-status";
+  | "toggle-sidebar";
 
 type TopMenuCommand = {
   id: TopMenuCommandId;
@@ -125,8 +124,6 @@ const topMenuItems: TopMenuItem[] = [
     icon: Settings,
     entries: [
       menuCommand({ id: "open-settings", label: routeLabels.settings, route: "settings", shortcut: "Ctrl+," }),
-      menuSeparator("system-status-separator"),
-      menuCommand({ id: "refresh-gateway-status", label: "Gateway Status", shortcut: "Ctrl+Shift+G", enabled: false }),
     ],
   },
   {

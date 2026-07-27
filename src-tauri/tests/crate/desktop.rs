@@ -274,7 +274,6 @@ fn desktop_application_menu_describes_core_workbench_commands() {
             "toggle-theme",
             "toggle-sidebar",
             "open-command-palette",
-            "refresh-gateway-status",
         ]
     );
     assert!(desktop_menu_item_descriptors()
@@ -300,7 +299,6 @@ fn desktop_application_menu_describes_core_workbench_commands() {
             Some("Ctrl+Shift+T"),
             Some("Ctrl+B"),
             Some("Ctrl+Shift+P"),
-            Some("Ctrl+Shift+G"),
         ]
     );
 }

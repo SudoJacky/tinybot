@@ -196,7 +196,7 @@ describe("DesktopShell", () => {
     await user.click(screen.getByRole("button", { name: "System" }));
     const systemMenu = screen.getByRole("menu", { name: "System menu" });
     expect(within(systemMenu).getByRole("menuitem", { name: "Settings (Ctrl+,)" })).toBeTruthy();
-    expect(within(systemMenu).getByRole("menuitem", { name: "Gateway Status (Ctrl+Shift+G)" })).toBeTruthy();
+    expect(within(systemMenu).queryByRole("menuitem", { name: /Gateway Status/ })).toBeNull();
 
     await user.click(within(systemMenu).getByRole("menuitem", { name: "Settings (Ctrl+,)" }));
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
