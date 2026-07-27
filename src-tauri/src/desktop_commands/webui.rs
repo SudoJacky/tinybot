@@ -354,9 +354,6 @@ async fn worker_webui_rust_route_with_options(
             &config_snapshot,
             &body,
         ))),
-        ("GET", "/v1/models") => Some(Ok(crate::agent::provider::openai_models_body(
-            &config_snapshot,
-        ))),
         ("GET", "/api/sessions") => Some(worker_sessions_list_with_options(
             shared,
             workspace_root.clone(),

@@ -205,18 +205,6 @@ pub fn provider_catalog_body(config: &Value) -> Value {
     })
 }
 
-pub fn openai_models_body(config: &Value) -> Value {
-    serde_json::json!({
-        "object": "list",
-        "data": [{
-            "id": configured_model(config),
-            "object": "model",
-            "created": 0,
-            "owned_by": "tinybot",
-        }],
-    })
-}
-
 pub fn provider_models_body(config: &Value, body: &Value) -> Value {
     if !body.is_object() {
         return serde_json::json!({ "ok": false, "error": "payload must be a dict", "models": [] });

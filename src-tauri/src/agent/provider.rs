@@ -5,9 +5,9 @@ mod streaming;
 // Preserve the existing provider interface while implementation stays in focused modules.
 #[allow(unused_imports)]
 pub use catalog::{
-    configured_model, list_provider_models, openai_models_body, provider_catalog_body,
-    provider_models_body, resolve_provider_profile, NativeProviderCatalogEntry,
-    NativeProviderModelList, NativeProviderModelsRequest, NativeProviderProfile,
+    configured_model, list_provider_models, provider_catalog_body, provider_models_body,
+    resolve_provider_profile, NativeProviderCatalogEntry, NativeProviderModelList,
+    NativeProviderModelsRequest, NativeProviderProfile,
 };
 #[allow(unused_imports)]
 pub use completion::{

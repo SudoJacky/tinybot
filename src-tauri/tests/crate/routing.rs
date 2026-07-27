@@ -820,21 +820,6 @@ fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
         Duration::from_millis(10),
     )
     .expect("provider models route should be Rust-owned");
-    let openai_models = worker_webui_route_with_options(
-        &shared,
-        WorkerWebuiRouteInput {
-            method: "GET".to_string(),
-            path: "/v1/models".to_string(),
-            headers: None,
-            body: None,
-        },
-        fixture.root.clone(),
-        serde_json::json!({
-            "agents": { "defaults": { "model": "gpt-4.1-mini" } }
-        }),
-        Duration::from_millis(10),
-    )
-    .expect("OpenAI models route should be Rust-owned");
     assert_eq!(bootstrap["status"], 200);
     assert_eq!(bootstrap["headers"]["x-tinybot-route-owner"], "rust");
     assert!(bootstrap["body"]["token"]
@@ -871,12 +856,10 @@ fn worker_webui_route_serves_rust_owned_state_routes_on_rust_backend() {
         .expect("models should be an array")
         .iter()
         .any(|model| model == "live-model"));
-    assert_eq!(openai_models["headers"]["x-tinybot-route-owner"], "rust");
-    assert_eq!(openai_models["body"]["data"][0]["id"], "gpt-4.1-mini");
 }
 
 #[test]
-fn worker_webui_route_rejects_removed_chat_completion_and_unknown_routes() {
+fn worker_webui_route_rejects_removed_openai_and_unknown_routes() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(GatewayRuntime::with_thread_store(
         fixture.thread_store.clone(),
@@ -901,6 +884,19 @@ fn worker_webui_route_rejects_removed_chat_completion_and_unknown_routes() {
         Duration::from_millis(10),
     )
     .expect("removed chat route should return a structured response");
+    let models = worker_webui_route_with_options(
+        &shared,
+        WorkerWebuiRouteInput {
+            method: "GET".to_string(),
+            path: "/v1/models".to_string(),
+            headers: None,
+            body: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("removed models route should return a structured response");
     let unsupported = worker_webui_route_with_options(
         &shared,
         WorkerWebuiRouteInput {
@@ -922,6 +918,13 @@ fn worker_webui_route_rejects_removed_chat_completion_and_unknown_routes() {
     assert_eq!(chat["body"]["inventoryStatus"], "not-inventoried");
     assert_eq!(chat["body"]["method"], "POST");
     assert_eq!(chat["body"]["path"], "/v1/chat/completions");
+    assert_eq!(models["status"], 404);
+    assert_eq!(models["headers"]["x-tinybot-route-owner"], "unsupported");
+    assert_eq!(models["headers"]["x-tinybot-route-group"], "openai");
+    assert_eq!(models["body"]["diagnostic"], "unsupported-route");
+    assert_eq!(models["body"]["inventoryStatus"], "not-inventoried");
+    assert_eq!(models["body"]["method"], "GET");
+    assert_eq!(models["body"]["path"], "/v1/models");
     assert_eq!(unsupported["status"], 404);
     assert_eq!(
         unsupported["headers"]["x-tinybot-route-owner"],

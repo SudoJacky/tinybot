@@ -1676,10 +1676,11 @@ Use `routeResponse()` if the status and headers are needed.
 
 ### Rust-owned WebUI Routes
 
-Desktop chat submits native Thread/Turn commands and is not exposed as an OpenAI-compatible
-endpoint. `POST /v1/chat/completions` is unsupported and returns the standard `404`
+Desktop chat uses native Thread/Turn commands, while desktop model settings use
+`POST /api/provider-models`; neither surface is exposed through OpenAI-compatible inbound endpoints.
+`POST /v1/chat/completions` and `GET /v1/models` are unsupported and return the standard `404`
 `unsupported-route` response. Outbound provider requests may still use OpenAI-compatible
-chat/completions protocols.
+chat/completions and model discovery protocols.
 
 | Method | Path | Group | Notes |
 | --- | --- | --- | --- |
@@ -1691,7 +1692,6 @@ chat/completions protocols.
 | `GET` | `/api/tools` | tools | Effective built-in and MCP capability catalog |
 | `GET` | `/api/providers` | providers | Provider catalog |
 | `POST` | `/api/provider-models` | providers | Provider model resolution |
-| `GET` | `/v1/models` | openai | OpenAI-compatible model list |
 | `POST` | `/api/agent-ui/forms/{form_id}/submit` | agent-ui | Form continuation |
 | `POST` | `/api/agent-ui/forms/{form_id}/cancel` | agent-ui | Form cancellation |
 | `GET` | `/api/sessions` | sessions | List sessions |
