@@ -141,11 +141,12 @@ type LiveCanvasState = {
   mode: LiveCanvasMode;
   selection?: { eventIndex?: number; itemId: string; turnId: string };
   surface: "panel" | "expanded";
-  visibility: "closed" | "open";
+  visibility: "closed" | "closing" | "open";
 };
 
 type LiveCanvasAction =
   | { type: "close" }
+  | { type: "close_complete" }
   | { type: "expand_toggle" }
   | { type: "return_live" }
   | { type: "select"; eventIndex?: number; itemId: string; turnId: string }
@@ -160,7 +161,9 @@ const INITIAL_LIVE_CANVAS_STATE: LiveCanvasState = {
 function reduceLiveCanvasState(state: LiveCanvasState, action: LiveCanvasAction): LiveCanvasState {
   switch (action.type) {
     case "close":
-      return state.visibility === "closed" ? state : { ...state, visibility: "closed" };
+      return state.visibility === "open" ? { ...state, visibility: "closing" } : state;
+    case "close_complete":
+      return state.visibility === "closing" ? { ...state, visibility: "closed" } : state;
     case "expand_toggle":
       return { ...state, surface: state.surface === "expanded" ? "panel" : "expanded", visibility: "open" };
     case "return_live":
@@ -178,7 +181,7 @@ function reduceLiveCanvasState(state: LiveCanvasState, action: LiveCanvasAction)
       };
     case "toggle":
       return state.visibility === "open"
-        ? { ...state, visibility: "closed" }
+        ? { ...state, visibility: "closing" }
         : { ...state, mode: "live_follow", visibility: "open" };
   }
 }
@@ -216,38 +219,10 @@ const EMPTY_CHAT_PROMPTS = [
   "检查方案中可能遗漏的问题",
 ] as const;
 
-const SESSION_DELETE_DISSOLVE_MS = 760;
-const SESSION_DELETE_PARTICLE_COUNT = 64;
+const LIVE_CANVAS_CLOSE_MS = 160;
+const SESSION_DELETE_DISSOLVE_MS = 180;
 const TINYOS_WIDTH_STORAGE_KEY = "tinybot.ui.tinyos.width";
 const EMPTY_OPTIMISTIC_MESSAGES: ReactChatMessage[] = [];
-
-type SessionDeleteParticle = {
-  id: number;
-  originX: number;
-  originY: number;
-  x: number;
-  y: number;
-  size: number;
-  delay: number;
-};
-
-const SESSION_DELETE_PARTICLES: SessionDeleteParticle[] = Array.from(
-  { length: SESSION_DELETE_PARTICLE_COUNT },
-  (_, index) => {
-    const angle = (index / SESSION_DELETE_PARTICLE_COUNT) * Math.PI * 2 + ((index % 7) - 3) * 0.018;
-    const distance = 30 + (index % 9) * 7 + (Math.floor(index / 9) % 4) * 5;
-
-    return {
-      id: index,
-      originX: 12 + (index * 17) % 76,
-      originY: 18 + (index * 11) % 60,
-      x: Math.round(Math.cos(angle) * distance * 1.45),
-      y: Math.round(Math.sin(angle) * distance * 0.95),
-      size: 0.62 + (index % 6) * 0.11,
-      delay: (index % 22) * 2.5,
-    };
-  },
-);
 
 export function ChatPage({
   chatStore,
@@ -317,7 +292,7 @@ export function ChatPage({
   const hasActivatedSessionRef = useRef(false);
   const liveCanvasHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const liveCanvasToggleRef = useRef<HTMLButtonElement | null>(null);
-  const liveCanvasWasOpenRef = useRef(false);
+  const liveCanvasPreviousVisibilityRef = useRef(liveCanvas.visibility);
   const stickToLatestRef = useRef(true);
   const activeSessionId = sessionTabs.activeSessionId;
   const composerDraft = sessionTabDraft(sessionTabs, activeSessionId);
@@ -446,6 +421,16 @@ export function ChatPage({
   );
   const retryUnavailableReason = retryCapability.reason || "Retry is unavailable for this Agent turn.";
   const liveCanvasOpen = liveCanvas.visibility === "open";
+  const liveCanvasPresent = liveCanvas.visibility !== "closed";
+
+  useEffect(() => {
+    if (liveCanvas.visibility !== "closing") return;
+    const timer = window.setTimeout(
+      () => dispatchLiveCanvas({ type: "close_complete" }),
+      LIVE_CANVAS_CLOSE_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [liveCanvas.visibility]);
 
   useEffect(() => {
     setBrowserSnapshot(undefined);
@@ -632,13 +617,14 @@ export function ChatPage({
   }
 
   useEffect(() => {
-    if (liveCanvasOpen && !liveCanvasWasOpenRef.current) {
+    const previousVisibility = liveCanvasPreviousVisibilityRef.current;
+    if (liveCanvas.visibility === "open" && previousVisibility !== "open") {
       liveCanvasHeadingRef.current?.focus();
-    } else if (!liveCanvasOpen && liveCanvasWasOpenRef.current) {
+    } else if (liveCanvas.visibility === "closed" && previousVisibility !== "closed") {
       liveCanvasToggleRef.current?.focus();
     }
-    liveCanvasWasOpenRef.current = liveCanvasOpen;
-  }, [liveCanvasOpen]);
+    liveCanvasPreviousVisibilityRef.current = liveCanvas.visibility;
+  }, [liveCanvas.visibility]);
 
   useEffect(() => {
     sessionsRef.current = sessions;
@@ -1704,9 +1690,9 @@ export function ChatPage({
   return (
     <section
       className="react-chat-page"
-      data-live-canvas-expanded={liveCanvasOpen && liveCanvas.surface === "expanded" ? "true" : undefined}
+      data-live-canvas-expanded={liveCanvasPresent && liveCanvas.surface === "expanded" ? "true" : undefined}
       aria-label="Chat"
-      data-live-canvas-open={liveCanvasOpen ? "true" : undefined}
+      data-live-canvas-open={liveCanvasPresent ? "true" : undefined}
       data-session-sidebar-collapsed={resolvedSessionSidebarCollapsed}
       style={{ "--tinyos-width": `${tinyOsWidth}px` } as CSSProperties}
     >
@@ -1828,24 +1814,6 @@ export function ChatPage({
                       >
                         <Trash2 aria-hidden="true" size={15} />
                       </button>
-                      {dissolving ? (
-                        <span className="react-session-row__particles" aria-hidden="true">
-                          {SESSION_DELETE_PARTICLES.map((particle) => (
-                            <span
-                              className="react-session-row__particle"
-                              key={particle.id}
-                              style={{
-                                "--particle-delay": `${particle.delay}ms`,
-                                "--particle-origin-x": `${particle.originX}%`,
-                                "--particle-origin-y": `${particle.originY}%`,
-                                "--particle-size": `${particle.size}px`,
-                                "--particle-x": `${particle.x}px`,
-                                "--particle-y": `${particle.y}px`,
-                              } as CSSProperties}
-                            />
-                          ))}
-                        </span>
-                      ) : null}
                     </div>
                   );
                 })}
@@ -2020,7 +1988,7 @@ export function ChatPage({
         </div>
       </main>
 
-      {liveCanvasOpen ? (
+      {liveCanvasPresent ? (
         <LiveCanvas
           activeTurnId={activeTurn?.id}
           agentUiForms={visibleAgentUiForms}
@@ -2032,6 +2000,7 @@ export function ChatPage({
           entries={liveCanvasEntries}
           nativeSnapshots={browserSnapshot ? [browserSnapshot] : []}
           browserRuntime={chatStore.browserRuntime}
+          closing={liveCanvas.visibility === "closing"}
           expanded={liveCanvas.surface === "expanded"}
           headingRef={liveCanvasHeadingRef}
           mode={liveCanvas.mode}

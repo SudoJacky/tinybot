@@ -157,7 +157,7 @@ describe("DesktopShell", () => {
     expect(css).toMatch(/\.react-chat-surface\s*{[^}]*grid-template-rows:\s*45px minmax\(0,\s*1fr\) auto;/s);
     expect(css).toMatch(/\.react-top-menu__menu-item\[aria-current="page"\]\s*{[^}]*background:/s);
     expect(css).not.toMatch(/\.react-activity-rail/);
-    expect(css).toMatch(/\.react-session-list\s*{[^}]*transition:\s*width 260ms var\(--motion-ease-standard\);/s);
+    expect(css).toMatch(/\.react-session-list\s*{[^}]*transition:\s*width var\(--motion-duration-medium\) var\(--motion-ease-standard\);/s);
     expect(css).toMatch(/\.react-session-list\[data-collapsed="true"\]\s*{[^}]*width:\s*64px;/s);
     expect(css).toMatch(/\.react-session-list__new\s*{[^}]*font-size:\s*12px;/s);
     expect(css).toMatch(/\.react-session-row__title\s*{[^}]*font-size:\s*12px;/s);
@@ -603,11 +603,13 @@ describe("DesktopShell", () => {
     await user.keyboard("{Control>}b{/Control}");
 
     expect(sidebar.getAttribute("data-collapsed")).toBe("true");
+    expect(document.querySelector(".react-desktop-shell")?.getAttribute("data-sidebar-motion")).toBe("keyboard");
 
     await user.click(screen.getByRole("button", { name: "App" }));
     await user.click(within(screen.getByRole("menu", { name: "Application menu" })).getByRole("menuitem", { name: /Toggle Sidebar/ }));
 
     expect(sidebar.getAttribute("data-collapsed")).toBe("false");
+    expect(document.querySelector(".react-desktop-shell")?.getAttribute("data-sidebar-motion")).toBe("pointer");
   });
 
   it("runs Stop Generation from the App menu for the active running chat", async () => {

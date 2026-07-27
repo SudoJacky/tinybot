@@ -47,6 +47,7 @@ type WindowFrameControls = {
 };
 
 type TopMenuLabel = "App" | "Resources" | "System" | "Help";
+type MotionSource = "keyboard" | "pointer";
 
 type TopMenuCommandId =
   | "new-chat"
@@ -156,7 +157,9 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
   const route = routeHistory.current;
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenuLabel | null>(null);
   const [activeTopSubmenu, setActiveTopSubmenu] = useState<string | null>(null);
+  const [menuMotionSource, setMenuMotionSource] = useState<MotionSource>("pointer");
   const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(false);
+  const [sidebarMotionSource, setSidebarMotionSource] = useState<MotionSource>("pointer");
   const [createChatSignal, setCreateChatSignal] = useState(0);
   const [stopGenerationSessionId, setStopGenerationSessionId] = useState("");
   const stopGenerationSessionIdRef = useRef("");
@@ -181,6 +184,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
     function onKeyDown(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
         event.preventDefault();
+        setSidebarMotionSource("keyboard");
         setSessionSidebarCollapsed((collapsed) => !collapsed);
       }
       if ((event.ctrlKey || event.metaKey) && event.key === ".") {
@@ -225,6 +229,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
 
   function handleTopMenuTrigger(event: ReactMouseEvent<HTMLButtonElement>, label: TopMenuLabel) {
     event.stopPropagation();
+    setMenuMotionSource(event.detail === 0 ? "keyboard" : "pointer");
     setActiveTopSubmenu(null);
     setActiveTopMenu((current) => current === label ? null : label);
   }
@@ -270,7 +275,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
     });
   }
 
-  function runTopMenuCommand(command: TopMenuCommand) {
+  function runTopMenuCommand(command: TopMenuCommand, source: MotionSource) {
     if (command.enabled === false) {
       return;
     }
@@ -292,6 +297,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
         document.documentElement.dataset.theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
         return;
       case "toggle-sidebar":
+        setSidebarMotionSource(source);
         setSessionSidebarCollapsed((collapsed) => !collapsed);
         return;
       default:
@@ -313,7 +319,10 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
         role="menuitem"
         title={menuCommandAccessibleLabel(resolvedCommand)}
         type="button"
-        onClick={() => runTopMenuCommand(resolvedCommand)}
+        onClick={(event) => runTopMenuCommand(
+          resolvedCommand,
+          event.detail === 0 ? "keyboard" : "pointer",
+        )}
       >
         <span className="react-top-menu__menu-label">{resolvedCommand.label}</span>
         {resolvedCommand.route === route || resolvedCommand.shortcut ? (
@@ -349,10 +358,19 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
           type="button"
           onClick={(event) => {
             event.stopPropagation();
+            setMenuMotionSource(event.detail === 0 ? "keyboard" : "pointer");
             setActiveTopSubmenu(entry.id);
           }}
-          onFocus={() => setActiveTopSubmenu(entry.id)}
-          onMouseEnter={() => setActiveTopSubmenu(entry.id)}
+          onFocus={(event) => {
+            if (event.currentTarget.matches(":focus-visible")) {
+              setMenuMotionSource("keyboard");
+            }
+            setActiveTopSubmenu(entry.id);
+          }}
+          onMouseEnter={() => {
+            setMenuMotionSource("pointer");
+            setActiveTopSubmenu(entry.id);
+          }}
         >
           <span className="react-top-menu__menu-label">{entry.label}</span>
           <ChevronRight aria-hidden="true" className="react-top-menu__submenu-arrow" size={16} />
@@ -374,7 +392,11 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
   }
 
   return (
-    <div className="react-desktop-shell">
+    <div
+      className="react-desktop-shell"
+      data-menu-motion={menuMotionSource}
+      data-sidebar-motion={sidebarMotionSource}
+    >
       <header
         aria-label="Tinybot desktop window frame"
         className="react-window-frame"
@@ -483,7 +505,10 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
           services={services}
           sessionSidebarCollapsed={sessionSidebarCollapsed}
           onNavigate={navigateToRoute}
-          onSessionSidebarCollapsedChange={setSessionSidebarCollapsed}
+          onSessionSidebarCollapsedChange={(collapsed) => {
+            setSidebarMotionSource("pointer");
+            setSessionSidebarCollapsed(collapsed);
+          }}
           onStopGenerationTargetChange={handleStopGenerationTargetChange}
         />
         </section>
