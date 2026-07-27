@@ -39,7 +39,7 @@ import {
 } from "lucide-react";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import type { ArtifactRef, ChatStep, ChatStepStatus } from "../../app-core/chat/chatTurnModel";
-import type { TinyOsBrowserAction, TinyOsCommandLifecycle } from "../../app-core/chat/tinyOsCommandGateway";
+import type { TinyOsBrowserAction, TinyOsCommandLifecycle } from "../../app-core/chat/tinyOsCommand";
 import { validateTinyOsBrowserInteractionTarget } from "../../app-core/chat/tinyOsBrowserSession";
 import { createTinyOsShellCommandRegistry, defineTinyOsShellCommand, type TinyOsShellCommand, type TinyOsShellCommandId, type TinyOsShellCommandInput, type TinyOsShellCommandRegistry } from "../../app-core/chat/tinyOsShellCommandRegistry";
 import { readTinyOsReferenceTransfer, tinyOsReferenceAcceptedBy, TINYOS_REFERENCE_MIME, writeTinyOsReferenceTransfer } from "../../app-core/chat/tinyOsReferenceTransfer";

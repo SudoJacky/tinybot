@@ -106,7 +106,7 @@ import {
   type TinyOsCommandLifecycle,
   type TinyOsCommand,
   type TinyOsBrowserAction,
-} from "../../app-core/chat/tinyOsCommandGateway";
+} from "../../app-core/chat/tinyOsCommand";
 import {
   unavailableTinyOsEffectiveCapabilities,
   type TinyOsEffectiveCapabilities,

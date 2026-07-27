@@ -1,7 +1,7 @@
 import { Activity, Eye, GitBranch, Info, List, Pause, Play, RotateCcw, Search, ShieldCheck, StopCircle } from "lucide-react";
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
-import { isTinyOsCommandInFlight, type TinyOsCommandLifecycle } from "../../app-core/chat/tinyOsCommandGateway";
+import { isTinyOsCommandInFlight, type TinyOsCommandLifecycle } from "../../app-core/chat/tinyOsCommand";
 import type {
   TinyOsKernelSnapshot,
   TinyOsProcess,

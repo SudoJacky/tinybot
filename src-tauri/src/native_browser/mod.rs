@@ -16,7 +16,7 @@ mod unsupported;
 #[cfg(all(windows, feature = "native-browser-runtime"))]
 mod windows;
 
-use crate::desktop_commands::gateway::native_backend_log_path;
+use crate::desktop_commands::runtime::native_backend_log_path;
 pub(crate) use manager::SharedBrowserRuntime;
 use manager::{BrowserDiagnosticSink, BrowserSessionManager, BrowserSnapshotSink};
 pub(crate) use model::{

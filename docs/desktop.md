@@ -87,7 +87,7 @@ The app owns the native runtime lifecycle. The configured exit policy applies to
 The desktop route keeps the Rust backend contract as the source of truth and layers native capabilities around it:
 
 - chat creation, turns, interruption, approvals, and forms use the native Thread API;
-- live chat rendering consumes typed native Tauri events without projecting them into Gateway frames;
+- live chat rendering consumes typed native Tauri events without an intermediate transport-frame projection;
 - non-chat WebUI-compatible requests use the native WebUI route wrapper where needed;
 - menu and keyboard commands route through native workbench navigation and actions;
 - native file picking feeds native workbench upload actions;

@@ -47,7 +47,7 @@ function agentEvent({
 }
 
 describe("native chat state", () => {
-  test("normalizes gateway sessions and messages without changing existing shapes", () => {
+  test("normalizes legacy sessions and messages without changing existing shapes", () => {
     expect(
       normalizeSessionsPayload({
         items: [

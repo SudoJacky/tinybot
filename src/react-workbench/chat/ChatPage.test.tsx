@@ -9,7 +9,7 @@ import type { ChatEvent, ChatStore, SessionStore, SessionSummary, SettingsStore 
 import type { DesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import type { ReactChatMessage } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
-import { createTinyOsAgentCancelCommand } from "../../app-core/chat/tinyOsCommandGateway";
+import { createTinyOsAgentCancelCommand } from "../../app-core/chat/tinyOsCommand";
 import type { TinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
 import { timelineFromReactMessages } from "./testTimelineFixtures";
 
@@ -1699,7 +1699,7 @@ describe("ChatPage", () => {
     expect(within(card).getByRole("button", { name: "Save preferences" }).hasAttribute("disabled")).toBe(true);
   });
 
-  it("cancels active agent-ui forms through the TinyOS command gateway", async () => {
+  it("cancels active agent-ui forms through TinyOS command dispatch", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     const form: AgentUiForm = {

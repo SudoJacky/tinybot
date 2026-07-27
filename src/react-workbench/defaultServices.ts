@@ -57,7 +57,7 @@ import {
   type TinyOsCommand,
   type TinyOsDirectHostCommand,
   type TinyOsHostCommand,
-} from "../app-core/chat/tinyOsCommandGateway";
+} from "../app-core/chat/tinyOsCommand";
 import { normalizeTinyOsEffectiveCapabilities } from "../app-core/chat/tinyOsCapabilities";
 
 type Listener = (event: ChatEvent) => void;

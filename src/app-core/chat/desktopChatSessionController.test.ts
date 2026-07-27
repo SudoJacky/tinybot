@@ -39,7 +39,7 @@ function createController(overrides: Record<string, unknown> = {}) {
 }
 
 describe("desktop native chat session controller", () => {
-  test("loads and selects Thread records without a Gateway attach", async () => {
+  test("loads and selects Thread records without a transport attach", async () => {
     const { controller } = createController();
 
     await expect(controller.loadSessions()).resolves.toBe(1);

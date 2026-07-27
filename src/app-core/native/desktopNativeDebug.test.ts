@@ -58,15 +58,15 @@ describe("desktop native debug logger", () => {
     });
 
     trace.mark("dom.ready", { mode: "native" });
-    trace.start("gatewayReady");
-    trace.complete("gatewayReady", { state: "running" });
+    trace.start("runtimeReady");
+    trace.complete("runtimeReady", { state: "running" });
     trace.start("chatRuntime");
     trace.fail("chatRuntime", new Error("slow chat"));
 
     expect(window.__tinybotNativeDebug?.map((entry) => entry.stage)).toEqual([
       "startup.dom.ready",
-      "startup.gatewayReady.start",
-      "startup.gatewayReady.complete",
+      "startup.runtimeReady.start",
+      "startup.runtimeReady.complete",
       "startup.chatRuntime.start",
       "startup.chatRuntime.failed",
     ]);

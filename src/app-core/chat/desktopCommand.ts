@@ -1,5 +1,5 @@
 import type { NativeChatReference } from "./nativeChat";
-import type { TinyOsCommand, TinyOsCommandSource } from "./tinyOsCommandGateway";
+import type { TinyOsCommand, TinyOsCommandSource } from "./tinyOsCommand";
 
 export type DesktopChatInput = {
   text: string;

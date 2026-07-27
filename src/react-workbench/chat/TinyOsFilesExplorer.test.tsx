@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTinyOsFilesState, type TinyOsFilesState } from "../../app-core/chat/tinyOsFilesModel";
-import { createTinyOsFileSaveCommand } from "../../app-core/chat/tinyOsCommandGateway";
+import { createTinyOsFileSaveCommand } from "../../app-core/chat/tinyOsCommand";
 import { createTinyOsShellCommandRegistry, defineTinyOsShellCommand } from "../../app-core/chat/tinyOsShellCommandRegistry";
 import { TinyOsFilesExplorer } from "./TinyOsFilesExplorer";
 import type { TinyOsFilesController } from "./useTinyOsFilesController";

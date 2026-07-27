@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { resourceValue, type TinyOsDirectoryView, type TinyOsResourceState } from "../../app-core/chat/tinyOsFilesModel";
 import { tinyOsWorkspaceResourceId } from "../../app-core/chat/tinyOsFilesModel";
-import type { TinyOsCommandLifecycle } from "../../app-core/chat/tinyOsCommandGateway";
+import type { TinyOsCommandLifecycle } from "../../app-core/chat/tinyOsCommand";
 import type { TinyOsKernelSnapshot } from "../../app-core/chat/tinyOsKernelModel";
 import type { TinyOsShellCommandRegistry } from "../../app-core/chat/tinyOsShellCommandRegistry";
 import { writeTinyOsReferenceTransfer } from "../../app-core/chat/tinyOsReferenceTransfer";

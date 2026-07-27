@@ -443,7 +443,7 @@ export interface DesktopSettingsPaneModel {
   };
   diagnostics?: {
     runtimeSummary: string;
-    gatewayOwnership: string;
+    runtimeOwnership: string;
     version: string;
     activeConfigPath: string;
     lastConfigError: string;
@@ -1036,7 +1036,7 @@ function buildDesktopSettingsDiagnosticsSummary(
   const saveStatus = `Settings save status: ${save.status}`;
   return {
     runtimeSummary: `Runtime summary: in-process Rust backend; ${saveStatus}.`,
-    gatewayOwnership: "Runtime ownership: Tauri-managed native backend.",
+    runtimeOwnership: "Runtime ownership: Tauri-managed native backend.",
     version: "Version: Current desktop build.",
     activeConfigPath: "Active config path: Managed by native runtime.",
     lastConfigError: save.status === "failed"

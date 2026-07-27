@@ -16,7 +16,7 @@ export type {
 } from "../app-core/workspace/workspaceExplorer";
 import type { AgentDefaultsSettingsData } from "../app-core/settings/agentDefaultsSettings";
 import type { DesktopChatInput, DesktopCommand } from "../app-core/chat/desktopCommand";
-import type { TinyOsCommand } from "../app-core/chat/tinyOsCommandGateway";
+import type { TinyOsCommand } from "../app-core/chat/tinyOsCommand";
 import type { TinyOsEffectiveCapabilities } from "../app-core/chat/tinyOsCapabilities";
 import type {
   ProviderModelFetchInput,

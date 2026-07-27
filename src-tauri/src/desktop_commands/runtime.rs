@@ -6,7 +6,7 @@ use crate::desktop::{
 };
 use crate::runtime::lifecycle::RuntimeLifecycle;
 
-pub(crate) fn start_gateway_with_workspace_root(
+pub(crate) fn start_native_runtime_with_workspace_root(
     shared: &SharedNativeRuntime,
     workspace_root: PathBuf,
 ) -> Result<(), String> {
@@ -86,31 +86,31 @@ pub(crate) fn native_backend_log_path() -> PathBuf {
     base.join("tinybot").join("logs").join("native-backend.log")
 }
 
-pub(crate) fn stop_owned_gateway(
+pub(crate) fn shutdown_native_runtime(
     shared: &SharedNativeRuntime,
     explicit: bool,
 ) -> Result<(), String> {
-    stop_owned_gateway_with_timeout(shared, explicit, Duration::from_secs(5))
+    shutdown_native_runtime_with_timeout(shared, explicit, Duration::from_secs(5))
 }
 
-pub(crate) async fn stop_owned_gateway_for_window_close(
+pub(crate) async fn shutdown_native_runtime_for_window_close(
     shared: SharedNativeRuntime,
     explicit: bool,
 ) -> Result<(), String> {
-    stop_owned_gateway_async_with_timeout(&shared, explicit, Duration::from_secs(5)).await
+    shutdown_native_runtime_async_with_timeout(&shared, explicit, Duration::from_secs(5)).await
 }
 
-pub(crate) fn stop_owned_gateway_with_timeout(
+pub(crate) fn shutdown_native_runtime_with_timeout(
     shared: &SharedNativeRuntime,
     explicit: bool,
     timeout: Duration,
 ) -> Result<(), String> {
-    tauri::async_runtime::block_on(stop_owned_gateway_async_with_timeout(
+    tauri::async_runtime::block_on(shutdown_native_runtime_async_with_timeout(
         shared, explicit, timeout,
     ))
 }
 
-async fn stop_owned_gateway_async_with_timeout(
+async fn shutdown_native_runtime_async_with_timeout(
     shared: &SharedNativeRuntime,
     explicit: bool,
     timeout: Duration,
@@ -147,5 +147,5 @@ async fn stop_owned_gateway_async_with_timeout(
 }
 
 #[cfg(test)]
-#[path = "gateway_tests.rs"]
+#[path = "runtime_tests.rs"]
 mod tests;

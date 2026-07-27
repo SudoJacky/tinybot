@@ -947,7 +947,7 @@ samples the first, middle, and final boundaries of a 2,000-event replay against 
 current projector remains below that threshold, so canonical reconstruction does not create or
 persist checkpoints yet.
 
-TinyOS controlled-host actions use the same `tinybot.command.v1` gateway and dedicated
+TinyOS controlled-host actions use the same `tinybot.command.v1` contract and dedicated
 `tinyos-host-*` operation identities. They are never inferred from local window state:
 
 - `file.save` carries `path`, `content`, `create_only`, `confirmed`, and, for an existing file,

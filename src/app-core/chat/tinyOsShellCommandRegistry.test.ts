@@ -123,7 +123,7 @@ describe("TinyOS shell command registry", () => {
     const command = defineTinyOsShellCommand({
       availability: { available: true },
       category: "process",
-      dispatch: () => { throw new Error("gateway dispatch failed"); },
+      dispatch: () => { throw new Error("command dispatch failed"); },
       id: "agent.pause",
       input: { kind: "none" },
       keywords: [],
@@ -132,7 +132,7 @@ describe("TinyOS shell command registry", () => {
       target: { kind: "turn", turnId: "turn-1" },
     });
 
-    await expect(executeTinyOsShellCommand(command)).rejects.toThrow("gateway dispatch failed");
+    await expect(executeTinyOsShellCommand(command)).rejects.toThrow("command dispatch failed");
   });
 
   it("validates structured runtime command input before dispatch", async () => {

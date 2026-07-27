@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { createDesktopAppServices } from "./defaultServices";
 import type { ChatEvent } from "./services";
 import { createDesktopStopCommand, createDesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
-import { createTinyOsApprovalResolveCommand } from "../app-core/chat/tinyOsCommandGateway";
+import { createTinyOsApprovalResolveCommand } from "../app-core/chat/tinyOsCommand";
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -382,7 +382,7 @@ describe("desktop native app services", () => {
     expect(events).toContainEqual({ type: "agent.event", eventType: "agent.turn.completed" });
   });
 
-  test("consumes typed Tauri timeline patches without a Gateway frame", async () => {
+  test("consumes typed Tauri timeline patches without a transport frame", async () => {
     mocks.invoke.mockImplementation(async (command: string) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };
       if (command === "worker_turns_list") return { turns: [{ turnId: "turn-live" }] };

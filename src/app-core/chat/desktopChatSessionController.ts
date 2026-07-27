@@ -173,7 +173,7 @@ export function createDesktopChatSessionController({
       return { status: "unavailable", deletedSessionKey, nextSessionKey: "" };
     }
 
-    await deleteGatewaySession(target);
+    await deleteNativeSession(target);
     state.messages.delete(sessionKey);
     state.respondingSessionKeys.delete(sessionKey);
 
@@ -200,7 +200,7 @@ export function createDesktopChatSessionController({
     };
   }
 
-  async function deleteGatewaySession(target: NativeChatState["sessions"][number]): Promise<void> {
+  async function deleteNativeSession(target: NativeChatState["sessions"][number]): Promise<void> {
     if (!api.deleteSession) {
       return;
     }

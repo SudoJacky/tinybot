@@ -1,6 +1,6 @@
 use crate::agent::runtime::NativeAgentRuntimeServices;
 use crate::collaboration::subagents::SubagentThreadManager;
-use crate::desktop_commands::gateway::native_backend_log_path;
+use crate::desktop_commands::runtime::native_backend_log_path;
 use crate::runtime::lifecycle::RuntimeLifecycleStatus;
 use crate::runtime::mcp::McpRuntime;
 use crate::threads::workspace_store::WorkspaceThreadStore;

@@ -8,7 +8,7 @@ use crate::desktop::files::reveal_workspace_file_path_from_config_path;
 use crate::desktop::state::lock_runtime;
 use crate::desktop::state::NativeRuntimeState;
 use crate::desktop_commands::agent::worker_run_agent_with_options;
-use crate::desktop_commands::gateway::stop_owned_gateway;
+use crate::desktop_commands::runtime::shutdown_native_runtime;
 use crate::protocol::capability::default_desktop_capability_policy;
 use crate::protocol::WorkerRequest;
 use crate::rpc::native_request_router;
@@ -42,7 +42,7 @@ fn close_shutdown_cancels_and_drains_owned_agent_task() {
         .expect("owned agent task should start");
     assert_eq!(task_runtime.active_count(), 1);
 
-    stop_owned_gateway(&shared, true).expect("owned agent task should drain during shutdown");
+    shutdown_native_runtime(&shared, true).expect("owned agent task should drain during shutdown");
     let result = handle
         .wait()
         .expect("owned agent runner should return cancellation");
@@ -115,7 +115,7 @@ lines.on("close", () => {
         .with_mcp_runtime(mcp_runtime.clone());
     let shared = Arc::new(Mutex::new(runtime));
 
-    stop_owned_gateway(&shared, false).expect("app shutdown should stop MCP runtime");
+    shutdown_native_runtime(&shared, false).expect("app shutdown should stop MCP runtime");
 
     assert_eq!(
         tauri::async_runtime::block_on(mcp_runtime.server_status(&fixture.root, "shutdown"))
@@ -219,7 +219,7 @@ fn startup_reconciles_orphaned_turn_and_preserves_waiting_checkpoint() {
     let shared = Arc::new(Mutex::new(NativeRuntimeState::default()));
     let recovery_metrics_before =
         crate::runtime::observability::global_agent_runtime_metrics().snapshot();
-    crate::desktop_commands::gateway::start_gateway_with_workspace_root(
+    crate::desktop_commands::runtime::start_native_runtime_with_workspace_root(
         &shared,
         fixture.root.clone(),
     )
@@ -322,7 +322,7 @@ fn startup_reconciles_orphaned_turn_and_preserves_waiting_checkpoint() {
     );
 
     let restarted = Arc::new(Mutex::new(NativeRuntimeState::default()));
-    crate::desktop_commands::gateway::start_gateway_with_workspace_root(
+    crate::desktop_commands::runtime::start_native_runtime_with_workspace_root(
         &restarted,
         fixture.root.clone(),
     )
@@ -347,7 +347,7 @@ fn startup_recovery_failure_pauses_runtime_and_exposes_diagnostic() {
         .expect("invalid workspace fixture should write");
     let shared = Arc::new(Mutex::new(NativeRuntimeState::default()));
 
-    let error = match crate::desktop_commands::gateway::start_gateway_with_workspace_root(
+    let error = match crate::desktop_commands::runtime::start_native_runtime_with_workspace_root(
         &shared,
         invalid_workspace,
     ) {
@@ -418,7 +418,7 @@ fn close_shutdown_stops_shell_and_interrupts_subagents_with_report() {
     });
     assert!(spawned.accepted);
 
-    stop_owned_gateway(&shared, true).expect("unified shutdown should complete");
+    shutdown_native_runtime(&shared, true).expect("unified shutdown should complete");
 
     assert_eq!(shell_runtime.active_process_count(), 0);
     assert_eq!(
@@ -445,7 +445,7 @@ fn close_shutdown_stops_shell_and_interrupts_subagents_with_report() {
     assert!(report.failures.is_empty());
     drop(runtime);
 
-    crate::desktop_commands::gateway::start_gateway_with_workspace_root(
+    crate::desktop_commands::runtime::start_native_runtime_with_workspace_root(
         &shared,
         fixture.root.clone(),
     )
@@ -486,7 +486,7 @@ fn close_shutdown_exposes_cleanup_timeout_diagnostics() {
         )
         .expect("cleanup timeout fixture should start");
 
-    let error = crate::desktop_commands::gateway::stop_owned_gateway_with_timeout(
+    let error = crate::desktop_commands::runtime::shutdown_native_runtime_with_timeout(
         &shared,
         true,
         Duration::from_millis(20),
@@ -526,7 +526,7 @@ fn native_runtime_starts_with_rust_backend() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(NativeRuntimeState::default()));
 
-    crate::desktop_commands::gateway::start_gateway_with_workspace_root(
+    crate::desktop_commands::runtime::start_native_runtime_with_workspace_root(
         &shared,
         fixture.root.clone(),
     )
@@ -544,7 +544,7 @@ fn native_runtime_starts_with_rust_backend() {
 fn desktop_smoke_default_chat_runs_on_rust_backend() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(NativeRuntimeState::default()));
-    crate::desktop_commands::gateway::start_gateway_with_workspace_root(
+    crate::desktop_commands::runtime::start_native_runtime_with_workspace_root(
         &shared,
         fixture.root.clone(),
     )

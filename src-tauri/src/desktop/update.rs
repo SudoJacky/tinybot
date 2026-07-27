@@ -6,7 +6,7 @@ use super::{
 };
 
 #[cfg(windows)]
-use crate::desktop_commands::gateway::stop_owned_gateway;
+use crate::desktop_commands::runtime::shutdown_native_runtime;
 #[cfg(windows)]
 use tauri::AppHandle;
 #[cfg(windows)]
@@ -131,10 +131,11 @@ async fn run_startup_auto_update(
     );
 
     let shutdown_shared = shared.clone();
-    let shutdown_result =
-        tauri::async_runtime::spawn_blocking(move || stop_owned_gateway(&shutdown_shared, true))
-            .await
-            .map_err(|error| format!("runtime shutdown task failed: {error}"))?;
+    let shutdown_result = tauri::async_runtime::spawn_blocking(move || {
+        shutdown_native_runtime(&shutdown_shared, true)
+    })
+    .await
+    .map_err(|error| format!("runtime shutdown task failed: {error}"))?;
     require_clean_shutdown(shutdown_result)?;
     report_update_event(
         &shared,

@@ -8,8 +8,8 @@ use crate::config::application::{
     default_tinybot_config_path, ensure_default_config_file, native_backend_workspace_root,
 };
 use crate::config::store::ConfigDiagnosticCode;
-use crate::desktop_commands::gateway::{
-    start_gateway_with_workspace_root, stop_owned_gateway_for_window_close,
+use crate::desktop_commands::runtime::{
+    shutdown_native_runtime_for_window_close, start_native_runtime_with_workspace_root,
 };
 use crate::native_browser;
 use crate::system_prompt::{load_or_create_system_prompt, SYSTEM_PROMPT_FILE_NAME};
@@ -123,7 +123,7 @@ pub(crate) fn run() {
                 ),
             }
             if let Err(error) =
-                start_gateway_with_workspace_root(&setup_state, workspace_root.clone())
+                start_native_runtime_with_workspace_root(&setup_state, workspace_root.clone())
             {
                 push_log(
                     &setup_state,
@@ -254,7 +254,7 @@ pub(crate) fn run() {
                             eprintln!("desktop_window_close_browser_cleanup_completed");
                         }
                         if let Err(error) =
-                            stop_owned_gateway_for_window_close(close_state, false).await
+                            shutdown_native_runtime_for_window_close(close_state, false).await
                         {
                             eprintln!("desktop_window_close_runtime_cleanup_failed error={error}");
                         } else {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { TINYOS_CAPABILITY_IDS } from "./tinyOsCapabilities";
-import { TINYOS_COMMAND_KINDS } from "./tinyOsCommandGateway";
+import { TINYOS_COMMAND_KINDS } from "./tinyOsCommand";
 import { TINYOS_PRE_KERNEL_APP_IDS } from "./tinyOsDesktopModel";
 
 describe("TinyOS pre-kernel contract parity", () => {

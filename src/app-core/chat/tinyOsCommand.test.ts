@@ -20,7 +20,7 @@ import {
   isTinyOsCommandPending,
   reduceTinyOsCommandLifecycle,
   type TinyOsCommandLifecycle,
-} from "./tinyOsCommandGateway";
+} from "./tinyOsCommand";
 
 const command = createTinyOsAgentCancelCommand({
   commandId: "command-1",
