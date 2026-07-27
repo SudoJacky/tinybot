@@ -1,5 +1,7 @@
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
 use crate::desktop::{lock_runtime, SharedNativeRuntime};
+use crate::native_browser::SharedBrowserRuntime;
+use crate::protocol::capability::default_desktop_capability_policy;
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
@@ -85,6 +87,46 @@ thread_command!(
     "thread-restore-checkpoint",
     "thread.restore_checkpoint"
 );
+thread_command!(thread_list_turns, "thread-turn-list", "thread.turn.list");
+thread_command!(
+    thread_get_turn_runtime_state,
+    "thread-turn-runtime-state",
+    "thread.turn.runtime_state"
+);
+
+#[tauri::command]
+pub(crate) fn thread_get_effective_capabilities(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedNativeRuntime>,
+    browser_runtime: State<'_, SharedBrowserRuntime>,
+) -> Result<serde_json::Value, String> {
+    let thread_id = input
+        .body
+        .get("threadId")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "thread effective capabilities require threadId".to_string())?
+        .to_string();
+    let workspace_root = native_backend_workspace_root();
+    let turns = worker_thread_request_with_options(
+        state.inner(),
+        "thread-turn-list",
+        "thread.turn.list",
+        serde_json::json!({ "threadId": thread_id.clone() }),
+        workspace_root.clone(),
+        native_config_snapshot(),
+        Duration::from_secs(10),
+    )?;
+    let mut capabilities = super::session::build_worker_session_effective_capabilities(
+        &thread_id,
+        &turns,
+        workspace_root.is_dir(),
+        &default_desktop_capability_policy(),
+    );
+    project_browser_capabilities(&mut capabilities, browser_runtime.inner())?;
+    Ok(capabilities)
+}
 
 pub(crate) fn worker_thread_request_with_options(
     shared: &SharedNativeRuntime,
@@ -137,4 +179,33 @@ pub(crate) fn worker_thread_request_with_options(
         }
     }
     Ok(result)
+}
+
+fn project_browser_capabilities(
+    capabilities: &mut serde_json::Value,
+    browser_runtime: &SharedBrowserRuntime,
+) -> Result<(), String> {
+    let browser = browser_runtime.capabilities();
+    if let Some(target) = capabilities
+        .pointer_mut("/capabilities/browser")
+        .and_then(serde_json::Value::as_object_mut)
+    {
+        target.insert(
+            "sessionSnapshot".to_string(),
+            serde_json::Value::Bool(browser.session_snapshot.available),
+        );
+        target.insert(
+            "realCapture".to_string(),
+            serde_json::to_value(&browser.real_capture).map_err(|error| error.to_string())?,
+        );
+        target.insert(
+            "interact".to_string(),
+            serde_json::to_value(&browser.agent_interaction).map_err(|error| error.to_string())?,
+        );
+        target.insert(
+            "runtime".to_string(),
+            serde_json::to_value(browser).map_err(|error| error.to_string())?,
+        );
+    }
+    Ok(())
 }

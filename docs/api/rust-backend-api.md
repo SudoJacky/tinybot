@@ -368,7 +368,7 @@ Workspace-backed agent results include:
   `referenceCount`, safe reference identifiers, and `truncated`.
 
 The instruction provenance and instruction diagnostics are stored on the durable agent-turn record, so
-`worker_turns_list` and `worker_turn_runtime_state` can explain the instruction inputs of
+`thread_list_turns` and `thread_get_turn_runtime_state` can explain the instruction inputs of
 a historical turn without persisting a second write authority.
 
 ### Extension contributors and context hydration
@@ -758,21 +758,12 @@ the matching `sessionId` and `formId`. A valid submit becomes the real tool obse
 the same provider chain; it is not converted into a synthetic final answer. Cancel clears the
 checkpoint and returns `stopReason: "form_cancelled"` with an observable resolution/error event.
 
-## Session Commands
+## Thread Timeline Queries
 
-| Command | Args | Response |
-| --- | --- | --- |
-| `worker_sessions_list` | none | session list payload |
-| `worker_session_messages` | `{ input: { key: string } }` | `{ messages: [...] }` style payload |
-| `worker_turns_list` | `{ input: { key: string } }` | agent turn list |
-| `worker_turn_runtime_state` | `{ input: { sessionKey: string, turnId: string } }` | `AgentTurnRuntimeState` |
-| `worker_session_delete` | `{ input: { key: string } }` | delete result |
-| `worker_session_patch` | `{ input: { key: string, body: { title?, metadata?, archived? } } }` | patched session payload |
-| `worker_session_branch` | `{ input: { body: unknown } }` | branch result |
-| `worker_session_clear` | `{ input: { key: string } }` | clear result |
-| `worker_session_task_progress` | `{ input: { key: string, body: { turnId: string, ... } } }` | task progress result |
+The renderer queries canonical Turn summaries and runtime state through the Thread commands
+documented below. These commands accept `threadId` directly and do not resolve legacy Session keys.
 
-`worker_turn_runtime_state` returns runtime events projected from the session's canonical
+`thread_get_turn_runtime_state` returns runtime events projected from the Thread's canonical
 Rollout plus one canonical timeline snapshot for product rendering. Rollout ordinals define event
 order; embedded event sequence values and in-memory thread items are not reconstruction sources.
 The former `turnItems` response field is not part of the contract.
@@ -1005,8 +996,8 @@ The effective capability declares `projectionContract: "structured_projection_v1
 They are available only in a supported Windows build with `native-browser-runtime`; otherwise the
 desktop reports the exact feature/platform unavailable reason and does not create a fallback browser.
 
-`GET /api/sessions/{key}/effective-capabilities` and the native
-`worker_session_effective_capabilities` command return `tinybot.effective_capabilities.v1` decisions.
+The compatibility route `GET /api/sessions/{key}/effective-capabilities` and the native
+`thread_get_effective_capabilities` command return `tinybot.effective_capabilities.v1` decisions.
 Unavailable decisions include both `reasonCode` and a user-facing `reason`; the response identifies
 the evaluated turn used for the decision when present. Retry is available only when that latest turn
 is failed and no active turn supersedes it. `files.requestChange` is available when workspace read
@@ -1177,6 +1168,9 @@ Thread Tauri commands all use `{ input: { body } }`, except the continuation hel
 | `worker_thread_fork` | `thread.fork` | `ForkThreadRequest` |
 | `worker_thread_events` | `thread.events` | `ThreadEventsRequest` |
 | `worker_thread_restore_checkpoint` | `thread.restore_checkpoint` | `RestoreThreadCheckpointRequest` |
+| `thread_list_turns` | `thread.turn.list` | `{ threadId }` |
+| `thread_get_turn_runtime_state` | `thread.turn.runtime_state` | `{ threadId, turnId }` |
+| `thread_get_effective_capabilities` | composite Thread capability query | `{ threadId }` |
 
 Thread continuation helper commands:
 
@@ -2001,35 +1995,25 @@ Prefer these wrappers instead of direct command strings:
 | Wrapper | File | Commands/routes covered |
 | --- | --- | --- |
 | `createDesktopNativeConfigApi` | `src/app-core/native/desktopNativeConfig.ts` | Config snapshot |
-| `createDesktopNativeSessionsApi` | `src/app-core/native/desktopNativeSessions.ts` | Session commands |
-| `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread commands |
+| `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread, Turn timeline, and effective-capability commands |
 | `createDesktopNativeHostCommandApi` | `src/app-core/native/desktopNativeHostCommand.ts` | Remaining non-chat TinyOS host commands |
 | `createDesktopNativeWebuiApi` | `src/app-core/native/desktopNativeWebui.ts` | `worker_webui_route` |
 
 ## Examples
 
-List sessions:
+List Thread turns:
 
 ```ts
-await invoke("worker_sessions_list");
-```
-
-Read session messages:
-
-```ts
-await invoke("worker_session_messages", {
-  input: { key: "websocket:chat-1" }
+await invoke("thread_list_turns", {
+  input: { body: { threadId: "thread-1" } }
 });
 ```
 
-Patch a session title:
+Read canonical Turn runtime state:
 
 ```ts
-await invoke("worker_session_patch", {
-  input: {
-    key: "websocket:chat-1",
-    body: { title: "Planning notes" }
-  }
+await invoke("thread_get_turn_runtime_state", {
+  input: { body: { threadId: "thread-1", turnId: "turn-1" } }
 });
 ```
 

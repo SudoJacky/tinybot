@@ -38,16 +38,6 @@ export const NATIVE_BACKEND_COMMAND_NAMES = [
   "worker_workspace_put_file",
   "worker_workspace_directory",
   "worker_workspace_file_chunk",
-  "worker_sessions_list",
-  "worker_session_messages",
-  "worker_session_effective_capabilities",
-  "worker_turns_list",
-  "worker_turn_runtime_state",
-  "worker_session_delete",
-  "worker_session_patch",
-  "worker_session_branch",
-  "worker_session_clear",
-  "worker_session_task_progress",
   "worker_thread_create",
   "worker_thread_read",
   "worker_thread_resume",
@@ -67,6 +57,9 @@ export const NATIVE_BACKEND_COMMAND_NAMES = [
   "worker_thread_fork",
   "worker_thread_events",
   "worker_thread_restore_checkpoint",
+  "thread_list_turns",
+  "thread_get_turn_runtime_state",
+  "thread_get_effective_capabilities",
 ] as const;
 
 export type NativeBackendCommandName = typeof NATIVE_BACKEND_COMMAND_NAMES[number];

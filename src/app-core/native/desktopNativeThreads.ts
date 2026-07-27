@@ -87,6 +87,9 @@ export type NativeThreadsApi = {
   fork(body: Record<string, unknown>): Promise<unknown>;
   events(body: Record<string, unknown>): Promise<unknown>;
   restoreCheckpoint(body: Record<string, unknown>): Promise<unknown>;
+  listTurns(threadId: string): Promise<unknown>;
+  getTurnRuntimeState(threadId: string, turnId: string): Promise<unknown>;
+  getEffectiveCapabilities(threadId: string): Promise<unknown>;
   submitTurn(body: NativeThreadTurnInput): Promise<NativeThreadTurnResult>;
   submitForm(body: NativeThreadFormInput): Promise<unknown>;
 };
@@ -114,6 +117,9 @@ export function createDesktopNativeThreadsApi(options: { invoke?: TauriInvoke } 
     fork: (body) => thread("worker_thread_fork", body),
     events: (body) => thread("worker_thread_events", body),
     restoreCheckpoint: (body) => thread("worker_thread_restore_checkpoint", body),
+    listTurns: (threadId) => thread("thread_list_turns", { threadId }),
+    getTurnRuntimeState: (threadId, turnId) => thread("thread_get_turn_runtime_state", { threadId, turnId }),
+    getEffectiveCapabilities: (threadId) => thread("thread_get_effective_capabilities", { threadId }),
     submitTurn: (body) => invoke("worker_submit_thread_turn", { input: body }) as Promise<NativeThreadTurnResult>,
     submitForm: (body) => invoke("worker_submit_thread_form", { input: body }),
   };

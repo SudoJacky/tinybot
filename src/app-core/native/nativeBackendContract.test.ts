@@ -28,6 +28,9 @@ describe("native backend contract", () => {
       "worker_thread_continue_turn",
       "worker_thread_interrupt",
       "worker_thread_apply_op",
+      "thread_list_turns",
+      "thread_get_turn_runtime_state",
+      "thread_get_effective_capabilities",
       "worker_subagent_resume",
     ]));
   });

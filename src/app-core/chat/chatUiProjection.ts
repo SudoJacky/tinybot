@@ -20,8 +20,8 @@ export type RuntimeCapabilityAuditEntry = {
 export const CHAT_RUNTIME_CAPABILITY_AUDIT = {
   sessions: {
     status: "available",
-    source: "worker_sessions_list / worker_session_messages",
-    notes: "Rust state service exposes session metadata and persisted message history.",
+    source: "worker_threads_list / thread_list_turns",
+    notes: "Rust Thread commands expose conversation metadata and canonical Turn history.",
   },
   messages: {
     status: "available",
@@ -45,8 +45,8 @@ export const CHAT_RUNTIME_CAPABILITY_AUDIT = {
   },
   branchSession: {
     status: "available",
-    source: "worker_session_branch / /api/sessions/branch",
-    notes: "Rust-owned branch session route creates history-only branches without copying runtime state.",
+    source: "worker_thread_fork",
+    notes: "The Rust Thread command forks persisted history at a canonical item boundary.",
   },
   legacyConversationThread: {
     status: "frozen",

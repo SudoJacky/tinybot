@@ -11,7 +11,6 @@ import {
 import type { DesktopCommand, DesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
 import { createDesktopNativeConfigApi } from "../app-core/native/desktopNativeConfig";
 import { applyNativeConfigPatch } from "../app-core/native/desktopNativeConfigPatch";
-import { createDesktopNativeSessionsApi } from "../app-core/native/desktopNativeSessions";
 import { createDesktopNativeSkillsApi } from "../app-core/native/desktopNativeSkills";
 import {
   createDesktopNativeThreadsApi,
@@ -65,7 +64,6 @@ type Listener = (event: ChatEvent) => void;
 export function createDesktopAppServices(): AppServices {
   const nativeMode = hasTauriRuntime();
   const nativeConfig = nativeMode ? createDesktopNativeConfigApi({ invoke }) : undefined;
-  const nativeSessions = nativeMode ? createDesktopNativeSessionsApi({ invoke }) : undefined;
   const nativeSkills = nativeMode ? createDesktopNativeSkillsApi({ invoke }) : undefined;
   const nativeThreads = nativeMode ? createDesktopNativeThreadsApi({ invoke }) : undefined;
   const nativeHostCommands = nativeMode ? createDesktopNativeHostCommandApi({ invoke }) : undefined;
@@ -80,8 +78,8 @@ export function createDesktopAppServices(): AppServices {
   const controller = createDesktopChatSessionController({
     api: {
       listSessions: listConversationThreads,
-      listTurns: (sessionKey) => requireNative(nativeSessions, "Session").turns?.(sessionKey) ?? Promise.resolve({ turns: [] }),
-      getAgentTurnRuntimeState: (sessionKey, turnId) => requireNative(nativeSessions, "Session").agentTurnRuntimeState?.(sessionKey, turnId) ?? Promise.resolve(null),
+      listTurns: (threadId) => requireNative(nativeThreads, "Thread").listTurns(threadId),
+      getAgentTurnRuntimeState: (threadId, turnId) => requireNative(nativeThreads, "Thread").getTurnRuntimeState(threadId, turnId),
       deleteSession: (threadId) => requireNative(nativeThreads, "Thread").delete({
         threadId,
         deleteChildren: true,
@@ -481,7 +479,7 @@ export function createDesktopAppServices(): AppServices {
       async loadTinyOsCapabilities(sessionId) {
         await initialize();
         return normalizeTinyOsEffectiveCapabilities(
-          await requireNative(nativeSessions, "Session").effectiveCapabilities?.(sessionId),
+          await requireNative(nativeThreads, "Thread").getEffectiveCapabilities(sessionId),
           sessionId,
         );
       },
