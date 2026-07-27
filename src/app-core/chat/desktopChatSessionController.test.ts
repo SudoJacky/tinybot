@@ -32,7 +32,6 @@ function createController(overrides: Record<string, unknown> = {}) {
       api,
       createClientEventId: () => "client-1",
       createTurnId: () => "turn-1",
-      now: () => "2026-07-14T00:00:01.000Z",
     }),
     submitThreadTurn,
   };
