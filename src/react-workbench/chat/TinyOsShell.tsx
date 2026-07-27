@@ -194,7 +194,6 @@ export function TinyOsShell({
   layoutMode: TinyOsLayoutMode;
   workspaceKey: string;
 }) {
-  const shellRef = useRef<HTMLDivElement>(null);
   const desktopRef = useRef<HTMLElement>(null);
   const launcherRef = useRef<HTMLElement>(null);
   const overlayReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -233,6 +232,7 @@ export function TinyOsShell({
     }
     return windows;
   }, [agentFilterId, filesController, sessionKey, snapshot.kernel, snapshot.windows]);
+  const initialWindowIds = useRef(new Set(appWindows.map((window) => window.id)));
   const initialAppIds = appWindows.map((window) => window.appId);
   const browserSessionAvailable = Boolean(snapshot.kernel?.browserSessions.length);
   const browserSessionWasAvailable = useRef(browserSessionAvailable);
@@ -265,23 +265,6 @@ export function TinyOsShell({
       restoredLayout,
     });
   });
-  useLayoutEffect(() => {
-    const shell = shellRef.current;
-    if (!shell || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
-
-    const context = gsap.context(() => {
-      gsap.timeline({ defaults: { ease: "power3.out" } })
-        .from(".tinyos-desktop", { duration: .48, opacity: 0 })
-        .from(".tinyos-desktop__side-rays", { clearProps: "opacity", duration: .62, opacity: 0 }, "<")
-        .from(".tinyos-desktop__environment > *", { clearProps: "opacity,transform", duration: .42, opacity: 0, stagger: .08, y: -10 }, "-=.26")
-        .from(".tinyos-desktop__system-tools", { clearProps: "opacity,transform", duration: .42, opacity: 0, scale: .9, x: 12 }, "<")
-        .from(".tinyos-launcher", { clearProps: "opacity,transform", duration: .56, opacity: 0, scale: .94, y: 28 }, "-=.2")
-        .from(".tinyos-launcher__app", { clearProps: "opacity,transform", duration: .34, opacity: 0, scale: .72, stagger: .035, y: 10 }, "-=.3");
-    }, shell);
-
-    return () => context.revert();
-  }, []);
-
   useLayoutEffect(() => {
     const launcher = launcherRef.current;
     const lens = launcher?.querySelector<HTMLElement>(".tinyos-launcher__lens");
@@ -966,7 +949,7 @@ export function TinyOsShell({
   }
 
   return (
-    <div className="tinyos-shell" data-has-dialog={snapshot.dialog ? "true" : undefined} ref={shellRef} onKeyDown={handleShellKeyDown} onKeyUp={handleShellKeyUp}>
+    <div className="tinyos-shell" data-has-dialog={snapshot.dialog ? "true" : undefined} onKeyDown={handleShellKeyDown} onKeyUp={handleShellKeyUp}>
       <section
         aria-label="TinyOS desktop"
         className="tinyos-desktop"
@@ -1055,6 +1038,7 @@ export function TinyOsShell({
           <TinyOsAppWindow
             active={uiState.focusedAppId === window.appId}
             activeTabId={uiState.activeTabs[window.appId]}
+            animateEntry={!initialWindowIds.current.has(window.id)}
             commandRegistry={shellCommandRegistry}
             canDirectEdit={canDirectEdit && !history}
             canRequestChange={canRequestChange}
@@ -1404,6 +1388,7 @@ function TinyOsDesktopEmpty() {
 function TinyOsAppWindow({
   active,
   activeTabId,
+  animateEntry,
   browserRuntime,
   browserSurfaceAllowed,
   canDirectEdit,
@@ -1438,6 +1423,7 @@ function TinyOsAppWindow({
 }: {
   active: boolean;
   activeTabId?: string;
+  animateEntry: boolean;
   browserRuntime?: NativeBrowserRuntimeApi;
   browserSurfaceAllowed: boolean;
   canDirectEdit: boolean;
@@ -1491,7 +1477,7 @@ function TinyOsAppWindow({
 
   useLayoutEffect(() => {
     const element = windowRef.current;
-    if (!element || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    if (!animateEntry || !element || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
     const context = gsap.context(() => {
       gsap.fromTo(element, {
         opacity: 0,
@@ -1499,21 +1485,15 @@ function TinyOsAppWindow({
         y: 12,
       }, {
         clearProps: "opacity,transform",
-        duration: .26,
+        duration: .22,
         ease: "power3.out",
-        opacity: active ? 1 : .86,
-        scale: active ? 1 : .99,
+        opacity: 1,
+        scale: 1,
         y: 0,
-      });
-      gsap.fromTo(element, { filter: "blur(1.5px)" }, {
-        clearProps: "filter",
-        duration: .09,
-        ease: "power1.out",
-        filter: "blur(0px)",
       });
     }, element);
     return () => context.revert();
-  }, []);
+  }, [animateEntry]);
 
   function startPointer(event: PointerEvent<HTMLElement>, kind: "move" | "resize") {
     if (!layout || event.button !== 0) return;

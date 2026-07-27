@@ -19,8 +19,8 @@ export type LiveCanvasEntry = TinyOsTimelineEntry;
 const MIN_TINYOS_WIDTH = 380;
 const TINYOS_DESKTOP_RESERVED_WIDTH = 520;
 const TINYOS_OVERLAY_RESERVED_WIDTH = 64;
-const TINYOS_BOOT_DURATION_MS = 1_000;
-let tinyOsBootedInRuntime = false;
+const TINYOS_BOOT_DURATION_MS = 450;
+const TINYOS_BOOT_SEEN_STORAGE_KEY = "tinybot.ui.tinyos.boot-seen";
 
 export function LiveCanvas({
   activeTurnId,
@@ -37,6 +37,7 @@ export function LiveCanvas({
   canSaveFile = false,
   cancelUnavailableReason,
   canonicalItems = [],
+  closing = false,
   nativeSnapshots = [],
   pauseUnavailableReason,
   commandLifecycle,
@@ -96,6 +97,7 @@ export function LiveCanvas({
   canSaveFile?: boolean;
   cancelUnavailableReason?: string;
   canonicalItems?: BackendAgentTurnItem[];
+  closing?: boolean;
   nativeSnapshots?: TinyOsNativeSnapshot[];
   pauseUnavailableReason?: string;
   commandLifecycle: TinyOsCommandLifecycle;
@@ -219,7 +221,7 @@ export function LiveCanvas({
     ? commandLifecycle.command.form.formId
     : "";
   const skipBoot = Boolean(snapshot.dialog) || prefersReducedMotion();
-  const [booting, setBooting] = useState(() => !tinyOsBootedInRuntime && !skipBoot);
+  const [booting, setBooting] = useState(() => shouldShowTinyOsBoot(skipBoot));
   const dragRef = useRef<{ pointerId: number; startWidth: number; startX: number } | undefined>(undefined);
   const canvasCommandRegistry = createTinyOsShellCommandRegistry([
     ...runtimeCommandRegistry.commands,
@@ -261,7 +263,7 @@ export function LiveCanvas({
   ], { simulationMode: mode === "history" ? "history" : "live" });
 
   useEffect(() => {
-    tinyOsBootedInRuntime = true;
+    window.localStorage.setItem(TINYOS_BOOT_SEEN_STORAGE_KEY, "true");
     if (!booting || skipBoot) {
       setBooting(false);
       return;
@@ -298,16 +300,24 @@ export function LiveCanvas({
   return (
     <>
       {!expanded && actionableDialog ? (
-        <div aria-hidden="true" className="tinyos-overlay-backdrop" />
+        <div aria-hidden="true" className="tinyos-overlay-backdrop" data-state={closing ? "closing" : "open"} />
       ) : !expanded ? (
         <button
           aria-label="Close TinyOS overlay"
           className="tinyos-overlay-backdrop"
+          data-state={closing ? "closing" : "open"}
           type="button"
           onClick={() => void canvasCommandRegistry.execute("shell.close")}
         />
       ) : null}
-      <aside aria-label="TinyOS shared desktop" className="react-live-canvas tinyos" data-expanded={expanded ? "true" : undefined} data-mode={mode} id="tinybot-live-canvas">
+      <aside
+        aria-label="TinyOS shared desktop"
+        className="react-live-canvas tinyos"
+        data-expanded={expanded ? "true" : undefined}
+        data-mode={mode}
+        data-state={closing ? "closing" : "open"}
+        id="tinybot-live-canvas"
+      >
       <div
         aria-label="Resize TinyOS"
         aria-orientation="vertical"
@@ -435,4 +445,10 @@ function prefersReducedMotion(): boolean {
   return typeof window !== "undefined"
     && typeof window.matchMedia === "function"
     && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function shouldShowTinyOsBoot(skipBoot: boolean): boolean {
+  return !skipBoot
+    && typeof window !== "undefined"
+    && window.localStorage.getItem(TINYOS_BOOT_SEEN_STORAGE_KEY) !== "true";
 }

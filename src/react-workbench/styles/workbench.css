@@ -290,6 +290,12 @@ button:disabled {
   background: #fff;
   padding: 6px;
   box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transform-origin: top left;
+  transition:
+    opacity var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
 .react-top-menu__menu-item {
@@ -358,6 +364,26 @@ button:disabled {
   background: #fff;
   padding: 6px;
   box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transform-origin: top left;
+  transition:
+    opacity var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+@starting-style {
+  .react-top-menu__popover,
+  .react-top-menu__submenu-popover,
+  .react-menu {
+    opacity: 0;
+    transform: translateY(-4px) scale(.98);
+  }
+}
+
+.react-desktop-shell[data-menu-motion="keyboard"] .react-top-menu__popover,
+.react-desktop-shell[data-menu-motion="keyboard"] .react-top-menu__submenu-popover {
+  transition-duration: 0ms;
 }
 
 .react-top-menu__menu-label,
@@ -416,7 +442,7 @@ button:disabled {
   height: 100%;
   font-size: 13px;
   min-height: 0;
-  transition: grid-template-columns 260ms var(--motion-ease-standard);
+  transition: grid-template-columns var(--motion-duration-medium) var(--motion-ease-standard);
 }
 
 .react-session-list {
@@ -427,8 +453,7 @@ button:disabled {
   overflow: hidden;
   border-right: 1px solid var(--color-hairline);
   background: var(--color-surface-soft);
-  transition: width 260ms var(--motion-ease-standard);
-  will-change: width;
+  transition: width var(--motion-duration-medium) var(--motion-ease-standard);
 }
 
 .react-session-list[data-collapsed="true"] {
@@ -473,9 +498,9 @@ button:disabled {
 .react-session-row__select small,
 .react-session-row__delete {
   transition:
-    opacity 180ms var(--motion-ease-standard),
-    transform 220ms var(--motion-ease-standard),
-    max-width 240ms var(--motion-ease-standard);
+    opacity var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-standard),
+    max-width var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
 .react-session-list__header h2 {
@@ -531,10 +556,10 @@ button:disabled {
   padding: 0;
   color: var(--color-muted);
   transition:
-    opacity 180ms var(--motion-ease-standard),
-    transform 220ms var(--motion-ease-standard),
-    width 240ms var(--motion-ease-standard),
-    min-width 240ms var(--motion-ease-standard);
+    opacity var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-standard),
+    width var(--motion-duration-fast) var(--motion-ease-standard),
+    min-width var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
 .react-session-list__add-workspace:hover,
@@ -554,6 +579,18 @@ button:disabled {
 
 .react-session-list__collapse svg[data-direction="expand"] {
   transform: rotate(180deg);
+}
+
+.react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list,
+.react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list__header h2,
+.react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list__add-workspace,
+.react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list__search,
+.react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list__new span,
+.react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-row__title,
+.react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-row__select small,
+.react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-row__delete,
+.react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list__collapse svg {
+  transition-duration: 0ms;
 }
 
 .react-session-list[data-collapsed="true"] .react-session-list__header {
@@ -735,7 +772,10 @@ button:disabled {
   position: relative;
   display: block;
   border-radius: 8px;
-  transition: background-color var(--motion-duration-fast) ease;
+  transition:
+    background-color var(--motion-duration-fast) ease,
+    opacity 180ms var(--motion-ease-standard),
+    transform 180ms var(--motion-ease-standard);
 }
 
 .react-session-list__rows[data-motion="animated-list"] .react-session-row {
@@ -838,58 +878,10 @@ button:disabled {
 
 .react-session-list__rows[data-motion="animated-list"] .react-session-row[data-dissolving="true"],
 .react-session-row[data-dissolving="true"] {
-  --react-session-particle-color: rgb(255 255 255 / 96%);
-  --react-session-particle-glow: rgb(255 255 255 / 72%);
-  --react-session-particle-edge: rgb(165 154 134 / 34%);
-  overflow: visible;
-  background: var(--color-cream-strong);
-  isolation: isolate;
   pointer-events: none;
-  transform-origin: 90% 50%;
-  animation: react-session-dissolve 760ms var(--motion-ease-standard) forwards;
-}
-
-.react-session-row[data-dissolving="true"] .react-session-row__select {
-  position: relative;
-  z-index: 1;
-  opacity: 1;
-  animation: react-session-content-dust 420ms var(--motion-ease-standard) forwards;
-}
-
-.react-session-row[data-dissolving="true"] .react-session-row__delete {
-  z-index: 3;
-  color: var(--color-error);
-  opacity: 1;
-  animation: react-session-delete-dust 420ms var(--motion-ease-standard) forwards;
-}
-
-.react-session-row[data-dissolving="true"] button:disabled {
-  opacity: 1;
-}
-
-.react-session-row__particles {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  overflow: visible;
-  pointer-events: none;
-}
-
-.react-session-row__particle {
-  position: absolute;
-  top: var(--particle-origin-y);
-  left: var(--particle-origin-x);
-  width: var(--particle-size);
-  height: var(--particle-size);
-  border-radius: 999px;
-  background: var(--react-session-particle-color);
-  box-shadow:
-    0 0 3px var(--react-session-particle-glow),
-    0 0 1px var(--react-session-particle-edge);
   opacity: 0;
-  transform: translate(-50%, -50%) scale(0.48);
-  animation: react-session-particle-burst 620ms var(--motion-ease-standard) forwards;
-  animation-delay: var(--particle-delay);
+  transform: translateX(8px);
+  animation: none;
 }
 
 @keyframes react-list-enter {
@@ -901,73 +893,6 @@ button:disabled {
   to {
     opacity: 1;
     transform: translateY(0);
-  }
-}
-
-@keyframes react-session-dissolve {
-  0% {
-    background-color: var(--color-cream-strong);
-    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0%);
-  }
-
-  54% {
-    background-color: color-mix(in srgb, var(--color-cream-strong) 88%, #fff);
-    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 24%);
-  }
-
-  100% {
-    background-color: rgb(232 224 210 / 0%);
-    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0%);
-  }
-}
-
-@keyframes react-session-content-dust {
-  0% {
-    opacity: 1;
-    transform: translateX(0);
-    filter: none;
-  }
-
-  100% {
-    opacity: 0;
-    transform: translateX(8px);
-    filter: blur(0.8px);
-  }
-}
-
-@keyframes react-session-delete-dust {
-  0% {
-    opacity: 1;
-    transform: translateY(-50%) translateX(0);
-    filter: none;
-  }
-
-  100% {
-    opacity: 0;
-    transform: translateY(-50%) translateX(8px);
-    filter: blur(0.8px);
-  }
-}
-
-@keyframes react-session-particle-burst {
-  0% {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(0.38);
-    filter: blur(0);
-  }
-
-  10% {
-    opacity: 0.96;
-  }
-
-  58% {
-    opacity: 0.7;
-  }
-
-  100% {
-    opacity: 0;
-    transform: translate(calc(-50% + var(--particle-x)), calc(-50% + var(--particle-y))) scale(0.18);
-    filter: blur(0.2px);
   }
 }
 
@@ -1290,6 +1215,12 @@ button:disabled {
   border-radius: 8px;
   background: #fff;
   box-shadow: 0 18px 44px rgb(20 20 19 / 12%);
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transform-origin: top right;
+  transition:
+    opacity var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
 .react-menu button {
@@ -1396,7 +1327,18 @@ button:disabled {
   border-left: 1px solid var(--color-hairline);
   background: var(--color-canvas);
   box-shadow: -18px 0 44px rgb(20 20 19 / 10%);
-  animation: react-drawer-enter var(--motion-duration-medium) var(--motion-ease-standard) both;
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    opacity var(--motion-duration-medium) var(--motion-ease-standard),
+    transform var(--motion-duration-medium) var(--motion-ease-standard);
+}
+
+.react-live-canvas[data-state="closing"] {
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(18px);
+  transition-duration: var(--motion-duration-fast);
 }
 
 .tinyos-overlay-backdrop {
@@ -1409,7 +1351,25 @@ button:disabled {
   border: 0;
   background: rgb(20 20 19 / 18%);
   cursor: default;
-  animation: tinyos-backdrop-enter var(--motion-duration-medium) var(--motion-ease-standard) both;
+  opacity: 1;
+  transition: opacity var(--motion-duration-medium) var(--motion-ease-standard);
+}
+
+.tinyos-overlay-backdrop[data-state="closing"] {
+  pointer-events: none;
+  opacity: 0;
+  transition-duration: var(--motion-duration-fast);
+}
+
+@starting-style {
+  .react-live-canvas {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+
+  .tinyos-overlay-backdrop {
+    opacity: 0;
+  }
 }
 
 button.tinyos-overlay-backdrop {
@@ -4241,7 +4201,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 8px;
   background: #efe9de;
   color: var(--color-muted);
-  animation: tinyos-boot-exit 1s var(--motion-ease-standard) both;
+  animation: tinyos-boot-exit 450ms var(--motion-ease-standard) both;
 }
 
 .tinyos-boot__mark {
@@ -4254,13 +4214,13 @@ button.tinyos-overlay-backdrop:focus-visible {
   background: color-mix(in srgb, var(--color-primary) 8%, #fff);
   color: var(--color-primary);
   box-shadow: 0 14px 34px rgb(77 58 43 / 14%);
-  animation: tinyos-boot-mark 620ms var(--motion-ease-standard) both;
+  animation: tinyos-boot-mark 220ms var(--motion-ease-standard) both;
 }
 
 .tinyos-boot > strong { color: var(--color-ink); font-size: 17px; letter-spacing: -.02em; }
 .tinyos-boot > span { font-size: 9px; }
 .tinyos-boot > i { display: block; width: 120px; height: 3px; overflow: hidden; border-radius: 3px; background: rgb(84 72 61 / 10%); }
-.tinyos-boot > i > b { display: block; width: 100%; height: 100%; border-radius: inherit; background: var(--color-primary); transform-origin: left; animation: tinyos-boot-progress 820ms 100ms var(--motion-ease-standard) both; }
+.tinyos-boot > i > b { display: block; width: 100%; height: 100%; border-radius: inherit; background: var(--color-primary); transform-origin: left; animation: tinyos-boot-progress 320ms 40ms var(--motion-ease-standard) both; }
 
 @keyframes tinyos-boot-mark {
   from { opacity: 0; transform: translateY(8px) scale(.94); }
@@ -4273,7 +4233,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 @keyframes tinyos-boot-exit {
-  0%, 78% { opacity: 1; }
+  0%, 72% { opacity: 1; }
   100% { opacity: 0; }
 }
 
@@ -4295,11 +4255,6 @@ button.tinyos-overlay-backdrop:focus-visible {
 @keyframes tinyos-inspector-enter {
   from { opacity: 0; transform: translateX(12px); }
   to { opacity: 1; transform: none; }
-}
-
-@keyframes tinyos-backdrop-enter {
-  from { opacity: 0; }
-  to { opacity: 1; }
 }
 
 @media (min-width: 1280px) {
@@ -6948,6 +6903,94 @@ button.tinyos-overlay-backdrop:focus-visible {
   font-size: 13px;
 }
 
+.react-settings-save-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  opacity: 1;
+  transition:
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    opacity var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-settings-save-status[data-state="idle"] {
+  opacity: 0;
+}
+
+.react-settings-save-status[data-state="error"] {
+  color: var(--color-error);
+}
+
+.react-settings-save-status__icon {
+  position: relative;
+  display: inline-grid;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+}
+
+.react-settings-save-status__icon > svg {
+  position: absolute;
+  opacity: 0;
+  transform: scale(.97);
+  transition:
+    opacity var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-settings-save-status[data-state="saving"] [data-icon="saving"] {
+  opacity: 1;
+  transform: scale(1);
+  animation: react-settings-spin 900ms linear infinite;
+}
+
+.react-settings-save-status[data-state="saved"] [data-icon="saved"] {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.react-settings-save-status__message {
+  opacity: 1;
+  transform: scale(1);
+  transform-origin: left center;
+  transition:
+    opacity var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-settings-spinner {
+  animation: react-settings-spin 900ms linear infinite;
+}
+
+@starting-style {
+  .react-settings-save-status__message {
+    opacity: 0;
+    transform: scale(.97);
+  }
+}
+
+@keyframes react-settings-spin {
+  to { transform: rotate(360deg); }
+}
+
+.react-session-list__new,
+.react-empty-chat-prompts button,
+.react-live-canvas-toggle,
+.claude-ai-input__send,
+[data-press-feedback="true"] {
+  transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-session-list__new:active:not(:disabled),
+.react-empty-chat-prompts button:active:not(:disabled),
+.react-live-canvas-toggle:active:not(:disabled),
+.claude-ai-input__send:active:not(:disabled),
+[data-press-feedback="true"]:active:not(:disabled) {
+  transform: scale(.97);
+}
+
 .react-default-llm-panel {
   display: grid;
   gap: 14px;
@@ -8313,11 +8356,9 @@ button.tinyos-overlay-backdrop:focus-visible {
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
-    transition-duration: 0ms !important;
   }
 
   .react-session-list__rows[data-motion="animated-list"] .react-session-row,
-  .react-session-row[data-dissolving="true"],
   .react-agent-step-item[aria-current="step"] .react-agent-step-item__marker,
   .react-message-markdown [data-sd-animate],
   .react-message__streaming,
@@ -8327,8 +8368,53 @@ button.tinyos-overlay-backdrop:focus-visible {
     animation: none !important;
   }
 
-  .react-session-row__particles {
-    display: none;
+  .react-session-row[data-dissolving="true"] {
+    opacity: 0;
+    transform: none;
+    transition-duration: 140ms;
+  }
+
+  .react-chat-page,
+  .react-session-list,
+  .react-session-list__collapse svg {
+    transition-duration: 0ms;
+  }
+
+  .react-session-list__header h2,
+  .react-session-list__add-workspace,
+  .react-session-list__search,
+  .react-session-list__new span,
+  .react-session-row__title,
+  .react-session-row__select small,
+  .react-session-row__delete {
+    transition-duration: 140ms;
+  }
+
+  .react-session-list[data-collapsed="true"] .react-session-list__header h2,
+  .react-session-list[data-collapsed="true"] .react-session-list__add-workspace,
+  .react-session-list[data-collapsed="true"] .react-session-list__search,
+  .react-session-list[data-collapsed="true"] .react-session-list__new span {
+    transform: none;
+  }
+
+  .react-live-canvas,
+  .tinyos-overlay-backdrop,
+  .react-top-menu__popover,
+  .react-top-menu__submenu-popover,
+  .react-menu,
+  .react-settings-save-status,
+  .react-settings-save-status__icon > svg,
+  .react-settings-save-status__message {
+    transform: none;
+    transition-duration: 140ms;
+  }
+
+  .react-session-list__new:active:not(:disabled),
+  .react-empty-chat-prompts button:active:not(:disabled),
+  .react-live-canvas-toggle:active:not(:disabled),
+  .claude-ai-input__send:active:not(:disabled),
+  [data-press-feedback="true"]:active:not(:disabled) {
+    transform: none;
   }
 
   .tinyos-desktop__side-rays {

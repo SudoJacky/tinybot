@@ -1,4 +1,4 @@
-import { Check, ChevronRight, EllipsisVertical, KeyRound, Plus, RefreshCw, Search, Settings, Trash2, X } from "lucide-react";
+import { Check, ChevronRight, EllipsisVertical, KeyRound, Loader2, Plus, RefreshCw, Search, Settings, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   buildCustomProviderPatch,
@@ -13,6 +13,7 @@ import {
   type ProviderModelsSettingsData,
 } from "../../app-core/settings/providerModelsSettings";
 import type { SettingsStore } from "../services";
+import { SettingsSaveStatus, type SettingsSaveState } from "./SettingsSaveStatus";
 
 type ProviderModelsSettingsPageProps = {
   settingsStore: SettingsStore;
@@ -26,6 +27,13 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
   const [creatingProvider, setCreatingProvider] = useState(false);
   const [modelsProvider, setModelsProvider] = useState<ProviderCardModel | null>(null);
   const [openProviderMenu, setOpenProviderMenu] = useState<string | null>(null);
+  const saveState: SettingsSaveState = saveStatus === "Saving..."
+    ? "saving"
+    : saveStatus?.startsWith("Save failed:")
+      ? "error"
+      : saveStatus === "Saved"
+        ? "saved"
+        : "idle";
 
   useEffect(() => {
     let cancelled = false;
@@ -51,9 +59,14 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
       return;
     }
     setSaveStatus("Saving...");
-    const next = await settingsStore.saveProviderSettings(data.currentConfig, patch);
-    setData(next.providers.length ? next : buildProviderModelsSettings(next.currentConfig));
-    setSaveStatus("Saved");
+    try {
+      const next = await settingsStore.saveProviderSettings(data.currentConfig, patch);
+      setData(next.providers.length ? next : buildProviderModelsSettings(next.currentConfig));
+      setSaveStatus("Saved");
+    } catch (error) {
+      setSaveStatus(`Save failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
   }
   const fetchProviderModels = settingsStore.fetchProviderModels;
 
@@ -78,7 +91,7 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
         onSave={(patch) => savePatch(patch)}
       />
 
-      {saveStatus ? <p className="react-settings-save-status" role="status">{saveStatus}</p> : null}
+      <SettingsSaveStatus message={saveStatus} state={saveState} />
 
       <section className="react-provider-directory" aria-labelledby="providers-title">
         <header>
@@ -112,6 +125,7 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
         </div>
         <button
           className="react-provider-add"
+          data-press-feedback="true"
           type="button"
           onClick={() => setCreatingProvider(true)}
         >
@@ -335,8 +349,10 @@ function DefaultLlmPanel({
               >
                 Cancel
               </button>
-              <button type="button" aria-label="Save default LLM" disabled={!canSave} onClick={saveDefaultLlm}>
-                <Check aria-hidden="true" size={15} />
+              <button type="button" aria-label="Save default LLM" data-press-feedback="true" disabled={!canSave} onClick={saveDefaultLlm}>
+                {saving
+                  ? <Loader2 aria-hidden="true" className="react-settings-spinner" size={15} />
+                  : <Check aria-hidden="true" size={15} />}
                 {saving ? "Saving" : dirty ? "Save" : "Saved"}
               </button>
             </div>
@@ -467,15 +483,19 @@ function ProviderConfigureDialog({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
-    await onSave(buildProviderConfigurePatch({
-      providerId: provider.id,
-      profileId: provider.profileId,
-      displayName: provider.label,
-      apiBase,
-      apiKey,
-      enabled: true,
-      activate,
-    }));
+    try {
+      await onSave(buildProviderConfigurePatch({
+        providerId: provider.id,
+        profileId: provider.profileId,
+        displayName: provider.label,
+        apiBase,
+        apiKey,
+        enabled: true,
+        activate,
+      }));
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -512,9 +532,11 @@ function ProviderConfigureDialog({
         </section>
         <footer>
           <button type="button" onClick={onClose}>Cancel</button>
-          <button type="submit" disabled={saving || !apiBase.trim()}>
-            <KeyRound aria-hidden="true" size={15} />
-            Save
+          <button data-press-feedback="true" type="submit" disabled={saving || !apiBase.trim()}>
+            {saving
+              ? <Loader2 aria-hidden="true" className="react-settings-spinner" size={15} />
+              : <KeyRound aria-hidden="true" size={15} />}
+            {saving ? "Saving" : "Save"}
           </button>
         </footer>
       </form>
@@ -626,8 +648,10 @@ function CustomProviderDialog({
         </label>
         <footer>
           <button type="button" onClick={onClose}>Cancel</button>
-          <button type="submit" disabled={!canSave}>
-            <Plus aria-hidden="true" size={15} />
+          <button data-press-feedback="true" type="submit" disabled={!canSave}>
+            {saving
+              ? <Loader2 aria-hidden="true" className="react-settings-spinner" size={15} />
+              : <Plus aria-hidden="true" size={15} />}
             {saving ? "Adding" : "Add provider"}
           </button>
         </footer>
@@ -779,6 +803,7 @@ function ProviderModelsDialog({
           </button>
           <button type="button" onClick={onClose}>Cancel</button>
           <button
+            data-press-feedback="true"
             type="button"
             onClick={() => onSave(buildProviderModelsPatch({
               providerId: provider.id,

@@ -1,4 +1,4 @@
-import { ArrowUpRight, Check } from "lucide-react";
+import { ArrowUpRight, Check, Loader2 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import {
   buildAgentDefaultsPatch,
@@ -10,6 +10,7 @@ import {
 } from "../../app-core/settings/agentDefaultsSettings";
 import type { SettingsStore } from "../services";
 import { SettingsChoiceList } from "./SettingsChoiceList";
+import { SettingsSaveStatus, type SettingsSaveState } from "./SettingsSaveStatus";
 
 type AgentDefaultsSettingsPageProps = {
   onNavigateToProviderModels: () => void;
@@ -23,6 +24,13 @@ export function AgentDefaultsSettingsPage({ onNavigateToProviderModels, settings
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const saveState: SettingsSaveState = saving
+    ? "saving"
+    : saveStatus?.startsWith("Save failed:")
+      ? "error"
+      : saveStatus === "Saved"
+        ? "saved"
+        : "idle";
 
   useEffect(() => {
     let cancelled = false;
@@ -68,6 +76,9 @@ export function AgentDefaultsSettingsPage({ onNavigateToProviderModels, settings
       setData(nextData);
       setValues(nextData.values);
       setSaveStatus("Saved");
+    } catch (error) {
+      setSaveStatus(`Save failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
     } finally {
       setSaving(false);
     }
@@ -110,7 +121,7 @@ export function AgentDefaultsSettingsPage({ onNavigateToProviderModels, settings
         </button>
       </section>
 
-      {saveStatus ? <p className="react-settings-save-status" role="status">{saveStatus}</p> : null}
+      <SettingsSaveStatus message={saveStatus} state={saveState} />
 
       <form className="react-agent-defaults-form" onSubmit={submit}>
         <section aria-labelledby="agent-runtime-title">
@@ -171,8 +182,10 @@ export function AgentDefaultsSettingsPage({ onNavigateToProviderModels, settings
         </section>
         <footer>
           {data.revision ? <small>Config revision {data.revision}</small> : <span />}
-          <button type="submit" aria-label="Save agent defaults" disabled={saving}>
-            <Check aria-hidden="true" size={15} />
+          <button type="submit" aria-label="Save agent defaults" data-press-feedback="true" disabled={saving}>
+            {saving
+              ? <Loader2 aria-hidden="true" className="react-settings-spinner" size={15} />
+              : <Check aria-hidden="true" size={15} />}
             {saving ? "Saving" : "Save"}
           </button>
         </footer>

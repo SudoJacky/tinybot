@@ -188,6 +188,17 @@ function browserRuntimeMock() {
 }
 
 describe("LiveCanvas TinyOS", () => {
+  it("shows the short boot sequence only on the first persisted open", () => {
+    const firstOpen = render(<LiveCanvas {...canvasProps([])} />);
+
+    expect(screen.getByRole("status", { name: "TinyOS starting" })).toBeTruthy();
+    expect(window.localStorage.getItem("tinybot.ui.tinyos.boot-seen")).toBe("true");
+    firstOpen.unmount();
+
+    render(<LiveCanvas {...canvasProps([])} />);
+    expect(screen.queryByRole("status", { name: "TinyOS starting" })).toBeNull();
+  });
+
   it("keeps turn state out of the system bar while retaining commands in the palette", async () => {
     const user = userEvent.setup();
     const onCancelTurn = vi.fn();
@@ -1011,7 +1022,7 @@ describe("LiveCanvas TinyOS", () => {
 
     expect(within(inspector).getByText("Read config")).toBeTruthy();
     expect(within(inspector).getByText("Run tests")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toContain("pinned in Inspector");
+    expect(screen.getByText("shell.exec pinned in Inspector.")).toBeTruthy();
   });
 
   it("visibly rejects a file-context drop on Inspector without attaching it", async () => {

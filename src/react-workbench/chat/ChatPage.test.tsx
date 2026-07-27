@@ -307,8 +307,20 @@ describe("ChatPage", () => {
 
     const closeButton = canvas.querySelector<HTMLButtonElement>('[aria-label="Close TinyOS desktop"]')!;
     expect(getComputedStyle(closeButton).minWidth).toBe("44px");
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
     fireEvent.click(closeButton);
 
+    const closeTimerIndex = setTimeoutSpy.mock.calls.findIndex(([, delay]) => delay === 160);
+    const closeTimer = setTimeoutSpy.mock.calls[closeTimerIndex]?.[0];
+    window.clearTimeout(setTimeoutSpy.mock.results[closeTimerIndex]?.value);
+    setTimeoutSpy.mockRestore();
+    expect(closeTimerIndex).toBeGreaterThanOrEqual(0);
+    expect(canvas.isConnected).toBe(true);
+    expect(canvas.getAttribute("data-state")).toBe("closing");
+    await act(async () => {
+      expect(closeTimer).toEqual(expect.any(Function));
+      (closeTimer as () => void)();
+    });
     expect(canvas.isConnected).toBe(false);
     expect(openButton.getAttribute("aria-label")).toMatch(/^Open TinyOS/);
     expect(document.activeElement).toBe(openButton);
@@ -1165,7 +1177,7 @@ describe("ChatPage", () => {
     await act(async () => {
       await Promise.resolve();
     });
-    const dissolveTimerIndex = setTimeoutSpy.mock.calls.findIndex(([, delay]) => delay === 760);
+    const dissolveTimerIndex = setTimeoutSpy.mock.calls.findIndex(([, delay]) => delay === 180);
     expect(dissolveTimerIndex).toBeGreaterThanOrEqual(0);
     const dissolveTimer = setTimeoutSpy.mock.calls[dissolveTimerIndex]?.[0];
     window.clearTimeout(setTimeoutSpy.mock.results[dissolveTimerIndex]?.value);
@@ -1176,7 +1188,8 @@ describe("ChatPage", () => {
     expect(row?.dataset.dissolving).toBe("true");
     expect(screen.getByRole("button", { name: "Planning notes" })).toBeTruthy();
     expect(getComputedStyle(row?.querySelector(".react-session-row__delete") as Element).position).toBe("absolute");
-    expect(row?.querySelectorAll(".react-session-row__particle").length).toBeGreaterThanOrEqual(60);
+    expect(getComputedStyle(row as Element).opacity).toBe("0");
+    expect(row?.querySelector(".react-session-row__particle")).toBeNull();
 
     await act(async () => {
       expect(dissolveTimer).toEqual(expect.any(Function));
@@ -3203,9 +3216,10 @@ describe("ChatPage", () => {
     expect(css).toContain("react-list-enter");
     expect(css).toContain("react-drawer-enter");
     expect(css).toContain("react-stepper-current");
-    expect(css).toContain("react-session-dissolve");
-    expect(css).toContain("react-session-particle-burst");
-    expect(css).toContain(".react-session-row__particles");
+    expect(css).toContain(".react-session-row[data-dissolving=\"true\"]");
+    expect(css).toContain("transition-duration: 140ms");
+    expect(css).not.toContain("react-session-particle-burst");
+    expect(css).not.toContain(".react-session-row__particles");
   });
 
   it("applies a warm border glow treatment to the composer panel", () => {
@@ -3236,30 +3250,16 @@ describe("ChatPage", () => {
     expect(inputSource).toContain("strokeDasharray={`${view.percent} 100`}");
   });
 
-  it("uses a dense warm-white micro-particle burst for the session delete dissolve", () => {
+  it("uses a restrained 180ms fade and short horizontal exit for session deletion", () => {
     const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
     const source = readFileSync("src/react-workbench/chat/ChatPage.tsx", "utf8");
 
-    expect(source).toContain("const SESSION_DELETE_DISSOLVE_MS = 760;");
-    expect(source).toContain("const SESSION_DELETE_PARTICLE_COUNT = 64;");
-    expect(css).toContain(".react-session-row__particle");
-    expect(css).toContain("--react-session-particle-color: rgb(255 255 255 / 96%)");
-    expect(css).toContain("--react-session-particle-glow: rgb(255 255 255 / 72%)");
-    expect(css).toContain("--react-session-particle-edge: rgb(165 154 134 / 34%)");
-    expect(css).toContain("--particle-x");
-    expect(css).toContain("--particle-y");
-    expect(css).toContain("translate(calc(-50% + var(--particle-x))");
+    expect(source).toContain("const SESSION_DELETE_DISSOLVE_MS = 180;");
+    expect(source).not.toContain("SESSION_DELETE_PARTICLE");
     expect(css).toContain(".react-session-row[data-dissolving=\"true\"] {");
-    expect(css).toContain("overflow: visible");
-    expect(css).toContain("width: var(--particle-size)");
-    expect(css).toContain("animation: react-session-dissolve 760ms");
-    expect(css).not.toContain("background: var(--particle-color)");
-    expect(css).not.toContain("color-mix(in srgb, var(--particle-color)");
-    expect(css).not.toContain("react-session-particle-drift");
-
-    const shellDissolve = css.match(/@keyframes react-session-dissolve\s*{(?<body>[\s\S]*?)\n}/)?.groups?.body ?? "";
-    expect(shellDissolve).toContain("background-color");
-    expect(shellDissolve).not.toContain("translateX");
-    expect(shellDissolve).not.toContain("opacity: 0");
+    expect(css).toContain("opacity: 0");
+    expect(css).toContain("transform: translateX(8px)");
+    expect(css).not.toContain(".react-session-row__particle");
+    expect(css).not.toContain("filter: blur(0.8px)");
   });
 });

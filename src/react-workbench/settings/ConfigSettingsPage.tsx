@@ -1,4 +1,4 @@
-import { Check, RotateCcw } from "lucide-react";
+import { Check, Loader2, RotateCcw } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   applyDesktopSettingsFieldEdit,
@@ -12,6 +12,7 @@ import type {
   DesktopConfigSettingsSaveResult,
   SettingsStore,
 } from "../services";
+import { SettingsSaveStatus, type SettingsSaveState } from "./SettingsSaveStatus";
 
 export type ConfigSettingsGroupId = "tools-mcp" | "channels";
 
@@ -65,6 +66,15 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
   const [status, setStatus] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const saveState: SettingsSaveState = saving
+    ? "saving"
+    : status?.startsWith("Save failed:")
+      ? "error"
+      : status?.startsWith("Saved")
+        ? "saved"
+        : status
+          ? "notice"
+          : "idle";
 
   useEffect(() => {
     let cancelled = false;
@@ -178,7 +188,7 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
         <span className="react-config-settings__persistence">Saved to Tinybot config</span>
       </header>
 
-      {status ? <p className="react-settings-save-status" role="status">{status}</p> : null}
+      <SettingsSaveStatus message={status} state={saveState} />
 
       <form className="react-config-settings__form" onSubmit={submit}>
         <div className="react-config-settings__fields">
@@ -212,8 +222,10 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
               <RotateCcw aria-hidden="true" size={14} />
               Reset
             </button>
-            <button className="react-config-settings__save" type="submit" disabled={!dirty || saving}>
-              <Check aria-hidden="true" size={15} />
+            <button className="react-config-settings__save" data-press-feedback="true" type="submit" disabled={!dirty || saving}>
+              {saving
+                ? <Loader2 aria-hidden="true" className="react-settings-spinner" size={15} />
+                : <Check aria-hidden="true" size={15} />}
               {saving ? "Saving" : "Save changes"}
             </button>
           </div>
