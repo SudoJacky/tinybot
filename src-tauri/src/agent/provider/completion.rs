@@ -2,11 +2,7 @@ use super::catalog::{
     catalog_entry_by_id, configured_model, infer_provider_from_model, normalize_provider_id,
     resolve_provider_profile, string_field, NativeProviderProfile,
 };
-use super::sse::{
-    aggregate_chat_completion_sse, aggregate_chat_completion_sse_with_observer,
-    chat_completion_body, chat_completion_sse, observe_stream_chunk, push_sse_json,
-    NativeProviderStreamEvent,
-};
+use super::streaming::{chat_completion_body, NativeProviderStreamEvent, StreamingChatCompletion};
 use crate::protocol::WorkerRequestCancellation;
 use async_openai::{config::OpenAIConfig, error::OpenAIError, Client};
 use futures_util::StreamExt;
@@ -38,7 +34,7 @@ impl NativeProviderFailure {
         }
     }
 
-    fn from_route_error(error: NativeChatRouteError) -> Self {
+    fn from_chat_error(error: NativeChatError) -> Self {
         let kind = match error.code {
             "provider_cancelled" => NativeProviderFailureKind::Cancelled,
             "provider_timeout" => NativeProviderFailureKind::RequestTimeout,
@@ -67,28 +63,6 @@ impl std::fmt::Display for NativeProviderFailure {
 impl std::error::Error for NativeProviderFailure {}
 
 #[cfg(test)]
-pub fn openai_chat_completions_route(config: &Value, body: &Value) -> Value {
-    tauri::async_runtime::block_on(openai_chat_completions_route_async(config, body))
-}
-
-pub async fn openai_chat_completions_route_async(config: &Value, body: &Value) -> Value {
-    match native_chat_completion_with_observer_async(config, body, None, None).await {
-        Ok(response) => chat_route_response(response.status, response.body, response.stream),
-        Err(error) => chat_route_response(
-            error.status,
-            serde_json::json!({
-                "error": {
-                    "message": error.message,
-                    "type": error.error_type,
-                    "code": error.code,
-                }
-            }),
-            false,
-        ),
-    }
-}
-
-#[cfg(test)]
 pub fn complete_chat_for_agent(config: &Value, body: &Value) -> Result<Value, String> {
     let mut observer = |_event: NativeProviderStreamEvent| {};
     complete_chat_for_agent_with_observer(config, body, &mut observer)
@@ -112,38 +86,9 @@ pub async fn complete_chat_for_agent_with_observer_async(
     observer: &mut (dyn FnMut(NativeProviderStreamEvent) + Send),
     cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
 ) -> Result<Value, NativeProviderFailure> {
-    match native_chat_completion_with_observer_async(config, body, Some(observer), cancellation)
+    native_chat_completion_with_observer_async(config, body, Some(observer), cancellation)
         .await
-    {
-        Ok(response) if (200..300).contains(&response.status) && !response.stream => {
-            Ok(response.body)
-        }
-        Ok(response) if (200..300).contains(&response.status) && response.stream => {
-            let body = response.body.as_str().ok_or_else(|| {
-                NativeProviderFailure::new(
-                    NativeProviderFailureKind::Provider,
-                    "streaming chat completion returned non-text body",
-                )
-            })?;
-            if response.observed_stream {
-                aggregate_chat_completion_sse(body).map_err(|error| {
-                    NativeProviderFailure::new(NativeProviderFailureKind::Provider, error)
-                })
-            } else {
-                aggregate_chat_completion_sse_with_observer(body, Some(observer)).map_err(|error| {
-                    NativeProviderFailure::new(NativeProviderFailureKind::Provider, error)
-                })
-            }
-        }
-        Ok(response) => Err(NativeProviderFailure::new(
-            NativeProviderFailureKind::Provider,
-            format!(
-                "chat completion returned unexpected status {}",
-                response.status
-            ),
-        )),
-        Err(error) => Err(NativeProviderFailure::from_route_error(error)),
-    }
+        .map_err(NativeProviderFailure::from_chat_error)
 }
 
 #[derive(Clone, Debug)]
@@ -154,114 +99,59 @@ struct NativeChatRequest {
 }
 
 #[derive(Clone, Debug)]
-struct NativeChatRouteBody {
-    status: u16,
-    body: Value,
-    stream: bool,
-    observed_stream: bool,
-}
-
-#[derive(Clone, Debug)]
-struct NativeChatRouteError {
-    status: u16,
+struct NativeChatError {
     message: String,
-    error_type: &'static str,
     code: &'static str,
 }
 
 async fn native_chat_completion_with_observer_async(
     config: &Value,
     body: &Value,
-    mut observer: Option<&mut (dyn FnMut(NativeProviderStreamEvent) + Send)>,
+    observer: Option<&mut (dyn FnMut(NativeProviderStreamEvent) + Send)>,
     cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
-) -> Result<NativeChatRouteBody, NativeChatRouteError> {
+) -> Result<Value, NativeChatError> {
     if cancellation_requested(&cancellation) {
         return Err(provider_cancelled_error());
     }
     let request = parse_chat_request(config, body)?;
     let profile = resolve_chat_provider_profile(config, &request.model).ok_or_else(|| {
         chat_error(
-            503,
             format!("provider for model '{}' is not configured", request.model),
-            "configuration_error",
             "provider_not_configured",
         )
     })?;
 
     if profile.provider_id == "fixture" {
         let content = fixture_chat_content(config)?;
-        return Ok(if request.stream {
-            NativeChatRouteBody {
-                status: 200,
-                body: Value::String(chat_completion_sse(&request.model, &content)),
-                stream: true,
-                observed_stream: false,
+        if request.stream && !content.is_empty() {
+            if let Some(observer) = observer {
+                observer(NativeProviderStreamEvent::ContentDelta(content.clone()));
             }
-        } else {
-            NativeChatRouteBody {
-                status: 200,
-                body: chat_completion_body(&request.model, &content),
-                stream: false,
-                observed_stream: false,
-            }
-        });
+        }
+        return Ok(chat_completion_body(&request.model, &content));
     }
 
     if request.stream {
-        let observed_stream = observer.is_some();
-        let stream_result = match observer {
-            Some(ref mut observer) => {
-                complete_openai_chat_stream(profile, request, Some(&mut **observer), cancellation)
-                    .await
-            }
-            None => complete_openai_chat_stream(profile, request, None, cancellation).await,
-        };
-        stream_result.map(|body| NativeChatRouteBody {
-            status: 200,
-            body: Value::String(body),
-            stream: true,
-            observed_stream,
-        })
+        complete_openai_chat_stream(profile, request, observer, cancellation).await
     } else {
-        complete_openai_chat(profile, request, cancellation)
-            .await
-            .map(|body| NativeChatRouteBody {
-                status: 200,
-                body,
-                stream: false,
-                observed_stream: false,
-            })
+        complete_openai_chat(profile, request, cancellation).await
     }
 }
 
-fn parse_chat_request(
-    config: &Value,
-    body: &Value,
-) -> Result<NativeChatRequest, NativeChatRouteError> {
+fn parse_chat_request(config: &Value, body: &Value) -> Result<NativeChatRequest, NativeChatError> {
     if !body.is_object() {
         return Err(chat_error(
-            400,
             "request body must be a JSON object",
-            "invalid_request_error",
             "invalid_body",
         ));
     }
     let messages = body
         .get("messages")
         .and_then(Value::as_array)
-        .ok_or_else(|| {
-            chat_error(
-                400,
-                "messages must be a non-empty array",
-                "invalid_request_error",
-                "invalid_messages",
-            )
-        })?;
+        .ok_or_else(|| chat_error("messages must be a non-empty array", "invalid_messages"))?;
     if messages.is_empty() {
         return Err(chat_error(
-            400,
             "messages must be a non-empty array",
-            "invalid_request_error",
             "invalid_messages",
         ));
     }
@@ -273,9 +163,7 @@ fn parse_chat_request(
                 .is_none_or(str::is_empty)
     }) {
         return Err(chat_error(
-            400,
             "each message must be an object with a role",
-            "invalid_request_error",
             "invalid_messages",
         ));
     }
@@ -297,7 +185,7 @@ async fn complete_openai_chat(
     profile: NativeProviderProfile,
     mut request: NativeChatRequest,
     cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
-) -> Result<Value, NativeChatRouteError> {
+) -> Result<Value, NativeChatError> {
     request.body["stream"] = Value::Bool(false);
     let timeout = Duration::from_millis(profile.request_timeout_ms.max(1));
     let client = openai_client(profile)?;
@@ -314,7 +202,7 @@ async fn complete_openai_chat_stream(
     mut request: NativeChatRequest,
     mut observer: Option<&mut (dyn FnMut(NativeProviderStreamEvent) + Send)>,
     cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
-) -> Result<String, NativeChatRouteError> {
+) -> Result<Value, NativeChatError> {
     request.body["stream"] = Value::Bool(true);
     let request_timeout = Duration::from_millis(profile.request_timeout_ms.max(1));
     let stream_idle_timeout = Duration::from_millis(profile.stream_idle_timeout_ms.max(1));
@@ -325,7 +213,7 @@ async fn complete_openai_chat_stream(
         cancellation.clone(),
     )
     .await?;
-    let mut body = String::new();
+    let mut completion = StreamingChatCompletion::default();
     while let Some(chunk) =
         next_provider_stream_chunk(&mut stream, stream_idle_timeout, cancellation.clone()).await?
     {
@@ -336,31 +224,35 @@ async fn complete_openai_chat_stream(
                 if cancellation_requested(&cancellation) {
                     return Err(provider_cancelled_error());
                 }
-                if let Some(observer) = observer.as_deref_mut() {
+                if let Some(ref mut observer) = observer {
                     let observer_started_at = Instant::now();
-                    observe_stream_chunk(&chunk, observer);
+                    completion
+                        .push_chunk(&chunk, Some(&mut **observer))
+                        .map_err(provider_stream_reduction_error)?;
                     metrics.record_duration(
                         "provider.stream.observer.durationMs",
                         observer_started_at.elapsed(),
                     );
+                } else {
+                    completion
+                        .push_chunk(&chunk, None)
+                        .map_err(provider_stream_reduction_error)?;
                 }
                 if cancellation_requested(&cancellation) {
                     return Err(provider_cancelled_error());
                 }
-                push_sse_json(&mut body, &chunk);
             }
             Err(error) => return Err(provider_openai_error(error)),
         }
     }
-    body.push_str("data: [DONE]\n\n");
-    Ok(body)
+    Ok(completion.finish())
 }
 
 async fn await_provider_request<T, F>(
     request: F,
     timeout: Duration,
     cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
-) -> Result<T, NativeChatRouteError>
+) -> Result<T, NativeChatError>
 where
     F: Future<Output = Result<T, OpenAIError>>,
 {
@@ -388,7 +280,7 @@ async fn next_provider_stream_chunk(
     stream: &mut async_openai::types::stream::StreamResponse<Value>,
     idle_timeout: Duration,
     cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
-) -> Result<Option<Result<Value, OpenAIError>>, NativeChatRouteError> {
+) -> Result<Option<Result<Value, OpenAIError>>, NativeChatError> {
     if cancellation_requested(&cancellation) {
         return Err(provider_cancelled_error());
     }
@@ -419,15 +311,11 @@ async fn wait_for_provider_cancellation(cancellation: Arc<dyn WorkerRequestCance
     }
 }
 
-fn openai_client(
-    profile: NativeProviderProfile,
-) -> Result<Client<OpenAIConfig>, NativeChatRouteError> {
+fn openai_client(profile: NativeProviderProfile) -> Result<Client<OpenAIConfig>, NativeChatError> {
     let api_base = profile.api_base.as_deref().unwrap_or_default().trim();
     if api_base.is_empty() {
         return Err(chat_error(
-            503,
             format!("provider '{}' requires api_base", profile.provider_id),
-            "configuration_error",
             "missing_api_base",
         ));
     }
@@ -440,9 +328,7 @@ fn openai_client(
             .is_empty()
     {
         return Err(chat_error(
-            503,
             format!("provider '{}' requires an API key", profile.provider_id),
-            "configuration_error",
             "missing_api_key",
         ));
     }
@@ -473,7 +359,7 @@ fn provider_requires_api_key(profile: &NativeProviderProfile) -> bool {
     })
 }
 
-fn fixture_chat_content(config: &Value) -> Result<String, NativeChatRouteError> {
+fn fixture_chat_content(config: &Value) -> Result<String, NativeChatError> {
     let response = config
         .get("providers")
         .and_then(|providers| providers.get("fixture"))
@@ -482,93 +368,53 @@ fn fixture_chat_content(config: &Value) -> Result<String, NativeChatRouteError> 
         .and_then(|responses| responses.first())
         .ok_or_else(|| {
             chat_error(
-                503,
                 "fixture provider has no queued response",
-                "configuration_error",
                 "fixture_response_missing",
             )
         })?;
     Ok(string_field(response, "content").unwrap_or_default())
 }
 
-fn chat_route_response(status: u16, body: Value, stream: bool) -> Value {
-    let mut headers = serde_json::json!({
-        "x-tinybot-route-owner": "rust",
-        "x-tinybot-route-group": "openai",
-    });
-    if stream {
-        headers["content-type"] = Value::String("text/event-stream".to_string());
-        headers["cache-control"] = Value::String("no-cache".to_string());
-    }
-    serde_json::json!({
-        "status": status,
-        "body": body,
-        "headers": headers,
-    })
-}
-
-fn chat_error(
-    status: u16,
-    message: impl Into<String>,
-    error_type: &'static str,
-    code: &'static str,
-) -> NativeChatRouteError {
-    NativeChatRouteError {
-        status,
+fn chat_error(message: impl Into<String>, code: &'static str) -> NativeChatError {
+    NativeChatError {
         message: message.into(),
-        error_type,
         code,
     }
 }
 
-fn provider_openai_error(error: OpenAIError) -> NativeChatRouteError {
+fn provider_openai_error(error: OpenAIError) -> NativeChatError {
     let is_transport = matches!(
         &error,
         OpenAIError::Reqwest(_) | OpenAIError::StreamError(_)
     );
     if is_transport {
-        chat_error(
-            503,
-            error.to_string(),
-            "provider_transport_error",
-            "provider_transport_error",
-        )
+        chat_error(error.to_string(), "provider_transport_error")
     } else {
-        chat_error(
-            503,
-            error.to_string(),
-            "provider_error",
-            "provider_request_failed",
-        )
+        chat_error(error.to_string(), "provider_request_failed")
     }
 }
 
-fn provider_timeout_error(timeout: Duration) -> NativeChatRouteError {
+fn provider_stream_reduction_error(error: String) -> NativeChatError {
+    chat_error(error, "provider_stream_error")
+}
+
+fn provider_timeout_error(timeout: Duration) -> NativeChatError {
     chat_error(
-        504,
         format!(
             "provider request timed out after {} ms",
             timeout.as_millis()
         ),
         "provider_timeout",
-        "provider_timeout",
     )
 }
 
-fn provider_stream_idle_timeout_error(timeout: Duration) -> NativeChatRouteError {
+fn provider_stream_idle_timeout_error(timeout: Duration) -> NativeChatError {
     chat_error(
-        504,
         format!("provider stream was idle for {} ms", timeout.as_millis()),
         "provider_stream_idle_timeout",
-        "provider_stream_idle_timeout",
     )
 }
 
-fn provider_cancelled_error() -> NativeChatRouteError {
-    chat_error(
-        499,
-        "provider request was cancelled",
-        "provider_cancelled",
-        "provider_cancelled",
-    )
+fn provider_cancelled_error() -> NativeChatError {
+    chat_error("provider request was cancelled", "provider_cancelled")
 }

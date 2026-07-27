@@ -620,11 +620,12 @@ reopens agent and shell start admission only after cleanup is complete.
 ### Async provider execution
 
 The desktop command, native bridge, context-compaction request, provider loop, and
-OpenAI-compatible HTTP/SSE implementation are async end to end. Normal execution does not nest
-`block_on`. Synchronous helpers remain only as test and compatibility adapters. Tool batches dispatch
+OpenAI-compatible provider requests are async end to end. Provider stream chunks are reduced directly
+into the native completion state without serializing an intermediate SSE transcript. Normal execution
+does not nest `block_on`. Synchronous helpers remain only as test adapters. Tool batches dispatch
 through the same async owned-tool path.
 
-Provider cancellation is checked before a request, while opening a response, between SSE chunks,
+Provider cancellation is checked before a request, while opening a response, between provider chunks,
 and immediately before and after each stream observer callback. Cancelling the owning turn drops the
 provider future. Once the task owner publishes cancellation, a late chunk or provider result cannot
 emit `agent.delta`, `agent.reasoning_delta`, `agent.done`, or replace the terminal result.
@@ -1680,6 +1681,11 @@ Use `routeResponse()` if the status and headers are needed.
 
 ### Rust-owned WebUI Routes
 
+Desktop chat submits native Thread/Turn commands and is not exposed as an OpenAI-compatible
+endpoint. `POST /v1/chat/completions` is unsupported and returns the standard `404`
+`unsupported-route` response. Outbound provider requests may still use OpenAI-compatible
+chat/completions protocols.
+
 | Method | Path | Group | Notes |
 | --- | --- | --- | --- |
 | `GET` | `/health` | health | Native health check |
@@ -1691,7 +1697,6 @@ Use `routeResponse()` if the status and headers are needed.
 | `GET` | `/api/providers` | providers | Provider catalog |
 | `POST` | `/api/provider-models` | providers | Provider model resolution |
 | `GET` | `/v1/models` | openai | OpenAI-compatible model list |
-| `POST` | `/v1/chat/completions` | openai | OpenAI-compatible chat completion route |
 | `POST` | `/api/agent-ui/forms/{form_id}/submit` | agent-ui | Form continuation |
 | `POST` | `/api/agent-ui/forms/{form_id}/cancel` | agent-ui | Form cancellation |
 | `GET` | `/api/sessions` | sessions | List sessions |

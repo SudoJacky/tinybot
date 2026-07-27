@@ -354,11 +354,6 @@ export function createGatewayApiClient(options: ClientOptions = {}) {
         () => request("/v1/models"),
         "openai.models",
       ),
-      chatCompletions: (body: unknown) => nativeOrGateway(
-        () => options.nativeWebui?.route({ method: "POST", path: "/v1/chat/completions", body }),
-        () => request("/v1/chat/completions", jsonRequest("POST", body)),
-        "openai.chatCompletions",
-      ),
     },
     sessions: {
       list: () => nativeOrGateway(

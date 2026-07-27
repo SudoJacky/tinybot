@@ -7,10 +7,9 @@ use crate::config::application::resolve_native_backend_workspace_root_from_confi
 use crate::desktop::files::reveal_workspace_file_path_from_config_path;
 use crate::desktop::state::lock_runtime;
 use crate::desktop::state::GatewayRuntime;
+use crate::desktop_commands::agent::worker_run_agent_with_options;
 use crate::desktop_commands::gateway::current_status;
 use crate::desktop_commands::gateway::stop_owned_gateway;
-use crate::desktop_commands::webui::worker_webui_route_with_options;
-use crate::desktop_commands::webui::WorkerWebuiRouteInput;
 use crate::protocol::capability::default_desktop_capability_policy;
 use crate::protocol::WorkerRequest;
 use crate::rpc::native_request_router;
@@ -557,17 +556,14 @@ fn desktop_smoke_default_chat_runs_on_rust_backend() {
     )
     .expect("default desktop runtime should start Rust backend");
 
-    let chat = worker_webui_route_with_options(
+    let chat = worker_run_agent_with_options(
         &shared,
-        WorkerWebuiRouteInput {
-            method: "POST".to_string(),
-            path: "/v1/chat/completions".to_string(),
-            headers: None,
-            body: Some(serde_json::json!({
-                "messages": [{ "role": "user", "content": "desktop smoke" }],
-                "stream": false
-            })),
-        },
+        serde_json::json!({
+            "runtime": "rust",
+            "turnId": "turn-desktop-smoke",
+            "sessionId": "websocket:desktop-smoke",
+            "messages": [{ "role": "user", "content": "desktop smoke" }]
+        }),
         fixture.root.clone(),
         serde_json::json!({
             "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
@@ -575,15 +571,11 @@ fn desktop_smoke_default_chat_runs_on_rust_backend() {
         }),
         Duration::from_millis(10),
     )
-    .expect("desktop smoke chat should use Rust-owned route");
+    .expect("desktop smoke chat should use the native Rust Turn flow");
 
     assert_eq!(status.command, "Tauri Rust backend");
-    assert_eq!(chat["status"], 200);
-    assert_eq!(chat["headers"]["x-tinybot-route-owner"], "rust");
-    assert_eq!(
-        chat["body"]["choices"][0]["message"]["content"],
-        "smoke response from rust"
-    );
+    assert_eq!(chat["runtime"], "rust");
+    assert_eq!(chat["finalContent"], "smoke response from rust");
 }
 
 #[test]

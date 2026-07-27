@@ -22,6 +22,14 @@ fn stream_message_phase_recognizes_provider_phase_fields() {
     );
 }
 
+fn aggregate_stream_chunks(chunks: &[Value]) -> Result<Value, String> {
+    let mut completion = StreamingChatCompletion::default();
+    for chunk in chunks {
+        completion.push_chunk(chunk, None)?;
+    }
+    Ok(completion.finish())
+}
+
 #[test]
 fn provider_catalog_masks_secret_presence() {
     let body = provider_catalog_body(&json!({
@@ -303,8 +311,8 @@ fn provider_models_reports_discovery_configuration_failure() {
 }
 
 #[test]
-fn chat_completion_uses_fixture_provider_without_network() {
-    let response = openai_chat_completions_route(
+fn agent_chat_completion_uses_fixture_provider_without_network() {
+    let response = complete_chat_for_agent(
         &json!({
             "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
             "providers": { "fixture": { "responses": [{ "content": "fixture answer" }] } }
@@ -313,20 +321,21 @@ fn chat_completion_uses_fixture_provider_without_network() {
             "model": "fixture-model",
             "messages": [{ "role": "user", "content": "hello" }]
         }),
-    );
+    )
+    .expect("fixture provider should complete without network");
 
-    assert_eq!(response["status"], 200);
-    assert_eq!(response["headers"]["x-tinybot-route-owner"], "rust");
-    assert_eq!(response["body"]["object"], "chat.completion");
+    assert_eq!(response["object"], "chat.completion");
     assert_eq!(
-        response["body"]["choices"][0]["message"]["content"],
+        response["choices"][0]["message"]["content"],
         "fixture answer"
     );
 }
 
 #[test]
-fn chat_completion_streams_fixture_response_as_sse() {
-    let response = openai_chat_completions_route(
+fn agent_chat_completion_streams_fixture_response_to_observer() {
+    let mut observed = Vec::new();
+    let mut observer = |event| observed.push(event);
+    let response = complete_chat_for_agent_with_observer(
         &json!({
             "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
             "providers": { "fixture": { "responses": [{ "content": "stream answer" }] } }
@@ -335,17 +344,20 @@ fn chat_completion_streams_fixture_response_as_sse() {
             "messages": [{ "role": "user", "content": "hello" }],
             "stream": true
         }),
-    );
+        &mut observer,
+    )
+    .expect("streaming fixture provider should complete");
 
-    let body = response["body"]
-        .as_str()
-        .expect("stream body should be text");
-    assert_eq!(response["status"], 200);
-    assert_eq!(response["headers"]["content-type"], "text/event-stream");
-    assert!(body.contains(r#""object":"chat.completion.chunk""#));
-    assert!(body.contains(r#""content":"stream answer""#));
-    assert_eq!(body.matches(r#""finish_reason":"stop""#).count(), 1);
-    assert!(body.ends_with("data: [DONE]\n\n"));
+    assert_eq!(
+        response["choices"][0]["message"]["content"],
+        "stream answer"
+    );
+    assert_eq!(
+        observed,
+        vec![NativeProviderStreamEvent::ContentDelta(
+            "stream answer".to_string()
+        )]
+    );
 }
 
 #[test]
@@ -412,13 +424,12 @@ fn agent_chat_completion_preserves_streaming_request_to_provider() {
 
 #[test]
 fn aggregates_streaming_tool_call_chunks_for_agent_completion() {
-    let completion = aggregate_chat_completion_sse(concat!(
-            "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"workspace.read_file\",\"arguments\":\"{\\\"path\\\"\"}}]},\"finish_reason\":null}]}\n\n",
-            "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\":\\\"README.md\\\"}\"}}]},\"finish_reason\":null}]}\n\n",
-            "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
-            "data: [DONE]\n\n"
-        ))
-        .expect("streaming tool call chunks should aggregate");
+    let completion = aggregate_stream_chunks(&[
+        json!({"id":"chatcmpl-test","object":"chat.completion.chunk","created":1,"model":"gpt-test","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"workspace.read_file","arguments":"{\"path\""}}]},"finish_reason":null}]}),
+        json!({"id":"chatcmpl-test","object":"chat.completion.chunk","created":1,"model":"gpt-test","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":":\"README.md\"}"}}]},"finish_reason":null}]}),
+        json!({"id":"chatcmpl-test","object":"chat.completion.chunk","created":1,"model":"gpt-test","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}),
+    ])
+    .expect("streaming tool call chunks should aggregate");
 
     assert_eq!(
         completion["choices"][0]["message"]["tool_calls"][0]["id"],
@@ -436,11 +447,10 @@ fn aggregates_streaming_tool_call_chunks_for_agent_completion() {
 
 #[test]
 fn interleaved_streaming_tool_indexes_preserve_model_order() {
-    let completion = aggregate_chat_completion_sse(concat!(
-        "data: {\"model\":\"gpt-test\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":1,\"id\":\"call-2\",\"type\":\"function\",\"function\":{\"name\":\"workspace.read_file\",\"arguments\":\"{\\\"path\\\":\\\"second\"}},{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"workspace.read_file\",\"arguments\":\"{\\\"path\\\":\\\"first\"}}]}}]}\n\n",
-        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\".md\\\"}\"}},{\"index\":1,\"function\":{\"arguments\":\".md\\\"}\"}}]}}]}\n\n",
-        "data: [DONE]\n\n"
-    ))
+    let completion = aggregate_stream_chunks(&[
+        json!({"model":"gpt-test","choices":[{"delta":{"tool_calls":[{"index":1,"id":"call-2","type":"function","function":{"name":"workspace.read_file","arguments":"{\"path\":\"second"}},{"index":0,"id":"call-1","type":"function","function":{"name":"workspace.read_file","arguments":"{\"path\":\"first"}}]}}]}),
+        json!({"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":".md\"}"}},{"index":1,"function":{"arguments":".md\"}"}}]}}]}),
+    ])
     .expect("interleaved tool call chunks should aggregate");
 
     let tool_calls = completion["choices"][0]["message"]["tool_calls"]
@@ -460,11 +470,10 @@ fn interleaved_streaming_tool_indexes_preserve_model_order() {
 
 #[test]
 fn streaming_tool_calls_without_indexes_fall_back_to_chunk_positions() {
-    let completion = aggregate_chat_completion_sse(concat!(
-        "data: {\"model\":\"gpt-test\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"first_tool\",\"arguments\":\"{\\\"value\\\":\\\"a\"}},{\"id\":\"call-2\",\"type\":\"function\",\"function\":{\"name\":\"second_tool\",\"arguments\":\"{\\\"value\\\":\\\"b\"}}]}}]}\n\n",
-        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"arguments\":\"1\\\"}\"}},{\"function\":{\"arguments\":\"2\\\"}\"}}]}}]}\n\n",
-        "data: [DONE]\n\n"
-    ))
+    let completion = aggregate_stream_chunks(&[
+        json!({"model":"gpt-test","choices":[{"delta":{"tool_calls":[{"id":"call-1","type":"function","function":{"name":"first_tool","arguments":"{\"value\":\"a"}},{"id":"call-2","type":"function","function":{"name":"second_tool","arguments":"{\"value\":\"b"}}]}}]}),
+        json!({"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"1\"}"}},{"function":{"arguments":"2\"}"}}]}}]}),
+    ])
     .expect("tool call chunks without indexes should use stable positions");
 
     let tool_calls = completion["choices"][0]["message"]["tool_calls"]
@@ -477,30 +486,10 @@ fn streaming_tool_calls_without_indexes_fall_back_to_chunk_positions() {
 }
 
 #[test]
-fn streaming_done_stops_before_trailing_data() {
-    let completion = aggregate_chat_completion_sse(concat!(
-        "data: {\"model\":\"gpt-test\",\"choices\":[{\"delta\":{\"content\":\"kept\"}}]}\n\n",
-        "data: [DONE]\n\n",
-        "data: not-json\n\n"
-    ))
-    .expect("data after DONE should not be reduced");
-
-    assert_eq!(completion["choices"][0]["message"]["content"], "kept");
-}
-
-#[test]
-fn streaming_invalid_json_fails_explicitly() {
-    let error = aggregate_chat_completion_sse("data: {not-json}\n\n")
-        .expect_err("invalid JSON must not produce a completion");
-
-    assert!(error.contains("streaming chat completion chunk was invalid JSON"));
-}
-
-#[test]
 fn streaming_provider_error_chunk_fails_explicitly() {
-    let error = aggregate_chat_completion_sse(
-        "data: {\"error\":{\"message\":\"quota exceeded\",\"code\":\"rate_limit\"}}\n\n",
-    )
+    let error = aggregate_stream_chunks(&[
+        json!({"error":{"message":"quota exceeded","code":"rate_limit"}}),
+    ])
     .expect_err("provider error chunks must not produce a completion");
 
     assert!(error.contains("streaming chat completion returned error"));
@@ -509,18 +498,21 @@ fn streaming_provider_error_chunk_fails_explicitly() {
 
 #[test]
 fn streaming_observer_does_not_change_completion_reduction() {
-    let transcript = concat!(
-        "data: {\"model\":\"gpt-test\",\"phase\":\"commentary\",\"choices\":[{\"delta\":{\"content\":\"answer \",\"reasoning_content\":\"think \"}}]}\n\n",
-        "data: {\"choices\":[{\"delta\":{\"content\":\"done\",\"reasoningContent\":\"again\"}}],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2,\"total_tokens\":5}}\n\n",
-        "data: [DONE]\n\n"
-    );
+    let chunks = [
+        json!({"model":"gpt-test","phase":"commentary","choices":[{"delta":{"content":"answer ","reasoning_content":"think "}}]}),
+        json!({"choices":[{"delta":{"content":"done","reasoningContent":"again"}}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}),
+    ];
     let mut observed = Vec::new();
     let mut observer = |event| observed.push(event);
-    let mut with_observer =
-        aggregate_chat_completion_sse_with_observer(transcript, Some(&mut observer))
+    let mut observed_completion = StreamingChatCompletion::default();
+    for chunk in &chunks {
+        observed_completion
+            .push_chunk(chunk, Some(&mut observer))
             .expect("stream should aggregate with an observer");
-    let mut without_observer = aggregate_chat_completion_sse(transcript)
-        .expect("stream should aggregate without observer");
+    }
+    let mut with_observer = observed_completion.finish();
+    let mut without_observer =
+        aggregate_stream_chunks(&chunks).expect("stream should aggregate without observer");
 
     for completion in [&mut with_observer, &mut without_observer] {
         completion["id"] = Value::String("normalized-id".to_string());
@@ -541,13 +533,12 @@ fn streaming_observer_does_not_change_completion_reduction() {
 
 #[test]
 fn aggregates_streaming_reasoning_and_usage_for_agent_completion() {
-    let completion = aggregate_chat_completion_sse(concat!(
-            "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"reasoning_content\":\"think \"},\"finish_reason\":null}]}\n\n",
-            "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[{\"index\":0,\"delta\":{\"reasoningContent\":\"again\",\"content\":\"done\"},\"finish_reason\":\"stop\"}]}\n\n",
-            "data: {\"id\":\"chatcmpl-test\",\"object\":\"chat.completion.chunk\",\"created\":1,\"model\":\"gpt-test\",\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":5,\"total_tokens\":12}}\n\n",
-            "data: [DONE]\n\n"
-        ))
-        .expect("streaming reasoning and usage chunks should aggregate");
+    let completion = aggregate_stream_chunks(&[
+        json!({"id":"chatcmpl-test","object":"chat.completion.chunk","created":1,"model":"gpt-test","choices":[{"index":0,"delta":{"reasoning_content":"think "},"finish_reason":null}]}),
+        json!({"id":"chatcmpl-test","object":"chat.completion.chunk","created":1,"model":"gpt-test","choices":[{"index":0,"delta":{"reasoningContent":"again","content":"done"},"finish_reason":"stop"}]}),
+        json!({"id":"chatcmpl-test","object":"chat.completion.chunk","created":1,"model":"gpt-test","choices":[],"usage":{"prompt_tokens":7,"completion_tokens":5,"total_tokens":12}}),
+    ])
+    .expect("streaming reasoning and usage chunks should aggregate");
 
     assert_eq!(
         completion["choices"][0]["message"]["reasoning_content"],
@@ -560,22 +551,22 @@ fn aggregates_streaming_reasoning_and_usage_for_agent_completion() {
 }
 
 #[test]
-fn chat_completion_rejects_invalid_messages() {
-    let response = openai_chat_completions_route(
+fn agent_chat_completion_rejects_invalid_messages() {
+    let error = complete_chat_for_agent(
         &json!({
             "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
             "providers": { "fixture": { "responses": [{ "content": "unused" }] } }
         }),
         &json!({ "messages": [] }),
-    );
+    )
+    .expect_err("empty messages should be rejected");
 
-    assert_eq!(response["status"], 400);
-    assert_eq!(response["body"]["error"]["code"], "invalid_messages");
+    assert!(error.contains("messages must be a non-empty array"));
 }
 
 #[test]
-fn chat_completion_reports_provider_configuration_failure() {
-    let response = openai_chat_completions_route(
+fn agent_chat_completion_reports_provider_configuration_failure() {
+    let error = complete_chat_for_agent(
         &json!({
             "agents": { "defaults": { "provider": "openai", "model": "gpt-4.1" } },
             "providers": { "openai": { "api_key": "" } }
@@ -583,44 +574,10 @@ fn chat_completion_reports_provider_configuration_failure() {
         &json!({
             "messages": [{ "role": "user", "content": "hello" }]
         }),
-    );
+    )
+    .expect_err("missing provider credentials should be reported");
 
-    assert_eq!(response["status"], 503);
-    assert_eq!(response["body"]["error"]["code"], "missing_api_key");
-}
-
-#[test]
-fn chat_completion_reports_provider_timeout() {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
-    let api_base = format!("http://{}", listener.local_addr().unwrap());
-    let stalled_server = thread::spawn(move || {
-        if let Ok((mut stream, _)) = listener.accept() {
-            let mut buffer = [0_u8; 512];
-            let _ = stream.read(&mut buffer);
-            thread::sleep(Duration::from_millis(250));
-        }
-    });
-
-    let response = openai_chat_completions_route(
-        &json!({
-            "agents": { "defaults": { "provider": "openai", "model": "gpt-4.1" } },
-            "providers": {
-                "openai": {
-                    "api_key": "sk-test",
-                    "api_base": api_base,
-                    "timeout_ms": 25
-                }
-            }
-        }),
-        &json!({
-            "messages": [{ "role": "user", "content": "hello" }]
-        }),
-    );
-
-    let _ = stalled_server.join();
-    assert_eq!(response["status"], 504);
-    assert_eq!(response["body"]["error"]["type"], "provider_timeout");
-    assert_eq!(response["body"]["error"]["code"], "provider_timeout");
+    assert!(error.contains("requires an API key"));
 }
 
 #[test]
