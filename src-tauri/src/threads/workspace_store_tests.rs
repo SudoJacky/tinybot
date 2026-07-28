@@ -194,13 +194,49 @@ fn explicit_data_root_keeps_thread_persistence_out_of_workspace() {
     store.shutdown().unwrap();
 
     assert!(data_root.join("threads").exists());
-    assert!(data_root.join("state").join("state.sqlite").exists());
+    assert!(!data_root.join("state").join("state.sqlite").exists());
     assert!(!workspace.join(".tinybot").join("threads").exists());
     assert!(!workspace
         .join(".tinybot")
         .join("state")
         .join("state.sqlite")
         .exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn obsolete_state_sqlite_is_left_untouched() {
+    let root = workspace_root("obsolete-state-sqlite");
+    let workspace = root.join("workspace");
+    let data_root = root.join("data");
+    let obsolete_state = data_root.join("state").join("state.sqlite");
+    std::fs::create_dir_all(&workspace).unwrap();
+    std::fs::create_dir_all(obsolete_state.parent().unwrap()).unwrap();
+    std::fs::write(&obsolete_state, "obsolete-index-sentinel").unwrap();
+
+    let store = WorkspaceThreadStore::new_with_data_root(
+        workspace,
+        data_root,
+        default_desktop_capability_policy(),
+    );
+    let mut router = native_request_router(store.clone(), json!({}));
+    let created = router.dispatch(&WorkerRequest::new(
+        "req-obsolete-state-sqlite",
+        "trace-obsolete-state-sqlite",
+        "thread.create",
+        json!({
+            "threadId": "thread-obsolete-state-sqlite",
+            "title": "Obsolete state SQLite"
+        }),
+    ));
+    assert_eq!(created.error, None);
+    drop(router);
+    store.shutdown().unwrap();
+
+    assert_eq!(
+        std::fs::read_to_string(&obsolete_state).unwrap(),
+        "obsolete-index-sentinel"
+    );
     let _ = std::fs::remove_dir_all(root);
 }
 
@@ -224,6 +260,12 @@ fn legacy_workspace_thread_storage_migrates_and_rebuilds_the_index() {
     assert_eq!(created.error, None);
     drop(router);
     legacy.shutdown().unwrap();
+    let legacy_state = workspace
+        .join(".tinybot")
+        .join("state")
+        .join("state.sqlite");
+    std::fs::create_dir_all(legacy_state.parent().unwrap()).unwrap();
+    std::fs::write(&legacy_state, "obsolete derived index").unwrap();
     assert!(workspace
         .join(".tinybot")
         .join("state")
@@ -255,7 +297,7 @@ fn legacy_workspace_thread_storage_migrates_and_rebuilds_the_index() {
     migrated.shutdown().unwrap();
 
     assert!(data_root.join("threads").exists());
-    assert!(data_root.join("state").join("state.sqlite").exists());
+    assert!(!data_root.join("state").join("state.sqlite").exists());
     assert!(!workspace.join(".tinybot").join("threads").exists());
     assert!(!workspace
         .join(".tinybot")

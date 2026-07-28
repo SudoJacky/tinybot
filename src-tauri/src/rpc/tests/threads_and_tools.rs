@@ -212,7 +212,7 @@ fn thread_api_survives_restart_from_rollout_without_legacy_stores() {
         "persisted through rollout"
     );
     assert!(first_thread_log_file_under(&fixture.root, "threads").is_some());
-    assert!(fixture
+    assert!(!fixture
         .root
         .join(".tinybot")
         .join("state")
@@ -911,7 +911,10 @@ fn thread_fork_inherits_effective_history_from_canonical_rollout() {
         .join(".tinybot")
         .join("state")
         .join("state.sqlite");
-    std::fs::remove_file(&state_path).expect("state index should be removable");
+    assert!(
+        !state_path.exists(),
+        "thread persistence must not create a SQLite state index"
+    );
 
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),

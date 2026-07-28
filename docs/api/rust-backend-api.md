@@ -97,10 +97,10 @@ no renderer commands for starting, stopping, or querying a separate Gateway proc
 cannot be configured to remain alive after the App exits.
 
 The internal lifecycle state records native-runtime recovery and cleanup. Startup pauses new agent
-continues until canonical Rollouts and their rebuildable SQLite index pass consistency checks. The
-startup report includes `sessionLogIndex` and `sessionLogIndexMigration`; an actual Rollout/index
-divergence fails startup and requires an explicit repair command. A persisted `running` turn with no
-live owner is then closed as
+continues until the process-local Thread index has been rebuilt from canonical Rollouts and passes
+consistency checks. The startup report keeps the compatibility fields `sessionLogIndex` and
+`sessionLogIndexMigration`; an actual Rollout/index divergence fails startup and requires an
+explicit repair command. A persisted `running` turn with no live owner is then closed as
 `status: "interrupted"`, `phase: "interrupted"`, and
 `stopReason: "runtime_restarted"`; waiting turns and their checkpoints remain unchanged. A storage
 error leaves the task runtime non-accepting, sets `last_error`, and appends a
@@ -1061,17 +1061,20 @@ namespace is not routed or accepted. The removed `/api/sessions/**` WebUI routes
 `worker_session_*` Tauri adapters do not provide a second persistence interface. All conversation
 and runtime state has one persistence authority: typed, append-only Rollout files under
 `~/.tinybot/threads/YYYY/MM/DD/thread-*.jsonl`.
-`~/.tinybot/state/state.sqlite` is only a rebuildable discovery and metadata index. Deleting the
-index and restarting rebuilds it from Rollouts; it is never a second conversation authority.
+Thread discovery metadata, checkpoint pointers, and Rollout heads are maintained only in memory and
+rebuilt from those files when the process starts.
 
 Desktop startup migrates canonical Rollouts from the former
 `<workspace>/.tinybot/{threads,archived_threads}` layout without overwriting a
-different target file. The old derived index is discarded and rebuilt from the
-migrated Rollouts.
+different target file. The old workspace-local derived index is discarded; the
+migrated Rollouts populate the process-local index.
 
-The removed `sessions/sessions.sqlite`, `~/.tinybot/state/thread-store.jsonl`, and
-`~/.tinybot/threads/threads.sqlite` stores are neither read nor written. There is no startup import,
-request-time compatibility fallback, or completed-result double write for those paths.
+The removed `sessions/sessions.sqlite`, `~/.tinybot/state/state.sqlite`,
+`~/.tinybot/state/thread-store.jsonl`, and `~/.tinybot/threads/threads.sqlite`
+stores are neither read nor written. There is no startup import, request-time
+compatibility fallback, or completed-result double write for those paths. An
+existing `state.sqlite` from an earlier build is left untouched and can be
+removed while Tinybot is stopped.
 
 The durable hierarchy is strict: a Thread may exist without an active Turn, but every persisted
 `ThreadItem` and every Turn checkpoint has one non-empty `turnId`. Thread-level metadata updates made
@@ -1117,11 +1120,13 @@ Persistence verification and repair are lower-level Worker RPC methods:
 
 | Method | Params | Behavior |
 | --- | --- | --- |
-| `thread.persistence.check` | `{}` | Compare canonical Rollouts, their heads, reconstructed records/checkpoints, and `state.sqlite`. |
-| `thread.persistence.repair` | `{ mode: "migrate_legacy_projection" | "rebuild_projection" }` | Compatibility mode names; both rebuild `state.sqlite` from canonical Rollouts and never import a removed store. |
+| `thread.persistence.check` | `{}` | Compare canonical Rollouts, their heads, reconstructed records/checkpoints, and the process-local Thread index. |
+| `thread.persistence.repair` | `{ mode: "migrate_legacy_projection" | "rebuild_projection" }` | Compatibility mode names; both rebuild the in-memory index from canonical Rollouts and never import a removed store. |
 
-Normal reads never run these repairs. `clean`, `legacy_projection`/`missing_index`, `diverged`, and
-`unreadable` are observable states; writes fail while their authority is not clean.
+Startup and first access initialize the in-memory index automatically. Normal
+reads do not invoke the explicit repair RPC. The existing
+`clean`, `legacy_projection`/`missing_index`, `diverged`, and `unreadable`
+labels remain for protocol compatibility.
 
 `thread.history` returns the persisted message projection and `thread.context` returns the model
 context projection. When a thread has token usage, the
@@ -1130,7 +1135,7 @@ thread log line, malformed `token_count` event, or malformed compaction payload 
 backend error instead of being silently ignored.
 
 `thread.resolve` accepts `{ identity }` and resolves an exact Thread ID or UI session key through
-the rebuildable state index. It does not scan or mutate Rollouts.
+the process-local Thread index. It does not scan or mutate Rollouts after startup reconstruction.
 
 ## Thread Commands
 

@@ -4,7 +4,7 @@ mod reader;
 mod reconstruction;
 mod recorder;
 mod rollout_writer;
-mod state_db;
+mod state_index;
 mod turn;
 
 pub use self::projection::ThreadHistoryProjection;
@@ -32,15 +32,14 @@ mod checkpoint_lock;
 static CONTEXT_CHECKPOINT_COMMIT_LOCK: Mutex<()> = Mutex::new(());
 static THREAD_RECORD_CACHE: OnceLock<Mutex<HashMap<PathBuf, CachedThreadRecord>>> = OnceLock::new();
 const THREAD_RECORD_CACHE_CAPACITY: usize = 64;
-const STATE_INDEX_STABILITY_RETRY_COUNT: usize = 200;
-const STATE_INDEX_STABILITY_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(10);
 pub use self::reader::read_thread_lines;
 use self::reader::read_thread_lines_for_discovery;
 use self::recorder::ThreadLogHead;
 use self::recorder::{canonicalize_thread_timestamp, is_canonical_thread_log_path};
 pub use self::recorder::{value_event, ThreadRecorder};
-pub use self::state_db::ThreadStateDb;
-use self::state_db::{thread_projection_hash, LatestContextCheckpointRecord, ThreadLogHeadRecord};
+use self::state_index::{
+    thread_projection_hash, LatestContextCheckpointRecord, ThreadLogHeadRecord, ThreadStateIndex,
+};
 pub use crate::threads::rollout::format::reconstruct_rollout as replay_thread;
 use crate::threads::rollout::format::reconstruct_transcript as replay_thread_transcript;
 pub use crate::threads::rollout::format::{
@@ -54,7 +53,7 @@ pub const THREAD_LOG_SCHEMA_VERSION: u32 = crate::threads::rollout::format::ROLL
 #[derive(Clone, Debug)]
 pub struct WorkerThreadLogRpc {
     recorder: ThreadRecorder,
-    state: ThreadStateDb,
+    state: ThreadStateIndex,
     workspace_root: PathBuf,
     thread_root: PathBuf,
     archive_root: PathBuf,
@@ -188,7 +187,7 @@ impl WorkerThreadLogRpc {
             workspace_root,
             thread_root: data_root.join("threads"),
             archive_root: data_root.join("archived_threads"),
-            state: ThreadStateDb::from_data_root(data_root),
+            state: ThreadStateIndex::new(),
             policy,
             reconstruction_cache: Arc::new(Mutex::new(HashMap::new())),
             state_index_ready: Arc::new(AtomicBool::new(false)),
@@ -940,9 +939,7 @@ impl WorkerThreadLogRpc {
         limit: usize,
     ) -> Result<Option<ThreadHistoryProjection>, WorkerProtocolError> {
         self.require(WorkerCapability::SessionMetadataRead)?;
-        if !self.state.path().exists() {
-            self.ensure_state_index()?;
-        }
+        self.ensure_state_index()?;
         let Some(record) = self.find_live_record(thread_id)? else {
             return Ok(None);
         };
@@ -1252,106 +1249,9 @@ impl WorkerThreadLogRpc {
     }
 
     fn ensure_state_index_uncached(&self) -> Result<(), WorkerProtocolError> {
-        if self.state_index_fast_path()? {
-            return Ok(());
-        }
-        let mut report = self.state_index_consistency()?;
-        if report.status == ThreadLogIndexConsistencyStatus::Clean {
-            return Ok(());
-        }
-        if report.status == ThreadLogIndexConsistencyStatus::Diverged {
-            for attempt in 1..=STATE_INDEX_STABILITY_RETRY_COUNT {
-                std::thread::sleep(STATE_INDEX_STABILITY_RETRY_DELAY);
-                if self.state_index_fast_path()? {
-                    eprintln!(
-                        "thread_state_index_transient_divergence_resolved attempts={attempt}"
-                    );
-                    return Ok(());
-                }
-            }
-            report = self.state_index_consistency()?;
-            if report.status == ThreadLogIndexConsistencyStatus::Clean {
-                return Ok(());
-            }
-        }
-        eprintln!(
-            "thread_state_index_rebuild status={:?} canonical_threads={} indexed_threads={} diagnostics={}",
-            report.status,
-            report.canonical_thread_count,
-            report.indexed_thread_count,
-            report.diagnostics.join("; ")
-        );
-        self.rebuild_state_index_from_rollouts()?;
-        let after = self.state_index_consistency()?;
-        if after.status == ThreadLogIndexConsistencyStatus::Clean {
-            return Ok(());
-        }
-        Err(thread_log_consistency_error(
-            "automatic thread state index rebuild did not produce a clean index",
-            serde_json::to_value(after).unwrap_or_default(),
-        ))
-    }
-
-    fn state_index_fast_path(&self) -> Result<bool, WorkerProtocolError> {
-        if !self.state.path().exists() {
-            return Ok(false);
-        }
-        let mut paths = Vec::new();
-        collect_thread_log_paths(&self.thread_root, &self.thread_root, &mut paths)?;
-        collect_thread_log_paths(&self.archive_root, &self.archive_root, &mut paths)?;
-        let records = match self.state.list_all_threads() {
-            Ok(records) => records,
-            Err(_) => return Ok(false),
-        };
-        let heads = match self.state.list_thread_log_heads() {
-            Ok(heads) => heads,
-            Err(_) => return Ok(false),
-        };
-        let checkpoints = match self.state.list_latest_context_checkpoints() {
-            Ok(checkpoints) => checkpoints,
-            Err(_) => return Ok(false),
-        };
-        if records.len() != paths.len() || heads.len() != records.len() {
-            return Ok(false);
-        }
-        let path_set = paths.into_iter().collect::<HashSet<_>>();
-        let head_by_thread = heads
-            .into_iter()
-            .map(|head| (head.thread_id.clone(), head))
-            .collect::<HashMap<_, _>>();
-        let checkpoint_by_thread = checkpoints
-            .into_iter()
-            .map(|checkpoint| (checkpoint.thread_id.clone(), checkpoint))
-            .collect::<HashMap<_, _>>();
-        if checkpoint_by_thread
-            .keys()
-            .any(|thread_id| !head_by_thread.contains_key(thread_id))
-        {
-            return Ok(false);
-        }
-        for record in &records {
-            let path = PathBuf::from(&record.thread_path);
-            if !path_set.contains(&path) {
-                return Ok(false);
-            }
-            let Some(indexed_head) = head_by_thread.get(&record.id) else {
-                return Ok(false);
-            };
-            let physical_head = self.recorder.thread_log_head(&path)?;
-            if indexed_head.byte_length != physical_head.byte_length
-                || indexed_head.tail_hash != physical_head.tail_hash
-            {
-                return Ok(false);
-            }
-            let projection_hash =
-                thread_projection_hash(record, checkpoint_by_thread.get(&record.id));
-            if indexed_head.projection_hash.is_empty()
-                || indexed_head.projection_hash != projection_hash
-            {
-                return Ok(false);
-            }
-        }
-        Ok(true)
+        let rebuilt_thread_count = self.rebuild_state_index_from_rollouts()?;
+        eprintln!("thread_state_index_initialized source=rollouts threads={rebuilt_thread_count}");
+        Ok(())
     }
 
     fn rebuild_state_index_from_rollouts(&self) -> Result<usize, WorkerProtocolError> {
@@ -1383,7 +1283,7 @@ impl WorkerThreadLogRpc {
             return Ok(());
         }
         Err(thread_log_consistency_error(
-            "thread log file version does not match the SQLite state index; run thread.persistence.repair explicitly",
+            "thread log file version does not match the in-memory thread index; run thread.persistence.repair explicitly",
             serde_json::json!({
                 "threadId": record.id,
                 "threadPath": record.thread_path,
@@ -1654,58 +1554,10 @@ impl WorkerThreadLogRpc {
             .iter()
             .map(|state| state.log_head.clone())
             .collect::<Vec<_>>();
-        if !self.state.path().exists() {
-            return Ok(ThreadLogIndexConsistencyReport {
-                status: if canonical_records.is_empty() {
-                    ThreadLogIndexConsistencyStatus::Clean
-                } else {
-                    ThreadLogIndexConsistencyStatus::MissingIndex
-                },
-                canonical_thread_count: canonical_records.len(),
-                indexed_thread_count: 0,
-                diagnostics: (!canonical_records.is_empty())
-                    .then(|| {
-                        "canonical thread logs exist but the SQLite state index is missing"
-                            .to_string()
-                    })
-                    .into_iter()
-                    .collect(),
-            });
-        }
-        let mut indexed = match self.state.list_all_threads() {
-            Ok(indexed) => indexed,
-            Err(error) => {
-                return Ok(ThreadLogIndexConsistencyReport {
-                    status: ThreadLogIndexConsistencyStatus::Unreadable,
-                    canonical_thread_count: canonical.len(),
-                    indexed_thread_count: 0,
-                    diagnostics: vec![error.message],
-                });
-            }
-        };
+        let mut indexed = self.state.list_all_threads()?;
         indexed.sort_by(|left, right| left.id.cmp(&right.id));
-        let indexed_checkpoints = match self.state.list_latest_context_checkpoints() {
-            Ok(checkpoints) => checkpoints,
-            Err(error) => {
-                return Ok(ThreadLogIndexConsistencyReport {
-                    status: ThreadLogIndexConsistencyStatus::Unreadable,
-                    canonical_thread_count: canonical_records.len(),
-                    indexed_thread_count: indexed.len(),
-                    diagnostics: vec![error.message],
-                });
-            }
-        };
-        let indexed_heads = match self.state.list_thread_log_heads() {
-            Ok(heads) => heads,
-            Err(error) => {
-                return Ok(ThreadLogIndexConsistencyReport {
-                    status: ThreadLogIndexConsistencyStatus::Unreadable,
-                    canonical_thread_count: canonical_records.len(),
-                    indexed_thread_count: indexed.len(),
-                    diagnostics: vec![error.message],
-                });
-            }
-        };
+        let indexed_checkpoints = self.state.list_latest_context_checkpoints()?;
+        let indexed_heads = self.state.list_thread_log_heads()?;
         let records_match = canonical_records == indexed;
         let checkpoints_match = canonical_checkpoints == indexed_checkpoints;
         let heads_match = canonical_heads == indexed_heads;
@@ -1722,10 +1574,10 @@ impl WorkerThreadLogRpc {
         let diagnostics = (status != ThreadLogIndexConsistencyStatus::Clean)
             .then(|| {
                 if records_match && checkpoints_match {
-                    "canonical thread log file versions differ from the SQLite state index"
+                    "canonical thread log file versions differ from the in-memory thread index"
                         .to_string()
                 } else if records_match {
-                    "canonical latest context checkpoints differ from the SQLite state index"
+                    "canonical latest context checkpoints differ from the in-memory thread index"
                         .to_string()
                 } else {
                     let fields = canonical_records
@@ -1741,7 +1593,7 @@ impl WorkerThreadLogRpc {
                         })
                         .unwrap_or_else(|| "record_count".to_string());
                     format!(
-                        "canonical thread log records differ from the SQLite state index in fields: {fields}"
+                        "canonical thread log records differ from the in-memory thread index in fields: {fields}"
                     )
                 }
             })
@@ -2406,7 +2258,7 @@ fn latest_context_checkpoint_from_lines(
         })?);
     let ordinal = i64::try_from(ordinal).map_err(|_| {
         thread_log_consistency_error(
-            "thread log checkpoint ordinal exceeds SQLite index range",
+            "thread log checkpoint ordinal exceeds supported index range",
             serde_json::json!({ "threadId": thread_id }),
         )
     })?;

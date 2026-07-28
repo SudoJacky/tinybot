@@ -2,7 +2,7 @@
 
 `threads::rollout::store` owns Tinybot's canonical append-only Rollout. It validates
 paths, records typed lines, reconstructs Thread and runtime projections,
-and maintains a rebuildable SQLite index for discovery and startup recovery.
+and maintains a process-local Thread index for discovery and runtime lookup.
 
 `threads::domain` is the live typed projection of this authority. It must not
 introduce a durable journal, database, fallback read, or completed-turn double
@@ -13,13 +13,15 @@ write.
 | Path | Role |
 | --- | --- |
 | `~/.tinybot/threads/<year>/<month>/<day>/thread-*.jsonl` | Canonical per-thread append-only log |
-| `~/.tinybot/state/state.sqlite` | Queryable index of Thread metadata |
 
 A log begins with `ThreadMeta` and can contain event messages, strongly typed
 response items, turn context, world state, compaction records, and inter-agent
 communication.
 Canonical reconstruction produces Thread items, Thread history, model context,
 agent turns, checkpoints, and token usage.
+
+`~/.tinybot/state/state.sqlite` from earlier builds is not read or written. It
+may be removed while Tinybot is stopped.
 
 ## Responsibilities
 
@@ -28,9 +30,9 @@ agent turns, checkpoints, and token usage.
 - Append complete JSON lines and flush them before reporting success.
 - Replay log history without mutating the source log.
 - Project replayed state into typed Thread history and runtime context shapes.
-- Maintain the `ThreadStateDb` index used for listing and lookup.
-- Detect missing, unreadable, or divergent indexes.
-- Rebuild the index explicitly from canonical logs.
+- Maintain the `ThreadStateIndex` used for listing and lookup.
+- Rebuild the process-local index from canonical logs at startup.
+- Detect and repair divergence between the live index and canonical Rollouts.
 - Reconcile persisted agent turns during runtime startup.
 
 ## Internal layout
@@ -41,22 +43,22 @@ agent turns, checkpoints, and token usage.
 - `reader.rs`: bounded line reads.
 - `reconstruction.rs`: canonical Thread and runtime projection.
 - `projection.rs`: Thread history and model-context projection.
-- `state_db.rs`: SQLite index schema and queries.
+- `state_index.rs`: process-local Thread metadata, checkpoint, and Rollout-head index.
 - `turn.rs`: agent-turn persistence and recovery over log/index state.
 - `mod.rs`: capability-checked service and index consistency/repair behavior.
 
 ## Invariants
 
-- Rollouts are canonical; `state.sqlite` is an index that can be rebuilt.
+- Rollouts are canonical; the process-local Thread index is always derived.
 - Paths must remain under `~/.tinybot/threads`; caller-provided paths are
   validated before reads or appends.
 - Startup migrates the former `<workspace>/.tinybot/{threads,archived_threads}`
-  layout without overwriting conflicts, then rebuilds the derived index from
-  the migrated Rollouts.
+  layout without overwriting conflicts. The migrated Rollouts populate the
+  in-memory index.
 - Log lines are appended, not edited in place.
 - Reconstruction is deterministic and side-effect free.
-- Index inconsistency is reported. Rebuild occurs only through the explicit
-  repair path or a named startup migration for a missing legacy index.
+- Index inconsistency is reported. Startup and the explicit repair path rebuild
+  the in-memory index from canonical Rollouts.
 - Archived state, titles, previews, token usage, and timestamps in the index
   must be derivable from canonical logs.
 - Unknown or malformed persisted semantics return structured errors rather

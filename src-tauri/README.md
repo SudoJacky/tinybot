@@ -110,7 +110,7 @@ The main layers are:
    - `threads/rollout/format/` owns typed, versioned Rollout lines and pure
      reconstruction.
    - [`threads/rollout/store/`](src/threads/rollout/store/README.md) owns
-     canonical append-only Rollouts and their rebuildable SQLite index.
+     canonical append-only Rollouts and their process-local Thread index.
    - [`threads/session/`](src/threads/session/README.md) exposes session-shaped
      projections of canonical Rollouts.
 5. **Domain services**
@@ -156,15 +156,17 @@ roles:
 | Path | Owner | Role |
 | --- | --- | --- |
 | `~/.tinybot/threads/<year>/<month>/<day>/*.jsonl` | `threads::rollout::store` | Canonical append-only Rollouts |
-| `~/.tinybot/state/state.sqlite` | `threads::rollout::store` | Rebuildable discovery and metadata index |
 
-The removed `sessions/sessions.sqlite`, `~/.tinybot/state/thread-store.jsonl`,
-and `~/.tinybot/threads/threads.sqlite` paths are not compatibility authorities
-and must not be reintroduced as fallback or double-write targets.
+Thread metadata, checkpoint pointers, and Rollout heads are rebuilt into a
+process-local index from these files. The removed `sessions/sessions.sqlite`,
+`~/.tinybot/state/state.sqlite`, `~/.tinybot/state/thread-store.jsonl`, and
+`~/.tinybot/threads/threads.sqlite` paths are not compatibility authorities and
+must not be reintroduced as fallback or double-write targets. An existing
+`state.sqlite` is ignored and can be removed while Tinybot is stopped.
 
 Desktop startup moves canonical Rollouts from the former
 `<workspace>/.tinybot/{threads,archived_threads}` layout into the application
-data root without overwriting conflicts, then rebuilds `state.sqlite`.
+data root without overwriting conflicts, then rebuilds the in-memory index.
 
 ## Test layout
 
