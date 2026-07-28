@@ -24,6 +24,7 @@ fn valid_line() -> ThreadLogLine {
             model_provider: None,
             model: None,
             base_instructions: None,
+            memory_snapshot: None,
             history_mode: Some("default".to_string()),
             forked_from_thread_id: None,
             parent_thread_id: None,

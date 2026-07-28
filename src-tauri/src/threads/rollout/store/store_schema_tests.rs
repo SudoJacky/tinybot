@@ -15,6 +15,7 @@ fn future_thread_log_schema_is_rejected_explicitly() {
             model_provider: None,
             model: None,
             base_instructions: None,
+            memory_snapshot: None,
             history_mode: None,
             forked_from_thread_id: None,
             parent_thread_id: None,

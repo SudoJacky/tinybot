@@ -606,6 +606,8 @@ pub struct SessionMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_instructions: Option<Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_snapshot: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub history_mode: Option<String>,
     #[serde(
         rename = "forked_from_id",

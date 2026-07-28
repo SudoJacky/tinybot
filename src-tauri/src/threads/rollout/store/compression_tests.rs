@@ -109,6 +109,7 @@ fn cold_rollout_worker_skips_live_writer_and_future_append_remains_valid() {
             model_provider: None,
             model: None,
             base_instructions: None,
+            memory_snapshot: None,
             history_mode: None,
             forked_from_thread_id: None,
             parent_thread_id: None,

@@ -57,6 +57,12 @@ pub(crate) fn start_native_runtime_with_workspace_root(
             }
         }
     }
+    #[cfg(not(test))]
+    crate::memory::start_workspace_runtime(
+        workspace_root,
+        thread_store.clone(),
+        crate::config::application::native_config_snapshot(),
+    );
     if let Err(error) = shell_runtime.resume_accepting() {
         let message = format!("runtime resume failed: {}", error.message);
         {

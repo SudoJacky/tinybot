@@ -20,6 +20,7 @@ fn one_rollout_drives_consistent_context_transcript_ui_turns_and_checkpoints() {
                 model_provider: Some("provider-old".to_string()),
                 model: Some("model-old".to_string()),
                 base_instructions: None,
+                memory_snapshot: Some("## User memory\n\n- Uses dark mode.\n".to_string()),
                 history_mode: Some("default".to_string()),
                 forked_from_thread_id: Some("thread-source".to_string()),
                 parent_thread_id: Some("thread-parent".to_string()),

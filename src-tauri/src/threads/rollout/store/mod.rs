@@ -55,6 +55,7 @@ pub const THREAD_LOG_SCHEMA_VERSION: u32 = crate::threads::rollout::format::ROLL
 pub struct WorkerThreadLogRpc {
     recorder: ThreadRecorder,
     state: ThreadStateDb,
+    workspace_root: PathBuf,
     thread_root: PathBuf,
     archive_root: PathBuf,
     policy: CapabilityPolicy,
@@ -174,6 +175,7 @@ impl WorkerThreadLogRpc {
         compression::spawn_rollout_compression_worker(workspace_root.clone(), recorder.clone());
         Self {
             recorder,
+            workspace_root: workspace_root.clone(),
             thread_root: workspace_root.join(".tinybot").join("threads"),
             archive_root: workspace_root.join(".tinybot").join("archived_threads"),
             state: ThreadStateDb::new(workspace_root),
@@ -181,6 +183,39 @@ impl WorkerThreadLogRpc {
             reconstruction_cache: Arc::new(Mutex::new(HashMap::new())),
             state_index_ready: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    pub(super) fn new_thread_memory_snapshot(
+        &self,
+        working_directory: Option<&str>,
+    ) -> Result<String, WorkerProtocolError> {
+        let scope_root = working_directory
+            .filter(|value| !value.trim().is_empty())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| self.workspace_root.clone());
+        let workspace_path =
+            crate::memory::normalized_workspace_path(&scope_root).map_err(|error| {
+                thread_log_consistency_error(
+                    "failed to resolve new Thread memory scope",
+                    serde_json::json!({
+                        "workspaceRoot": self.workspace_root.display().to_string(),
+                        "workingDirectory": working_directory,
+                        "error": error,
+                    }),
+                )
+            })?;
+        crate::memory::MemoryStore::for_workspace(&self.workspace_root)
+            .render_thread_snapshot(&workspace_path)
+            .map_err(|error| {
+                thread_log_consistency_error(
+                    "failed to render new Thread memory snapshot",
+                    serde_json::json!({
+                        "workspaceRoot": self.workspace_root.display().to_string(),
+                        "memoryScopePath": workspace_path,
+                        "error": error,
+                    }),
+                )
+            })
     }
 
     pub(crate) fn flush_all(&self) -> Result<(), WorkerProtocolError> {
@@ -377,6 +412,8 @@ impl WorkerThreadLogRpc {
                 .as_deref()
                 .unwrap_or(&thread.updated_at),
         )?;
+        let memory_snapshot =
+            self.new_thread_memory_snapshot(thread.metadata.working_directory.as_deref())?;
         let meta = ThreadMeta {
             schema_version: THREAD_LOG_SCHEMA_VERSION,
             thread_id: thread.thread_id.clone(),
@@ -391,6 +428,7 @@ impl WorkerThreadLogRpc {
             model_provider: None,
             model: thread.metadata.model.clone(),
             base_instructions: None,
+            memory_snapshot: Some(memory_snapshot),
             history_mode: Some("default".to_string()),
             forked_from_thread_id: None,
             parent_thread_id: thread.parent_thread_id.clone(),
@@ -697,6 +735,7 @@ impl WorkerThreadLogRpc {
         self.recorder.flush(&source_path)?;
         let source_lines = read_thread_lines(&source_path)?;
         let reconstructed = reconstruction::reconstruct_canonical_rollout(&source_lines)?;
+        let source_memory_snapshot = reconstructed.meta.memory_snapshot.clone();
         let inherited_indexes = fork_rollout_line_indexes(
             &source_lines,
             &reconstructed.semantic.effective_line_indexes,
@@ -732,6 +771,7 @@ impl WorkerThreadLogRpc {
             model_provider: source_record.model_provider,
             model: fork.metadata.model.clone().or(source_record.model),
             base_instructions: None,
+            memory_snapshot: source_memory_snapshot,
             history_mode: Some("default".to_string()),
             forked_from_thread_id: Some(source_thread_id.to_string()),
             parent_thread_id: fork.parent_thread_id.clone(),
@@ -858,6 +898,21 @@ impl WorkerThreadLogRpc {
             reconstructed.transcript,
             limit,
         )))
+    }
+
+    pub(crate) fn get_thread_memory_snapshot(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<String>, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionMetadataRead)?;
+        self.ensure_state_index()?;
+        let Some(record) = self.find_live_record(thread_id)? else {
+            return Ok(None);
+        };
+        let path = PathBuf::from(record.thread_path);
+        self.recorder.validate_thread_path(&path)?;
+        let lines = read_thread_lines(&path)?;
+        Ok(thread_meta_from_lines(&lines)?.memory_snapshot)
     }
 
     pub fn resolve_thread_id(&self, identity: &str) -> Result<String, WorkerProtocolError> {

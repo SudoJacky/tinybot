@@ -56,6 +56,42 @@ pub(crate) fn native_agent_thread_id(spec: &serde_json::Value) -> Option<String>
         })
 }
 
+pub(crate) fn hydrate_native_agent_memory_snapshot_for_runtime(
+    mut spec: serde_json::Value,
+    thread_store: &WorkspaceThreadStore,
+) -> Result<serde_json::Value, String> {
+    let Some(thread_id) = native_agent_thread_id(&spec).or_else(|| native_agent_session_id(&spec))
+    else {
+        return Ok(spec);
+    };
+    let operation = thread_store.begin_operation().map_err(|error| {
+        format!(
+            "failed to open Thread memory snapshot `{thread_id}`: {}",
+            error.message
+        )
+    })?;
+    let snapshot = operation
+        .thread_log()
+        .get_thread_memory_snapshot(&thread_id)
+        .map_err(|error| {
+            format!(
+                "failed to read Thread memory snapshot `{thread_id}`: {}",
+                error.message
+            )
+        })?;
+    let Some(snapshot) = snapshot else {
+        return Ok(spec);
+    };
+    let object = spec
+        .as_object_mut()
+        .ok_or_else(|| "agent turn spec must be an object for memory hydration".to_string())?;
+    object.insert(
+        "longTermMemorySnapshot".to_string(),
+        serde_json::Value::String(snapshot),
+    );
+    Ok(spec)
+}
+
 pub(crate) fn hydrate_native_agent_history_for_runtime(
     mut spec: serde_json::Value,
     thread_store: &WorkspaceThreadStore,

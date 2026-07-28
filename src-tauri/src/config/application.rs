@@ -162,7 +162,7 @@ impl ConfigApplication {
 }
 
 pub(crate) fn default_tinybot_config_path() -> PathBuf {
-    tinybot_home_dir().join(".tinybot").join("config.json")
+    tinybot_data_root().join("config.json")
 }
 
 fn tinybot_home_dir() -> PathBuf {
@@ -172,8 +172,12 @@ fn tinybot_home_dir() -> PathBuf {
         .unwrap_or_else(std::env::temp_dir)
 }
 
+pub(crate) fn tinybot_data_root() -> PathBuf {
+    tinybot_home_dir().join(".tinybot")
+}
+
 pub(crate) fn default_tinybot_workspace_root() -> PathBuf {
-    tinybot_home_dir().join(".tinybot").join("workspace")
+    tinybot_data_root().join("workspace")
 }
 
 pub(crate) fn native_backend_workspace_root() -> PathBuf {
