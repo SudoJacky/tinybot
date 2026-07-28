@@ -155,12 +155,16 @@ roles:
 
 | Path | Owner | Role |
 | --- | --- | --- |
-| `.tinybot/threads/<year>/<month>/<day>/*.jsonl` | `threads::rollout::store` | Canonical append-only Rollouts |
-| `.tinybot/state/state.sqlite` | `threads::rollout::store` | Rebuildable discovery and metadata index |
+| `~/.tinybot/threads/<year>/<month>/<day>/*.jsonl` | `threads::rollout::store` | Canonical append-only Rollouts |
+| `~/.tinybot/state/state.sqlite` | `threads::rollout::store` | Rebuildable discovery and metadata index |
 
-The removed `sessions/sessions.sqlite`, `.tinybot/state/thread-store.jsonl`,
-and `.tinybot/threads/threads.sqlite` paths are not compatibility authorities
+The removed `sessions/sessions.sqlite`, `~/.tinybot/state/thread-store.jsonl`,
+and `~/.tinybot/threads/threads.sqlite` paths are not compatibility authorities
 and must not be reintroduced as fallback or double-write targets.
+
+Desktop startup moves canonical Rollouts from the former
+`<workspace>/.tinybot/{threads,archived_threads}` layout into the application
+data root without overwriting conflicts, then rebuilds `state.sqlite`.
 
 ## Test layout
 

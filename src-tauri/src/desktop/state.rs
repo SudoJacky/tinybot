@@ -29,14 +29,37 @@ pub(crate) struct NativeRuntimeState {
 
 impl Default for NativeRuntimeState {
     fn default() -> Self {
-        Self::new(crate::config::application::native_backend_workspace_root())
+        #[cfg(test)]
+        {
+            let workspace_root = crate::config::application::native_backend_workspace_root();
+            Self::with_thread_store(WorkspaceThreadStore::new(
+                workspace_root,
+                crate::protocol::capability::default_desktop_capability_policy(),
+            ))
+        }
+        #[cfg(not(test))]
+        {
+            let workspace_root = crate::config::application::native_backend_workspace_root();
+            let data_root = crate::config::application::tinybot_data_root();
+            let migration_error = crate::threads::workspace_store::migrate_legacy_thread_storage(
+                &workspace_root,
+                &data_root,
+            )
+            .err()
+            .map(|error| error.message);
+            let mut state = Self::new_with_data_root(workspace_root, data_root);
+            state.last_error = migration_error;
+            state
+        }
     }
 }
 
 impl NativeRuntimeState {
-    pub(crate) fn new(workspace_root: PathBuf) -> Self {
-        Self::with_thread_store(WorkspaceThreadStore::new(
+    #[cfg(not(test))]
+    pub(crate) fn new_with_data_root(workspace_root: PathBuf, data_root: PathBuf) -> Self {
+        Self::with_thread_store(WorkspaceThreadStore::new_with_data_root(
             workspace_root,
+            data_root,
             crate::protocol::capability::default_desktop_capability_policy(),
         ))
     }

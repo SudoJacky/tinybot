@@ -69,10 +69,15 @@ impl std::fmt::Debug for ThreadRecorder {
 }
 
 impl ThreadRecorder {
+    #[allow(dead_code)]
     pub fn new(workspace_root: PathBuf) -> Self {
+        Self::from_data_root(workspace_root.join(".tinybot"))
+    }
+
+    pub(super) fn from_data_root(data_root: PathBuf) -> Self {
         Self {
-            root: workspace_root.join(".tinybot").join("threads"),
-            archive_root: workspace_root.join(".tinybot").join("archived_threads"),
+            root: data_root.join("threads"),
+            archive_root: data_root.join("archived_threads"),
             writer_pool: Arc::new(WriterPool::new()),
         }
     }

@@ -12,8 +12,8 @@ write.
 
 | Path | Role |
 | --- | --- |
-| `.tinybot/threads/<year>/<month>/<day>/thread-*.jsonl` | Canonical per-thread append-only log |
-| `.tinybot/state/state.sqlite` | Queryable index of Thread metadata |
+| `~/.tinybot/threads/<year>/<month>/<day>/thread-*.jsonl` | Canonical per-thread append-only log |
+| `~/.tinybot/state/state.sqlite` | Queryable index of Thread metadata |
 
 A log begins with `ThreadMeta` and can contain event messages, strongly typed
 response items, turn context, world state, compaction records, and inter-agent
@@ -23,7 +23,8 @@ agent turns, checkpoints, and token usage.
 
 ## Responsibilities
 
-- Generate and validate canonical log paths under the workspace thread root.
+- Generate and validate canonical log paths under the application data root,
+  independently of the Agent's content workspace.
 - Append complete JSON lines and flush them before reporting success.
 - Replay log history without mutating the source log.
 - Project replayed state into typed Thread history and runtime context shapes.
@@ -47,8 +48,11 @@ agent turns, checkpoints, and token usage.
 ## Invariants
 
 - Rollouts are canonical; `state.sqlite` is an index that can be rebuilt.
-- Paths must remain under `.tinybot/threads`; caller-provided paths are
+- Paths must remain under `~/.tinybot/threads`; caller-provided paths are
   validated before reads or appends.
+- Startup migrates the former `<workspace>/.tinybot/{threads,archived_threads}`
+  layout without overwriting conflicts, then rebuilds the derived index from
+  the migrated Rollouts.
 - Log lines are appended, not edited in place.
 - Reconstruction is deterministic and side-effect free.
 - Index inconsistency is reported. Rebuild occurs only through the explicit

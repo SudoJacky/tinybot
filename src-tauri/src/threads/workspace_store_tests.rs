@@ -167,3 +167,159 @@ fn failed_reload_leaves_projection_uninitialized_for_the_next_operation() {
         .expect("workspace store shutdown should drain writers");
     let _ = std::fs::remove_dir_all(root);
 }
+
+#[test]
+fn explicit_data_root_keeps_thread_persistence_out_of_workspace() {
+    let root = workspace_root("explicit-data-root");
+    let workspace = root.join("workspace");
+    let data_root = root.join("data");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let store = WorkspaceThreadStore::new_with_data_root(
+        workspace.clone(),
+        data_root.clone(),
+        default_desktop_capability_policy(),
+    );
+    let mut router = native_request_router(store.clone(), json!({}));
+    let created = router.dispatch(&WorkerRequest::new(
+        "req-explicit-data-root",
+        "trace-explicit-data-root",
+        "thread.create",
+        json!({
+            "threadId": "thread-explicit-data-root",
+            "title": "Explicit data root"
+        }),
+    ));
+    assert_eq!(created.error, None);
+    drop(router);
+    store.shutdown().unwrap();
+
+    assert!(data_root.join("threads").exists());
+    assert!(data_root.join("state").join("state.sqlite").exists());
+    assert!(!workspace.join(".tinybot").join("threads").exists());
+    assert!(!workspace
+        .join(".tinybot")
+        .join("state")
+        .join("state.sqlite")
+        .exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn legacy_workspace_thread_storage_migrates_and_rebuilds_the_index() {
+    let root = workspace_root("legacy-storage-migration");
+    let workspace = root.join("workspace");
+    let data_root = root.join("data");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let legacy = WorkspaceThreadStore::new(workspace.clone(), default_desktop_capability_policy());
+    let mut router = native_request_router(legacy.clone(), json!({}));
+    let created = router.dispatch(&WorkerRequest::new(
+        "req-legacy-storage-create",
+        "trace-legacy-storage-create",
+        "thread.create",
+        json!({
+            "threadId": "thread-legacy-storage",
+            "title": "Legacy storage"
+        }),
+    ));
+    assert_eq!(created.error, None);
+    drop(router);
+    legacy.shutdown().unwrap();
+    assert!(workspace
+        .join(".tinybot")
+        .join("state")
+        .join("state.sqlite")
+        .exists());
+
+    let report = migrate_legacy_thread_storage(&workspace, &data_root).unwrap();
+    assert!(report.moved_file_count >= 1);
+    assert!(report.removed_legacy_index);
+
+    let migrated = WorkspaceThreadStore::new_with_data_root(
+        workspace.clone(),
+        data_root.clone(),
+        default_desktop_capability_policy(),
+    );
+    let mut router = native_request_router(migrated.clone(), json!({}));
+    let read = router.dispatch(&WorkerRequest::new(
+        "req-legacy-storage-read",
+        "trace-legacy-storage-read",
+        "thread.read",
+        json!({ "threadId": "thread-legacy-storage" }),
+    ));
+    assert_eq!(read.error, None);
+    assert_eq!(
+        read.result.as_ref().unwrap()["thread"]["threadId"],
+        "thread-legacy-storage"
+    );
+    drop(router);
+    migrated.shutdown().unwrap();
+
+    assert!(data_root.join("threads").exists());
+    assert!(data_root.join("state").join("state.sqlite").exists());
+    assert!(!workspace.join(".tinybot").join("threads").exists());
+    assert!(!workspace
+        .join(".tinybot")
+        .join("state")
+        .join("state.sqlite")
+        .exists());
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn legacy_thread_storage_migration_never_overwrites_a_conflict() {
+    let root = workspace_root("legacy-storage-conflict");
+    let workspace = root.join("workspace");
+    let data_root = root.join("data");
+    let relative = PathBuf::from("2026")
+        .join("07")
+        .join("28")
+        .join("thread-2026-07-28T00-00-00-conflict.jsonl");
+    let legacy_file = workspace.join(".tinybot").join("threads").join(&relative);
+    let target_file = data_root.join("threads").join(&relative);
+    std::fs::create_dir_all(legacy_file.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(target_file.parent().unwrap()).unwrap();
+    std::fs::write(&legacy_file, "legacy").unwrap();
+    std::fs::write(&target_file, "target").unwrap();
+
+    let error = migrate_legacy_thread_storage(&workspace, &data_root).unwrap_err();
+    assert!(error.message.contains("conflict"));
+    assert_eq!(std::fs::read_to_string(&legacy_file).unwrap(), "legacy");
+    assert_eq!(std::fs::read_to_string(&target_file).unwrap(), "target");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn legacy_thread_storage_migration_accepts_a_relative_workspace_root() {
+    let current_dir = std::env::current_dir().unwrap();
+    let sequence = WORKSPACE_STORE_TEST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let relative_root = PathBuf::from(".tmp").join(format!(
+        "workspace-store-relative-migration-{}-{sequence}",
+        std::process::id()
+    ));
+    let root = current_dir.join(&relative_root);
+    let relative_workspace = relative_root.join("workspace");
+    let data_root = root.join("data");
+    let legacy_file = current_dir
+        .join(&relative_workspace)
+        .join(".tinybot")
+        .join("threads")
+        .join("2026")
+        .join("07")
+        .join("28")
+        .join("thread-relative.jsonl");
+    let target_file = data_root
+        .join("threads")
+        .join("2026")
+        .join("07")
+        .join("28")
+        .join("thread-relative.jsonl");
+    std::fs::create_dir_all(legacy_file.parent().unwrap()).unwrap();
+    std::fs::write(&legacy_file, "relative").unwrap();
+
+    let report = migrate_legacy_thread_storage(&relative_workspace, &data_root).unwrap();
+
+    assert_eq!(report.moved_file_count, 1);
+    assert_eq!(std::fs::read_to_string(&target_file).unwrap(), "relative");
+    assert!(!legacy_file.exists());
+    let _ = std::fs::remove_dir_all(root);
+}

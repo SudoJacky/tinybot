@@ -12,14 +12,14 @@ const MIN_ROLLOUT_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const RUN_MARKER_STALE_AFTER: Duration = Duration::from_secs(6 * 60 * 60);
 static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
-pub(super) fn spawn_rollout_compression_worker(workspace_root: PathBuf, recorder: ThreadRecorder) {
+pub(super) fn spawn_rollout_compression_worker(data_root: PathBuf, recorder: ThreadRecorder) {
     if let Err(error) = std::thread::Builder::new()
         .name("tinybot-rollout-compression".to_string())
         .spawn(move || {
-            if let Err(error) = run_rollout_compression_worker(&workspace_root, &recorder) {
+            if let Err(error) = run_rollout_compression_worker(&data_root, &recorder) {
                 eprintln!(
-                    "rollout_compression_worker_failed workspace={} error={}",
-                    workspace_root.display(),
+                    "rollout_compression_worker_failed data_root={} error={}",
+                    data_root.display(),
                     error.message
                 );
             }
@@ -284,11 +284,8 @@ struct CompressionRunMarker {
 }
 
 impl CompressionRunMarker {
-    fn claim(workspace_root: &Path) -> Result<Option<Self>, WorkerProtocolError> {
-        let marker_path = workspace_root
-            .join(".tinybot")
-            .join("state")
-            .join("rollout-compression.lock");
+    fn claim(data_root: &Path) -> Result<Option<Self>, WorkerProtocolError> {
+        let marker_path = data_root.join("state").join("rollout-compression.lock");
         if let Some(parent) = marker_path.parent() {
             fs::create_dir_all(parent)
                 .map_err(|error| compression_io_error("create_marker_dir", parent, error))?;
@@ -323,7 +320,7 @@ impl CompressionRunMarker {
                 fs::remove_file(&marker_path).map_err(|error| {
                     compression_io_error("remove_stale_marker", &marker_path, error)
                 })?;
-                Self::claim(workspace_root)
+                Self::claim(data_root)
             }
             Err(error) => Err(compression_io_error("create_marker", &marker_path, error)),
         }
@@ -343,25 +340,25 @@ impl Drop for CompressionRunMarker {
 }
 
 fn run_rollout_compression_worker(
-    workspace_root: &Path,
+    data_root: &Path,
     recorder: &ThreadRecorder,
 ) -> Result<(), WorkerProtocolError> {
-    run_rollout_compression_worker_with_age(workspace_root, MIN_ROLLOUT_AGE, recorder)
+    run_rollout_compression_worker_with_age(data_root, MIN_ROLLOUT_AGE, recorder)
 }
 
 fn run_rollout_compression_worker_with_age(
-    workspace_root: &Path,
+    data_root: &Path,
     minimum_age: Duration,
     recorder: &ThreadRecorder,
 ) -> Result<(), WorkerProtocolError> {
     let rollout_roots = [
-        workspace_root.join(".tinybot").join("archived_threads"),
-        workspace_root.join(".tinybot").join("threads"),
+        data_root.join("archived_threads"),
+        data_root.join("threads"),
     ];
     if !rollout_roots.iter().any(|root| root.exists()) {
         return Ok(());
     }
-    let Some(marker) = CompressionRunMarker::claim(workspace_root)? else {
+    let Some(marker) = CompressionRunMarker::claim(data_root)? else {
         return Ok(());
     };
     let mut scanned = 0usize;
@@ -436,8 +433,8 @@ fn run_rollout_compression_worker_with_age(
         }
     }
     eprintln!(
-        "rollout_compression_worker_finished workspace={} scanned={} compressed={} skipped={} failed={}",
-        workspace_root.display(),
+        "rollout_compression_worker_finished data_root={} scanned={} compressed={} skipped={} failed={}",
+        data_root.display(),
         scanned,
         compressed,
         skipped,

@@ -1060,12 +1060,17 @@ The Rust persistence RPC exposes only `thread.*` and `thread.turn.*`. The remove
 namespace is not routed or accepted. The removed `/api/sessions/**` WebUI routes and
 `worker_session_*` Tauri adapters do not provide a second persistence interface. All conversation
 and runtime state has one persistence authority: typed, append-only Rollout files under
-`.tinybot/threads/YYYY/MM/DD/thread-*.jsonl`.
-`.tinybot/state/state.sqlite` is only a rebuildable discovery and metadata index. Deleting the
+`~/.tinybot/threads/YYYY/MM/DD/thread-*.jsonl`.
+`~/.tinybot/state/state.sqlite` is only a rebuildable discovery and metadata index. Deleting the
 index and restarting rebuilds it from Rollouts; it is never a second conversation authority.
 
-The removed `sessions/sessions.sqlite`, `.tinybot/state/thread-store.jsonl`, and
-`.tinybot/threads/threads.sqlite` stores are neither read nor written. There is no startup import,
+Desktop startup migrates canonical Rollouts from the former
+`<workspace>/.tinybot/{threads,archived_threads}` layout without overwriting a
+different target file. The old derived index is discarded and rebuilt from the
+migrated Rollouts.
+
+The removed `sessions/sessions.sqlite`, `~/.tinybot/state/thread-store.jsonl`, and
+`~/.tinybot/threads/threads.sqlite` stores are neither read nor written. There is no startup import,
 request-time compatibility fallback, or completed-result double write for those paths.
 
 The durable hierarchy is strict: a Thread may exist without an active Turn, but every persisted

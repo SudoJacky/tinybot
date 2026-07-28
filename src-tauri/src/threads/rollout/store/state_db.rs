@@ -30,12 +30,14 @@ pub struct ThreadStateDb {
 }
 
 impl ThreadStateDb {
+    #[allow(dead_code)]
     pub fn new(workspace_root: PathBuf) -> Self {
+        Self::from_data_root(workspace_root.join(".tinybot"))
+    }
+
+    pub(super) fn from_data_root(data_root: PathBuf) -> Self {
         Self {
-            path: workspace_root
-                .join(".tinybot")
-                .join("state")
-                .join("state.sqlite"),
+            path: data_root.join("state").join("state.sqlite"),
         }
     }
 
