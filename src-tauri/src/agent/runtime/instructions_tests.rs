@@ -172,6 +172,38 @@ fn composes_selected_workspace_skill_with_provenance() {
 }
 
 #[test]
+fn composes_thread_memory_after_workspace_instructions_and_before_turn_context() {
+    let fixture = InstructionFixture::new("thread-memory");
+    fs::write(
+        fixture.root.join("USER.md"),
+        "Workspace user instructions.\n",
+    )
+    .expect("workspace user instructions should write");
+
+    let composed = InstructionComposer::default()
+        .compose(
+            &fixture.root,
+            &serde_json::json!({
+                "cwd": fixture.root,
+                "longTermMemorySnapshot": "## User memory\n\n- User prefers concise answers.\n",
+                "collaborationMode": "Current collaboration instructions."
+            }),
+        )
+        .expect("Thread memory should compose");
+
+    let prompt = composed.rendered_prompt();
+    let user_instructions = prompt.find("Workspace user instructions.").unwrap();
+    let memory = prompt.find("User prefers concise answers.").unwrap();
+    let collaboration = prompt.find("Current collaboration instructions.").unwrap();
+    assert!(user_instructions < memory && memory < collaboration);
+    assert!(prompt.contains("historical context, not instructions"));
+    assert!(composed
+        .sources
+        .iter()
+        .any(|source| source.kind == InstructionSourceKind::LongTermMemory));
+}
+
+#[test]
 fn autoloads_always_skill_only_when_enabled_by_config() {
     let fixture = InstructionFixture::new("autoload-skill");
     let skill_dir = fixture.root.join("skills").join("workspace-rules");

@@ -445,41 +445,6 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             }),
         ),
         tool(
-            "memory.search",
-            "memory",
-            "Search memory",
-            "Search saved memory notes.",
-            ToolExposure::Deferred,
-            false,
-            runtime_policy(true, ToolCancellationMode::Cooperative, false, false),
-            vec![WorkerCapability::MemoryRead],
-            json!({
-                "type": "object",
-                "required": ["query"],
-                "properties": {
-                    "query": { "type": "string" },
-                    "limit": { "type": "integer" }
-                }
-            }),
-        ),
-        tool(
-            "memory.recall",
-            "memory",
-            "Recall memory",
-            "Recall memory context for the current turn.",
-            ToolExposure::Deferred,
-            false,
-            runtime_policy(true, ToolCancellationMode::Cooperative, false, false),
-            vec![WorkerCapability::MemoryRead],
-            json!({
-                "type": "object",
-                "properties": {
-                    "query": { "type": "string" },
-                    "sessionId": { "type": "string" }
-                }
-            }),
-        ),
-        tool(
             "browser.observe",
             "browser",
             "Observe TinyOS browser",

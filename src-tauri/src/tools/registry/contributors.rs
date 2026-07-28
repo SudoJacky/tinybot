@@ -101,12 +101,10 @@ impl ToolContributor for McpToolContributor {
 
 pub(super) fn default_tool_contributors() -> Vec<Arc<dyn ToolContributor>> {
     let mut control_tools = Vec::new();
-    let mut context_tools = Vec::new();
     let mut runtime_tools = Vec::new();
     for entry in core_tool_entries() {
         match entry.namespace.as_str() {
             "tool_registry" | "interaction" | "planning" => control_tools.push(entry),
-            "memory" => context_tools.push(entry),
             "browser" | "shell" | "subagent" => runtime_tools.push(entry),
             namespace => panic!(
                 "core tool `{}` has no contributor for namespace `{namespace}`",
@@ -120,10 +118,6 @@ pub(super) fn default_tool_contributors() -> Vec<Arc<dyn ToolContributor>> {
             entries: control_tools,
         }),
         Arc::new(WorkspaceToolContributor),
-        Arc::new(CoreToolContributor {
-            id: "builtin.context_tools",
-            entries: context_tools,
-        }),
         Arc::new(BuiltinMcpToolContributor),
         Arc::new(CoreToolContributor {
             id: "builtin.runtime_tools",

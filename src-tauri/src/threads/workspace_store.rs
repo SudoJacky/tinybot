@@ -5,6 +5,8 @@ use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtoc
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+pub(crate) use super::storage_migration::migrate_legacy_thread_storage;
+
 #[derive(Clone, Debug)]
 pub(crate) struct WorkspaceThreadStore {
     inner: Arc<WorkspaceThreadStoreInner>,
@@ -13,6 +15,7 @@ pub(crate) struct WorkspaceThreadStore {
 #[derive(Debug)]
 struct WorkspaceThreadStoreInner {
     workspace_root: PathBuf,
+    data_root: PathBuf,
     thread: WorkerThreadRpc,
     thread_log: WorkerThreadLogRpc,
     lifecycle: Mutex<WorkspaceThreadStoreLifecycle>,
@@ -30,12 +33,27 @@ pub(crate) struct WorkspaceThreadOperation<'a> {
 }
 
 impl WorkspaceThreadStore {
+    #[allow(dead_code)]
     pub(crate) fn new(workspace_root: PathBuf, policy: CapabilityPolicy) -> Self {
+        let data_root = workspace_root.join(".tinybot");
+        Self::new_with_data_root(workspace_root, data_root, policy)
+    }
+
+    pub(crate) fn new_with_data_root(
+        workspace_root: PathBuf,
+        data_root: PathBuf,
+        policy: CapabilityPolicy,
+    ) -> Self {
         Self {
             inner: Arc::new(WorkspaceThreadStoreInner {
                 thread: WorkerThreadRpc::new(workspace_root.clone(), policy.clone()),
-                thread_log: WorkerThreadLogRpc::new(workspace_root.clone(), policy),
+                thread_log: WorkerThreadLogRpc::new_with_data_root(
+                    workspace_root.clone(),
+                    data_root.clone(),
+                    policy,
+                ),
                 workspace_root,
+                data_root,
                 lifecycle: Mutex::new(WorkspaceThreadStoreLifecycle {
                     accepting: true,
                     projection_loaded: false,
@@ -46,6 +64,10 @@ impl WorkspaceThreadStore {
 
     pub(crate) fn workspace_root(&self) -> &Path {
         &self.inner.workspace_root
+    }
+
+    pub(crate) fn data_root(&self) -> &Path {
+        &self.inner.data_root
     }
 
     pub(crate) fn begin_operation(

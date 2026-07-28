@@ -700,22 +700,22 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
         json!({
             "turnId": "turn-tool-search-checkpoint",
             "sessionId": "session-tool-search-checkpoint",
-            "messages": [{ "role": "user", "content": "find memory search" }]
+            "messages": [{ "role": "user", "content": "find subagent wait" }]
         }),
         json!({}),
     );
     context
         .tool_router
         .search_and_activate(
-            json!({"query":"memory search","limit":1})
+            json!({"query":"wait for subagent","limit":1})
                 .as_object()
                 .expect("tool_search test arguments should be an object"),
         )
-        .expect("memory search should activate for the current turn");
+        .expect("subagent wait should activate for the current turn");
     let checkpoint =
         super::checkpoint::checkpoint_value(&context, "awaiting_form", json!({ "iteration": 1 }));
 
-    assert_eq!(checkpoint["activatedToolIds"], json!(["memory.search"]));
+    assert_eq!(checkpoint["activatedToolIds"], json!(["subagent.wait"]));
     let cancelled_checkpoint = super::checkpoint::checkpoint_value(
         &context,
         "cancelled",
@@ -743,7 +743,7 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
         .iter()
         .map(|tool| tool["function"]["name"].as_str().unwrap_or_default())
         .collect::<Vec<_>>();
-    assert!(names.contains(&"memory_search"));
+    assert!(names.contains(&"subagent_wait"));
 
     let stale_checkpoint = json!({ "activatedToolIds": ["missing.tool"] });
     let error = AgentTurnContext::from_spec(
@@ -764,14 +764,14 @@ fn duplicate_deferred_tool_activation_fails_without_partial_state() {
         json!({
             "turnId": "turn-duplicate-activation",
             "sessionId": "session-duplicate-activation",
-            "messages": [{ "role": "user", "content": "find memory search" }]
+            "messages": [{ "role": "user", "content": "find subagent wait" }]
         }),
         json!({}),
     );
 
     let error = context
         .tool_router
-        .activate_for_turn(&["memory.search".to_string(), "memory.search".to_string()])
+        .activate_for_turn(&["subagent.wait".to_string(), "subagent.wait".to_string()])
         .expect_err("duplicate activation IDs must fail explicitly");
 
     assert!(error.contains("duplicate ID"));
@@ -1098,22 +1098,28 @@ fn chat_completion_request_enables_parallel_tool_calls_only_when_explicitly_requ
             "sessionId": "websocket:chat-parallel-request",
             "model": "fixture-model",
             "parallelToolCalls": true,
-            "messages": [{ "role": "user", "content": "read and search" }]
+            "messages": [{ "role": "user", "content": "wait for delegated work" }]
         }),
         json!({}),
     );
-    context.tool_router = NativeToolRouter::new(
-        WorkerToolRegistryRpc::new(CapabilityPolicy::new([
-            WorkerCapability::FsWorkspaceRead,
-            WorkerCapability::MemoryRead,
-        ]))
-        .list_tools()
-        .tools,
-    );
+    let mut tools = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
+        WorkerCapability::BackgroundRead,
+        WorkerCapability::SessionMetadataRead,
+        WorkerCapability::SessionWrite,
+    ]))
+    .list_tools()
+    .tools;
+    let wait_tool = tools
+        .iter_mut()
+        .find(|tool| tool.tool_id == "subagent.wait")
+        .expect("subagent wait should be registered");
+    wait_tool.supports_parallel_tool_calls = true;
+    wait_tool.runtime_policy.supports_parallel_tool_calls = true;
+    context.tool_router = NativeToolRouter::new(tools);
     context
         .tool_router
-        .activate_for_turn(&["memory.search".to_string()])
-        .expect("parallel memory search tool should activate");
+        .activate_for_turn(&["subagent.wait".to_string()])
+        .expect("parallel subagent wait tool should activate");
 
     let enabled_request = agent_chat_completion_request(&context)
         .expect("explicit parallel tool request should build");
@@ -1226,19 +1232,23 @@ fn provider_tool_call_names_restore_internal_registry_methods() {
             "turnId": "turn-provider-tool-name",
             "sessionId": "websocket:chat-provider-tool-name",
             "model": "fixture-model",
-            "messages": [{ "role": "user", "content": "search memory" }]
+            "messages": [{ "role": "user", "content": "wait for delegated work" }]
         }),
         json!({}),
     );
     context.tool_router = NativeToolRouter::new(
-        WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::MemoryRead]))
-            .list_tools()
-            .tools,
+        WorkerToolRegistryRpc::new(CapabilityPolicy::new([
+            WorkerCapability::BackgroundRead,
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ]))
+        .list_tools()
+        .tools,
     );
     context
         .tool_router
-        .activate_for_turn(&["memory.search".to_string()])
-        .expect("memory search tool should activate");
+        .activate_for_turn(&["subagent.wait".to_string()])
+        .expect("subagent wait tool should activate");
     let completion = json!({
         "choices": [{
             "message": {
@@ -1246,8 +1256,8 @@ fn provider_tool_call_names_restore_internal_registry_methods() {
                     "id": "call-read",
                     "type": "function",
                     "function": {
-                        "name": "memory_search",
-                        "arguments": "{\"query\":\"README\"}"
+                            "name": "subagent_wait",
+                            "arguments": "{\"subagentIds\":[\"agent-1\"]}"
                     }
                 }]
             }
@@ -1258,8 +1268,11 @@ fn provider_tool_call_names_restore_internal_registry_methods() {
         .expect("provider tool names should resolve");
 
     assert_eq!(tool_calls.len(), 1);
-    assert_eq!(tool_calls[0].name, "memory.search");
-    assert_eq!(tool_calls[0].arguments_json, "{\"query\":\"README\"}");
+    assert_eq!(tool_calls[0].name, "subagent.wait");
+    assert_eq!(
+        tool_calls[0].arguments_json,
+        "{\"subagentIds\":[\"agent-1\"]}"
+    );
     assert!(tool_calls[0].result.is_null());
 }
 
@@ -1438,8 +1451,8 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
             "runtime": "rust",
             "turnId": "turn-selected-tools",
             "sessionId": "session-selected-tools",
-            "selectedTools": ["memory.search"],
-            "messages": [{ "role": "user", "content": "search memory" }]
+            "selectedTools": ["subagent.wait"],
+            "messages": [{ "role": "user", "content": "wait for delegated work" }]
         }),
     )
     .expect("selected tool should configure the final provider registry");
@@ -1465,11 +1478,11 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
     assert_eq!(captured.len(), 2);
     assert_eq!(captured[0].len(), 2);
     assert_eq!(captured[0][0]["function"]["name"], "update_plan");
-    assert_eq!(captured[0][1]["function"]["name"], "memory_search");
+    assert_eq!(captured[0][1]["function"]["name"], "subagent_wait");
     assert!(captured[1]
         .iter()
         .any(|tool| tool["function"]["name"] == "update_plan"));
-    assert_eq!(activated[0], vec!["memory.search"]);
+    assert_eq!(activated[0], vec!["subagent.wait"]);
     assert!(captured[1]
         .iter()
         .any(|tool| tool["function"]["name"] == "apply_patch"));

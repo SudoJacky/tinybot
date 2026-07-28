@@ -10,13 +10,32 @@ pub(crate) fn start_native_runtime_with_workspace_root(
     shared: &SharedNativeRuntime,
     workspace_root: PathBuf,
 ) -> Result<(), String> {
+    #[cfg(not(test))]
+    let data_root = crate::config::application::tinybot_data_root();
+    #[cfg(test)]
+    let data_root = workspace_root.join(".tinybot");
+    if let Err(error) =
+        crate::threads::workspace_store::migrate_legacy_thread_storage(&workspace_root, &data_root)
+    {
+        let message = error.message;
+        {
+            let mut runtime = lock_runtime(shared);
+            runtime.last_error = Some(message.clone());
+        }
+        push_log(shared, &message);
+        return Err(message);
+    }
     let (agent_task_runtime, shell_runtime, thread_store, startup_reconciled) = {
         let mut runtime = lock_runtime(shared);
-        if runtime.thread_store.workspace_root() != workspace_root {
-            let thread_store = crate::threads::workspace_store::WorkspaceThreadStore::new(
-                workspace_root.clone(),
-                crate::protocol::capability::default_desktop_capability_policy(),
-            );
+        if runtime.thread_store.workspace_root() != workspace_root
+            || runtime.thread_store.data_root() != data_root
+        {
+            let thread_store =
+                crate::threads::workspace_store::WorkspaceThreadStore::new_with_data_root(
+                    workspace_root.clone(),
+                    data_root,
+                    crate::protocol::capability::default_desktop_capability_policy(),
+                );
             runtime.thread_store = thread_store.clone();
             runtime.native_agent_runtime = runtime
                 .native_agent_runtime
@@ -57,6 +76,12 @@ pub(crate) fn start_native_runtime_with_workspace_root(
             }
         }
     }
+    #[cfg(not(test))]
+    crate::memory::start_workspace_runtime(
+        workspace_root,
+        thread_store.clone(),
+        crate::config::application::native_config_snapshot(),
+    );
     if let Err(error) = shell_runtime.resume_accepting() {
         let message = format!("runtime resume failed: {}", error.message);
         {

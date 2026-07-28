@@ -1,5 +1,3 @@
-mod memory;
-
 use super::{tool_executor_arguments_with_context, ShellExecuteRequestParams};
 use crate::collaboration::subagents::{SubagentSpawnParams, SubagentThreadManager};
 use crate::protocol::capability::{CapabilityPolicy, WorkerCapability};

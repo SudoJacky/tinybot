@@ -6,7 +6,6 @@ export type TinyOsAppId =
   | "terminal"
   | "browser"
   | "plan"
-  | "memory"
   | "subagents"
   | "artifacts"
   | "inspector"
@@ -72,7 +71,6 @@ export const TINYOS_PRE_KERNEL_APP_IDS = [
   "terminal",
   "browser",
   "plan",
-  "memory",
   "subagents",
   "artifacts",
   "inspector",
@@ -88,7 +86,6 @@ const APP_TITLES: Record<TinyOsAppId, string> = {
   browser: "Browser",
   files: "Files",
   inspector: "Inspector",
-  memory: "Memory",
   plan: "Plan",
   subagents: "Subagents",
   system_monitor: "System Monitor",
@@ -97,7 +94,6 @@ const APP_TITLES: Record<TinyOsAppId, string> = {
 
 const TERMINAL_TOOL_RE = /(?:^|[\s._-])(shell|terminal|command|exec|process|powershell|bash)(?:$|[\s._-])/i;
 const BROWSER_TOOL_RE = /(?:^|[\s._-])(browser|web|navigate|screenshot|page)(?:$|[\s._-])/i;
-const MEMORY_TOOL_RE = /(?:^|[\s._-])(memory|recall)(?:$|[\s._-])/i;
 const PLAN_TOOL_RE = /(?:^|[\s._-])(plan|update_plan|task_progress)(?:$|[\s._-])/i;
 const FILE_TOOL_RE = /(?:^|[\s._-])(file|workspace|path|directory|search|grep|glob|read|write|patch)(?:$|[\s._-])/i;
 
@@ -270,7 +266,6 @@ function appForStep(step: ChatStep, appByStepId: ReadonlyMap<string, TinyOsAppId
   if (step.kind === "form") return "inspector";
   if (step.kind === "delegate") return "subagents";
   if (step.kind === "browser") return "browser";
-  if (step.kind === "memory") return "memory";
   if (step.kind === "compaction") return "inspector";
   if (step.kind === "artifact") {
     return step.artifacts?.some((artifact) => artifact.kind === "browser_snapshot") ? "browser" : "artifacts";
@@ -282,7 +277,6 @@ function appForStep(step: ChatStep, appByStepId: ReadonlyMap<string, TinyOsAppId
   if (/^tool[._-]?search$/i.test(step.toolCall?.name ?? step.title)) return "inspector";
   if (PLAN_TOOL_RE.test(toolName)) return "plan";
   if (BROWSER_TOOL_RE.test(toolName)) return "browser";
-  if (MEMORY_TOOL_RE.test(toolName)) return "memory";
   if (TERMINAL_TOOL_RE.test(toolName)) return "terminal";
   if (FILE_TOOL_RE.test(toolName)) return "files";
   return step.kind === "tool_call" || step.kind === "tool_result" ? "inspector" : undefined;

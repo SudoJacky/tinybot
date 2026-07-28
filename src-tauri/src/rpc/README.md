@@ -17,7 +17,7 @@ in the sibling `protocol/` module.
   merged for existing callers.
 
 The router should coordinate services, not become the implementation of every
-service. `workspace/`, `tools/`, `threads/`, and `memory/` own their domain
+service. `workspace/`, `tools/`, and `threads/` own their domain
 behavior.
 
 ## Dispatch flow
@@ -31,7 +31,7 @@ behavior.
    classified namespace.
 
 Method families currently include workspace/skills, configuration/provider,
-session persistence, Thread persistence, agent turns, interactions, memory,
+session persistence, Thread persistence, agent turns, interactions,
 background work, subagents, tools/MCP/permissions, and runtime operations.
 
 ## Internal layout
@@ -44,8 +44,8 @@ background work, subagents, tools/MCP/permissions, and runtime operations.
   Thread methods, including compatibility projections.
 - `interaction_dispatch.rs`, `form.rs`, `channel.rs`: shell, form,
   diagnostics, and channel interactions.
-- `memory_dispatch.rs`, `background_dispatch.rs`, `subagent_dispatch.rs`:
-  durable background and collaboration services.
+- `background_dispatch.rs`, `subagent_dispatch.rs`: durable background and
+  collaboration services.
 - `tool_dispatch.rs`, `mcp.rs`: tool registry/execution, permission profiles,
   and shared MCP state.
 - `runtime_dispatch.rs`, `runtime.rs`: runtime metrics and restart operations.

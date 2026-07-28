@@ -22,7 +22,6 @@ import {
   ListChecks,
   LayoutGrid,
   Maximize2,
-  MemoryStick,
   MessageCircleQuestion,
   Minus,
   MonitorDot,
@@ -77,7 +76,6 @@ const APP_ICONS = {
   browser: Globe2,
   files: Folder,
   inspector: Info,
-  memory: MemoryStick,
   plan: ListChecks,
   subagents: Bot,
   system_monitor: Activity,
@@ -89,14 +87,13 @@ const APP_LABELS: Record<TinyOsAppId, string> = {
   browser: "Browser",
   files: "Files",
   inspector: "Inspector",
-  memory: "Memory",
   plan: "Plan",
   subagents: "Subagents",
   system_monitor: "System Monitor",
   terminal: "Terminal",
 };
 
-const APP_ORDER: TinyOsAppId[] = ["files", "terminal", "browser", "plan", "memory", "subagents", "artifacts", "inspector"];
+const APP_ORDER: TinyOsAppId[] = ["files", "terminal", "browser", "plan", "subagents", "artifacts", "inspector"];
 const tinyOsSessionUiState = new Map<string, ReturnType<typeof createTinyOsUiState>>();
 type TinyOsShellOverlay = "notifications" | "overview" | "palette" | "switcher";
 type TinyOsContextMenuState = { commandIds: TinyOsShellCommandId[]; label: string; x: number; y: number };
@@ -1677,7 +1674,6 @@ function TinyOsAppContent({ activeTabId, browserRuntime, browserSurfaceVisible, 
     case "terminal": return <div className="tinyos-terminal-host"><TinyOsTerminalHostControls commandLifecycle={commandLifecycle} commandRegistry={commandRegistry} runningOperationId={runningTerminalOperationId} />{window.entries.length ? <TinyOsTerminal activeTabId={activeTabId} canRequestChange={canRequestChange} kernel={kernel} window={window} onAgentRequest={onAgentRequest} onAttachContext={onAttachContext} onTabChange={onTabChange} requestChangeUnavailableReason={requestChangeUnavailableReason} /> : <EmptyCopy text="Run a reviewed command to create a retained canonical execution. TinyOS does not present this as a persistent PTY session." />}</div>;
     case "browser": return <TinyOsBrowser browserRuntime={browserRuntime} kernel={kernel} surfaceVisible={browserSurfaceVisible} />;
     case "plan": return <TinyOsPlan canRequestChange={canRequestChange} entry={[...window.entries].reverse().find(({ step }) => Boolean(step.plan)) ?? window.entries[window.entries.length - 1]} onAgentRequest={onAgentRequest} requestChangeUnavailableReason={requestChangeUnavailableReason} />;
-    case "memory": return <TinyOsMemory window={window} />;
     case "subagents": return <TinyOsSubagents window={window} />;
     case "artifacts": return <TinyOsArtifacts window={window} onOpenArtifact={onOpenArtifact} />;
     case "inspector": return <TinyOsStructured entry={window.entries[window.entries.length - 1]} />;
@@ -2142,17 +2138,6 @@ function TinyOsPlan({ canRequestChange, entry, onAgentRequest, requestChangeUnav
   );
 }
 
-function TinyOsMemory({ window }: { window: TinyOsWindow }) {
-  const latest = window.entries[window.entries.length - 1];
-  const args = recordValue(latest.step.toolCall?.argsJson);
-  return (
-    <div className="tinyos-memory">
-      <div><Search aria-hidden="true" size={14} /><span>{firstString(args.query, args.q, args.text, latest.step.summary) || "Memory query"}</span></div>
-      <pre>{jsonPreview(latest.step.toolCall?.resultJson ?? latest.step.toolCall?.resultPreview) || "No memory matches returned."}</pre>
-    </div>
-  );
-}
-
 function TinyOsSubagents({ window }: { window: TinyOsWindow }) {
   return (
     <div className="tinyos-subagents">
@@ -2433,7 +2418,6 @@ function tinyOsAppForResourceKind(kind: TinyOsKernelSnapshot["resources"][number
     case "browser_capture":
     case "browser_session": return "browser";
     case "artifact": return "artifacts";
-    case "memory_result": return "memory";
     case "plan": return "plan";
     case "form": return "inspector";
   }

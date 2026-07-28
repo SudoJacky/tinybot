@@ -11,8 +11,8 @@ mod webui_continuation;
 pub(crate) use agent_flow::run_agent_with_services;
 pub(crate) use context_checkpoint::native_agent_context_checkpoint_committer;
 pub(crate) use history::{
-    hydrate_native_agent_history_for_runtime, native_agent_current_user_message,
-    native_agent_thread_id,
+    hydrate_native_agent_history_for_runtime, hydrate_native_agent_memory_snapshot_for_runtime,
+    native_agent_current_user_message, native_agent_thread_id,
 };
 #[cfg(test)]
 pub(crate) use persistence::native_agent_turn_record;

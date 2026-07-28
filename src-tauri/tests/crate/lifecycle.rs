@@ -342,14 +342,16 @@ fn startup_reconciles_orphaned_turn_and_preserves_waiting_checkpoint() {
 #[test]
 fn startup_recovery_failure_pauses_runtime_and_exposes_diagnostic() {
     let fixture = WorkspaceFixture::new();
-    let invalid_workspace = fixture.root.join("workspace-is-a-file");
-    std::fs::write(&invalid_workspace, "not a directory")
-        .expect("invalid workspace fixture should write");
+    let invalid_thread_root = fixture.root.join(".tinybot").join("threads");
+    std::fs::create_dir_all(invalid_thread_root.parent().unwrap())
+        .expect("invalid thread storage parent should create");
+    std::fs::write(&invalid_thread_root, "not a directory")
+        .expect("invalid thread storage fixture should write");
     let shared = Arc::new(Mutex::new(NativeRuntimeState::default()));
 
     let error = match crate::desktop_commands::runtime::start_native_runtime_with_workspace_root(
         &shared,
-        invalid_workspace,
+        fixture.root.clone(),
     ) {
         Ok(_) => panic!("startup recovery storage failure must fail closed"),
         Err(error) => error,
@@ -743,24 +745,8 @@ fn native_config_defaults_to_schema_v1_deepseek_profile_without_config_file() {
 }
 
 #[test]
-fn native_request_router_allows_registered_native_agent_tools() {
+fn native_request_router_allows_registered_mcp_tools() {
     let fixture = WorkspaceFixture::new();
-    fixture.write(
-        "memory/notes.jsonl",
-        &format!(
-            "{}\n",
-            serde_json::json!({
-                "id": "note-workspace-policy",
-                "scope": "user",
-                "type": "preference",
-                "status": "active",
-                "content": "Use workspace command policies.",
-                "priority": 0.8,
-                "confidence": 0.9,
-                "sources": []
-            })
-        ),
-    );
     fixture.write(
         "mcp-server.js",
         r#"
@@ -809,12 +795,6 @@ lines.on("line", (line) => {
         }),
     );
 
-    let memory_response = router.dispatch(&crate::protocol::WorkerRequest::new(
-        "memory-search-1",
-        "trace-memory-search",
-        "memory.search",
-        serde_json::json!({ "query": "uv", "limit": 3 }),
-    ));
     let mcp_response = router.dispatch(&crate::protocol::WorkerRequest::new(
         "mcp-call-1",
         "trace-mcp-call",
@@ -826,11 +806,6 @@ lines.on("line", (line) => {
         }),
     ));
 
-    assert!(
-        memory_response.error.is_none(),
-        "{:?}",
-        memory_response.error
-    );
     assert!(mcp_response.error.is_none(), "{:?}", mcp_response.error);
     assert_eq!(
         mcp_response.result.as_ref().unwrap()["content"][0]["text"],

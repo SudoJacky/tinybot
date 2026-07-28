@@ -1,7 +1,5 @@
 use super::*;
-use crate::memory::WorkerMemoryRpc;
 use crate::protocol::capability::{CapabilityPolicy, WorkerCapability};
-use crate::protocol::WorkerRequest;
 use crate::tools::registry::{
     ToolCancellationMode, ToolExecutionTarget, ToolExposure, ToolRegistryEntry, ToolRuntimePolicy,
     WorkerToolRegistryRpc,
@@ -50,6 +48,13 @@ fn test_registry_with_model_tools(methods: &[&str]) -> Vec<ToolRegistryEntry> {
             },
         });
     }
+    for method in methods
+        .iter()
+        .copied()
+        .filter(|method| method.starts_with("test."))
+    {
+        entries.push(test_read_only_tool(method, ToolExposure::Model));
+    }
 
     for entry in &mut entries {
         if methods.contains(&entry.method.as_str()) {
@@ -57,6 +62,36 @@ fn test_registry_with_model_tools(methods: &[&str]) -> Vec<ToolRegistryEntry> {
         }
     }
     entries
+}
+
+fn test_read_only_tool(method: &str, exposure: ToolExposure) -> ToolRegistryEntry {
+    ToolRegistryEntry {
+        tool_id: method.to_string(),
+        method: method.to_string(),
+        namespace: "test".to_string(),
+        title: "Test read-only tool".to_string(),
+        description: "Test-only read tool for generic runtime behavior.".to_string(),
+        exposure,
+        dynamic: false,
+        supports_parallel_tool_calls: true,
+        runtime_policy: ToolRuntimePolicy {
+            supports_parallel_tool_calls: true,
+            cancellation_mode: ToolCancellationMode::Cooperative,
+            cleanup_timeout_ms: 100,
+            mutates_workspace: false,
+            mutates_session: false,
+        },
+        required_capabilities: vec![WorkerCapability::FsWorkspaceRead],
+        available: true,
+        input_schema: json!({
+            "type": "object",
+            "properties": { "query": { "type": "string" } }
+        }),
+        output_schema: json!({ "type": "object" }),
+        execution_target: ToolExecutionTarget::WorkerRpc {
+            method: method.to_string(),
+        },
+    }
 }
 
 fn test_registry_entries(_methods: &[&str]) -> Vec<ToolRegistryEntry> {

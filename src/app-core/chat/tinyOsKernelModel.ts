@@ -82,7 +82,6 @@ export type TinyOsResourceKind =
   | "browser_capture"
   | "browser_session"
   | "artifact"
-  | "memory_result"
   | "plan"
   | "form";
 
@@ -671,9 +670,6 @@ function projectCanonicalResources(
     if (TERMINAL_TOOL_RE.test(toolName)) {
       resources.push(canonicalResource(item, "terminal_execution", toolName, relatedProcessIds));
     }
-    if (MEMORY_TOOL_RE.test(toolName)) {
-      resources.push(canonicalResource(item, "memory_result", toolName, relatedProcessIds));
-    }
     for (const artifact of canonicalArtifacts(item)) {
       const artifactId = stringValue(artifact.id ?? artifact.artifactId ?? artifact.artifact_id);
       if (!artifactId) continue;
@@ -886,7 +882,6 @@ function canonicalApplicationId(item: BackendAgentTurnItem): string {
   if (item.kind !== "tool_call") return "";
   const toolName = stringValue(item.data.name);
   if (TERMINAL_TOOL_RE.test(toolName)) return "terminal";
-  if (MEMORY_TOOL_RE.test(toolName)) return "memory";
   if (BROWSER_TOOL_RE.test(toolName)) return "browser";
   if (PLAN_TOOL_RE.test(toolName)) return "plan";
   if (FILE_TOOL_RE.test(toolName)) return "files";
@@ -1012,7 +1007,6 @@ function recordValue(value: unknown): Record<string, unknown> {
 }
 
 const TERMINAL_TOOL_RE = /(?:^|[._-])(shell|terminal|command|exec|process|powershell|bash)(?:$|[._-])/i;
-const MEMORY_TOOL_RE = /(?:^|[._-])(memory|recall)(?:$|[._-])/i;
 const BROWSER_TOOL_RE = /(?:^|[._-])(browser|web|navigate|screenshot|page)(?:$|[._-])/i;
 const PLAN_TOOL_RE = /(?:^|[._-])(plan|update_plan|task_progress)(?:$|[._-])/i;
 const FILE_TOOL_RE = /(?:^|[._-])(file|workspace|path|directory|search|grep|glob|read|write|patch)(?:$|[._-])/i;

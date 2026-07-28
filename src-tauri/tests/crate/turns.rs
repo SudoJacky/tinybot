@@ -658,7 +658,7 @@ fn worker_run_agent_hydrates_thread_history_before_provider_call() {
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
     });
     fixture.seed_thread_messages(
-        "websocket:chat-memory",
+        "websocket:chat-history",
         "turn-previous",
         vec![
             serde_json::json!({ "role": "user", "content": "a" }),
@@ -671,7 +671,7 @@ fn worker_run_agent_hydrates_thread_history_before_provider_call() {
         serde_json::json!({
             "runtime": "rust",
             "turnId": "turn-next",
-            "sessionId": "websocket:chat-memory",
+            "sessionId": "websocket:chat-history",
             "input": { "role": "user", "content": "what did I say before?" }
         }),
         fixture.root.clone(),
@@ -711,8 +711,8 @@ fn worker_run_agent_combines_thread_history_with_current_tool_results() {
         "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
     });
     fixture.seed_thread_messages(
-        "websocket:chat-tool-memory",
-        "turn-previous-tool-memory",
+        "websocket:chat-tool-history",
+        "turn-previous-tool-history",
         vec![
             serde_json::json!({ "role": "user", "content": "remember alpha" }),
             serde_json::json!({ "role": "assistant", "content": "alpha stored" }),
@@ -723,8 +723,8 @@ fn worker_run_agent_combines_thread_history_with_current_tool_results() {
         &shared,
         serde_json::json!({
             "runtime": "rust",
-            "turnId": "turn-tool-memory",
-            "sessionId": "websocket:chat-tool-memory",
+            "turnId": "turn-tool-history",
+            "sessionId": "websocket:chat-tool-history",
             "maxIterations": 3,
             "messages": [{ "role": "user", "content": "read README and combine" }]
         }),
@@ -736,32 +736,32 @@ fn worker_run_agent_combines_thread_history_with_current_tool_results() {
     let history = read_thread_history(
         &fixture.thread_store,
         config.clone(),
-        "websocket:chat-tool-memory",
+        "websocket:chat-tool-history",
     );
     let metadata = call_rust_state_service(
         &fixture.thread_store,
         config,
         WorkerRequest::new(
-            "req-tool-memory-metadata",
-            "trace-tool-memory-metadata",
+            "req-tool-history-metadata",
+            "trace-tool-history-metadata",
             "thread.read",
             serde_json::json!({
                 "threadId": crate::threads::rollout::store::thread_id_for_session_id(
-                    "websocket:chat-tool-memory"
+                    "websocket:chat-tool-history"
                 )
             }),
         ),
-        "tool memory thread",
+        "tool history thread",
     )
-    .expect("tool memory thread should be readable");
+    .expect("tool history thread should be readable");
     assert_eq!(
         metadata["thread"]["sessionKey"],
-        "websocket:chat-tool-memory"
+        "websocket:chat-tool-history"
     );
     let rollout_paths = compatibility_thread_log_paths(&fixture.root);
     assert_eq!(rollout_paths.len(), 1, "{rollout_paths:?}");
-    let rollout =
-        std::fs::read_to_string(&rollout_paths[0]).expect("tool memory Rollout should be readable");
+    let rollout = std::fs::read_to_string(&rollout_paths[0])
+        .expect("tool history Rollout should be readable");
     let response_items = rollout
         .lines()
         .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
@@ -813,15 +813,23 @@ fn worker_run_agent_combines_thread_history_with_current_tool_results() {
     assert!(response_types.contains(&"custom_tool_call_output".to_string()));
     assert_eq!(
         tool_output_fields,
-        std::collections::BTreeSet::from(["call_id", "id", "output", "turnId", "turnId", "type"])
+        std::collections::BTreeSet::from([
+            "call_id",
+            "id",
+            "output",
+            "status",
+            "tool_name",
+            "turnId",
+            "type",
+        ])
     );
     assert_eq!(
         tool_output["payload"]["id"],
         "tool-output:call-durable-history"
     );
     assert_eq!(tool_output["payload"]["call_id"], "call-durable-history");
-    assert_eq!(tool_output["payload"]["turnId"], "turn-tool-memory");
-    assert_eq!(tool_output["payload"]["turnId"], "turn-tool-memory");
+    assert_eq!(tool_output["payload"]["turnId"], "turn-tool-history");
+    assert_eq!(tool_output["payload"]["turnId"], "turn-tool-history");
     assert!(tool_output["payload"]["output"]
         .as_str()
         .is_some_and(|output| output.contains("Plan updated")));
@@ -1262,69 +1270,6 @@ fn agent_run_compaction_commits_installed_checkpoint_before_final_turn_persisten
 }
 
 #[test]
-fn worker_run_agent_uses_native_tool_executor_for_registered_memory_tool() {
-    let fixture = WorkspaceFixture::new();
-    fixture.write("README.md", "actual executor README body");
-    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
-        fixture.thread_store.clone(),
-    )));
-    let config = serde_json::json!({
-        "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
-        "providers": {
-            "fixture": {
-                "responses": [
-                    {
-                        "content": "",
-                        "toolCalls": [{
-                            "id": "call-native-executor-search",
-                            "name": "memory.search",
-                            "argumentsJson": "{\"query\":\"README\"}",
-                            "result": { "content": "fixture result should not be used" }
-                        }]
-                    },
-                    { "content": "executor-backed final" }
-                ]
-            }
-        }
-    });
-
-    let result = worker_run_agent_with_options(
-        &shared,
-        serde_json::json!({
-            "runtime": "rust",
-            "turnId": "turn-native-tool-executor",
-            "sessionId": "websocket:chat-native-tool-executor",
-            "maxIterations": 2,
-            "selectedTools": ["memory.search"],
-            "messages": [{
-                "role": "user",
-                "content": "read README through executor"
-            }]
-        }),
-        fixture.root.clone(),
-        config,
-        Duration::from_millis(10),
-    )
-    .expect("Rust runtime should complete executor-backed tool call");
-
-    assert_eq!(result["stopReason"], "final_response");
-    let tool_result = result["runtimeEvents"]
-        .as_array()
-        .expect("runtime events should be an array")
-        .iter()
-        .find(|event| event["eventName"] == "agent.tool.result")
-        .expect("tool result event should be emitted");
-    assert_eq!(
-        tool_result["payload"]["envelope"]["raw"]["executor"]["toolId"],
-        "memory.search"
-    );
-    assert_ne!(
-        tool_result["payload"]["content"],
-        "fixture result should not be used"
-    );
-}
-
-#[test]
 fn worker_run_agent_returns_executor_error_to_agent_without_fixture_fallback() {
     let fixture = WorkspaceFixture::new();
     let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
@@ -1339,8 +1284,8 @@ fn worker_run_agent_returns_executor_error_to_agent_without_fixture_fallback() {
                         "content": "",
                         "toolCalls": [{
                             "id": "call-native-executor-missing",
-                            "name": "memory.search",
-                            "argumentsJson": "{\"note_type\":\"invalid\"}",
+                            "name": "workspace.write_file",
+                            "argumentsJson": "{\"path\":\"../outside.txt\",\"contents\":\"invalid\"}",
                             "result": { "content": "fixture success must not be used" }
                         }]
                     },
@@ -1357,7 +1302,7 @@ fn worker_run_agent_returns_executor_error_to_agent_without_fixture_fallback() {
             "turnId": "turn-native-tool-executor-error",
             "sessionId": "websocket:chat-native-tool-executor-error",
             "maxIterations": 2,
-            "selectedTools": ["memory.search"],
+            "selectedTools": ["workspace.write_file"],
             "messages": [{ "role": "user", "content": "read a missing file" }]
         }),
         fixture.root.clone(),

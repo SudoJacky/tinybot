@@ -6,7 +6,6 @@ fn classifies_known_worker_rpc_namespaces() {
         classify_method("workspace.read_file"),
         WorkerRpcNamespace::Workspace
     );
-    assert_eq!(classify_method("memory.search"), WorkerRpcNamespace::Memory);
     assert_eq!(
         classify_method("permission_profile.current"),
         WorkerRpcNamespace::PermissionProfile

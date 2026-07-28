@@ -15,6 +15,7 @@ fn future_thread_log_schema_is_rejected_explicitly() {
             model_provider: None,
             model: None,
             base_instructions: None,
+            memory_snapshot: None,
             history_mode: None,
             forked_from_thread_id: None,
             parent_thread_id: None,
@@ -182,6 +183,61 @@ fn repeated_identical_thread_record_does_not_append_metadata_snapshot() {
         initial_line_count + 1,
         "a changed thread record should append exactly one metadata snapshot"
     );
+
+    drop(rpc);
+    std::fs::remove_dir_all(root).expect("test workspace should clean up");
+}
+
+#[test]
+fn persistence_check_and_repair_use_the_process_local_index() {
+    let root = std::env::temp_dir().join(format!(
+        "tinybot-thread-index-repair-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock should be after unix epoch")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).expect("test workspace should create");
+    let rpc = WorkerThreadLogRpc::new(
+        root.clone(),
+        CapabilityPolicy::new([
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ]),
+    );
+    rpc.create_from_thread_record(&ThreadRecord {
+        thread_id: "thread-index-repair".to_string(),
+        title: "Index repair".to_string(),
+        status: ThreadStatus::Idle,
+        session_key: Some("session-index-repair".to_string()),
+        root_turn_id: None,
+        active_turn_id: None,
+        parent_thread_id: None,
+        source: "test".to_string(),
+        created_at: "2026-07-28T00:00:00Z".to_string(),
+        updated_at: "2026-07-28T00:00:00Z".to_string(),
+        archived_at: None,
+        metadata: ThreadMetadata::default(),
+    })
+    .expect("thread record should persist");
+    rpc.state.reset().expect("in-memory index should reset");
+
+    let before = rpc
+        .check_state_index()
+        .expect("index consistency should inspect canonical Rollouts");
+    assert_eq!(before.status, ThreadLogIndexConsistencyStatus::MissingIndex);
+
+    let repair = rpc
+        .repair_state_index(ThreadLogIndexRepairMode::RebuildIndex)
+        .expect("repair should rebuild the in-memory index");
+    assert_eq!(repair.rebuilt_thread_count, 1);
+    assert_eq!(repair.after.status, ThreadLogIndexConsistencyStatus::Clean);
+    assert!(!root
+        .join(".tinybot")
+        .join("state")
+        .join("state.sqlite")
+        .exists());
 
     drop(rpc);
     std::fs::remove_dir_all(root).expect("test workspace should clean up");

@@ -212,7 +212,7 @@ fn thread_api_survives_restart_from_rollout_without_legacy_stores() {
         "persisted through rollout"
     );
     assert!(first_thread_log_file_under(&fixture.root, "threads").is_some());
-    assert!(fixture
+    assert!(!fixture
         .root
         .join(".tinybot")
         .join("state")
@@ -911,7 +911,10 @@ fn thread_fork_inherits_effective_history_from_canonical_rollout() {
         .join(".tinybot")
         .join("state")
         .join("state.sqlite");
-    std::fs::remove_file(&state_path).expect("state index should be removable");
+    assert!(
+        !state_path.exists(),
+        "thread persistence must not create a SQLite state index"
+    );
 
     let mut router = WorkerRpcRouter::new_persistent_sessions(
         fixture.root.clone(),
@@ -1397,7 +1400,7 @@ fn dispatches_tool_registry_list_with_capability_metadata() {
         json!({}),
         vec![],
         20,
-        CapabilityPolicy::new([WorkerCapability::MemoryRead, WorkerCapability::McpCall]),
+        CapabilityPolicy::new([WorkerCapability::McpCall]),
     );
 
     let response = router.dispatch(&WorkerRequest::new(
@@ -1451,7 +1454,13 @@ fn dispatches_tool_registry_search_with_filters() {
         json!({}),
         vec![],
         20,
-        CapabilityPolicy::new([WorkerCapability::MemoryRead, WorkerCapability::ShellExecute]),
+        CapabilityPolicy::new([
+            WorkerCapability::ShellExecute,
+            WorkerCapability::BackgroundRead,
+            WorkerCapability::BackgroundWrite,
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ]),
     );
 
     let shell = router.dispatch(&WorkerRequest::new(
@@ -1473,25 +1482,25 @@ fn dispatches_tool_registry_search_with_filters() {
         .iter()
         .any(|tool| tool["method"] == "exec_command" && tool["available"] == true));
 
-    let memory = router.dispatch(&WorkerRequest::new(
-        "req-tool-registry-search-memory",
+    let subagents = router.dispatch(&WorkerRequest::new(
+        "req-tool-registry-search-subagents",
         "trace-tool-registry-search",
         "tool_registry.search",
         json!({
-            "namespace": "memory",
+            "namespace": "subagent",
             "availableOnly": true,
             "exposure": "deferred"
         }),
     ));
-    assert_eq!(memory.error, None);
-    let memory_tools = memory.result.as_ref().unwrap()["tools"]
+    assert_eq!(subagents.error, None);
+    let subagent_tools = subagents.result.as_ref().unwrap()["tools"]
         .as_array()
-        .expect("memory tools should be an array");
-    assert_eq!(memory_tools.len(), 2);
-    assert!(memory_tools
+        .expect("subagent tools should be an array");
+    assert_eq!(subagent_tools.len(), 5);
+    assert!(subagent_tools
         .iter()
-        .all(|tool| tool["namespace"] == "memory"));
-    assert!(memory_tools.iter().all(|tool| tool["available"] == true));
+        .all(|tool| tool["namespace"] == "subagent"));
+    assert!(subagent_tools.iter().all(|tool| tool["available"] == true));
 
     let unavailable = router.dispatch(&WorkerRequest::new(
         "req-tool-registry-search-unavailable",
@@ -1521,7 +1530,6 @@ fn dispatches_permission_profile_current_with_tool_decisions() {
         CapabilityPolicy::new([
             WorkerCapability::FsWorkspaceRead,
             WorkerCapability::FsWorkspaceWrite,
-            WorkerCapability::MemoryRead,
         ]),
     );
 
@@ -1550,13 +1558,6 @@ fn dispatches_permission_profile_current_with_tool_decisions() {
         .unwrap()
         .iter()
         .all(|tool| tool["toolId"] != "workspace.read_file"));
-    let memory_search = result["tools"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|tool| tool["toolId"] == "memory.search")
-        .expect("memory.search decision should be present");
-    assert_eq!(memory_search["decision"], "allow");
     let write_file = result["tools"]
         .as_array()
         .unwrap()
@@ -2225,14 +2226,14 @@ fn dispatches_thread_activity_excludes_completed_tool_calls() {
 }
 
 #[test]
-fn dispatches_tool_executor_execute_for_registered_memory_tool() {
+fn dispatches_tool_executor_execute_for_registered_workspace_tool() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
         vec![],
         20,
-        CapabilityPolicy::new([WorkerCapability::MemoryRead]),
+        CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]),
     );
 
     let response = router.dispatch(&WorkerRequest::new(
@@ -2240,20 +2241,23 @@ fn dispatches_tool_executor_execute_for_registered_memory_tool() {
         "trace-tool-executor",
         "tool_executor.execute",
         json!({
-            "toolId": "memory.search",
-            "arguments": { "query": "hello" }
+            "toolId": "workspace.write_file",
+            "arguments": { "path": "notes.txt", "contents": "hello" }
         }),
     ));
 
     assert_eq!(response.error, None);
     let result = response.result.as_ref().unwrap();
-    assert_eq!(result["toolId"], "memory.search");
-    assert_eq!(result["method"], "memory.search");
-    assert_eq!(result["namespace"], "memory");
-    assert_eq!(result["exposure"], "deferred");
+    assert_eq!(result["toolId"], "workspace.write_file");
+    assert_eq!(result["method"], "workspace.write_file");
+    assert_eq!(result["namespace"], "workspace");
+    assert_eq!(result["exposure"], "hidden");
     assert_eq!(result["permission"]["decision"], "allow");
-    assert_eq!(result["permission"]["tool"]["toolId"], "memory.search");
-    assert_eq!(result["result"]["notes"], json!([]));
+    assert_eq!(
+        result["permission"]["tool"]["toolId"],
+        "workspace.write_file"
+    );
+    assert_eq!(fixture.read("notes.txt"), "hello");
 }
 
 #[test]
@@ -2265,7 +2269,7 @@ fn dispatches_tool_executor_records_thread_tool_lifecycle() {
         vec![],
         20,
         CapabilityPolicy::new([
-            WorkerCapability::MemoryRead,
+            WorkerCapability::FsWorkspaceWrite,
             WorkerCapability::SessionMetadataRead,
             WorkerCapability::SessionWrite,
         ]),
@@ -2287,21 +2291,21 @@ fn dispatches_tool_executor_records_thread_tool_lifecycle() {
         json!({
             "threadId": "thread-tool-executor",
             "turnId": "turn-tool-executor",
-            "input": { "content": "read notes" }
+            "input": { "content": "write notes" }
         }),
     ));
     assert_eq!(start.error, None);
 
     let response = router.dispatch(&WorkerRequest::new(
-        "req-tool-executor-thread-read",
+        "req-tool-executor-thread-write",
         "trace-tool-executor-thread",
         "tool_executor.execute",
         json!({
-            "toolId": "memory.search",
+            "toolId": "workspace.write_file",
             "threadId": "thread-tool-executor",
             "turnId": "turn-tool-executor",
-            "toolCallId": "call-tool-executor-read",
-            "arguments": { "query": "hello" }
+            "toolCallId": "call-tool-executor-write",
+            "arguments": { "path": "thread-notes.txt", "contents": "hello" }
         }),
     ));
 
@@ -2309,7 +2313,7 @@ fn dispatches_tool_executor_records_thread_tool_lifecycle() {
     let result = response.result.as_ref().unwrap();
     assert_eq!(result["threadId"], "thread-tool-executor");
     assert_eq!(result["turnId"], "turn-tool-executor");
-    assert_eq!(result["toolCallId"], "call-tool-executor-read");
+    assert_eq!(result["toolCallId"], "call-tool-executor-write");
     assert_eq!(result["appendedItems"].as_array().unwrap().len(), 2);
     assert_eq!(
         result["appendedItems"][0]["kind"]["type"],
@@ -2346,10 +2350,10 @@ fn dispatches_tool_executor_records_thread_tool_lifecycle() {
             "tool_call_output"
         ]
     );
-    assert_eq!(
-        snapshot.result.as_ref().unwrap()["items"][3]["kind"]["payload"]["output"]["notes"],
-        json!([])
-    );
+    let output = &snapshot.result.as_ref().unwrap()["items"][3]["kind"]["payload"]["output"];
+    assert_eq!(output["path"], "thread-notes.txt");
+    assert_eq!(output["bytes_written"], 5);
+    assert_eq!(fixture.read("thread-notes.txt"), "hello");
 }
 
 #[test]

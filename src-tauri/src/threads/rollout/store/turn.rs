@@ -126,7 +126,12 @@ impl WorkerThreadLogRpc {
         if let Some(existing) = existing {
             persisted_record.started_at = existing.started_at;
         }
-        let mut state = self.ensure_turn_thread(&record.session_id, &timestamp)?;
+        let working_directory = context
+            .as_ref()
+            .map(|context| context.cwd.as_str())
+            .filter(|cwd| !cwd.trim().is_empty());
+        let mut state =
+            self.ensure_turn_thread(&record.session_id, &timestamp, working_directory)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         let mut items = vec![value_event(
@@ -212,7 +217,7 @@ impl WorkerThreadLogRpc {
             .get_turn_record(session_id, turn_id)?
             .ok_or_else(|| unknown_turn_error(session_id, turn_id))?;
         let timestamp = now_thread_timestamp();
-        let mut state = self.ensure_turn_thread(session_id, &timestamp)?;
+        let mut state = self.ensure_turn_thread(session_id, &timestamp, None)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         let latest_total_tokens = events.iter().rev().find_map(|event| {
@@ -484,7 +489,7 @@ impl WorkerThreadLogRpc {
         let mut record = self
             .get_turn_record(session_id, turn_id)?
             .unwrap_or_else(|| turn_from_checkpoint(session_id, turn_id, &checkpoint, &timestamp));
-        let mut state = self.ensure_turn_thread(session_id, &timestamp)?;
+        let mut state = self.ensure_turn_thread(session_id, &timestamp, None)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         self.recorder.append_item(
@@ -561,7 +566,7 @@ impl WorkerThreadLogRpc {
             .get_turn_record(session_id, turn_id)?
             .ok_or_else(|| unknown_turn_error(session_id, turn_id))?;
         let timestamp = now_thread_timestamp();
-        let mut state = self.ensure_turn_thread(session_id, &timestamp)?;
+        let mut state = self.ensure_turn_thread(session_id, &timestamp, None)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         self.recorder.append_item(
@@ -744,6 +749,7 @@ impl WorkerThreadLogRpc {
         &self,
         session_id: &str,
         timestamp: &str,
+        working_directory: Option<&str>,
     ) -> Result<super::ThreadStateRecord, WorkerProtocolError> {
         self.ensure_state_index()?;
         if let Some(record) = self.state.find_by_session_or_thread_id(session_id)? {
@@ -760,6 +766,7 @@ impl WorkerThreadLogRpc {
             model_provider: None,
             model: None,
             base_instructions: None,
+            memory_snapshot: Some(self.new_thread_memory_snapshot(working_directory)?),
             history_mode: Some("default".to_string()),
             forked_from_thread_id: None,
             parent_thread_id: None,
@@ -804,7 +811,7 @@ impl WorkerThreadLogRpc {
             .get_turn_record(session_id, turn_id)?
             .ok_or_else(|| unknown_turn_error(session_id, turn_id))?;
         let timestamp = now_thread_timestamp();
-        let mut state = self.ensure_turn_thread(session_id, &timestamp)?;
+        let mut state = self.ensure_turn_thread(session_id, &timestamp, None)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         let lifecycle_kind = if status == AgentTurnStatus::Completed {
@@ -972,6 +979,17 @@ fn response_item_from_runtime_event(event: &Value) -> Option<Value> {
                 "type": "custom_tool_call_output",
                 "id": item_id,
                 "call_id": call_id,
+                "tool_name": payload
+                    .get("toolName")
+                    .or_else(|| payload.get("name"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+                "status": payload
+                    .get("resultStatus")
+                    .or_else(|| payload.get("result_status"))
+                    .or_else(|| payload.get("envelope").and_then(|envelope| envelope.get("status")))
+                    .cloned()
+                    .unwrap_or(Value::Null),
                 "output": payload
                     .get("content")
                     .or_else(|| payload.get("result"))
@@ -1400,6 +1418,8 @@ fn apply_response_item_to_turns(
 fn completed_tool_result_from_response_item(item: &Value) -> Value {
     serde_json::json!({
         "toolCallId": item.get("call_id").cloned().unwrap_or(Value::Null),
+        "toolName": item.get("tool_name").cloned().unwrap_or(Value::Null),
+        "status": item.get("status").cloned().unwrap_or(Value::Null),
         "summary": bounded_derived_tool_summary(
             item.get("output").cloned().unwrap_or(Value::Null)
         ),

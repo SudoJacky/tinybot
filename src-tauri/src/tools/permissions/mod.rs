@@ -193,7 +193,6 @@ fn capability_scope(capability: &WorkerCapability) -> &'static str {
         WorkerCapability::NetworkOpenAi => "network://openai",
         WorkerCapability::ProviderSecretRead => "provider://runtime",
         WorkerCapability::FormRequest => "agent-ui://current",
-        WorkerCapability::MemoryRead | WorkerCapability::MemoryWrite => "memory://notes",
         WorkerCapability::TaskRead | WorkerCapability::TaskWrite => "task://plans",
         WorkerCapability::CronRead | WorkerCapability::CronWrite | WorkerCapability::CronRun => {
             "cron://jobs"

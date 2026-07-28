@@ -69,10 +69,15 @@ impl std::fmt::Debug for ThreadRecorder {
 }
 
 impl ThreadRecorder {
+    #[allow(dead_code)]
     pub fn new(workspace_root: PathBuf) -> Self {
+        Self::from_data_root(workspace_root.join(".tinybot"))
+    }
+
+    pub(super) fn from_data_root(data_root: PathBuf) -> Self {
         Self {
-            root: workspace_root.join(".tinybot").join("threads"),
-            archive_root: workspace_root.join(".tinybot").join("archived_threads"),
+            root: data_root.join("threads"),
+            archive_root: data_root.join("archived_threads"),
             writer_pool: Arc::new(WriterPool::new()),
         }
     }
@@ -294,7 +299,7 @@ impl ThreadRecorder {
         file.read_to_end(&mut tail).map_err(thread_log_io_error)?;
         Ok(ThreadLogHead {
             byte_length: i64::try_from(byte_length).map_err(|_| {
-                thread_log_validation_error("thread log exceeds SQLite length range")
+                thread_log_validation_error("thread log exceeds supported index length range")
             })?,
             tail_hash: format!("sha256:{:x}", Sha256::digest(tail)),
         })

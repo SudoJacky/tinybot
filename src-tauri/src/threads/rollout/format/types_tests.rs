@@ -16,6 +16,7 @@ fn rollout_line_serializes_codex_compatible_session_meta() {
             model_provider: Some("deepseek".to_string()),
             model: Some("deepseek-v4-pro".to_string()),
             base_instructions: Some(json!({"text": "base"})),
+            memory_snapshot: Some("## User memory\n\n- Prefers concise answers.\n".to_string()),
             history_mode: Some("default".to_string()),
             forked_from_thread_id: None,
             parent_thread_id: None,
@@ -28,6 +29,10 @@ fn rollout_line_serializes_codex_compatible_session_meta() {
     assert_eq!(value["payload"]["id"], "thread-1");
     assert_eq!(value["payload"]["session_id"], "session-1");
     assert_eq!(value["payload"]["timestamp"], "2026-07-08T10:12:30Z");
+    assert_eq!(
+        value["payload"]["memory_snapshot"],
+        "## User memory\n\n- Prefers concise answers.\n"
+    );
     assert_eq!(value["payload"]["model_provider"], "deepseek");
     assert!(value["payload"].get("schemaVersion").is_none());
     assert!(value["payload"].get("schema_version").is_none());

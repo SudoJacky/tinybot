@@ -61,7 +61,6 @@ const ALLOWED_WORKSPACE_FILES: &[&str] = &[
     "USER.md",
     "TOOLS.md",
     "HEARTBEAT.md",
-    "memory/MEMORY.md",
 ];
 
 #[tauri::command]

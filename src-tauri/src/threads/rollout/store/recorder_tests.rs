@@ -16,6 +16,7 @@ fn thread_meta(root: &Path, thread_id: &str, created_at: &str) -> ThreadMeta {
         model_provider: Some("deepseek".to_string()),
         model: Some("deepseek-v4-pro".to_string()),
         base_instructions: None,
+        memory_snapshot: None,
         history_mode: Some("default".to_string()),
         forked_from_thread_id: None,
         parent_thread_id: None,

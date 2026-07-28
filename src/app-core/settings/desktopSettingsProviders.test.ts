@@ -313,7 +313,6 @@ describe("desktop settings and provider helpers", () => {
       ["provider-models", "Provider & Models"],
       ["tools-mcp", "Tools & MCP"],
       ["files-workspace", "Files & Workspace"],
-      ["memory-experience", "Memory & Experience"],
       ["skills", "Skills"],
       ["channels", "Channels"],
       ["automations", "Automations"],
@@ -544,7 +543,6 @@ describe("desktop settings and provider helpers", () => {
       ["tools-mcp", "execTimeout", "90", { tools: { exec: { timeout: 90 } } }],
       ["channels", "sendMaxRetries", "5", { channels: { send_max_retries: 5 } }],
       ["files-workspace", "sessionFiles", "ignored", {}],
-      ["memory-experience", "memory", "ignored", {}],
       ["skills", "skills", "ignored", {}],
       ["automations", "automations", "ignored", {}],
       ["logs-diagnostics", "diagnostics", "ignored", {}],
@@ -677,7 +675,6 @@ describe("desktop settings and provider helpers", () => {
     expect(fields["general.reasoningEffort"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
     expect(fields["tools-mcp.mcpServers"]).toMatchObject({ control: "textarea", requirement: "optional", configurationMode: "json", advanced: true });
     expect(fields["tools-mcp.searchProvider"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
-    expect(fields["memory-experience.memory"]).toMatchObject({ control: "readonly", requirement: "readonly", configurationMode: "readonly" });
   });
 
   test("classifies checkbox fields by commit behavior and risk treatment", () => {
@@ -752,9 +749,6 @@ describe("desktop settings and provider helpers", () => {
     expect(groups["files-workspace"]).toMatchObject({
       navigationArea: "application",
       navigationMode: "section",
-    });
-    expect(groups["memory-experience"]).toMatchObject({
-      navigationMode: "preview",
     });
     expect(fields["general.workspace"]).toBeUndefined();
     expect(fields["general.timezone"]).toMatchObject({

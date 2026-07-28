@@ -528,7 +528,7 @@ fn worker_transport_operation_retry_starts_new_correlated_turn() {
                     "content": "",
                     "toolCalls": [{
                         "id": "call-operation-retry-failure",
-                        "name": "memory.search",
+                        "name": "workspace.write_file",
                         "argumentsJson": "{not json",
                         "result": { "content": "unused" }
                     }]

@@ -79,7 +79,7 @@ export function timelineFromReactMessages(
         references: message.contextReferences?.map((reference) => ({
           detail: reference.detail ?? "",
           evidenceId: reference.id,
-          kind: reference.kind as "browser" | "memory" | "recent" | "reference",
+          kind: reference.kind as "browser" | "recent" | "reference",
           title: reference.title,
           sourcePath: reference.sourcePath,
           sourceLine: reference.sourceLine,

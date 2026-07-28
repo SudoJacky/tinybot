@@ -104,13 +104,13 @@ mod tests {
     fn list_files_returns_workspace_relative_paths() {
         let fixture = WorkspaceFixture::new();
         fixture.write("AGENTS.md", "agents");
-        fixture.write("memory/MEMORY.md", "memory");
+        fixture.write("docs/context.md", "context");
         let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
 
         let files = rpc.list_files().expect("workspace files should list");
         let paths: Vec<String> = files.iter().map(|file| file.path.clone()).collect();
 
-        assert_eq!(paths, vec!["AGENTS.md", "memory/MEMORY.md"]);
+        assert_eq!(paths, vec!["AGENTS.md", "docs/context.md"]);
         assert!(files.iter().all(|file| file.updated_at.is_some()));
     }
 
@@ -262,13 +262,13 @@ mod tests {
         let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
 
         let resolved = rpc
-            .resolve_path("memory\\MEMORY.md")
+            .resolve_path("docs\\context.md")
             .expect("workspace path should resolve");
 
-        assert_eq!(resolved.relative_path, "memory/MEMORY.md");
+        assert_eq!(resolved.relative_path, "docs/context.md");
         assert_eq!(
             resolved.absolute_path,
-            fixture.root.join("memory").join("MEMORY.md")
+            fixture.root.join("docs").join("context.md")
         );
     }
 
@@ -278,7 +278,7 @@ mod tests {
         let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
 
         assert!(rpc.resolve_path("../secret.txt").is_err());
-        assert!(rpc.resolve_path("memory/../secret.txt").is_err());
+        assert!(rpc.resolve_path("docs/../secret.txt").is_err());
         assert!(rpc.resolve_path("C:/Windows/System32").is_err());
         assert!(rpc.resolve_path("/etc/passwd").is_err());
     }

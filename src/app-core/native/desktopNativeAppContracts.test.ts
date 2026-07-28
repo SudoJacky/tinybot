@@ -16,7 +16,6 @@ describe("native app cross-surface contracts", () => {
       "provider-models",
       "tools-mcp",
       "files-workspace",
-      "memory-experience",
       "skills",
       "channels",
       "runtime",

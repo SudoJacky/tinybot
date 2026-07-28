@@ -1,5 +1,5 @@
 export type AgentInputReference = {
-  kind: "browser" | "memory" | "recent" | "reference";
+  kind: "browser" | "recent" | "reference";
   title: string;
   detail: string;
   sourcePath?: string;

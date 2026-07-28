@@ -10,8 +10,6 @@ fn default_worker_policy_denies_sensitive_capabilities() {
     assert!(!policy.allows(&WorkerCapability::SessionMetadataRead));
     assert!(!policy.allows(&WorkerCapability::ProviderSecretRead));
     assert!(!policy.allows(&WorkerCapability::FormRequest));
-    assert!(!policy.allows(&WorkerCapability::MemoryRead));
-    assert!(!policy.allows(&WorkerCapability::MemoryWrite));
     assert!(!policy.allows(&WorkerCapability::TaskRead));
     assert!(!policy.allows(&WorkerCapability::TaskWrite));
     assert!(!policy.allows(&WorkerCapability::CronRead));
@@ -70,33 +68,6 @@ fn form_request_capability_name_serializes_as_protocol_string() {
         json!({
             "capability": "form.request",
             "scope": "agent-ui://current"
-        })
-    );
-}
-
-#[test]
-fn memory_capability_names_serialize_as_protocol_strings() {
-    let read_grant = CapabilityGrant {
-        capability: WorkerCapability::MemoryRead,
-        scope: "memory://notes".to_string(),
-    };
-    let write_grant = CapabilityGrant {
-        capability: WorkerCapability::MemoryWrite,
-        scope: "memory://notes".to_string(),
-    };
-
-    assert_eq!(
-        serde_json::to_value(read_grant).expect("grant should serialize"),
-        json!({
-            "capability": "memory.read",
-            "scope": "memory://notes"
-        })
-    );
-    assert_eq!(
-        serde_json::to_value(write_grant).expect("grant should serialize"),
-        json!({
-            "capability": "memory.write",
-            "scope": "memory://notes"
         })
     );
 }

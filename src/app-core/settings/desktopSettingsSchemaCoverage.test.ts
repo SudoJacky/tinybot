@@ -95,8 +95,8 @@ describe("desktop settings schema coverage", () => {
     }, providerCatalog);
     const pane = buildDesktopSettingsPaneModel(state, { providerCatalog });
     pane.groups.push({
-      id: "memory-experience",
-      label: "Memory",
+      id: "automations",
+      label: "Automations",
       navigationMode: "hidden",
       fields: [{
         id: "hiddenEditable",
@@ -118,7 +118,7 @@ describe("desktop settings schema coverage", () => {
     expect(index.some((row) => row.field === "files-workspace.workspace")).toBe(true);
     expect(index.some((row) => row.field === "provider-models.apiKey")).toBe(false);
     expect(index.some((row) => row.text.includes("sk-live"))).toBe(false);
-    expect(index.some((row) => row.field === "memory-experience.hiddenEditable")).toBe(false);
+    expect(index.some((row) => row.field === "automations.hiddenEditable")).toBe(false);
   });
 
   test("declares one editable owner per settings concept and keeps previews out of editing", () => {
@@ -153,7 +153,6 @@ describe("desktop settings schema coverage", () => {
     expect(owners.workspace).toMatchObject({ role: "editable-owner", groupId: "files-workspace", fieldId: "workspace" });
     expect(owners["runtime-endpoint"]).toBeUndefined();
     expect(owners["mcp-servers"]).toMatchObject({ role: "editable-owner", groupId: "tools-mcp", fieldId: "mcpServers" });
-    expect(owners.memory).toMatchObject({ role: "feature-preview", groupId: "memory-experience" });
     expect(owners.skills).toMatchObject({ role: "feature-preview", groupId: "skills" });
     expect(owners.automations).toMatchObject({ role: "feature-preview", groupId: "automations" });
 
