@@ -1144,7 +1144,8 @@ fn worker_run_agent_persists_recovered_tool_error_with_typed_results() {
         run["completedToolResults"][1]["toolCallId"],
         "call-tool-error"
     );
-    assert!(run["completedToolResults"][1].get("status").is_none());
+    assert_eq!(run["completedToolResults"][1]["toolName"], "shell.exec");
+    assert_eq!(run["completedToolResults"][1]["status"], "error");
     assert!(run["completedToolResults"][1]["summary"]
         .as_str()
         .is_some_and(|summary| summary.contains("shell.exec")));

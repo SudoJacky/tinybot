@@ -306,7 +306,7 @@ fn thread_clear_removes_persisted_history() {
         "sessions": [{
             "session_id": "websocket:chat-1",
             "title": "Native thread",
-            "workspace_dir": "D:/Code/py/tinybot",
+            "workspace_dir": fixture.root.display().to_string(),
             "created_at": "2026-06-29T08:00:00Z",
             "updated_at": "2026-06-29T08:30:00Z",
             "extra": {

@@ -342,14 +342,16 @@ fn startup_reconciles_orphaned_turn_and_preserves_waiting_checkpoint() {
 #[test]
 fn startup_recovery_failure_pauses_runtime_and_exposes_diagnostic() {
     let fixture = WorkspaceFixture::new();
-    let invalid_workspace = fixture.root.join("workspace-is-a-file");
-    std::fs::write(&invalid_workspace, "not a directory")
-        .expect("invalid workspace fixture should write");
+    let invalid_thread_root = fixture.root.join(".tinybot").join("threads");
+    std::fs::create_dir_all(invalid_thread_root.parent().unwrap())
+        .expect("invalid thread storage parent should create");
+    std::fs::write(&invalid_thread_root, "not a directory")
+        .expect("invalid thread storage fixture should write");
     let shared = Arc::new(Mutex::new(NativeRuntimeState::default()));
 
     let error = match crate::desktop_commands::runtime::start_native_runtime_with_workspace_root(
         &shared,
-        invalid_workspace,
+        fixture.root.clone(),
     ) {
         Ok(_) => panic!("startup recovery storage failure must fail closed"),
         Err(error) => error,

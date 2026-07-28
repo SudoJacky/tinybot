@@ -10,7 +10,10 @@ pub(crate) fn start_native_runtime_with_workspace_root(
     shared: &SharedNativeRuntime,
     workspace_root: PathBuf,
 ) -> Result<(), String> {
+    #[cfg(not(test))]
     let data_root = crate::config::application::tinybot_data_root();
+    #[cfg(test)]
+    let data_root = workspace_root.join(".tinybot");
     if let Err(error) =
         crate::threads::workspace_store::migrate_legacy_thread_storage(&workspace_root, &data_root)
     {

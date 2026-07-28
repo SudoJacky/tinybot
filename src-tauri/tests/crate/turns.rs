@@ -813,7 +813,15 @@ fn worker_run_agent_combines_thread_history_with_current_tool_results() {
     assert!(response_types.contains(&"custom_tool_call_output".to_string()));
     assert_eq!(
         tool_output_fields,
-        std::collections::BTreeSet::from(["call_id", "id", "output", "turnId", "turnId", "type"])
+        std::collections::BTreeSet::from([
+            "call_id",
+            "id",
+            "output",
+            "status",
+            "tool_name",
+            "turnId",
+            "type",
+        ])
     );
     assert_eq!(
         tool_output["payload"]["id"],
