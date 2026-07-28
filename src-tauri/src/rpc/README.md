@@ -13,8 +13,6 @@ in the sibling `protocol/` module.
   `error`.
 - Preserve capability availability checks, cancellation handles, and trace
   correlation while composing multiple services.
-- Provide compatibility facades where session- and Thread-backed data must be
-  merged for existing callers.
 
 The router should coordinate services, not become the implementation of every
 service. `workspace/`, `tools/`, and `threads/` own their domain
@@ -31,8 +29,8 @@ behavior.
    classified namespace.
 
 Method families currently include workspace/skills, configuration/provider,
-session persistence, Thread persistence, agent turns, interactions,
-background work, subagents, tools/MCP/permissions, and runtime operations.
+Thread persistence, agent turns, interactions, background work, subagents,
+tools/MCP/permissions, and runtime operations.
 
 ## Internal layout
 
@@ -40,8 +38,8 @@ background work, subagents, tools/MCP/permissions, and runtime operations.
 - `method.rs`, `errors.rs`: namespace classification and unknown-method errors.
 - `workspace_dispatch.rs`, `config_dispatch.rs`: workspace, skills,
   configuration, and provider-secret requests.
-- `persistence_facade.rs`, `thread_dispatch.rs`: session, agent-turn, and typed
-  Thread methods, including compatibility projections.
+- `turn_dispatch.rs`, `thread_dispatch.rs`: agent-turn persistence and typed
+  Thread methods.
 - `interaction_dispatch.rs`, `form.rs`, `channel.rs`: shell, form,
   diagnostics, and channel interactions.
 - `background_dispatch.rs`, `subagent_dispatch.rs`: durable background and
@@ -71,7 +69,5 @@ background work, subagents, tools/MCP/permissions, and runtime operations.
 - Unknown methods fail explicitly; dispatch must not silently no-op.
 - Tool methods validate typed parameters, capability grants, and availability
   before dispatch.
-- Session/Thread compatibility reads may merge projections, but canonical
-  writes still go through the owning persistence service.
 - Shared runtimes such as shell and MCP must be injected rather than recreated
   per request.

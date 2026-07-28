@@ -12,16 +12,14 @@ write.
 
 | Path | Role |
 | --- | --- |
-| `~/.tinybot/threads/<year>/<month>/<day>/thread-*.jsonl` | Canonical per-thread append-only log |
+| `~/.tinybot/threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | Active canonical per-Thread Rollout |
+| `~/.tinybot/archived_threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | Archived canonical per-Thread Rollout |
 
 A log begins with `ThreadMeta` and can contain event messages, strongly typed
 response items, turn context, world state, compaction records, and inter-agent
 communication.
 Canonical reconstruction produces Thread items, Thread history, model context,
 agent turns, checkpoints, and token usage.
-
-`~/.tinybot/state/state.sqlite` from earlier builds is not read or written. It
-may be removed while Tinybot is stopped.
 
 ## Responsibilities
 
@@ -79,5 +77,31 @@ may be removed while Tinybot is stopped.
   and then immediately flush again through `Persist`.
 - Repeating an identical full Thread record is a metadata no-op and must not
   append another snapshot.
+
+## Timeline projection and replay
+
+Rollout ordinals define runtime-event order. A projected timeline item keeps the
+source event position as `sequence`; updates advance `revision` without changing
+that sequence. `snapshotRevision` advances only for canonical timeline
+mutations, so live patches are contiguous even when diagnostic events occur
+between them.
+
+Assistant-message and reasoning identities are scoped to one provider/model
+call. Provider IDs are retained when available; otherwise the projector derives
+a stable ID from the provider attempt or iteration. Deltas coalesce only into
+that matching item, preserving commentary and reasoning that occurred around
+tool calls.
+
+Thread-owned runtime-event records persist the canonical item identity.
+Reconstruction of older records recovers assistant and reasoning identity from
+their message or reasoning ID, with a typed model-call fallback. It must not use
+the per-event Thread item ID for streamed content because that would split each
+delta into a different timeline item after reload.
+
+Historical projection uses the exact event index plus Turn and item identity.
+An identity mismatch is an error rather than a nearest-match fallback.
+Snapshots observed after the requested boundary are excluded. Disposable replay
+checkpoints are keyed by projector version and event index; incompatible data is
+discarded and rebuilt from the canonical Rollout.
 
 See [`threads::domain`](../../domain/README.md) for the typed Thread domain.

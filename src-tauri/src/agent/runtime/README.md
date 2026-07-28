@@ -90,5 +90,106 @@ conditionals to the provider loop.
 - Errors should preserve the failing stage; do not convert provider, tool, or
   trace failures into an apparently successful assistant result.
 
+## Contributors, hooks, and observability
+
+Native tools are assembled through ordered `ToolContributor` registrations.
+Built-in workspace tools and generic MCP dispatch have named contributors, and
+each discovered MCP server contributes its validated dynamic tools. Duplicate
+contributor IDs, tool IDs, or methods fail registry construction.
+
+`AgentContextContributor` values run after continuation restoration and before
+the first provider request. Their JSON evidence is appended after composed
+instructions and never receives instruction precedence. Contributor diagnostics
+contain hashes, counts, truncation state, and allowlisted identifiers rather
+than prompt text, contribution content, document names, or filesystem paths.
+Long-term memory is an instruction source and does not use this extension point.
+
+Hooks run at provider, turn, thread, and context-compaction boundaries. A hook
+error, malformed diagnostic, or decision at an inactive stage fails the turn;
+tool and permission hooks are not evaluated because those calls dispatch after
+registry and capability validation.
+
+Every runtime event in one Turn shares the same trace context. Provider events
+add `providerAttemptId`, tool events retain `itemId` and `toolCallId`, and
+internal Worker RPC operations derive request IDs under the same root trace.
+Persisted tool envelopes use the configured secret-redaction path.
+
+`runtime.metrics` exposes bounded process-local counters, duration aggregates,
+and gauges for turns, providers, tools, persistence, cancellation, MCP,
+processes, recovery, and memory. Metric names come from fixed runtime enums.
+Prompts, tool output, secrets, server names, process IDs, Turn IDs, and trace IDs
+are never metric keys or labels.
+
+## Task ownership and shutdown
+
+Every native Turn attempt registers one in-process owner before instruction
+loading, provider execution, or tool dispatch. The owner records generation,
+phase, cancellation, waiting checkpoint, terminal result, and ignored late
+work. Duplicate active Turn IDs are rejected. A form continuation starts a new
+generation only after the previous execution reaches a non-terminal waiting
+state.
+
+Cancellation is idempotent and has one terminal owner. The Turn remains in
+`cancelling` while owned children perform bounded cleanup, and a late result
+cannot replace the published terminal result.
+
+Shutdown stops admission, cancels and drains owned Turns, terminates retained
+shell process trees, stops MCP clients and stdio children, interrupts
+non-terminal subagents, and stops background work. Each bounded cleanup stage
+continues after an earlier failure. Combined failures remain visible in the
+shutdown report, lifecycle diagnostics, `last_error`, and persistent backend
+log. A same-process restart reopens admission only after cleanup completes.
+
+## Provider and tool execution
+
+The desktop bridge, compaction path, provider loop, and OpenAI-compatible
+provider are asynchronous end to end. Stream chunks reduce directly into
+runtime state. Cancellation is checked before opening a request, between
+chunks, and around observer callbacks; after cancellation, late deltas and
+provider results are ignored.
+
+Provider failures do not retry automatically. Their terminal reasons distinguish
+request timeout, stream-idle timeout, transport failure, provider failure, and
+cancellation.
+
+Each tool call runs under an owned task and child cancellation token. Read-only
+work may run in parallel, workspace-mutating work is exclusive, and results are
+projected in model order. Tool cleanup comes from the registry policy:
+
+- `cooperative`: notify and wait through the cleanup bound;
+- `terminate_process`: terminate the owned process after cancellation;
+- `detach_forbidden`: require cleanup completion before reporting clean
+  cancellation.
+
+Built-in cooperative tools default to a 100 ms cleanup bound; process-owning
+and detach-forbidden tools default to 2 seconds. Tool cleanup timeout produces
+`tool_cleanup_timeout` and `agent.tool.cleanup_timeout`. A Turn that cannot
+complete cooperative cleanup within five seconds produces
+`cancellation_cleanup_timeout` and `agent.cleanup_timeout`. Side effects that
+finish during cleanup are recorded before the Turn becomes cancelled.
+
+## Deferred tools, plans, and forms
+
+The foundational tool set contains available instances of `exec_command`,
+`write_stdin`, `apply_patch`, `request_user_input`, `update_plan`, and
+`tool_search`. Browser, subagent, and MCP tools remain deferred until selected
+or activated through `tool_search`. Activation lasts only for the current Turn;
+inactive calls fail before dispatch.
+
+`update_plan` replaces the complete Turn plan. States are `pending`,
+`in_progress`, and `completed`; an incomplete plan has exactly one active step.
+Valid updates revise one `<turnId>:plan` timeline item and emit
+`agent.plan.progress`.
+
+Resumable form checkpoints persist the activated tool set. Continuation
+revalidates it against the current registry and capability policy. Stale IDs,
+malformed arrays, or provider-name collisions fail explicitly.
+
+`request_user_input` accepts strict fields of type `text`, `textarea`, `number`,
+`select`, `multiselect`, `radio`, or `checkbox`. It persists an
+`awaiting_form` checkpoint and emits `agent.awaiting_form`. Submission becomes
+the real tool observation and resumes the same provider chain; cancellation
+clears the checkpoint and returns `form_cancelled`.
+
 For frontend-visible shapes and event names, see
 [the Rust backend API reference](../../../../docs/api/rust-backend-api.md).

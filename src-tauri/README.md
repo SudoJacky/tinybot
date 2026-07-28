@@ -53,12 +53,8 @@ Use these terms consistently in backend code and documentation:
 - **Connection** and **process** are ephemeral execution infrastructure. A
   Thread can be loaded and advanced across multiple connections and backend
   process lifetimes.
-- **Session** is retained only where an existing compatibility contract exposes
-  a session-shaped projection of canonical Thread Rollouts. It is not a second
-  durable conversation model and must not be used as a synonym for Thread,
-  Connection, Process, Turn, or TurnExecution.
 - **Rollout** is the canonical append-only durable record from which Thread,
-  Turn, Item, runtime, and compatibility projections are reconstructed.
+  Turn, Item, and runtime projections are reconstructed.
 
 The core ownership hierarchy is:
 
@@ -111,8 +107,6 @@ The main layers are:
      reconstruction.
    - [`threads/rollout/store/`](src/threads/rollout/store/README.md) owns
      canonical append-only Rollouts and their process-local Thread index.
-   - [`threads/session/`](src/threads/session/README.md) exposes session-shaped
-     projections of canonical Rollouts.
 5. **Domain services**
    - `workspace/`, `tools/`, `automation/`, `collaboration/`, and
      `config/` own their business rules and do not depend on RPC or Tauri.
@@ -138,7 +132,7 @@ agent::bridge
         |
         +--> threads::rollout::store canonical Rollout
                     |
-                    +--> threads::domain / threads::session projections
+                    +--> threads::domain projections
         |
         +--> runtime task ownership + live trace events
 ```
@@ -158,11 +152,7 @@ roles:
 | `~/.tinybot/threads/<year>/<month>/<day>/*.jsonl` | `threads::rollout::store` | Canonical append-only Rollouts |
 
 Thread metadata, checkpoint pointers, and Rollout heads are rebuilt into a
-process-local index from these files. The removed `sessions/sessions.sqlite`,
-`~/.tinybot/state/state.sqlite`, `~/.tinybot/state/thread-store.jsonl`, and
-`~/.tinybot/threads/threads.sqlite` paths are not compatibility authorities and
-must not be reintroduced as fallback or double-write targets. An existing
-`state.sqlite` is ignored and can be removed while Tinybot is stopped.
+process-local index from these files.
 
 Desktop startup moves canonical Rollouts from the former
 `<workspace>/.tinybot/{threads,archived_threads}` layout into the application
