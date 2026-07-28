@@ -228,7 +228,6 @@ export interface DesktopSettingsPaneGroup {
     | "provider-models"
     | "tools-mcp"
     | "files-workspace"
-    | "memory-experience"
     | "skills"
     | "channels"
     | "automations"
@@ -276,14 +275,6 @@ const DESKTOP_SETTINGS_GROUP_METADATA: Record<DesktopSettingsPaneGroupId, Deskto
     i18nKey: "settings.groups.files-workspace",
     navigationArea: "application",
     navigationMode: "section",
-  },
-  "memory-experience": {
-    label: "Memory & Experience",
-    description: "Memory and experience controls for contextual continuity.",
-    aliases: ["memory", "experience"],
-    i18nKey: "settings.groups.memory-experience",
-    navigationArea: "application",
-    navigationMode: "preview",
   },
   skills: {
     label: "Skills",
@@ -1886,13 +1877,6 @@ function buildDesktopSettingsPaneGroups(
         }),
         field("sessionFiles", "Session files", workbenchFileScopeLabel("session"), { control: "readonly" }),
         field("workspaceFiles", "Workspace files", workbenchFileScopeLabel("workspace"), { control: "readonly" }),
-      ],
-    },
-    {
-      id: "memory-experience",
-      label: "Memory & Experience",
-      fields: [
-        field("memory", "Memory", "Managed by context and experience settings", { control: "readonly" }),
       ],
     },
     {

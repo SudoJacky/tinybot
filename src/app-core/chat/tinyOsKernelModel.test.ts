@@ -215,15 +215,6 @@ describe("TinyOS simulation kernel", () => {
         toolCallId: "call-terminal",
         type: "tool_call",
       }, { sequence: 2 }),
-      item("memory-1", "tool_call", "completed", {
-        args: {},
-        name: "memory.recall",
-        result: {},
-        status: "completed",
-        timing: {},
-        toolCallId: "call-memory",
-        type: "tool_call",
-      }, { sequence: 3 }),
       item("plan-1", "plan_progress", "running", {
         completed: 0,
         id: "plan",
@@ -231,7 +222,7 @@ describe("TinyOS simulation kernel", () => {
         summary: "Planning",
         total: 1,
         type: "plan_progress",
-      }, { sequence: 4 }),
+      }, { sequence: 3 }),
     ]).resources;
 
     expect(resources.map((resource) => resource.kind)).toEqual([
@@ -239,7 +230,6 @@ describe("TinyOS simulation kernel", () => {
       "terminal_execution",
       "browser_capture",
       "artifact",
-      "memory_result",
       "plan",
     ]);
     expect(resources.find((resource) => resource.kind === "file")).toMatchObject({

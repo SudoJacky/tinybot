@@ -491,17 +491,17 @@ describe("ChatPage", () => {
     expect(within(canvas).getAllByText("src/main.ts").length).toBeGreaterThan(0);
     expect(within(canvas).getByText("export const ready = true;")).toBeTruthy();
 
-    const memoryStep = {
+    const terminalStep = {
       agentContext: { id: "main", title: "Tinybot", type: "main" } as const,
-      id: "canvas-memory",
-      kind: "memory" as const,
+      id: "canvas-terminal",
+      kind: "tool_call" as const,
       sequence: 3,
       status: "running" as const,
-      summary: "Searching saved project decisions",
-      title: "memory.search",
-      toolCall: { argsJson: { query: "Live Canvas" }, id: "canvas-memory-call", name: "memory.search" },
+      summary: "Running verification",
+      title: "shell.execute",
+      toolCall: { argsJson: { command: "npm test" }, id: "canvas-terminal-call", name: "shell.execute" },
     };
-    const nextSteps = [...turn.steps, memoryStep];
+    const nextSteps = [...turn.steps, terminalStep];
     const nextTimeline = {
       ...timeline,
       turns: [{ ...turn, executionItems: nextSteps, steps: nextSteps }],
@@ -512,8 +512,8 @@ describe("ChatPage", () => {
 
     await user.click(within(canvas).getByRole("button", { name: "Return to live desktop" }));
     expect(within(canvas).queryByRole("button", { name: "Return to live desktop" })).toBeNull();
-    expect(within(canvas).getByRole("article", { name: "Memory window" })).toBeTruthy();
-    expect(within(canvas).getAllByText("memory.search").length).toBeGreaterThan(0);
+    expect(within(canvas).getByRole("article", { name: "Terminal window" })).toBeTruthy();
+    expect(within(canvas).getAllByText("shell.execute").length).toBeGreaterThan(0);
     expect(within(canvas).getByRole("heading", { name: "TinyOS" })).toBeTruthy();
   });
 
@@ -2275,7 +2275,7 @@ describe("ChatPage", () => {
         createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
         text: "Visible answer.",
         reasoningText: "Hidden planning.",
-        contextReferences: [{ id: "ctx-1", kind: "memory", title: "Memory", detail: "Context detail" }],
+        contextReferences: [{ id: "ctx-1", kind: "reference", title: "Context", detail: "Context detail" }],
         status: "complete",
       },
     ];
@@ -2880,11 +2880,11 @@ describe("ChatPage", () => {
         text: "Here is the answer.",
         status: "streaming",
         contextReferences: [{
-          id: "mem-1",
-          kind: "memory",
+          id: "context-1",
+          kind: "reference",
           title: "Project note",
           detail: "Use current backend contracts.",
-          sourcePath: "memory/MEMORY.md",
+          sourcePath: "docs/context.md",
           sourceLine: 12,
         }],
       },

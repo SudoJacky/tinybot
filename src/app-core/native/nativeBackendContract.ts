@@ -74,7 +74,6 @@ export const NATIVE_BACKEND_AGENT_EVENT_NAMES = [
   "agent.form.resolution",
   "agent.message.completed",
   "agent.awaiting_form",
-  "agent.memory_reference",
   "agent.task_progress",
   "agent.browser_frame",
   "agent.delegate.started",

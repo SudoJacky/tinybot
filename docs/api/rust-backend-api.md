@@ -122,7 +122,6 @@ error leaves the task runtime non-accepting, sets `last_error`, and appends a
 - `USER.md`
 - `TOOLS.md`
 - `HEARTBEAT.md`
-- `memory/MEMORY.md`
 
 `SYSTEM.md` is the editable native-agent system-prompt template. The backend creates it once when
 missing and reloads it for each workspace-backed turn. Supported placeholders are `{{identity}}`,
@@ -253,7 +252,7 @@ First-version group ids returned by `get_settings_snapshot`:
 - `logs-diagnostics`
 - `expert-config`
 
-The first version intentionally does not include Memory, Channels, generic
+The first version intentionally does not include Channels, generic
 web/exec/browser tool toggles, telemetry/crash-report controls, or raw JSON editing fields.
 The `runtime` group only projects native runtime metadata; it does not expose legacy
 gateway endpoint or heartbeat configuration. Secret fields
@@ -375,20 +374,15 @@ methods fail before the registry becomes active. The former direct dynamic-tool 
 not used by the agent runtime.
 
 Workspace-backed turns hydrate provider context through ordered `AgentContextContributor`
-registrations after continuation state is restored and before the first provider request. The
-current built-in contributor is memory:
-
-- Memory retrieval requires `memory.enabled: true`. `max_notes`/`maxNotes` defaults to `6` and must
-  not exceed `20`; `max_chars`/`maxChars` defaults to `1600` and must not exceed `12000`.
-Malformed sections, incorrectly typed fields, out-of-range limits, and enabled-contributor
-retrieval failures stop the turn before provider execution. Contributed text is JSON-encoded and
-appended after the composed system instructions under an explicit evidence-only frame; retrieved
-text never receives instruction precedence.
+registrations after continuation state is restored and before the first provider request. There
+are currently no built-in context contributors. Extension contributors may add JSON-encoded
+evidence after the composed system instructions; contributed text never receives instruction
+precedence.
 
 Enabled contributors emit the debug event `agent.context.hydrated`, including `empty` evaluations
 when no source matched. This event follows the durable runtime trace path. The event and top-level
 `contextContributions` projection contain hashes, counts, truncation state, and allowlisted source
-identifiers only. They do not contain prompt text, memory content, document names, or filesystem
+identifiers only. They do not contain prompt text, contribution content, document names, or filesystem
 paths.
 
 ### Hooks, trace correlation, and runtime metrics
@@ -445,7 +439,7 @@ envelopes apply the same config-secret redaction used by live events.
 }
 ```
 
-Metric names and outcomes come from bounded runtime enums. Prompts, tool output, secrets, and memory
+Metric names and outcomes come from bounded runtime enums. Prompts, tool output, secrets, and context
 content are not used as metric names or labels. Cancellation cleanup, MCP server lifecycle, owned
 shell-process lifecycle, and orphaned-turn reconciliation use fixed metric names; server names,
 process IDs, turn IDs, and trace IDs are never metric keys.
@@ -642,7 +636,7 @@ runtime uses `200`. Explicit turn or settings values still take precedence.
 
 The native agent provider initially receives the foundational tools `exec_command`, `write_stdin`,
 `apply_patch`, `request_user_input`, `update_plan`, and `tool_search` when their capabilities are
-available. Memory, browser, subagent, and MCP tools are deferred until selected explicitly or found
+available. Browser, subagent, and MCP tools are deferred until selected explicitly or found
 through `tool_search` in the current turn. `update_plan` remains available when `selectedTools`
 limits ordinary tools.
 
@@ -1685,7 +1679,6 @@ External callers should usually prefer the Tauri commands above.
 | `diagnostics` | `append` |
 | `form` | `request` |
 | `mcp` | `call_tool`, `diagnostics`, `list_tools`, `server_status`, `shutdown` |
-| `memory` | `capture_evidence`, `dream_apply`, `dream_log`, `dream_pending`, `dream_restore`, `dream_run`, `list_evidence`, `migrate_legacy_notes`, `rebuild_index`, `recall`, `refresh_views`, `reject`, `save`, `search`, `supersede`, `trace` |
 | `permission_profile` | `current`, `evaluate_tool` |
 | `provider` | `resolve_secret` |
 | `runtime` | `metrics`, `now`, `restart` |
@@ -1853,7 +1846,6 @@ The Rust backend can emit live events through Tauri. Dotted worker event names a
 - `agent.context.compacted`
 - `agent.context.trimmed`
 - `agent.file.reference`
-- `agent.memory_reference`
 - `agent.task_progress`
 - `agent.browser_frame`
 - `agent.delegate.started`

@@ -31,7 +31,6 @@ fn snapshot_contains_only_first_version_settings_groups() {
             "expert-config",
         ]
     );
-    assert!(!group_ids.contains(&"memory-experience"));
     assert!(!group_ids.contains(&"channels"));
 }
 
@@ -282,9 +281,6 @@ fn config_fixture() -> serde_json::Value {
                 "enabled": true,
                 "interval_s": 1800
             }
-        },
-        "memory": {
-            "enabled": true
         },
         "channels": {
             "send_progress": true

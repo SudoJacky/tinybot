@@ -11,7 +11,6 @@ describe("TinyOS pre-kernel contract parity", () => {
       "terminal",
       "browser",
       "plan",
-      "memory",
       "subagents",
       "artifacts",
       "inspector",

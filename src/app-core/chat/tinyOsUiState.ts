@@ -96,11 +96,10 @@ const APP_INDEX: Record<TinyOsAppId, number> = {
   terminal: 1,
   browser: 2,
   plan: 3,
-  memory: 4,
-  subagents: 5,
-  artifacts: 6,
-  inspector: 7,
-  system_monitor: 8,
+  subagents: 4,
+  artifacts: 5,
+  inspector: 6,
+  system_monitor: 7,
 };
 
 export function tinyOsLayoutModeForWidth(width: number, expanded = false): TinyOsLayoutMode {

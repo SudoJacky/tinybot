@@ -23,10 +23,6 @@ pub enum WorkerCapability {
     DiagnosticsWrite,
     #[serde(rename = "form.request")]
     FormRequest,
-    #[serde(rename = "memory.read")]
-    MemoryRead,
-    #[serde(rename = "memory.write")]
-    MemoryWrite,
     #[serde(rename = "task.read")]
     TaskRead,
     #[serde(rename = "task.write")]
@@ -90,8 +86,6 @@ pub fn default_desktop_capability_policy() -> CapabilityPolicy {
         WorkerCapability::ShellExecute,
         WorkerCapability::DiagnosticsWrite,
         WorkerCapability::FormRequest,
-        WorkerCapability::MemoryRead,
-        WorkerCapability::MemoryWrite,
         WorkerCapability::CronRead,
         WorkerCapability::CronWrite,
         WorkerCapability::CronRun,

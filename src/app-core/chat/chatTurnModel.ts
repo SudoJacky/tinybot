@@ -195,7 +195,6 @@ export type ChatStepKind =
   | "form"
   | "plan"
   | "compaction"
-  | "memory"
   | "error";
 
 export type ChatStep = {

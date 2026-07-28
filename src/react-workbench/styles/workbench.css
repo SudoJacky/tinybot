@@ -2324,7 +2324,6 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-window[data-app="files"] { top: 42%; right: 3%; bottom: 4%; left: 3%; }
 .tinyos-window[data-app="browser"] { top: 6%; right: 4%; bottom: 6%; left: 4%; }
 .tinyos-window[data-app="plan"] { top: 5%; right: 4%; bottom: 5%; left: 6%; }
-.tinyos-window[data-app="memory"] { top: 9%; right: 5%; bottom: 7%; left: 4%; }
 .tinyos-window[data-app="subagents"] { top: 6%; right: 6%; bottom: 8%; left: 5%; }
 .tinyos-window[data-app="artifacts"],
 .tinyos-window[data-app="inspector"] { top: 6%; right: 4%; bottom: 6%; left: 4%; }
@@ -2580,7 +2579,6 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .tinyos-terminal pre,
-.tinyos-memory pre,
 .tinyos-structured pre,
 .tinyos-inspector pre {
   margin: 0;
@@ -3542,7 +3540,6 @@ button.tinyos-overlay-backdrop:focus-visible {
   .tinyos-browser__spinner { animation: none; }
 }
 .tinyos-plan,
-.tinyos-memory,
 .tinyos-subagents,
 .tinyos-artifacts,
 .tinyos-structured {
@@ -3567,19 +3564,6 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-plan > form { display: flex; gap: 6px; margin-top: 10px; }
 .tinyos-plan > form input { min-width: 0; flex: 1; border: 1px solid var(--color-hairline); border-radius: 7px; padding: 6px 8px; background: var(--color-surface); color: var(--color-ink); font-size: 10px; }
 .tinyos-plan > form button { display: inline-flex; align-items: center; gap: 4px; border: 1px solid color-mix(in srgb, var(--color-accent) 35%, var(--color-hairline)); border-radius: 7px; padding: 0 8px; background: var(--color-surface); color: var(--color-accent); font-size: 9px; }
-
-.tinyos-memory > div:first-child {
-  display: flex;
-  min-height: 34px;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  padding: 0 9px;
-  font-size: 10px;
-}
-
-.tinyos-memory pre { margin-top: 8px; border-radius: 8px; background: #f5f2ec; }
 
 .tinyos-subagents { display: grid; gap: 6px; }
 .tinyos-subagents article { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; align-items: center; gap: 7px; border: 1px solid var(--color-hairline); border-radius: 9px; padding: 9px; }

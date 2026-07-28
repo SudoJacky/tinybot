@@ -18,7 +18,6 @@ use crate::collaboration::subagents::{
 use crate::config::runtime::WorkerConfigRpc;
 use crate::config::secrets::{ProviderResolveSecretParams, WorkerSecretRpc};
 use crate::config::store::{ConfigPatchBridgeResult, ConfigStore};
-use crate::memory::WorkerMemoryRpc;
 use crate::protocol::capability::CapabilityPolicy;
 use crate::protocol::{
     WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource, WorkerRequest,
@@ -61,7 +60,6 @@ mod errors;
 mod form;
 mod interaction_dispatch;
 mod mcp;
-mod memory_dispatch;
 mod method;
 mod runtime;
 mod runtime_dispatch;
@@ -89,7 +87,6 @@ pub struct WorkerRpcRouter {
     diagnostics: WorkerDiagnosticsRpc,
     shell: WorkerShellRpc,
     form: WorkerFormRpc,
-    memory: WorkerMemoryRpc,
     task: WorkerTaskRpc,
     cron: WorkerCronRpc,
     background: WorkerBackgroundRpc,
@@ -136,7 +133,6 @@ impl WorkerRpcRouter {
             diagnostics: WorkerDiagnosticsRpc::new(diagnostic_capacity, policy.clone()),
             shell: WorkerShellRpc::new(workspace_root.clone(), policy.clone()),
             form: WorkerFormRpc::new(policy.clone()),
-            memory: WorkerMemoryRpc::new(workspace_root.clone(), policy.clone()),
             task: WorkerTaskRpc::new(workspace_root.clone(), policy.clone()),
             cron: WorkerCronRpc::new(workspace_root.clone(), policy.clone()),
             background: WorkerBackgroundRpc::new(workspace_root.clone(), policy.clone()),
@@ -277,7 +273,6 @@ impl WorkerRpcRouter {
             {
                 self.dispatch_interaction_method(request)
             }
-            method if method.starts_with("memory.") => self.dispatch_memory_method(request),
             method
                 if method.starts_with("task.")
                     || method.starts_with("cron.")

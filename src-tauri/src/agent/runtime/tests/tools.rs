@@ -333,11 +333,11 @@ fn feeds_tool_observation_back_into_second_provider_call() {
 
 #[test]
 fn selected_deferred_tool_calls_are_permitted_by_runtime_dispatch() {
-    struct MemorySearchProvider {
+    struct DeferredLookupProvider {
         calls: Mutex<usize>,
     }
 
-    impl NativeAgentProvider for MemorySearchProvider {
+    impl NativeAgentProvider for DeferredLookupProvider {
         fn complete(
             &self,
             _context: &AgentTurnContext,
@@ -353,15 +353,15 @@ fn selected_deferred_tool_calls_are_permitted_by_runtime_dispatch() {
                     reasoning_delta: None,
                     usage: None,
                     tool_calls: vec![NativeAgentToolCall {
-                        id: "call-memory-search".to_string(),
-                        name: "memory.search".to_string(),
+                        id: "call-test-lookup".to_string(),
+                        name: "test.lookup".to_string(),
                         arguments_json: "{\"query\":\"tool runtime\"}".to_string(),
-                        result: json!({ "notes": [] }),
+                        result: json!({ "matches": [] }),
                     }],
                 });
             }
             Ok(NativeAgentProviderResponse {
-                final_content: "memory search complete".to_string(),
+                final_content: "lookup complete".to_string(),
                 reasoning_delta: None,
                 usage: None,
                 tool_calls: Vec::new(),
@@ -370,30 +370,34 @@ fn selected_deferred_tool_calls_are_permitted_by_runtime_dispatch() {
     }
 
     let services = NativeAgentRuntimeServices::new(
-        Arc::new(MemorySearchProvider {
+        Arc::new(DeferredLookupProvider {
             calls: Mutex::new(0),
         }),
         Arc::new(FakeNativeAgentToolDispatcher),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
-    );
+    )
+    .with_test_tool_registry_entries(vec![test_read_only_tool(
+        "test.lookup",
+        ToolExposure::Deferred,
+    )]);
 
     let result = run_native_agent_turn_with_services(
         &services,
         json!({
             "runtime": "rust",
-            "turnId": "turn-memory-search-tool",
-            "sessionId": "websocket:chat-memory-search-tool",
+            "turnId": "turn-deferred-lookup-tool",
+            "sessionId": "websocket:chat-deferred-lookup-tool",
             "maxIterations": 2,
-            "selectedTools": ["memory.search"],
-            "messages": [{ "role": "user", "content": "search memory" }]
+            "selectedTools": ["test.lookup"],
+            "messages": [{ "role": "user", "content": "run the lookup" }]
         }),
     )
-    .expect("memory search tool run should return a structured result");
+    .expect("deferred lookup tool run should return a structured result");
 
     assert_eq!(result["stopReason"], "final_response");
-    assert_eq!(result["toolsUsed"], json!(["memory.search"]));
-    assert_eq!(result["finalContent"], "memory search complete");
+    assert_eq!(result["toolsUsed"], json!(["test.lookup"]));
+    assert_eq!(result["finalContent"], "lookup complete");
 }
 
 #[test]
@@ -490,11 +494,10 @@ fn tool_runtime_dispatches_through_async_dispatch_seam() {
 }
 
 #[test]
-fn registry_marks_only_read_only_model_tools_as_parallel_safe() {
+fn registry_has_no_parallel_safe_builtin_tools() {
     let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
         WorkerCapability::FsWorkspaceRead,
         WorkerCapability::FsWorkspaceWrite,
-        WorkerCapability::MemoryRead,
         WorkerCapability::McpCall,
         WorkerCapability::ShellExecute,
         WorkerCapability::BackgroundWrite,
@@ -507,7 +510,7 @@ fn registry_marks_only_read_only_model_tools_as_parallel_safe() {
         .map(|tool| tool.method.clone())
         .collect::<Vec<_>>();
 
-    assert_eq!(parallel_methods, vec!["memory.search", "memory.recall"]);
+    assert!(parallel_methods.is_empty());
     assert!(
         !tools
             .iter()
@@ -536,7 +539,6 @@ fn registry_exposes_runtime_policy_for_cancellation_and_mutation_classification(
     let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
         WorkerCapability::FsWorkspaceRead,
         WorkerCapability::FsWorkspaceWrite,
-        WorkerCapability::MemoryRead,
         WorkerCapability::McpCall,
         WorkerCapability::ShellExecute,
         WorkerCapability::BackgroundWrite,
@@ -624,10 +626,10 @@ fn read_only_tool_batch_runs_concurrently_and_preserves_model_ordered_observatio
                             result: json!({ "content": "README first" }),
                         },
                         NativeAgentToolCall {
-                            id: "call-memory-second".to_string(),
-                            name: "memory.search".to_string(),
+                            id: "call-lookup-second".to_string(),
+                            name: "test.lookup".to_string(),
                             arguments_json: "{\"query\":\"README\"}".to_string(),
-                            result: json!({ "content": "memory second" }),
+                            result: json!({ "content": "lookup second" }),
                         },
                     ],
                 });
@@ -684,7 +686,7 @@ fn read_only_tool_batch_runs_concurrently_and_preserves_model_ordered_observatio
         )
         .with_test_tool_registry_entries(test_registry_with_model_tools(&[
             "workspace.read_file",
-            "memory.search",
+            "test.lookup",
         ])),
         json!({
             "runtime": "rust",
@@ -709,13 +711,13 @@ fn read_only_tool_batch_runs_concurrently_and_preserves_model_ordered_observatio
     assert_eq!(dispatcher.max_running.load(Ordering::SeqCst), 2);
     assert_eq!(
         result["toolsUsed"],
-        json!(["workspace.read_file", "memory.search"])
+        json!(["workspace.read_file", "test.lookup"])
     );
     assert_eq!(tool_messages.len(), 2);
     assert_eq!(tool_messages[0]["tool_call_id"], "call-read-first");
     assert_eq!(tool_messages[0]["content"], "README first");
-    assert_eq!(tool_messages[1]["tool_call_id"], "call-memory-second");
-    assert_eq!(tool_messages[1]["content"], "memory second");
+    assert_eq!(tool_messages[1]["tool_call_id"], "call-lookup-second");
+    assert_eq!(tool_messages[1]["content"], "lookup second");
 }
 
 #[test]
@@ -1003,7 +1005,7 @@ fn parallel_tool_failures_are_returned_to_the_model_in_call_order() {
                     },
                     NativeAgentToolCall {
                         id: "call-second-fails".to_string(),
-                        name: "memory.search".to_string(),
+                        name: "test.lookup".to_string(),
                         arguments_json: "{\"query\":\"second\"}".to_string(),
                         result: json!({ "content": "unused second" }),
                     },
@@ -1038,7 +1040,7 @@ fn parallel_tool_failures_are_returned_to_the_model_in_call_order() {
         )
         .with_test_tool_registry_entries(test_registry_with_model_tools(&[
             "workspace.read_file",
-            "memory.search",
+            "test.lookup",
         ])),
         json!({
             "runtime": "rust",
@@ -1114,9 +1116,9 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
                         },
                         NativeAgentToolCall {
                             id: "call-read-two".to_string(),
-                            name: "memory.search".to_string(),
+                            name: "test.lookup".to_string(),
                             arguments_json: "{\"query\":\"README\"}".to_string(),
-                            result: json!({ "content": "memory" }),
+                            result: json!({ "content": "lookup" }),
                         },
                         NativeAgentToolCall {
                             id: "call-write-exclusive".to_string(),
@@ -1126,9 +1128,9 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
                         },
                         NativeAgentToolCall {
                             id: "call-read-three".to_string(),
-                            name: "memory.recall".to_string(),
+                            name: "test.inspect".to_string(),
                             arguments_json: "{\"query\":\"README\"}".to_string(),
-                            result: json!({ "content": "recalled memory" }),
+                            result: json!({ "content": "inspection" }),
                         },
                     ],
                 });
@@ -1233,9 +1235,9 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
         )
         .with_test_tool_registry_entries(test_registry_with_model_tools(&[
             "workspace.read_file",
-            "memory.search",
+            "test.lookup",
             "exec_command",
-            "memory.recall",
+            "test.inspect",
         ])),
         json!({
             "runtime": "rust",
@@ -1290,9 +1292,9 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
         result["toolsUsed"],
         json!([
             "workspace.read_file",
-            "memory.search",
+            "test.lookup",
             "exec_command",
-            "memory.recall"
+            "test.inspect"
         ])
     );
     assert_eq!(
@@ -1575,7 +1577,7 @@ fn cancellation_during_non_cleanup_parallel_tool_returns_without_waiting_for_lat
                     },
                     NativeAgentToolCall {
                         id: "call-slow-read-two".to_string(),
-                        name: "memory.search".to_string(),
+                        name: "test.lookup".to_string(),
                         arguments_json: "{\"query\":\"README\"}".to_string(),
                         result: json!({ "content": "late read two" }),
                     },
@@ -1632,7 +1634,7 @@ fn cancellation_during_non_cleanup_parallel_tool_returns_without_waiting_for_lat
             )
             .with_test_tool_registry_entries(test_registry_with_model_tools(&[
                 "workspace.read_file",
-                "memory.search",
+                "test.lookup",
             ]))
             .with_trace_sink(trace_sink),
             json!({
@@ -2200,7 +2202,7 @@ fn tool_result_projection_redacts_and_truncates_model_content() {
 #[test]
 fn dispatches_multiple_tool_calls_from_one_provider_response_in_order() {
     let services = NativeAgentRuntimeServices::default().with_test_tool_registry_entries(
-        test_registry_with_model_tools(&["workspace.read_file", "memory.search"]),
+        test_registry_with_model_tools(&["workspace.read_file", "test.lookup"]),
     );
     let result = run_native_agent_turn_with_config(
         &services,
@@ -2227,7 +2229,7 @@ fn dispatches_multiple_tool_calls_from_one_provider_response_in_order() {
                                 },
                                 {
                                     "id": "call-search",
-                                    "name": "memory.search",
+                                    "name": "test.lookup",
                                     "argumentsJson": "{\"query\":\"src\"}",
                                     "result": { "content": "src/main.ts" }
                                 }
@@ -2250,7 +2252,7 @@ fn dispatches_multiple_tool_calls_from_one_provider_response_in_order() {
 
     assert_eq!(
         result["toolsUsed"],
-        json!(["workspace.read_file", "memory.search"])
+        json!(["workspace.read_file", "test.lookup"])
     );
     assert_eq!(tool_results.len(), 2);
     assert_eq!(tool_results[0]["payload"]["toolCallId"], "call-read");
@@ -2301,7 +2303,7 @@ fn later_tool_error_and_earlier_success_are_both_returned_to_the_model() {
                     },
                     NativeAgentToolCall {
                         id: "call-second-fails".to_string(),
-                        name: "memory.search".to_string(),
+                        name: "test.lookup".to_string(),
                         arguments_json: "{\"query\":\"missing\"}".to_string(),
                         result: json!({ "content": "unused" }),
                     },
@@ -2339,7 +2341,7 @@ fn later_tool_error_and_earlier_success_are_both_returned_to_the_model() {
         )
         .with_test_tool_registry_entries(test_registry_with_model_tools(&[
             "workspace.read_file",
-            "memory.search",
+            "test.lookup",
         ])),
         json!({
             "runtime": "rust",
@@ -2355,7 +2357,7 @@ fn later_tool_error_and_earlier_success_are_both_returned_to_the_model() {
     assert_eq!(result["finalContent"], "handled mixed tool results");
     assert_eq!(
         result["toolsUsed"],
-        json!(["workspace.read_file", "memory.search"])
+        json!(["workspace.read_file", "test.lookup"])
     );
     assert_eq!(result["completedToolResults"].as_array().unwrap().len(), 2);
     assert_eq!(

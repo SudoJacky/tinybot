@@ -743,24 +743,8 @@ fn native_config_defaults_to_schema_v1_deepseek_profile_without_config_file() {
 }
 
 #[test]
-fn native_request_router_allows_registered_native_agent_tools() {
+fn native_request_router_allows_registered_mcp_tools() {
     let fixture = WorkspaceFixture::new();
-    fixture.write(
-        "memory/notes.jsonl",
-        &format!(
-            "{}\n",
-            serde_json::json!({
-                "id": "note-workspace-policy",
-                "scope": "user",
-                "type": "preference",
-                "status": "active",
-                "content": "Use workspace command policies.",
-                "priority": 0.8,
-                "confidence": 0.9,
-                "sources": []
-            })
-        ),
-    );
     fixture.write(
         "mcp-server.js",
         r#"
@@ -809,12 +793,6 @@ lines.on("line", (line) => {
         }),
     );
 
-    let memory_response = router.dispatch(&crate::protocol::WorkerRequest::new(
-        "memory-search-1",
-        "trace-memory-search",
-        "memory.search",
-        serde_json::json!({ "query": "uv", "limit": 3 }),
-    ));
     let mcp_response = router.dispatch(&crate::protocol::WorkerRequest::new(
         "mcp-call-1",
         "trace-mcp-call",
@@ -826,11 +804,6 @@ lines.on("line", (line) => {
         }),
     ));
 
-    assert!(
-        memory_response.error.is_none(),
-        "{:?}",
-        memory_response.error
-    );
     assert!(mcp_response.error.is_none(), "{:?}", mcp_response.error);
     assert_eq!(
         mcp_response.result.as_ref().unwrap()["content"][0]["text"],

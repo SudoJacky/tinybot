@@ -370,7 +370,7 @@ describe("LiveCanvas TinyOS", () => {
     const onSelectEntry = vi.fn();
     const entries = [
       entry(step({ id: "file", toolCall: { argsJson: { path: "src/main.ts" }, id: "file", name: "workspace.read_file" } })),
-      entry(step({ id: "memory", title: "memory.search", toolCall: { argsJson: { query: "TinyOS" }, id: "memory", name: "memory.search" } })),
+      entry(step({ id: "terminal", title: "shell.execute", toolCall: { argsJson: { command: "npm test" }, id: "terminal", name: "shell.execute" } })),
     ];
 
     const canonicalItems = entries.map((canvasEntry, index) => canonicalItemForEntry(canvasEntry, index));
@@ -386,7 +386,7 @@ describe("LiveCanvas TinyOS", () => {
     const canvas = screen.getByLabelText("TinyOS shared desktop");
     expect(canvas.getAttribute("data-mode")).toBe("history");
     expect(canvas.querySelector("[data-app='files']")).toBeTruthy();
-    expect(canvas.querySelector("[data-app='memory']")).toBeNull();
+    expect(canvas.querySelector("[data-app='terminal']")).toBeNull();
     expect(within(canvas).queryByLabelText("Time Machine")).toBeNull();
     await user.click(within(canvas).getByRole("button", { name: "Return to live desktop" }));
     expect(onReturnToLive).toHaveBeenCalledTimes(1);

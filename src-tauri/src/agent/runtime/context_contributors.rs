@@ -1,6 +1,4 @@
 use super::AgentTurnContext;
-use crate::memory::WorkerMemoryRpc;
-use crate::protocol::capability::default_desktop_capability_policy;
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use std::{fmt::Debug, path::PathBuf, sync::Arc};
@@ -76,7 +74,7 @@ pub(super) struct AgentContextContributorRegistry {
 impl Default for AgentContextContributorRegistry {
     fn default() -> Self {
         Self {
-            contributors: vec![Arc::new(MemoryContextContributor)],
+            contributors: Vec::new(),
         }
     }
 }
@@ -171,124 +169,6 @@ impl AgentContextContributorRegistry {
 pub(super) struct AgentContextHydration {
     pub(super) rendered_prompt: Option<String>,
     pub(super) diagnostics: Vec<Value>,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct MemoryContextContributor;
-
-impl AgentContextContributor for MemoryContextContributor {
-    fn id(&self) -> &str {
-        "builtin.memory"
-    }
-
-    fn kind(&self) -> &str {
-        "memory"
-    }
-
-    fn enabled(&self, request: &AgentContextRequest) -> Result<bool, String> {
-        configured_bool(request.config_snapshot(), "memory", &["enabled"], false)
-    }
-
-    fn contribute(
-        &self,
-        request: &AgentContextRequest,
-    ) -> Result<Option<AgentContextContribution>, String> {
-        let max_notes = configured_usize(
-            request.config_snapshot(),
-            "memory",
-            &["max_notes", "maxNotes"],
-            6,
-            20,
-        )?;
-        let max_chars = configured_usize(
-            request.config_snapshot(),
-            "memory",
-            &["max_chars", "maxChars"],
-            1_600,
-            MAX_CONTEXT_CONTRIBUTION_CHARS,
-        )?;
-        let result = WorkerMemoryRpc::new(
-            request.workspace_root().to_path_buf(),
-            default_desktop_capability_policy(),
-        )
-        .recall_context(request.current_message().to_string(), max_notes, max_chars)
-        .map_err(|error| error.message)?;
-        let content = result
-            .get("context")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        if content.trim().is_empty() {
-            return Ok(None);
-        }
-        let references = result
-            .get("references")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        Ok(Some(AgentContextContribution::new(content, references)))
-    }
-}
-
-fn configured_bool(
-    config: &Value,
-    section_name: &str,
-    keys: &[&str],
-    default: bool,
-) -> Result<bool, String> {
-    let Some(section) = configured_section(config, section_name)? else {
-        return Ok(default);
-    };
-    for key in keys {
-        if let Some(value) = section.get(*key) {
-            return value
-                .as_bool()
-                .ok_or_else(|| format!("context config `{section_name}.{key}` must be a boolean"));
-        }
-    }
-    Ok(default)
-}
-
-fn configured_usize(
-    config: &Value,
-    section_name: &str,
-    keys: &[&str],
-    default: usize,
-    maximum: usize,
-) -> Result<usize, String> {
-    let Some(section) = configured_section(config, section_name)? else {
-        return Ok(default);
-    };
-    for key in keys {
-        if let Some(value) = section.get(*key) {
-            let value = value.as_u64().ok_or_else(|| {
-                format!("context config `{section_name}.{key}` must be a non-negative integer")
-            })?;
-            let value = usize::try_from(value).map_err(|_| {
-                format!("context config `{section_name}.{key}` exceeds the platform limit")
-            })?;
-            if value > maximum {
-                return Err(format!(
-                    "context config `{section_name}.{key}` must not exceed {maximum}"
-                ));
-            }
-            return Ok(value);
-        }
-    }
-    Ok(default)
-}
-
-fn configured_section<'a>(
-    config: &'a Value,
-    section_name: &str,
-) -> Result<Option<&'a Map<String, Value>>, String> {
-    let Some(section) = config.get(section_name) else {
-        return Ok(None);
-    };
-    section
-        .as_object()
-        .map(Some)
-        .ok_or_else(|| format!("context config `{section_name}` must be an object"))
 }
 
 fn validated_label<'a>(label: &str, value: &'a str) -> Result<&'a str, String> {

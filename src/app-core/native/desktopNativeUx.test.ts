@@ -124,7 +124,7 @@ describe("desktop native UX projections", () => {
     const toolsSkills = buildDesktopToolsSkillsManagementUx({
       tools: [
         { name: "exec_shell", description: "Run command", riskHint: "Runs in the current user context", enabled: true },
-        { name: "memory_search", description: "Search memory", riskHint: "", enabled: true },
+        { name: "docs_search", description: "Search docs", riskHint: "", enabled: true },
       ],
       skills: [
         { name: "planner", enabled: true, always: false, available: true, status: "needs_validation", deletable: true },

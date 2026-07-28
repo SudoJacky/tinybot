@@ -107,11 +107,7 @@ fn workspace_reveal_path_accepts_only_allowed_workspace_files() {
         allowed_workspace_file_path(root, "SYSTEM.md").expect("system prompt should be editable"),
         root.join("SYSTEM.md")
     );
-    assert_eq!(
-        allowed_workspace_file_path(root, "memory/MEMORY.md")
-            .expect("allowed nested workspace file"),
-        root.join("memory").join("MEMORY.md")
-    );
+    assert!(allowed_workspace_file_path(root, "docs/context.md").is_err());
     assert!(allowed_workspace_file_path(root, "../secret.txt").is_err());
     assert!(allowed_workspace_file_path(root, "notes/private.md").is_err());
 }

@@ -1089,20 +1089,21 @@ fn worker_run_agent_persists_recovered_tool_error_with_typed_results() {
                 "responses": [
                     {
                         "content": "",
-                        "toolCalls": [
-                            {
-                                "id": "call-before-tool-error",
-                                "name": "memory.recall",
-                                "argumentsJson": "{\"query\":\"Prepare failure\"}",
-                                "result": { "content": "fixture result should not be used" }
-                            },
-                            {
-                                "id": "call-tool-error",
-                                "name": "memory.search",
-                                "argumentsJson": "{\"note_type\":\"invalid\"}",
-                                "result": { "content": "unused" }
-                            }
-                        ]
+                        "toolCalls": [{
+                            "id": "call-before-tool-error",
+                            "name": "workspace.write_file",
+                            "argumentsJson": "{\"path\":\"before-error.txt\",\"contents\":\"prepared\"}",
+                            "result": { "content": "fixture result should not be used" }
+                        }]
+                    },
+                    {
+                        "content": "",
+                        "toolCalls": [{
+                            "id": "call-tool-error",
+                            "name": "shell.exec",
+                            "argumentsJson": "{\"command\":\"echo blocked\"}",
+                            "result": { "content": "unused" }
+                        }]
                     },
                     { "content": "Recovered after inspecting the tool error" }
                 ]
@@ -1117,8 +1118,8 @@ fn worker_run_agent_persists_recovered_tool_error_with_typed_results() {
             "turnId": "turn-tool-error-persist",
             "sessionId": "websocket:chat-tool-error-persist",
             "maxIterations": 3,
-            "selectedTools": ["memory.recall", "memory.search"],
-            "messages": [{ "role": "user", "content": "read then fail" }]
+            "selectedTools": ["workspace.write_file"],
+            "messages": [{ "role": "user", "content": "write then try a blocked tool" }]
         }),
         fixture.root.clone(),
         config.clone(),
@@ -1146,7 +1147,7 @@ fn worker_run_agent_persists_recovered_tool_error_with_typed_results() {
     assert!(run["completedToolResults"][1].get("status").is_none());
     assert!(run["completedToolResults"][1]["summary"]
         .as_str()
-        .is_some_and(|summary| summary.contains("note_type")));
+        .is_some_and(|summary| summary.contains("shell.exec")));
     assert!(run.get("traceEvents").is_none());
 }
 

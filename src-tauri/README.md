@@ -114,7 +114,7 @@ The main layers are:
    - [`threads/session/`](src/threads/session/README.md) exposes session-shaped
      projections of canonical Rollouts.
 5. **Domain services**
-   - `workspace/`, `memory/`, `tools/`, `automation/`, `collaboration/`, and
+   - `workspace/`, `tools/`, `automation/`, `collaboration/`, and
      `config/` own their business rules and do not depend on RPC or Tauri.
 6. **Process and transport infrastructure**
    - [`runtime/`](src/runtime/README.md) owns live tasks, shared MCP state,

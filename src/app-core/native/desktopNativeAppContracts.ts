@@ -4,7 +4,6 @@ export function buildNativeAppSettingsCenterContract() {
       category("provider-models", "Provider & Models"),
       category("tools-mcp", "Tools & MCP"),
       category("files-workspace", "Files & Workspace"),
-      category("memory-experience", "Memory & Experience"),
       category("skills", "Skills"),
       category("channels", "Channels"),
       category("runtime", "Runtime"),
