@@ -1191,11 +1191,12 @@ impl BrowserSessionManager {
                                 .map(|(index, node)| {
                                     let target_ref =
                                         format!("target-{observation_revision}-{index}");
+                                    let protected_reason = semantic_protected_reason(&node);
                                     tab.semantic_targets.insert(
                                         target_ref.clone(),
                                         BrowserSemanticTarget {
                                             selector: node.selector,
-                                            protected_reason: node.protected_reason.clone(),
+                                            protected_reason: protected_reason.clone(),
                                         },
                                     );
                                     BrowserSemanticNode {
@@ -1210,7 +1211,7 @@ impl BrowserSessionManager {
                                         disabled: node.disabled,
                                         focused: node.focused,
                                         sensitive: node.sensitive,
-                                        protected_reason: node.protected_reason,
+                                        protected_reason,
                                     }
                                 })
                                 .collect();
@@ -1228,11 +1229,12 @@ impl BrowserSessionManager {
                                 for (current_node, node) in
                                     current.nodes.iter().zip(&platform.semantic_nodes)
                                 {
+                                    let protected_reason = semantic_protected_reason(node);
                                     tab.semantic_targets.insert(
                                         current_node.target_ref.clone(),
                                         BrowserSemanticTarget {
                                             selector: node.selector.clone(),
-                                            protected_reason: node.protected_reason.clone(),
+                                            protected_reason,
                                         },
                                     );
                                 }
@@ -1402,7 +1404,7 @@ impl BrowserSessionManager {
                         &input,
                         BrowserCommandStatus::UserRequired,
                         Some("user_required"),
-                        Some("Direct user interaction is required"),
+                        Some(reason),
                     )?;
                     self.diagnostic_command_result(&input, &result, started.elapsed());
                     return Ok(result);
@@ -2097,26 +2099,40 @@ impl BrowserSessionManager {
                     }
                 }
                 BrowserPlatformEvent::UserInput { tab_id } => {
+                    let user_handoff_active =
+                        state.sessions.get(&session_id).is_some_and(|session| {
+                            session.control.state == BrowserControlState::UserRequired
+                        });
                     self.diagnostic(
-                        "browser.user_input.interrupted",
+                        if user_handoff_active {
+                            "browser.user_input.handoff"
+                        } else {
+                            "browser.user_input.interrupted"
+                        },
                         Some(session_id.clone()),
                         Some(tab_id.clone()),
                         None,
-                        Some("user_interrupted"),
+                        Some(if user_handoff_active {
+                            "user_required"
+                        } else {
+                            "user_interrupted"
+                        }),
                         None,
                         BTreeMap::new(),
                     );
-                    self.cancel_tab_command(
-                        &tab_id,
-                        BrowserCommandStatus::Cancelled,
-                        "user_interrupted",
-                        "Direct user input interrupted the Agent browser action",
-                    );
+                    if !user_handoff_active {
+                        self.cancel_tab_command(
+                            &tab_id,
+                            BrowserCommandStatus::Cancelled,
+                            "user_interrupted",
+                            "Direct user input interrupted the Agent browser action",
+                        );
+                    }
                     if let Some(session) = state.sessions.get_mut(&session_id) {
                         session.control.control_epoch =
                             session.control.control_epoch.saturating_add(1);
                         session.control.active_command_id = None;
-                        if session.pending_policy_request.is_none() {
+                        if !user_handoff_active && session.pending_policy_request.is_none() {
                             session.control.state = BrowserControlState::Interrupted;
                             session.control.reason = Some(
                                 "Direct user input invalidated pending Agent browser work"
@@ -2127,7 +2143,14 @@ impl BrowserSessionManager {
                             mark_agent_snapshot_dirty(tab, true);
                         }
                     }
-                    increment_counter(&mut state, "browser.user_input.interrupted");
+                    increment_counter(
+                        &mut state,
+                        if user_handoff_active {
+                            "browser.user_input.handoff"
+                        } else {
+                            "browser.user_input.interrupted"
+                        },
+                    );
                 }
                 BrowserPlatformEvent::ContentDirty { tab_id } => {
                     if let Some(session) = state.sessions.get_mut(&session_id) {
@@ -2371,7 +2394,9 @@ fn snapshot_from_state(
     }
     let capabilities = adapter.capabilities();
     let ready = session.lifecycle == BrowserSessionLifecycle::Ready;
-    let interaction = ready && capabilities.agent_interaction.available;
+    let interaction = ready
+        && capabilities.agent_interaction.available
+        && session.control.state != BrowserControlState::UserRequired;
     let source_id = format!("native-browser:{}", session.id);
     Some(BrowserNativeSnapshot {
         schema_version: "tinybot.tinyos_native_snapshot.v1",
@@ -2538,6 +2563,23 @@ fn plan_browser_interaction(
             ),
         });
     }
+    if session.control.state == BrowserControlState::UserRequired
+        && !matches!(&input.action, BrowserAction::Resume)
+    {
+        return Err(BrowserInteractionRejection {
+            metric: Some("browser.command.rejected.user_handoff"),
+            reason:
+                "Browser control is handed to the user; wait until the user resumes Agent control"
+                    .to_string(),
+        });
+    }
+    if matches!(&input.action, BrowserAction::Resume) && session.pending_policy_request.is_some() {
+        return Err(BrowserInteractionRejection {
+            metric: Some("browser.command.rejected.policy_pending"),
+            reason: "Resolve the pending browser policy request before resuming Agent control"
+                .to_string(),
+        });
+    }
     if input.action.requires_observation() {
         let expected_revision =
             input
@@ -2599,6 +2641,12 @@ fn plan_browser_interaction(
                     ),
                 });
             }
+            if let Some(reason_code) = protected_reason_at(tab, *x, *y) {
+                return Ok(BrowserPlatformAction::UserRequired {
+                    reason: protected_operation_reason(reason_code),
+                    reason_code: reason_code.to_string(),
+                });
+            }
             Ok(BrowserPlatformAction::Browser(input.action.clone()))
         }
         BrowserAction::ClickTarget { target_ref } => {
@@ -2636,6 +2684,16 @@ fn plan_browser_interaction(
                     selector: target.selector.clone(),
                     text: text.clone(),
                 })
+            }
+        }
+        BrowserAction::Type { .. } | BrowserAction::Key { .. } => {
+            if let Some(reason_code) = focused_protected_reason(tab) {
+                Ok(BrowserPlatformAction::UserRequired {
+                    reason: protected_operation_reason(reason_code),
+                    reason_code: reason_code.to_string(),
+                })
+            } else {
+                Ok(BrowserPlatformAction::Browser(input.action.clone()))
             }
         }
         BrowserAction::UserHandoff { reason } => {
@@ -2866,8 +2924,34 @@ fn protected_operation_reason(reason_code: &str) -> String {
         "captcha" => {
             "CAPTCHA requires direct user completion before Agent work can resume".to_string()
         }
+        "sensitive_input" => {
+            "A password, verification code, or payment field requires direct user input before Agent work can resume"
+                .to_string()
+        }
         _ => "This protected browser operation requires direct user completion".to_string(),
     }
+}
+
+fn semantic_protected_reason(node: &BrowserPlatformSemanticNode) -> Option<String> {
+    node.protected_reason
+        .clone()
+        .or_else(|| node.sensitive.then(|| "sensitive_input".to_string()))
+}
+
+fn protected_reason_at(tab: &BrowserTabRecord, x: f64, y: f64) -> Option<&str> {
+    tab.semantic.as_ref()?.nodes.iter().find_map(|node| {
+        let reason = node.protected_reason.as_deref()?;
+        (x >= node.x && x <= node.x + node.width && y >= node.y && y <= node.y + node.height)
+            .then_some(reason)
+    })
+}
+
+fn focused_protected_reason(tab: &BrowserTabRecord) -> Option<&str> {
+    tab.semantic.as_ref()?.nodes.iter().find_map(|node| {
+        node.focused
+            .then(|| node.protected_reason.as_deref())
+            .flatten()
+    })
 }
 
 fn hidden_surface_reason(input: &BrowserSurfaceUpdate) -> String {

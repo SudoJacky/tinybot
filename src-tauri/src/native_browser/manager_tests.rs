@@ -19,6 +19,7 @@ struct FakeAdapter {
     opened_external: Mutex<Vec<String>>,
     interaction_delay_ms: std::sync::atomic::AtomicU64,
     protected_semantic: std::sync::atomic::AtomicBool,
+    sensitive_semantic: std::sync::atomic::AtomicBool,
     fail_create: std::sync::atomic::AtomicBool,
 }
 
@@ -119,8 +120,12 @@ impl BrowserRuntimeAdapter for FakeAdapter {
                         width: 80.0,
                         height: 30.0,
                         disabled: false,
-                        focused: false,
-                        sensitive: false,
+                        focused: self
+                            .sensitive_semantic
+                            .load(std::sync::atomic::Ordering::Relaxed),
+                        sensitive: self
+                            .sensitive_semantic
+                            .load(std::sync::atomic::Ordering::Relaxed),
                         protected_reason: self
                             .protected_semantic
                             .load(std::sync::atomic::Ordering::Relaxed)
@@ -1092,6 +1097,151 @@ async fn protected_semantic_target_requires_user_without_platform_dispatch() {
             && diagnostic.command_id.as_ref() == Some(&command_id)
             && diagnostic.reason_code.as_deref() == Some("native_file_picker")
     }));
+}
+
+#[tokio::test]
+async fn explicit_user_handoff_stays_active_during_user_input_until_resume() {
+    let adapter = Arc::new(FakeAdapter::default());
+    let manager = manager(adapter.clone());
+    let snapshot = manager
+        .create_session(BrowserCreateSessionInput {
+            owner_session_id: "thread-user-handoff".to_string(),
+            profile_id: None,
+            persistence: BrowserProfilePersistence::Persistent,
+            initial_url: None,
+        })
+        .await
+        .unwrap();
+    let session_id = snapshot.data.browser_session_id.clone();
+    let tab_id = snapshot.data.active_tab_id.clone();
+    let handoff_reason = "Complete the login verification";
+    let handoff = manager
+        .interact(BrowserInteractionInput {
+            browser_session_id: session_id.clone(),
+            tab_id: tab_id.clone(),
+            command_id: BrowserCommandId::new("user-handoff").unwrap(),
+            control_epoch: snapshot.data.control.control_epoch,
+            snapshot_id: None,
+            capture_id: None,
+            observation_revision: None,
+            action: BrowserAction::UserHandoff {
+                reason: handoff_reason.to_string(),
+            },
+        })
+        .await
+        .unwrap();
+    assert_eq!(handoff.status, BrowserCommandStatus::UserRequired);
+    assert_eq!(handoff.reason.as_deref(), Some(handoff_reason));
+    let awaiting_user = manager.snapshot(&session_id).unwrap();
+    assert_eq!(
+        awaiting_user.data.control.state,
+        BrowserControlState::UserRequired
+    );
+    assert_eq!(
+        awaiting_user.data.control.reason.as_deref(),
+        Some(handoff_reason)
+    );
+    assert!(!awaiting_user.data.interaction.click);
+    assert!(!awaiting_user.data.interaction.navigate);
+    assert!(!awaiting_user.data.interaction.type_text);
+
+    adapter.sink.read().unwrap().as_ref().unwrap()(BrowserPlatformEvent::UserInput {
+        tab_id: tab_id.clone(),
+    });
+    let after_input = manager.snapshot(&session_id).unwrap();
+    assert_eq!(
+        after_input.data.control.state,
+        BrowserControlState::UserRequired
+    );
+    assert_eq!(
+        after_input.data.control.reason.as_deref(),
+        Some(handoff_reason)
+    );
+    assert!(after_input.data.control.control_epoch > awaiting_user.data.control.control_epoch);
+
+    let rejected = manager
+        .interact(BrowserInteractionInput {
+            browser_session_id: session_id.clone(),
+            tab_id: tab_id.clone(),
+            command_id: BrowserCommandId::new("handoff-back").unwrap(),
+            control_epoch: after_input.data.control.control_epoch,
+            snapshot_id: None,
+            capture_id: None,
+            observation_revision: None,
+            action: BrowserAction::Back,
+        })
+        .await
+        .unwrap_err();
+    assert!(rejected.contains("handed to the user"));
+
+    let resumed = manager
+        .interact(BrowserInteractionInput {
+            browser_session_id: session_id.clone(),
+            tab_id,
+            command_id: BrowserCommandId::new("handoff-resume").unwrap(),
+            control_epoch: after_input.data.control.control_epoch,
+            snapshot_id: None,
+            capture_id: None,
+            observation_revision: None,
+            action: BrowserAction::Resume,
+        })
+        .await
+        .unwrap();
+    assert_eq!(resumed.status, BrowserCommandStatus::Completed);
+    let idle = manager.snapshot(&session_id).unwrap();
+    assert_eq!(idle.data.control.state, BrowserControlState::Idle);
+    assert!(idle.data.interaction.click);
+}
+
+#[tokio::test]
+async fn sensitive_focused_field_requires_direct_user_input() {
+    let adapter = Arc::new(FakeAdapter::default());
+    adapter
+        .sensitive_semantic
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    let manager = manager(adapter.clone());
+    let snapshot = manager
+        .create_session(BrowserCreateSessionInput {
+            owner_session_id: "thread-sensitive-input".to_string(),
+            profile_id: None,
+            persistence: BrowserProfilePersistence::Persistent,
+            initial_url: None,
+        })
+        .await
+        .unwrap();
+    let observed = manager
+        .observe(BrowserObserveInput {
+            browser_session_id: snapshot.data.browser_session_id.clone(),
+            tab_id: snapshot.data.active_tab_id.clone(),
+            capture: true,
+            semantic: true,
+        })
+        .await
+        .unwrap();
+    let semantic = observed.semantic.as_ref().unwrap();
+    let observation_revision = semantic.observation_revision;
+    let node = &semantic.nodes[0];
+    assert!(node.sensitive);
+    assert_eq!(node.protected_reason.as_deref(), Some("sensitive_input"));
+
+    let result = manager
+        .interact(BrowserInteractionInput {
+            browser_session_id: snapshot.data.browser_session_id,
+            tab_id: snapshot.data.active_tab_id,
+            command_id: BrowserCommandId::new("sensitive-type").unwrap(),
+            control_epoch: observed.snapshot.data.control.control_epoch,
+            snapshot_id: None,
+            capture_id: observed.capture.map(|capture| capture.capture_id),
+            observation_revision: Some(observation_revision),
+            action: BrowserAction::Type {
+                text: "secret".to_string(),
+            },
+        })
+        .await
+        .unwrap();
+    assert_eq!(result.status, BrowserCommandStatus::UserRequired);
+    assert_eq!(result.reason_code.as_deref(), Some("sensitive_input"));
+    assert!(adapter.interactions.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

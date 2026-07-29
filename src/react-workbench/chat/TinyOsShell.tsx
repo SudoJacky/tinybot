@@ -232,7 +232,11 @@ export function TinyOsShell({
   const initialWindowIds = useRef(new Set(appWindows.map((window) => window.id)));
   const initialAppIds = appWindows.map((window) => window.appId);
   const browserSessionAvailable = Boolean(snapshot.kernel?.browserSessions.length);
+  const browserNeedsUser = snapshot.kernel?.browserSessions.some(
+    (session) => session.control?.state === "user_required",
+  ) ?? false;
   const browserSessionWasAvailable = useRef(browserSessionAvailable);
+  const browserNeededUser = useRef(false);
   const seenFileOperations = useRef(new Set<string>());
   const revealedCursorItemId = useRef<string | undefined>(undefined);
   const previousHistoryMode = useRef(history);
@@ -353,18 +357,20 @@ export function TinyOsShell({
   useEffect(() => {
     const returningToLive = previousHistoryMode.current && !history;
     const browserBecameAvailable = !browserSessionWasAvailable.current && browserSessionAvailable;
+    const browserBeganNeedingUser = !browserNeededUser.current && browserNeedsUser;
     previousHistoryMode.current = history;
     browserSessionWasAvailable.current = browserSessionAvailable;
+    browserNeededUser.current = browserNeedsUser;
     dispatchUi({
       appIds: appWindows.map((window) => window.appId),
       bounds: uiState.bounds,
       layoutMode,
-      preferredActiveAppId: browserBecameAvailable
+      preferredActiveAppId: browserBecameAvailable || browserBeganNeedingUser
         ? "browser"
         : history || returningToLive ? snapshot.activeAppId : uiState.focusedAppId,
       type: "sync",
     });
-  }, [appWindows.length, browserSessionAvailable, history, layoutMode, snapshot.activeAppId, snapshot.cursorItemId, snapshot.cursorTurnId]);
+  }, [appWindows.length, browserNeedsUser, browserSessionAvailable, history, layoutMode, snapshot.activeAppId, snapshot.cursorItemId, snapshot.cursorTurnId]);
 
   useEffect(() => {
     const desktop = desktopRef.current;
@@ -1899,6 +1905,7 @@ function TinyOsBrowser({ browserRuntime, kernel, surfaceVisible }: {
   const tab = session?.tabs.find(({ tabId }) => tabId === activeTabId);
   const [address, setAddress] = useState(tab?.url ?? "");
   const [error, setError] = useState("");
+  const [handoffCompleting, setHandoffCompleting] = useState(false);
   const liveRuntimeAvailable = Boolean(browserRuntime && session && tab && session.runtimeKind === "windows_webview2");
   const liveSurfaceVisible = liveRuntimeAvailable && surfaceVisible && tab?.rendererLifecycle !== "failed";
 
@@ -1961,6 +1968,29 @@ function TinyOsBrowser({ browserRuntime, kernel, surfaceVisible }: {
     });
   }
 
+  async function completeUserHandoff() {
+    if (!browserRuntime || !session) return;
+    setError("");
+    setHandoffCompleting(true);
+    try {
+      const latest = await browserRuntime.snapshot(session.browserSessionId);
+      if (latest.data.control?.state !== "user_required") {
+        throw new Error("Browser control is no longer waiting for user completion.");
+      }
+      await browserRuntime.interact({
+        action: { type: "resume" },
+        browserSessionId: latest.data.browserSessionId,
+        commandId: `browser-handoff-resume-${Date.now().toString(36)}`,
+        controlEpoch: latest.data.control.controlEpoch,
+        tabId: latest.data.activeTabId,
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setHandoffCompleting(false);
+    }
+  }
+
   if (!browserRuntime) {
     return <BrowserUnavailable message="The live browser is unavailable in this desktop build." />;
   }
@@ -2002,6 +2032,10 @@ function TinyOsBrowser({ browserRuntime, kernel, surfaceVisible }: {
     {session.pendingPolicyRequest ? <section aria-label="Browser policy confirmation" className="tinyos-browser__policy" role="alert">
       <div><ShieldCheck aria-hidden="true" size={14} /><span><strong>{session.pendingPolicyRequest.kind === "popup" ? "Open popup as a managed tab?" : "Open external application?"}</strong><code>{session.pendingPolicyRequest.safeUrl}</code></span></div>
       <div><button type="button" onClick={() => void execute(() => browserRuntime.resolvePolicyRequest(session.browserSessionId, session.pendingPolicyRequest!.requestId, false))}>Deny</button><button type="button" onClick={() => void execute(() => browserRuntime.resolvePolicyRequest(session.browserSessionId, session.pendingPolicyRequest!.requestId, true))}>Allow once</button></div>
+    </section> : null}
+    {session.control?.state === "user_required" && !session.pendingPolicyRequest ? <section aria-label="Browser user handoff" className="tinyos-browser__handoff" role="alert">
+      <div><ShieldCheck aria-hidden="true" size={14} /><span><strong>Finish this step in the browser</strong><span>{session.control.reason || "Complete the requested browser interaction, then return control to the Agent."}</span></span></div>
+      <button disabled={handoffCompleting} type="button" onClick={() => void completeUserHandoff()}>{handoffCompleting ? "Continuing…" : "Done and continue"}</button>
     </section> : null}
     {tab.rendererLifecycle === "failed"
       ? <div className="tinyos-browser__unavailable" role="alert"><AlertTriangle aria-hidden="true" size={22} /><strong>{session.lifecycle === "failed" ? "Browser failed to start" : "This tab stopped responding"}</strong><span>{session.control?.reason || (session.lifecycle === "failed" ? "Retry the shared browser session." : "Restart it to continue in the same shared browser session.")}</span><button type="button" onClick={() => void (session.lifecycle === "failed" ? retryFailedSession() : execute(() => browserRuntime.restartTab(session.browserSessionId, tab.tabId)))}>{session.lifecycle === "failed" ? "Retry browser" : "Restart tab"}</button></div>

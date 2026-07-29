@@ -151,8 +151,7 @@ function browserSessionSnapshot() {
   });
 }
 
-function browserRuntimeMock() {
-  const snapshot = browserSessionSnapshot();
+function browserRuntimeMock(snapshot = browserSessionSnapshot()) {
   const activateTab = vi.fn(async () => snapshot);
   const back = vi.fn(async () => undefined);
   const closeSession = vi.fn(async () => undefined);
@@ -161,7 +160,9 @@ function browserRuntimeMock() {
   const createTab = vi.fn(async () => snapshot);
   const forward = vi.fn(async () => undefined);
   const navigate = vi.fn(async () => snapshot);
+  const interact = vi.fn(async () => undefined);
   const reload = vi.fn(async () => undefined);
+  const snapshotQuery = vi.fn(async () => snapshot);
   const stop = vi.fn(async () => undefined);
   const updateSurface = vi.fn(async (_input: Parameters<NativeBrowserRuntimeApi["updateSurface"]>[0]) => snapshot);
   const api = {
@@ -174,17 +175,17 @@ function browserRuntimeMock() {
     createTab,
     deleteProfile: vi.fn(),
     forward,
-    interact: vi.fn(),
+    interact,
     navigate,
     observe: vi.fn(),
     reload,
     resolvePolicyRequest: vi.fn(async () => snapshot),
     restartTab: vi.fn(async () => snapshot),
-    snapshot: vi.fn(async () => snapshot),
+    snapshot: snapshotQuery,
     stop,
     updateSurface,
   } as unknown as NativeBrowserRuntimeApi;
-  return { activateTab, api, back, closeSession, closeTab, createSession, createTab, forward, navigate, reload, stop, updateSurface };
+  return { activateTab, api, back, closeSession, closeTab, createSession, createTab, forward, interact, navigate, reload, snapshotQuery, stop, updateSurface };
 }
 
 describe("LiveCanvas TinyOS", () => {
@@ -855,6 +856,35 @@ describe("LiveCanvas TinyOS", () => {
     expect(runtime.stop).toHaveBeenCalledWith("browser-session-1", "tab-2");
     await user.click(within(browser).getByRole("button", { name: "Close Second tab" }));
     expect(runtime.closeTab).toHaveBeenCalledWith("browser-session-1", "tab-2");
+  });
+
+  it("lets the user explicitly return a handed-off browser to the Agent", async () => {
+    const handoff = browserSessionSnapshot();
+    handoff.data.control = {
+      controlEpoch: 7,
+      reason: "Complete the login verification",
+      state: "user_required",
+    };
+    const runtime = browserRuntimeMock(handoff);
+    render(<LiveCanvas {...canvasProps([], {
+      browserRuntime: runtime.api,
+      nativeSnapshots: [handoff],
+    })} />);
+
+    const browser = screen.getByLabelText("Browser window");
+    expect(browser.getAttribute("data-active")).toBe("true");
+    const prompt = within(browser).getByRole("alert", { name: "Browser user handoff" });
+    expect(within(prompt).getByText("Complete the login verification")).toBeTruthy();
+
+    await userEvent.click(within(prompt).getByRole("button", { name: "Done and continue" }));
+
+    expect(runtime.snapshotQuery).toHaveBeenCalledWith("browser-session-1");
+    expect(runtime.interact).toHaveBeenCalledWith(expect.objectContaining({
+      action: { type: "resume" },
+      browserSessionId: "browser-session-1",
+      controlEpoch: 7,
+      tabId: "tab-1",
+    }));
   });
 
   it("continues native browser surface revisions after the host remounts", async () => {

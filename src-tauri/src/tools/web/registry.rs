@@ -19,7 +19,7 @@ impl ToolContributor for WebToolContributor {
             "properties": {
                 "type": {
                     "type": "string",
-                    "description": "Use clickTarget with targetRef for semantic targets. Use click only with x and y coordinates. URL navigation belongs in web.open.",
+                    "description": "Use clickTarget with targetRef for semantic targets. Use click only with x and y coordinates. Use userHandoff when login credentials, verification codes, CAPTCHA, payment details, file pickers, or another protected step requires the user. URL navigation belongs in web.open.",
                     "enum": ["back", "forward", "reload", "stop", "click", "clickTarget", "type", "fill", "key", "scroll", "wait", "userHandoff", "resume"]
                 },
                 "x": { "type": "number" },
@@ -30,7 +30,7 @@ impl ToolContributor for WebToolContributor {
                 "deltaX": { "type": "number" },
                 "deltaY": { "type": "number" },
                 "timeoutMs": { "type": "integer", "minimum": 0, "maximum": 15000 },
-                "reason": { "type": "string" }
+                "reason": { "type": "string", "description": "Required for userHandoff. Briefly tell the user what they need to complete." }
             },
             "additionalProperties": false
         });
@@ -77,7 +77,7 @@ impl ToolContributor for WebToolContributor {
                 "web.act",
                 "web",
                 "Act on the current web page",
-                "Perform one action against the current page. Put action fields inside the action object; use clickTarget with targetRef for semantic targets. Use web.open, not web.act, for URL navigation. Always pass the latest snapshotId. Stale actions are not executed and return the latest snapshot.",
+                "Perform one action against the current page. Put action fields inside the action object; use clickTarget with targetRef for semantic targets. For passwords, verification codes, CAPTCHA, payment details, file pickers, or another protected step, call userHandoff with a clear reason and stop changing the page until the user resumes control. Use web.open, not web.act, for URL navigation. Always pass the latest snapshotId. Stale actions are not executed and return the latest snapshot.",
                 ToolExposure::Model,
                 false,
                 runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),

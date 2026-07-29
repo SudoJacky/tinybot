@@ -158,6 +158,8 @@ const INITIAL_LIVE_CANVAS_STATE: LiveCanvasState = {
   visibility: "closed",
 };
 
+const BROWSER_HANDOFF_CONTINUE_MESSAGE = "我已完成浏览器中的必要操作。请重新读取当前页面，并从转交前的位置继续。";
+
 function reduceLiveCanvasState(state: LiveCanvasState, action: LiveCanvasAction): LiveCanvasState {
   switch (action.type) {
     case "close":
@@ -264,6 +266,7 @@ export function ChatPage({
   const [localSessionSidebarCollapsed, setLocalSessionSidebarCollapsed] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const [liveCanvas, dispatchLiveCanvas] = useReducer(reduceLiveCanvasState, INITIAL_LIVE_CANVAS_STATE);
+  const browserHandoffRef = useRef<{ browserSessionId: string; ownerSessionId: string } | undefined>(undefined);
   const [commandLifecycle, dispatchCommandLifecycle] = useReducer(
     reduceTinyOsCommandLifecycle,
     { stage: "idle" } as TinyOsCommandLifecycle,
@@ -431,6 +434,27 @@ export function ChatPage({
     );
     return () => window.clearTimeout(timer);
   }, [liveCanvas.visibility]);
+
+  useEffect(() => {
+    const browserSession = browserSnapshot?.data;
+    if (!browserSession || !activeSession?.id) return;
+    if (browserSession.control?.state === "user_required") {
+      browserHandoffRef.current = {
+        browserSessionId: browserSession.browserSessionId,
+        ownerSessionId: activeSession.id,
+      };
+      dispatchLiveCanvas({ type: "return_live" });
+      return;
+    }
+    const handoff = browserHandoffRef.current;
+    if (browserSession.control?.state !== "idle"
+      || handoff?.browserSessionId !== browserSession.browserSessionId
+      || handoff.ownerSessionId !== activeSession.id) {
+      return;
+    }
+    browserHandoffRef.current = undefined;
+    void handleBrowserHandoffComplete(activeSession);
+  }, [activeSession?.id, browserSnapshot?.data.browserSessionId, browserSnapshot?.data.control?.state]);
 
   useEffect(() => {
     setBrowserSnapshot(undefined);
@@ -1213,6 +1237,15 @@ export function ChatPage({
       sessionId,
       source: { control, surface: "chat" },
     }));
+  }
+
+  async function handleBrowserHandoffComplete(session: SessionSummary): Promise<void> {
+    try {
+      await dispatchTurn(session.id, { text: BROWSER_HANDOFF_CONTINUE_MESSAGE }, "browser-handoff-complete");
+      await handleSessionStoreRefresh(session);
+    } catch (error) {
+      setTimelineError(`Browser handoff could not continue the Agent: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   async function handleComposerSend(

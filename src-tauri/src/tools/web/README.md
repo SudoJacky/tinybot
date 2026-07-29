@@ -105,6 +105,24 @@ target-<observation revision>-<index>
 
 URL 跳转使用 `web.open`，不作为 `web.act` 动作。
 
+## 转交给用户
+
+密码、一次性验证码、CAPTCHA、支付信息、文件选择器等步骤不应由 agent 代替用户完成。agent 调用：
+
+```json
+{
+  "snapshotId": "b13ac72.4",
+  "action": {
+    "type": "userHandoff",
+    "reason": "请完成登录验证"
+  }
+}
+```
+
+浏览器进入 `user_required`，前端展示当前页面和原因。用户操作期间仍保持这个状态，但每次直接输入都会让旧快照失效。用户点击 “Done and continue” 后，前端读取最新 control epoch、执行 `resume`，并在同一会话发起一个简短续接回合。agent 随后通过 `web.read` 获取新的 `snapshotId`。
+
+`user_required` 期间只允许观察和 `resume`，其他 agent 页面修改会被拒绝。弹窗和外部协议仍使用各自的 Allow/Deny 确认，不使用通用完成按钮。
+
 ## 保持简单
 
 当前设计刻意不做：
