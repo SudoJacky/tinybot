@@ -436,7 +436,7 @@ fn chat_completion_request_exposes_only_foundational_model_tools() {
 
 #[cfg(all(windows, feature = "native-browser-runtime"))]
 #[test]
-fn feature_build_defers_browser_tools_until_searched() {
+fn feature_build_always_exposes_high_level_web_tools() {
     let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
@@ -459,6 +459,9 @@ fn feature_build_defers_browser_tools_until_searched() {
 
     assert!(!names.contains(&"browser_observe"));
     assert!(!names.contains(&"browser_interact"));
+    assert!(names.contains(&"web_open"));
+    assert!(names.contains(&"web_read"));
+    assert!(names.contains(&"web_act"));
     assert!(names.contains(&"tool_search"));
 }
 

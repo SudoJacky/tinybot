@@ -108,23 +108,53 @@ impl BrowserRuntimeAdapter for FakeAdapter {
             viewport_height: 600,
             device_scale: 1.0,
             semantic_nodes: if semantic {
-                vec![BrowserPlatformSemanticNode {
-                    selector: "#submit".to_string(),
-                    role: "button".to_string(),
-                    name: "Submit".to_string(),
-                    frame: "top".to_string(),
-                    x: 10.0,
-                    y: 20.0,
-                    width: 80.0,
-                    height: 30.0,
-                    disabled: false,
-                    focused: false,
-                    sensitive: false,
-                    protected_reason: self
-                        .protected_semantic
-                        .load(std::sync::atomic::Ordering::Relaxed)
-                        .then(|| "native_file_picker".to_string()),
-                }]
+                vec![
+                    BrowserPlatformSemanticNode {
+                        selector: "#submit".to_string(),
+                        role: "button".to_string(),
+                        name: "Submit".to_string(),
+                        frame: "top".to_string(),
+                        x: 10.0,
+                        y: 20.0,
+                        width: 80.0,
+                        height: 30.0,
+                        disabled: false,
+                        focused: false,
+                        sensitive: false,
+                        protected_reason: self
+                            .protected_semantic
+                            .load(std::sync::atomic::Ordering::Relaxed)
+                            .then(|| "native_file_picker".to_string()),
+                    },
+                    BrowserPlatformSemanticNode {
+                        selector: "#offscreen".to_string(),
+                        role: "button".to_string(),
+                        name: "Offscreen".to_string(),
+                        frame: "top".to_string(),
+                        x: 900.0,
+                        y: 20.0,
+                        width: 80.0,
+                        height: 30.0,
+                        disabled: false,
+                        focused: false,
+                        sensitive: false,
+                        protected_reason: None,
+                    },
+                    BrowserPlatformSemanticNode {
+                        selector: "#unnamed".to_string(),
+                        role: "button".to_string(),
+                        name: String::new(),
+                        frame: "top".to_string(),
+                        x: 100.0,
+                        y: 20.0,
+                        width: 30.0,
+                        height: 30.0,
+                        disabled: false,
+                        focused: false,
+                        sensitive: false,
+                        protected_reason: None,
+                    },
+                ]
             } else {
                 vec![]
             },
@@ -303,6 +333,7 @@ async fn high_level_web_tools_refresh_and_reject_stale_actions() {
             .unwrap();
     assert_eq!(first["status"], "completed");
     assert!(first["snapshot"].get("browserSessionId").is_none());
+    assert_eq!(first["snapshot"]["targets"].as_array().unwrap().len(), 1);
     let first_snapshot_id = first["snapshotId"].as_str().unwrap().to_string();
     let first_target_ref = first["snapshot"]["targets"][0]["targetRef"]
         .as_str()

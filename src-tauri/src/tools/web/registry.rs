@@ -19,11 +19,12 @@ impl ToolContributor for WebToolContributor {
             "properties": {
                 "type": {
                     "type": "string",
+                    "description": "Use clickTarget with targetRef for semantic targets. Use click only with x and y coordinates. URL navigation belongs in web.open.",
                     "enum": ["back", "forward", "reload", "stop", "click", "clickTarget", "type", "fill", "key", "scroll", "wait", "userHandoff", "resume"]
                 },
                 "x": { "type": "number" },
                 "y": { "type": "number" },
-                "targetRef": { "type": "string" },
+                "targetRef": { "type": "string", "description": "Opaque targetRef from the latest returned snapshot." },
                 "text": { "type": "string" },
                 "key": { "type": "string" },
                 "deltaX": { "type": "number" },
@@ -39,7 +40,7 @@ impl ToolContributor for WebToolContributor {
                 "web",
                 "Open a web page",
                 "Open a URL in this chat's shared browser and return the current page snapshot and snapshotId. Session and tab setup are handled automatically.",
-                ToolExposure::Deferred,
+                ToolExposure::Model,
                 false,
                 runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
                 vec![
@@ -60,7 +61,7 @@ impl ToolContributor for WebToolContributor {
                 "web",
                 "Read the current web page",
                 "Return the latest page snapshot and snapshotId. Pass the last snapshotId for a compact unchanged response when the page has not changed.",
-                ToolExposure::Deferred,
+                ToolExposure::Model,
                 false,
                 runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
                 vec![WorkerCapability::BrowserObserve],
@@ -76,8 +77,8 @@ impl ToolContributor for WebToolContributor {
                 "web.act",
                 "web",
                 "Act on the current web page",
-                "Perform one action against the current page. Always pass the snapshotId returned by web.open, web.read, or the previous web.act. Stale actions are not executed and return the latest snapshot.",
-                ToolExposure::Deferred,
+                "Perform one action against the current page. Put action fields inside the action object; use clickTarget with targetRef for semantic targets. Use web.open, not web.act, for URL navigation. Always pass the latest snapshotId. Stale actions are not executed and return the latest snapshot.",
+                ToolExposure::Model,
                 false,
                 runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
                 vec![

@@ -39,6 +39,8 @@ use windows_sys::Win32::{
 const DIRECT_INPUT_MESSAGE: &str = "tinybot-browser-direct-input-v1";
 const CONTENT_DIRTY_MESSAGE: &str = "tinybot-browser-content-dirty-v1";
 const MAX_SEMANTIC_NODES: usize = 500;
+const BACKGROUND_VIEWPORT_WIDTH: u32 = 1024;
+const BACKGROUND_VIEWPORT_HEIGHT: u32 = 768;
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(15);
 const BROWSER_PROCESS_EXIT_TIMEOUT: Duration = Duration::from_secs(30);
 const PROFILE_DELETE_RETRY_DELAY: Duration = Duration::from_millis(50);
@@ -452,7 +454,10 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
             .add_child(
                 builder,
                 LogicalPosition::new(0.0, 0.0),
-                LogicalSize::new(1.0, 1.0),
+                LogicalSize::new(
+                    f64::from(BACKGROUND_VIEWPORT_WIDTH),
+                    f64::from(BACKGROUND_VIEWPORT_HEIGHT),
+                ),
             )
             .map_err(|error| format!("Failed to create native browser WebView2 child: {error}"))?;
         webview
@@ -486,8 +491,8 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
             title: "New tab".to_string(),
             can_go_back: false,
             can_go_forward: false,
-            viewport_width: 1,
-            viewport_height: 1,
+            viewport_width: BACKGROUND_VIEWPORT_WIDTH,
+            viewport_height: BACKGROUND_VIEWPORT_HEIGHT,
             device_scale: 1.0,
         })
     }

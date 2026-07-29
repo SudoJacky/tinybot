@@ -4,7 +4,8 @@ use super::state::AgentTurnState;
 use super::tool_dispatcher::{
     native_tool_call_supports_parallel, native_tool_cancellation_mode,
     native_tool_cleanup_timeout_ms, native_tool_is_permitted, native_tool_mutates_session,
-    native_tool_mutates_workspace, native_tool_waits_for_runtime_cancellation,
+    native_tool_mutates_workspace, native_tool_rejection_reason,
+    native_tool_waits_for_runtime_cancellation,
 };
 use super::tool_projection::{assistant_tool_calls_message, commit_tool_observation};
 use super::{
@@ -982,10 +983,7 @@ fn policy_denied_tool_result(
     iteration: i64,
     tool_call: &NativeAgentToolCall,
 ) -> Result<NativeAgentToolExecutionOutcome, String> {
-    let error = format!(
-        "native tool `{}` is not permitted by Rust capability policy",
-        tool_call.name
-    );
+    let error = native_tool_rejection_reason(context, &tool_call.name);
     tool_error_result(services, context, state, iteration, tool_call, error)
 }
 

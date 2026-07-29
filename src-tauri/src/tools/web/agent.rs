@@ -4,6 +4,8 @@ use crate::native_browser::{
 };
 use serde_json::{json, Value};
 
+const MAX_AGENT_SNAPSHOT_TARGETS: usize = 100;
+
 pub(crate) async fn dispatch_web_open(
     runtime: &SharedBrowserRuntime,
     owner_session_id: &str,
@@ -222,16 +224,39 @@ fn snapshot_payload(page: &BrowserAgentPageState) -> Value {
             "deviceScale": capture.device_scale,
         })
     });
+    let mut targets_truncated = false;
     let targets = page
         .observation
         .semantic
         .as_ref()
-        .map(|semantic| &semantic.nodes);
-    let targets_truncated = page
-        .observation
-        .semantic
-        .as_ref()
-        .is_some_and(|semantic| semantic.truncated);
+        .map(|semantic| {
+            targets_truncated = semantic.truncated;
+            let mut targets = semantic
+                .nodes
+                .iter()
+                .filter(|target| {
+                    let meaningful = !target.name.trim().is_empty()
+                        || target.sensitive
+                        || target.protected_reason.is_some();
+                    meaningful
+                        && page.observation.capture.as_ref().is_none_or(|capture| {
+                            capture.viewport_width <= 1
+                                || capture.viewport_height <= 1
+                                || (target.x + target.width > 0.0
+                                    && target.y + target.height > 0.0
+                                    && target.x < f64::from(capture.viewport_width)
+                                    && target.y < f64::from(capture.viewport_height))
+                        })
+                })
+                .take(MAX_AGENT_SNAPSHOT_TARGETS + 1)
+                .collect::<Vec<_>>();
+            if targets.len() > MAX_AGENT_SNAPSHOT_TARGETS {
+                targets.truncate(MAX_AGENT_SNAPSHOT_TARGETS);
+                targets_truncated = true;
+            }
+            targets
+        })
+        .unwrap_or_default();
     json!({
         "url": tab.url,
         "title": tab.title,

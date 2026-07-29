@@ -84,7 +84,7 @@ fn canonical_apply_patch_is_model_visible_and_legacy_name_is_hidden() {
 }
 
 #[test]
-fn browser_tools_are_deferred() {
+fn browser_tools_are_always_exposed_to_the_model() {
     let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
         WorkerCapability::BrowserObserve,
         WorkerCapability::BrowserInteract,
@@ -99,12 +99,12 @@ fn browser_tools_are_deferred() {
         .get_tool("web.act")
         .expect("web.act should be registered");
 
-    assert_eq!(open.exposure, ToolExposure::Deferred);
+    assert_eq!(open.exposure, ToolExposure::Model);
     assert!(open.available);
     assert!(open.runtime_policy.mutates_session);
-    assert_eq!(read.exposure, ToolExposure::Deferred);
+    assert_eq!(read.exposure, ToolExposure::Model);
     assert!(read.available);
-    assert_eq!(act.exposure, ToolExposure::Deferred);
+    assert_eq!(act.exposure, ToolExposure::Model);
     assert!(act.available);
     assert_eq!(
         registry.contributor_id_for_tool("web.open"),

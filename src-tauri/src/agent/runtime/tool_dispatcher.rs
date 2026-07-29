@@ -15,10 +15,7 @@ impl NativeAgentToolDispatcher for FakeNativeAgentToolDispatcher {
         tool_call: &PreparedToolCall,
     ) -> Result<NativeAgentToolResult, String> {
         if !native_tool_is_permitted(_context, &tool_call.name) {
-            return Err(format!(
-                "native tool `{}` is not permitted by Rust capability policy",
-                tool_call.name
-            ));
+            return Err(native_tool_rejection_reason(_context, &tool_call.name));
         }
         Ok(NativeAgentToolResult::generic_success(
             tool_call,
@@ -51,10 +48,7 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
             return self.fallback.dispatch(context, tool_call);
         }
         if !native_tool_is_permitted(context, &tool_call.name) {
-            return Err(format!(
-                "native tool `{}` is not permitted by Rust capability policy",
-                tool_call.name
-            ));
+            return Err(native_tool_rejection_reason(context, &tool_call.name));
         }
         let args = tool_call.arguments_value();
         let raw = match tool_call.name.as_str() {
@@ -227,6 +221,11 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
 
 pub(super) fn native_tool_is_permitted(context: &AgentTurnContext, name: &str) -> bool {
     registry_tool_available(context, name) || legacy_native_tool_alias_is_permitted(context, name)
+}
+
+pub(super) fn native_tool_rejection_reason(context: &AgentTurnContext, name: &str) -> String {
+    let policy_method = legacy_native_tool_alias_policy_method(name).unwrap_or(name);
+    context.tool_router.rejection_reason(policy_method)
 }
 
 pub(super) fn native_tool_supports_parallel(context: &AgentTurnContext, name: &str) -> bool {
