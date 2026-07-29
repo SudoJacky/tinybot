@@ -92,6 +92,7 @@ pub(crate) struct BrowserPlatformSurface {
     pub tab_id: BrowserTabId,
     pub rect: BrowserSurfaceRect,
     pub visible: bool,
+    pub focus: bool,
 }
 
 #[derive(Clone, Debug, Default)]

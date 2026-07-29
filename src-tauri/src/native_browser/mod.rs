@@ -21,6 +21,7 @@ pub(crate) use manager::{BrowserAgentPageState, SharedBrowserRuntime, AGENT_SNAP
 use manager::{BrowserDiagnosticSink, BrowserSessionManager, BrowserSnapshotSink};
 pub(crate) use model::{
     BrowserCreateSessionInput, BrowserInteractionInput, BrowserNativeSnapshot, BrowserObserveInput,
+    BrowserSessionLifecycle,
 };
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};

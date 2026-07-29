@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { createRef } from "react";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
@@ -909,6 +909,76 @@ describe("LiveCanvas TinyOS", () => {
       layoutRevision: 42,
       tabId: "tab-1",
     });
+  });
+
+  it("does not resend an unchanged native browser surface", async () => {
+    const runtime = browserRuntimeMock();
+    const browserEntry = entry(step({ id: "browser-native-stable", kind: "browser" }));
+    render(<LiveCanvas {...canvasProps([browserEntry], {
+      browserRuntime: runtime.api,
+      nativeSnapshots: [browserSessionSnapshot()],
+    })} />);
+
+    await waitFor(() => expect(runtime.updateSurface).toHaveBeenCalledTimes(1));
+    runtime.updateSurface.mockClear();
+    fireEvent(window, new Event("resize"));
+    await act(async () => {
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    });
+
+    expect(runtime.updateSurface).not.toHaveBeenCalled();
+  });
+
+  it("keeps the native browser surface attached while its TinyOS window is dragged", async () => {
+    const snapshot = browserSessionSnapshot();
+    const runtime = browserRuntimeMock(snapshot);
+    const browserEntry = entry(step({ id: "browser-native-drag", kind: "browser" }));
+    render(<LiveCanvas {...canvasProps([browserEntry], {
+      browserRuntime: runtime.api,
+      nativeSnapshots: [snapshot],
+      widthPx: 900,
+    })} />);
+
+    await waitFor(() => expect(runtime.updateSurface).toHaveBeenCalledWith(expect.objectContaining({ visible: true })));
+    runtime.updateSurface.mockClear();
+    let releaseFirstUpdate: (() => void) | undefined;
+    runtime.updateSurface.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseFirstUpdate = () => resolve(snapshot);
+    }));
+
+    const browserSurface = screen.getByLabelText("Browser page");
+    let browserSurfaceX = 0;
+    vi.spyOn(browserSurface, "getBoundingClientRect").mockImplementation(() => ({
+      bottom: 600,
+      height: 600,
+      left: browserSurfaceX,
+      right: browserSurfaceX + 800,
+      top: 0,
+      width: 800,
+      x: browserSurfaceX,
+      y: 0,
+      toJSON: () => ({}),
+    }));
+    const titlebar = screen.getByLabelText("Move Browser window");
+    fireEvent.pointerDown(titlebar, { button: 0, clientX: 120, clientY: 80, pointerId: 7 });
+    browserSurfaceX = 120;
+    fireEvent.pointerMove(titlebar, { clientX: 240, clientY: 180, pointerId: 7 });
+
+    await waitFor(() => expect(runtime.updateSurface).toHaveBeenCalledTimes(1));
+    browserSurfaceX = 160;
+    fireEvent.pointerMove(titlebar, { clientX: 280, clientY: 210, pointerId: 7 });
+    browserSurfaceX = 200;
+    fireEvent.pointerMove(titlebar, { clientX: 320, clientY: 240, pointerId: 7 });
+    fireEvent(window, new Event("resize"));
+    await act(async () => {
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    });
+
+    expect(runtime.updateSurface).toHaveBeenCalledTimes(1);
+    await act(async () => releaseFirstUpdate?.());
+    await waitFor(() => expect(runtime.updateSurface).toHaveBeenCalledTimes(2));
+    expect(runtime.updateSurface.mock.calls.every(([input]) => input.visible)).toBe(true);
+    expect(runtime.updateSurface).toHaveBeenCalledWith(expect.objectContaining({ visible: true }));
   });
 
   it("switches applications with keyboard shortcuts and restores session UI state", async () => {

@@ -459,7 +459,7 @@ export function ChatPage({
   useEffect(() => {
     setBrowserSnapshot(undefined);
     setBrowserRuntimeError("");
-    if (!liveCanvasOpen || !activeSession?.id || !chatStore.browserRuntime) return;
+    if (!activeSession?.id || !chatStore.browserRuntime) return;
     let cancelled = false;
     void chatStore.browserRuntime.createSession({ ownerSessionId: activeSession.id }).then((snapshot) => {
       if (!cancelled) setBrowserSnapshot(snapshot);
@@ -469,7 +469,7 @@ export function ChatPage({
     return () => {
       cancelled = true;
     };
-  }, [activeSession?.id, chatStore, liveCanvasOpen]);
+  }, [activeSession?.id, chatStore]);
   const liveCanvasEntries = useMemo<LiveCanvasEntry[]>(() => (
     (timelineLoaded ? timeline?.turns ?? [] : []).flatMap((turn) => (
       (turn.executionItems ?? turn.steps).map((step) => ({ step, turnId: turn.id }))

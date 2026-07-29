@@ -1,6 +1,6 @@
 use crate::native_browser::{
     BrowserCreateSessionInput, BrowserInteractionInput, BrowserNativeSnapshot, BrowserObserveInput,
-    SharedBrowserRuntime,
+    BrowserSessionLifecycle, SharedBrowserRuntime,
 };
 use std::future::Future;
 use std::pin::Pin;
@@ -45,6 +45,18 @@ pub(crate) async fn dispatch_browser_observe(
     }
     let requested_session_id = optional_text(&arguments, "browserSessionId")?;
     let snapshot = match runtime.snapshot_for_owner(owner_session_id) {
+        Some(snapshot) if snapshot.data.lifecycle == BrowserSessionLifecycle::Creating => {
+            runtime
+                .create_session(
+                    serde_json::from_value::<BrowserCreateSessionInput>(serde_json::json!({
+                        "ownerSessionId": owner_session_id
+                    }))
+                    .map_err(|error| {
+                        format!("failed to create TinyOS browser session input: {error}")
+                    })?,
+                )
+                .await?
+        }
         Some(snapshot) => snapshot,
         None if requested_session_id.is_some() => {
             return Err(

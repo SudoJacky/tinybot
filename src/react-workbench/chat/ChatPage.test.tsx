@@ -375,6 +375,19 @@ describe("ChatPage", () => {
     expect(document.activeElement).toBe(openButton);
   }, 10_000);
 
+  it("prepares the active chat browser session before TinyOS is opened", async () => {
+    const stores = createStores();
+    const createSession = vi.fn(async () => handoffBrowserSnapshot("idle", 0));
+    stores.chatStore.browserRuntime = {
+      createSession,
+    } as unknown as NativeBrowserRuntimeApi;
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 29, 0, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await waitFor(() => expect(createSession).toHaveBeenCalledWith({ ownerSessionId: "s1" }));
+    expect(screen.queryByLabelText("TinyOS shared desktop")).toBeNull();
+  });
+
   it("opens the handed-off browser and continues the Agent after explicit completion", async () => {
     const stores = createStores();
     const handoff = handoffBrowserSnapshot("user_required", 7);

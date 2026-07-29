@@ -22,7 +22,7 @@ use std::{
 };
 use tauri::{
     webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBuilder},
-    AppHandle, LogicalPosition, LogicalSize, Manager, Webview, WebviewUrl, Wry,
+    AppHandle, LogicalPosition, LogicalSize, Manager, Rect, Webview, WebviewUrl, Wry,
 };
 use tokio::sync::{mpsc, oneshot};
 use webview2_com::{
@@ -51,12 +51,13 @@ const DIRECT_INPUT_SCRIPT: &str = r#"
   if (window.__tinybotBrowserDirectInputInstalled) return;
   Object.defineProperty(window, '__tinybotBrowserDirectInputInstalled', { value: true });
   const notify = (event) => {
-    if (event.isTrusted && window.chrome?.webview) {
-      window.chrome.webview.postMessage('tinybot-browser-direct-input-v1');
-    }
+    if (!event.isTrusted) return;
+    setTimeout(() => {
+      window.chrome?.webview?.postMessage('tinybot-browser-direct-input-v1');
+    }, 0);
   };
-  addEventListener('pointerdown', notify, true);
-  addEventListener('keydown', notify, true);
+  addEventListener('click', notify, true);
+  addEventListener('keyup', notify, true);
   addEventListener('input', notify, true);
 
   const installContentObserver = () => {
@@ -525,27 +526,28 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
         if surface.visible {
             handle
                 .webview
-                .set_position(LogicalPosition::new(surface.rect.x, surface.rect.y))
-                .map_err(|error| format!("Failed to position native browser surface: {error}"))?;
-            handle
-                .webview
-                .set_size(LogicalSize::new(surface.rect.width, surface.rect.height))
-                .map_err(|error| format!("Failed to size native browser surface: {error}"))?;
+                .set_bounds(Rect {
+                    position: LogicalPosition::new(surface.rect.x, surface.rect.y).into(),
+                    size: LogicalSize::new(surface.rect.width, surface.rect.height).into(),
+                })
+                .map_err(|error| format!("Failed to place native browser surface: {error}"))?;
             handle
                 .webview
                 .show()
                 .map_err(|error| format!("Failed to show native browser surface: {error}"))?;
-            handle
-                .webview
-                .set_focus()
-                .map_err(|error| format!("Failed to focus native browser surface: {error}"))?;
+            if surface.focus {
+                handle
+                    .webview
+                    .set_focus()
+                    .map_err(|error| format!("Failed to focus native browser surface: {error}"))?;
+            }
         } else {
             handle
                 .webview
                 .hide()
                 .map_err(|error| format!("Failed to hide native browser surface: {error}"))?;
         }
-        Ok(())
+        wait_for_webview_dispatch(&handle.webview, "surface update").await
     }
 
     async fn navigate(&self, tab_id: &BrowserTabId, url: &str) -> Result<(), String> {
@@ -1085,6 +1087,19 @@ async fn register_webview2_events(
         .await
         .map_err(|_| "WebView2 event registration timed out".to_string())?
         .map_err(|_| "WebView2 event registration result channel closed".to_string())?
+}
+
+async fn wait_for_webview_dispatch(webview: &Webview<Wry>, operation: &str) -> Result<(), String> {
+    let (tx, rx) = oneshot::channel();
+    webview
+        .with_webview(move |_| {
+            let _ = tx.send(());
+        })
+        .map_err(|error| format!("Failed to enqueue native browser {operation}: {error}"))?;
+    tokio::time::timeout(Duration::from_secs(5), rx)
+        .await
+        .map_err(|_| format!("Native browser {operation} timed out"))?
+        .map_err(|_| format!("Native browser {operation} completion channel closed"))
 }
 
 fn ensure_profile_path(root: &Path, candidate: &Path) -> Result<(), String> {

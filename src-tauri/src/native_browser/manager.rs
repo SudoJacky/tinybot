@@ -134,6 +134,7 @@ pub(crate) struct BrowserSessionManager {
     profile_root: PathBuf,
     state: Mutex<BrowserRuntimeState>,
     command_locks: Mutex<HashMap<BrowserTabId, Arc<tokio::sync::Mutex<()>>>>,
+    owner_creation_locks: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     active_cancellations: Mutex<HashMap<BrowserTabId, BrowserActiveCancellation>>,
     surface_lock: tokio::sync::Mutex<()>,
     snapshot_sink: BrowserSnapshotSink,
@@ -152,6 +153,7 @@ impl BrowserSessionManager {
             profile_root,
             state: Mutex::new(BrowserRuntimeState::default()),
             command_locks: Mutex::new(HashMap::new()),
+            owner_creation_locks: Mutex::new(HashMap::new()),
             active_cancellations: Mutex::new(HashMap::new()),
             surface_lock: tokio::sync::Mutex::new(()),
             snapshot_sink,
@@ -285,6 +287,34 @@ impl BrowserSessionManager {
     ) -> Result<BrowserNativeSnapshot, String> {
         let owner_session_id = required_text(input.owner_session_id, "Browser owner session id")?;
         if let Some(snapshot) = self.snapshot_for_owner(&owner_session_id) {
+            if snapshot.data.lifecycle != BrowserSessionLifecycle::Creating {
+                return Ok(snapshot);
+            }
+        }
+        let creation_lock = self.owner_creation_lock(&owner_session_id);
+        let wait_started = Instant::now();
+        let _creation_guard = creation_lock.lock().await;
+        if let Some(snapshot) = self.snapshot_for_owner(&owner_session_id) {
+            let mut state = self.lock_state();
+            increment_counter(&mut state, "browser.session.create.coalesced");
+            record_duration(
+                &mut state,
+                "browser.session.create.wait",
+                wait_started.elapsed(),
+            );
+            drop(state);
+            self.diagnostic(
+                "browser.session.create.coalesced",
+                Some(snapshot.data.browser_session_id.clone()),
+                Some(snapshot.data.active_tab_id.clone()),
+                None,
+                None,
+                None,
+                diagnostic_details([(
+                    "waitMs",
+                    serde_json::Value::from(wait_started.elapsed().as_millis() as u64),
+                )]),
+            );
             return Ok(snapshot);
         }
         let initial_url = safe_browser_url(input.initial_url.as_deref().unwrap_or("about:blank"))?;
@@ -583,6 +613,7 @@ impl BrowserSessionManager {
                     tab_id: tab_id.clone(),
                     rect,
                     visible: true,
+                    focus: true,
                 })
                 .await?;
         }
@@ -856,6 +887,7 @@ impl BrowserSessionManager {
                         tab_id: tab_id.clone(),
                         rect,
                         visible: true,
+                        focus: true,
                     })
                     .await?;
             }
@@ -903,27 +935,12 @@ impl BrowserSessionManager {
         let _surface_guard = self.surface_lock.lock().await;
         input.rect.validate()?;
         let show = input.should_show();
-        let capture_before_hide = {
-            let state = self.lock_state();
-            let session = state
-                .sessions
-                .get(&input.browser_session_id)
-                .ok_or_else(|| "Browser session is unavailable".to_string())?;
-            require_tab(session, &input.tab_id)?;
-            input.layout_revision >= session.surface.layout_revision
-                && !show
-                && session.surface.lifecycle == BrowserSurfaceLifecycle::Visible
+        let next_lifecycle = if show {
+            BrowserSurfaceLifecycle::Visible
+        } else {
+            BrowserSurfaceLifecycle::Hidden
         };
-        if capture_before_hide {
-            let _ = self
-                .observe(BrowserObserveInput {
-                    browser_session_id: input.browser_session_id.clone(),
-                    tab_id: input.tab_id.clone(),
-                    capture: true,
-                    semantic: false,
-                })
-                .await;
-        }
+        let hidden_reason = (!show).then(|| hidden_surface_reason(&input));
         let previous_surface = {
             let mut state = self.lock_state();
             let session = ready_session_mut(&mut state, &input.browser_session_id)?;
@@ -933,22 +950,40 @@ impl BrowserSessionManager {
                     input.layout_revision, session.surface.layout_revision
                 ));
             }
-            let previous_surface = session.surface.clone();
-            session.surface = BrowserSurfaceSnapshot {
-                lifecycle: session
-                    .surface
-                    .lifecycle
-                    .transition_to(BrowserSurfaceLifecycle::Attaching)?,
-                surface_id: Some(input.surface_id.clone()),
-                tab_id: Some(input.tab_id.clone()),
-                rect: Some(input.rect.clone()),
-                layout_revision: input.layout_revision,
-                reason: (!show).then(|| hidden_surface_reason(&input)),
-            };
-            bump_revision(&mut state);
-            previous_surface
+            let unchanged = session.surface.lifecycle == next_lifecycle
+                && session.surface.surface_id.as_ref() == Some(&input.surface_id)
+                && session.surface.tab_id.as_ref() == Some(&input.tab_id)
+                && session.surface.rect.as_ref() == Some(&input.rect)
+                && session.surface.reason.as_ref() == hidden_reason.as_ref();
+            if unchanged {
+                increment_counter(&mut state, "browser.surface.unchanged");
+                None
+            } else {
+                let previous_surface = session.surface.clone();
+                session.surface = BrowserSurfaceSnapshot {
+                    lifecycle: session
+                        .surface
+                        .lifecycle
+                        .transition_to(BrowserSurfaceLifecycle::Attaching)?,
+                    surface_id: Some(input.surface_id.clone()),
+                    tab_id: Some(input.tab_id.clone()),
+                    rect: Some(input.rect.clone()),
+                    layout_revision: input.layout_revision,
+                    reason: hidden_reason,
+                };
+                bump_revision(&mut state);
+                Some(previous_surface)
+            }
+        };
+        let Some(previous_surface) = previous_surface else {
+            return self.snapshot(&input.browser_session_id).ok_or_else(|| {
+                "Browser session disappeared after unchanged surface update".to_string()
+            });
         };
         self.publish_snapshot(&input.browser_session_id);
+        let became_visible = show
+            && (previous_surface.lifecycle != BrowserSurfaceLifecycle::Visible
+                || previous_surface.tab_id.as_ref() != Some(&input.tab_id));
         if previous_surface.lifecycle == BrowserSurfaceLifecycle::Visible
             && previous_surface.tab_id.as_ref() != Some(&input.tab_id)
         {
@@ -960,6 +995,7 @@ impl BrowserSessionManager {
                         tab_id: previous_tab_id,
                         rect: previous_rect,
                         visible: false,
+                        focus: false,
                     })
                     .await?;
             }
@@ -970,6 +1006,7 @@ impl BrowserSessionManager {
                 tab_id: input.tab_id.clone(),
                 rect: input.rect.clone(),
                 visible: show,
+                focus: became_visible,
             })
             .await;
         let superseded = {
@@ -1058,7 +1095,7 @@ impl BrowserSessionManager {
             ]),
         );
         result?;
-        if show {
+        if became_visible {
             let manager = self.clone();
             let observe_input = BrowserObserveInput {
                 browser_session_id: input.browser_session_id.clone(),
@@ -1874,6 +1911,15 @@ impl BrowserSessionManager {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .insert(tab_id, Arc::new(tokio::sync::Mutex::new(())));
+    }
+
+    fn owner_creation_lock(&self, owner_session_id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.owner_creation_locks
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .entry(owner_session_id.to_string())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
+            .clone()
     }
 
     fn remove_command_lock(&self, tab_id: &BrowserTabId) {

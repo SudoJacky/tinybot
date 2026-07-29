@@ -17,7 +17,10 @@ struct FakeAdapter {
     deleted_profiles: Mutex<Vec<BrowserProfileId>>,
     interactions: Mutex<Vec<BrowserPlatformAction>>,
     opened_external: Mutex<Vec<String>>,
+    create_delay_ms: std::sync::atomic::AtomicU64,
     interaction_delay_ms: std::sync::atomic::AtomicU64,
+    observe_delay_ms: std::sync::atomic::AtomicU64,
+    observe_completed: std::sync::atomic::AtomicU64,
     protected_semantic: std::sync::atomic::AtomicBool,
     sensitive_semantic: std::sync::atomic::AtomicBool,
     fail_create: std::sync::atomic::AtomicBool,
@@ -41,6 +44,12 @@ impl BrowserRuntimeAdapter for FakeAdapter {
         &self,
         request: BrowserPlatformCreateTab,
     ) -> Result<BrowserPlatformTabState, String> {
+        let delay_ms = self
+            .create_delay_ms
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if delay_ms > 0 {
+            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+        }
         if self.fail_create.load(std::sync::atomic::Ordering::Relaxed) {
             return Err("fixture WebView initialization failed".to_string());
         }
@@ -103,6 +112,14 @@ impl BrowserRuntimeAdapter for FakeAdapter {
         capture: bool,
         semantic: bool,
     ) -> Result<BrowserPlatformObservation, String> {
+        let delay_ms = self
+            .observe_delay_ms
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if delay_ms > 0 {
+            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+        }
+        self.observe_completed
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Ok(BrowserPlatformObservation {
             capture_base64: capture.then(|| "cG5n".to_string()),
             viewport_width: 800,
@@ -274,6 +291,100 @@ async fn session_lifecycle_and_observation_are_revisioned() {
         .unwrap()
         .starts_with("data:image/png;base64,"));
     assert_eq!(observed.semantic.unwrap().nodes[0].name, "Submit");
+}
+
+#[tokio::test]
+async fn concurrent_session_creation_waits_for_the_owner_session_to_be_ready() {
+    let adapter = Arc::new(FakeAdapter::default());
+    adapter
+        .create_delay_ms
+        .store(100, std::sync::atomic::Ordering::Relaxed);
+    let manager = manager(adapter.clone());
+    let first_manager = manager.clone();
+    let first = tokio::spawn(async move {
+        first_manager
+            .create_session(BrowserCreateSessionInput {
+                owner_session_id: "thread-concurrent-create".to_string(),
+                profile_id: None,
+                persistence: BrowserProfilePersistence::Persistent,
+                initial_url: None,
+            })
+            .await
+            .unwrap()
+    });
+
+    loop {
+        if manager
+            .snapshot_for_owner("thread-concurrent-create")
+            .is_some()
+        {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+
+    let second = manager
+        .create_session(BrowserCreateSessionInput {
+            owner_session_id: "thread-concurrent-create".to_string(),
+            profile_id: None,
+            persistence: BrowserProfilePersistence::Persistent,
+            initial_url: None,
+        })
+        .await
+        .unwrap();
+    let first = first.await.unwrap();
+
+    assert_eq!(first.data.lifecycle, BrowserSessionLifecycle::Ready);
+    assert_eq!(second.data.lifecycle, BrowserSessionLifecycle::Ready);
+    assert_eq!(
+        second.data.browser_session_id,
+        first.data.browser_session_id
+    );
+    assert_eq!(adapter.created.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn web_tools_wait_for_a_preheated_session_to_be_ready() {
+    let adapter = Arc::new(FakeAdapter::default());
+    adapter
+        .create_delay_ms
+        .store(100, std::sync::atomic::Ordering::Relaxed);
+    let manager = manager(adapter.clone());
+    let preheat_manager = manager.clone();
+    let preheat = tokio::spawn(async move {
+        preheat_manager
+            .create_session(BrowserCreateSessionInput {
+                owner_session_id: "thread-preheated-web-tool".to_string(),
+                profile_id: None,
+                persistence: BrowserProfilePersistence::Persistent,
+                initial_url: None,
+            })
+            .await
+            .unwrap()
+    });
+
+    loop {
+        if manager
+            .snapshot_for_owner("thread-preheated-web-tool")
+            .is_some()
+        {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+
+    let observed = crate::tools::web::dispatch_browser_observe(
+        &manager,
+        "thread-preheated-web-tool",
+        serde_json::json!({}),
+    )
+    .await
+    .unwrap();
+    let preheated = preheat.await.unwrap();
+
+    assert_eq!(preheated.data.lifecycle, BrowserSessionLifecycle::Ready);
+    assert_eq!(observed["snapshot"]["data"]["lifecycle"], "ready");
+    assert_eq!(adapter.created.lock().unwrap().len(), 1);
 }
 
 #[tokio::test]
@@ -827,6 +938,239 @@ async fn closing_the_visible_tab_clears_its_surface_before_showing_the_replaceme
             .last()
             .map(|surface| &surface.tab_id),
         Some(&first_tab)
+    );
+}
+
+#[tokio::test]
+async fn hiding_a_visible_surface_does_not_wait_for_capture() {
+    let adapter = Arc::new(FakeAdapter::default());
+    let manager = manager(adapter.clone());
+    let snapshot = manager
+        .create_session(BrowserCreateSessionInput {
+            owner_session_id: "thread-surface-hide".to_string(),
+            profile_id: None,
+            persistence: BrowserProfilePersistence::Persistent,
+            initial_url: None,
+        })
+        .await
+        .unwrap();
+    let session_id = snapshot.data.browser_session_id;
+    let tab_id = snapshot.data.active_tab_id;
+    let surface_id = BrowserSurfaceId::new("surface-hide").unwrap();
+    let rect = BrowserSurfaceRect {
+        x: 0.0,
+        y: 0.0,
+        width: 800.0,
+        height: 600.0,
+        device_scale: 1.0,
+    };
+    manager
+        .update_surface(BrowserSurfaceUpdate {
+            browser_session_id: session_id.clone(),
+            tab_id: tab_id.clone(),
+            surface_id: surface_id.clone(),
+            layout_revision: 1,
+            rect: rect.clone(),
+            visible: true,
+            live: true,
+            topmost: true,
+            unobscured: true,
+        })
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while adapter
+            .observe_completed
+            .load(std::sync::atomic::Ordering::Relaxed)
+            == 0
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("visible-surface observation should complete");
+    adapter
+        .observe_delay_ms
+        .store(5_000, std::sync::atomic::Ordering::Relaxed);
+
+    let hidden = tokio::time::timeout(
+        Duration::from_millis(100),
+        manager.update_surface(BrowserSurfaceUpdate {
+            browser_session_id: session_id,
+            tab_id,
+            surface_id,
+            layout_revision: 2,
+            rect,
+            visible: false,
+            live: true,
+            topmost: false,
+            unobscured: false,
+        }),
+    )
+    .await
+    .expect("hiding the native surface must not wait for capture")
+    .unwrap();
+
+    assert_eq!(
+        hidden.data.surface.lifecycle,
+        BrowserSurfaceLifecycle::Hidden
+    );
+    assert_eq!(
+        adapter
+            .surfaces
+            .lock()
+            .unwrap()
+            .last()
+            .map(|surface| surface.visible),
+        Some(false)
+    );
+}
+
+#[tokio::test]
+async fn moving_a_visible_surface_does_not_recapture_the_page() {
+    let adapter = Arc::new(FakeAdapter::default());
+    let manager = manager(adapter.clone());
+    let snapshot = manager
+        .create_session(BrowserCreateSessionInput {
+            owner_session_id: "thread-surface-move".to_string(),
+            profile_id: None,
+            persistence: BrowserProfilePersistence::Persistent,
+            initial_url: None,
+        })
+        .await
+        .unwrap();
+    let session_id = snapshot.data.browser_session_id;
+    let tab_id = snapshot.data.active_tab_id;
+    let surface_id = BrowserSurfaceId::new("surface-move").unwrap();
+
+    manager
+        .update_surface(BrowserSurfaceUpdate {
+            browser_session_id: session_id.clone(),
+            tab_id: tab_id.clone(),
+            surface_id: surface_id.clone(),
+            layout_revision: 1,
+            rect: BrowserSurfaceRect {
+                x: 0.0,
+                y: 0.0,
+                width: 800.0,
+                height: 600.0,
+                device_scale: 1.0,
+            },
+            visible: true,
+            live: true,
+            topmost: true,
+            unobscured: true,
+        })
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while adapter
+            .observe_completed
+            .load(std::sync::atomic::Ordering::Relaxed)
+            == 0
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let captures_after_attach = adapter
+        .observe_completed
+        .load(std::sync::atomic::Ordering::Relaxed);
+
+    manager
+        .update_surface(BrowserSurfaceUpdate {
+            browser_session_id: session_id,
+            tab_id,
+            surface_id,
+            layout_revision: 2,
+            rect: BrowserSurfaceRect {
+                x: 120.0,
+                y: 80.0,
+                width: 800.0,
+                height: 600.0,
+                device_scale: 1.0,
+            },
+            visible: true,
+            live: true,
+            topmost: true,
+            unobscured: true,
+        })
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(25)).await;
+
+    assert_eq!(
+        adapter
+            .observe_completed
+            .load(std::sync::atomic::Ordering::Relaxed),
+        captures_after_attach
+    );
+    let surfaces = adapter.surfaces.lock().unwrap();
+    assert!(surfaces[surfaces.len() - 2].focus);
+    assert!(!surfaces[surfaces.len() - 1].focus);
+}
+
+#[tokio::test]
+async fn unchanged_visible_surface_does_not_reach_the_platform_adapter() {
+    let adapter = Arc::new(FakeAdapter::default());
+    let manager = manager(adapter.clone());
+    let snapshot = manager
+        .create_session(BrowserCreateSessionInput {
+            owner_session_id: "thread-surface-unchanged".to_string(),
+            profile_id: None,
+            persistence: BrowserProfilePersistence::Persistent,
+            initial_url: None,
+        })
+        .await
+        .unwrap();
+    let session_id = snapshot.data.browser_session_id;
+    let tab_id = snapshot.data.active_tab_id;
+    let surface_id = BrowserSurfaceId::new("surface-unchanged").unwrap();
+    let rect = BrowserSurfaceRect {
+        x: 12.0,
+        y: 24.0,
+        width: 800.0,
+        height: 600.0,
+        device_scale: 1.0,
+    };
+
+    manager
+        .update_surface(BrowserSurfaceUpdate {
+            browser_session_id: session_id.clone(),
+            tab_id: tab_id.clone(),
+            surface_id: surface_id.clone(),
+            layout_revision: 1,
+            rect: rect.clone(),
+            visible: true,
+            live: true,
+            topmost: true,
+            unobscured: true,
+        })
+        .await
+        .unwrap();
+    adapter.surfaces.lock().unwrap().clear();
+
+    let unchanged = manager
+        .update_surface(BrowserSurfaceUpdate {
+            browser_session_id: session_id,
+            tab_id,
+            surface_id,
+            layout_revision: 2,
+            rect,
+            visible: true,
+            live: true,
+            topmost: true,
+            unobscured: true,
+        })
+        .await
+        .unwrap();
+
+    assert!(adapter.surfaces.lock().unwrap().is_empty());
+    assert_eq!(unchanged.data.surface.layout_revision, 1);
+    assert_eq!(
+        unchanged.data.surface.lifecycle,
+        BrowserSurfaceLifecycle::Visible
     );
 }
 
