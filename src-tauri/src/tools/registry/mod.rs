@@ -445,69 +445,6 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             }),
         ),
         tool(
-            "browser.observe",
-            "browser",
-            "Observe TinyOS browser",
-            "Create or inspect the browser session owned by this chat. Returns the active session, tab, control epoch, capture, and bounded semantic targets. Use this before browser.interact.",
-            ToolExposure::Deferred,
-            false,
-            runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
-            vec![WorkerCapability::BrowserObserve],
-            json!({
-                "type": "object",
-                "properties": {
-                    "browserSessionId": { "type": "string" },
-                    "tabId": { "type": "string" },
-                    "capture": { "type": "boolean", "default": true },
-                    "semantic": { "type": "boolean", "default": true }
-                },
-                "additionalProperties": false
-            }),
-        ),
-        tool(
-            "browser.interact",
-            "browser",
-            "Interact with TinyOS browser",
-            "Operate the current chat's shared TinyOS browser session. Call browser.observe first and pass its current session, tab, control epoch, and observation or capture identity. Never opens a detached browser.",
-            ToolExposure::Deferred,
-            false,
-            runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
-            vec![WorkerCapability::BrowserInteract],
-            json!({
-                "type": "object",
-                "required": ["browserSessionId", "tabId", "controlEpoch", "action"],
-                "properties": {
-                    "browserSessionId": { "type": "string" },
-                    "tabId": { "type": "string" },
-                    "controlEpoch": { "type": "integer", "minimum": 0 },
-                    "captureId": { "type": "string" },
-                    "observationRevision": { "type": "integer", "minimum": 0 },
-                    "action": {
-                        "type": "object",
-                        "required": ["type"],
-                        "properties": {
-                            "type": {
-                                "type": "string",
-                                "enum": ["navigate", "back", "forward", "reload", "stop", "click", "clickTarget", "type", "fill", "key", "scroll", "wait", "userHandoff", "resume"]
-                            },
-                            "url": { "type": "string" },
-                            "x": { "type": "number" },
-                            "y": { "type": "number" },
-                            "targetRef": { "type": "string" },
-                            "text": { "type": "string" },
-                            "key": { "type": "string" },
-                            "deltaX": { "type": "number" },
-                            "deltaY": { "type": "number" },
-                            "timeoutMs": { "type": "integer", "minimum": 0, "maximum": 15000 },
-                            "reason": { "type": "string" }
-                        },
-                        "additionalProperties": false
-                    }
-                },
-                "additionalProperties": false
-            }),
-        ),
-        tool(
             "shell.execute",
             "shell",
             "Execute shell command",
@@ -698,7 +635,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
     ]
 }
 
-fn tool(
+pub(super) fn tool(
     method: &'static str,
     namespace: &'static str,
     title: &'static str,
@@ -787,7 +724,7 @@ fn runtime_control_tool(
     }
 }
 
-fn runtime_policy(
+pub(super) fn runtime_policy(
     supports_parallel_tool_calls: bool,
     cancellation_mode: ToolCancellationMode,
     mutates_workspace: bool,

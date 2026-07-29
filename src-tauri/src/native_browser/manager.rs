@@ -16,7 +16,8 @@ use super::{
     platform::{
         diagnostic_details, external_protocol_url, redact_browser_url, safe_browser_url,
         BrowserPlatformAction, BrowserPlatformCreateTab, BrowserPlatformEvent,
-        BrowserPlatformProfile, BrowserPlatformSurface, BrowserRuntimeAdapter,
+        BrowserPlatformProfile, BrowserPlatformSemanticNode, BrowserPlatformSurface,
+        BrowserRuntimeAdapter,
     },
 };
 use chrono::{SecondsFormat, Utc};
@@ -31,6 +32,7 @@ use std::{
 const CAPTURE_RETENTION: usize = 12;
 const MAX_CAPTURE_BASE64_BYTES: usize = 12 * 1024 * 1024;
 const DEFAULT_AGENT_TIMEOUT: Duration = Duration::from_secs(15);
+pub(crate) const AGENT_SNAPSHOT_STALE: &str = "Browser page snapshot is stale";
 
 pub(crate) type BrowserSnapshotSink = Arc<dyn Fn(BrowserNativeSnapshot) + Send + Sync>;
 pub(crate) type BrowserDiagnosticSink = Arc<dyn Fn(BrowserRuntimeDiagnostic) + Send + Sync>;
@@ -73,6 +75,13 @@ struct BrowserSessionRecord {
 }
 
 #[derive(Clone)]
+pub(crate) struct BrowserAgentPageState {
+    pub(crate) snapshot_id: String,
+    pub(crate) dirty: bool,
+    pub(crate) observation: BrowserObserveResult,
+}
+
+#[derive(Clone)]
 struct BrowserPendingPolicyRequest {
     snapshot: BrowserPolicyRequestSnapshot,
     url: String,
@@ -110,6 +119,9 @@ struct BrowserTabRecord {
     captures: VecDeque<BrowserCaptureSnapshot>,
     semantic: Option<BrowserSemanticObservation>,
     semantic_targets: HashMap<String, BrowserSemanticTarget>,
+    agent_snapshot_generation: String,
+    agent_snapshot_revision: u64,
+    agent_snapshot_dirty: bool,
 }
 
 struct BrowserSemanticTarget {
@@ -200,6 +212,42 @@ impl BrowserSessionManager {
         snapshot_from_state(&self.lock_state(), session_id, self.adapter.as_ref())
     }
 
+    pub(crate) fn agent_page_state_for_owner(
+        &self,
+        owner_session_id: &str,
+    ) -> Option<BrowserAgentPageState> {
+        let state = self.lock_state();
+        let session_id = state.owner_sessions.get(owner_session_id)?;
+        let session = state.sessions.get(session_id)?;
+        let tab = session.tabs.get(&session.active_tab_id)?;
+        Some(BrowserAgentPageState {
+            snapshot_id: agent_snapshot_id(tab),
+            dirty: tab.agent_snapshot_dirty,
+            observation: BrowserObserveResult {
+                snapshot: snapshot_from_state(&state, session_id, self.adapter.as_ref())?,
+                capture: tab.captures.back().cloned(),
+                semantic: tab.semantic.clone(),
+            },
+        })
+    }
+
+    pub(crate) fn advance_agent_snapshot_for_owner(
+        &self,
+        owner_session_id: &str,
+    ) -> Result<(), String> {
+        let mut state = self.lock_state();
+        let session_id = state
+            .owner_sessions
+            .get(owner_session_id)
+            .cloned()
+            .ok_or_else(|| "TinyOS browser session is unavailable for this chat".to_string())?;
+        let session = ready_session_mut(&mut state, &session_id)?;
+        let active_tab_id = session.active_tab_id.clone();
+        advance_agent_snapshot(require_tab_mut(session, &active_tab_id)?);
+        bump_revision(&mut state);
+        Ok(())
+    }
+
     pub(crate) fn cancel_agent_command(
         &self,
         tab_id: &BrowserTabId,
@@ -259,6 +307,10 @@ impl BrowserSessionManager {
             let navigation_id = BrowserNavigationId(next_id(&mut state, "browser-navigation"));
             let observed_at = now_timestamp();
             let url = initial_url.to_string();
+            let agent_snapshot_generation = format!(
+                "b{}",
+                &stable_short_hash(&format!("{owner_session_id}:{session_id}:{observed_at}"))[..7]
+            );
             let tab = BrowserTabRecord {
                 id: tab_id.clone(),
                 lifecycle: BrowserTabLifecycle::Creating,
@@ -283,6 +335,9 @@ impl BrowserSessionManager {
                 captures: VecDeque::new(),
                 semantic: None,
                 semantic_targets: HashMap::new(),
+                agent_snapshot_generation,
+                agent_snapshot_revision: 0,
+                agent_snapshot_dirty: true,
             };
             let session = BrowserSessionRecord {
                 id: session_id.clone(),
@@ -411,8 +466,21 @@ impl BrowserSessionManager {
             ensure_accepting(&state)?;
             let tab_id = BrowserTabId(next_id(&mut state, "browser-tab"));
             let navigation_id = BrowserNavigationId(next_id(&mut state, "browser-navigation"));
+            let agent_snapshot_generation = format!(
+                "b{}",
+                &stable_short_hash(&format!(
+                    "{}:{tab_id}:{}",
+                    input.browser_session_id,
+                    now_timestamp()
+                ))[..7]
+            );
             let session = ready_session_mut(&mut state, &input.browser_session_id)?;
-            let tab = new_tab_record(tab_id.clone(), navigation_id, url.as_str());
+            let tab = new_tab_record(
+                tab_id.clone(),
+                navigation_id,
+                url.as_str(),
+                agent_snapshot_generation,
+            );
             session.tabs.insert(tab_id.clone(), tab);
             session.tab_order.push(tab_id.clone());
             session.active_tab_id = tab_id.clone();
@@ -499,7 +567,9 @@ impl BrowserSessionManager {
             let mut state = self.lock_state();
             let session = ready_session_mut(&mut state, session_id)?;
             require_tab(session, tab_id)?;
-            session.active_tab_id = tab_id.clone();
+            if session.active_tab_id != *tab_id {
+                session.active_tab_id = tab_id.clone();
+            }
             let surface = session.surface.clone();
             bump_revision(&mut state);
             surface
@@ -1010,6 +1080,14 @@ impl BrowserSessionManager {
         self: &Arc<Self>,
         input: BrowserObserveInput,
     ) -> Result<BrowserObserveResult, String> {
+        self.observe_internal(input, false).await
+    }
+
+    async fn observe_internal(
+        self: &Arc<Self>,
+        input: BrowserObserveInput,
+        force_new_observation: bool,
+    ) -> Result<BrowserObserveResult, String> {
         self.require_ready_tab(&input.browser_session_id, &input.tab_id)?;
         let started = Instant::now();
         let platform = self
@@ -1046,96 +1124,133 @@ impl BrowserSessionManager {
                 .capture
                 .then(|| BrowserCaptureId(next_id(&mut state, "browser-capture")));
             let observed_at = now_timestamp();
-            let (capture, semantic, retention_truncated) = {
+            let (capture, semantic, retention_truncated, semantic_changed) = {
                 let session = ready_session_mut(&mut state, &input.browser_session_id)?;
-                let tab = require_tab_mut(session, &input.tab_id)?;
-                tab.observation_revision = tab.observation_revision.saturating_add(1);
-                let observation_revision = tab.observation_revision;
+                let (capture, semantic, retention_truncated, semantic_changed) = {
+                    let tab = require_tab_mut(session, &input.tab_id)?;
+                    let semantic_changed = input.semantic
+                        && (force_new_observation
+                            || !semantic_content_matches(
+                                tab.semantic.as_ref(),
+                                &platform.semantic_nodes,
+                                platform.semantic_truncated,
+                            ));
+                    if semantic_changed {
+                        tab.observation_revision = tab.observation_revision.saturating_add(1);
+                    }
+                    let observation_revision = tab.observation_revision;
 
-                let capture = if let Some(capture_id) = capture_id {
-                    let data_url = platform
-                        .capture_base64
-                        .map(|base64| {
-                            if base64.len() > MAX_CAPTURE_BASE64_BYTES {
-                                return Err(format!(
-                                    "Browser capture exceeds the {} byte retention limit",
-                                    MAX_CAPTURE_BASE64_BYTES
-                                ));
-                            }
-                            Ok(format!("data:image/png;base64,{base64}"))
-                        })
-                        .transpose()?;
-                    for retained in &mut tab.captures {
-                        retained.stale = true;
-                    }
-                    let capture = BrowserCaptureSnapshot {
-                        capture_id: capture_id.clone(),
-                        observed_at: observed_at.clone(),
-                        stale: false,
-                        observation_revision,
-                        navigation_id: navigation_id.clone(),
-                        viewport_width: platform.viewport_width,
-                        viewport_height: platform.viewport_height,
-                        device_scale: platform.device_scale,
-                        data_url,
+                    let capture = if let Some(capture_id) = capture_id {
+                        let data_url = platform
+                            .capture_base64
+                            .map(|base64| {
+                                if base64.len() > MAX_CAPTURE_BASE64_BYTES {
+                                    return Err(format!(
+                                        "Browser capture exceeds the {} byte retention limit",
+                                        MAX_CAPTURE_BASE64_BYTES
+                                    ));
+                                }
+                                Ok(format!("data:image/png;base64,{base64}"))
+                            })
+                            .transpose()?;
+                        for retained in &mut tab.captures {
+                            retained.stale = true;
+                        }
+                        let capture = BrowserCaptureSnapshot {
+                            capture_id: capture_id.clone(),
+                            observed_at: observed_at.clone(),
+                            stale: false,
+                            observation_revision,
+                            navigation_id: navigation_id.clone(),
+                            viewport_width: platform.viewport_width,
+                            viewport_height: platform.viewport_height,
+                            device_scale: platform.device_scale,
+                            data_url,
+                        };
+                        tab.captures.push_back(capture.clone());
+                        let mut retention_truncated = 0;
+                        while tab.captures.len() > CAPTURE_RETENTION {
+                            tab.captures.pop_front();
+                            retention_truncated += 1;
+                        }
+                        if let Some(history) = tab.history.get_mut(tab.active_history_index) {
+                            history.capture_id = Some(capture_id);
+                        }
+                        (Some(capture), retention_truncated)
+                    } else {
+                        (None, 0)
                     };
-                    tab.captures.push_back(capture.clone());
-                    let mut retention_truncated = 0;
-                    while tab.captures.len() > CAPTURE_RETENTION {
-                        tab.captures.pop_front();
-                        retention_truncated += 1;
-                    }
-                    if let Some(history) = tab.history.get_mut(tab.active_history_index) {
-                        history.capture_id = Some(capture_id);
-                    }
-                    (Some(capture), retention_truncated)
-                } else {
-                    (None, 0)
-                };
 
-                tab.semantic_targets.clear();
-                let semantic = if input.semantic {
-                    let nodes = platform
-                        .semantic_nodes
-                        .into_iter()
-                        .enumerate()
-                        .map(|(index, node)| {
-                            let target_ref = format!("target-{observation_revision}-{index}");
-                            tab.semantic_targets.insert(
-                                target_ref.clone(),
-                                BrowserSemanticTarget {
-                                    selector: node.selector,
-                                    protected_reason: node.protected_reason.clone(),
-                                },
-                            );
-                            BrowserSemanticNode {
-                                target_ref,
-                                role: node.role,
-                                name: node.name,
-                                frame: node.frame,
-                                x: node.x,
-                                y: node.y,
-                                width: node.width,
-                                height: node.height,
-                                disabled: node.disabled,
-                                focused: node.focused,
-                                sensitive: node.sensitive,
-                                protected_reason: node.protected_reason,
+                    let semantic = if input.semantic {
+                        if semantic_changed {
+                            tab.semantic_targets.clear();
+                            let nodes = platform
+                                .semantic_nodes
+                                .into_iter()
+                                .enumerate()
+                                .map(|(index, node)| {
+                                    let target_ref =
+                                        format!("target-{observation_revision}-{index}");
+                                    tab.semantic_targets.insert(
+                                        target_ref.clone(),
+                                        BrowserSemanticTarget {
+                                            selector: node.selector,
+                                            protected_reason: node.protected_reason.clone(),
+                                        },
+                                    );
+                                    BrowserSemanticNode {
+                                        target_ref,
+                                        role: node.role,
+                                        name: node.name,
+                                        frame: node.frame,
+                                        x: node.x,
+                                        y: node.y,
+                                        width: node.width,
+                                        height: node.height,
+                                        disabled: node.disabled,
+                                        focused: node.focused,
+                                        sensitive: node.sensitive,
+                                        protected_reason: node.protected_reason,
+                                    }
+                                })
+                                .collect();
+                            let observation = BrowserSemanticObservation {
+                                observation_revision,
+                                observed_at,
+                                truncated: platform.semantic_truncated,
+                                nodes,
+                            };
+                            tab.semantic = Some(observation.clone());
+                            Some(observation)
+                        } else {
+                            tab.semantic_targets.clear();
+                            if let Some(current) = tab.semantic.as_ref() {
+                                for (current_node, node) in
+                                    current.nodes.iter().zip(&platform.semantic_nodes)
+                                {
+                                    tab.semantic_targets.insert(
+                                        current_node.target_ref.clone(),
+                                        BrowserSemanticTarget {
+                                            selector: node.selector.clone(),
+                                            protected_reason: node.protected_reason.clone(),
+                                        },
+                                    );
+                                }
                             }
-                        })
-                        .collect();
-                    let observation = BrowserSemanticObservation {
-                        observation_revision,
-                        observed_at,
-                        truncated: platform.semantic_truncated,
-                        nodes,
+                            tab.semantic.clone()
+                        }
+                    } else {
+                        None
                     };
-                    tab.semantic = Some(observation.clone());
-                    Some(observation)
-                } else {
-                    None
+                    if input.semantic {
+                        if semantic_changed {
+                            advance_agent_snapshot(tab);
+                        }
+                        tab.agent_snapshot_dirty = false;
+                    }
+                    (capture.0, semantic, capture.1, semantic_changed)
                 };
-                (capture.0, semantic, capture.1)
+                (capture, semantic, retention_truncated, semantic_changed)
             };
             for _ in 0..retention_truncated {
                 increment_counter(&mut state, "browser.capture.retention_truncated");
@@ -1146,6 +1261,9 @@ impl BrowserSessionManager {
                 record_duration(&mut state, "browser.capture", started.elapsed());
             }
             record_duration(&mut state, "browser.observe", started.elapsed());
+            if semantic_changed {
+                increment_counter(&mut state, "browser.agent_snapshot.refreshed");
+            }
             bump_revision(&mut state);
             (capture, semantic)
         };
@@ -1418,12 +1536,15 @@ impl BrowserSessionManager {
         self.publish_snapshot(&input.browser_session_id);
         if final_status == BrowserCommandStatus::Completed {
             let _ = self
-                .observe(BrowserObserveInput {
-                    browser_session_id: input.browser_session_id.clone(),
-                    tab_id: input.tab_id.clone(),
-                    capture: true,
-                    semantic: true,
-                })
+                .observe_internal(
+                    BrowserObserveInput {
+                        browser_session_id: input.browser_session_id.clone(),
+                        tab_id: input.tab_id.clone(),
+                        capture: true,
+                        semantic: true,
+                    },
+                    true,
+                )
                 .await;
         }
         let (code, message) =
@@ -1863,12 +1984,13 @@ impl BrowserSessionManager {
     }
 
     fn handle_platform_event(self: &Arc<Self>, event: BrowserPlatformEvent) {
-        let (session_id, recapture_tab_id) = {
+        let (session_id, recapture_tab_id, publish_snapshot) = {
             let mut state = self.lock_state();
             let Some(session_id) = find_session_for_tab(&state, event_tab_id(&event)) else {
                 return;
             };
             let mut recapture_tab_id = None;
+            let mut publish_snapshot = true;
             match event {
                 BrowserPlatformEvent::NavigationStarted { tab_id, url } => {
                     self.diagnostic(
@@ -1882,21 +2004,20 @@ impl BrowserSessionManager {
                     );
                     let next_navigation =
                         BrowserNavigationId(next_id(&mut state, "browser-navigation"));
-                    if let Some(tab) = state
-                        .sessions
-                        .get_mut(&session_id)
-                        .and_then(|session| session.tabs.get_mut(&tab_id))
-                    {
-                        tab.lifecycle = BrowserTabLifecycle::Loading;
-                        tab.loading = true;
-                        tab.url = url;
-                        tab.navigation_sequence = tab.navigation_sequence.saturating_add(1);
-                        tab.navigation_started_at = Some(Instant::now());
-                        tab.navigation_id = next_navigation;
-                        tab.semantic = None;
-                        tab.semantic_targets.clear();
-                        for capture in &mut tab.captures {
-                            capture.stale = true;
+                    if let Some(session) = state.sessions.get_mut(&session_id) {
+                        if let Some(tab) = session.tabs.get_mut(&tab_id) {
+                            tab.lifecycle = BrowserTabLifecycle::Loading;
+                            tab.loading = true;
+                            tab.url = url;
+                            tab.navigation_sequence = tab.navigation_sequence.saturating_add(1);
+                            tab.navigation_started_at = Some(Instant::now());
+                            tab.navigation_id = next_navigation;
+                            tab.semantic = None;
+                            tab.semantic_targets.clear();
+                            for capture in &mut tab.captures {
+                                capture.stale = true;
+                            }
+                            mark_agent_snapshot_dirty(tab, true);
                         }
                     }
                     increment_counter(&mut state, "browser.navigation.started");
@@ -1916,55 +2037,62 @@ impl BrowserSessionManager {
                         Some(&url),
                         BTreeMap::new(),
                     );
-                    let navigation_duration = if let Some(tab) = state
-                        .sessions
-                        .get_mut(&session_id)
-                        .and_then(|session| session.tabs.get_mut(&tab_id))
-                    {
-                        tab.lifecycle = BrowserTabLifecycle::Ready;
-                        tab.loading = false;
-                        tab.url = url.clone();
-                        tab.can_go_back = can_go_back;
-                        tab.can_go_forward = can_go_forward;
-                        let observed_at = now_timestamp();
-                        if tab
-                            .history
-                            .get(tab.active_history_index)
-                            .map(|entry| entry.url.as_str())
-                            != Some(url.as_str())
-                        {
-                            tab.history
-                                .truncate(tab.active_history_index.saturating_add(1));
-                            tab.history.push(BrowserNavigationEntry {
-                                url,
-                                title: tab.title.clone(),
-                                observed_at,
-                                navigation_id: tab.navigation_id.clone(),
-                                capture_id: None,
-                            });
-                            tab.active_history_index = tab.history.len().saturating_sub(1);
-                        }
-                        recapture_tab_id = Some(tab_id.clone());
-                        tab.navigation_started_at
-                            .take()
-                            .map(|started| started.elapsed())
-                    } else {
-                        None
-                    };
+                    let navigation_duration =
+                        if let Some(session) = state.sessions.get_mut(&session_id) {
+                            let duration = if let Some(tab) = session.tabs.get_mut(&tab_id) {
+                                tab.lifecycle = BrowserTabLifecycle::Ready;
+                                tab.loading = false;
+                                tab.url = url.clone();
+                                tab.can_go_back = can_go_back;
+                                tab.can_go_forward = can_go_forward;
+                                let observed_at = now_timestamp();
+                                if tab
+                                    .history
+                                    .get(tab.active_history_index)
+                                    .map(|entry| entry.url.as_str())
+                                    != Some(url.as_str())
+                                {
+                                    tab.history
+                                        .truncate(tab.active_history_index.saturating_add(1));
+                                    tab.history.push(BrowserNavigationEntry {
+                                        url,
+                                        title: tab.title.clone(),
+                                        observed_at,
+                                        navigation_id: tab.navigation_id.clone(),
+                                        capture_id: None,
+                                    });
+                                    tab.active_history_index = tab.history.len().saturating_sub(1);
+                                }
+                                recapture_tab_id = Some(tab_id.clone());
+                                let duration = tab
+                                    .navigation_started_at
+                                    .take()
+                                    .map(|started| started.elapsed());
+                                mark_agent_snapshot_dirty(tab, false);
+                                duration
+                            } else {
+                                None
+                            };
+                            duration
+                        } else {
+                            None
+                        };
                     increment_counter(&mut state, "browser.navigation.completed");
                     if let Some(duration) = navigation_duration {
                         record_duration(&mut state, "browser.navigation", duration);
                     }
                 }
                 BrowserPlatformEvent::TitleChanged { tab_id, title } => {
-                    if let Some(tab) = state
-                        .sessions
-                        .get_mut(&session_id)
-                        .and_then(|session| session.tabs.get_mut(&tab_id))
-                    {
-                        tab.title = title.clone();
-                        if let Some(history) = tab.history.get_mut(tab.active_history_index) {
-                            history.title = title;
+                    if let Some(session) = state.sessions.get_mut(&session_id) {
+                        if let Some(tab) = session.tabs.get_mut(&tab_id) {
+                            let changed = tab.title != title;
+                            tab.title = title.clone();
+                            if let Some(history) = tab.history.get_mut(tab.active_history_index) {
+                                history.title = title;
+                            }
+                            if changed {
+                                mark_agent_snapshot_dirty(tab, true);
+                            }
                         }
                     }
                 }
@@ -1995,8 +2123,19 @@ impl BrowserSessionManager {
                                     .to_string(),
                             );
                         }
+                        if let Some(tab) = session.tabs.get_mut(&tab_id) {
+                            mark_agent_snapshot_dirty(tab, true);
+                        }
                     }
                     increment_counter(&mut state, "browser.user_input.interrupted");
+                }
+                BrowserPlatformEvent::ContentDirty { tab_id } => {
+                    if let Some(session) = state.sessions.get_mut(&session_id) {
+                        if let Some(tab) = session.tabs.get_mut(&tab_id) {
+                            mark_agent_snapshot_dirty(tab, false);
+                        }
+                    }
+                    publish_snapshot = false;
                 }
                 BrowserPlatformEvent::PopupRequested { tab_id, url } => {
                     self.diagnostic(
@@ -2136,6 +2275,7 @@ impl BrowserSessionManager {
                             tab.lifecycle = BrowserTabLifecycle::Crashed;
                             tab.renderer_lifecycle = BrowserRendererLifecycle::Failed;
                             tab.loading = false;
+                            mark_agent_snapshot_dirty(tab, true);
                         }
                     }
                     increment_counter(&mut state, "browser.renderer.crashed");
@@ -2153,10 +2293,14 @@ impl BrowserSessionManager {
                     );
                 }
             }
-            bump_revision(&mut state);
-            (session_id, recapture_tab_id)
+            if publish_snapshot {
+                bump_revision(&mut state);
+            }
+            (session_id, recapture_tab_id, publish_snapshot)
         };
-        self.publish_snapshot(&session_id);
+        if publish_snapshot {
+            self.publish_snapshot(&session_id);
+        }
         if let Some(tab_id) = recapture_tab_id {
             let manager = self.clone();
             tauri::async_runtime::spawn(async move {
@@ -2309,6 +2453,7 @@ fn new_tab_record(
     tab_id: BrowserTabId,
     navigation_id: BrowserNavigationId,
     url: &str,
+    agent_snapshot_generation: String,
 ) -> BrowserTabRecord {
     BrowserTabRecord {
         id: tab_id,
@@ -2334,6 +2479,9 @@ fn new_tab_record(
         captures: VecDeque::new(),
         semantic: None,
         semantic_targets: HashMap::new(),
+        agent_snapshot_generation,
+        agent_snapshot_revision: 0,
+        agent_snapshot_dirty: true,
     }
 }
 
@@ -2373,6 +2521,14 @@ fn plan_browser_interaction(
     tab: &BrowserTabRecord,
     input: &BrowserInteractionInput,
 ) -> Result<BrowserPlatformAction, BrowserInteractionRejection> {
+    if let Some(snapshot_id) = input.snapshot_id.as_deref() {
+        if tab.agent_snapshot_dirty || snapshot_id != agent_snapshot_id(tab) {
+            return Err(BrowserInteractionRejection {
+                metric: Some("browser.command.rejected.stale_agent_snapshot"),
+                reason: AGENT_SNAPSHOT_STALE.to_string(),
+            });
+        }
+    }
     if session.control.control_epoch != input.control_epoch {
         return Err(BrowserInteractionRejection {
             metric: Some("browser.command.rejected.stale_epoch"),
@@ -2561,6 +2717,49 @@ fn bump_revision(state: &mut BrowserRuntimeState) {
     state.revision = state.revision.saturating_add(1);
 }
 
+fn agent_snapshot_id(tab: &BrowserTabRecord) -> String {
+    format!(
+        "{}.{}",
+        tab.agent_snapshot_generation, tab.agent_snapshot_revision
+    )
+}
+
+fn advance_agent_snapshot(tab: &mut BrowserTabRecord) {
+    tab.agent_snapshot_revision = tab.agent_snapshot_revision.saturating_add(1);
+}
+
+fn mark_agent_snapshot_dirty(tab: &mut BrowserTabRecord, advance_revision: bool) {
+    tab.agent_snapshot_dirty = true;
+    if advance_revision {
+        advance_agent_snapshot(tab);
+    }
+}
+
+fn semantic_content_matches(
+    current: Option<&BrowserSemanticObservation>,
+    nodes: &[BrowserPlatformSemanticNode],
+    truncated: bool,
+) -> bool {
+    let Some(current) = current else {
+        return false;
+    };
+    current.truncated == truncated
+        && current.nodes.len() == nodes.len()
+        && current.nodes.iter().zip(nodes).all(|(current, node)| {
+            current.role == node.role
+                && current.name == node.name
+                && current.frame == node.frame
+                && current.x == node.x
+                && current.y == node.y
+                && current.width == node.width
+                && current.height == node.height
+                && current.disabled == node.disabled
+                && current.focused == node.focused
+                && current.sensitive == node.sensitive
+                && current.protected_reason == node.protected_reason
+        })
+}
+
 fn increment_counter(state: &mut BrowserRuntimeState, name: &str) {
     let counter = state.metrics.counters.entry(name.to_string()).or_default();
     *counter = counter.saturating_add(1);
@@ -2599,6 +2798,7 @@ fn event_tab_id(event: &BrowserPlatformEvent) -> &BrowserTabId {
         | BrowserPlatformEvent::NavigationFinished { tab_id, .. }
         | BrowserPlatformEvent::TitleChanged { tab_id, .. }
         | BrowserPlatformEvent::UserInput { tab_id }
+        | BrowserPlatformEvent::ContentDirty { tab_id }
         | BrowserPlatformEvent::PopupRequested { tab_id, .. }
         | BrowserPlatformEvent::ExternalProtocolRequested { tab_id, .. }
         | BrowserPlatformEvent::DownloadBlocked { tab_id, .. }

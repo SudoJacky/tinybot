@@ -1,4 +1,5 @@
 use super::*;
+use crate::tools::web::WebToolContributor;
 use std::fmt::Debug;
 use std::sync::Arc;
 
@@ -105,7 +106,7 @@ pub(super) fn default_tool_contributors() -> Vec<Arc<dyn ToolContributor>> {
     for entry in core_tool_entries() {
         match entry.namespace.as_str() {
             "tool_registry" | "interaction" | "planning" => control_tools.push(entry),
-            "browser" | "shell" | "subagent" => runtime_tools.push(entry),
+            "shell" | "subagent" => runtime_tools.push(entry),
             namespace => panic!(
                 "core tool `{}` has no contributor for namespace `{namespace}`",
                 entry.tool_id
@@ -119,6 +120,7 @@ pub(super) fn default_tool_contributors() -> Vec<Arc<dyn ToolContributor>> {
         }),
         Arc::new(WorkspaceToolContributor),
         Arc::new(BuiltinMcpToolContributor),
+        Arc::new(WebToolContributor),
         Arc::new(CoreToolContributor {
             id: "builtin.runtime_tools",
             entries: runtime_tools,

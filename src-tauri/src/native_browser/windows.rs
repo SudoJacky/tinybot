@@ -37,6 +37,7 @@ use windows_sys::Win32::{
 };
 
 const DIRECT_INPUT_MESSAGE: &str = "tinybot-browser-direct-input-v1";
+const CONTENT_DIRTY_MESSAGE: &str = "tinybot-browser-content-dirty-v1";
 const MAX_SEMANTIC_NODES: usize = 500;
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(15);
 const BROWSER_PROCESS_EXIT_TIMEOUT: Duration = Duration::from_secs(30);
@@ -55,6 +56,32 @@ const DIRECT_INPUT_SCRIPT: &str = r#"
   addEventListener('pointerdown', notify, true);
   addEventListener('keydown', notify, true);
   addEventListener('input', notify, true);
+
+  const installContentObserver = () => {
+    if (!document.documentElement || window.__tinybotBrowserContentObserverInstalled) return;
+    Object.defineProperty(window, '__tinybotBrowserContentObserverInstalled', { value: true });
+    let scheduled = false;
+    const notifyContentDirty = () => {
+      if (scheduled || !window.chrome?.webview) return;
+      scheduled = true;
+      setTimeout(() => {
+        scheduled = false;
+        window.chrome.webview.postMessage('tinybot-browser-content-dirty-v1');
+      }, 50);
+    };
+    new MutationObserver(notifyContentDirty).observe(document.documentElement, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: [
+        'aria-label', 'aria-expanded', 'aria-disabled', 'disabled', 'hidden',
+        'href', 'value', 'role', 'tabindex'
+      ]
+    });
+  };
+  if (document.documentElement) installContentObserver();
+  else addEventListener('DOMContentLoaded', installContentObserver, { once: true });
 })();
 "#;
 
@@ -987,13 +1014,22 @@ async fn register_webview2_events(
                             return Ok(());
                         };
                         let mut raw = PWSTR::null();
-                        if unsafe { args.TryGetWebMessageAsString(&mut raw) }.is_ok()
-                            && webview2_com::take_pwstr(raw) == DIRECT_INPUT_MESSAGE
-                        {
+                        if unsafe { args.TryGetWebMessageAsString(&mut raw) }.is_ok() {
+                            let message = webview2_com::take_pwstr(raw);
                             if let Some(sink) = message_sink.as_ref() {
-                                sink(BrowserPlatformEvent::UserInput {
-                                    tab_id: message_tab.clone(),
-                                });
+                                match message.as_str() {
+                                    DIRECT_INPUT_MESSAGE => {
+                                        sink(BrowserPlatformEvent::UserInput {
+                                            tab_id: message_tab.clone(),
+                                        });
+                                    }
+                                    CONTENT_DIRTY_MESSAGE => {
+                                        sink(BrowserPlatformEvent::ContentDirty {
+                                            tab_id: message_tab.clone(),
+                                        });
+                                    }
+                                    _ => {}
+                                }
                             }
                         }
                         Ok(())

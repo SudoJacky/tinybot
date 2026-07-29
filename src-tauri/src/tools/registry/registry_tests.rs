@@ -89,26 +89,45 @@ fn browser_tools_are_deferred() {
         WorkerCapability::BrowserObserve,
         WorkerCapability::BrowserInteract,
     ]));
-    let observe = registry
-        .get_tool("browser.observe")
-        .expect("browser.observe should be registered");
-    let interact = registry
-        .get_tool("browser.interact")
-        .expect("browser.interact should be registered");
+    let open = registry
+        .get_tool("web.open")
+        .expect("web.open should be registered");
+    let read = registry
+        .get_tool("web.read")
+        .expect("web.read should be registered");
+    let act = registry
+        .get_tool("web.act")
+        .expect("web.act should be registered");
 
-    assert_eq!(observe.exposure, ToolExposure::Deferred);
-    assert!(observe.available);
-    assert!(observe.runtime_policy.mutates_session);
-    assert_eq!(interact.exposure, ToolExposure::Deferred);
-    assert!(interact.available);
+    assert_eq!(open.exposure, ToolExposure::Deferred);
+    assert!(open.available);
+    assert!(open.runtime_policy.mutates_session);
+    assert_eq!(read.exposure, ToolExposure::Deferred);
+    assert!(read.available);
+    assert_eq!(act.exposure, ToolExposure::Deferred);
+    assert!(act.available);
     assert_eq!(
-        interact.runtime_policy.cancellation_mode,
+        registry.contributor_id_for_tool("web.open"),
+        Some("builtin.web".to_string())
+    );
+    assert_eq!(
+        registry.contributor_id_for_tool("web.read"),
+        Some("builtin.web".to_string())
+    );
+    assert_eq!(
+        registry.contributor_id_for_tool("web.act"),
+        Some("builtin.web".to_string())
+    );
+    assert_eq!(
+        act.runtime_policy.cancellation_mode,
         ToolCancellationMode::DetachForbidden
     );
     assert_eq!(
-        interact.input_schema["required"],
-        json!(["browserSessionId", "tabId", "controlEpoch", "action"])
+        act.input_schema["required"],
+        json!(["snapshotId", "action"])
     );
+    assert!(registry.get_tool("browser.observe").is_none());
+    assert!(registry.get_tool("browser.interact").is_none());
 }
 
 #[test]

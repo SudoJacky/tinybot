@@ -199,6 +199,7 @@ fn creation_completion_accepts_a_navigation_event_that_already_made_the_tab_read
         BrowserTabId("tab-race".to_string()),
         BrowserNavigationId("navigation-race".to_string()),
         "http://127.0.0.1/",
+        "btest".to_string(),
     );
     tab.lifecycle = BrowserTabLifecycle::Ready;
 
@@ -243,7 +244,7 @@ async fn session_lifecycle_and_observation_are_revisioned() {
 #[tokio::test]
 async fn agent_browser_tools_reuse_the_chat_owned_session() {
     let manager = manager(Arc::new(FakeAdapter::default()));
-    let observed = crate::agent::bridge::dispatch_agent_browser_observe(
+    let observed = crate::tools::web::dispatch_browser_observe(
         &manager,
         "chat-shared-browser",
         serde_json::json!({}),
@@ -256,7 +257,7 @@ async fn agent_browser_tools_reuse_the_chat_owned_session() {
     let control_epoch = snapshot["control"]["controlEpoch"].as_u64().unwrap();
     let observation_revision = snapshot["tabs"][0]["observationRevision"].as_u64().unwrap();
 
-    let result = crate::agent::bridge::dispatch_agent_browser_interact(
+    let result = crate::tools::web::dispatch_browser_interact(
         &manager,
         "chat-shared-browser",
         None,
@@ -282,7 +283,7 @@ async fn agent_browser_tools_reuse_the_chat_owned_session() {
             .as_str(),
         browser_session_id
     );
-    let ownership_error = crate::agent::bridge::dispatch_agent_browser_observe(
+    let ownership_error = crate::tools::web::dispatch_browser_observe(
         &manager,
         "other-chat",
         serde_json::json!({ "browserSessionId": browser_session_id }),
@@ -290,6 +291,109 @@ async fn agent_browser_tools_reuse_the_chat_owned_session() {
     .await
     .expect_err("another chat must not attach to the shared browser session");
     assert!(ownership_error.contains("not owned by this chat"));
+}
+
+#[tokio::test]
+async fn high_level_web_tools_refresh_and_reject_stale_actions() {
+    let adapter = Arc::new(FakeAdapter::default());
+    let manager = manager(adapter.clone());
+    let first =
+        crate::tools::web::dispatch_web_read(&manager, "chat-web-snapshot", serde_json::json!({}))
+            .await
+            .unwrap();
+    assert_eq!(first["status"], "completed");
+    assert!(first["snapshot"].get("browserSessionId").is_none());
+    let first_snapshot_id = first["snapshotId"].as_str().unwrap().to_string();
+    let first_target_ref = first["snapshot"]["targets"][0]["targetRef"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let tab_id = manager
+        .snapshot_for_owner("chat-web-snapshot")
+        .unwrap()
+        .data
+        .active_tab_id;
+
+    adapter.sink.read().unwrap().as_ref().unwrap()(BrowserPlatformEvent::ContentDirty {
+        tab_id: tab_id.clone(),
+    });
+    let unchanged = crate::tools::web::dispatch_web_read(
+        &manager,
+        "chat-web-snapshot",
+        serde_json::json!({ "snapshotId": first_snapshot_id }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(unchanged["status"], "unchanged");
+    assert_eq!(unchanged["snapshotId"], first_snapshot_id);
+
+    adapter.sink.read().unwrap().as_ref().unwrap()(BrowserPlatformEvent::UserInput { tab_id });
+    let stale = crate::tools::web::dispatch_web_act(
+        &manager,
+        "chat-web-snapshot",
+        None,
+        serde_json::json!({
+            "commandId": "stale-web-action",
+            "snapshotId": first_snapshot_id,
+            "action": { "type": "scroll", "deltaX": 0, "deltaY": 120 }
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(stale["status"], "stale_snapshot");
+    assert_eq!(stale["actionExecuted"], false);
+    assert_ne!(stale["snapshotId"], first_snapshot_id);
+    assert_eq!(
+        stale["snapshot"]["targets"][0]["targetRef"],
+        first_target_ref
+    );
+    assert!(adapter.interactions.lock().unwrap().is_empty());
+
+    let current_snapshot_id = stale["snapshotId"].as_str().unwrap();
+    let completed = crate::tools::web::dispatch_web_act(
+        &manager,
+        "chat-web-snapshot",
+        None,
+        serde_json::json!({
+            "commandId": "current-web-action",
+            "snapshotId": current_snapshot_id,
+            "action": { "type": "scroll", "deltaX": 0, "deltaY": 120 }
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(completed["status"], "completed");
+    assert_eq!(completed["actionExecuted"], true);
+    assert_ne!(completed["snapshotId"], current_snapshot_id);
+    assert_eq!(adapter.interactions.lock().unwrap().len(), 1);
+
+    let page = manager
+        .agent_page_state_for_owner("chat-web-snapshot")
+        .unwrap();
+    let native = &page.observation.snapshot.data;
+    let tab = native
+        .tabs
+        .iter()
+        .find(|tab| tab.tab_id == native.active_tab_id)
+        .unwrap();
+    adapter.sink.read().unwrap().as_ref().unwrap()(BrowserPlatformEvent::ContentDirty {
+        tab_id: native.active_tab_id.clone(),
+    });
+    let rejected = manager
+        .interact(BrowserInteractionInput {
+            browser_session_id: native.browser_session_id.clone(),
+            tab_id: native.active_tab_id.clone(),
+            command_id: BrowserCommandId::new("racing-web-action").unwrap(),
+            control_epoch: native.control.control_epoch,
+            snapshot_id: Some(page.snapshot_id.clone()),
+            capture_id: tab.current_capture_id.clone(),
+            observation_revision: Some(tab.observation_revision),
+            action: BrowserAction::Back,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(rejected, AGENT_SNAPSHOT_STALE);
+    assert_eq!(adapter.interactions.lock().unwrap().len(), 1);
 }
 
 #[tokio::test]
@@ -312,6 +416,7 @@ async fn diagnostics_correlate_commands_and_redact_navigation_urls() {
             tab_id: snapshot.data.active_tab_id,
             command_id: command_id.clone(),
             control_epoch: snapshot.data.control.control_epoch,
+            snapshot_id: None,
             capture_id: None,
             observation_revision: None,
             action: BrowserAction::Navigate {
@@ -412,6 +517,7 @@ async fn stale_control_epoch_is_rejected_and_user_input_advances_epoch() {
             tab_id,
             command_id: BrowserCommandId::new("command-1").unwrap(),
             control_epoch: 0,
+            snapshot_id: None,
             capture_id: None,
             observation_revision: None,
             action: BrowserAction::Navigate {
@@ -455,6 +561,7 @@ async fn resume_returns_interrupted_control_to_idle_without_platform_dispatch() 
             tab_id,
             command_id: command_id.clone(),
             control_epoch: interrupted_epoch,
+            snapshot_id: None,
             capture_id: None,
             observation_revision: None,
             action: BrowserAction::Resume,
@@ -751,6 +858,7 @@ async fn coordinate_actions_require_current_capture_bounds() {
             tab_id: tab.tab_id.clone(),
             command_id: BrowserCommandId::new("coordinate-outside").unwrap(),
             control_epoch: observed.snapshot.data.control.control_epoch,
+            snapshot_id: None,
             capture_id: tab.current_capture_id.clone(),
             observation_revision: Some(tab.observation_revision),
             action: BrowserAction::Click { x: 900.0, y: 10.0 },
@@ -794,6 +902,7 @@ async fn semantic_action_is_normalized_and_post_action_observed() {
             tab_id: snapshot.data.active_tab_id,
             command_id: BrowserCommandId::new("semantic-click").unwrap(),
             control_epoch: observed.snapshot.data.control.control_epoch,
+            snapshot_id: None,
             capture_id: observed.capture.map(|capture| capture.capture_id),
             observation_revision: Some(before_revision),
             action: BrowserAction::ClickTarget { target_ref },
@@ -845,6 +954,7 @@ async fn direct_user_input_cancels_an_in_flight_agent_wait() {
         tab_id: tab.tab_id.clone(),
         command_id: command_id.clone(),
         control_epoch: observed.snapshot.data.control.control_epoch,
+        snapshot_id: None,
         capture_id: tab.current_capture_id.clone(),
         observation_revision: Some(tab.observation_revision),
         action: BrowserAction::Wait {
@@ -924,6 +1034,7 @@ async fn protected_semantic_target_requires_user_without_platform_dispatch() {
             tab_id: snapshot.data.active_tab_id,
             command_id: command_id.clone(),
             control_epoch: observed.snapshot.data.control.control_epoch,
+            snapshot_id: None,
             capture_id: observed.capture.map(|capture| capture.capture_id),
             observation_revision: Some(observation_revision),
             action: BrowserAction::ClickTarget {

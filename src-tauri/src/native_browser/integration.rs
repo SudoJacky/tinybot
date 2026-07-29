@@ -432,6 +432,7 @@ async fn exercise_agent_interactions(
             tab_id: tab_id.clone(),
             command_id: BrowserCommandId::new("stale-observation")?,
             control_epoch: stale_context.0,
+            snapshot_id: None,
             capture_id: stale_context.2,
             observation_revision: Some(stale_context.1),
             action: BrowserAction::Wait {
@@ -497,6 +498,7 @@ async fn run_interaction(
             tab_id: tab_id.clone(),
             command_id: BrowserCommandId::new(command_id)?,
             control_epoch,
+            snapshot_id: None,
             capture_id,
             observation_revision: action
                 .requires_observation()

@@ -31,6 +31,9 @@ pub(crate) enum BrowserPlatformEvent {
     UserInput {
         tab_id: BrowserTabId,
     },
+    ContentDirty {
+        tab_id: BrowserTabId,
+    },
     PopupRequested {
         tab_id: BrowserTabId,
         url: String,
