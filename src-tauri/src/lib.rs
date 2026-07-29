@@ -17,6 +17,7 @@ mod skills;
 mod storage;
 mod system_prompt;
 mod threads;
+mod tool_notes;
 mod tools;
 mod transport;
 mod workspace;

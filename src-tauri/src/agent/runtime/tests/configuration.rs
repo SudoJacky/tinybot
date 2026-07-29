@@ -326,9 +326,10 @@ fn composed_workspace_instructions_reach_provider_and_reload_user_edits() {
             .expect("instruction provenance sources should be visible");
         assert_eq!(sources[0]["kind"], "built_in_identity");
         assert_eq!(sources[1]["kind"], "workspace_system");
-        assert_eq!(sources[2]["kind"], "project_agents");
-        assert_eq!(sources[3]["kind"], "project_override");
-        assert_eq!(sources[4]["kind"], "runtime_environment");
+        assert_eq!(sources[2]["kind"], "workspace_tools");
+        assert_eq!(sources[3]["kind"], "project_agents");
+        assert_eq!(sources[4]["kind"], "project_override");
+        assert_eq!(sources[5]["kind"], "runtime_environment");
         assert!(sources.iter().all(|source| source["contentHash"]
             .as_str()
             .is_some_and(|hash| hash.len() == 64)));
