@@ -470,6 +470,27 @@ export function ChatPage({
       cancelled = true;
     };
   }, [activeSession?.id, chatStore]);
+
+  useEffect(() => {
+    if (liveCanvas.visibility !== "open"
+      || browserSnapshot
+      || !activeSession?.id
+      || !chatStore.browserRuntime) {
+      return;
+    }
+    let cancelled = false;
+    void chatStore.browserRuntime.createSession({ ownerSessionId: activeSession.id }).then((snapshot) => {
+      if (!cancelled) {
+        setBrowserSnapshot(snapshot);
+        setBrowserRuntimeError("");
+      }
+    }).catch((error) => {
+      if (!cancelled) setBrowserRuntimeError(error instanceof Error ? error.message : String(error));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSession?.id, browserSnapshot, chatStore, liveCanvas.visibility]);
   const liveCanvasEntries = useMemo<LiveCanvasEntry[]>(() => (
     (timelineLoaded ? timeline?.turns ?? [] : []).flatMap((turn) => (
       (turn.executionItems ?? turn.steps).map((step) => ({ step, turnId: turn.id }))
@@ -1246,6 +1267,34 @@ export function ChatPage({
     } catch (error) {
       setTimelineError(`Browser handoff could not continue the Agent: ${error instanceof Error ? error.message : String(error)}`);
     }
+  }
+
+  async function handleExitTinyOs(): Promise<void> {
+    const browserSession = browserSnapshot?.data;
+    const browserRuntime = chatStore.browserRuntime;
+    if (browserSession && browserRuntime && browserSession.sessionId === activeSession?.id) {
+      try {
+        await browserRuntime.closeSession(browserSession.browserSessionId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setBrowserRuntimeError(message);
+        setTimelineError(`TinyOS browser could not be released: ${message}`);
+        console.error("[tinyos] browser.session.close.failed", {
+          browserSessionId: browserSession.browserSessionId,
+          error: message,
+          ownerSessionId: browserSession.sessionId,
+        });
+        return;
+      }
+      setBrowserSnapshot((current) => (
+        current?.data.browserSessionId === browserSession.browserSessionId ? undefined : current
+      ));
+      setBrowserRuntimeError("");
+      if (browserHandoffRef.current?.browserSessionId === browserSession.browserSessionId) {
+        browserHandoffRef.current = undefined;
+      }
+    }
+    dispatchLiveCanvas({ type: "close" });
   }
 
   async function handleComposerSend(
@@ -2058,6 +2107,7 @@ export function ChatPage({
           onCancelTurn={() => activeSession && void handleStopGeneration(activeSession, "tinyos")}
           onPauseTurn={() => void handleAgentTurnControl("agent.pause", "tinyos")}
           onClose={() => dispatchLiveCanvas({ type: "close" })}
+          onExit={handleExitTinyOs}
           onExpandedChange={() => dispatchLiveCanvas({ type: "expand_toggle" })}
           onOpenArtifact={(artifact) => void handleOpenArtifact(artifact)}
           onAgentRequest={(reference, intent, fromHistory) => void handleTinyOsAgentRequest(reference, intent, fromHistory)}

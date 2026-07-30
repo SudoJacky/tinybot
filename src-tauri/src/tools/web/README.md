@@ -14,6 +14,10 @@ agent 不需要处理 browser session、tab、control epoch、capture ID 或 obs
 
 原有的 `browser.observe` 和 `browser.interact` 仍作为内部能力使用，不直接暴露给 agent。
 
+## 浏览器生命周期
+
+关闭 TinyOS 面板只会隐藏界面，保留 browser session，方便稍后继续。用户选择“Exit TinyOS and release browser”或删除所属聊天线程时，后端会关闭该 session 的所有 tab；Windows 上会调用 WebView 的 `close()` 并释放句柄。再次打开 TinyOS 时会按需新建 session。
+
 ## 分层
 
 - `registry.rs`：定义 agent 可以看到的工具和输入 schema。

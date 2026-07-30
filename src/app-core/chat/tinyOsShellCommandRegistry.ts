@@ -9,6 +9,7 @@ export type TinyOsShellCommandId =
   | "browser.type"
   | "history.return_live"
   | "shell.close"
+  | "shell.exit"
   | "shell.expanded_toggle"
   | "shell.notification_center"
   | "shell.overview"

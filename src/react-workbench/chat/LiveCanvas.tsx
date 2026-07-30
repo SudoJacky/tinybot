@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent, type RefObject } from "react";
-import { Maximize2, Minimize2, MonitorDot, Play, X } from "lucide-react";
+import { Maximize2, Minimize2, MonitorDot, Play, Power, X } from "lucide-react";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { projectKernelBackedTinyOsDesktop, projectTinyOsDesktop, type TinyOsTimelineEntry } from "../../app-core/chat/tinyOsDesktopModel";
 import { tinyOsLayoutModeForWidth, type TinyOsAgentRequestIntent, type TinyOsAgentRequestReference, type TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
@@ -51,6 +51,7 @@ export function LiveCanvas({
   onPauseTurn,
   onAttachContext,
   onClose,
+  onExit,
   onExpandedChange,
   onOpenArtifact,
   onAgentRequest,
@@ -111,6 +112,7 @@ export function LiveCanvas({
   onPauseTurn: () => void;
   onAttachContext: (reference: TinyOsContextReference) => void;
   onClose: () => void;
+  onExit: () => Promise<void>;
   onExpandedChange?: () => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
   onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent, fromHistory: boolean) => void;
@@ -260,6 +262,17 @@ export function LiveCanvas({
       scope: "local_presentation",
       target: { kind: "shell" },
     }),
+    defineTinyOsShellCommand({
+      availability: { available: true },
+      category: "system",
+      dispatch: onExit,
+      id: "shell.exit",
+      input: { kind: "none" },
+      keywords: ["exit", "release", "browser", "tinyos"],
+      label: "Exit TinyOS and release browser",
+      scope: "runtime",
+      target: { kind: "shell" },
+    }),
   ], { simulationMode: mode === "history" ? "history" : "live" });
 
   useEffect(() => {
@@ -346,6 +359,9 @@ export function LiveCanvas({
             </button>
           ) : null}
           {onExpandedChange ? <button aria-label={expanded ? "Exit expanded TinyOS" : "Expand TinyOS to Chat surface"} title={expanded ? "Exit expanded mode" : "Expanded mode"} type="button" onClick={() => void canvasCommandRegistry.execute("shell.expanded_toggle")}>{expanded ? <Minimize2 aria-hidden="true" size={15} /> : <Maximize2 aria-hidden="true" size={15} />}</button> : null}
+          <button aria-label="Exit TinyOS and release browser" title="Exit TinyOS and release browser" type="button" onClick={() => void canvasCommandRegistry.execute("shell.exit")}>
+            <Power aria-hidden="true" size={16} />
+          </button>
           <button aria-label="Close TinyOS desktop" title="Close TinyOS" type="button" onClick={() => void canvasCommandRegistry.execute("shell.close")}>
             <X aria-hidden="true" size={16} />
           </button>

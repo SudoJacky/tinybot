@@ -79,6 +79,7 @@ function canvasProps(entries: LiveCanvasEntry[], overrides: Record<string, unkno
     onAgentRequest: vi.fn(),
     onAttachContext: vi.fn(),
     onClose: vi.fn(),
+    onExit: vi.fn(async () => undefined),
     onOpenArtifact: vi.fn(),
     onRetryOperation: vi.fn(),
     onReturnToLive: vi.fn(),
@@ -929,7 +930,7 @@ describe("LiveCanvas TinyOS", () => {
     expect(runtime.updateSurface).not.toHaveBeenCalled();
   });
 
-  it("keeps the native browser surface attached while its TinyOS window is dragged", async () => {
+  it("suspends the native browser surface during drag and applies only the final bounds", async () => {
     const snapshot = browserSessionSnapshot();
     const runtime = browserRuntimeMock(snapshot);
     const browserEntry = entry(step({ id: "browser-native-drag", kind: "browser" }));
@@ -941,9 +942,9 @@ describe("LiveCanvas TinyOS", () => {
 
     await waitFor(() => expect(runtime.updateSurface).toHaveBeenCalledWith(expect.objectContaining({ visible: true })));
     runtime.updateSurface.mockClear();
-    let releaseFirstUpdate: (() => void) | undefined;
+    let releaseHiddenUpdate: (() => void) | undefined;
     runtime.updateSurface.mockImplementationOnce(() => new Promise((resolve) => {
-      releaseFirstUpdate = () => resolve(snapshot);
+      releaseHiddenUpdate = () => resolve(snapshot);
     }));
 
     const browserSurface = screen.getByLabelText("Browser page");
@@ -961,24 +962,27 @@ describe("LiveCanvas TinyOS", () => {
     }));
     const titlebar = screen.getByLabelText("Move Browser window");
     fireEvent.pointerDown(titlebar, { button: 0, clientX: 120, clientY: 80, pointerId: 7 });
+    await waitFor(() => expect(runtime.updateSurface).toHaveBeenCalledWith(expect.objectContaining({ visible: false })));
     browserSurfaceX = 120;
     fireEvent.pointerMove(titlebar, { clientX: 240, clientY: 180, pointerId: 7 });
-
-    await waitFor(() => expect(runtime.updateSurface).toHaveBeenCalledTimes(1));
     browserSurfaceX = 160;
     fireEvent.pointerMove(titlebar, { clientX: 280, clientY: 210, pointerId: 7 });
     browserSurfaceX = 200;
     fireEvent.pointerMove(titlebar, { clientX: 320, clientY: 240, pointerId: 7 });
     fireEvent(window, new Event("resize"));
+    fireEvent.pointerUp(titlebar, { clientX: 320, clientY: 240, pointerId: 7 });
     await act(async () => {
-      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+      await new Promise((resolve) => window.setTimeout(resolve, 120));
     });
 
     expect(runtime.updateSurface).toHaveBeenCalledTimes(1);
-    await act(async () => releaseFirstUpdate?.());
+    await act(async () => releaseHiddenUpdate?.());
     await waitFor(() => expect(runtime.updateSurface).toHaveBeenCalledTimes(2));
-    expect(runtime.updateSurface.mock.calls.every(([input]) => input.visible)).toBe(true);
-    expect(runtime.updateSurface).toHaveBeenCalledWith(expect.objectContaining({ visible: true }));
+    expect(runtime.updateSurface.mock.calls[0]?.[0]).toMatchObject({ visible: false });
+    expect(runtime.updateSurface.mock.calls[1]?.[0]).toMatchObject({
+      rect: { x: 200 },
+      visible: true,
+    });
   });
 
   it("switches applications with keyboard shortcuts and restores session UI state", async () => {
@@ -1183,5 +1187,19 @@ describe("LiveCanvas TinyOS", () => {
     rerender(<LiveCanvas {...canvasProps([form], { onClose })} />);
     expect(screen.queryByRole("button", { name: "Close TinyOS overlay" })).toBeNull();
     expect(screen.getByRole("dialog", { name: "TinyOS input request" })).toBeTruthy();
+  });
+
+  it("keeps hiding separate from exiting and releasing the browser", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onExit = vi.fn(async () => undefined);
+    render(<LiveCanvas {...canvasProps([], { onClose, onExit })} />);
+
+    await user.click(screen.getByRole("button", { name: "Close TinyOS desktop" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onExit).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Exit TinyOS and release browser" }));
+    expect(onExit).toHaveBeenCalledTimes(1);
   });
 });

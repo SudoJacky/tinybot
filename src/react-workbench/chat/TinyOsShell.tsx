@@ -1462,6 +1462,7 @@ function TinyOsAppWindow({
   const Icon = APP_ICONS[window.appId];
   const latest = window.entries[window.entries.length - 1];
   const windowRef = useRef<HTMLElement>(null);
+  const [pointerActive, setPointerActive] = useState(false);
   const pointerState = useRef<{
     kind: "move" | "resize";
     pointerId: number;
@@ -1502,6 +1503,7 @@ function TinyOsAppWindow({
     if (kind === "move" && (event.target as Element).closest("button")) return;
     event.preventDefault();
     onFocus();
+    setPointerActive(true);
     pointerState.current = {
       kind,
       pointerId: event.pointerId,
@@ -1531,6 +1533,7 @@ function TinyOsAppWindow({
   function endPointer(event: PointerEvent<HTMLElement>) {
     if (pointerState.current?.pointerId !== event.pointerId) return;
     pointerState.current = undefined;
+    setPointerActive(false);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
@@ -1592,6 +1595,7 @@ function TinyOsAppWindow({
         onKeyDown={handleWindowKeyDown}
         onPointerDown={(event) => startPointer(event, "move")}
         onPointerMove={movePointer}
+        onPointerCancel={endPointer}
         onPointerUp={endPointer}
       >
         <span><Icon aria-hidden="true" size={15} /><strong>{window.title}</strong></span>
@@ -1609,7 +1613,7 @@ function TinyOsAppWindow({
           canSaveFile={canSaveFile}
           browserRuntime={browserRuntime}
           browserSurfaceLayout={layout}
-          browserSurfaceVisible={active && browserSurfaceAllowed}
+          browserSurfaceVisible={active && browserSurfaceAllowed && !pointerActive}
           commandLifecycle={systemMonitorControls.commandLifecycle}
           commandRegistry={commandRegistry}
           directEditUnavailableReason={directEditUnavailableReason}
@@ -1637,6 +1641,7 @@ function TinyOsAppWindow({
         tabIndex={-1}
         onPointerDown={(event) => startPointer(event, "resize")}
         onPointerMove={movePointer}
+        onPointerCancel={endPointer}
         onPointerUp={endPointer}
       />
     </article>
@@ -2079,6 +2084,7 @@ function browserControlCopy(state?: "idle" | "agent_active" | "user_required" | 
 }
 
 type BrowserSurfaceUpdateInput = Parameters<NativeBrowserRuntimeApi["updateSurface"]>[0];
+const BROWSER_SURFACE_SETTLE_MS = 80;
 
 function sameBrowserSurfaceUpdate(left: BrowserSurfaceUpdateInput | undefined, right: BrowserSurfaceUpdateInput): boolean {
   if (!left) return false;
@@ -2094,6 +2100,16 @@ function sameBrowserSurfaceUpdate(left: BrowserSurfaceUpdateInput | undefined, r
     && left.topmost === right.topmost
     && left.unobscured === right.unobscured
     && left.visible === right.visible;
+}
+
+function sameHiddenBrowserSurfaceTarget(left: BrowserSurfaceUpdateInput | undefined, right: BrowserSurfaceUpdateInput): boolean {
+  return Boolean(left
+    && !left.visible
+    && !right.visible
+    && left.browserSessionId === right.browserSessionId
+    && left.live === right.live
+    && left.surfaceId === right.surfaceId
+    && left.tabId === right.tabId);
 }
 
 function BrowserSurfaceHost({ browserRuntime, onError, session, surfaceLayout, tabId, visible }: {
@@ -2112,6 +2128,7 @@ function BrowserSurfaceHost({ browserRuntime, onError, session, surfaceLayout, t
   const pendingUpdate = useRef<BrowserSurfaceUpdateInput | undefined>(undefined);
   const updateInFlight = useRef(false);
   const frame = useRef(0);
+  const settleTimer = useRef(0);
   const scheduledVisible = useRef(visible);
   const surfaceId = useMemo(() => `tinyos-browser-surface-${session.browserSessionId}`, [session.browserSessionId]);
 
@@ -2152,7 +2169,8 @@ function BrowserSurfaceHost({ browserRuntime, onError, session, surfaceLayout, t
       unobscured: nextVisible,
       visible: nextVisible,
     };
-    if (sameBrowserSurfaceUpdate(lastReportedUpdate.current, nextUpdate)) return;
+    if (sameBrowserSurfaceUpdate(lastReportedUpdate.current, nextUpdate)
+      || sameHiddenBrowserSurfaceTarget(lastReportedUpdate.current, nextUpdate)) return;
     layoutRevision.current = nextUpdate.layoutRevision;
     lastReportedUpdate.current = nextUpdate;
     pendingUpdate.current = nextUpdate;
@@ -2162,7 +2180,16 @@ function BrowserSurfaceHost({ browserRuntime, onError, session, surfaceLayout, t
   const schedule = useCallback((nextVisible: boolean) => {
     scheduledVisible.current = nextVisible;
     window.cancelAnimationFrame(frame.current);
-    frame.current = window.requestAnimationFrame(() => report(scheduledVisible.current));
+    window.clearTimeout(settleTimer.current);
+    const enqueue = () => {
+      settleTimer.current = 0;
+      frame.current = window.requestAnimationFrame(() => report(scheduledVisible.current));
+    };
+    if (nextVisible) {
+      settleTimer.current = window.setTimeout(enqueue, BROWSER_SURFACE_SETTLE_MS);
+    } else {
+      enqueue();
+    }
   }, [report]);
 
   useLayoutEffect(() => {
@@ -2175,6 +2202,7 @@ function BrowserSurfaceHost({ browserRuntime, onError, session, surfaceLayout, t
     window.addEventListener("scroll", scheduleCurrent, true);
     return () => {
       window.cancelAnimationFrame(frame.current);
+      window.clearTimeout(settleTimer.current);
       observer?.disconnect();
       window.removeEventListener("resize", scheduleCurrent);
       window.removeEventListener("scroll", scheduleCurrent, true);

@@ -388,6 +388,30 @@ describe("ChatPage", () => {
     expect(screen.queryByLabelText("TinyOS shared desktop")).toBeNull();
   });
 
+  it("releases the TinyOS browser session on explicit exit and recreates it when reopened", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const snapshot = handoffBrowserSnapshot("idle", 0);
+    const createSession = vi.fn(async () => snapshot);
+    const closeSession = vi.fn(async () => undefined);
+    stores.chatStore.browserRuntime = {
+      closeSession,
+      createSession,
+      updateSurface: vi.fn(async () => snapshot),
+    } as unknown as NativeBrowserRuntimeApi;
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 29, 0, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole("button", { name: /^Open TinyOS/ }));
+    await user.click(await screen.findByRole("button", { name: "Exit TinyOS and release browser" }));
+
+    await waitFor(() => expect(closeSession).toHaveBeenCalledWith("browser-handoff"));
+    await waitFor(() => expect(screen.queryByLabelText("TinyOS shared desktop")).toBeNull());
+    await user.click(screen.getByRole("button", { name: /^Open TinyOS/ }));
+    await waitFor(() => expect(createSession).toHaveBeenCalledTimes(2));
+  });
+
   it("opens the handed-off browser and continues the Agent after explicit completion", async () => {
     const stores = createStores();
     const handoff = handoffBrowserSnapshot("user_required", 7);
