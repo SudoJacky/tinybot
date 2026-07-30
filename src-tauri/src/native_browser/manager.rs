@@ -1794,6 +1794,24 @@ impl BrowserSessionManager {
     }
 
     pub(crate) async fn close_session(&self, session_id: &BrowserSessionId) -> Result<(), String> {
+        let owner_session_id = {
+            let state = self.lock_state();
+            state
+                .sessions
+                .get(session_id)
+                .ok_or_else(|| "Browser session is unavailable".to_string())?
+                .owner_session_id
+                .clone()
+        };
+        let creation_lock = self.owner_creation_lock(&owner_session_id);
+        let _creation_guard = creation_lock.lock().await;
+        self.close_session_after_creation(session_id).await
+    }
+
+    async fn close_session_after_creation(
+        &self,
+        session_id: &BrowserSessionId,
+    ) -> Result<(), String> {
         let started = Instant::now();
         let (tab_ids, profile, owner_session_id) = {
             let mut state = self.lock_state();
@@ -2596,6 +2614,12 @@ fn plan_browser_interaction(
     tab: &BrowserTabRecord,
     input: &BrowserInteractionInput,
 ) -> Result<BrowserPlatformAction, BrowserInteractionRejection> {
+    if input.snapshot_id.is_some() && session.active_tab_id != input.tab_id {
+        return Err(BrowserInteractionRejection {
+            metric: Some("browser.command.rejected.inactive_agent_tab"),
+            reason: AGENT_SNAPSHOT_STALE.to_string(),
+        });
+    }
     if let Some(snapshot_id) = input.snapshot_id.as_deref() {
         if tab.agent_snapshot_dirty || snapshot_id != agent_snapshot_id(tab) {
             return Err(BrowserInteractionRejection {

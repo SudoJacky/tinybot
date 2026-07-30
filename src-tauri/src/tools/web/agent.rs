@@ -1,6 +1,7 @@
 use super::browser::{dispatch_browser_interact, dispatch_browser_observe, WebToolCancellation};
 use crate::native_browser::{
-    BrowserAgentPageState, BrowserCreateSessionInput, SharedBrowserRuntime, AGENT_SNAPSHOT_STALE,
+    BrowserAgentPageState, BrowserCreateSessionInput, BrowserNativeSnapshot, SharedBrowserRuntime,
+    AGENT_SNAPSHOT_STALE,
 };
 use serde_json::{json, Value};
 
@@ -14,15 +15,16 @@ pub(crate) async fn dispatch_web_open(
 ) -> Result<Value, String> {
     let url = required_text(&arguments, "url")?;
     if runtime.snapshot_for_owner(owner_session_id).is_none() {
-        runtime
-            .create_session(
-                serde_json::from_value::<BrowserCreateSessionInput>(json!({
-                    "ownerSessionId": owner_session_id,
-                    "initialUrl": url,
-                }))
-                .map_err(|error| format!("web.open payload is invalid: {error}"))?,
-            )
-            .await?;
+        create_session_with_cancellation(
+            runtime,
+            cancellation,
+            serde_json::from_value::<BrowserCreateSessionInput>(json!({
+                "ownerSessionId": owner_session_id,
+                "initialUrl": url,
+            }))
+            .map_err(|error| format!("web.open payload is invalid: {error}"))?,
+        )
+        .await?;
         let page = refresh_page(runtime, owner_session_id).await?;
         return Ok(completed_response(&page, None));
     }
@@ -88,6 +90,36 @@ pub(crate) async fn dispatch_web_act(
         action,
     )
     .await
+}
+
+async fn create_session_with_cancellation(
+    runtime: &SharedBrowserRuntime,
+    cancellation: Option<&dyn WebToolCancellation>,
+    input: BrowserCreateSessionInput,
+) -> Result<BrowserNativeSnapshot, String> {
+    if cancellation.is_some_and(WebToolCancellation::is_cancelled) {
+        return Err("Agent browser session creation was cancelled".to_string());
+    }
+    let runtime = runtime.clone();
+    let mut creation =
+        tauri::async_runtime::spawn(async move { runtime.create_session(input).await });
+    if let Some(cancellation) = cancellation {
+        tokio::select! {
+            biased;
+            _ = cancellation.cancelled() => {
+                Err("Agent browser session creation was cancelled".to_string())
+            }
+            result = &mut creation => {
+                result.map_err(|error| {
+                    format!("Agent browser session creation task failed: {error}")
+                })?
+            },
+        }
+    } else {
+        creation
+            .await
+            .map_err(|error| format!("Agent browser session creation task failed: {error}"))?
+    }
 }
 
 async fn ensure_session(

@@ -26,6 +26,27 @@ struct FakeAdapter {
     fail_create: std::sync::atomic::AtomicBool,
 }
 
+#[derive(Default)]
+struct TestWebCancellation {
+    token: tokio_util::sync::CancellationToken,
+}
+
+impl TestWebCancellation {
+    fn cancel(&self) {
+        self.token.cancel();
+    }
+}
+
+impl crate::tools::web::WebToolCancellation for TestWebCancellation {
+    fn is_cancelled(&self) -> bool {
+        self.token.is_cancelled()
+    }
+
+    fn cancelled(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        Box::pin(self.token.cancelled())
+    }
+}
+
 #[async_trait]
 impl BrowserRuntimeAdapter for FakeAdapter {
     fn runtime_kind(&self) -> &'static str {
@@ -344,6 +365,54 @@ async fn concurrent_session_creation_waits_for_the_owner_session_to_be_ready() {
 }
 
 #[tokio::test]
+async fn closing_a_session_waits_for_initial_creation_before_releasing_it() {
+    let adapter = Arc::new(FakeAdapter::default());
+    adapter
+        .create_delay_ms
+        .store(100, std::sync::atomic::Ordering::Relaxed);
+    let manager = manager(adapter.clone());
+    let create_manager = manager.clone();
+    let creating = tokio::spawn(async move {
+        create_manager
+            .create_session(BrowserCreateSessionInput {
+                owner_session_id: "thread-close-during-create".to_string(),
+                profile_id: None,
+                persistence: BrowserProfilePersistence::Persistent,
+                initial_url: None,
+            })
+            .await
+    });
+
+    let creating_snapshot = loop {
+        if let Some(snapshot) = manager.snapshot_for_owner("thread-close-during-create") {
+            break snapshot;
+        }
+        tokio::task::yield_now().await;
+    };
+    let close_manager = manager.clone();
+    let browser_session_id = creating_snapshot.data.browser_session_id;
+    let mut closing =
+        tokio::spawn(async move { close_manager.close_session(&browser_session_id).await });
+
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), &mut closing)
+            .await
+            .is_err(),
+        "browser cleanup must wait for the initial native tab creation"
+    );
+    let created = creating.await.unwrap().unwrap();
+    closing.await.unwrap().unwrap();
+
+    assert!(manager
+        .snapshot_for_owner("thread-close-during-create")
+        .is_none());
+    assert_eq!(
+        adapter.closed.lock().unwrap().as_slice(),
+        &[created.data.active_tab_id]
+    );
+}
+
+#[tokio::test]
 async fn web_tools_wait_for_a_preheated_session_to_be_ready() {
     let adapter = Arc::new(FakeAdapter::default());
     adapter
@@ -541,6 +610,142 @@ async fn high_level_web_tools_refresh_and_reject_stale_actions() {
         .unwrap_err();
     assert_eq!(rejected, AGENT_SNAPSHOT_STALE);
     assert_eq!(adapter.interactions.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn cancelled_initial_web_open_finishes_session_creation_in_the_background() {
+    let adapter = Arc::new(FakeAdapter::default());
+    adapter
+        .create_delay_ms
+        .store(200, std::sync::atomic::Ordering::Relaxed);
+    let manager = manager(adapter.clone());
+    let cancellation = Arc::new(TestWebCancellation::default());
+    let open_manager = manager.clone();
+    let open_cancellation = cancellation.clone();
+    let opening = tokio::spawn(async move {
+        crate::tools::web::dispatch_web_open(
+            &open_manager,
+            "chat-cancel-initial-open",
+            Some(open_cancellation.as_ref()),
+            serde_json::json!({ "url": "https://example.com" }),
+        )
+        .await
+    });
+
+    loop {
+        if manager
+            .snapshot_for_owner("chat-cancel-initial-open")
+            .is_some()
+        {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    cancellation.cancel();
+    let error = tokio::time::timeout(Duration::from_millis(500), opening)
+        .await
+        .expect("cancelled web.open should finish promptly")
+        .unwrap()
+        .unwrap_err();
+
+    assert!(error.contains("cancelled"));
+    let creating_session = manager
+        .snapshot_for_owner("chat-cancel-initial-open")
+        .expect("the cancelled caller leaves managed creation running");
+    assert_eq!(
+        creating_session.data.lifecycle,
+        BrowserSessionLifecycle::Creating
+    );
+
+    tokio::time::timeout(Duration::from_millis(500), async {
+        loop {
+            if manager
+                .snapshot_for_owner("chat-cancel-initial-open")
+                .is_some_and(|snapshot| snapshot.data.lifecycle == BrowserSessionLifecycle::Ready)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("managed session creation should survive caller cancellation");
+
+    let retried = crate::tools::web::dispatch_web_open(
+        &manager,
+        "chat-cancel-initial-open",
+        None,
+        serde_json::json!({
+            "commandId": "retry-after-cancelled-create",
+            "url": "https://example.org"
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(retried["status"], "completed");
+    assert_eq!(
+        manager
+            .snapshot_for_owner("chat-cancel-initial-open")
+            .unwrap()
+            .data
+            .browser_session_id,
+        creating_session.data.browser_session_id
+    );
+    assert_eq!(adapter.created.lock().unwrap().len(), 1);
+    assert!(adapter.closed.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn agent_snapshot_action_rejects_a_tab_that_is_no_longer_active() {
+    let adapter = Arc::new(FakeAdapter::default());
+    let manager = manager(adapter.clone());
+    crate::tools::web::dispatch_web_read(&manager, "chat-switch-active-tab", serde_json::json!({}))
+        .await
+        .unwrap();
+    let page = manager
+        .agent_page_state_for_owner("chat-switch-active-tab")
+        .unwrap();
+    let native = &page.observation.snapshot.data;
+    let old_tab = native
+        .tabs
+        .iter()
+        .find(|tab| tab.tab_id == native.active_tab_id)
+        .unwrap();
+    let browser_session_id = native.browser_session_id.clone();
+    let old_tab_id = old_tab.tab_id.clone();
+    let control_epoch = native.control.control_epoch;
+    let snapshot_id = page.snapshot_id;
+    let capture_id = old_tab.current_capture_id.clone();
+    let observation_revision = old_tab.observation_revision;
+
+    let switched = manager
+        .create_tab(BrowserCreateTabInput {
+            browser_session_id: browser_session_id.clone(),
+            url: None,
+        })
+        .await
+        .unwrap();
+    assert_ne!(switched.data.active_tab_id, old_tab_id);
+
+    let error = manager
+        .interact(BrowserInteractionInput {
+            browser_session_id,
+            tab_id: old_tab_id,
+            command_id: BrowserCommandId::new("inactive-tab-action").unwrap(),
+            control_epoch,
+            snapshot_id: Some(snapshot_id),
+            capture_id,
+            observation_revision: Some(observation_revision),
+            action: BrowserAction::Scroll {
+                delta_x: 0.0,
+                delta_y: 120.0,
+            },
+        })
+        .await
+        .unwrap_err();
+
+    assert_eq!(error, AGENT_SNAPSHOT_STALE);
+    assert!(adapter.interactions.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
