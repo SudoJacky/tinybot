@@ -123,9 +123,9 @@ URL 跳转使用 `web.open`，不作为 `web.act` 动作。
 }
 ```
 
-浏览器进入 `user_required`，前端展示当前页面和原因。用户操作期间仍保持这个状态，但每次直接输入都会让旧快照失效。用户点击 “Done and continue” 后，前端读取最新 control epoch、执行 `resume`，并在同一会话发起一个简短续接回合。agent 随后通过 `web.read` 获取新的 `snapshotId`。
+浏览器进入 `user_required`，前端展示当前页面和原因。用户操作、切换标签页以及处理 popup 或外部协议期间都保持这个状态，但每次直接输入都会让旧快照失效。只有用户点击 “Hand control back to Agent” 后，前端才读取最新 control epoch、执行内部 `resume`，并在同一会话发起一个简短续接回合。agent 随后通过 `web.read` 获取新的 `snapshotId`。
 
-`user_required` 期间只允许观察和 `resume`，其他 agent 页面修改会被拒绝。弹窗和外部协议仍使用各自的 Allow/Deny 确认，不使用通用完成按钮。
+`user_required` 期间 agent 只允许观察；`resume` 不对 agent 开放。弹窗和外部协议仍使用各自的 Allow/Deny 确认，处理完后继续保持用户控制，直到用户明确交回。
 
 ## 保持简单
 

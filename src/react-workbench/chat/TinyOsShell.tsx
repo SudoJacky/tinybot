@@ -108,6 +108,11 @@ type TinyOsPinnedEvidence = {
   resources: TinyOsResource[];
 };
 
+export type TinyOsBrowserHandoff = {
+  browserSessionId: string;
+  ownerSessionId: string;
+};
+
 export function TinyOsShell({
   agentUiForms,
   canCancelTerminal = false,
@@ -125,6 +130,7 @@ export function TinyOsShell({
   onOpenArtifact,
   onAgentRequest,
   onCancelTerminal = async () => undefined,
+  onBrowserHandoffComplete = () => undefined,
   onBrowserInteract = async () => undefined,
   onDeleteFile = async () => undefined,
   onExecuteTerminal = async () => undefined,
@@ -166,6 +172,7 @@ export function TinyOsShell({
   onOpenArtifact: (artifact: ArtifactRef) => void;
   onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void;
   onCancelTerminal?: () => Promise<void>;
+  onBrowserHandoffComplete?: (input: TinyOsBrowserHandoff) => void;
   onBrowserInteract?: (input: { action: TinyOsBrowserAction; browserSessionId: string; captureId: string; controlEpoch: number; observationRevision: number; tabId: string }) => Promise<void>;
   onDeleteFile?: (input: TinyOsFileDeleteInput) => Promise<void>;
   onExecuteTerminal?: (input: TinyOsTerminalExecuteInput) => Promise<void>;
@@ -1069,6 +1076,7 @@ export function TinyOsShell({
             ])}
             onOpenArtifact={onOpenArtifact}
             onAgentRequest={onAgentRequest}
+            onBrowserHandoffComplete={onBrowserHandoffComplete}
             onDeleteFile={onDeleteFile}
             onMoveFile={onMoveFile}
             onSaveFile={onSaveFile}
@@ -1411,6 +1419,7 @@ function TinyOsAppWindow({
   onOpenContextMenu,
   onOpenArtifact,
   onAgentRequest,
+  onBrowserHandoffComplete,
   onDeleteFile,
   onMoveFile,
   onSaveFile,
@@ -1446,6 +1455,7 @@ function TinyOsAppWindow({
   onOpenContextMenu: (event: MouseEvent<HTMLElement>) => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
   onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void;
+  onBrowserHandoffComplete: (input: TinyOsBrowserHandoff) => void;
   onDeleteFile: (input: TinyOsFileDeleteInput) => Promise<void>;
   onMoveFile: (input: TinyOsFileMoveInput) => Promise<void>;
   onSaveFile: (input: TinyOsFileSaveInput) => Promise<void>;
@@ -1624,6 +1634,7 @@ function TinyOsAppWindow({
           onAttachContext={onAttachContext}
           onOpenArtifact={onOpenArtifact}
           onAgentRequest={onAgentRequest}
+          onBrowserHandoffComplete={onBrowserHandoffComplete}
           onDeleteFile={onDeleteFile}
           onMoveFile={onMoveFile}
           onSaveFile={onSaveFile}
@@ -1648,7 +1659,7 @@ function TinyOsAppWindow({
   );
 }
 
-function TinyOsAppContent({ activeTabId, browserRuntime, browserSurfaceLayout, browserSurfaceVisible, canDirectEdit, canRequestChange, canSaveFile, commandLifecycle, commandRegistry, directEditUnavailableReason, filesController, kernel, layoutMode, window, onAgentRequest, onAttachContext, onDeleteFile, onMoveFile, onOpenArtifact, onSaveFile, onTabChange, requestChangeUnavailableReason, runningTerminalOperationId, saveFileUnavailableReason, systemMonitorControls }: {
+function TinyOsAppContent({ activeTabId, browserRuntime, browserSurfaceLayout, browserSurfaceVisible, canDirectEdit, canRequestChange, canSaveFile, commandLifecycle, commandRegistry, directEditUnavailableReason, filesController, kernel, layoutMode, window, onAgentRequest, onAttachContext, onBrowserHandoffComplete, onDeleteFile, onMoveFile, onOpenArtifact, onSaveFile, onTabChange, requestChangeUnavailableReason, runningTerminalOperationId, saveFileUnavailableReason, systemMonitorControls }: {
   activeTabId?: string;
   browserRuntime?: NativeBrowserRuntimeApi;
   browserSurfaceLayout?: TinyOsWindowRect;
@@ -1664,6 +1675,7 @@ function TinyOsAppContent({ activeTabId, browserRuntime, browserSurfaceLayout, b
   layoutMode: TinyOsLayoutMode;
   onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void;
   onAttachContext: (reference: TinyOsContextReference) => void;
+  onBrowserHandoffComplete: (input: TinyOsBrowserHandoff) => void;
   onDeleteFile: (input: TinyOsFileDeleteInput) => Promise<void>;
   onMoveFile: (input: TinyOsFileMoveInput) => Promise<void>;
   onOpenArtifact: (artifact: ArtifactRef) => void;
@@ -1682,7 +1694,7 @@ function TinyOsAppContent({ activeTabId, browserRuntime, browserSurfaceLayout, b
         : <EmptyCopy text="Workspace Explorer is unavailable." />
       : <TinyOsFiles activeTabId={activeTabId} canRequestChange={canRequestChange} window={window} onAgentRequest={onAgentRequest} onAttachContext={onAttachContext} onTabChange={onTabChange} requestChangeUnavailableReason={requestChangeUnavailableReason} />;
     case "terminal": return <div className="tinyos-terminal-host"><TinyOsTerminalHostControls commandLifecycle={commandLifecycle} commandRegistry={commandRegistry} runningOperationId={runningTerminalOperationId} />{window.entries.length ? <TinyOsTerminal activeTabId={activeTabId} canRequestChange={canRequestChange} kernel={kernel} window={window} onAgentRequest={onAgentRequest} onAttachContext={onAttachContext} onTabChange={onTabChange} requestChangeUnavailableReason={requestChangeUnavailableReason} /> : <EmptyCopy text="Run a reviewed command to create a retained canonical execution. TinyOS does not present this as a persistent PTY session." />}</div>;
-    case "browser": return <TinyOsBrowser browserRuntime={browserRuntime} kernel={kernel} surfaceLayout={browserSurfaceLayout} surfaceVisible={browserSurfaceVisible} />;
+    case "browser": return <TinyOsBrowser browserRuntime={browserRuntime} kernel={kernel} onHandoffComplete={onBrowserHandoffComplete} surfaceLayout={browserSurfaceLayout} surfaceVisible={browserSurfaceVisible} />;
     case "plan": return <TinyOsPlan canRequestChange={canRequestChange} entry={[...window.entries].reverse().find(({ step }) => Boolean(step.plan)) ?? window.entries[window.entries.length - 1]} onAgentRequest={onAgentRequest} requestChangeUnavailableReason={requestChangeUnavailableReason} />;
     case "subagents": return <TinyOsSubagents window={window} />;
     case "artifacts": return <TinyOsArtifacts window={window} onOpenArtifact={onOpenArtifact} />;
@@ -1898,9 +1910,10 @@ function TinyOsTerminal({ activeTabId, canRequestChange, kernel, onAgentRequest,
   );
 }
 
-function TinyOsBrowser({ browserRuntime, kernel, surfaceLayout, surfaceVisible }: {
+function TinyOsBrowser({ browserRuntime, kernel, onHandoffComplete, surfaceLayout, surfaceVisible }: {
   browserRuntime?: NativeBrowserRuntimeApi;
   kernel?: TinyOsKernelSnapshot;
+  onHandoffComplete: (input: TinyOsBrowserHandoff) => void;
   surfaceLayout?: TinyOsWindowRect;
   surfaceVisible: boolean;
 }) {
@@ -1989,6 +2002,10 @@ function TinyOsBrowser({ browserRuntime, kernel, surfaceLayout, surfaceVisible }
         controlEpoch: latest.data.control.controlEpoch,
         tabId: latest.data.activeTabId,
       });
+      onHandoffComplete({
+        browserSessionId: latest.data.browserSessionId,
+        ownerSessionId: latest.data.sessionId,
+      });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -2039,8 +2056,8 @@ function TinyOsBrowser({ browserRuntime, kernel, surfaceLayout, surfaceVisible }
       <div><button type="button" onClick={() => void execute(() => browserRuntime.resolvePolicyRequest(session.browserSessionId, session.pendingPolicyRequest!.requestId, false))}>Deny</button><button type="button" onClick={() => void execute(() => browserRuntime.resolvePolicyRequest(session.browserSessionId, session.pendingPolicyRequest!.requestId, true))}>Allow once</button></div>
     </section> : null}
     {session.control?.state === "user_required" && !session.pendingPolicyRequest ? <section aria-label="Browser user handoff" className="tinyos-browser__handoff" role="alert">
-      <div><ShieldCheck aria-hidden="true" size={14} /><span><strong>Finish this step in the browser</strong><span>{session.control.reason || "Complete the requested browser interaction, then return control to the Agent."}</span></span></div>
-      <button disabled={handoffCompleting} type="button" onClick={() => void completeUserHandoff()}>{handoffCompleting ? "Continuing…" : "Done and continue"}</button>
+      <div><ShieldCheck aria-hidden="true" size={14} /><span><strong>You have browser control</strong><span>{session.control.reason || "Continue in the browser until you want the Agent to take over."}</span></span></div>
+      <button disabled={handoffCompleting} type="button" onClick={() => void completeUserHandoff()}>{handoffCompleting ? "Handing back…" : "Hand control back to Agent"}</button>
     </section> : null}
     {tab.rendererLifecycle === "failed"
       ? <div className="tinyos-browser__unavailable" role="alert"><AlertTriangle aria-hidden="true" size={22} /><strong>{session.lifecycle === "failed" ? "Browser failed to start" : "This tab stopped responding"}</strong><span>{session.control?.reason || (session.lifecycle === "failed" ? "Retry the shared browser session." : "Restart it to continue in the same shared browser session.")}</span><button type="button" onClick={() => void (session.lifecycle === "failed" ? retryFailedSession() : execute(() => browserRuntime.restartTab(session.browserSessionId, tab.tabId)))}>{session.lifecycle === "failed" ? "Retry browser" : "Restart tab"}</button></div>

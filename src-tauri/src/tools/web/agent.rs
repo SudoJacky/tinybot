@@ -71,6 +71,9 @@ pub(crate) async fn dispatch_web_act(
         .get("action")
         .cloned()
         .ok_or_else(|| "web.act requires an action".to_string())?;
+    if action.get("type").and_then(Value::as_str) == Some("resume") {
+        return Err("Only the user can hand browser control back to the Agent".to_string());
+    }
     ensure_session(runtime, owner_session_id).await?;
     let page = refresh_page(runtime, owner_session_id).await?;
     if requested_snapshot_id != page.snapshot_id {

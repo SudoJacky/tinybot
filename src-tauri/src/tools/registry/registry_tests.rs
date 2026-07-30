@@ -126,6 +126,13 @@ fn browser_tools_are_always_exposed_to_the_model() {
         act.input_schema["required"],
         json!(["snapshotId", "action"])
     );
+    assert!(
+        !act.input_schema["properties"]["action"]["properties"]["type"]["enum"]
+            .as_array()
+            .expect("web.act action types should be an array")
+            .iter()
+            .any(|action| action.as_str() == Some("resume"))
+    );
     assert!(registry.get_tool("browser.observe").is_none());
     assert!(registry.get_tool("browser.interact").is_none());
 }

@@ -867,9 +867,11 @@ describe("LiveCanvas TinyOS", () => {
       state: "user_required",
     };
     const runtime = browserRuntimeMock(handoff);
+    const onBrowserHandoffComplete = vi.fn();
     render(<LiveCanvas {...canvasProps([], {
       browserRuntime: runtime.api,
       nativeSnapshots: [handoff],
+      onBrowserHandoffComplete,
     })} />);
 
     const browser = screen.getByLabelText("Browser window");
@@ -877,7 +879,7 @@ describe("LiveCanvas TinyOS", () => {
     const prompt = within(browser).getByRole("alert", { name: "Browser user handoff" });
     expect(within(prompt).getByText("Complete the login verification")).toBeTruthy();
 
-    await userEvent.click(within(prompt).getByRole("button", { name: "Done and continue" }));
+    await userEvent.click(within(prompt).getByRole("button", { name: "Hand control back to Agent" }));
 
     expect(runtime.snapshotQuery).toHaveBeenCalledWith("browser-session-1");
     expect(runtime.interact).toHaveBeenCalledWith(expect.objectContaining({
@@ -886,6 +888,10 @@ describe("LiveCanvas TinyOS", () => {
       controlEpoch: 7,
       tabId: "tab-1",
     }));
+    expect(onBrowserHandoffComplete).toHaveBeenCalledWith({
+      browserSessionId: "browser-session-1",
+      ownerSessionId: "session-1",
+    });
   });
 
   it("continues native browser surface revisions after the host remounts", async () => {

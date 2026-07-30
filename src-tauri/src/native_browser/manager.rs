@@ -1624,9 +1624,12 @@ impl BrowserSessionManager {
             session.control.state = if input.approved {
                 BrowserControlState::Recovering
             } else {
-                BrowserControlState::Idle
+                BrowserControlState::UserRequired
             };
-            session.control.reason = None;
+            session.control.reason = (!input.approved).then(|| {
+                "Continue using the browser, then hand control back to the Agent when ready"
+                    .to_string()
+            });
             increment_counter(
                 &mut state,
                 if input.approved {
@@ -1683,12 +1686,13 @@ impl BrowserSessionManager {
                 .sessions
                 .get_mut(&input.browser_session_id)
                 .ok_or_else(|| "Browser session closed during policy decision".to_string())?;
-            session.control.state = if operation.is_ok() {
-                BrowserControlState::Idle
-            } else {
-                BrowserControlState::Failed
-            };
-            session.control.reason = operation.as_ref().err().cloned();
+            session.control.state = BrowserControlState::UserRequired;
+            session.control.reason = operation.as_ref().err().cloned().or_else(|| {
+                Some(
+                    "Continue using the browser, then hand control back to the Agent when ready"
+                        .to_string(),
+                )
+            });
             increment_counter(
                 &mut state,
                 if operation.is_ok() {

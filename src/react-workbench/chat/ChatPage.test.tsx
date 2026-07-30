@@ -440,7 +440,7 @@ describe("ChatPage", () => {
     const canvas = await screen.findByLabelText("TinyOS shared desktop");
     const browser = await within(canvas).findByLabelText("Browser window");
     expect(browser.getAttribute("data-active")).toBe("true");
-    await userEvent.click(within(browser).getByRole("button", { name: "Done and continue" }));
+    await userEvent.click(within(browser).getByRole("button", { name: "Hand control back to Agent" }));
 
     expect(interact).toHaveBeenCalledWith(expect.objectContaining({
       action: { type: "resume" },
@@ -451,6 +451,29 @@ describe("ChatPage", () => {
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
       text: "我已完成浏览器中的必要操作。请重新读取当前页面，并从转交前的位置继续。",
     }));
+  });
+
+  it("does not continue the Agent from an idle snapshot without explicit user hand-back", async () => {
+    const stores = createStores();
+    const handoff = handoffBrowserSnapshot("user_required", 7);
+    const idle = handoffBrowserSnapshot("idle", 8);
+    let listener: ((event: ChatEvent) => void) | undefined;
+    stores.chatStore.subscribe = vi.fn((_sessionId, nextListener) => {
+      listener = nextListener;
+      return () => undefined;
+    });
+    stores.chatStore.browserRuntime = {
+      createSession: vi.fn(async () => handoff),
+      updateSurface: vi.fn(async () => handoff),
+    } as unknown as NativeBrowserRuntimeApi;
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 29, 0, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await waitFor(() => expect(listener).toBeTruthy());
+    act(() => listener?.({ browserSnapshot: handoff, type: "browser.snapshot" }));
+    act(() => listener?.({ browserSnapshot: idle, type: "browser.snapshot" }));
+
+    await waitFor(() => expect(screen.getByLabelText("TinyOS shared desktop")).toBeTruthy());
+    expect(turnSubmitCommands(stores.chatStore)).toEqual([]);
   });
 
   it("attaches a TinyOS file range as a visible composer chip and structured chat reference", async () => {

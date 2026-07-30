@@ -266,7 +266,6 @@ export function ChatPage({
   const [localSessionSidebarCollapsed, setLocalSessionSidebarCollapsed] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const [liveCanvas, dispatchLiveCanvas] = useReducer(reduceLiveCanvasState, INITIAL_LIVE_CANVAS_STATE);
-  const browserHandoffRef = useRef<{ browserSessionId: string; ownerSessionId: string } | undefined>(undefined);
   const [commandLifecycle, dispatchCommandLifecycle] = useReducer(
     reduceTinyOsCommandLifecycle,
     { stage: "idle" } as TinyOsCommandLifecycle,
@@ -437,24 +436,11 @@ export function ChatPage({
 
   useEffect(() => {
     const browserSession = browserSnapshot?.data;
-    if (!browserSession || !activeSession?.id) return;
+    if (!browserSession) return;
     if (browserSession.control?.state === "user_required") {
-      browserHandoffRef.current = {
-        browserSessionId: browserSession.browserSessionId,
-        ownerSessionId: activeSession.id,
-      };
       dispatchLiveCanvas({ type: "return_live" });
-      return;
     }
-    const handoff = browserHandoffRef.current;
-    if (browserSession.control?.state !== "idle"
-      || handoff?.browserSessionId !== browserSession.browserSessionId
-      || handoff.ownerSessionId !== activeSession.id) {
-      return;
-    }
-    browserHandoffRef.current = undefined;
-    void handleBrowserHandoffComplete(activeSession);
-  }, [activeSession?.id, browserSnapshot?.data.browserSessionId, browserSnapshot?.data.control?.state]);
+  }, [browserSnapshot?.data.browserSessionId, browserSnapshot?.data.control?.state]);
 
   useEffect(() => {
     setBrowserSnapshot(undefined);
@@ -1290,9 +1276,6 @@ export function ChatPage({
         current?.data.browserSessionId === browserSession.browserSessionId ? undefined : current
       ));
       setBrowserRuntimeError("");
-      if (browserHandoffRef.current?.browserSessionId === browserSession.browserSessionId) {
-        browserHandoffRef.current = undefined;
-      }
     }
     dispatchLiveCanvas({ type: "close" });
   }
@@ -2112,6 +2095,10 @@ export function ChatPage({
           onOpenArtifact={(artifact) => void handleOpenArtifact(artifact)}
           onAgentRequest={(reference, intent, fromHistory) => void handleTinyOsAgentRequest(reference, intent, fromHistory)}
           onCancelTerminal={handleCancelTinyOsTerminal}
+          onBrowserHandoffComplete={({ browserSessionId, ownerSessionId }) => {
+            if (activeSession?.id !== ownerSessionId || browserSnapshot?.data.browserSessionId !== browserSessionId) return;
+            void handleBrowserHandoffComplete(activeSession);
+          }}
           onBrowserInteract={handleInteractTinyOsBrowser}
           onDeleteFile={handleDeleteTinyOsFile}
           onExecuteTerminal={handleExecuteTinyOsTerminal}

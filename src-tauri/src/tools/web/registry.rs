@@ -20,7 +20,7 @@ impl ToolContributor for WebToolContributor {
                 "type": {
                     "type": "string",
                     "description": "Use clickTarget with targetRef for semantic targets. Use click only with x and y coordinates. Use userHandoff when login credentials, verification codes, CAPTCHA, payment details, file pickers, or another protected step requires the user. URL navigation belongs in web.open.",
-                    "enum": ["back", "forward", "reload", "stop", "click", "clickTarget", "type", "fill", "key", "scroll", "wait", "userHandoff", "resume"]
+                    "enum": ["back", "forward", "reload", "stop", "click", "clickTarget", "type", "fill", "key", "scroll", "wait", "userHandoff"]
                 },
                 "x": { "type": "number" },
                 "y": { "type": "number" },

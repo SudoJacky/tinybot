@@ -18,7 +18,7 @@ Tool names, descriptions, and input schemas are supplied automatically. Use this
 - `web.act` changes the current page and requires the latest `snapshotId`. If an action is rejected as stale, use the returned snapshot and retry only if the action is still appropriate.
 - Prefer semantic `targetRef` values from the latest snapshot over screen coordinates, and treat both `snapshotId` and `targetRef` as opaque values.
 - Use `web.open` for URL navigation instead of inventing a navigation action for `web.act`.
-- Hand control to the user when login credentials, verification codes, CAPTCHA, payment details, file pickers, or another protected step requires human input.
+- Hand control to the user when login credentials, verification codes, CAPTCHA, payment details, file pickers, or another protected step requires human input. Only the user can hand browser control back to the Agent.
 "#;
 
 pub(crate) fn create_default_tool_notes_if_missing(workspace_root: &Path) -> Result<bool, String> {

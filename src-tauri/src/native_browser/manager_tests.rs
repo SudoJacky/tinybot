@@ -544,6 +544,29 @@ async fn high_level_web_tools_refresh_and_reject_stale_actions() {
 }
 
 #[tokio::test]
+async fn high_level_web_tools_do_not_allow_the_agent_to_resume_user_control() {
+    let manager = manager(Arc::new(FakeAdapter::default()));
+    let page =
+        crate::tools::web::dispatch_web_read(&manager, "chat-agent-resume", serde_json::json!({}))
+            .await
+            .unwrap();
+    let error = crate::tools::web::dispatch_web_act(
+        &manager,
+        "chat-agent-resume",
+        None,
+        serde_json::json!({
+            "commandId": "agent-resume",
+            "snapshotId": page["snapshotId"],
+            "action": { "type": "resume" }
+        }),
+    )
+    .await
+    .unwrap_err();
+
+    assert!(error.contains("Only the user can hand browser control back to the Agent"));
+}
+
+#[tokio::test]
 async fn diagnostics_correlate_commands_and_redact_navigation_urls() {
     let diagnostics = Arc::new(Mutex::new(Vec::new()));
     let manager = manager_with_diagnostics(Arc::new(FakeAdapter::default()), diagnostics.clone());
@@ -1670,6 +1693,10 @@ async fn confirmed_popup_becomes_a_managed_tab() {
         url: "https://example.com/popup?secret=value".to_string(),
     });
     let pending = manager.snapshot(&snapshot.data.browser_session_id).unwrap();
+    assert_eq!(
+        pending.data.control.state,
+        BrowserControlState::UserRequired
+    );
     let request = pending.data.pending_policy_request.unwrap();
     assert_eq!(request.kind, BrowserPolicyRequestKind::Popup);
     assert_eq!(request.safe_url, "https://example.com/popup");
@@ -1687,6 +1714,46 @@ async fn confirmed_popup_becomes_a_managed_tab() {
         "https://example.com/popup?secret=value"
     );
     assert!(resolved.data.pending_policy_request.is_none());
+    assert_eq!(
+        resolved.data.control.state,
+        BrowserControlState::UserRequired
+    );
+}
+
+#[tokio::test]
+async fn denied_popup_keeps_browser_control_with_the_user() {
+    let adapter = Arc::new(FakeAdapter::default());
+    let manager = manager(adapter.clone());
+    let snapshot = manager
+        .create_session(BrowserCreateSessionInput {
+            owner_session_id: "thread-popup-denied".to_string(),
+            profile_id: None,
+            persistence: BrowserProfilePersistence::Persistent,
+            initial_url: None,
+        })
+        .await
+        .unwrap();
+    adapter.sink.read().unwrap().as_ref().unwrap()(BrowserPlatformEvent::PopupRequested {
+        tab_id: snapshot.data.active_tab_id,
+        url: "https://example.com/popup".to_string(),
+    });
+    let pending = manager.snapshot(&snapshot.data.browser_session_id).unwrap();
+    let request = pending.data.pending_policy_request.unwrap();
+    let resolved = manager
+        .resolve_policy_request(BrowserResolvePolicyRequestInput {
+            browser_session_id: snapshot.data.browser_session_id,
+            request_id: request.request_id,
+            approved: false,
+        })
+        .await
+        .unwrap();
+
+    assert!(resolved.data.pending_policy_request.is_none());
+    assert_eq!(
+        resolved.data.control.state,
+        BrowserControlState::UserRequired
+    );
+    assert_eq!(resolved.data.tabs.len(), 1);
 }
 
 #[tokio::test]

@@ -6,7 +6,7 @@ import { tinyOsLayoutModeForWidth, type TinyOsAgentRequestIntent, type TinyOsAge
 import type { ArtifactRef, BackendAgentTurnItem, ChatStep } from "../../app-core/chat/chatTurnModel";
 import type { TinyOsBrowserAction } from "../../app-core/chat/tinyOsCommand";
 import type { TinyOsNativeSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
-import { TinyOsShell } from "./TinyOsShell";
+import { TinyOsShell, type TinyOsBrowserHandoff } from "./TinyOsShell";
 import type { TinyOsFilesController } from "./useTinyOsFilesController";
 import { isTinyOsCommandInFlight, type TinyOsCommandLifecycle } from "../../app-core/chat/tinyOsCommand";
 import { createTinyOsShellCommandRegistry, defineTinyOsShellCommand, type TinyOsShellCommandAvailability } from "../../app-core/chat/tinyOsShellCommandRegistry";
@@ -56,6 +56,7 @@ export function LiveCanvas({
   onOpenArtifact,
   onAgentRequest,
   onCancelTerminal = async () => undefined,
+  onBrowserHandoffComplete = () => undefined,
   onBrowserInteract = async () => undefined,
   onDeleteFile = async () => undefined,
   onExecuteTerminal = async () => undefined,
@@ -117,6 +118,7 @@ export function LiveCanvas({
   onOpenArtifact: (artifact: ArtifactRef) => void;
   onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent, fromHistory: boolean) => void;
   onCancelTerminal?: () => Promise<void>;
+  onBrowserHandoffComplete?: (input: TinyOsBrowserHandoff) => void;
   onBrowserInteract?: (input: { action: TinyOsBrowserAction; browserSessionId: string; captureId: string; controlEpoch: number; observationRevision: number; tabId: string }) => Promise<void>;
   onDeleteFile?: (input: { baseRevision: string; path: string }) => Promise<void>;
   onExecuteTerminal?: (input: { command: string; cwd?: string }) => Promise<void>;
@@ -394,6 +396,7 @@ export function LiveCanvas({
         onOpenArtifact={onOpenArtifact}
         onAgentRequest={(reference, intent) => onAgentRequest(reference, intent, mode === "history")}
         onCancelTerminal={onCancelTerminal}
+        onBrowserHandoffComplete={onBrowserHandoffComplete}
         onBrowserInteract={onBrowserInteract}
         onDeleteFile={onDeleteFile}
         onExecuteTerminal={onExecuteTerminal}
