@@ -91,12 +91,31 @@ impl NativeToolRouter {
         {
             return Ok(entry.method.clone());
         }
-        Ok(self
+        if let Some(method) = self
             .provider_name_map(&self.activated_tool_ids)?
             .get(provider_name)
             .copied()
-            .unwrap_or(provider_name)
-            .to_string())
+        {
+            return Ok(method.to_string());
+        }
+
+        let mut registered_matches = self.entries.iter().filter(|entry| {
+            matches!(entry.exposure, ToolExposure::Model | ToolExposure::Deferred)
+                && (entry.method == provider_name
+                    || provider_tool_name(&entry.method) == provider_name)
+        });
+        let Some(first) = registered_matches.next() else {
+            return Ok(provider_name.to_string());
+        };
+        if let Some(conflict) =
+            registered_matches.find(|entry| entry.method.as_str() != first.method.as_str())
+        {
+            return Err(format!(
+                "provider tool name `{provider_name}` is ambiguous between {} and {}",
+                first.method, conflict.method
+            ));
+        }
+        Ok(first.method.clone())
     }
 
     pub(super) fn search_and_activate(
@@ -233,6 +252,25 @@ impl NativeToolRouter {
     pub(super) fn is_permitted(&self, method: &str) -> bool {
         self.visible_entries(&self.activated_tool_ids)
             .any(|entry| entry.method == method)
+    }
+
+    pub(super) fn rejection_reason(&self, method: &str) -> String {
+        let Some(entry) = self.entries.iter().find(|entry| entry.method == method) else {
+            return format!("native tool `{method}` is unknown or unavailable");
+        };
+        if !entry.available {
+            return format!(
+                "native tool `{method}` is unavailable because its required capabilities are not permitted"
+            );
+        }
+        if entry.exposure == ToolExposure::Deferred
+            && !self.activated_tool_ids.contains(entry.tool_id.as_str())
+        {
+            return format!(
+                "native tool `{method}` is not active for this turn; call `tool_search` to activate it before retrying"
+            );
+        }
+        format!("native tool `{method}` is not exposed to the model")
     }
 
     pub(super) fn supports_parallel(&self, method: &str) -> bool {

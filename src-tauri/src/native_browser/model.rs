@@ -348,6 +348,8 @@ pub struct BrowserInteractionInput {
     pub command_id: BrowserCommandId,
     pub control_epoch: u64,
     #[serde(default)]
+    pub snapshot_id: Option<String>,
+    #[serde(default)]
     pub capture_id: Option<BrowserCaptureId>,
     #[serde(default)]
     pub observation_revision: Option<u64>,

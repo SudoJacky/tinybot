@@ -81,7 +81,6 @@ thread_command!(
     "thread-unarchive",
     "thread.unarchive"
 );
-thread_command!(worker_thread_delete, "thread-delete", "thread.delete");
 thread_command!(worker_thread_fork, "thread-fork", "thread.fork");
 thread_command!(worker_thread_events, "thread-events", "thread.events");
 thread_command!(
@@ -95,6 +94,36 @@ thread_command!(
     "thread-turn-runtime-state",
     "thread.turn.runtime_state"
 );
+
+#[tauri::command]
+pub(crate) async fn worker_thread_delete(
+    input: WorkerThreadRequestInput,
+    state: State<'_, SharedNativeRuntime>,
+    browser_runtime: State<'_, SharedBrowserRuntime>,
+) -> Result<serde_json::Value, String> {
+    let thread_id = input
+        .body
+        .get("threadId")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "thread delete requires threadId".to_string())?
+        .to_string();
+    if let Some(snapshot) = browser_runtime.snapshot_for_owner(&thread_id) {
+        browser_runtime
+            .close_session(&snapshot.data.browser_session_id)
+            .await?;
+    }
+    worker_thread_request_with_options(
+        state.inner(),
+        "thread-delete",
+        "thread.delete",
+        input.body,
+        native_backend_workspace_root(),
+        native_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
 
 #[tauri::command]
 pub(crate) fn thread_get_effective_capabilities(

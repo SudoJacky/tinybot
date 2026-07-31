@@ -13,6 +13,7 @@ use crate::desktop_commands::runtime::{
 };
 use crate::native_browser;
 use crate::system_prompt::{load_or_create_system_prompt, SYSTEM_PROMPT_FILE_NAME};
+use crate::tool_notes::{create_default_tool_notes_if_missing, TOOL_NOTES_FILE_NAME};
 
 use super::logging::append_native_backend_log_line;
 use super::menu::{
@@ -120,6 +121,18 @@ pub(crate) fn run() {
                 Err(error) => push_log(
                     &setup_state,
                     &format!("failed to initialize system prompt: {error}"),
+                ),
+            }
+            let tool_notes_path = workspace_root.join(TOOL_NOTES_FILE_NAME);
+            match create_default_tool_notes_if_missing(&workspace_root) {
+                Ok(true) => push_log(
+                    &setup_state,
+                    &format!("default tool notes created at {}", tool_notes_path.display()),
+                ),
+                Ok(false) => {}
+                Err(error) => push_log(
+                    &setup_state,
+                    &format!("failed to initialize tool notes: {error}"),
                 ),
             }
             if let Err(error) =

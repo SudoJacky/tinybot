@@ -3502,7 +3502,8 @@ button.tinyos-overlay-backdrop:focus-visible {
   color: var(--color-error);
 }
 
-.tinyos-browser__policy {
+.tinyos-browser__policy,
+.tinyos-browser__handoff {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3514,10 +3515,13 @@ button.tinyos-overlay-backdrop:focus-visible {
   font-size: 9px;
 }
 
-.tinyos-browser__policy > div { display: flex; align-items: center; gap: 6px; }
-.tinyos-browser__policy span { display: grid; gap: 2px; min-width: 0; }
+.tinyos-browser__policy > div,
+.tinyos-browser__handoff > div { display: flex; align-items: center; gap: 6px; }
+.tinyos-browser__policy span,
+.tinyos-browser__handoff span { display: grid; gap: 2px; min-width: 0; }
 .tinyos-browser__policy code { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
-.tinyos-browser__policy button { border-radius: 6px; background: #fff; padding: 4px 7px; }
+.tinyos-browser__policy button,
+.tinyos-browser__handoff button { border-radius: 6px; background: #fff; padding: 4px 7px; }
 
 .tinyos-browser__error {
   display: flex;

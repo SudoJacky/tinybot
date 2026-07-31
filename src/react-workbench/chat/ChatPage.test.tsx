@@ -11,6 +11,8 @@ import type { ReactChatMessage } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { createTinyOsAgentCancelCommand } from "../../app-core/chat/tinyOsCommand";
 import type { TinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
+import { createTinyOsBrowserSessionSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
+import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
 import { timelineFromReactMessages } from "./testTimelineFixtures";
 
 const nativeFilePickerMocks = vi.hoisted(() => ({
@@ -172,6 +174,53 @@ function mockTurnSubmit(
   });
 }
 
+function handoffBrowserSnapshot(state: "idle" | "user_required", controlEpoch: number) {
+  return createTinyOsBrowserSessionSnapshot({
+    activeTabId: "tab-handoff",
+    browserSessionId: "browser-handoff",
+    contract: "browser_session_v1",
+    control: {
+      controlEpoch,
+      ...(state === "user_required" ? { reason: "Complete the login verification" } : {}),
+      state,
+    },
+    interaction: {
+      click: state === "idle",
+      key: state === "idle",
+      navigate: state === "idle",
+      scroll: state === "idle",
+      semantic: true,
+      type: state === "idle",
+      wait: state === "idle",
+    },
+    kind: "browser_session",
+    lifecycle: "ready",
+    operationId: "operation-browser-handoff",
+    profileId: "profile-browser-handoff",
+    profilePersistence: "persistent",
+    runtimeKind: "windows_webview2",
+    runtimeVersion: "test-webview2",
+    sessionId: "s1",
+    state: "running",
+    tabs: [{
+      activeHistoryIndex: 0,
+      captures: [{ captureId: "capture-handoff", observedAt: "2026-07-29T00:00:00Z", stale: false }],
+      currentCaptureId: "capture-handoff",
+      history: [{ captureId: "capture-handoff", title: "Login", url: "https://example.com/login" }],
+      loading: false,
+      observationRevision: 4,
+      rendererLifecycle: "running",
+      tabId: "tab-handoff",
+      title: "Login",
+      url: "https://example.com/login",
+    }],
+  }, {
+    observedAt: "2026-07-29T00:00:00Z",
+    revision: controlEpoch,
+    sourceId: "browser.handoff",
+  });
+}
+
 function failedPlanTimeline(sessionId = "s1") {
   const timeline = timelineFromReactMessages(sessionId, [{
     id: "u-failed-plan",
@@ -325,6 +374,107 @@ describe("ChatPage", () => {
     expect(openButton.getAttribute("aria-label")).toMatch(/^Open TinyOS/);
     expect(document.activeElement).toBe(openButton);
   }, 10_000);
+
+  it("prepares the active chat browser session before TinyOS is opened", async () => {
+    const stores = createStores();
+    const createSession = vi.fn(async () => handoffBrowserSnapshot("idle", 0));
+    stores.chatStore.browserRuntime = {
+      createSession,
+    } as unknown as NativeBrowserRuntimeApi;
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 29, 0, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await waitFor(() => expect(createSession).toHaveBeenCalledWith({ ownerSessionId: "s1" }));
+    expect(screen.queryByLabelText("TinyOS shared desktop")).toBeNull();
+  });
+
+  it("releases the TinyOS browser session on explicit exit and recreates it when reopened", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const snapshot = handoffBrowserSnapshot("idle", 0);
+    const createSession = vi.fn(async () => snapshot);
+    const closeSession = vi.fn(async () => undefined);
+    stores.chatStore.browserRuntime = {
+      closeSession,
+      createSession,
+      updateSurface: vi.fn(async () => snapshot),
+    } as unknown as NativeBrowserRuntimeApi;
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 29, 0, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole("button", { name: /^Open TinyOS/ }));
+    await user.click(await screen.findByRole("button", { name: "Exit TinyOS and release browser" }));
+
+    await waitFor(() => expect(closeSession).toHaveBeenCalledWith("browser-handoff"));
+    await waitFor(() => expect(screen.queryByLabelText("TinyOS shared desktop")).toBeNull());
+    await user.click(screen.getByRole("button", { name: /^Open TinyOS/ }));
+    await waitFor(() => expect(createSession).toHaveBeenCalledTimes(2));
+  });
+
+  it("opens the handed-off browser and continues the Agent after explicit completion", async () => {
+    const stores = createStores();
+    const handoff = handoffBrowserSnapshot("user_required", 7);
+    const idle = handoffBrowserSnapshot("idle", 8);
+    let currentSnapshot = handoff;
+    let listener: ((event: ChatEvent) => void) | undefined;
+    stores.chatStore.subscribe = vi.fn((_sessionId, nextListener) => {
+      listener = nextListener;
+      return () => undefined;
+    });
+    const interact = vi.fn(async () => {
+      currentSnapshot = idle;
+      listener?.({ browserSnapshot: idle, type: "browser.snapshot" });
+    });
+    stores.chatStore.browserRuntime = {
+      createSession: vi.fn(async () => currentSnapshot),
+      interact,
+      snapshot: vi.fn(async () => currentSnapshot),
+      updateSurface: vi.fn(async () => currentSnapshot),
+    } as unknown as NativeBrowserRuntimeApi;
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 29, 0, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await waitFor(() => expect(listener).toBeTruthy());
+    act(() => listener?.({ browserSnapshot: handoff, type: "browser.snapshot" }));
+
+    const canvas = await screen.findByLabelText("TinyOS shared desktop");
+    const browser = await within(canvas).findByLabelText("Browser window");
+    expect(browser.getAttribute("data-active")).toBe("true");
+    await userEvent.click(within(browser).getByRole("button", { name: "Hand control back to Agent" }));
+
+    expect(interact).toHaveBeenCalledWith(expect.objectContaining({
+      action: { type: "resume" },
+      browserSessionId: "browser-handoff",
+      controlEpoch: 7,
+      tabId: "tab-handoff",
+    }));
+    await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
+      text: "我已完成浏览器中的必要操作。请重新读取当前页面，并从转交前的位置继续。",
+    }));
+  });
+
+  it("does not continue the Agent from an idle snapshot without explicit user hand-back", async () => {
+    const stores = createStores();
+    const handoff = handoffBrowserSnapshot("user_required", 7);
+    const idle = handoffBrowserSnapshot("idle", 8);
+    let listener: ((event: ChatEvent) => void) | undefined;
+    stores.chatStore.subscribe = vi.fn((_sessionId, nextListener) => {
+      listener = nextListener;
+      return () => undefined;
+    });
+    stores.chatStore.browserRuntime = {
+      createSession: vi.fn(async () => handoff),
+      updateSurface: vi.fn(async () => handoff),
+    } as unknown as NativeBrowserRuntimeApi;
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 29, 0, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await waitFor(() => expect(listener).toBeTruthy());
+    act(() => listener?.({ browserSnapshot: handoff, type: "browser.snapshot" }));
+    act(() => listener?.({ browserSnapshot: idle, type: "browser.snapshot" }));
+
+    await waitFor(() => expect(screen.getByLabelText("TinyOS shared desktop")).toBeTruthy());
+    expect(turnSubmitCommands(stores.chatStore)).toEqual([]);
+  });
 
   it("attaches a TinyOS file range as a visible composer chip and structured chat reference", async () => {
     const user = userEvent.setup();

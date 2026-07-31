@@ -158,6 +158,8 @@ const INITIAL_LIVE_CANVAS_STATE: LiveCanvasState = {
   visibility: "closed",
 };
 
+const BROWSER_HANDOFF_CONTINUE_MESSAGE = "我已完成浏览器中的必要操作。请重新读取当前页面，并从转交前的位置继续。";
+
 function reduceLiveCanvasState(state: LiveCanvasState, action: LiveCanvasAction): LiveCanvasState {
   switch (action.type) {
     case "close":
@@ -433,9 +435,17 @@ export function ChatPage({
   }, [liveCanvas.visibility]);
 
   useEffect(() => {
+    const browserSession = browserSnapshot?.data;
+    if (!browserSession) return;
+    if (browserSession.control?.state === "user_required") {
+      dispatchLiveCanvas({ type: "return_live" });
+    }
+  }, [browserSnapshot?.data.browserSessionId, browserSnapshot?.data.control?.state]);
+
+  useEffect(() => {
     setBrowserSnapshot(undefined);
     setBrowserRuntimeError("");
-    if (!liveCanvasOpen || !activeSession?.id || !chatStore.browserRuntime) return;
+    if (!activeSession?.id || !chatStore.browserRuntime) return;
     let cancelled = false;
     void chatStore.browserRuntime.createSession({ ownerSessionId: activeSession.id }).then((snapshot) => {
       if (!cancelled) setBrowserSnapshot(snapshot);
@@ -445,7 +455,28 @@ export function ChatPage({
     return () => {
       cancelled = true;
     };
-  }, [activeSession?.id, chatStore, liveCanvasOpen]);
+  }, [activeSession?.id, chatStore]);
+
+  useEffect(() => {
+    if (liveCanvas.visibility !== "open"
+      || browserSnapshot
+      || !activeSession?.id
+      || !chatStore.browserRuntime) {
+      return;
+    }
+    let cancelled = false;
+    void chatStore.browserRuntime.createSession({ ownerSessionId: activeSession.id }).then((snapshot) => {
+      if (!cancelled) {
+        setBrowserSnapshot(snapshot);
+        setBrowserRuntimeError("");
+      }
+    }).catch((error) => {
+      if (!cancelled) setBrowserRuntimeError(error instanceof Error ? error.message : String(error));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSession?.id, browserSnapshot, chatStore, liveCanvas.visibility]);
   const liveCanvasEntries = useMemo<LiveCanvasEntry[]>(() => (
     (timelineLoaded ? timeline?.turns ?? [] : []).flatMap((turn) => (
       (turn.executionItems ?? turn.steps).map((step) => ({ step, turnId: turn.id }))
@@ -1213,6 +1244,40 @@ export function ChatPage({
       sessionId,
       source: { control, surface: "chat" },
     }));
+  }
+
+  async function handleBrowserHandoffComplete(session: SessionSummary): Promise<void> {
+    try {
+      await dispatchTurn(session.id, { text: BROWSER_HANDOFF_CONTINUE_MESSAGE }, "browser-handoff-complete");
+      await handleSessionStoreRefresh(session);
+    } catch (error) {
+      setTimelineError(`Browser handoff could not continue the Agent: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  async function handleExitTinyOs(): Promise<void> {
+    const browserSession = browserSnapshot?.data;
+    const browserRuntime = chatStore.browserRuntime;
+    if (browserSession && browserRuntime && browserSession.sessionId === activeSession?.id) {
+      try {
+        await browserRuntime.closeSession(browserSession.browserSessionId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        setBrowserRuntimeError(message);
+        setTimelineError(`TinyOS browser could not be released: ${message}`);
+        console.error("[tinyos] browser.session.close.failed", {
+          browserSessionId: browserSession.browserSessionId,
+          error: message,
+          ownerSessionId: browserSession.sessionId,
+        });
+        return;
+      }
+      setBrowserSnapshot((current) => (
+        current?.data.browserSessionId === browserSession.browserSessionId ? undefined : current
+      ));
+      setBrowserRuntimeError("");
+    }
+    dispatchLiveCanvas({ type: "close" });
   }
 
   async function handleComposerSend(
@@ -2025,10 +2090,15 @@ export function ChatPage({
           onCancelTurn={() => activeSession && void handleStopGeneration(activeSession, "tinyos")}
           onPauseTurn={() => void handleAgentTurnControl("agent.pause", "tinyos")}
           onClose={() => dispatchLiveCanvas({ type: "close" })}
+          onExit={handleExitTinyOs}
           onExpandedChange={() => dispatchLiveCanvas({ type: "expand_toggle" })}
           onOpenArtifact={(artifact) => void handleOpenArtifact(artifact)}
           onAgentRequest={(reference, intent, fromHistory) => void handleTinyOsAgentRequest(reference, intent, fromHistory)}
           onCancelTerminal={handleCancelTinyOsTerminal}
+          onBrowserHandoffComplete={({ browserSessionId, ownerSessionId }) => {
+            if (activeSession?.id !== ownerSessionId || browserSnapshot?.data.browserSessionId !== browserSessionId) return;
+            void handleBrowserHandoffComplete(activeSession);
+          }}
           onBrowserInteract={handleInteractTinyOsBrowser}
           onDeleteFile={handleDeleteTinyOsFile}
           onExecuteTerminal={handleExecuteTinyOsTerminal}

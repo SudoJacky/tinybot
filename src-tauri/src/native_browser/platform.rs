@@ -31,6 +31,9 @@ pub(crate) enum BrowserPlatformEvent {
     UserInput {
         tab_id: BrowserTabId,
     },
+    ContentDirty {
+        tab_id: BrowserTabId,
+    },
     PopupRequested {
         tab_id: BrowserTabId,
         url: String,
@@ -89,6 +92,7 @@ pub(crate) struct BrowserPlatformSurface {
     pub tab_id: BrowserTabId,
     pub rect: BrowserSurfaceRect,
     pub visible: bool,
+    pub focus: bool,
 }
 
 #[derive(Clone, Debug, Default)]

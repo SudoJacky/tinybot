@@ -124,6 +124,7 @@ impl InstructionComposer {
                 workspace_root,
                 &working_directory,
             )?;
+        crate::tool_notes::create_default_tool_notes_if_missing(workspace_root)?;
         if system_content.len() > WORKSPACE_SYSTEM_MAX_BYTES {
             return Err(format!(
                 "workspace system instructions exceed the {WORKSPACE_SYSTEM_MAX_BYTES}-byte limit: `{}`",
@@ -194,7 +195,7 @@ impl InstructionComposer {
                 WORKSPACE_USER_PRECEDENCE,
             ),
             (
-                "TOOLS.md",
+                crate::tool_notes::TOOL_NOTES_FILE_NAME,
                 InstructionSourceKind::WorkspaceTools,
                 WORKSPACE_TOOLS_PRECEDENCE,
             ),

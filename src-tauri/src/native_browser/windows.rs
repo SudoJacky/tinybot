@@ -22,7 +22,7 @@ use std::{
 };
 use tauri::{
     webview::{DownloadEvent, NewWindowResponse, PageLoadEvent, WebviewBuilder},
-    AppHandle, LogicalPosition, LogicalSize, Manager, Webview, WebviewUrl, Wry,
+    AppHandle, LogicalPosition, LogicalSize, Manager, Rect, Webview, WebviewUrl, Wry,
 };
 use tokio::sync::{mpsc, oneshot};
 use webview2_com::{
@@ -37,7 +37,10 @@ use windows_sys::Win32::{
 };
 
 const DIRECT_INPUT_MESSAGE: &str = "tinybot-browser-direct-input-v1";
+const CONTENT_DIRTY_MESSAGE: &str = "tinybot-browser-content-dirty-v1";
 const MAX_SEMANTIC_NODES: usize = 500;
+const BACKGROUND_VIEWPORT_WIDTH: u32 = 1024;
+const BACKGROUND_VIEWPORT_HEIGHT: u32 = 768;
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(15);
 const BROWSER_PROCESS_EXIT_TIMEOUT: Duration = Duration::from_secs(30);
 const PROFILE_DELETE_RETRY_DELAY: Duration = Duration::from_millis(50);
@@ -48,13 +51,40 @@ const DIRECT_INPUT_SCRIPT: &str = r#"
   if (window.__tinybotBrowserDirectInputInstalled) return;
   Object.defineProperty(window, '__tinybotBrowserDirectInputInstalled', { value: true });
   const notify = (event) => {
-    if (event.isTrusted && window.chrome?.webview) {
-      window.chrome.webview.postMessage('tinybot-browser-direct-input-v1');
-    }
+    if (!event.isTrusted) return;
+    setTimeout(() => {
+      window.chrome?.webview?.postMessage('tinybot-browser-direct-input-v1');
+    }, 0);
   };
-  addEventListener('pointerdown', notify, true);
-  addEventListener('keydown', notify, true);
+  addEventListener('click', notify, true);
+  addEventListener('keyup', notify, true);
   addEventListener('input', notify, true);
+
+  const installContentObserver = () => {
+    if (!document.documentElement || window.__tinybotBrowserContentObserverInstalled) return;
+    Object.defineProperty(window, '__tinybotBrowserContentObserverInstalled', { value: true });
+    let scheduled = false;
+    const notifyContentDirty = () => {
+      if (scheduled || !window.chrome?.webview) return;
+      scheduled = true;
+      setTimeout(() => {
+        scheduled = false;
+        window.chrome.webview.postMessage('tinybot-browser-content-dirty-v1');
+      }, 50);
+    };
+    new MutationObserver(notifyContentDirty).observe(document.documentElement, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: [
+        'aria-label', 'aria-expanded', 'aria-disabled', 'disabled', 'hidden',
+        'href', 'value', 'role', 'tabindex'
+      ]
+    });
+  };
+  if (document.documentElement) installContentObserver();
+  else addEventListener('DOMContentLoaded', installContentObserver, { once: true });
 })();
 "#;
 
@@ -425,7 +455,10 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
             .add_child(
                 builder,
                 LogicalPosition::new(0.0, 0.0),
-                LogicalSize::new(1.0, 1.0),
+                LogicalSize::new(
+                    f64::from(BACKGROUND_VIEWPORT_WIDTH),
+                    f64::from(BACKGROUND_VIEWPORT_HEIGHT),
+                ),
             )
             .map_err(|error| format!("Failed to create native browser WebView2 child: {error}"))?;
         webview
@@ -459,8 +492,8 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
             title: "New tab".to_string(),
             can_go_back: false,
             can_go_forward: false,
-            viewport_width: 1,
-            viewport_height: 1,
+            viewport_width: BACKGROUND_VIEWPORT_WIDTH,
+            viewport_height: BACKGROUND_VIEWPORT_HEIGHT,
             device_scale: 1.0,
         })
     }
@@ -493,27 +526,28 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
         if surface.visible {
             handle
                 .webview
-                .set_position(LogicalPosition::new(surface.rect.x, surface.rect.y))
-                .map_err(|error| format!("Failed to position native browser surface: {error}"))?;
-            handle
-                .webview
-                .set_size(LogicalSize::new(surface.rect.width, surface.rect.height))
-                .map_err(|error| format!("Failed to size native browser surface: {error}"))?;
+                .set_bounds(Rect {
+                    position: LogicalPosition::new(surface.rect.x, surface.rect.y).into(),
+                    size: LogicalSize::new(surface.rect.width, surface.rect.height).into(),
+                })
+                .map_err(|error| format!("Failed to place native browser surface: {error}"))?;
             handle
                 .webview
                 .show()
                 .map_err(|error| format!("Failed to show native browser surface: {error}"))?;
-            handle
-                .webview
-                .set_focus()
-                .map_err(|error| format!("Failed to focus native browser surface: {error}"))?;
+            if surface.focus {
+                handle
+                    .webview
+                    .set_focus()
+                    .map_err(|error| format!("Failed to focus native browser surface: {error}"))?;
+            }
         } else {
             handle
                 .webview
                 .hide()
                 .map_err(|error| format!("Failed to hide native browser surface: {error}"))?;
         }
-        Ok(())
+        wait_for_webview_dispatch(&handle.webview, "surface update").await
     }
 
     async fn navigate(&self, tab_id: &BrowserTabId, url: &str) -> Result<(), String> {
@@ -987,13 +1021,22 @@ async fn register_webview2_events(
                             return Ok(());
                         };
                         let mut raw = PWSTR::null();
-                        if unsafe { args.TryGetWebMessageAsString(&mut raw) }.is_ok()
-                            && webview2_com::take_pwstr(raw) == DIRECT_INPUT_MESSAGE
-                        {
+                        if unsafe { args.TryGetWebMessageAsString(&mut raw) }.is_ok() {
+                            let message = webview2_com::take_pwstr(raw);
                             if let Some(sink) = message_sink.as_ref() {
-                                sink(BrowserPlatformEvent::UserInput {
-                                    tab_id: message_tab.clone(),
-                                });
+                                match message.as_str() {
+                                    DIRECT_INPUT_MESSAGE => {
+                                        sink(BrowserPlatformEvent::UserInput {
+                                            tab_id: message_tab.clone(),
+                                        });
+                                    }
+                                    CONTENT_DIRTY_MESSAGE => {
+                                        sink(BrowserPlatformEvent::ContentDirty {
+                                            tab_id: message_tab.clone(),
+                                        });
+                                    }
+                                    _ => {}
+                                }
                             }
                         }
                         Ok(())
@@ -1044,6 +1087,19 @@ async fn register_webview2_events(
         .await
         .map_err(|_| "WebView2 event registration timed out".to_string())?
         .map_err(|_| "WebView2 event registration result channel closed".to_string())?
+}
+
+async fn wait_for_webview_dispatch(webview: &Webview<Wry>, operation: &str) -> Result<(), String> {
+    let (tx, rx) = oneshot::channel();
+    webview
+        .with_webview(move |_| {
+            let _ = tx.send(());
+        })
+        .map_err(|error| format!("Failed to enqueue native browser {operation}: {error}"))?;
+    tokio::time::timeout(Duration::from_secs(5), rx)
+        .await
+        .map_err(|_| format!("Native browser {operation} timed out"))?
+        .map_err(|_| format!("Native browser {operation} completion channel closed"))
 }
 
 fn ensure_profile_path(root: &Path, candidate: &Path) -> Result<(), String> {

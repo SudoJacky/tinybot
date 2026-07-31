@@ -17,9 +17,34 @@ struct FakeAdapter {
     deleted_profiles: Mutex<Vec<BrowserProfileId>>,
     interactions: Mutex<Vec<BrowserPlatformAction>>,
     opened_external: Mutex<Vec<String>>,
+    create_delay_ms: std::sync::atomic::AtomicU64,
     interaction_delay_ms: std::sync::atomic::AtomicU64,
+    observe_delay_ms: std::sync::atomic::AtomicU64,
+    observe_completed: std::sync::atomic::AtomicU64,
     protected_semantic: std::sync::atomic::AtomicBool,
+    sensitive_semantic: std::sync::atomic::AtomicBool,
     fail_create: std::sync::atomic::AtomicBool,
+}
+
+#[derive(Default)]
+struct TestWebCancellation {
+    token: tokio_util::sync::CancellationToken,
+}
+
+impl TestWebCancellation {
+    fn cancel(&self) {
+        self.token.cancel();
+    }
+}
+
+impl crate::tools::web::WebToolCancellation for TestWebCancellation {
+    fn is_cancelled(&self) -> bool {
+        self.token.is_cancelled()
+    }
+
+    fn cancelled(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        Box::pin(self.token.cancelled())
+    }
 }
 
 #[async_trait]
@@ -40,6 +65,12 @@ impl BrowserRuntimeAdapter for FakeAdapter {
         &self,
         request: BrowserPlatformCreateTab,
     ) -> Result<BrowserPlatformTabState, String> {
+        let delay_ms = self
+            .create_delay_ms
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if delay_ms > 0 {
+            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+        }
         if self.fail_create.load(std::sync::atomic::Ordering::Relaxed) {
             return Err("fixture WebView initialization failed".to_string());
         }
@@ -102,29 +133,71 @@ impl BrowserRuntimeAdapter for FakeAdapter {
         capture: bool,
         semantic: bool,
     ) -> Result<BrowserPlatformObservation, String> {
+        let delay_ms = self
+            .observe_delay_ms
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if delay_ms > 0 {
+            tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+        }
+        self.observe_completed
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Ok(BrowserPlatformObservation {
             capture_base64: capture.then(|| "cG5n".to_string()),
             viewport_width: 800,
             viewport_height: 600,
             device_scale: 1.0,
             semantic_nodes: if semantic {
-                vec![BrowserPlatformSemanticNode {
-                    selector: "#submit".to_string(),
-                    role: "button".to_string(),
-                    name: "Submit".to_string(),
-                    frame: "top".to_string(),
-                    x: 10.0,
-                    y: 20.0,
-                    width: 80.0,
-                    height: 30.0,
-                    disabled: false,
-                    focused: false,
-                    sensitive: false,
-                    protected_reason: self
-                        .protected_semantic
-                        .load(std::sync::atomic::Ordering::Relaxed)
-                        .then(|| "native_file_picker".to_string()),
-                }]
+                vec![
+                    BrowserPlatformSemanticNode {
+                        selector: "#submit".to_string(),
+                        role: "button".to_string(),
+                        name: "Submit".to_string(),
+                        frame: "top".to_string(),
+                        x: 10.0,
+                        y: 20.0,
+                        width: 80.0,
+                        height: 30.0,
+                        disabled: false,
+                        focused: self
+                            .sensitive_semantic
+                            .load(std::sync::atomic::Ordering::Relaxed),
+                        sensitive: self
+                            .sensitive_semantic
+                            .load(std::sync::atomic::Ordering::Relaxed),
+                        protected_reason: self
+                            .protected_semantic
+                            .load(std::sync::atomic::Ordering::Relaxed)
+                            .then(|| "native_file_picker".to_string()),
+                    },
+                    BrowserPlatformSemanticNode {
+                        selector: "#offscreen".to_string(),
+                        role: "button".to_string(),
+                        name: "Offscreen".to_string(),
+                        frame: "top".to_string(),
+                        x: 900.0,
+                        y: 20.0,
+                        width: 80.0,
+                        height: 30.0,
+                        disabled: false,
+                        focused: false,
+                        sensitive: false,
+                        protected_reason: None,
+                    },
+                    BrowserPlatformSemanticNode {
+                        selector: "#unnamed".to_string(),
+                        role: "button".to_string(),
+                        name: String::new(),
+                        frame: "top".to_string(),
+                        x: 100.0,
+                        y: 20.0,
+                        width: 30.0,
+                        height: 30.0,
+                        disabled: false,
+                        focused: false,
+                        sensitive: false,
+                        protected_reason: None,
+                    },
+                ]
             } else {
                 vec![]
             },
@@ -199,6 +272,7 @@ fn creation_completion_accepts_a_navigation_event_that_already_made_the_tab_read
         BrowserTabId("tab-race".to_string()),
         BrowserNavigationId("navigation-race".to_string()),
         "http://127.0.0.1/",
+        "btest".to_string(),
     );
     tab.lifecycle = BrowserTabLifecycle::Ready;
 
@@ -241,9 +315,151 @@ async fn session_lifecycle_and_observation_are_revisioned() {
 }
 
 #[tokio::test]
+async fn concurrent_session_creation_waits_for_the_owner_session_to_be_ready() {
+    let adapter = Arc::new(FakeAdapter::default());
+    adapter
+        .create_delay_ms
+        .store(100, std::sync::atomic::Ordering::Relaxed);
+    let manager = manager(adapter.clone());
+    let first_manager = manager.clone();
+    let first = tokio::spawn(async move {
+        first_manager
+            .create_session(BrowserCreateSessionInput {
+                owner_session_id: "thread-concurrent-create".to_string(),
+                profile_id: None,
+                persistence: BrowserProfilePersistence::Persistent,
+                initial_url: None,
+            })
+            .await
+            .unwrap()
+    });
+
+    loop {
+        if manager
+            .snapshot_for_owner("thread-concurrent-create")
+            .is_some()
+        {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+
+    let second = manager
+        .create_session(BrowserCreateSessionInput {
+            owner_session_id: "thread-concurrent-create".to_string(),
+            profile_id: None,
+            persistence: BrowserProfilePersistence::Persistent,
+            initial_url: None,
+        })
+        .await
+        .unwrap();
+    let first = first.await.unwrap();
+
+    assert_eq!(first.data.lifecycle, BrowserSessionLifecycle::Ready);
+    assert_eq!(second.data.lifecycle, BrowserSessionLifecycle::Ready);
+    assert_eq!(
+        second.data.browser_session_id,
+        first.data.browser_session_id
+    );
+    assert_eq!(adapter.created.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn closing_a_session_waits_for_initial_creation_before_releasing_it() {
+    let adapter = Arc::new(FakeAdapter::default());
+    adapter
+        .create_delay_ms
+        .store(100, std::sync::atomic::Ordering::Relaxed);
+    let manager = manager(adapter.clone());
+    let create_manager = manager.clone();
+    let creating = tokio::spawn(async move {
+        create_manager
+            .create_session(BrowserCreateSessionInput {
+                owner_session_id: "thread-close-during-create".to_string(),
+                profile_id: None,
+                persistence: BrowserProfilePersistence::Persistent,
+                initial_url: None,
+            })
+            .await
+    });
+
+    let creating_snapshot = loop {
+        if let Some(snapshot) = manager.snapshot_for_owner("thread-close-during-create") {
+            break snapshot;
+        }
+        tokio::task::yield_now().await;
+    };
+    let close_manager = manager.clone();
+    let browser_session_id = creating_snapshot.data.browser_session_id;
+    let mut closing =
+        tokio::spawn(async move { close_manager.close_session(&browser_session_id).await });
+
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), &mut closing)
+            .await
+            .is_err(),
+        "browser cleanup must wait for the initial native tab creation"
+    );
+    let created = creating.await.unwrap().unwrap();
+    closing.await.unwrap().unwrap();
+
+    assert!(manager
+        .snapshot_for_owner("thread-close-during-create")
+        .is_none());
+    assert_eq!(
+        adapter.closed.lock().unwrap().as_slice(),
+        &[created.data.active_tab_id]
+    );
+}
+
+#[tokio::test]
+async fn web_tools_wait_for_a_preheated_session_to_be_ready() {
+    let adapter = Arc::new(FakeAdapter::default());
+    adapter
+        .create_delay_ms
+        .store(100, std::sync::atomic::Ordering::Relaxed);
+    let manager = manager(adapter.clone());
+    let preheat_manager = manager.clone();
+    let preheat = tokio::spawn(async move {
+        preheat_manager
+            .create_session(BrowserCreateSessionInput {
+                owner_session_id: "thread-preheated-web-tool".to_string(),
+                profile_id: None,
+                persistence: BrowserProfilePersistence::Persistent,
+                initial_url: None,
+            })
+            .await
+            .unwrap()
+    });
+
+    loop {
+        if manager
+            .snapshot_for_owner("thread-preheated-web-tool")
+            .is_some()
+        {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+
+    let observed = crate::tools::web::dispatch_browser_observe(
+        &manager,
+        "thread-preheated-web-tool",
+        serde_json::json!({}),
+    )
+    .await
+    .unwrap();
+    let preheated = preheat.await.unwrap();
+
+    assert_eq!(preheated.data.lifecycle, BrowserSessionLifecycle::Ready);
+    assert_eq!(observed["snapshot"]["data"]["lifecycle"], "ready");
+    assert_eq!(adapter.created.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
 async fn agent_browser_tools_reuse_the_chat_owned_session() {
     let manager = manager(Arc::new(FakeAdapter::default()));
-    let observed = crate::agent::bridge::dispatch_agent_browser_observe(
+    let observed = crate::tools::web::dispatch_browser_observe(
         &manager,
         "chat-shared-browser",
         serde_json::json!({}),
@@ -256,7 +472,7 @@ async fn agent_browser_tools_reuse_the_chat_owned_session() {
     let control_epoch = snapshot["control"]["controlEpoch"].as_u64().unwrap();
     let observation_revision = snapshot["tabs"][0]["observationRevision"].as_u64().unwrap();
 
-    let result = crate::agent::bridge::dispatch_agent_browser_interact(
+    let result = crate::tools::web::dispatch_browser_interact(
         &manager,
         "chat-shared-browser",
         None,
@@ -282,7 +498,7 @@ async fn agent_browser_tools_reuse_the_chat_owned_session() {
             .as_str(),
         browser_session_id
     );
-    let ownership_error = crate::agent::bridge::dispatch_agent_browser_observe(
+    let ownership_error = crate::tools::web::dispatch_browser_observe(
         &manager,
         "other-chat",
         serde_json::json!({ "browserSessionId": browser_session_id }),
@@ -290,6 +506,269 @@ async fn agent_browser_tools_reuse_the_chat_owned_session() {
     .await
     .expect_err("another chat must not attach to the shared browser session");
     assert!(ownership_error.contains("not owned by this chat"));
+}
+
+#[tokio::test]
+async fn high_level_web_tools_refresh_and_reject_stale_actions() {
+    let adapter = Arc::new(FakeAdapter::default());
+    let manager = manager(adapter.clone());
+    let first =
+        crate::tools::web::dispatch_web_read(&manager, "chat-web-snapshot", serde_json::json!({}))
+            .await
+            .unwrap();
+    assert_eq!(first["status"], "completed");
+    assert!(first["snapshot"].get("browserSessionId").is_none());
+    assert_eq!(first["snapshot"]["targets"].as_array().unwrap().len(), 1);
+    let first_snapshot_id = first["snapshotId"].as_str().unwrap().to_string();
+    let first_target_ref = first["snapshot"]["targets"][0]["targetRef"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let tab_id = manager
+        .snapshot_for_owner("chat-web-snapshot")
+        .unwrap()
+        .data
+        .active_tab_id;
+
+    adapter.sink.read().unwrap().as_ref().unwrap()(BrowserPlatformEvent::ContentDirty {
+        tab_id: tab_id.clone(),
+    });
+    let unchanged = crate::tools::web::dispatch_web_read(
+        &manager,
+        "chat-web-snapshot",
+        serde_json::json!({ "snapshotId": first_snapshot_id }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(unchanged["status"], "unchanged");
+    assert_eq!(unchanged["snapshotId"], first_snapshot_id);
+
+    adapter.sink.read().unwrap().as_ref().unwrap()(BrowserPlatformEvent::UserInput { tab_id });
+    let stale = crate::tools::web::dispatch_web_act(
+        &manager,
+        "chat-web-snapshot",
+        None,
+        serde_json::json!({
+            "commandId": "stale-web-action",
+            "snapshotId": first_snapshot_id,
+            "action": { "type": "scroll", "deltaX": 0, "deltaY": 120 }
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(stale["status"], "stale_snapshot");
+    assert_eq!(stale["actionExecuted"], false);
+    assert_ne!(stale["snapshotId"], first_snapshot_id);
+    assert_eq!(
+        stale["snapshot"]["targets"][0]["targetRef"],
+        first_target_ref
+    );
+    assert!(adapter.interactions.lock().unwrap().is_empty());
+
+    let current_snapshot_id = stale["snapshotId"].as_str().unwrap();
+    let completed = crate::tools::web::dispatch_web_act(
+        &manager,
+        "chat-web-snapshot",
+        None,
+        serde_json::json!({
+            "commandId": "current-web-action",
+            "snapshotId": current_snapshot_id,
+            "action": { "type": "scroll", "deltaX": 0, "deltaY": 120 }
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(completed["status"], "completed");
+    assert_eq!(completed["actionExecuted"], true);
+    assert_ne!(completed["snapshotId"], current_snapshot_id);
+    assert_eq!(adapter.interactions.lock().unwrap().len(), 1);
+
+    let page = manager
+        .agent_page_state_for_owner("chat-web-snapshot")
+        .unwrap();
+    let native = &page.observation.snapshot.data;
+    let tab = native
+        .tabs
+        .iter()
+        .find(|tab| tab.tab_id == native.active_tab_id)
+        .unwrap();
+    adapter.sink.read().unwrap().as_ref().unwrap()(BrowserPlatformEvent::ContentDirty {
+        tab_id: native.active_tab_id.clone(),
+    });
+    let rejected = manager
+        .interact(BrowserInteractionInput {
+            browser_session_id: native.browser_session_id.clone(),
+            tab_id: native.active_tab_id.clone(),
+            command_id: BrowserCommandId::new("racing-web-action").unwrap(),
+            control_epoch: native.control.control_epoch,
+            snapshot_id: Some(page.snapshot_id.clone()),
+            capture_id: tab.current_capture_id.clone(),
+            observation_revision: Some(tab.observation_revision),
+            action: BrowserAction::Back,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(rejected, AGENT_SNAPSHOT_STALE);
+    assert_eq!(adapter.interactions.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn cancelled_initial_web_open_finishes_session_creation_in_the_background() {
+    let adapter = Arc::new(FakeAdapter::default());
+    adapter
+        .create_delay_ms
+        .store(200, std::sync::atomic::Ordering::Relaxed);
+    let manager = manager(adapter.clone());
+    let cancellation = Arc::new(TestWebCancellation::default());
+    let open_manager = manager.clone();
+    let open_cancellation = cancellation.clone();
+    let opening = tokio::spawn(async move {
+        crate::tools::web::dispatch_web_open(
+            &open_manager,
+            "chat-cancel-initial-open",
+            Some(open_cancellation.as_ref()),
+            serde_json::json!({ "url": "https://example.com" }),
+        )
+        .await
+    });
+
+    loop {
+        if manager
+            .snapshot_for_owner("chat-cancel-initial-open")
+            .is_some()
+        {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    cancellation.cancel();
+    let error = tokio::time::timeout(Duration::from_millis(500), opening)
+        .await
+        .expect("cancelled web.open should finish promptly")
+        .unwrap()
+        .unwrap_err();
+
+    assert!(error.contains("cancelled"));
+    let creating_session = manager
+        .snapshot_for_owner("chat-cancel-initial-open")
+        .expect("the cancelled caller leaves managed creation running");
+    assert_eq!(
+        creating_session.data.lifecycle,
+        BrowserSessionLifecycle::Creating
+    );
+
+    tokio::time::timeout(Duration::from_millis(500), async {
+        loop {
+            if manager
+                .snapshot_for_owner("chat-cancel-initial-open")
+                .is_some_and(|snapshot| snapshot.data.lifecycle == BrowserSessionLifecycle::Ready)
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("managed session creation should survive caller cancellation");
+
+    let retried = crate::tools::web::dispatch_web_open(
+        &manager,
+        "chat-cancel-initial-open",
+        None,
+        serde_json::json!({
+            "commandId": "retry-after-cancelled-create",
+            "url": "https://example.org"
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(retried["status"], "completed");
+    assert_eq!(
+        manager
+            .snapshot_for_owner("chat-cancel-initial-open")
+            .unwrap()
+            .data
+            .browser_session_id,
+        creating_session.data.browser_session_id
+    );
+    assert_eq!(adapter.created.lock().unwrap().len(), 1);
+    assert!(adapter.closed.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn agent_snapshot_action_rejects_a_tab_that_is_no_longer_active() {
+    let adapter = Arc::new(FakeAdapter::default());
+    let manager = manager(adapter.clone());
+    crate::tools::web::dispatch_web_read(&manager, "chat-switch-active-tab", serde_json::json!({}))
+        .await
+        .unwrap();
+    let page = manager
+        .agent_page_state_for_owner("chat-switch-active-tab")
+        .unwrap();
+    let native = &page.observation.snapshot.data;
+    let old_tab = native
+        .tabs
+        .iter()
+        .find(|tab| tab.tab_id == native.active_tab_id)
+        .unwrap();
+    let browser_session_id = native.browser_session_id.clone();
+    let old_tab_id = old_tab.tab_id.clone();
+    let control_epoch = native.control.control_epoch;
+    let snapshot_id = page.snapshot_id;
+    let capture_id = old_tab.current_capture_id.clone();
+    let observation_revision = old_tab.observation_revision;
+
+    let switched = manager
+        .create_tab(BrowserCreateTabInput {
+            browser_session_id: browser_session_id.clone(),
+            url: None,
+        })
+        .await
+        .unwrap();
+    assert_ne!(switched.data.active_tab_id, old_tab_id);
+
+    let error = manager
+        .interact(BrowserInteractionInput {
+            browser_session_id,
+            tab_id: old_tab_id,
+            command_id: BrowserCommandId::new("inactive-tab-action").unwrap(),
+            control_epoch,
+            snapshot_id: Some(snapshot_id),
+            capture_id,
+            observation_revision: Some(observation_revision),
+            action: BrowserAction::Scroll {
+                delta_x: 0.0,
+                delta_y: 120.0,
+            },
+        })
+        .await
+        .unwrap_err();
+
+    assert_eq!(error, AGENT_SNAPSHOT_STALE);
+    assert!(adapter.interactions.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn high_level_web_tools_do_not_allow_the_agent_to_resume_user_control() {
+    let manager = manager(Arc::new(FakeAdapter::default()));
+    let page =
+        crate::tools::web::dispatch_web_read(&manager, "chat-agent-resume", serde_json::json!({}))
+            .await
+            .unwrap();
+    let error = crate::tools::web::dispatch_web_act(
+        &manager,
+        "chat-agent-resume",
+        None,
+        serde_json::json!({
+            "commandId": "agent-resume",
+            "snapshotId": page["snapshotId"],
+            "action": { "type": "resume" }
+        }),
+    )
+    .await
+    .unwrap_err();
+
+    assert!(error.contains("Only the user can hand browser control back to the Agent"));
 }
 
 #[tokio::test]
@@ -312,6 +791,7 @@ async fn diagnostics_correlate_commands_and_redact_navigation_urls() {
             tab_id: snapshot.data.active_tab_id,
             command_id: command_id.clone(),
             control_epoch: snapshot.data.control.control_epoch,
+            snapshot_id: None,
             capture_id: None,
             observation_revision: None,
             action: BrowserAction::Navigate {
@@ -412,6 +892,7 @@ async fn stale_control_epoch_is_rejected_and_user_input_advances_epoch() {
             tab_id,
             command_id: BrowserCommandId::new("command-1").unwrap(),
             control_epoch: 0,
+            snapshot_id: None,
             capture_id: None,
             observation_revision: None,
             action: BrowserAction::Navigate {
@@ -455,6 +936,7 @@ async fn resume_returns_interrupted_control_to_idle_without_platform_dispatch() 
             tab_id,
             command_id: command_id.clone(),
             control_epoch: interrupted_epoch,
+            snapshot_id: None,
             capture_id: None,
             observation_revision: None,
             action: BrowserAction::Resume,
@@ -688,6 +1170,239 @@ async fn closing_the_visible_tab_clears_its_surface_before_showing_the_replaceme
 }
 
 #[tokio::test]
+async fn hiding_a_visible_surface_does_not_wait_for_capture() {
+    let adapter = Arc::new(FakeAdapter::default());
+    let manager = manager(adapter.clone());
+    let snapshot = manager
+        .create_session(BrowserCreateSessionInput {
+            owner_session_id: "thread-surface-hide".to_string(),
+            profile_id: None,
+            persistence: BrowserProfilePersistence::Persistent,
+            initial_url: None,
+        })
+        .await
+        .unwrap();
+    let session_id = snapshot.data.browser_session_id;
+    let tab_id = snapshot.data.active_tab_id;
+    let surface_id = BrowserSurfaceId::new("surface-hide").unwrap();
+    let rect = BrowserSurfaceRect {
+        x: 0.0,
+        y: 0.0,
+        width: 800.0,
+        height: 600.0,
+        device_scale: 1.0,
+    };
+    manager
+        .update_surface(BrowserSurfaceUpdate {
+            browser_session_id: session_id.clone(),
+            tab_id: tab_id.clone(),
+            surface_id: surface_id.clone(),
+            layout_revision: 1,
+            rect: rect.clone(),
+            visible: true,
+            live: true,
+            topmost: true,
+            unobscured: true,
+        })
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while adapter
+            .observe_completed
+            .load(std::sync::atomic::Ordering::Relaxed)
+            == 0
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("visible-surface observation should complete");
+    adapter
+        .observe_delay_ms
+        .store(5_000, std::sync::atomic::Ordering::Relaxed);
+
+    let hidden = tokio::time::timeout(
+        Duration::from_millis(100),
+        manager.update_surface(BrowserSurfaceUpdate {
+            browser_session_id: session_id,
+            tab_id,
+            surface_id,
+            layout_revision: 2,
+            rect,
+            visible: false,
+            live: true,
+            topmost: false,
+            unobscured: false,
+        }),
+    )
+    .await
+    .expect("hiding the native surface must not wait for capture")
+    .unwrap();
+
+    assert_eq!(
+        hidden.data.surface.lifecycle,
+        BrowserSurfaceLifecycle::Hidden
+    );
+    assert_eq!(
+        adapter
+            .surfaces
+            .lock()
+            .unwrap()
+            .last()
+            .map(|surface| surface.visible),
+        Some(false)
+    );
+}
+
+#[tokio::test]
+async fn moving_a_visible_surface_does_not_recapture_the_page() {
+    let adapter = Arc::new(FakeAdapter::default());
+    let manager = manager(adapter.clone());
+    let snapshot = manager
+        .create_session(BrowserCreateSessionInput {
+            owner_session_id: "thread-surface-move".to_string(),
+            profile_id: None,
+            persistence: BrowserProfilePersistence::Persistent,
+            initial_url: None,
+        })
+        .await
+        .unwrap();
+    let session_id = snapshot.data.browser_session_id;
+    let tab_id = snapshot.data.active_tab_id;
+    let surface_id = BrowserSurfaceId::new("surface-move").unwrap();
+
+    manager
+        .update_surface(BrowserSurfaceUpdate {
+            browser_session_id: session_id.clone(),
+            tab_id: tab_id.clone(),
+            surface_id: surface_id.clone(),
+            layout_revision: 1,
+            rect: BrowserSurfaceRect {
+                x: 0.0,
+                y: 0.0,
+                width: 800.0,
+                height: 600.0,
+                device_scale: 1.0,
+            },
+            visible: true,
+            live: true,
+            topmost: true,
+            unobscured: true,
+        })
+        .await
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while adapter
+            .observe_completed
+            .load(std::sync::atomic::Ordering::Relaxed)
+            == 0
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let captures_after_attach = adapter
+        .observe_completed
+        .load(std::sync::atomic::Ordering::Relaxed);
+
+    manager
+        .update_surface(BrowserSurfaceUpdate {
+            browser_session_id: session_id,
+            tab_id,
+            surface_id,
+            layout_revision: 2,
+            rect: BrowserSurfaceRect {
+                x: 120.0,
+                y: 80.0,
+                width: 800.0,
+                height: 600.0,
+                device_scale: 1.0,
+            },
+            visible: true,
+            live: true,
+            topmost: true,
+            unobscured: true,
+        })
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(25)).await;
+
+    assert_eq!(
+        adapter
+            .observe_completed
+            .load(std::sync::atomic::Ordering::Relaxed),
+        captures_after_attach
+    );
+    let surfaces = adapter.surfaces.lock().unwrap();
+    assert!(surfaces[surfaces.len() - 2].focus);
+    assert!(!surfaces[surfaces.len() - 1].focus);
+}
+
+#[tokio::test]
+async fn unchanged_visible_surface_does_not_reach_the_platform_adapter() {
+    let adapter = Arc::new(FakeAdapter::default());
+    let manager = manager(adapter.clone());
+    let snapshot = manager
+        .create_session(BrowserCreateSessionInput {
+            owner_session_id: "thread-surface-unchanged".to_string(),
+            profile_id: None,
+            persistence: BrowserProfilePersistence::Persistent,
+            initial_url: None,
+        })
+        .await
+        .unwrap();
+    let session_id = snapshot.data.browser_session_id;
+    let tab_id = snapshot.data.active_tab_id;
+    let surface_id = BrowserSurfaceId::new("surface-unchanged").unwrap();
+    let rect = BrowserSurfaceRect {
+        x: 12.0,
+        y: 24.0,
+        width: 800.0,
+        height: 600.0,
+        device_scale: 1.0,
+    };
+
+    manager
+        .update_surface(BrowserSurfaceUpdate {
+            browser_session_id: session_id.clone(),
+            tab_id: tab_id.clone(),
+            surface_id: surface_id.clone(),
+            layout_revision: 1,
+            rect: rect.clone(),
+            visible: true,
+            live: true,
+            topmost: true,
+            unobscured: true,
+        })
+        .await
+        .unwrap();
+    adapter.surfaces.lock().unwrap().clear();
+
+    let unchanged = manager
+        .update_surface(BrowserSurfaceUpdate {
+            browser_session_id: session_id,
+            tab_id,
+            surface_id,
+            layout_revision: 2,
+            rect,
+            visible: true,
+            live: true,
+            topmost: true,
+            unobscured: true,
+        })
+        .await
+        .unwrap();
+
+    assert!(adapter.surfaces.lock().unwrap().is_empty());
+    assert_eq!(unchanged.data.surface.layout_revision, 1);
+    assert_eq!(
+        unchanged.data.surface.lifecycle,
+        BrowserSurfaceLifecycle::Visible
+    );
+}
+
+#[tokio::test]
 async fn capture_retention_is_bounded_and_revisions_are_monotonic() {
     let manager = manager(Arc::new(FakeAdapter::default()));
     let snapshot = manager
@@ -751,6 +1466,7 @@ async fn coordinate_actions_require_current_capture_bounds() {
             tab_id: tab.tab_id.clone(),
             command_id: BrowserCommandId::new("coordinate-outside").unwrap(),
             control_epoch: observed.snapshot.data.control.control_epoch,
+            snapshot_id: None,
             capture_id: tab.current_capture_id.clone(),
             observation_revision: Some(tab.observation_revision),
             action: BrowserAction::Click { x: 900.0, y: 10.0 },
@@ -794,6 +1510,7 @@ async fn semantic_action_is_normalized_and_post_action_observed() {
             tab_id: snapshot.data.active_tab_id,
             command_id: BrowserCommandId::new("semantic-click").unwrap(),
             control_epoch: observed.snapshot.data.control.control_epoch,
+            snapshot_id: None,
             capture_id: observed.capture.map(|capture| capture.capture_id),
             observation_revision: Some(before_revision),
             action: BrowserAction::ClickTarget { target_ref },
@@ -845,6 +1562,7 @@ async fn direct_user_input_cancels_an_in_flight_agent_wait() {
         tab_id: tab.tab_id.clone(),
         command_id: command_id.clone(),
         control_epoch: observed.snapshot.data.control.control_epoch,
+        snapshot_id: None,
         capture_id: tab.current_capture_id.clone(),
         observation_revision: Some(tab.observation_revision),
         action: BrowserAction::Wait {
@@ -924,6 +1642,7 @@ async fn protected_semantic_target_requires_user_without_platform_dispatch() {
             tab_id: snapshot.data.active_tab_id,
             command_id: command_id.clone(),
             control_epoch: observed.snapshot.data.control.control_epoch,
+            snapshot_id: None,
             capture_id: observed.capture.map(|capture| capture.capture_id),
             observation_revision: Some(observation_revision),
             action: BrowserAction::ClickTarget {
@@ -950,6 +1669,151 @@ async fn protected_semantic_target_requires_user_without_platform_dispatch() {
             && diagnostic.command_id.as_ref() == Some(&command_id)
             && diagnostic.reason_code.as_deref() == Some("native_file_picker")
     }));
+}
+
+#[tokio::test]
+async fn explicit_user_handoff_stays_active_during_user_input_until_resume() {
+    let adapter = Arc::new(FakeAdapter::default());
+    let manager = manager(adapter.clone());
+    let snapshot = manager
+        .create_session(BrowserCreateSessionInput {
+            owner_session_id: "thread-user-handoff".to_string(),
+            profile_id: None,
+            persistence: BrowserProfilePersistence::Persistent,
+            initial_url: None,
+        })
+        .await
+        .unwrap();
+    let session_id = snapshot.data.browser_session_id.clone();
+    let tab_id = snapshot.data.active_tab_id.clone();
+    let handoff_reason = "Complete the login verification";
+    let handoff = manager
+        .interact(BrowserInteractionInput {
+            browser_session_id: session_id.clone(),
+            tab_id: tab_id.clone(),
+            command_id: BrowserCommandId::new("user-handoff").unwrap(),
+            control_epoch: snapshot.data.control.control_epoch,
+            snapshot_id: None,
+            capture_id: None,
+            observation_revision: None,
+            action: BrowserAction::UserHandoff {
+                reason: handoff_reason.to_string(),
+            },
+        })
+        .await
+        .unwrap();
+    assert_eq!(handoff.status, BrowserCommandStatus::UserRequired);
+    assert_eq!(handoff.reason.as_deref(), Some(handoff_reason));
+    let awaiting_user = manager.snapshot(&session_id).unwrap();
+    assert_eq!(
+        awaiting_user.data.control.state,
+        BrowserControlState::UserRequired
+    );
+    assert_eq!(
+        awaiting_user.data.control.reason.as_deref(),
+        Some(handoff_reason)
+    );
+    assert!(!awaiting_user.data.interaction.click);
+    assert!(!awaiting_user.data.interaction.navigate);
+    assert!(!awaiting_user.data.interaction.type_text);
+
+    adapter.sink.read().unwrap().as_ref().unwrap()(BrowserPlatformEvent::UserInput {
+        tab_id: tab_id.clone(),
+    });
+    let after_input = manager.snapshot(&session_id).unwrap();
+    assert_eq!(
+        after_input.data.control.state,
+        BrowserControlState::UserRequired
+    );
+    assert_eq!(
+        after_input.data.control.reason.as_deref(),
+        Some(handoff_reason)
+    );
+    assert!(after_input.data.control.control_epoch > awaiting_user.data.control.control_epoch);
+
+    let rejected = manager
+        .interact(BrowserInteractionInput {
+            browser_session_id: session_id.clone(),
+            tab_id: tab_id.clone(),
+            command_id: BrowserCommandId::new("handoff-back").unwrap(),
+            control_epoch: after_input.data.control.control_epoch,
+            snapshot_id: None,
+            capture_id: None,
+            observation_revision: None,
+            action: BrowserAction::Back,
+        })
+        .await
+        .unwrap_err();
+    assert!(rejected.contains("handed to the user"));
+
+    let resumed = manager
+        .interact(BrowserInteractionInput {
+            browser_session_id: session_id.clone(),
+            tab_id,
+            command_id: BrowserCommandId::new("handoff-resume").unwrap(),
+            control_epoch: after_input.data.control.control_epoch,
+            snapshot_id: None,
+            capture_id: None,
+            observation_revision: None,
+            action: BrowserAction::Resume,
+        })
+        .await
+        .unwrap();
+    assert_eq!(resumed.status, BrowserCommandStatus::Completed);
+    let idle = manager.snapshot(&session_id).unwrap();
+    assert_eq!(idle.data.control.state, BrowserControlState::Idle);
+    assert!(idle.data.interaction.click);
+}
+
+#[tokio::test]
+async fn sensitive_focused_field_requires_direct_user_input() {
+    let adapter = Arc::new(FakeAdapter::default());
+    adapter
+        .sensitive_semantic
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    let manager = manager(adapter.clone());
+    let snapshot = manager
+        .create_session(BrowserCreateSessionInput {
+            owner_session_id: "thread-sensitive-input".to_string(),
+            profile_id: None,
+            persistence: BrowserProfilePersistence::Persistent,
+            initial_url: None,
+        })
+        .await
+        .unwrap();
+    let observed = manager
+        .observe(BrowserObserveInput {
+            browser_session_id: snapshot.data.browser_session_id.clone(),
+            tab_id: snapshot.data.active_tab_id.clone(),
+            capture: true,
+            semantic: true,
+        })
+        .await
+        .unwrap();
+    let semantic = observed.semantic.as_ref().unwrap();
+    let observation_revision = semantic.observation_revision;
+    let node = &semantic.nodes[0];
+    assert!(node.sensitive);
+    assert_eq!(node.protected_reason.as_deref(), Some("sensitive_input"));
+
+    let result = manager
+        .interact(BrowserInteractionInput {
+            browser_session_id: snapshot.data.browser_session_id,
+            tab_id: snapshot.data.active_tab_id,
+            command_id: BrowserCommandId::new("sensitive-type").unwrap(),
+            control_epoch: observed.snapshot.data.control.control_epoch,
+            snapshot_id: None,
+            capture_id: observed.capture.map(|capture| capture.capture_id),
+            observation_revision: Some(observation_revision),
+            action: BrowserAction::Type {
+                text: "secret".to_string(),
+            },
+        })
+        .await
+        .unwrap();
+    assert_eq!(result.status, BrowserCommandStatus::UserRequired);
+    assert_eq!(result.reason_code.as_deref(), Some("sensitive_input"));
+    assert!(adapter.interactions.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
@@ -1034,6 +1898,10 @@ async fn confirmed_popup_becomes_a_managed_tab() {
         url: "https://example.com/popup?secret=value".to_string(),
     });
     let pending = manager.snapshot(&snapshot.data.browser_session_id).unwrap();
+    assert_eq!(
+        pending.data.control.state,
+        BrowserControlState::UserRequired
+    );
     let request = pending.data.pending_policy_request.unwrap();
     assert_eq!(request.kind, BrowserPolicyRequestKind::Popup);
     assert_eq!(request.safe_url, "https://example.com/popup");
@@ -1051,6 +1919,46 @@ async fn confirmed_popup_becomes_a_managed_tab() {
         "https://example.com/popup?secret=value"
     );
     assert!(resolved.data.pending_policy_request.is_none());
+    assert_eq!(
+        resolved.data.control.state,
+        BrowserControlState::UserRequired
+    );
+}
+
+#[tokio::test]
+async fn denied_popup_keeps_browser_control_with_the_user() {
+    let adapter = Arc::new(FakeAdapter::default());
+    let manager = manager(adapter.clone());
+    let snapshot = manager
+        .create_session(BrowserCreateSessionInput {
+            owner_session_id: "thread-popup-denied".to_string(),
+            profile_id: None,
+            persistence: BrowserProfilePersistence::Persistent,
+            initial_url: None,
+        })
+        .await
+        .unwrap();
+    adapter.sink.read().unwrap().as_ref().unwrap()(BrowserPlatformEvent::PopupRequested {
+        tab_id: snapshot.data.active_tab_id,
+        url: "https://example.com/popup".to_string(),
+    });
+    let pending = manager.snapshot(&snapshot.data.browser_session_id).unwrap();
+    let request = pending.data.pending_policy_request.unwrap();
+    let resolved = manager
+        .resolve_policy_request(BrowserResolvePolicyRequestInput {
+            browser_session_id: snapshot.data.browser_session_id,
+            request_id: request.request_id,
+            approved: false,
+        })
+        .await
+        .unwrap();
+
+    assert!(resolved.data.pending_policy_request.is_none());
+    assert_eq!(
+        resolved.data.control.state,
+        BrowserControlState::UserRequired
+    );
+    assert_eq!(resolved.data.tabs.len(), 1);
 }
 
 #[tokio::test]

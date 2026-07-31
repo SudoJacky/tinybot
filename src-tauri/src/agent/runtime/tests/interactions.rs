@@ -823,10 +823,11 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
             if self.calls.fetch_add(1, Ordering::SeqCst) > 0 {
                 assert!(context.messages.iter().any(|message| {
                     message["role"] == "tool"
-                        && message["tool_call_id"] == "unactivated-shell"
-                        && message["content"]
-                            .as_str()
-                            .is_some_and(|content| content.contains("not permitted"))
+                        && message["tool_call_id"] == "unactivated-deferred"
+                        && message["content"].as_str().is_some_and(|content| {
+                            content.contains("not active for this turn")
+                                && content.contains("tool_search")
+                        })
                 }));
                 return Ok(NativeAgentProviderResponse {
                     final_content: "deferred tool rejection handled".to_string(),
@@ -840,9 +841,9 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
                 reasoning_delta: None,
                 usage: None,
                 tool_calls: vec![NativeAgentToolCall {
-                    id: "unactivated-shell".to_string(),
-                    name: "shell.execute".to_string(),
-                    arguments_json: r#"{"command":"echo should-not-run"}"#.to_string(),
+                    id: "unactivated-deferred".to_string(),
+                    name: "test.deferred_echo".to_string(),
+                    arguments_json: r#"{"query":"should-not-run"}"#.to_string(),
                     result: Value::Null,
                 }],
             })
@@ -861,15 +862,20 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
         }
     }
 
+    let services = NativeAgentRuntimeServices::new(
+        Arc::new(DeferredToolProvider {
+            calls: AtomicUsize::new(0),
+        }),
+        Arc::new(PanickingDeferredDispatcher),
+        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+        Arc::new(InMemoryNativeAgentCancellation::default()),
+    )
+    .with_test_tool_registry_entries(vec![test_read_only_tool(
+        "test.deferred_echo",
+        ToolExposure::Deferred,
+    )]);
     let result = run_native_agent_turn_with_config(
-        &NativeAgentRuntimeServices::new(
-            Arc::new(DeferredToolProvider {
-                calls: AtomicUsize::new(0),
-            }),
-            Arc::new(PanickingDeferredDispatcher),
-            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
-            Arc::new(InMemoryNativeAgentCancellation::default()),
-        ),
+        &services,
         json!({
             "turnId": "turn-unactivated-deferred",
             "sessionId": "session-unactivated-deferred",
@@ -888,7 +894,24 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
         .iter()
         .find(|event| event["eventName"] == "agent.tool.result")
         .expect("tool result should be present");
-    assert_eq!(tool_result["payload"]["toolName"], "shell.execute");
+    assert_eq!(tool_result["payload"]["toolName"], "test.deferred_echo");
+}
+
+#[test]
+fn inactive_deferred_provider_names_still_resolve_to_the_registered_method() {
+    let router = NativeToolRouter::new(vec![test_read_only_tool(
+        "test.deferred_echo",
+        ToolExposure::Deferred,
+    )]);
+
+    assert_eq!(
+        router.resolve_provider_name("test_deferred_echo").unwrap(),
+        "test.deferred_echo"
+    );
+    assert!(!router.is_permitted("test.deferred_echo"));
+    assert!(router
+        .rejection_reason("test.deferred_echo")
+        .contains("tool_search"));
 }
 
 #[test]

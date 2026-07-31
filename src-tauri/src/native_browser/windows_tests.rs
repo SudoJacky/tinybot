@@ -49,6 +49,13 @@ fn child_webview_labels_are_capability_isolated() {
 fn injected_scripts_are_narrow_and_privacy_bounded() {
     assert!(DIRECT_INPUT_SCRIPT.contains("event.isTrusted"));
     assert!(DIRECT_INPUT_SCRIPT.contains(DIRECT_INPUT_MESSAGE));
+    assert!(DIRECT_INPUT_SCRIPT.contains(CONTENT_DIRTY_MESSAGE));
+    assert!(DIRECT_INPUT_SCRIPT.contains("setTimeout"));
+    assert!(DIRECT_INPUT_SCRIPT.contains("addEventListener('click'"));
+    assert!(DIRECT_INPUT_SCRIPT.contains("addEventListener('keyup'"));
+    assert!(!DIRECT_INPUT_SCRIPT.contains("addEventListener('pointerdown'"));
+    assert!(!DIRECT_INPUT_SCRIPT.contains("addEventListener('keydown'"));
+    assert!(DIRECT_INPUT_SCRIPT.contains("MutationObserver"));
     assert!(!DIRECT_INPUT_SCRIPT.contains("__TAURI__"));
     assert!(OBSERVE_SCRIPT.contains("const limit = 500"));
     assert!(OBSERVE_SCRIPT.contains("parts.length < 8"));

@@ -326,9 +326,10 @@ fn composed_workspace_instructions_reach_provider_and_reload_user_edits() {
             .expect("instruction provenance sources should be visible");
         assert_eq!(sources[0]["kind"], "built_in_identity");
         assert_eq!(sources[1]["kind"], "workspace_system");
-        assert_eq!(sources[2]["kind"], "project_agents");
-        assert_eq!(sources[3]["kind"], "project_override");
-        assert_eq!(sources[4]["kind"], "runtime_environment");
+        assert_eq!(sources[2]["kind"], "workspace_tools");
+        assert_eq!(sources[3]["kind"], "project_agents");
+        assert_eq!(sources[4]["kind"], "project_override");
+        assert_eq!(sources[5]["kind"], "runtime_environment");
         assert!(sources.iter().all(|source| source["contentHash"]
             .as_str()
             .is_some_and(|hash| hash.len() == 64)));
@@ -436,7 +437,7 @@ fn chat_completion_request_exposes_only_foundational_model_tools() {
 
 #[cfg(all(windows, feature = "native-browser-runtime"))]
 #[test]
-fn feature_build_defers_browser_tools_until_searched() {
+fn feature_build_always_exposes_high_level_web_tools() {
     let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
@@ -459,6 +460,9 @@ fn feature_build_defers_browser_tools_until_searched() {
 
     assert!(!names.contains(&"browser_observe"));
     assert!(!names.contains(&"browser_interact"));
+    assert!(names.contains(&"web_open"));
+    assert!(names.contains(&"web_read"));
+    assert!(names.contains(&"web_act"));
     assert!(names.contains(&"tool_search"));
 }
 

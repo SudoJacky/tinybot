@@ -84,31 +84,57 @@ fn canonical_apply_patch_is_model_visible_and_legacy_name_is_hidden() {
 }
 
 #[test]
-fn browser_tools_are_deferred() {
+fn browser_tools_are_always_exposed_to_the_model() {
     let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
         WorkerCapability::BrowserObserve,
         WorkerCapability::BrowserInteract,
     ]));
-    let observe = registry
-        .get_tool("browser.observe")
-        .expect("browser.observe should be registered");
-    let interact = registry
-        .get_tool("browser.interact")
-        .expect("browser.interact should be registered");
+    let open = registry
+        .get_tool("web.open")
+        .expect("web.open should be registered");
+    let read = registry
+        .get_tool("web.read")
+        .expect("web.read should be registered");
+    let act = registry
+        .get_tool("web.act")
+        .expect("web.act should be registered");
 
-    assert_eq!(observe.exposure, ToolExposure::Deferred);
-    assert!(observe.available);
-    assert!(observe.runtime_policy.mutates_session);
-    assert_eq!(interact.exposure, ToolExposure::Deferred);
-    assert!(interact.available);
+    assert_eq!(open.exposure, ToolExposure::Model);
+    assert!(open.available);
+    assert!(open.runtime_policy.mutates_session);
+    assert_eq!(read.exposure, ToolExposure::Model);
+    assert!(read.available);
+    assert_eq!(act.exposure, ToolExposure::Model);
+    assert!(act.available);
     assert_eq!(
-        interact.runtime_policy.cancellation_mode,
+        registry.contributor_id_for_tool("web.open"),
+        Some("builtin.web".to_string())
+    );
+    assert_eq!(
+        registry.contributor_id_for_tool("web.read"),
+        Some("builtin.web".to_string())
+    );
+    assert_eq!(
+        registry.contributor_id_for_tool("web.act"),
+        Some("builtin.web".to_string())
+    );
+    assert_eq!(
+        act.runtime_policy.cancellation_mode,
         ToolCancellationMode::DetachForbidden
     );
     assert_eq!(
-        interact.input_schema["required"],
-        json!(["browserSessionId", "tabId", "controlEpoch", "action"])
+        act.input_schema["required"],
+        json!(["snapshotId", "action"])
     );
+    assert!(
+        !act.input_schema["properties"]["action"]["properties"]["type"]["enum"]
+            .as_array()
+            .expect("web.act action types should be an array")
+            .iter()
+            .any(|action| action.as_str() == Some("resume"))
+    );
+    assert!(registry.get_tool("browser.observe").is_none());
+    assert!(registry.get_tool("browser.interact").is_none());
 }
 
 #[test]

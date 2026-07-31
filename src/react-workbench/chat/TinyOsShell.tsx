@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
 import { gsap } from "gsap";
 import {
   Activity,
@@ -108,6 +108,11 @@ type TinyOsPinnedEvidence = {
   resources: TinyOsResource[];
 };
 
+export type TinyOsBrowserHandoff = {
+  browserSessionId: string;
+  ownerSessionId: string;
+};
+
 export function TinyOsShell({
   agentUiForms,
   canCancelTerminal = false,
@@ -125,6 +130,7 @@ export function TinyOsShell({
   onOpenArtifact,
   onAgentRequest,
   onCancelTerminal = async () => undefined,
+  onBrowserHandoffComplete = () => undefined,
   onBrowserInteract = async () => undefined,
   onDeleteFile = async () => undefined,
   onExecuteTerminal = async () => undefined,
@@ -166,6 +172,7 @@ export function TinyOsShell({
   onOpenArtifact: (artifact: ArtifactRef) => void;
   onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void;
   onCancelTerminal?: () => Promise<void>;
+  onBrowserHandoffComplete?: (input: TinyOsBrowserHandoff) => void;
   onBrowserInteract?: (input: { action: TinyOsBrowserAction; browserSessionId: string; captureId: string; controlEpoch: number; observationRevision: number; tabId: string }) => Promise<void>;
   onDeleteFile?: (input: TinyOsFileDeleteInput) => Promise<void>;
   onExecuteTerminal?: (input: TinyOsTerminalExecuteInput) => Promise<void>;
@@ -232,7 +239,11 @@ export function TinyOsShell({
   const initialWindowIds = useRef(new Set(appWindows.map((window) => window.id)));
   const initialAppIds = appWindows.map((window) => window.appId);
   const browserSessionAvailable = Boolean(snapshot.kernel?.browserSessions.length);
+  const browserNeedsUser = snapshot.kernel?.browserSessions.some(
+    (session) => session.control?.state === "user_required",
+  ) ?? false;
   const browserSessionWasAvailable = useRef(browserSessionAvailable);
+  const browserNeededUser = useRef(false);
   const seenFileOperations = useRef(new Set<string>());
   const revealedCursorItemId = useRef<string | undefined>(undefined);
   const previousHistoryMode = useRef(history);
@@ -353,18 +364,20 @@ export function TinyOsShell({
   useEffect(() => {
     const returningToLive = previousHistoryMode.current && !history;
     const browserBecameAvailable = !browserSessionWasAvailable.current && browserSessionAvailable;
+    const browserBeganNeedingUser = !browserNeededUser.current && browserNeedsUser;
     previousHistoryMode.current = history;
     browserSessionWasAvailable.current = browserSessionAvailable;
+    browserNeededUser.current = browserNeedsUser;
     dispatchUi({
       appIds: appWindows.map((window) => window.appId),
       bounds: uiState.bounds,
       layoutMode,
-      preferredActiveAppId: browserBecameAvailable
+      preferredActiveAppId: browserBecameAvailable || browserBeganNeedingUser
         ? "browser"
         : history || returningToLive ? snapshot.activeAppId : uiState.focusedAppId,
       type: "sync",
     });
-  }, [appWindows.length, browserSessionAvailable, history, layoutMode, snapshot.activeAppId, snapshot.cursorItemId, snapshot.cursorTurnId]);
+  }, [appWindows.length, browserNeedsUser, browserSessionAvailable, history, layoutMode, snapshot.activeAppId, snapshot.cursorItemId, snapshot.cursorTurnId]);
 
   useEffect(() => {
     const desktop = desktopRef.current;
@@ -1063,6 +1076,7 @@ export function TinyOsShell({
             ])}
             onOpenArtifact={onOpenArtifact}
             onAgentRequest={onAgentRequest}
+            onBrowserHandoffComplete={onBrowserHandoffComplete}
             onDeleteFile={onDeleteFile}
             onMoveFile={onMoveFile}
             onSaveFile={onSaveFile}
@@ -1405,6 +1419,7 @@ function TinyOsAppWindow({
   onOpenContextMenu,
   onOpenArtifact,
   onAgentRequest,
+  onBrowserHandoffComplete,
   onDeleteFile,
   onMoveFile,
   onSaveFile,
@@ -1440,6 +1455,7 @@ function TinyOsAppWindow({
   onOpenContextMenu: (event: MouseEvent<HTMLElement>) => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
   onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void;
+  onBrowserHandoffComplete: (input: TinyOsBrowserHandoff) => void;
   onDeleteFile: (input: TinyOsFileDeleteInput) => Promise<void>;
   onMoveFile: (input: TinyOsFileMoveInput) => Promise<void>;
   onSaveFile: (input: TinyOsFileSaveInput) => Promise<void>;
@@ -1589,6 +1605,7 @@ function TinyOsAppWindow({
         onKeyDown={handleWindowKeyDown}
         onPointerDown={(event) => startPointer(event, "move")}
         onPointerMove={movePointer}
+        onPointerCancel={endPointer}
         onPointerUp={endPointer}
       >
         <span><Icon aria-hidden="true" size={15} /><strong>{window.title}</strong></span>
@@ -1605,6 +1622,7 @@ function TinyOsAppWindow({
           canRequestChange={canRequestChange}
           canSaveFile={canSaveFile}
           browserRuntime={browserRuntime}
+          browserSurfaceLayout={layout}
           browserSurfaceVisible={active && browserSurfaceAllowed && !pointerActive}
           commandLifecycle={systemMonitorControls.commandLifecycle}
           commandRegistry={commandRegistry}
@@ -1616,6 +1634,7 @@ function TinyOsAppWindow({
           onAttachContext={onAttachContext}
           onOpenArtifact={onOpenArtifact}
           onAgentRequest={onAgentRequest}
+          onBrowserHandoffComplete={onBrowserHandoffComplete}
           onDeleteFile={onDeleteFile}
           onMoveFile={onMoveFile}
           onSaveFile={onSaveFile}
@@ -1633,15 +1652,17 @@ function TinyOsAppWindow({
         tabIndex={-1}
         onPointerDown={(event) => startPointer(event, "resize")}
         onPointerMove={movePointer}
+        onPointerCancel={endPointer}
         onPointerUp={endPointer}
       />
     </article>
   );
 }
 
-function TinyOsAppContent({ activeTabId, browserRuntime, browserSurfaceVisible, canDirectEdit, canRequestChange, canSaveFile, commandLifecycle, commandRegistry, directEditUnavailableReason, filesController, kernel, layoutMode, window, onAgentRequest, onAttachContext, onDeleteFile, onMoveFile, onOpenArtifact, onSaveFile, onTabChange, requestChangeUnavailableReason, runningTerminalOperationId, saveFileUnavailableReason, systemMonitorControls }: {
+function TinyOsAppContent({ activeTabId, browserRuntime, browserSurfaceLayout, browserSurfaceVisible, canDirectEdit, canRequestChange, canSaveFile, commandLifecycle, commandRegistry, directEditUnavailableReason, filesController, kernel, layoutMode, window, onAgentRequest, onAttachContext, onBrowserHandoffComplete, onDeleteFile, onMoveFile, onOpenArtifact, onSaveFile, onTabChange, requestChangeUnavailableReason, runningTerminalOperationId, saveFileUnavailableReason, systemMonitorControls }: {
   activeTabId?: string;
   browserRuntime?: NativeBrowserRuntimeApi;
+  browserSurfaceLayout?: TinyOsWindowRect;
   browserSurfaceVisible: boolean;
   canDirectEdit: boolean;
   canRequestChange: boolean;
@@ -1654,6 +1675,7 @@ function TinyOsAppContent({ activeTabId, browserRuntime, browserSurfaceVisible, 
   layoutMode: TinyOsLayoutMode;
   onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void;
   onAttachContext: (reference: TinyOsContextReference) => void;
+  onBrowserHandoffComplete: (input: TinyOsBrowserHandoff) => void;
   onDeleteFile: (input: TinyOsFileDeleteInput) => Promise<void>;
   onMoveFile: (input: TinyOsFileMoveInput) => Promise<void>;
   onOpenArtifact: (artifact: ArtifactRef) => void;
@@ -1672,7 +1694,7 @@ function TinyOsAppContent({ activeTabId, browserRuntime, browserSurfaceVisible, 
         : <EmptyCopy text="Workspace Explorer is unavailable." />
       : <TinyOsFiles activeTabId={activeTabId} canRequestChange={canRequestChange} window={window} onAgentRequest={onAgentRequest} onAttachContext={onAttachContext} onTabChange={onTabChange} requestChangeUnavailableReason={requestChangeUnavailableReason} />;
     case "terminal": return <div className="tinyos-terminal-host"><TinyOsTerminalHostControls commandLifecycle={commandLifecycle} commandRegistry={commandRegistry} runningOperationId={runningTerminalOperationId} />{window.entries.length ? <TinyOsTerminal activeTabId={activeTabId} canRequestChange={canRequestChange} kernel={kernel} window={window} onAgentRequest={onAgentRequest} onAttachContext={onAttachContext} onTabChange={onTabChange} requestChangeUnavailableReason={requestChangeUnavailableReason} /> : <EmptyCopy text="Run a reviewed command to create a retained canonical execution. TinyOS does not present this as a persistent PTY session." />}</div>;
-    case "browser": return <TinyOsBrowser browserRuntime={browserRuntime} kernel={kernel} surfaceVisible={browserSurfaceVisible} />;
+    case "browser": return <TinyOsBrowser browserRuntime={browserRuntime} kernel={kernel} onHandoffComplete={onBrowserHandoffComplete} surfaceLayout={browserSurfaceLayout} surfaceVisible={browserSurfaceVisible} />;
     case "plan": return <TinyOsPlan canRequestChange={canRequestChange} entry={[...window.entries].reverse().find(({ step }) => Boolean(step.plan)) ?? window.entries[window.entries.length - 1]} onAgentRequest={onAgentRequest} requestChangeUnavailableReason={requestChangeUnavailableReason} />;
     case "subagents": return <TinyOsSubagents window={window} />;
     case "artifacts": return <TinyOsArtifacts window={window} onOpenArtifact={onOpenArtifact} />;
@@ -1888,9 +1910,11 @@ function TinyOsTerminal({ activeTabId, canRequestChange, kernel, onAgentRequest,
   );
 }
 
-function TinyOsBrowser({ browserRuntime, kernel, surfaceVisible }: {
+function TinyOsBrowser({ browserRuntime, kernel, onHandoffComplete, surfaceLayout, surfaceVisible }: {
   browserRuntime?: NativeBrowserRuntimeApi;
   kernel?: TinyOsKernelSnapshot;
+  onHandoffComplete: (input: TinyOsBrowserHandoff) => void;
+  surfaceLayout?: TinyOsWindowRect;
   surfaceVisible: boolean;
 }) {
   const session = kernel?.browserSessions[0];
@@ -1899,6 +1923,7 @@ function TinyOsBrowser({ browserRuntime, kernel, surfaceVisible }: {
   const tab = session?.tabs.find(({ tabId }) => tabId === activeTabId);
   const [address, setAddress] = useState(tab?.url ?? "");
   const [error, setError] = useState("");
+  const [handoffCompleting, setHandoffCompleting] = useState(false);
   const liveRuntimeAvailable = Boolean(browserRuntime && session && tab && session.runtimeKind === "windows_webview2");
   const liveSurfaceVisible = liveRuntimeAvailable && surfaceVisible && tab?.rendererLifecycle !== "failed";
 
@@ -1961,6 +1986,33 @@ function TinyOsBrowser({ browserRuntime, kernel, surfaceVisible }: {
     });
   }
 
+  async function completeUserHandoff() {
+    if (!browserRuntime || !session) return;
+    setError("");
+    setHandoffCompleting(true);
+    try {
+      const latest = await browserRuntime.snapshot(session.browserSessionId);
+      if (latest.data.control?.state !== "user_required") {
+        throw new Error("Browser control is no longer waiting for user completion.");
+      }
+      await browserRuntime.interact({
+        action: { type: "resume" },
+        browserSessionId: latest.data.browserSessionId,
+        commandId: `browser-handoff-resume-${Date.now().toString(36)}`,
+        controlEpoch: latest.data.control.controlEpoch,
+        tabId: latest.data.activeTabId,
+      });
+      onHandoffComplete({
+        browserSessionId: latest.data.browserSessionId,
+        ownerSessionId: latest.data.sessionId,
+      });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setHandoffCompleting(false);
+    }
+  }
+
   if (!browserRuntime) {
     return <BrowserUnavailable message="The live browser is unavailable in this desktop build." />;
   }
@@ -2003,9 +2055,13 @@ function TinyOsBrowser({ browserRuntime, kernel, surfaceVisible }: {
       <div><ShieldCheck aria-hidden="true" size={14} /><span><strong>{session.pendingPolicyRequest.kind === "popup" ? "Open popup as a managed tab?" : "Open external application?"}</strong><code>{session.pendingPolicyRequest.safeUrl}</code></span></div>
       <div><button type="button" onClick={() => void execute(() => browserRuntime.resolvePolicyRequest(session.browserSessionId, session.pendingPolicyRequest!.requestId, false))}>Deny</button><button type="button" onClick={() => void execute(() => browserRuntime.resolvePolicyRequest(session.browserSessionId, session.pendingPolicyRequest!.requestId, true))}>Allow once</button></div>
     </section> : null}
+    {session.control?.state === "user_required" && !session.pendingPolicyRequest ? <section aria-label="Browser user handoff" className="tinyos-browser__handoff" role="alert">
+      <div><ShieldCheck aria-hidden="true" size={14} /><span><strong>You have browser control</strong><span>{session.control.reason || "Continue in the browser until you want the Agent to take over."}</span></span></div>
+      <button disabled={handoffCompleting} type="button" onClick={() => void completeUserHandoff()}>{handoffCompleting ? "Handing back…" : "Hand control back to Agent"}</button>
+    </section> : null}
     {tab.rendererLifecycle === "failed"
       ? <div className="tinyos-browser__unavailable" role="alert"><AlertTriangle aria-hidden="true" size={22} /><strong>{session.lifecycle === "failed" ? "Browser failed to start" : "This tab stopped responding"}</strong><span>{session.control?.reason || (session.lifecycle === "failed" ? "Retry the shared browser session." : "Restart it to continue in the same shared browser session.")}</span><button type="button" onClick={() => void (session.lifecycle === "failed" ? retryFailedSession() : execute(() => browserRuntime.restartTab(session.browserSessionId, tab.tabId)))}>{session.lifecycle === "failed" ? "Retry browser" : "Restart tab"}</button></div>
-      : <BrowserSurfaceHost browserRuntime={browserRuntime} onError={setError} session={session} tabId={tab.tabId} visible={liveSurfaceVisible} />}
+      : <BrowserSurfaceHost browserRuntime={browserRuntime} onError={setError} session={session} surfaceLayout={surfaceLayout} tabId={tab.tabId} visible={liveSurfaceVisible} />}
     {error ? <p className="tinyos-browser__error" role="alert">{error}</p> : null}
   </div>;
 }
@@ -2044,10 +2100,40 @@ function browserControlCopy(state?: "idle" | "agent_active" | "user_required" | 
   }
 }
 
-function BrowserSurfaceHost({ browserRuntime, onError, session, tabId, visible }: {
+type BrowserSurfaceUpdateInput = Parameters<NativeBrowserRuntimeApi["updateSurface"]>[0];
+const BROWSER_SURFACE_SETTLE_MS = 80;
+
+function sameBrowserSurfaceUpdate(left: BrowserSurfaceUpdateInput | undefined, right: BrowserSurfaceUpdateInput): boolean {
+  if (!left) return false;
+  return left.browserSessionId === right.browserSessionId
+    && left.live === right.live
+    && left.rect.deviceScale === right.rect.deviceScale
+    && left.rect.height === right.rect.height
+    && left.rect.width === right.rect.width
+    && left.rect.x === right.rect.x
+    && left.rect.y === right.rect.y
+    && left.surfaceId === right.surfaceId
+    && left.tabId === right.tabId
+    && left.topmost === right.topmost
+    && left.unobscured === right.unobscured
+    && left.visible === right.visible;
+}
+
+function sameHiddenBrowserSurfaceTarget(left: BrowserSurfaceUpdateInput | undefined, right: BrowserSurfaceUpdateInput): boolean {
+  return Boolean(left
+    && !left.visible
+    && !right.visible
+    && left.browserSessionId === right.browserSessionId
+    && left.live === right.live
+    && left.surfaceId === right.surfaceId
+    && left.tabId === right.tabId);
+}
+
+function BrowserSurfaceHost({ browserRuntime, onError, session, surfaceLayout, tabId, visible }: {
   browserRuntime?: NativeBrowserRuntimeApi;
   onError: (message: string) => void;
   session: TinyOsKernelSnapshot["browserSessions"][number];
+  surfaceLayout?: TinyOsWindowRect;
   tabId: string;
   visible: boolean;
 }) {
@@ -2055,57 +2141,95 @@ function BrowserSurfaceHost({ browserRuntime, onError, session, tabId, visible }
   const nativeLayoutRevision = session.surface?.layoutRevision ?? 0;
   const layoutRevision = useRef(nativeLayoutRevision);
   layoutRevision.current = Math.max(layoutRevision.current, nativeLayoutRevision);
-  const pendingUpdates = useRef<Promise<void>>(Promise.resolve());
+  const lastReportedUpdate = useRef<BrowserSurfaceUpdateInput | undefined>(undefined);
+  const pendingUpdate = useRef<BrowserSurfaceUpdateInput | undefined>(undefined);
+  const updateInFlight = useRef(false);
+  const frame = useRef(0);
+  const settleTimer = useRef(0);
+  const scheduledVisible = useRef(visible);
   const surfaceId = useMemo(() => `tinyos-browser-surface-${session.browserSessionId}`, [session.browserSessionId]);
+
+  const flushUpdate = useCallback(function flushPendingSurfaceUpdate() {
+    const input = pendingUpdate.current;
+    if (!browserRuntime || updateInFlight.current || !input) return;
+    pendingUpdate.current = undefined;
+    updateInFlight.current = true;
+    void browserRuntime.updateSurface(input).catch((reason) => {
+      if (sameBrowserSurfaceUpdate(lastReportedUpdate.current, input)) {
+        lastReportedUpdate.current = undefined;
+      }
+      onError(reason instanceof Error ? reason.message : String(reason));
+    }).finally(() => {
+      updateInFlight.current = false;
+      flushPendingSurfaceUpdate();
+    });
+  }, [browserRuntime, onError]);
+
+  const report = useCallback((nextVisible: boolean) => {
+    const host = hostRef.current;
+    if (!host || !browserRuntime) return;
+    const bounds = host.getBoundingClientRect();
+    const nextUpdate: BrowserSurfaceUpdateInput = {
+      browserSessionId: session.browserSessionId,
+      layoutRevision: layoutRevision.current + 1,
+      live: true,
+      rect: {
+        deviceScale: window.devicePixelRatio || 1,
+        height: Math.max(1, bounds.height),
+        width: Math.max(1, bounds.width),
+        x: Math.max(0, bounds.x),
+        y: Math.max(0, bounds.y),
+      },
+      surfaceId,
+      tabId,
+      topmost: nextVisible,
+      unobscured: nextVisible,
+      visible: nextVisible,
+    };
+    if (sameBrowserSurfaceUpdate(lastReportedUpdate.current, nextUpdate)
+      || sameHiddenBrowserSurfaceTarget(lastReportedUpdate.current, nextUpdate)) return;
+    layoutRevision.current = nextUpdate.layoutRevision;
+    lastReportedUpdate.current = nextUpdate;
+    pendingUpdate.current = nextUpdate;
+    flushUpdate();
+  }, [browserRuntime, flushUpdate, session.browserSessionId, surfaceId, tabId]);
+
+  const schedule = useCallback((nextVisible: boolean) => {
+    scheduledVisible.current = nextVisible;
+    window.cancelAnimationFrame(frame.current);
+    window.clearTimeout(settleTimer.current);
+    const enqueue = () => {
+      settleTimer.current = 0;
+      frame.current = window.requestAnimationFrame(() => report(scheduledVisible.current));
+    };
+    if (nextVisible) {
+      settleTimer.current = window.setTimeout(enqueue, BROWSER_SURFACE_SETTLE_MS);
+    } else {
+      enqueue();
+    }
+  }, [report]);
 
   useLayoutEffect(() => {
     const host = hostRef.current;
     if (!host || !browserRuntime) return;
-    let disposed = false;
-    let frame = 0;
-    const report = (nextVisible: boolean) => {
-      if (disposed && nextVisible) return;
-      const bounds = host.getBoundingClientRect();
-      layoutRevision.current += 1;
-      const input = {
-        browserSessionId: session.browserSessionId,
-        layoutRevision: layoutRevision.current,
-        live: true,
-        rect: {
-          deviceScale: window.devicePixelRatio || 1,
-          height: Math.max(1, bounds.height),
-          width: Math.max(1, bounds.width),
-          x: Math.max(0, bounds.x),
-          y: Math.max(0, bounds.y),
-        },
-        surfaceId,
-        tabId,
-        topmost: nextVisible,
-        unobscured: nextVisible,
-        visible: nextVisible,
-      };
-      pendingUpdates.current = pendingUpdates.current.then(() => browserRuntime.updateSurface(input)).then(() => undefined).catch((reason) => {
-        onError(reason instanceof Error ? reason.message : String(reason));
-      });
-    };
-    const schedule = () => {
-      window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(() => report(visible));
-    };
-    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(schedule);
+    const scheduleCurrent = () => schedule(visible);
+    const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(scheduleCurrent);
     observer?.observe(host);
-    window.addEventListener("resize", schedule);
-    window.addEventListener("scroll", schedule, true);
-    report(visible);
+    window.addEventListener("resize", scheduleCurrent);
+    window.addEventListener("scroll", scheduleCurrent, true);
     return () => {
-      disposed = true;
-      window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(frame.current);
+      window.clearTimeout(settleTimer.current);
       observer?.disconnect();
-      window.removeEventListener("resize", schedule);
-      window.removeEventListener("scroll", schedule, true);
+      window.removeEventListener("resize", scheduleCurrent);
+      window.removeEventListener("scroll", scheduleCurrent, true);
       report(false);
     };
-  }, [browserRuntime, onError, session.browserSessionId, surfaceId, tabId, visible]);
+  }, [browserRuntime, report, schedule, visible]);
+
+  useLayoutEffect(() => {
+    schedule(visible);
+  }, [schedule, surfaceLayout?.height, surfaceLayout?.width, surfaceLayout?.x, surfaceLayout?.y, visible]);
 
   return <div aria-label="Browser page" aria-labelledby={`tinyos-browser-tab-${tabId}`} className="tinyos-browser__surface-host" data-live={visible ? "true" : undefined} id="tinyos-browser-page" ref={hostRef} role="tabpanel"><span aria-live="polite">{visible ? "Loading live page…" : "Browser temporarily hidden"}</span></div>;
 }

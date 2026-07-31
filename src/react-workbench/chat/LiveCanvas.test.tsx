@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { createRef } from "react";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
@@ -79,6 +79,7 @@ function canvasProps(entries: LiveCanvasEntry[], overrides: Record<string, unkno
     onAgentRequest: vi.fn(),
     onAttachContext: vi.fn(),
     onClose: vi.fn(),
+    onExit: vi.fn(async () => undefined),
     onOpenArtifact: vi.fn(),
     onRetryOperation: vi.fn(),
     onReturnToLive: vi.fn(),
@@ -151,8 +152,7 @@ function browserSessionSnapshot() {
   });
 }
 
-function browserRuntimeMock() {
-  const snapshot = browserSessionSnapshot();
+function browserRuntimeMock(snapshot = browserSessionSnapshot()) {
   const activateTab = vi.fn(async () => snapshot);
   const back = vi.fn(async () => undefined);
   const closeSession = vi.fn(async () => undefined);
@@ -161,7 +161,9 @@ function browserRuntimeMock() {
   const createTab = vi.fn(async () => snapshot);
   const forward = vi.fn(async () => undefined);
   const navigate = vi.fn(async () => snapshot);
+  const interact = vi.fn(async () => undefined);
   const reload = vi.fn(async () => undefined);
+  const snapshotQuery = vi.fn(async () => snapshot);
   const stop = vi.fn(async () => undefined);
   const updateSurface = vi.fn(async (_input: Parameters<NativeBrowserRuntimeApi["updateSurface"]>[0]) => snapshot);
   const api = {
@@ -174,17 +176,17 @@ function browserRuntimeMock() {
     createTab,
     deleteProfile: vi.fn(),
     forward,
-    interact: vi.fn(),
+    interact,
     navigate,
     observe: vi.fn(),
     reload,
     resolvePolicyRequest: vi.fn(async () => snapshot),
     restartTab: vi.fn(async () => snapshot),
-    snapshot: vi.fn(async () => snapshot),
+    snapshot: snapshotQuery,
     stop,
     updateSurface,
   } as unknown as NativeBrowserRuntimeApi;
-  return { activateTab, api, back, closeSession, closeTab, createSession, createTab, forward, navigate, reload, stop, updateSurface };
+  return { activateTab, api, back, closeSession, closeTab, createSession, createTab, forward, interact, navigate, reload, snapshotQuery, stop, updateSurface };
 }
 
 describe("LiveCanvas TinyOS", () => {
@@ -857,6 +859,41 @@ describe("LiveCanvas TinyOS", () => {
     expect(runtime.closeTab).toHaveBeenCalledWith("browser-session-1", "tab-2");
   });
 
+  it("lets the user explicitly return a handed-off browser to the Agent", async () => {
+    const handoff = browserSessionSnapshot();
+    handoff.data.control = {
+      controlEpoch: 7,
+      reason: "Complete the login verification",
+      state: "user_required",
+    };
+    const runtime = browserRuntimeMock(handoff);
+    const onBrowserHandoffComplete = vi.fn();
+    render(<LiveCanvas {...canvasProps([], {
+      browserRuntime: runtime.api,
+      nativeSnapshots: [handoff],
+      onBrowserHandoffComplete,
+    })} />);
+
+    const browser = screen.getByLabelText("Browser window");
+    expect(browser.getAttribute("data-active")).toBe("true");
+    const prompt = within(browser).getByRole("alert", { name: "Browser user handoff" });
+    expect(within(prompt).getByText("Complete the login verification")).toBeTruthy();
+
+    await userEvent.click(within(prompt).getByRole("button", { name: "Hand control back to Agent" }));
+
+    expect(runtime.snapshotQuery).toHaveBeenCalledWith("browser-session-1");
+    expect(runtime.interact).toHaveBeenCalledWith(expect.objectContaining({
+      action: { type: "resume" },
+      browserSessionId: "browser-session-1",
+      controlEpoch: 7,
+      tabId: "tab-1",
+    }));
+    expect(onBrowserHandoffComplete).toHaveBeenCalledWith({
+      browserSessionId: "browser-session-1",
+      ownerSessionId: "session-1",
+    });
+  });
+
   it("continues native browser surface revisions after the host remounts", async () => {
     const runtime = browserRuntimeMock();
     const snapshot = browserSessionSnapshot();
@@ -878,6 +915,79 @@ describe("LiveCanvas TinyOS", () => {
       browserSessionId: "browser-session-1",
       layoutRevision: 42,
       tabId: "tab-1",
+    });
+  });
+
+  it("does not resend an unchanged native browser surface", async () => {
+    const runtime = browserRuntimeMock();
+    const browserEntry = entry(step({ id: "browser-native-stable", kind: "browser" }));
+    render(<LiveCanvas {...canvasProps([browserEntry], {
+      browserRuntime: runtime.api,
+      nativeSnapshots: [browserSessionSnapshot()],
+    })} />);
+
+    await waitFor(() => expect(runtime.updateSurface).toHaveBeenCalledTimes(1));
+    runtime.updateSurface.mockClear();
+    fireEvent(window, new Event("resize"));
+    await act(async () => {
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    });
+
+    expect(runtime.updateSurface).not.toHaveBeenCalled();
+  });
+
+  it("suspends the native browser surface during drag and applies only the final bounds", async () => {
+    const snapshot = browserSessionSnapshot();
+    const runtime = browserRuntimeMock(snapshot);
+    const browserEntry = entry(step({ id: "browser-native-drag", kind: "browser" }));
+    render(<LiveCanvas {...canvasProps([browserEntry], {
+      browserRuntime: runtime.api,
+      nativeSnapshots: [snapshot],
+      widthPx: 900,
+    })} />);
+
+    await waitFor(() => expect(runtime.updateSurface).toHaveBeenCalledWith(expect.objectContaining({ visible: true })));
+    runtime.updateSurface.mockClear();
+    let releaseHiddenUpdate: (() => void) | undefined;
+    runtime.updateSurface.mockImplementationOnce(() => new Promise((resolve) => {
+      releaseHiddenUpdate = () => resolve(snapshot);
+    }));
+
+    const browserSurface = screen.getByLabelText("Browser page");
+    let browserSurfaceX = 0;
+    vi.spyOn(browserSurface, "getBoundingClientRect").mockImplementation(() => ({
+      bottom: 600,
+      height: 600,
+      left: browserSurfaceX,
+      right: browserSurfaceX + 800,
+      top: 0,
+      width: 800,
+      x: browserSurfaceX,
+      y: 0,
+      toJSON: () => ({}),
+    }));
+    const titlebar = screen.getByLabelText("Move Browser window");
+    fireEvent.pointerDown(titlebar, { button: 0, clientX: 120, clientY: 80, pointerId: 7 });
+    await waitFor(() => expect(runtime.updateSurface).toHaveBeenCalledWith(expect.objectContaining({ visible: false })));
+    browserSurfaceX = 120;
+    fireEvent.pointerMove(titlebar, { clientX: 240, clientY: 180, pointerId: 7 });
+    browserSurfaceX = 160;
+    fireEvent.pointerMove(titlebar, { clientX: 280, clientY: 210, pointerId: 7 });
+    browserSurfaceX = 200;
+    fireEvent.pointerMove(titlebar, { clientX: 320, clientY: 240, pointerId: 7 });
+    fireEvent(window, new Event("resize"));
+    fireEvent.pointerUp(titlebar, { clientX: 320, clientY: 240, pointerId: 7 });
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 120));
+    });
+
+    expect(runtime.updateSurface).toHaveBeenCalledTimes(1);
+    await act(async () => releaseHiddenUpdate?.());
+    await waitFor(() => expect(runtime.updateSurface).toHaveBeenCalledTimes(2));
+    expect(runtime.updateSurface.mock.calls[0]?.[0]).toMatchObject({ visible: false });
+    expect(runtime.updateSurface.mock.calls[1]?.[0]).toMatchObject({
+      rect: { x: 200 },
+      visible: true,
     });
   });
 
@@ -1083,5 +1193,19 @@ describe("LiveCanvas TinyOS", () => {
     rerender(<LiveCanvas {...canvasProps([form], { onClose })} />);
     expect(screen.queryByRole("button", { name: "Close TinyOS overlay" })).toBeNull();
     expect(screen.getByRole("dialog", { name: "TinyOS input request" })).toBeTruthy();
+  });
+
+  it("keeps hiding separate from exiting and releasing the browser", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    const onExit = vi.fn(async () => undefined);
+    render(<LiveCanvas {...canvasProps([], { onClose, onExit })} />);
+
+    await user.click(screen.getByRole("button", { name: "Close TinyOS desktop" }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onExit).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Exit TinyOS and release browser" }));
+    expect(onExit).toHaveBeenCalledTimes(1);
   });
 });
