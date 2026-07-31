@@ -5154,6 +5154,91 @@ button.tinyos-overlay-backdrop:focus-visible {
   color: var(--color-muted);
 }
 
+.claude-ai-input__slash-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 38;
+  display: grid;
+  max-height: min(320px, 46vh);
+  overflow: auto;
+  gap: 2px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+  background: #fff;
+  padding: 6px;
+  box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
+}
+
+.claude-ai-input__slash-option {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  min-height: 52px;
+  gap: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 7px 10px;
+  color: var(--color-body);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.claude-ai-input__slash-option > svg {
+  color: var(--color-muted);
+}
+
+.claude-ai-input__slash-option > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.claude-ai-input__slash-option strong {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.claude-ai-input__slash-option code {
+  color: var(--color-primary-active);
+  font: 600 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.claude-ai-input__slash-option small {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-ai-input__slash-option kbd {
+  border: 1px solid var(--color-hairline);
+  border-radius: 5px;
+  background: var(--color-surface-card);
+  padding: 2px 5px;
+  color: var(--color-muted);
+  font: 500 10px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+
+.claude-ai-input__slash-option:is(:hover, :focus-visible),
+.claude-ai-input__slash-option[aria-selected="true"] {
+  background: var(--color-surface-soft);
+  outline: none;
+}
+
+.claude-ai-input__slash-option[aria-selected="true"] > svg {
+  color: var(--color-primary);
+}
+
 .claude-ai-input__toolbar,
 .claude-ai-input__tools,
 .claude-ai-input__model-trigger,

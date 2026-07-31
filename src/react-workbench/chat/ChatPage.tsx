@@ -39,6 +39,7 @@ import {
   type ComposerFileReference,
   type ComposerContextReference,
   type ComposerSendOptions,
+  type ComposerSlashCommand,
   type ModelOption,
   type PastedContent,
 } from "../../components/ui/claude-style-ai-input";
@@ -220,6 +221,39 @@ const EMPTY_CHAT_PROMPTS = [
   "整理资料并形成一份简短摘要",
   "检查方案中可能遗漏的问题",
 ] as const;
+
+const COMPOSER_SLASH_COMMANDS = [
+  {
+    command: "/plan",
+    description: "先分析目标、风险和验证方式",
+    label: "规划任务",
+    prompt: "请先分析这个任务，列出实施步骤、风险和验证方式，暂时不要修改代码。",
+  },
+  {
+    command: "/review",
+    description: "检查缺陷、回归风险和缺失测试",
+    label: "审查改动",
+    prompt: "请审查当前工作区的代码改动，优先报告明确的缺陷、回归风险和缺失测试。",
+  },
+  {
+    command: "/fix",
+    description: "定位根因并用回归测试验证修复",
+    label: "修复问题",
+    prompt: "请定位当前问题的根因，补充可复现的回归测试并完成修复。",
+  },
+  {
+    command: "/test",
+    description: "运行相关测试并处理失败项",
+    label: "运行测试",
+    prompt: "请运行与当前改动相关的测试，定位并修复失败项。",
+  },
+  {
+    command: "/explain",
+    description: "梳理代码的数据流和关键风险",
+    label: "解释代码",
+    prompt: "请解释当前代码的工作方式、关键数据流和主要风险。",
+  },
+] as const satisfies readonly ComposerSlashCommand[];
 
 const LIVE_CANVAS_CLOSE_MS = 160;
 const SESSION_DELETE_DISSOLVE_MS = 180;
@@ -2038,6 +2072,7 @@ export function ChatPage({
           contextUsage={activeContextUsage}
           models={composerModels}
           responding={sessionResponding}
+          slashCommands={COMPOSER_SLASH_COMMANDS}
           canStopResponding={canCancelTurn}
           stopUnavailableReason={cancelUnavailableReason}
           placeholder={emptyActiveSession ? "输入任务，或粘贴/拖入文件" : "输入消息给 Tinybot"}

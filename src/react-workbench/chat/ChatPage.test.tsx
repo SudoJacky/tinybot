@@ -1158,6 +1158,26 @@ describe("ChatPage", () => {
     expect(message).toBeTruthy();
   });
 
+  it("expands a filtered slash command without sending it immediately", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const input = await screen.findByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
+    await user.clear(input);
+    await user.type(input, "/rev");
+
+    const commands = screen.getByRole("listbox", { name: "Slash commands" });
+    expect(within(commands).getByRole("option", { name: /\/review 审查改动/ })).toBeTruthy();
+    expect(within(commands).queryByRole("option", { name: /\/plan/ })).toBeNull();
+
+    await user.keyboard("{Enter}");
+
+    expect(input.value).toBe("请审查当前工作区的代码改动，优先报告明确的缺陷、回归风险和缺失测试。");
+    expect(screen.queryByRole("listbox", { name: "Slash commands" })).toBeNull();
+    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
+  });
+
   it("preserves manual scroll position and offers a back-to-latest action", async () => {
     const user = userEvent.setup();
     const stores = createStores();

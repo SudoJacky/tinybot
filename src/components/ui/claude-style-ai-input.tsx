@@ -1,7 +1,7 @@
 "use client";
 
 import type { ClipboardEvent, FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { TokenUsage } from "../../app-core/chat/chatTurnModel";
 import {
   AlertCircle,
@@ -9,6 +9,7 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  Command,
   Copy,
   FileText,
   ImageIcon,
@@ -53,6 +54,13 @@ export interface ComposerToolOption {
   disabled?: boolean;
 }
 
+export interface ComposerSlashCommand {
+  command: `/${string}`;
+  description: string;
+  label: string;
+  prompt: string;
+}
+
 export interface ComposerSendOptions {
   model?: string;
 }
@@ -89,6 +97,7 @@ export interface ClaudeStyleAiInputProps {
   canStopResponding?: boolean;
   stopUnavailableReason?: string;
   onStopResponding?: () => void | Promise<void>;
+  slashCommands?: readonly ComposerSlashCommand[];
   value?: string;
   onValueChange?: (value: string) => void;
 }
@@ -97,6 +106,7 @@ const MAX_FILES = 10;
 const PASTE_THRESHOLD = 200;
 const EMPTY_MODELS: ModelOption[] = [];
 const EMPTY_TOOLS: ComposerToolOption[] = [];
+const EMPTY_SLASH_COMMANDS: readonly ComposerSlashCommand[] = [];
 
 let generatedId = 0;
 
@@ -124,11 +134,13 @@ export function ClaudeStyleAiInput({
   onValueChange,
   placeholder = "Message Tinybot",
   responding = false,
+  slashCommands = EMPTY_SLASH_COMMANDS,
   stopUnavailableReason,
   tools = EMPTY_TOOLS,
   value,
 }: ClaudeStyleAiInputProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const toolMenuRef = useRef<HTMLDivElement | null>(null);
   const [message, setMessage] = useState("");
@@ -141,6 +153,9 @@ export function ClaudeStyleAiInput({
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const [selectingFiles, setSelectingFiles] = useState(false);
+  const [activeSlashCommandIndex, setActiveSlashCommandIndex] = useState(0);
+  const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
+  const slashListboxId = useId();
   const currentMessage = value ?? message;
   const selectedModel = useMemo(
     () => models.find((model) => model.id === selectedModelId) ?? models[0],
@@ -149,6 +164,24 @@ export function ClaudeStyleAiInput({
   const contextUsageView = useMemo(() => buildContextUsageView(contextUsage), [contextUsage]);
   const enabledToolIdSet = useMemo(() => new Set(enabledToolIds), [enabledToolIds]);
   const canSend = !disabled && !sending && Boolean(currentMessage.trim() || files.length || pastedContent.length || contextReferences.length);
+  const slashQuery = useMemo(() => {
+    const match = /^\/([^\s]*)$/.exec(currentMessage);
+    return match?.[1].toLocaleLowerCase();
+  }, [currentMessage]);
+  const filteredSlashCommands = useMemo(() => {
+    if (slashQuery === undefined) return [];
+    return slashCommands.filter((command) => {
+      const name = command.command.slice(1).toLocaleLowerCase();
+      const searchText = `${name} ${command.label} ${command.description}`.toLocaleLowerCase();
+      return name.startsWith(slashQuery) || searchText.includes(slashQuery);
+    });
+  }, [slashCommands, slashQuery]);
+  const slashMenuOpen = !disabled
+    && !sending
+    && !slashMenuDismissed
+    && slashQuery !== undefined
+    && filteredSlashCommands.length > 0;
+  const activeSlashOptionIndex = Math.min(activeSlashCommandIndex, Math.max(0, filteredSlashCommands.length - 1));
 
   function updateMessage(nextMessage: string): void {
     setMessage(nextMessage);
@@ -170,7 +203,18 @@ export function ClaudeStyleAiInput({
   }, [tools]);
 
   useEffect(() => {
-    if (!modelMenuOpen && !toolMenuOpen) {
+    setActiveSlashCommandIndex(0);
+    setSlashMenuDismissed(false);
+  }, [currentMessage]);
+
+  useEffect(() => {
+    if (!slashMenuOpen) return;
+    setModelMenuOpen(false);
+    setToolMenuOpen(false);
+  }, [slashMenuOpen]);
+
+  useEffect(() => {
+    if (!modelMenuOpen && !toolMenuOpen && !slashMenuOpen) {
       return;
     }
     function closeMenus(event: PointerEvent) {
@@ -181,10 +225,13 @@ export function ClaudeStyleAiInput({
       if (!toolMenuRef.current?.contains(target)) {
         setToolMenuOpen(false);
       }
+      if (slashMenuOpen && !panelRef.current?.contains(target)) {
+        setSlashMenuDismissed(true);
+      }
     }
     document.addEventListener("pointerdown", closeMenus, true);
     return () => document.removeEventListener("pointerdown", closeMenus, true);
-  }, [modelMenuOpen, toolMenuOpen]);
+  }, [modelMenuOpen, slashMenuOpen, toolMenuOpen]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -218,10 +265,37 @@ export function ClaudeStyleAiInput({
   }
 
   function handleTextareaKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (slashMenuOpen) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const direction = event.key === "ArrowDown" ? 1 : -1;
+        setActiveSlashCommandIndex((current) => (
+          (current + direction + filteredSlashCommands.length) % filteredSlashCommands.length
+        ));
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        selectSlashCommand(filteredSlashCommands[activeSlashOptionIndex] ?? filteredSlashCommands[0]);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setSlashMenuDismissed(true);
+        return;
+      }
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
       event.currentTarget.form?.requestSubmit();
     }
+  }
+
+  function selectSlashCommand(command: ComposerSlashCommand | undefined) {
+    if (!command) return;
+    setSlashMenuDismissed(true);
+    updateMessage(command.prompt);
+    textareaRef.current?.focus();
   }
 
   function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
@@ -377,8 +451,46 @@ export function ClaudeStyleAiInput({
         onPointerLeave={handlePanelPointerLeave}
         onPointerMove={handlePanelPointerMove}
       >
+        {slashMenuOpen ? (
+          <div
+            aria-label="Slash commands"
+            className="claude-ai-input__slash-menu"
+            id={slashListboxId}
+            role="listbox"
+          >
+            {filteredSlashCommands.map((command, index) => {
+              const selected = index === activeSlashOptionIndex;
+              const optionId = `${slashListboxId}-option-${index}`;
+              return (
+                <button
+                  aria-label={`${command.command} ${command.label}: ${command.description}`}
+                  aria-selected={selected}
+                  className="claude-ai-input__slash-option"
+                  id={optionId}
+                  key={command.command}
+                  role="option"
+                  type="button"
+                  onClick={() => selectSlashCommand(command)}
+                  onMouseDown={(event) => event.preventDefault()}
+                >
+                  <Command aria-hidden="true" size={16} />
+                  <span>
+                    <strong><code>{command.command}</code>{command.label}</strong>
+                    <small>{command.description}</small>
+                  </span>
+                  {selected ? <kbd>Enter</kbd> : null}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
         <textarea
           aria-label="Message"
+          aria-activedescendant={slashMenuOpen ? `${slashListboxId}-option-${activeSlashOptionIndex}` : undefined}
+          aria-autocomplete="list"
+          aria-controls={slashMenuOpen ? slashListboxId : undefined}
+          aria-expanded={slashMenuOpen}
+          aria-haspopup="listbox"
           className="claude-ai-input__textarea"
           disabled={disabled || sending}
           placeholder={placeholder}
@@ -387,6 +499,7 @@ export function ClaudeStyleAiInput({
           onChange={(event) => updateMessage(event.currentTarget.value)}
           onKeyDown={handleTextareaKeyDown}
           onPaste={handlePaste}
+          ref={textareaRef}
         />
 
         <div className="claude-ai-input__toolbar">
@@ -411,6 +524,7 @@ export function ClaudeStyleAiInput({
                 title="Tools"
                 type="button"
                 onClick={() => {
+                  setSlashMenuDismissed(true);
                   setToolMenuOpen((open) => !open);
                   setModelMenuOpen(false);
                 }}
@@ -451,6 +565,7 @@ export function ClaudeStyleAiInput({
                 disabled={disabled || !models.length}
                 type="button"
                 onClick={() => {
+                  setSlashMenuDismissed(true);
                   setModelMenuOpen((open) => !open);
                   setToolMenuOpen(false);
                 }}
