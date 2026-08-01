@@ -108,6 +108,7 @@ fn cold_rollout_worker_skips_live_writer_and_future_append_remains_valid() {
             cwd: root.display().to_string(),
             source: "test".to_string(),
             model_provider: None,
+            api_mode: None,
             model: None,
             base_instructions: None,
             memory_snapshot: None,

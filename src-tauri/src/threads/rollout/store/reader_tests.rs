@@ -22,6 +22,7 @@ fn valid_line() -> ThreadLogLine {
             cwd: String::new(),
             source: "desktop".to_string(),
             model_provider: None,
+            api_mode: None,
             model: None,
             base_instructions: None,
             memory_snapshot: None,

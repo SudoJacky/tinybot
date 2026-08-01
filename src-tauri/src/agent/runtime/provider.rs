@@ -179,6 +179,15 @@ fn provider_response_from_completion(
     api_mode: crate::agent::provider::NativeProviderApiMode,
     completion: Value,
 ) -> Result<NativeAgentProviderResponse, String> {
+    let response_items = if api_mode == crate::agent::provider::NativeProviderApiMode::Responses {
+        completion
+            .get("output")
+            .and_then(Value::as_array)
+            .cloned()
+            .ok_or_else(|| "Responses API response is missing output".to_string())?
+    } else {
+        Vec::new()
+    };
     let fixture_response = fixture_agent_response(&context.config_snapshot, &context.messages)?;
     let mut decoded = match api_mode {
         crate::agent::provider::NativeProviderApiMode::ChatCompletions => {
@@ -216,6 +225,7 @@ fn provider_response_from_completion(
         usage: decoded.usage.map(|usage| usage.provider_payload),
         tool_calls: fixture_tool_calls
             .unwrap_or_else(|| native_tool_calls(decoded.assistant.tool_calls)),
+        response_items,
     })
 }
 
@@ -427,12 +437,20 @@ fn agent_responses_input_from_window(
     context: &AgentTurnContext,
     messages: Vec<Value>,
 ) -> Result<Value, String> {
-    ResponsesAdapter::encode_history(&messages, context.system_instruction_prompt())
+    ResponsesAdapter::encode_history_with_response_items(
+        &messages,
+        context.system_instruction_prompt(),
+        context.responses_input_items.as_deref(),
+    )
 }
 
 fn agent_api_mode(
     context: &AgentTurnContext,
 ) -> Result<crate::agent::provider::NativeProviderApiMode, String> {
+    if let Some(api_mode) = context.api_mode.as_deref() {
+        return crate::agent::provider::NativeProviderApiMode::parse(api_mode)
+            .map_err(|_| format!("agent session has unsupported api_mode `{api_mode}`"));
+    }
     let config = agent_provider_config(context);
     let profile = crate::agent::provider::resolve_provider_profile(
         &config,

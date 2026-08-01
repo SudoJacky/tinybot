@@ -22,6 +22,7 @@ fn owned_task_runtime_cancels_normal_turn_and_ignores_late_provider_result() {
                 final_content: "late provider result".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -104,6 +105,7 @@ fn cancellation_during_subagent_wait_prevents_followup_model_call() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "call-cancel-wait-spawn".to_string(),
                         name: "subagent.spawn".to_string(),
@@ -116,6 +118,7 @@ fn cancellation_during_subagent_wait_prevents_followup_model_call() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "call-cancel-wait".to_string(),
                         name: "subagent.wait".to_string(),
@@ -256,6 +259,7 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
                     final_content: "needs tool".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "call-checkpoint".to_string(),
                         name: "workspace.read_file".to_string(),
@@ -268,6 +272,7 @@ fn stores_active_turn_tool_wait_and_cancellation_checkpoints() {
                     final_content: "checkpoint-aware final".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 })
             }
@@ -422,6 +427,7 @@ fn native_turn_projects_core_canonical_timeline_equally_live_and_after_reload() 
                     final_content: "I will create the execution plan.".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "acceptance-plan-start".to_string(),
                         name: "update_plan".to_string(),
@@ -450,6 +456,7 @@ fn native_turn_projects_core_canonical_timeline_equally_live_and_after_reload() 
                             "output_tokens": 4,
                             "total_tokens": 24
                         })),
+                        response_items: Vec::new(),
                         tool_calls: vec![NativeAgentToolCall {
                             id: "acceptance-read".to_string(),
                             name: "workspace.read_file".to_string(),
@@ -462,6 +469,7 @@ fn native_turn_projects_core_canonical_timeline_equally_live_and_after_reload() 
                     final_content: "The plan is complete; I will summarize the result.".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "acceptance-plan-complete".to_string(),
                         name: "update_plan".to_string(),
@@ -484,6 +492,7 @@ fn native_turn_projects_core_canonical_timeline_equally_live_and_after_reload() 
                         "output_tokens": 8,
                         "total_tokens": 40
                     })),
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 }),
             }
@@ -652,6 +661,7 @@ fn invalid_update_plan_returns_a_tool_error_that_the_model_can_correct() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "plan-invalid".to_string(),
                         name: "update_plan".to_string(),
@@ -672,6 +682,7 @@ fn invalid_update_plan_returns_a_tool_error_that_the_model_can_correct() {
                         final_content: String::new(),
                         reasoning_delta: None,
                         usage: None,
+                        response_items: Vec::new(),
                         tool_calls: vec![NativeAgentToolCall {
                             id: "plan-corrected".to_string(),
                             name: "update_plan".to_string(),
@@ -685,6 +696,7 @@ fn invalid_update_plan_returns_a_tool_error_that_the_model_can_correct() {
                     final_content: "Plan corrected.".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 }),
             }
@@ -767,6 +779,7 @@ fn queued_user_message_continuation_becomes_next_turn_input() {
                 final_content: "queued response".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -833,6 +846,7 @@ fn guidance_continuation_is_inserted_before_next_model_call_after_tools() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "call-guidance-read".to_string(),
                         name: "workspace.read_file".to_string(),
@@ -845,6 +859,7 @@ fn guidance_continuation_is_inserted_before_next_model_call_after_tools() {
                     final_content: "guided response".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 })
             }
@@ -916,6 +931,7 @@ fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
                 final_content: "Hello".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -938,6 +954,7 @@ fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
                 final_content: "Hello".to_string(),
                 reasoning_delta: Some("thinking".to_string()),
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -1004,6 +1021,7 @@ fn async_provider_is_not_called_when_turn_was_cancelled_before_request() {
                 final_content: "must not run".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -1086,6 +1104,7 @@ fn async_provider_turn_pauses_at_safe_boundary_and_resumes_same_turn() {
                     final_content: "done after resume".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 })
             })
@@ -1384,6 +1403,7 @@ fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_turn() {
                 final_content: String::new(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: vec![
                     NativeAgentToolCall {
                         id: "call-hanging-cleanup".to_string(),
@@ -1541,6 +1561,7 @@ fn trace_context_follows_provider_tool_and_completion_without_tool_hook_rewrite(
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "call-traced-hook".to_string(),
                         name: "workspace.read_file".to_string(),
@@ -1553,6 +1574,7 @@ fn trace_context_follows_provider_tool_and_completion_without_tool_hook_rewrite(
                 final_content: "done".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -1686,6 +1708,7 @@ fn lifecycle_hook_denial_aborts_before_provider_call() {
                 final_content: "must not run".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }

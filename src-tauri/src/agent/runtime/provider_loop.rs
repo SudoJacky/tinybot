@@ -564,13 +564,19 @@ impl<'a> NativeAgentTurnExecution<'a> {
             AgentEventKind::TurnStarted.wire_name(),
         )?;
         let start_iteration = match continuation_resume {
-            Some(resume) => resume.apply(&context, &mut state),
+            Some(resume) => {
+                let iteration = resume.apply(&context, &mut state)?;
+                if let Some(result) = state.completed_tool_results.last() {
+                    append_response_tool_outputs(&mut context, std::slice::from_ref(result))?;
+                }
+                iteration
+            }
             None => {
                 state.emit_turn_started(&context)?;
                 state.emit_tinyos_command_acknowledgement(&context)?;
-                Ok(0)
+                0
             }
-        }?;
+        };
         let turn_start_invocation = AgentHookInvocation::lifecycle(
             AgentHookStage::TurnStart,
             context.trace_context.clone(),
@@ -660,6 +666,9 @@ impl<'a> NativeAgentTurnExecution<'a> {
             }
         };
         if let Some(action) = projection.action.as_ref() {
+            if self.context.api_mode.as_deref() == Some("responses") {
+                self.context.responses_input_items = None;
+            }
             let mut payload = context_window_action_payload(&self.context, iteration, action);
             if let Some(tokens) = payload.get("estimatedTokensBefore").and_then(Value::as_i64) {
                 self.context
@@ -889,6 +898,9 @@ impl<'a> NativeAgentTurnExecution<'a> {
             ));
         }
 
+        if let Some(response_items) = self.context.responses_input_items.as_mut() {
+            response_items.extend(completed.response.response_items.iter().cloned());
+        }
         self.project_provider_fallbacks(&mut completed)?;
         if completed.response.tool_calls.is_empty() {
             Ok(IterationOutcome::Finished(
@@ -963,7 +975,10 @@ impl<'a> NativeAgentTurnExecution<'a> {
         completed: CompletedProviderIteration,
     ) -> Result<IterationOutcome, String> {
         let CompletedProviderIteration { response, attempt } = completed;
-        if attempt.stream.streamed_content || !response.final_content.is_empty() {
+        if attempt.stream.streamed_content
+            || !response.final_content.is_empty()
+            || !response.response_items.is_empty()
+        {
             self.state.emit(ModelOutputEvent::MessageClassified(
                 serde_json::json!({
                     "iteration": attempt.iteration,
@@ -976,9 +991,11 @@ impl<'a> NativeAgentTurnExecution<'a> {
                         "completion_fallback"
                     },
                     "content": response.final_content,
+                    "responseItems": response.response_items,
                 }),
             ))?;
         }
+        let completed_result_count = self.state.completed_tool_results.len();
         let outcome = execute_tool_calls_for_iteration(
             self.dependencies,
             &mut self.context,
@@ -992,6 +1009,10 @@ impl<'a> NativeAgentTurnExecution<'a> {
             self.state.attach_context_checkpoint(&mut result, None);
             return Ok(IterationOutcome::Finished(result));
         }
+        append_response_tool_outputs(
+            &mut self.context,
+            &self.state.completed_tool_results[completed_result_count..],
+        )?;
 
         if let Some(message) = self.state.drain_pending_guidance()? {
             self.state.emit(PendingAgentEvent::new(
@@ -1045,6 +1066,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                     "completion_fallback"
                 },
                 "content": final_content.clone(),
+                "responseItems": response.response_items,
             }),
         ))?;
         self.state.set_stop_reason(
@@ -1197,6 +1219,33 @@ async fn honor_pause_request(
             "message": "Agent turn resumed",
         }),
     ))?;
+    Ok(())
+}
+
+fn append_response_tool_outputs(
+    context: &mut AgentTurnContext,
+    results: &[Value],
+) -> Result<(), String> {
+    let Some(response_items) = context.responses_input_items.as_mut() else {
+        return Ok(());
+    };
+    for result in results {
+        let call_id = result
+            .get("toolCallId")
+            .or_else(|| result.get("tool_call_id"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| "completed tool result is missing toolCallId".to_string())?;
+        let output = result
+            .get("envelope")
+            .and_then(|envelope| envelope.get("modelContent"))
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("completed tool result `{call_id}` is missing modelContent"))?;
+        response_items.push(serde_json::json!({
+            "type": "function_call_output",
+            "call_id": call_id,
+            "output": output,
+        }));
+    }
     Ok(())
 }
 

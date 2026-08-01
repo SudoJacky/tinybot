@@ -47,15 +47,28 @@ pub enum NativeProviderApiMode {
 
 impl NativeProviderProfile {
     pub fn parsed_api_mode(&self) -> Result<NativeProviderApiMode, String> {
-        match self.api_mode.as_str() {
-            "chat" | "chat_completions" | "chat-completions" => {
-                Ok(NativeProviderApiMode::ChatCompletions)
-            }
-            "responses" => Ok(NativeProviderApiMode::Responses),
-            unsupported => Err(format!(
+        NativeProviderApiMode::parse(&self.api_mode).map_err(|unsupported| {
+            format!(
                 "provider `{}` has unsupported api_mode `{unsupported}`",
                 self.provider_id
-            )),
+            )
+        })
+    }
+}
+
+impl NativeProviderApiMode {
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "chat" | "chat_completions" | "chat-completions" => Ok(Self::ChatCompletions),
+            "responses" => Ok(Self::Responses),
+            unsupported => Err(unsupported.to_string()),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ChatCompletions => "chat_completions",
+            Self::Responses => "responses",
         }
     }
 }

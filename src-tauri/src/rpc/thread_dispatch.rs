@@ -8,7 +8,8 @@ impl WorkerRpcRouter {
         let mut operation = self.threads.begin_operation()?;
         let result = (|| match request.method.as_str() {
             "thread.create" => {
-                let params: CreateThreadRequest = parse_params(request)?;
+                let mut params: CreateThreadRequest = parse_params(request)?;
+                pin_thread_api_mode(&mut params, self.config.snapshot())?;
                 let thread = operation.thread().create_thread(params)?;
                 persist_thread_operation(
                     &operation,
@@ -388,6 +389,37 @@ impl WorkerRpcRouter {
         }
         result
     }
+}
+
+fn pin_thread_api_mode(
+    request: &mut CreateThreadRequest,
+    config_snapshot: &Value,
+) -> Result<(), WorkerProtocolError> {
+    let api_mode = crate::agent::provider::resolve_provider_profile(config_snapshot, None, None)
+        .map(|profile| profile.parsed_api_mode())
+        .transpose()
+        .map_err(|error| {
+            WorkerProtocolError::new(
+                WorkerProtocolErrorCode::InvalidProtocol,
+                error,
+                serde_json::json!({ "method": "thread.create" }),
+                false,
+                WorkerProtocolErrorSource::RustCore,
+            )
+        })?
+        .unwrap_or(crate::agent::provider::NativeProviderApiMode::ChatCompletions);
+    if !request
+        .metadata
+        .extra
+        .as_ref()
+        .is_some_and(Value::is_object)
+    {
+        request.metadata.extra = Some(serde_json::json!({}));
+    }
+    if let Some(extra) = request.metadata.extra.as_mut() {
+        extra["apiMode"] = Value::String(api_mode.as_str().to_string());
+    }
+    Ok(())
 }
 
 enum ThreadPersistenceOperation<'a> {

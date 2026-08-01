@@ -153,6 +153,7 @@ fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
                 final_content: "streamed desktop answer".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -581,6 +582,45 @@ fn thread_create_resolves_relative_working_directory_before_persistence() {
         persisted["thread"]["metadata"]["workingDirectory"],
         working_directory.display().to_string()
     );
+}
+
+#[test]
+fn thread_create_pins_the_active_provider_api_mode() {
+    let fixture = WorkspaceFixture::new();
+    let config = serde_json::json!({
+        "agents": { "defaults": { "provider": "fixture" } },
+        "providers": { "fixture": { "api_mode": "responses" } }
+    });
+    let create_request = next_worker_request_correlation();
+
+    let created = call_rust_state_service(
+        &fixture.thread_store,
+        config.clone(),
+        WorkerRequest::new(
+            create_request.id("responses-thread-create"),
+            create_request.trace_id("responses-thread-create"),
+            "thread.create",
+            serde_json::json!({ "threadId": "thread-responses-api-mode" }),
+        ),
+        "Responses thread create",
+    )
+    .expect("Responses thread should create");
+    assert_eq!(created["metadata"]["extra"]["apiMode"], "responses");
+
+    let context_request = next_worker_request_correlation();
+    let context = call_rust_state_service(
+        &fixture.thread_store,
+        config,
+        WorkerRequest::new(
+            context_request.id("responses-thread-context"),
+            context_request.trace_id("responses-thread-context"),
+            "thread.context",
+            serde_json::json!({ "threadId": "thread-responses-api-mode", "limit": 50 }),
+        ),
+        "Responses thread context",
+    )
+    .expect("Responses thread context should load");
+    assert_eq!(context["apiMode"], "responses");
 }
 
 #[test]

@@ -17,6 +17,17 @@ impl ResponsesAdapter {
         legacy_messages: &[Value],
         system_prompt: Option<&str>,
     ) -> Result<Value, String> {
+        Self::encode_history_with_response_items(legacy_messages, system_prompt, None)
+    }
+
+    pub fn encode_history_with_response_items(
+        legacy_messages: &[Value],
+        system_prompt: Option<&str>,
+        response_items: Option<&[Value]>,
+    ) -> Result<Value, String> {
+        if let Some(response_items) = response_items {
+            return encode_native_response_history(legacy_messages, system_prompt, response_items);
+        }
         let provider_messages = legacy_messages
             .iter()
             .map(provider_message_with_user_context)
@@ -194,6 +205,83 @@ impl ResponsesAdapter {
                     .and_then(Value::as_str)
             })
     }
+}
+
+fn encode_native_response_history(
+    _legacy_messages: &[Value],
+    system_prompt: Option<&str>,
+    response_items: &[Value],
+) -> Result<Value, String> {
+    let mut input = Vec::new();
+    if let Some(system_prompt) = system_prompt {
+        input.push(serde_json::json!({
+            "role": "system",
+            "content": system_prompt,
+        }));
+    }
+    for (index, item) in response_items.iter().enumerate() {
+        input.push(sanitize_replayed_item(item, index)?);
+    }
+
+    Ok(Value::Array(input))
+}
+
+fn sanitize_replayed_item(item: &Value, index: usize) -> Result<Value, String> {
+    let normalized = match item.get("role").and_then(Value::as_str) {
+        Some("user") => {
+            let provider_message = provider_message_with_user_context(item)?;
+            encode_replayed_input_message(&provider_message, index)?
+        }
+        Some("system" | "developer") => encode_replayed_input_message(item, index)?,
+        _ => item.clone(),
+    };
+    let mut item = normalized
+        .as_object()
+        .cloned()
+        .ok_or_else(|| format!("Responses replay item at index {index} must be an object"))?;
+    if item.get("type").and_then(Value::as_str).is_none()
+        && item.get("role").and_then(Value::as_str).is_none()
+    {
+        return Err(format!(
+            "Responses replay item at index {index} requires type or role"
+        ));
+    }
+    for field in [
+        "turnId",
+        "turn_id",
+        "messageId",
+        "message_id",
+        "modelCallId",
+        "reasoningId",
+        "contentHash",
+        "tool_name",
+    ] {
+        item.remove(field);
+    }
+    if matches!(
+        item.get("role").and_then(Value::as_str),
+        Some("user" | "system" | "developer")
+    ) {
+        item.remove("id");
+        item.remove("status");
+        item.remove("phase");
+    }
+    if item.get("type").and_then(Value::as_str) == Some("function_call_output") {
+        item.remove("status");
+    }
+    Ok(Value::Object(item))
+}
+
+fn encode_replayed_input_message(item: &Value, index: usize) -> Result<Value, String> {
+    let item = AgentItem::from_legacy_message(item)
+        .map_err(|error| format!("invalid Responses replay item at index {index}: {error}"))?;
+    let mut encoded = encode_input_item(&item)?;
+    if encoded.len() != 1 {
+        return Err(format!(
+            "Responses replay item at index {index} encoded to an unexpected item count"
+        ));
+    }
+    Ok(encoded.remove(0))
 }
 
 fn encode_input_item(item: &AgentItem) -> Result<Vec<Value>, String> {

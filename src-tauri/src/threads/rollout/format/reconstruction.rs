@@ -196,6 +196,7 @@ fn apply_meta(replay: &mut RolloutReconstruction, meta: &SessionMeta, timestamp:
     replay.updated_at = timestamp.to_string();
     replay.forked_from_thread_id = meta.forked_from_thread_id.clone();
     replay.parent_thread_id = meta.parent_thread_id.clone();
+    replay.api_mode = meta.effective_api_mode();
 }
 
 fn apply_turn_context(replay: &mut RolloutReconstruction, context: &TurnContextItem) {
@@ -219,6 +220,7 @@ fn apply_compaction_metadata(replay: &mut RolloutReconstruction, compacted: &Com
 }
 
 fn apply_response_item(replay: &mut RolloutReconstruction, item: &ResponseItem, timestamp: &str) {
+    replay.response_items.push(item.as_value().clone());
     let Some(item) = response_item_message_projection(item) else {
         return;
     };
@@ -345,6 +347,7 @@ fn apply_event(
         }
         EventKind::SessionCleared => {
             replay.messages.clear();
+            replay.response_items.clear();
             replay.user_profile = json!({});
             replay.token_usage_info = None;
             replay.compaction_overlap_candidate = None;
@@ -363,6 +366,7 @@ fn apply_event(
                     )
                 })?;
             replay.messages = messages.clone();
+            replay.response_items = messages.clone();
             if replay.messages.is_empty() {
                 replay.user_profile = json!({});
                 replay.token_usage_info = None;
@@ -413,6 +417,10 @@ fn apply_compacted(
         )
     })?;
     replay.messages = replacement_history
+        .iter()
+        .map(|item| item.as_value().clone())
+        .collect();
+    replay.response_items = replacement_history
         .iter()
         .map(|item| item.as_value().clone())
         .collect();

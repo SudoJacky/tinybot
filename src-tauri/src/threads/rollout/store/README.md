@@ -21,6 +21,20 @@ communication.
 Canonical reconstruction produces Thread items, Thread history, model context,
 agent turns, checkpoints, and token usage.
 
+## Provider API mode
+
+`ThreadMeta.session_meta.api_mode` pins each Thread to `chat_completions` or
+`responses`. Older Rollouts without this field are read as `chat_completions`.
+Changing provider configuration does not silently change an existing Thread's
+mode; start a new Thread to switch APIs.
+
+Both modes keep the same JSONL envelope. Chat Completions persists the existing
+canonical message/tool projection. Responses additionally persists every raw
+provider `response.output` item and local `function_call_output`, so a later turn
+can replay the exact stateless input. User-facing history still exposes the
+canonical message projection; `thread.context` includes raw response items only
+for the agent runtime.
+
 ## Responsibilities
 
 - Generate and validate canonical log paths under the application data root,

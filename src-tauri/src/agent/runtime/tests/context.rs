@@ -888,6 +888,7 @@ fn compacted_context_becomes_the_next_tool_iteration_baseline() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "compact-read-1".to_string(),
                         name: "workspace.read_file".to_string(),
@@ -900,6 +901,7 @@ fn compacted_context_becomes_the_next_tool_iteration_baseline() {
                     final_content: "finished after compact".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 })
             }
@@ -1146,6 +1148,7 @@ fn agent_usage_event_falls_back_to_estimated_context_when_provider_omits_usage()
                 final_content: "no usage answer".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -1162,6 +1165,7 @@ fn agent_usage_event_falls_back_to_estimated_context_when_provider_omits_usage()
                 final_content: "no usage answer".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }

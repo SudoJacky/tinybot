@@ -16,6 +16,7 @@ fn strict_patch_search_and_real_dispatch_work_end_to_end() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "apply-patch".to_string(),
                         name: "apply_patch".to_string(),
@@ -30,6 +31,7 @@ fn strict_patch_search_and_real_dispatch_work_end_to_end() {
                     final_content: "patch applied".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 }),
             }
@@ -105,6 +107,7 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "clarify-1".to_string(),
                         name: "request_user_input".to_string(),
@@ -136,6 +139,7 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
                         final_content: String::new(),
                         reasoning_delta: None,
                         usage: None,
+                        response_items: Vec::new(),
                         tool_calls: vec![NativeAgentToolCall {
                             id: "read-after-input".to_string(),
                             name: "workspace.read_file".to_string(),
@@ -148,6 +152,7 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
                     final_content: "input accepted and file inspected".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 }),
             }
@@ -306,6 +311,7 @@ fn request_user_input_rejects_invalid_forms_without_waiting() {
                     final_content: "invalid form handled".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 });
             }
@@ -313,6 +319,7 @@ fn request_user_input_rejects_invalid_forms_without_waiting() {
                 final_content: String::new(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: vec![NativeAgentToolCall {
                     id: "invalid-form".to_string(),
                     name: "request_user_input".to_string(),
@@ -366,6 +373,7 @@ fn discovered_mcp_tool_searches_activates_and_calls_real_server() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "search-real-mcp".to_string(),
                         name: "tool_search".to_string(),
@@ -378,6 +386,7 @@ fn discovered_mcp_tool_searches_activates_and_calls_real_server() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "call-real-mcp".to_string(),
                         name: "mcp.4:docs.4:echo".to_string(),
@@ -397,6 +406,7 @@ fn discovered_mcp_tool_searches_activates_and_calls_real_server() {
                         final_content: "real MCP complete".to_string(),
                         reasoning_delta: None,
                         usage: None,
+                        response_items: Vec::new(),
                         tool_calls: Vec::new(),
                     })
                 }
@@ -543,6 +553,7 @@ fn max_iterations_clears_deferred_tool_activation_checkpoint() {
                 final_content: String::new(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: vec![NativeAgentToolCall {
                     id: "search-before-max-iterations".to_string(),
                     name: "tool_search".to_string(),
@@ -595,6 +606,7 @@ fn provider_error_clears_deferred_tool_activation_checkpoint() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "search-before-provider-error".to_string(),
                         name: "tool_search".to_string(),
@@ -833,6 +845,7 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
                     final_content: "deferred tool rejection handled".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 });
             }
@@ -840,6 +853,7 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
                 final_content: String::new(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: vec![NativeAgentToolCall {
                     id: "unactivated-deferred".to_string(),
                     name: "test.deferred_echo".to_string(),
@@ -930,6 +944,7 @@ fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![
                         NativeAgentToolCall {
                             id: "batch-write".to_string(),
@@ -957,6 +972,7 @@ fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_
                         final_content: "batch complete".to_string(),
                         reasoning_delta: None,
                         usage: None,
+                        response_items: Vec::new(),
                         tool_calls: Vec::new(),
                     })
                 }
@@ -1042,6 +1058,7 @@ fn write_tool_dispatches_and_does_not_abort_the_turn() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "denied-write".to_string(),
                         name: "apply_patch".to_string(),
@@ -1061,6 +1078,7 @@ fn write_tool_dispatches_and_does_not_abort_the_turn() {
                 final_content: "continued after execution".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -1452,6 +1470,7 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
                 final_content: "selected tools applied".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -1529,6 +1548,7 @@ fn invalid_turn_policy_stops_before_provider_dispatch() {
                 final_content: "provider should not run".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }

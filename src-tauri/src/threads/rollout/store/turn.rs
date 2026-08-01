@@ -130,8 +130,9 @@ impl WorkerThreadLogRpc {
             .as_ref()
             .map(|context| context.cwd.as_str())
             .filter(|cwd| !cwd.trim().is_empty());
+        let api_mode = context.as_ref().and_then(|context| context.api_mode);
         let mut state =
-            self.ensure_turn_thread(&record.session_id, &timestamp, working_directory)?;
+            self.ensure_turn_thread(&record.session_id, &timestamp, working_directory, api_mode)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         let mut items = vec![value_event(
@@ -210,16 +211,18 @@ impl WorkerThreadLogRpc {
         if events.is_empty() {
             return Err(empty_turn_semantic_batch_error(session_id, turn_id));
         }
+        let timestamp = now_thread_timestamp();
+        let mut state = self.ensure_turn_thread(session_id, &timestamp, None, None)?;
+        let path = PathBuf::from(state.thread_path.clone());
+        self.recorder.validate_thread_path(&path)?;
+        let api_mode =
+            super::thread_meta_from_lines(&read_thread_lines(&path)?)?.effective_api_mode();
         for (index, event) in events.iter().enumerate() {
-            validate_turn_semantic_event(session_id, turn_id, index, event)?;
+            validate_turn_semantic_event(session_id, turn_id, index, event, api_mode)?;
         }
         let mut record = self
             .get_turn_record(session_id, turn_id)?
             .ok_or_else(|| unknown_turn_error(session_id, turn_id))?;
-        let timestamp = now_thread_timestamp();
-        let mut state = self.ensure_turn_thread(session_id, &timestamp, None)?;
-        let path = PathBuf::from(state.thread_path.clone());
-        self.recorder.validate_thread_path(&path)?;
         let latest_total_tokens = events.iter().rev().find_map(|event| {
             if runtime_event_kind(event) != Some(AgentEventKind::TokenCount) {
                 return None;
@@ -246,19 +249,25 @@ impl WorkerThreadLogRpc {
         });
         let mut items = Vec::new();
         for event in events.iter().cloned() {
-            let response_item = response_item_from_runtime_event(&event)
+            let response_items = response_items_from_runtime_event(&event, api_mode)
+                .into_iter()
                 .map(|mut item| {
-                    item["turnId"] = Value::String(
-                        event
-                            .get("turnId")
-                            .and_then(Value::as_str)
-                            .unwrap_or(turn_id)
-                            .to_string(),
-                    );
+                    if let Some(object) = item.as_object_mut() {
+                        object.insert(
+                            "turnId".to_string(),
+                            Value::String(
+                                event
+                                    .get("turnId")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or(turn_id)
+                                    .to_string(),
+                            ),
+                        );
+                    }
                     item
                 })
                 .map(|item| super::typed_response_item(item, "agent turn semantic event"))
-                .transpose()?;
+                .collect::<Result<Vec<_>, _>>()?;
             let token_info = (runtime_event_kind(&event) == Some(AgentEventKind::TokenCount))
                 .then(|| {
                     event
@@ -290,7 +299,7 @@ impl WorkerThreadLogRpc {
                     }),
                 ));
             }
-            if let Some(response_item) = response_item {
+            for response_item in response_items {
                 items.push(ThreadLogItem::ResponseItem(response_item));
             }
             if let Some(thread_item) =
@@ -489,7 +498,7 @@ impl WorkerThreadLogRpc {
         let mut record = self
             .get_turn_record(session_id, turn_id)?
             .unwrap_or_else(|| turn_from_checkpoint(session_id, turn_id, &checkpoint, &timestamp));
-        let mut state = self.ensure_turn_thread(session_id, &timestamp, None)?;
+        let mut state = self.ensure_turn_thread(session_id, &timestamp, None, None)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         self.recorder.append_item(
@@ -566,7 +575,7 @@ impl WorkerThreadLogRpc {
             .get_turn_record(session_id, turn_id)?
             .ok_or_else(|| unknown_turn_error(session_id, turn_id))?;
         let timestamp = now_thread_timestamp();
-        let mut state = self.ensure_turn_thread(session_id, &timestamp, None)?;
+        let mut state = self.ensure_turn_thread(session_id, &timestamp, None, None)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         self.recorder.append_item(
@@ -750,9 +759,26 @@ impl WorkerThreadLogRpc {
         session_id: &str,
         timestamp: &str,
         working_directory: Option<&str>,
+        api_mode: Option<super::SessionApiMode>,
     ) -> Result<super::ThreadStateRecord, WorkerProtocolError> {
         self.ensure_state_index()?;
         if let Some(record) = self.state.find_by_session_or_thread_id(session_id)? {
+            if let Some(api_mode) = api_mode {
+                let path = PathBuf::from(&record.thread_path);
+                self.recorder.validate_thread_path(&path)?;
+                let persisted =
+                    super::thread_meta_from_lines(&read_thread_lines(&path)?)?.effective_api_mode();
+                if persisted != api_mode {
+                    return Err(super::thread_log_consistency_error(
+                        "agent turn API mode does not match its session",
+                        serde_json::json!({
+                            "sessionId": session_id,
+                            "sessionApiMode": persisted,
+                            "turnApiMode": api_mode,
+                        }),
+                    ));
+                }
+            }
             return Ok(record);
         }
         let thread_id = thread_id_for_session_id(session_id);
@@ -764,6 +790,7 @@ impl WorkerThreadLogRpc {
             cwd: String::new(),
             source: "desktop".to_string(),
             model_provider: None,
+            api_mode: Some(api_mode.unwrap_or_default()),
             model: None,
             base_instructions: None,
             memory_snapshot: Some(self.new_thread_memory_snapshot(working_directory)?),
@@ -811,7 +838,7 @@ impl WorkerThreadLogRpc {
             .get_turn_record(session_id, turn_id)?
             .ok_or_else(|| unknown_turn_error(session_id, turn_id))?;
         let timestamp = now_thread_timestamp();
-        let mut state = self.ensure_turn_thread(session_id, &timestamp, None)?;
+        let mut state = self.ensure_turn_thread(session_id, &timestamp, None, None)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         let lifecycle_kind = if status == AgentTurnStatus::Completed {
@@ -1002,6 +1029,55 @@ fn response_item_from_runtime_event(event: &Value) -> Option<Value> {
     }
 }
 
+fn response_items_from_runtime_event(event: &Value, api_mode: super::SessionApiMode) -> Vec<Value> {
+    if api_mode != super::SessionApiMode::Responses {
+        return response_item_from_runtime_event(event)
+            .into_iter()
+            .collect();
+    }
+    let Some(payload) = event.get("payload") else {
+        return Vec::new();
+    };
+    match runtime_event_kind(event) {
+        Some(AgentEventKind::TurnStarted) => response_item_from_runtime_event(event)
+            .into_iter()
+            .collect(),
+        Some(AgentEventKind::MessageClassified | AgentEventKind::MessageCompleted) => payload
+            .get("responseItems")
+            .or_else(|| payload.get("response_items"))
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default(),
+        Some(AgentEventKind::ToolResult) => {
+            let Some(call_id) = payload.get("toolCallId").cloned() else {
+                return Vec::new();
+            };
+            let output = payload
+                .get("content")
+                .or_else(|| payload.get("result"))
+                .or_else(|| payload.get("summary"))
+                .cloned()
+                .unwrap_or(Value::Null);
+            vec![serde_json::json!({
+                "type": "function_call_output",
+                "call_id": call_id,
+                "tool_name": payload
+                    .get("toolName")
+                    .or_else(|| payload.get("name"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+                "status": payload
+                    .get("resultStatus")
+                    .or_else(|| payload.get("result_status"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+                "output": output,
+            })]
+        }
+        _ => Vec::new(),
+    }
+}
+
 fn validate_finalized_context_checkpoint(
     path: &std::path::Path,
     checkpoint: &Value,
@@ -1147,6 +1223,7 @@ fn validate_turn_semantic_event(
     turn_id: &str,
     index: usize,
     event: &Value,
+    api_mode: super::SessionApiMode,
 ) -> Result<(), WorkerProtocolError> {
     let event_name = event
         .get("eventName")
@@ -1183,8 +1260,20 @@ fn validate_turn_semantic_event(
             Some(event_name),
         ));
     }
-    let requires_response_item = response_item_from_runtime_event_name(event_name);
-    if requires_response_item && response_item_from_runtime_event(event).is_none() {
+    let requires_response_item = if api_mode == super::SessionApiMode::Responses {
+        matches!(
+            runtime_event_kind(event),
+            Some(
+                AgentEventKind::TurnStarted
+                    | AgentEventKind::MessageClassified
+                    | AgentEventKind::MessageCompleted
+                    | AgentEventKind::ToolResult
+            )
+        )
+    } else {
+        response_item_from_runtime_event_name(event_name)
+    };
+    if requires_response_item && response_items_from_runtime_event(event, api_mode).is_empty() {
         return Err(invalid_turn_semantic_event_error(
             "semantic runtime event cannot be materialized as a typed response item",
             session_id,
@@ -1366,7 +1455,10 @@ fn apply_response_item_to_turns(
     let Some(record) = turns.get_mut(turn_id) else {
         return Ok(());
     };
-    if item.get("type").and_then(Value::as_str) == Some("custom_tool_call_output") {
+    if matches!(
+        item.get("type").and_then(Value::as_str),
+        Some("custom_tool_call_output" | "function_call_output")
+    ) {
         let completed_result = completed_tool_result_from_response_item(item);
         let call_id = completed_result
             .get("toolCallId")

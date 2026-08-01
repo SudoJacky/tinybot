@@ -174,6 +174,8 @@ pub struct AgentTurnContext {
     pub metadata: Value,
     pub model: String,
     pub provider: Option<String>,
+    pub api_mode: Option<String>,
+    pub responses_input_items: Option<Vec<Value>>,
     pub system_prompt: Option<String>,
     pub instructions: Option<ComposedInstructions>,
     assembled_system_prompt: Option<String>,
@@ -196,6 +198,7 @@ pub struct NativeAgentProviderResponse {
     pub reasoning_delta: Option<String>,
     pub usage: Option<Value>,
     pub tool_calls: Vec<NativeAgentToolCall>,
+    pub response_items: Vec<Value>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
