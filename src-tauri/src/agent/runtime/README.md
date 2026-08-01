@@ -32,8 +32,8 @@ decide which durable conversation store a caller uses.
 2. `provider_loop.rs` validates turn settings and prepares the typed history.
 3. `context.rs`, `context_contributors.rs`, and `instructions.rs` build the
    bounded request context and record provenance/diagnostics.
-4. `provider.rs` and `provider_adapter.rs` issue the model request and translate
-   provider events into runtime concepts.
+4. `provider.rs`, `provider_adapter.rs`, and `responses_adapter.rs` issue the
+   model request and translate provider events into runtime concepts.
 5. Assistant items are appended. Tool calls are routed through
    `tool_router.rs`, `tool_dispatcher.rs`, and `tool_runtime.rs`.
 6. Tools dispatch directly after validation. Forms and pause boundaries use
@@ -57,11 +57,19 @@ The main injected boundaries are:
 Prefer extending these boundaries over adding transport or persistence
 conditionals to the provider loop.
 
+Responses API support is opt-in per provider profile. Enable **Use Responses
+API** in provider settings, or set `apiMode: "responses"`; otherwise Chat
+Completions remains the default. The endpoint must support `/responses`. The
+adapter sends `store: false` and replays Tinybot's local message and function
+history. It does not use Conversations, `previous_response_id`, hosted tools, or
+persist/replay encrypted reasoning items yet. Context compaction continues to
+use the existing Chat Completions path.
+
 ## Internal layout
 
 - `provider_loop.rs`: top-level iteration and stop-condition orchestration.
-- `provider.rs`, `provider_adapter.rs`: provider configuration and response
-  translation.
+- `provider.rs`, `provider_adapter.rs`, `responses_adapter.rs`: provider
+  configuration and Chat Completions or Responses translation.
 - `items.rs`, `item_event_projection.rs`: canonical items and compatibility
   projections.
 - `context.rs`, `context_contributors.rs`, `instructions.rs`: model-visible

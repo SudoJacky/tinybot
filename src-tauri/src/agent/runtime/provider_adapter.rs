@@ -140,7 +140,7 @@ impl ChatCompletionsAdapter {
     }
 }
 
-fn provider_message_with_user_context(message: &Value) -> Result<Value, String> {
+pub(super) fn provider_message_with_user_context(message: &Value) -> Result<Value, String> {
     if message.get("role").and_then(Value::as_str) != Some("user") {
         return Ok(message.clone());
     }
@@ -207,7 +207,7 @@ fn decode_provider_tool_calls(
         .collect()
 }
 
-fn require_provider_capability(
+pub(super) fn require_provider_capability(
     settings: &AgentTurnSettings,
     config_snapshot: &Value,
     capability: &str,

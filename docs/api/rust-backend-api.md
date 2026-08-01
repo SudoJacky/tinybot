@@ -283,6 +283,8 @@ The built-in provider catalog currently exposes only `deepseek`, `dashscope`, an
 Profiles are not limited to that catalog: a profile with a custom provider ID, explicit `apiBase`,
 and at least one model is resolved as an OpenAI-compatible provider. Its optional API key remains on
 the existing secret/redaction path, and `supportsModelDiscovery` controls `/models` discovery.
+Each profile defaults to Chat Completions. Set `apiMode` to `responses` (or enable **Use Responses
+API** in provider settings) only when its endpoint supports `/responses`.
 
 OpenAI-compatible provider profiles accept separate network deadlines:
 

@@ -1106,6 +1106,34 @@ fn usage_context_window_prefers_provider_total_tokens() {
 }
 
 #[test]
+fn responses_usage_is_normalized_for_existing_usage_consumers() {
+    let context = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({}),
+    );
+
+    let usage = enrich_usage_with_context_window(
+        &context,
+        json!({
+            "input_tokens": 5,
+            "output_tokens": 7,
+            "total_tokens": 12
+        }),
+        9,
+        0,
+    );
+
+    assert_eq!(usage["prompt_tokens"], 5);
+    assert_eq!(usage["promptTokens"], 5);
+    assert_eq!(usage["completion_tokens"], 7);
+    assert_eq!(usage["completionTokens"], 7);
+    assert_eq!(usage["contextWindowUsedTokens"], 12);
+}
+
+#[test]
 fn agent_usage_event_falls_back_to_estimated_context_when_provider_omits_usage() {
     struct NoUsageProvider;
 

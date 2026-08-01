@@ -112,7 +112,10 @@ describe("desktop native config patch host action", () => {
 
     await applyNativeConfigPatch(
       {},
-      { agents: { defaults: { max_tokens: 8192, context_window_strategy: "compact" } } },
+      {
+        agents: { defaults: { max_tokens: 8192, context_window_strategy: "compact" } },
+        providers: { profiles: { "openai-default": { api_mode: "responses" } } },
+      },
       { invoke },
     );
 
@@ -129,6 +132,11 @@ describe("desktop native config patch host action", () => {
             op: "replace",
             path: "agents.defaults.contextWindowStrategy",
             value: "compact",
+          },
+          {
+            op: "replace",
+            path: "providers.profiles.openai-default.apiMode",
+            value: "responses",
           },
         ],
       },

@@ -1,6 +1,7 @@
 #[cfg(test)]
 use super::context_window_messages;
 use super::provider_adapter::ChatCompletionsAdapter;
+use super::responses_adapter::ResponsesAdapter;
 use super::{
     context_window_messages_async, string_field, AgentItemHistory, AgentMessageContent,
     AgentToolCallItem, AgentTurnContext, NativeAgentProvider, NativeAgentProviderFailure,
@@ -25,7 +26,15 @@ impl NativeAgentProvider for RustNativeAgentProvider {
         context: &AgentTurnContext,
         observer: &mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
     ) -> Result<NativeAgentProviderResponse, String> {
-        let request = agent_chat_completion_request(context)?;
+        let api_mode = agent_api_mode(context)?;
+        let request = match api_mode {
+            crate::agent::provider::NativeProviderApiMode::ChatCompletions => {
+                agent_chat_completion_request(context)?
+            }
+            crate::agent::provider::NativeProviderApiMode::Responses => {
+                agent_responses_request(context)?
+            }
+        };
         let provider_config = agent_provider_config(context);
         let mut provider_observer =
             |event: crate::agent::provider::NativeProviderStreamEvent| match event {
@@ -41,13 +50,24 @@ impl NativeAgentProvider for RustNativeAgentProvider {
                     observer(NativeAgentProviderStreamEvent::ReasoningDelta(delta));
                 }
             };
-        let completion = crate::agent::provider::complete_chat_for_agent_with_observer(
-            &provider_config,
-            &request,
-            &mut provider_observer,
-        )?;
-        emit_completion_phase(&completion, observer);
-        provider_response_from_completion(context, completion)
+        let completion = match api_mode {
+            crate::agent::provider::NativeProviderApiMode::ChatCompletions => {
+                crate::agent::provider::complete_chat_for_agent_with_observer(
+                    &provider_config,
+                    &request,
+                    &mut provider_observer,
+                )?
+            }
+            crate::agent::provider::NativeProviderApiMode::Responses => {
+                crate::agent::provider::complete_responses_for_agent_with_observer(
+                    &provider_config,
+                    &request,
+                    &mut provider_observer,
+                )?
+            }
+        };
+        emit_completion_phase(&completion, api_mode, observer);
+        provider_response_from_completion(context, api_mode, completion)
     }
 
     fn complete_streaming_async<'a>(
@@ -63,7 +83,15 @@ impl NativeAgentProvider for RustNativeAgentProvider {
         >,
     > {
         Box::pin(async move {
-            let request = agent_chat_completion_request_async(context).await?;
+            let api_mode = agent_api_mode(context).map_err(NativeAgentProviderFailure::provider)?;
+            let request = match api_mode {
+                crate::agent::provider::NativeProviderApiMode::ChatCompletions => {
+                    agent_chat_completion_request_async(context).await?
+                }
+                crate::agent::provider::NativeProviderApiMode::Responses => {
+                    agent_responses_request_async(context).await?
+                }
+            };
             let provider_config = agent_provider_config(context);
             let cancellation = context.cancellation.clone().map(|cancellation| {
                 Arc::new(cancellation) as Arc<dyn crate::protocol::WorkerRequestCancellation>
@@ -82,21 +110,34 @@ impl NativeAgentProvider for RustNativeAgentProvider {
                         observer(NativeAgentProviderStreamEvent::ReasoningDelta(delta))
                     }
                 };
-            let completion = crate::agent::provider::complete_chat_for_agent_with_observer_async(
-                &provider_config,
-                &request,
-                &mut provider_observer,
-                cancellation,
-            )
-            .await
+            let completion = match api_mode {
+                crate::agent::provider::NativeProviderApiMode::ChatCompletions => {
+                    crate::agent::provider::complete_chat_for_agent_with_observer_async(
+                        &provider_config,
+                        &request,
+                        &mut provider_observer,
+                        cancellation,
+                    )
+                    .await
+                }
+                crate::agent::provider::NativeProviderApiMode::Responses => {
+                    crate::agent::provider::complete_responses_for_agent_with_observer_async(
+                        &provider_config,
+                        &request,
+                        &mut provider_observer,
+                        cancellation,
+                    )
+                    .await
+                }
+            }
             .map_err(|error| {
                 NativeAgentProviderFailure::new(
                     map_provider_failure_kind(error.kind()),
                     error.message(),
                 )
             })?;
-            emit_completion_phase(&completion, observer);
-            provider_response_from_completion(context, completion)
+            emit_completion_phase(&completion, api_mode, observer);
+            provider_response_from_completion(context, api_mode, completion)
                 .map_err(NativeAgentProviderFailure::provider)
         })
     }
@@ -113,14 +154,20 @@ fn parse_message_phase(phase: &str) -> crate::agent::runtime_protocol::AgentAssi
 
 fn emit_completion_phase(
     completion: &Value,
+    api_mode: crate::agent::provider::NativeProviderApiMode,
     observer: &mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
 ) {
-    if let Some(phase) = completion
-        .pointer("/choices/0/message/phase")
-        .or_else(|| completion.pointer("/choices/0/message/message_phase"))
-        .or_else(|| completion.pointer("/choices/0/message/messagePhase"))
-        .and_then(Value::as_str)
-    {
+    let phase = match api_mode {
+        crate::agent::provider::NativeProviderApiMode::ChatCompletions => completion
+            .pointer("/choices/0/message/phase")
+            .or_else(|| completion.pointer("/choices/0/message/message_phase"))
+            .or_else(|| completion.pointer("/choices/0/message/messagePhase"))
+            .and_then(Value::as_str),
+        crate::agent::provider::NativeProviderApiMode::Responses => {
+            ResponsesAdapter::message_phase(completion)
+        }
+    };
+    if let Some(phase) = phase {
         observer(NativeAgentProviderStreamEvent::MessagePhase(
             parse_message_phase(phase),
         ));
@@ -129,12 +176,22 @@ fn emit_completion_phase(
 
 fn provider_response_from_completion(
     context: &AgentTurnContext,
+    api_mode: crate::agent::provider::NativeProviderApiMode,
     completion: Value,
 ) -> Result<NativeAgentProviderResponse, String> {
     let fixture_response = fixture_agent_response(&context.config_snapshot, &context.messages)?;
-    let mut decoded = ChatCompletionsAdapter::decode_response(&completion, |provider_name| {
-        context.tool_router.resolve_provider_name(provider_name)
-    })?;
+    let mut decoded = match api_mode {
+        crate::agent::provider::NativeProviderApiMode::ChatCompletions => {
+            ChatCompletionsAdapter::decode_response(&completion, |provider_name| {
+                context.tool_router.resolve_provider_name(provider_name)
+            })?
+        }
+        crate::agent::provider::NativeProviderApiMode::Responses => {
+            ResponsesAdapter::decode_response(&completion, |provider_name| {
+                context.tool_router.resolve_provider_name(provider_name)
+            })?
+        }
+    };
     let mut fixture_tool_calls = None;
     if let Some(response) = fixture_response.as_ref() {
         if let Some(content) = string_field(response, "content") {
@@ -198,6 +255,19 @@ async fn agent_chat_completion_request_async(
         .map_err(NativeAgentProviderFailure::provider)
 }
 
+#[cfg(test)]
+pub(super) fn agent_responses_request(context: &AgentTurnContext) -> Result<Value, String> {
+    let input = agent_responses_input(context)?;
+    agent_responses_request_with_input(context, input)
+}
+
+async fn agent_responses_request_async(
+    context: &AgentTurnContext,
+) -> Result<Value, NativeAgentProviderFailure> {
+    let input = agent_responses_input_async(context).await?;
+    agent_responses_request_with_input(context, input).map_err(NativeAgentProviderFailure::provider)
+}
+
 fn agent_chat_completion_request_with_messages(
     context: &AgentTurnContext,
     messages: Value,
@@ -216,6 +286,32 @@ fn agent_chat_completion_request_with_messages(
         &context.config_snapshot,
     )?;
     let tools = chat_completion_tool_specs(context)?;
+    if !tools.is_empty() {
+        request["tools"] = Value::Array(tools);
+        request["tool_choice"] = Value::String("auto".to_string());
+        if should_enable_parallel_tool_calls(context) {
+            request["parallel_tool_calls"] = Value::Bool(true);
+        }
+    }
+    Ok(request)
+}
+
+fn agent_responses_request_with_input(
+    context: &AgentTurnContext,
+    input: Value,
+) -> Result<Value, String> {
+    let mut request = serde_json::json!({
+        "model": context.settings.model.clone(),
+        "input": input,
+        "stream": context.settings.stream,
+        "store": false,
+    });
+    ResponsesAdapter::apply_turn_settings(
+        &mut request,
+        &context.settings,
+        &context.config_snapshot,
+    )?;
+    let tools = ResponsesAdapter::encode_tools(&chat_completion_tool_specs(context)?)?;
     if !tools.is_empty() {
         request["tools"] = Value::Array(tools);
         request["tool_choice"] = Value::String("auto".to_string());
@@ -300,11 +396,58 @@ async fn agent_chat_messages_async(
         .map_err(NativeAgentProviderFailure::provider)
 }
 
+#[cfg(test)]
+fn agent_responses_input(context: &AgentTurnContext) -> Result<Value, String> {
+    if !context.messages.is_empty() {
+        return agent_responses_input_from_window(context, context_window_messages(context)?);
+    }
+    Err("agent turn requires at least one chat message".to_string())
+}
+
+async fn agent_responses_input_async(
+    context: &AgentTurnContext,
+) -> Result<Value, NativeAgentProviderFailure> {
+    if context.messages.is_empty() {
+        return Err(NativeAgentProviderFailure::provider(
+            "agent turn requires at least one chat message",
+        ));
+    }
+    agent_responses_input_from_window(context, context_window_messages_async(context).await?)
+        .map_err(NativeAgentProviderFailure::provider)
+}
+
 fn agent_chat_messages_from_window(
     context: &AgentTurnContext,
     messages: Vec<Value>,
 ) -> Result<Value, String> {
     ChatCompletionsAdapter::encode_history(&messages, context.system_instruction_prompt())
+}
+
+fn agent_responses_input_from_window(
+    context: &AgentTurnContext,
+    messages: Vec<Value>,
+) -> Result<Value, String> {
+    ResponsesAdapter::encode_history(&messages, context.system_instruction_prompt())
+}
+
+fn agent_api_mode(
+    context: &AgentTurnContext,
+) -> Result<crate::agent::provider::NativeProviderApiMode, String> {
+    let config = agent_provider_config(context);
+    let profile = crate::agent::provider::resolve_provider_profile(
+        &config,
+        context.settings.provider.as_deref(),
+        None,
+    )
+    .ok_or_else(|| {
+        let provider = context
+            .settings
+            .provider
+            .as_deref()
+            .unwrap_or("active profile");
+        format!("provider `{provider}` is not configured")
+    })?;
+    profile.parsed_api_mode()
 }
 
 pub(super) fn chat_completion_content(completion: &Value) -> Result<String, String> {

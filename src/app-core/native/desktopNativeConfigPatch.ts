@@ -104,6 +104,11 @@ function canonicalConfigSegment(parent: readonly string[], segment: string): str
   if (parent.length === 1 && parent[0] === "channels" && segment === "send_progress") {
     return "sendProgress";
   }
+  if (parent.length === 3 && parent[0] === "providers" && parent[1] === "profiles") {
+    return ({
+      api_mode: "apiMode",
+    } as Record<string, string>)[segment] ?? segment;
+  }
   return segment;
 }
 

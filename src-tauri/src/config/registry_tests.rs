@@ -57,6 +57,24 @@ fn provider_api_key_is_secret_modeled_and_revealable() {
 }
 
 #[test]
+fn provider_api_mode_is_exposed_with_chat_completions_as_the_default() {
+    let snapshot = build_settings_snapshot(SettingsSnapshotInput {
+        config: config_fixture(),
+        config_path: PathBuf::from("C:/Users/example/.tinybot/config.json"),
+        revision: "rev-1".to_string(),
+        diagnostics: Vec::new(),
+    });
+
+    let field = snapshot
+        .field("providers.profiles.openai-work.apiMode")
+        .expect("provider API mode field should exist");
+
+    assert_eq!(field.value_type, SettingValueType::Select);
+    assert_eq!(field.scope, SettingScope::Profile);
+    assert_eq!(field.value, json!("chat_completions"));
+}
+
+#[test]
 fn runtime_group_ignores_legacy_gateway_config_fields() {
     let snapshot = build_settings_snapshot(SettingsSnapshotInput {
         config: config_fixture(),

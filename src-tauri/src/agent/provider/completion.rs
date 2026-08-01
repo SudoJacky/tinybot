@@ -2,7 +2,10 @@ use super::catalog::{
     catalog_entry_by_id, configured_model, infer_provider_from_model, normalize_provider_id,
     resolve_provider_profile, string_field, NativeProviderProfile,
 };
-use super::streaming::{chat_completion_body, NativeProviderStreamEvent, StreamingChatCompletion};
+use super::streaming::{
+    chat_completion_body, responses_body, NativeProviderStreamEvent, StreamingChatCompletion,
+    StreamingResponsesCompletion,
+};
 use crate::protocol::WorkerRequestCancellation;
 use async_openai::{config::OpenAIConfig, error::OpenAIError, Client};
 use futures_util::StreamExt;
@@ -80,6 +83,18 @@ pub fn complete_chat_for_agent_with_observer(
     .map_err(|error| error.to_string())
 }
 
+#[cfg(test)]
+pub fn complete_responses_for_agent_with_observer(
+    config: &Value,
+    body: &Value,
+    observer: &mut (dyn FnMut(NativeProviderStreamEvent) + Send),
+) -> Result<Value, String> {
+    tauri::async_runtime::block_on(complete_responses_for_agent_with_observer_async(
+        config, body, observer, None,
+    ))
+    .map_err(|error| error.to_string())
+}
+
 pub async fn complete_chat_for_agent_with_observer_async(
     config: &Value,
     body: &Value,
@@ -91,8 +106,26 @@ pub async fn complete_chat_for_agent_with_observer_async(
         .map_err(NativeProviderFailure::from_chat_error)
 }
 
+pub async fn complete_responses_for_agent_with_observer_async(
+    config: &Value,
+    body: &Value,
+    observer: &mut (dyn FnMut(NativeProviderStreamEvent) + Send),
+    cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
+) -> Result<Value, NativeProviderFailure> {
+    native_responses_with_observer_async(config, body, Some(observer), cancellation)
+        .await
+        .map_err(NativeProviderFailure::from_chat_error)
+}
+
 #[derive(Clone, Debug)]
 struct NativeChatRequest {
+    model: String,
+    stream: bool,
+    body: Value,
+}
+
+#[derive(Clone, Debug)]
+struct NativeResponsesRequest {
     model: String,
     stream: bool,
     body: Value,
@@ -138,6 +171,40 @@ async fn native_chat_completion_with_observer_async(
     }
 }
 
+async fn native_responses_with_observer_async(
+    config: &Value,
+    body: &Value,
+    observer: Option<&mut (dyn FnMut(NativeProviderStreamEvent) + Send)>,
+    cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
+) -> Result<Value, NativeChatError> {
+    if cancellation_requested(&cancellation) {
+        return Err(provider_cancelled_error());
+    }
+    let request = parse_responses_request(config, body)?;
+    let profile = resolve_chat_provider_profile(config, &request.model).ok_or_else(|| {
+        chat_error(
+            format!("provider for model '{}' is not configured", request.model),
+            "provider_not_configured",
+        )
+    })?;
+
+    if profile.provider_id == "fixture" {
+        let content = fixture_chat_content(config)?;
+        if request.stream && !content.is_empty() {
+            if let Some(observer) = observer {
+                observer(NativeProviderStreamEvent::ContentDelta(content.clone()));
+            }
+        }
+        return Ok(responses_body(&request.model, &content));
+    }
+
+    if request.stream {
+        complete_openai_responses_stream(profile, request, observer, cancellation).await
+    } else {
+        complete_openai_responses(profile, request, cancellation).await
+    }
+}
+
 fn parse_chat_request(config: &Value, body: &Value) -> Result<NativeChatRequest, NativeChatError> {
     if !body.is_object() {
         return Err(chat_error(
@@ -175,6 +242,41 @@ fn parse_chat_request(config: &Value, body: &Value) -> Result<NativeChatRequest,
     request_body["stream"] = Value::Bool(stream);
 
     Ok(NativeChatRequest {
+        model,
+        stream,
+        body: request_body,
+    })
+}
+
+fn parse_responses_request(
+    config: &Value,
+    body: &Value,
+) -> Result<NativeResponsesRequest, NativeChatError> {
+    if !body.is_object() {
+        return Err(chat_error(
+            "request body must be a JSON object",
+            "invalid_body",
+        ));
+    }
+    let valid_input = match body.get("input") {
+        Some(Value::Array(items)) => !items.is_empty(),
+        Some(Value::String(input)) => !input.trim().is_empty(),
+        _ => false,
+    };
+    if !valid_input {
+        return Err(chat_error(
+            "input must be a non-empty string or array",
+            "invalid_input",
+        ));
+    }
+
+    let model = string_field(body, "model").unwrap_or_else(|| configured_model(config));
+    let stream = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
+    let mut request_body = body.clone();
+    request_body["model"] = Value::String(model.clone());
+    request_body["stream"] = Value::Bool(stream);
+
+    Ok(NativeResponsesRequest {
         model,
         stream,
         body: request_body,
@@ -246,6 +348,73 @@ async fn complete_openai_chat_stream(
         }
     }
     Ok(completion.finish())
+}
+
+async fn complete_openai_responses(
+    profile: NativeProviderProfile,
+    mut request: NativeResponsesRequest,
+    cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
+) -> Result<Value, NativeChatError> {
+    request.body["stream"] = Value::Bool(false);
+    let timeout = Duration::from_millis(profile.request_timeout_ms.max(1));
+    let client = openai_client(profile)?;
+    await_provider_request(
+        client.responses().create_byot(request.body),
+        timeout,
+        cancellation,
+    )
+    .await
+}
+
+async fn complete_openai_responses_stream(
+    profile: NativeProviderProfile,
+    mut request: NativeResponsesRequest,
+    mut observer: Option<&mut (dyn FnMut(NativeProviderStreamEvent) + Send)>,
+    cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
+) -> Result<Value, NativeChatError> {
+    request.body["stream"] = Value::Bool(true);
+    let request_timeout = Duration::from_millis(profile.request_timeout_ms.max(1));
+    let stream_idle_timeout = Duration::from_millis(profile.stream_idle_timeout_ms.max(1));
+    let client = openai_client(profile)?;
+    let mut stream: async_openai::types::stream::StreamResponse<Value> = await_provider_request(
+        client.responses().create_stream_byot(request.body),
+        request_timeout,
+        cancellation.clone(),
+    )
+    .await?;
+    let mut completion = StreamingResponsesCompletion::default();
+    while let Some(event) =
+        next_provider_stream_chunk(&mut stream, stream_idle_timeout, cancellation.clone()).await?
+    {
+        match event {
+            Ok(event) => {
+                let metrics = crate::runtime::observability::global_agent_runtime_metrics();
+                metrics.increment("provider.stream.chunk.received");
+                if cancellation_requested(&cancellation) {
+                    return Err(provider_cancelled_error());
+                }
+                if let Some(ref mut observer) = observer {
+                    let observer_started_at = Instant::now();
+                    completion
+                        .push_event(&event, Some(&mut **observer))
+                        .map_err(provider_stream_reduction_error)?;
+                    metrics.record_duration(
+                        "provider.stream.observer.durationMs",
+                        observer_started_at.elapsed(),
+                    );
+                } else {
+                    completion
+                        .push_event(&event, None)
+                        .map_err(provider_stream_reduction_error)?;
+                }
+                if cancellation_requested(&cancellation) {
+                    return Err(provider_cancelled_error());
+                }
+            }
+            Err(error) => return Err(provider_openai_error(error)),
+        }
+    }
+    completion.finish().map_err(provider_stream_reduction_error)
 }
 
 async fn await_provider_request<T, F>(

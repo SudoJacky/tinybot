@@ -97,6 +97,48 @@ fn resolves_provider_profile_from_config_and_defaults() {
     assert_eq!(profile.models, vec!["gpt-4.1-custom"]);
     assert_eq!(profile.request_timeout_ms, 900);
     assert_eq!(profile.stream_idle_timeout_ms, 125);
+    assert_eq!(
+        profile.parsed_api_mode().unwrap(),
+        NativeProviderApiMode::ChatCompletions
+    );
+}
+
+fn aggregate_response_events(events: &[Value]) -> Result<Value, String> {
+    let mut completion = StreamingResponsesCompletion::default();
+    for event in events {
+        completion.push_event(event, None)?;
+    }
+    completion.finish()
+}
+
+#[test]
+fn resolves_responses_api_mode_from_profile_setting() {
+    let profile = resolve_provider_profile(
+        &json!({
+            "agents": {
+                "defaults": {
+                    "activeProfile": "openai-default"
+                }
+            },
+            "providers": {
+                "profiles": {
+                    "openai-default": {
+                        "provider": "openai",
+                        "api_key": "sk-secret",
+                        "apiMode": "responses"
+                    }
+                }
+            }
+        }),
+        None,
+        None,
+    )
+    .unwrap();
+
+    assert_eq!(
+        profile.parsed_api_mode().unwrap(),
+        NativeProviderApiMode::Responses
+    );
 }
 
 #[test]
@@ -420,6 +462,82 @@ fn agent_chat_completion_preserves_streaming_request_to_provider() {
 
     assert!(captured_request.contains(r#""stream":true"#));
     assert_eq!(result["choices"][0]["message"]["content"], "streamed");
+}
+
+#[test]
+fn agent_responses_completion_uses_typed_stream_events() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
+    let api_base = format!("http://{}", listener.local_addr().unwrap());
+    let (request_tx, request_rx) = mpsc::channel();
+    let server = thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut buffer = [0_u8; 8192];
+            let read = stream.read(&mut buffer).unwrap_or(0);
+            let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+            let _ = request_tx.send(request);
+            let body = concat!(
+                "data: {\"type\":\"response.reasoning_summary_text.delta\",\"sequence_number\":0,\"item_id\":\"reason-1\",\"output_index\":0,\"summary_index\":0,\"delta\":\"checked\"}\n\n",
+                "data: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"message-1\",\"output_index\":1,\"content_index\":0,\"delta\":\"streamed\"}\n\n",
+                "data: {\"type\":\"response.completed\",\"sequence_number\":2,\"response\":{\"id\":\"resp-1\",\"object\":\"response\",\"status\":\"completed\",\"model\":\"gpt-test\",\"output\":[{\"id\":\"reason-1\",\"type\":\"reasoning\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"checked\"}]},{\"id\":\"message-1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"streamed\",\"annotations\":[]}]}],\"usage\":{\"input_tokens\":3,\"output_tokens\":2,\"total_tokens\":5}}}\n\n",
+                "data: [DONE]\n\n"
+            );
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+    let mut observed = Vec::new();
+    let mut observer = |event| observed.push(event);
+
+    let result = complete_responses_for_agent_with_observer(
+        &json!({
+            "agents": { "defaults": { "provider": "openai", "model": "gpt-test" } },
+            "providers": {
+                "openai": {
+                    "api_key": "sk-test",
+                    "api_base": api_base,
+                    "api_mode": "responses",
+                    "timeout_ms": 500
+                }
+            }
+        }),
+        &json!({
+            "model": "gpt-test",
+            "input": [{ "role": "user", "content": "hello" }],
+            "store": false,
+            "stream": true
+        }),
+        &mut observer,
+    )
+    .expect("Responses stream should complete");
+    let captured_request = request_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("provider request should be captured");
+    let _ = server.join();
+
+    assert!(captured_request.starts_with("POST /responses "));
+    assert!(captured_request.contains(r#""store":false"#));
+    assert_eq!(result["output"][1]["content"][0]["text"], "streamed");
+    assert_eq!(
+        observed,
+        vec![
+            NativeProviderStreamEvent::ReasoningDelta("checked".to_string()),
+            NativeProviderStreamEvent::ContentDelta("streamed".to_string()),
+        ]
+    );
+}
+
+#[test]
+fn responses_stream_requires_completed_event() {
+    let error = aggregate_response_events(&[json!({
+        "type": "response.output_text.delta",
+        "delta": "partial"
+    })])
+    .expect_err("partial Responses stream must not look complete");
+
+    assert!(error.contains("response.completed"));
 }
 
 #[test]

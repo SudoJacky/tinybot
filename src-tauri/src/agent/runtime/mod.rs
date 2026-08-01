@@ -27,6 +27,7 @@ mod items;
 mod provider;
 mod provider_adapter;
 mod provider_loop;
+mod responses_adapter;
 mod result;
 mod settings;
 mod state;
@@ -60,7 +61,7 @@ pub use self::items::{
     AgentPlanStep, AgentReasoningItem, AgentToolCallItem, AgentToolResultItem, AgentUsageItem,
 };
 #[cfg(test)]
-use self::provider::agent_chat_completion_request;
+use self::provider::{agent_chat_completion_request, agent_responses_request};
 use self::provider::{agent_provider_config, chat_completion_content, RustNativeAgentProvider};
 pub use self::settings::AgentTurnSettings;
 use self::tool_router::NativeToolRouter;

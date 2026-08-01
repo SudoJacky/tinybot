@@ -727,6 +727,8 @@ fn estimate_message_tokens(message: &Value) -> i64 {
 }
 
 fn normalize_provider_usage_fields(usage: &mut Value) {
+    copy_usage_number(usage, "input_tokens", "prompt_tokens");
+    copy_usage_number(usage, "output_tokens", "completion_tokens");
     copy_usage_number(usage, "prompt_tokens", "promptTokens");
     copy_usage_number(usage, "completion_tokens", "completionTokens");
     copy_usage_number(usage, "total_tokens", "totalTokens");

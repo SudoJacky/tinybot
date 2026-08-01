@@ -163,6 +163,69 @@ fn agent_defaults_apply_temperature_and_max_tokens_to_provider_requests() {
 }
 
 #[test]
+fn builds_internal_responses_api_request_without_changing_chat_defaults() {
+    let context = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({
+            "agents": {
+                "defaults": {
+                    "provider": "openai",
+                    "model": "gpt-test",
+                    "maxTokens": 512
+                }
+            },
+            "providers": {
+                "openai": {
+                    "api_key": "sk-test",
+                    "api_mode": "responses"
+                }
+            }
+        }),
+    );
+
+    let responses_request =
+        agent_responses_request(&context).expect("Responses request should build");
+    let chat_request =
+        agent_chat_completion_request(&context).expect("Chat request should still build");
+
+    assert_eq!(responses_request["input"][0]["role"], "user");
+    assert_eq!(responses_request["store"], false);
+    assert_eq!(responses_request["max_output_tokens"], 512);
+    assert!(responses_request.get("messages").is_none());
+    assert!(chat_request.get("messages").is_some());
+    assert!(chat_request.get("input").is_none());
+}
+
+#[test]
+fn rust_provider_selects_responses_adapter_only_for_internal_api_mode() {
+    let context = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "provider": "fixture",
+            "model": "fixture-model",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({
+            "providers": {
+                "fixture": {
+                    "api_mode": "responses",
+                    "responses": [{ "content": "Responses answer" }]
+                }
+            }
+        }),
+    );
+
+    let response = RustNativeAgentProvider
+        .complete(&context)
+        .expect("fixture Responses turn should complete");
+
+    assert_eq!(response.final_content, "Responses answer");
+}
+
+#[test]
 fn defaults_native_agent_turns_to_the_desktop_iteration_limit() {
     let context = AgentTurnContext::from_spec(json!({}), json!({}));
 
