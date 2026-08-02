@@ -1,5 +1,6 @@
 mod compression;
 mod projection;
+mod protocol_projection;
 mod reader;
 mod reconstruction;
 mod recorder;

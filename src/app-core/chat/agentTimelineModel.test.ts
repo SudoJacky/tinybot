@@ -158,6 +158,8 @@ describe("canonical agent timeline model", () => {
       ["tool-1", undefined],
       ["message-call-1", "commentary"],
     ]);
+    expect(turn.executionItems?.find((entry) => entry.id === "tool-1")?.toolCall?.resultJson)
+      .toEqual({ ok: true });
     expect(turn.finalAnswer).toMatchObject({ id: "message-call-2", text: "Verification passed." });
   });
 

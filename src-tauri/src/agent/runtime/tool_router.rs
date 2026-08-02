@@ -7,6 +7,13 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct AgentToolDefinition {
+    pub name: String,
+    pub description: String,
+    pub input_schema: Value,
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct NativeToolRouter {
     entries: Vec<ToolRegistryEntry>,
@@ -29,9 +36,9 @@ impl NativeToolRouter {
         }
     }
 
-    pub(super) fn provider_specs(&self) -> Result<Vec<Value>, String> {
+    pub(super) fn tool_definitions(&self) -> Result<Vec<AgentToolDefinition>, String> {
         let provider_names = self.provider_name_map(&self.activated_tool_ids)?;
-        let mut specs = Vec::new();
+        let mut definitions = Vec::new();
         for entry in self.visible_entries(&self.activated_tool_ids) {
             let provider_name = provider_names
                 .iter()
@@ -39,9 +46,9 @@ impl NativeToolRouter {
                     (*method == entry.method.as_str()).then_some(provider_name)
                 })
                 .expect("validated provider name map should contain every visible tool");
-            specs.push(registry_entry_to_provider_spec(entry, provider_name));
+            definitions.push(registry_entry_to_tool_definition(entry, provider_name));
         }
-        Ok(specs)
+        Ok(definitions)
     }
 
     pub(super) fn configure_for_turn(&mut self, selected_tools: &[String]) -> Result<(), String> {
@@ -400,15 +407,15 @@ fn default_tool_search_limit() -> usize {
     DEFAULT_TOOL_SEARCH_LIMIT
 }
 
-fn registry_entry_to_provider_spec(entry: &ToolRegistryEntry, provider_name: &str) -> Value {
-    json!({
-        "type": "function",
-        "function": {
-            "name": provider_name,
-            "description": entry.description,
-            "parameters": entry.input_schema.clone(),
-        },
-    })
+fn registry_entry_to_tool_definition(
+    entry: &ToolRegistryEntry,
+    provider_name: &str,
+) -> AgentToolDefinition {
+    AgentToolDefinition {
+        name: provider_name.to_string(),
+        description: entry.description.clone(),
+        input_schema: entry.input_schema.clone(),
+    }
 }
 
 fn entry_match_score(entry: &ToolRegistryEntry, query: &str) -> usize {

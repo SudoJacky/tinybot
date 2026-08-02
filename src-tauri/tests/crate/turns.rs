@@ -826,6 +826,7 @@ fn worker_run_agent_combines_thread_history_with_current_tool_results() {
             "id",
             "output",
             "status",
+            "tinybot_result",
             "tool_name",
             "turnId",
             "type",
@@ -841,6 +842,7 @@ fn worker_run_agent_combines_thread_history_with_current_tool_results() {
     assert!(tool_output["payload"]["output"]
         .as_str()
         .is_some_and(|output| output.contains("Plan updated")));
+    assert!(!tool_output["payload"]["tinybot_result"].is_null());
 }
 
 #[test]

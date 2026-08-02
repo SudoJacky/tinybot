@@ -566,8 +566,14 @@ final answer, changing a classified phase, or emitting Tool, Plan, Reasoning, Fo
 Subagent work after the final answer is a protocol error and fails visibly. Plan completion is not a
 final-answer signal.
 
-Only user-visible reasoning summaries are projected. Hidden or debug provider reasoning is retained
-for diagnostics where applicable but is excluded from the product-facing canonical timeline.
+Provider reasoning is retained in provider-native replay records and debug runtime events, but it is
+never materialized in the product-facing canonical timeline. Chat rendering therefore does not
+depend on whether a provider emits reasoning summaries, raw `reasoning_text`, or no reasoning item.
+
+Persisted tool outputs are normalized before timeline projection. A JSON-encoded output string is
+decoded into `tool_call.data.result`, while `item.summary` is derived from a bounded human-readable
+field such as `summary`, `output`, or `stdout`. The full normalized result remains available to the
+detail surface without leaking the entire serialized result into the execution-step label.
 
 Canonical `user_message` data also carries optional `clientEventId`. The desktop sends this ID in
 `worker_submit_thread_turn`, and the runtime echoes it in the canonical user item. It is a
@@ -973,15 +979,36 @@ retryable metadata rather than returning an empty successful page.
 }
 ```
 
-The patch grammar is strict and supports `*** Add File: path`, `*** Update File: path`, and
-`*** Delete File: path` operations between `*** Begin Patch` and `*** End Patch`. Update hunks begin
-with `@@`; each following line starts with a space, `+`, or `-`. Context must have one exact match.
-The backend does not perform fuzzy matching.
+The patch grammar supports `*** Add File: path`, `*** Update File: path`, and
+`*** Delete File: path` operations between `*** Begin Patch` and `*** End Patch`. Update operations
+also support an optional `*** Move to: path`; hunks begin with `@@` or `@@ context`, may be pure
+additions, and may end with `*** End of File`. The first hunk may omit `@@` and begin directly with a
+space, `+`, `-`, or blank context line. Header markers accept surrounding whitespace only while the
+parser is expecting a top-level header. Inside an update body, control markers must begin in column
+zero, so indented marker text remains file content. Blank lines after `*** End of File` are ignored.
 
-All targets are validated before writing. Paths must stay inside the workspace, symlink escapes and
-non-regular update/delete targets are rejected, add cannot overwrite, and a file may appear only
-once per patch. Limits are 4 MiB, 256 file operations, and 256 hunks per updated file. Each changed
-file is written atomically, and updated files preserve their existing LF or CRLF line ending.
+Hunk lookup follows the Codex apply-patch matching order: exact, ignore trailing whitespace, ignore
+surrounding whitespace, then normalize common Unicode punctuation. Tinybot additionally requires
+the selected match to be unique at the winning strictness, so ambiguous patches fail instead of
+silently choosing the first occurrence.
+
+The RPC requires both `fs.workspace.read` and `fs.workspace.write`. All targets and source contents
+are prepared before writing. Paths must stay inside the workspace; symlink escapes, path aliases,
+and non-regular update/delete targets are rejected; add and move destinations cannot overwrite; and
+a file may appear only once per patch. Limits are 4 MiB, 256 file operations, 256 hunks per updated
+file, and 64 MiB per target file. Each changed file is written atomically. Updated and moved files
+preserve their source permissions and existing LF or CRLF line ending.
+
+For model-dispatched workspace tools, `workspace` means the current turn's resolved
+`workingDirectory`/`cwd`. The thread store continues to use the backend persistence workspace; its
+root must not be reused for file mutations when the conversation is attached to a different working
+directory. Direct worker RPC callers that do not carry turn context retain their configured
+workspace root.
+
+A multi-file patch is committed in operation order and is not globally transactional. If a later
+filesystem operation fails, the protocol error includes `details.committed` with the exact known
+`changed_files`, `files_changed`, `hunks_applied`, and `exact` status for changes already committed;
+the agent bridge retains these structured details in its surfaced error instead of dropping them.
 
 Result shape:
 
@@ -991,13 +1018,25 @@ Result shape:
     {
       "path": "README.md",
       "operation": "update",
-      "hunks": [{ "index": 1, "removed_lines": 1, "added_lines": 1 }]
+      "move_path": "docs/README.md",
+      "hunks": [{ "index": 1, "removed_lines": 1, "added_lines": 1 }],
+      "delta": [{
+        "old_start": 1,
+        "new_start": 1,
+        "old_lines": ["old"],
+        "new_lines": ["new"]
+      }],
+      "delta_truncated": false
     }
   ],
   "files_changed": 1,
   "hunks_applied": 1
 }
 ```
+
+`delta` contains the exact matched source lines and replacement lines used by the desktop change
+preview. It is capped at 2 MiB per changed file; larger previews return an empty `delta` with
+`delta_truncated: true` while the patch itself still succeeds and the summary remains available.
 
 After typed parameter, JSON-schema, capability, and availability validation,
 `workspace.apply_patch`, `workspace.write_file`, `workspace.delete_file`, `shell.execute`,

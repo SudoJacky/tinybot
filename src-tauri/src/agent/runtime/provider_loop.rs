@@ -1,6 +1,7 @@
 use super::checkpoint::save_phase_checkpoint;
 use super::continuations::restore_activated_tools_for_continuation;
 use super::hooks::AgentHookEvaluation;
+use super::provider_protocol::ProviderProtocolAdapter;
 use super::result::{cancelled_result, cancelled_turn_result, error_result};
 use super::state::AgentTurnState;
 use super::tool_runtime::{execute_tool_calls_for_iteration, NativeAgentToolExecutionOutcome};
@@ -666,9 +667,8 @@ impl<'a> NativeAgentTurnExecution<'a> {
             }
         };
         if let Some(action) = projection.action.as_ref() {
-            if self.context.api_mode.as_deref() == Some("responses") {
-                self.context.responses_input_items = None;
-            }
+            provider_protocol(&self.context)?
+                .reset_replay_after_context_projection(&mut self.context)?;
             let mut payload = context_window_action_payload(&self.context, iteration, action);
             if let Some(tokens) = payload.get("estimatedTokensBefore").and_then(Value::as_i64) {
                 self.context
@@ -898,9 +898,15 @@ impl<'a> NativeAgentTurnExecution<'a> {
             ));
         }
 
-        if let Some(response_items) = self.context.responses_input_items.as_mut() {
-            response_items.extend(completed.response.response_items.iter().cloned());
-        }
+        let response_protocol = if completed.response.response_items.is_empty() {
+            provider_protocol(&self.context)?
+        } else {
+            ProviderProtocolAdapter::Responses
+        };
+        response_protocol.record_provider_response_items(
+            &mut self.context,
+            &completed.response.response_items,
+        )?;
         self.project_provider_fallbacks(&mut completed)?;
         if completed.response.tool_calls.is_empty() {
             Ok(IterationOutcome::Finished(
@@ -1226,27 +1232,11 @@ fn append_response_tool_outputs(
     context: &mut AgentTurnContext,
     results: &[Value],
 ) -> Result<(), String> {
-    let Some(response_items) = context.responses_input_items.as_mut() else {
-        return Ok(());
-    };
-    for result in results {
-        let call_id = result
-            .get("toolCallId")
-            .or_else(|| result.get("tool_call_id"))
-            .and_then(Value::as_str)
-            .ok_or_else(|| "completed tool result is missing toolCallId".to_string())?;
-        let output = result
-            .get("envelope")
-            .and_then(|envelope| envelope.get("modelContent"))
-            .and_then(Value::as_str)
-            .ok_or_else(|| format!("completed tool result `{call_id}` is missing modelContent"))?;
-        response_items.push(serde_json::json!({
-            "type": "function_call_output",
-            "call_id": call_id,
-            "output": output,
-        }));
-    }
-    Ok(())
+    provider_protocol(context)?.record_tool_outputs(context, results)
+}
+
+fn provider_protocol(context: &AgentTurnContext) -> Result<ProviderProtocolAdapter, String> {
+    ProviderProtocolAdapter::from_runtime_context(context)
 }
 
 fn turn_context_is_cancelled(context: &AgentTurnContext) -> bool {

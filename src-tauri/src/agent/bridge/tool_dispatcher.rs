@@ -72,6 +72,16 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
             .cancellation
             .clone()
             .map(|cancellation| Arc::new(cancellation) as Arc<dyn WorkerRequestCancellation>);
+        let tool_workspace_root = match &execution_target {
+            Some(ToolExecutionTarget::WorkerRpc { method }) if method.starts_with("workspace.") => {
+                context
+                    .settings
+                    .working_directory
+                    .clone()
+                    .unwrap_or_else(|| self.workspace_root.clone())
+            }
+            _ => self.workspace_root.clone(),
+        };
         let (method, params, label) = match execution_target {
             Some(ToolExecutionTarget::Mcp { server, tool }) => (
                 "mcp.call_tool",
@@ -96,6 +106,7 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
         };
         let executor_result = call_rust_state_service_with_mcp_runtime(
             &self.thread_store,
+            tool_workspace_root,
             self.config_snapshot.clone(),
             self.mcp_runtime.clone(),
             self.shell_runtime.clone(),

@@ -23,6 +23,26 @@ mod request_boundary;
 mod threads_and_tools;
 mod workspace_and_shell;
 
+#[test]
+fn worker_service_errors_retain_structured_failure_details() {
+    let error = crate::protocol::WorkerProtocolError::new(
+        crate::protocol::WorkerProtocolErrorCode::WorkerError,
+        "patch commit failed",
+        json!({
+            "path": "notes/second.md",
+            "committed": { "files_changed": 1, "exact": true }
+        }),
+        false,
+        crate::protocol::WorkerProtocolErrorSource::RustCore,
+    );
+
+    let message = super::worker_service_error_message("tool apply_patch", &error);
+
+    assert!(message.contains("tool apply_patch failed: patch commit failed"));
+    assert!(message.contains("notes/second.md"));
+    assert!(message.contains("\"files_changed\":1"));
+}
+
 #[cfg(target_os = "windows")]
 fn blocking_shell_command_with_marker() -> String {
     "echo started > started.txt & for /L %i in (0,0,1) do @rem".to_string()

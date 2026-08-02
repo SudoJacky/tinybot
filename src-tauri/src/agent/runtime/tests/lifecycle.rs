@@ -580,9 +580,7 @@ fn native_turn_projects_core_canonical_timeline_equally_live_and_after_reload() 
             .count(),
         2
     );
-    assert!(items.iter().any(|item| {
-        item["kind"] == "reasoning" && item["data"]["summary"] == "Inspect the referenced inputs"
-    }));
+    assert!(items.iter().all(|item| item["kind"] != "reasoning"));
     assert!(items.iter().any(|item| {
         item["kind"] == "tool_call"
             && item["status"] == "completed"

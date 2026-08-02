@@ -62,8 +62,10 @@ fn request_user_input_requires_form_capability() {
 
 #[test]
 fn canonical_apply_patch_is_model_visible_and_legacy_name_is_hidden() {
-    let registry =
-        WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]));
+    let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
+        WorkerCapability::FsWorkspaceRead,
+        WorkerCapability::FsWorkspaceWrite,
+    ]));
     let tool = registry
         .get_tool("apply_patch")
         .expect("apply_patch should be registered");
@@ -81,6 +83,15 @@ fn canonical_apply_patch_is_model_visible_and_legacy_name_is_hidden() {
         }
     );
     assert_eq!(legacy.exposure, ToolExposure::Hidden);
+
+    let write_only =
+        WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]));
+    assert!(
+        !write_only
+            .get_tool("apply_patch")
+            .expect("apply_patch should remain registered")
+            .available
+    );
 }
 
 #[test]

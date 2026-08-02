@@ -35,6 +35,19 @@ can replay the exact stateless input. User-facing history still exposes the
 canonical message projection; `thread.context` includes raw response items only
 for the agent runtime.
 
+Tool outputs may also carry a local-only `tinybot_result` sidecar with the structured executor
+result used by desktop projections such as patch previews. Responses replay strips this field
+before sending `function_call_output` back to the provider; the model-visible `output` remains the
+same text payload.
+
+`protocol_projection.rs` owns this protocol-specific persistence mapping. In a
+Responses Thread, the native `function_call` from `response.output` is the
+durable tool-call record. The later runtime `agent.tool_call.delta` is accepted
+as already represented only when a `function_call` with the same `call_id` is
+already present (or precedes it in the same batch). An orphan lifecycle event is
+a protocol error; the store does not turn arbitrary empty projections into a
+successful append.
+
 ## Responsibilities
 
 - Generate and validate canonical log paths under the application data root,
@@ -55,6 +68,8 @@ for the agent runtime.
 - `reader.rs`: bounded line reads.
 - `reconstruction.rs`: canonical Thread and runtime projection.
 - `projection.rs`: Thread history and model-context projection.
+- `protocol_projection.rs`: Chat Completions and Responses runtime-event to
+  response-item projection.
 - `state_index.rs`: process-local Thread metadata, checkpoint, and Rollout-head index.
 - `turn.rs`: agent-turn persistence and recovery over log/index state.
 - `mod.rs`: capability-checked service and index consistency/repair behavior.
@@ -75,9 +90,10 @@ for the agent runtime.
   must be derivable from canonical logs.
 - Unknown or malformed persisted semantics return structured errors rather
   than being silently discarded when they affect replay correctness.
-- Diagnostic agent trace may be bounded, but canonical messages, completed
-  reasoning, tool calls, and tool outputs are materialized from the lossless
-  runtime event first and never reconstructed from truncated text.
+- Diagnostic agent trace may be bounded, but canonical messages, tool calls,
+  and tool outputs are materialized from the lossless runtime event first and
+  never reconstructed from truncated text. Reasoning stays in provider-native
+  replay records and debug trace rather than the product timeline.
 - Streaming deltas, phase changes, and non-blocking status updates remain live
   presentation events. Blocking status boundaries remain persisted for
   recovery. One completed reasoning ResponseItem is persisted per model call.
@@ -100,11 +116,11 @@ that sequence. `snapshotRevision` advances only for canonical timeline
 mutations, so live patches are contiguous even when diagnostic events occur
 between them.
 
-Assistant-message and reasoning identities are scoped to one provider/model
-call. Provider IDs are retained when available; otherwise the projector derives
-a stable ID from the provider attempt or iteration. Deltas coalesce only into
-that matching item, preserving commentary and reasoning that occurred around
-tool calls.
+Assistant-message identities are scoped to one provider/model call. Provider
+IDs are retained when available; otherwise the projector derives a stable ID
+from the provider attempt or iteration. Deltas coalesce only into that matching
+item. Reasoning identities remain available to replay and diagnostics but do
+not create product-facing timeline items.
 
 Thread-owned runtime-event records persist the canonical item identity.
 Reconstruction of older records recovers assistant and reasoning identity from

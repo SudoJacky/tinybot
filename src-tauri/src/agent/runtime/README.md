@@ -32,8 +32,9 @@ decide which durable conversation store a caller uses.
 2. `provider_loop.rs` validates turn settings and prepares the typed history.
 3. `context.rs`, `context_contributors.rs`, and `instructions.rs` build the
    bounded request context and record provenance/diagnostics.
-4. `provider.rs`, `provider_adapter.rs`, and `responses_adapter.rs` issue the
-   model request and translate provider events into runtime concepts.
+4. `provider.rs` selects one adapter through `provider_protocol.rs`.
+   `chat_completions_adapter.rs` and `responses_adapter.rs` independently encode
+   the request and decode provider output into runtime concepts.
 5. Assistant items are appended. Tool calls are routed through
    `tool_router.rs`, `tool_dispatcher.rs`, and `tool_runtime.rs`.
 6. Tools dispatch directly after validation. Forms and pause boundaries use
@@ -65,11 +66,43 @@ history. It does not use Conversations, `previous_response_id`, hosted tools, or
 persist/replay encrypted reasoning items yet. Context compaction continues to
 use the existing Chat Completions path.
 
+## Protocol adapter boundary
+
+The runtime owns one protocol-neutral tool registry and one provider/tool loop.
+`AgentToolDefinition` contains only the provider-visible name, description, and
+input schema. Each adapter converts that definition directly to its own wire
+shape; the Responses adapter never consumes or rewrites Chat Completions tool
+JSON.
+
+The selected adapter owns all protocol-shaped behavior:
+
+- message and replay-history encoding;
+- tool definition encoding;
+- request settings and request envelope fields;
+- endpoint dispatch and streaming reduction selection;
+- assistant text, reasoning, usage, and tool-call decoding;
+- tool-result encoding for the following model request;
+- provider-native response items used by durable replay.
+
+Reasoning remains provider/replay data and a debug trace concern; it is not a
+product-facing canonical timeline item. This keeps Chat Completions and
+Responses rendering focused on messages and observable work without exposing
+raw chain-of-thought content.
+
+The provider loop, tool router, tool execution, permission checks,
+cancellation, tracing, and terminal-result construction remain shared. Adding a
+new provider API must extend the adapter router instead of adding API-mode
+conditionals throughout those shared runtime modules.
+
 ## Internal layout
 
 - `provider_loop.rs`: top-level iteration and stop-condition orchestration.
-- `provider.rs`, `provider_adapter.rs`, `responses_adapter.rs`: provider
-  configuration and Chat Completions or Responses translation.
+- `provider.rs`: shared provider invocation and runtime-result construction.
+- `provider_protocol.rs`: the single protocol-selection router.
+- `chat_completions_adapter.rs`, `responses_adapter.rs`: independent request,
+  tool, history, settings, and response adapters.
+- `provider_adapter.rs`: protocol-neutral adapter helpers and decoded result
+  types.
 - `items.rs`, `item_event_projection.rs`: canonical items and compatibility
   projections.
 - `context.rs`, `context_contributors.rs`, `instructions.rs`: model-visible

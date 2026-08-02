@@ -38,7 +38,8 @@ fn strict_patch_search_and_real_dispatch_work_end_to_end() {
         }
     }
 
-    let workspace = SystemPromptWorkspace::new();
+    let persistence_workspace = SystemPromptWorkspace::new();
+    let turn_workspace = SystemPromptWorkspace::new();
     let services = NativeAgentRuntimeServices::new(
         Arc::new(PatchProvider {
             calls: AtomicUsize::new(0),
@@ -48,20 +49,21 @@ fn strict_patch_search_and_real_dispatch_work_end_to_end() {
         Arc::new(InMemoryNativeAgentCancellation::default()),
     )
     .with_thread_store(crate::threads::workspace_store::WorkspaceThreadStore::new(
-        workspace.root.clone(),
+        persistence_workspace.root.clone(),
         crate::protocol::capability::default_desktop_capability_policy(),
     ));
     let trace_sink = Arc::new(RecordingTraceSink::default());
     let services = crate::agent::bridge::native_agent_services_with_tool_executor(
         services,
-        workspace.root.clone(),
+        persistence_workspace.root.clone(),
         json!({}),
     )
     .expect("workspace thread store should configure the tool executor")
     .with_trace_sink(trace_sink.clone());
 
     let run_services = services.clone();
-    let run_workspace = workspace.root.clone();
+    let run_workspace = persistence_workspace.root.clone();
+    let turn_working_directory = turn_workspace.root.clone();
     let run = thread::spawn(move || {
         run_native_agent_turn_with_workspace(
             &run_services,
@@ -69,6 +71,7 @@ fn strict_patch_search_and_real_dispatch_work_end_to_end() {
                 "turnId": "turn-real-patch",
                 "sessionId": "session-real-patch",
                 "maxIterations": 4,
+                "cwd": turn_working_directory,
                 "messages": [{ "role": "user", "content": "create the note" }]
             }),
             json!({}),
@@ -83,8 +86,12 @@ fn strict_patch_search_and_real_dispatch_work_end_to_end() {
     assert_eq!(completed["stopReason"], "final_response");
     assert_eq!(completed["finalContent"], "patch applied");
     assert_eq!(completed["toolsUsed"], json!(["apply_patch"]));
+    assert!(
+        !persistence_workspace.root.join("notes/created.md").exists(),
+        "apply_patch must not write into the thread persistence workspace"
+    );
     assert_eq!(
-        std::fs::read_to_string(workspace.root.join("notes/created.md"))
+        std::fs::read_to_string(turn_workspace.root.join("notes/created.md"))
             .expect("patch should create the file"),
         "created by strict patch\n"
     );
@@ -1449,7 +1456,7 @@ fn typed_turn_settings_encode_declared_provider_features() {
 fn selected_turn_tools_limit_the_production_provider_registry() {
     #[derive(Clone)]
     struct ToolRegistryProvider {
-        specs: Arc<Mutex<Vec<Vec<Value>>>>,
+        definitions: Arc<Mutex<Vec<Vec<String>>>>,
         activated: Arc<Mutex<Vec<Vec<String>>>>,
     }
 
@@ -1458,10 +1465,17 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
             &self,
             context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
-            self.specs
+            self.definitions
                 .lock()
                 .expect("tool registry provider lock should not be poisoned")
-                .push(context.tool_router.provider_specs()?);
+                .push(
+                    context
+                        .tool_router
+                        .tool_definitions()?
+                        .into_iter()
+                        .map(|definition| definition.name)
+                        .collect(),
+                );
             self.activated
                 .lock()
                 .expect("activated tools lock should not be poisoned")
@@ -1476,11 +1490,11 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
         }
     }
 
-    let specs = Arc::new(Mutex::new(Vec::new()));
+    let definitions = Arc::new(Mutex::new(Vec::new()));
     let activated = Arc::new(Mutex::new(Vec::new()));
     let services = NativeAgentRuntimeServices::new(
         Arc::new(ToolRegistryProvider {
-            specs: specs.clone(),
+            definitions: definitions.clone(),
             activated: activated.clone(),
         }),
         Arc::new(FakeNativeAgentToolDispatcher),
@@ -1509,7 +1523,7 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
         }),
     )
     .expect("selected canonical patch tool should configure the turn");
-    let captured = specs
+    let captured = definitions
         .lock()
         .expect("tool registry provider lock should not be poisoned");
     let activated = activated
@@ -1519,15 +1533,11 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
     assert_eq!(result["stopReason"], "final_response");
     assert_eq!(captured.len(), 2);
     assert_eq!(captured[0].len(), 2);
-    assert_eq!(captured[0][0]["function"]["name"], "update_plan");
-    assert_eq!(captured[0][1]["function"]["name"], "subagent_wait");
-    assert!(captured[1]
-        .iter()
-        .any(|tool| tool["function"]["name"] == "update_plan"));
+    assert_eq!(captured[0][0], "update_plan");
+    assert_eq!(captured[0][1], "subagent_wait");
+    assert!(captured[1].iter().any(|name| name == "update_plan"));
     assert_eq!(activated[0], vec!["subagent.wait"]);
-    assert!(captured[1]
-        .iter()
-        .any(|tool| tool["function"]["name"] == "apply_patch"));
+    assert!(captured[1].iter().any(|name| name == "apply_patch"));
     assert!(activated[1].is_empty());
 }
 

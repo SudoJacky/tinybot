@@ -14,12 +14,18 @@ static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct AtomicWriteOptions {
     backup_suffix: Option<String>,
+    preserve_target_permissions: bool,
 }
 
 impl AtomicWriteOptions {
     #[cfg(test)]
     pub fn with_backup_suffix(mut self, suffix: impl Into<String>) -> Self {
         self.backup_suffix = Some(suffix.into());
+        self
+    }
+
+    pub(crate) fn preserve_target_permissions(mut self) -> Self {
+        self.preserve_target_permissions = true;
         self
     }
 }
@@ -187,6 +193,15 @@ pub fn write_text_atomic(
     let parent = storage_parent(path);
     fs::create_dir_all(parent)
         .map_err(|error| io_error("create parent directory", parent, error))?;
+    let target_permissions = if options.preserve_target_permissions {
+        match fs::metadata(path) {
+            Ok(metadata) => Some(metadata.permissions()),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+            Err(error) => return Err(io_error("read target permissions", path, error)),
+        }
+    } else {
+        None
+    };
     let temp_path = temp_path_for(path)?;
     let result = (|| {
         let mut file = OpenOptions::new()
@@ -196,6 +211,10 @@ pub fn write_text_atomic(
             .map_err(|error| io_error("create temporary file", &temp_path, error))?;
         file.write_all(contents.as_bytes())
             .map_err(|error| io_error("write temporary file", &temp_path, error))?;
+        if let Some(permissions) = target_permissions {
+            file.set_permissions(permissions)
+                .map_err(|error| io_error("set temporary file permissions", &temp_path, error))?;
+        }
         file.sync_all()
             .map_err(|error| io_error("sync temporary file", &temp_path, error))?;
         drop(file);

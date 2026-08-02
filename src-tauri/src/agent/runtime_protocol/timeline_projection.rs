@@ -410,10 +410,11 @@ fn visible_item_kind(
     event: &AgentRuntimeEventEnvelope,
     kind: AgentTurnItemKind,
 ) -> Option<AgentTurnItemKind> {
-    if matches!(
-        kind,
-        AgentTurnItemKind::AssistantMessage | AgentTurnItemKind::Reasoning
-    ) && event.visibility != AgentRuntimeEventVisibility::User
+    if kind == AgentTurnItemKind::Reasoning {
+        return None;
+    }
+    if kind == AgentTurnItemKind::AssistantMessage
+        && event.visibility != AgentRuntimeEventVisibility::User
     {
         return None;
     }
@@ -1130,6 +1131,16 @@ fn projected_tool_payload(
         .cloned()
     {
         payload.insert("resultStatus".to_string(), result_status);
+    }
+    if event_kind == AgentEventKind::ToolResult && !payload.contains_key("result") {
+        if let Some(result) = payload
+            .get("envelope")
+            .and_then(|envelope| envelope.get("raw"))
+            .filter(|result| !result.is_null())
+            .cloned()
+        {
+            payload.insert("result".to_string(), result);
+        }
     }
 
     let summary = string_from_map(&payload, &["summary"])

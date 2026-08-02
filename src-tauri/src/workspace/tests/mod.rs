@@ -601,7 +601,7 @@ mod tests {
     #[test]
     fn apply_patch_adds_a_new_file_from_strict_patch_grammar() {
         let fixture = WorkspaceFixture::new();
-        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
 
         let result = rpc
             .apply_patch("*** Begin Patch\n*** Add File: notes/today.md\n+hello\n*** End Patch\n");
@@ -618,7 +618,7 @@ mod tests {
     fn apply_patch_updates_an_exact_hunk() {
         let fixture = WorkspaceFixture::new();
         fixture.write("notes/today.md", "one\ntwo\nthree\n");
-        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
 
         let result = rpc.apply_patch(
             "*** Begin Patch\n*** Update File: notes/today.md\n@@\n one\n-two\n+second\n three\n*** End Patch\n",
@@ -636,7 +636,7 @@ mod tests {
     fn apply_patch_preserves_crlf_line_endings() {
         let fixture = WorkspaceFixture::new();
         fixture.write("notes/today.md", "one\r\ntwo\r\nthree\r\n");
-        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
 
         rpc.apply_patch(
             "*** Begin Patch\n*** Update File: notes/today.md\n@@\n one\n-two\n+second\n three\n*** End Patch\n",
@@ -654,7 +654,7 @@ mod tests {
     fn apply_patch_rejects_duplicate_and_traversal_targets() {
         let fixture = WorkspaceFixture::new();
         fixture.write("notes/today.md", "before\n");
-        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
 
         let duplicate = rpc
             .apply_patch(
@@ -684,7 +684,7 @@ mod tests {
     fn apply_patch_deletes_an_existing_file() {
         let fixture = WorkspaceFixture::new();
         fixture.write("notes/today.md", "hello\n");
-        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
 
         let result =
             rpc.apply_patch("*** Begin Patch\n*** Delete File: notes/today.md\n*** End Patch\n");
@@ -697,7 +697,7 @@ mod tests {
     fn apply_patch_rejects_unmatched_hunks_without_mutating_any_target() {
         let fixture = WorkspaceFixture::new();
         fixture.write("notes/today.md", "current\n");
-        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
 
         let error = rpc
             .apply_patch(
@@ -722,7 +722,7 @@ mod tests {
     fn apply_patch_rejects_existing_add_and_missing_update_or_delete_targets() {
         let fixture = WorkspaceFixture::new();
         fixture.write("notes/today.md", "current\n");
-        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
 
         let add_error = rpc
             .apply_patch(
@@ -752,7 +752,7 @@ mod tests {
     fn apply_patch_rejects_ambiguous_exact_hunks() {
         let fixture = WorkspaceFixture::new();
         fixture.write("notes/today.md", "repeat\nrepeat\n");
-        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
 
         let error = rpc
             .apply_patch(
@@ -790,7 +790,7 @@ mod tests {
             return;
         }
 
-        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
         let error = rpc
             .apply_patch(
                 "*** Begin Patch\n*** Update File: linked-secret.txt\n@@\n-secret\n+changed\n*** End Patch\n",
@@ -801,6 +801,224 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(outside).expect("outside file should remain unchanged"),
             "secret\n"
+        );
+    }
+
+    #[test]
+    fn apply_patch_updates_a_file_without_a_trailing_newline() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "before");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
+
+        rpc.apply_patch(
+            "*** Begin Patch\n*** Update File: notes/today.md\n@@\n-before\n+after\n*** End Patch\n",
+        )
+        .expect("Codex-compatible patches should update files without a trailing newline");
+
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("notes/today.md"))
+                .expect("updated file should read"),
+            "after\n"
+        );
+    }
+
+    #[test]
+    fn apply_patch_supports_pure_addition_chunks_for_empty_files() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/empty.md", "");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
+
+        rpc.apply_patch(
+            "*** Begin Patch\n*** Update File: notes/empty.md\n@@\n+first\n+second\n*** End Patch\n",
+        )
+        .expect("Codex-compatible pure addition chunks should populate empty files");
+
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("notes/empty.md"))
+                .expect("updated file should read"),
+            "first\nsecond\n"
+        );
+    }
+
+    #[test]
+    fn apply_patch_supports_move_and_end_of_file_markers() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("old/name.txt", "repeat\nkeep\nrepeat\ntail\n");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
+
+        let result = rpc.apply_patch(
+            "*** Begin Patch\n*** Update File: old/name.txt\n*** Move to: renamed/dir/name.txt\n@@\n repeat\n-tail\n+tail updated\n*** End of File\n*** End Patch\n",
+        )
+        .expect("Codex-compatible patches should support move and EOF markers");
+
+        assert_eq!(
+            result.changed_files[0].move_path.as_deref(),
+            Some("renamed/dir/name.txt")
+        );
+        assert!(!fixture.root.join("old/name.txt").exists());
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("renamed/dir/name.txt"))
+                .expect("moved file should read"),
+            "repeat\nkeep\nrepeat\ntail updated\n"
+        );
+    }
+
+    #[test]
+    fn apply_patch_accepts_padded_markers_in_top_level_header_positions() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "before\n");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
+
+        rpc.apply_patch(
+            "  *** Begin Patch  \n  *** Update File: notes/today.md\n@@\n-before\n+after\n*** End Patch  \n",
+        )
+        .expect("top-level patch headers should accept surrounding whitespace");
+
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("notes/today.md"))
+                .expect("updated file should read"),
+            "after\n"
+        );
+    }
+
+    #[test]
+    fn apply_patch_parser_preserves_indented_marker_text_in_update_hunks() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write(
+            "notes/markers.txt",
+            "alpha\n*** Update File: literal\n@@ literal\n*** End of File\nomega\n",
+        );
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
+
+        rpc.apply_patch(
+            "*** Begin Patch\n*** Update File: notes/markers.txt\n@@\n alpha\n *** Update File: literal\n @@ literal\n *** End of File\n-omega\n+updated\n*** End Patch\n",
+        )
+        .expect("indented marker text should remain update hunk content");
+
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("notes/markers.txt"))
+                .expect("updated file should read"),
+            "alpha\n*** Update File: literal\n@@ literal\n*** End of File\nupdated\n"
+        );
+    }
+
+    #[test]
+    fn apply_patch_parser_accepts_an_implicit_first_update_hunk() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/implicit.txt", "first\n\nlast\n");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
+
+        rpc.apply_patch(
+            "*** Begin Patch\n*** Update File: notes/implicit.txt\n first\n\n-last\n+updated\n*** End Patch\n",
+        )
+        .expect("the first update hunk should not require an explicit @@ marker");
+
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("notes/implicit.txt"))
+                .expect("updated file should read"),
+            "first\n\nupdated\n"
+        );
+    }
+
+    #[test]
+    fn apply_patch_parser_allows_blank_lines_after_end_of_file() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/eof.txt", "before\n");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
+
+        rpc.apply_patch(
+            "*** Begin Patch\n*** Update File: notes/eof.txt\n@@\n-before\n+after\n*** End of File\n\n\n*** End Patch\n",
+        )
+        .expect("blank lines after *** End of File should be ignored");
+
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("notes/eof.txt"))
+                .expect("updated file should read"),
+            "after\n"
+        );
+    }
+
+    #[test]
+    fn apply_patch_matches_codex_whitespace_and_unicode_context_rules() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "section\ntitle = “before”   \ntail\n");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
+
+        rpc.apply_patch(
+            "*** Begin Patch\n*** Update File: notes/today.md\n@@ section\n-title = \"before\"\n+title = \"after\"\n*** End Patch\n",
+        )
+        .expect("Codex-compatible context matching should normalize whitespace and punctuation");
+
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("notes/today.md"))
+                .expect("updated file should read"),
+            "section\ntitle = \"after\"\ntail\n"
+        );
+    }
+
+    #[test]
+    fn apply_patch_requires_both_workspace_read_and_write() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("notes/today.md", "before\n");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), write_policy());
+
+        let error = rpc
+            .apply_patch(
+                "*** Begin Patch\n*** Update File: notes/today.md\n@@\n-before\n+after\n*** End Patch\n",
+            )
+            .expect_err("patch matching reads the target and must require read capability");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::CapabilityDenied);
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.join("notes/today.md"))
+                .expect("original file should read"),
+            "before\n"
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn apply_patch_rejects_case_aliased_duplicate_targets_before_writing() {
+        let fixture = WorkspaceFixture::new();
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
+
+        let error = rpc
+            .apply_patch(
+                "*** Begin Patch\n*** Add File: notes/Case.md\n+first\n*** Add File: notes/case.md\n+second\n*** End Patch\n",
+            )
+            .expect_err("Windows path aliases must be rejected before any write");
+
+        assert_eq!(
+            error.message,
+            "patch may not modify the same file more than once"
+        );
+        assert!(!fixture.root.join("notes/Case.md").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn apply_patch_preserves_existing_file_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let fixture = WorkspaceFixture::new();
+        fixture.write("scripts/run.sh", "echo before\n");
+        let path = fixture.root.join("scripts/run.sh");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+            .expect("fixture permissions should update");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_write_policy());
+
+        rpc.apply_patch(
+            "*** Begin Patch\n*** Update File: scripts/run.sh\n@@\n-echo before\n+echo after\n*** End Patch\n",
+        )
+        .expect("patch should preserve executable permissions");
+
+        assert_eq!(
+            std::fs::metadata(path)
+                .expect("updated metadata should read")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o755
         );
     }
 

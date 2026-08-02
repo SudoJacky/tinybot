@@ -14,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 pub(crate) const DEFAULT_NATIVE_AGENT_MAX_ITERATIONS: i64 = 200;
 
+mod chat_completions_adapter;
 mod checkpoint;
 mod context;
 mod context_contributors;
@@ -27,6 +28,7 @@ mod items;
 mod provider;
 mod provider_adapter;
 mod provider_loop;
+mod provider_protocol;
 mod responses_adapter;
 mod result;
 mod settings;

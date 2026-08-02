@@ -1,8 +1,9 @@
 use super::items::{AgentContentPart, AgentUsageItem};
 use super::provider_adapter::{
-    provider_message_with_user_context, require_provider_capability, DecodedProviderTurn,
+    attach_provider_tools, provider_message_with_user_context, require_provider_capability,
+    DecodedProviderTurn,
 };
-use super::tool_router::provider_tool_name;
+use super::tool_router::{provider_tool_name, AgentToolDefinition};
 use super::{
     AgentAssistantMessage, AgentInstructionMessage, AgentInstructionRole, AgentItem,
     AgentItemHistory, AgentMessageContent, AgentReasoningItem, AgentToolCallItem,
@@ -13,6 +14,35 @@ use serde_json::{Map, Value};
 pub(super) struct ResponsesAdapter;
 
 impl ResponsesAdapter {
+    pub fn build_request(
+        legacy_messages: &[Value],
+        system_prompt: Option<&str>,
+        response_items: Option<&[Value]>,
+        tools: &[AgentToolDefinition],
+        settings: &AgentTurnSettings,
+        config_snapshot: &Value,
+        enable_parallel_tool_calls: bool,
+    ) -> Result<Value, String> {
+        let mut request = serde_json::json!({
+            "model": settings.model.clone(),
+            "input": Self::encode_history_with_response_items(
+                legacy_messages,
+                system_prompt,
+                response_items,
+            )?,
+            "stream": settings.stream,
+            "store": false,
+        });
+        Self::apply_turn_settings(&mut request, settings, config_snapshot)?;
+        attach_provider_tools(
+            &mut request,
+            Self::encode_tools(tools),
+            enable_parallel_tool_calls,
+        );
+        Ok(request)
+    }
+
+    #[cfg(test)]
     pub fn encode_history(
         legacy_messages: &[Value],
         system_prompt: Option<&str>,
@@ -51,28 +81,42 @@ impl ResponsesAdapter {
         Ok(Value::Array(input))
     }
 
-    pub fn encode_tools(chat_tools: &[Value]) -> Result<Vec<Value>, String> {
-        chat_tools
+    pub fn encode_tools(tools: &[AgentToolDefinition]) -> Vec<Value> {
+        tools
             .iter()
-            .enumerate()
-            .map(|(index, tool)| {
-                if tool.get("type").and_then(Value::as_str) != Some("function") {
-                    return Err(format!(
-                        "Responses tool at index {index} must have type `function`"
-                    ));
-                }
-                let mut function = tool
-                    .get("function")
-                    .and_then(Value::as_object)
-                    .cloned()
+            .map(|tool| {
+                serde_json::json!({
+                    "type": "function",
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.input_schema,
+                    "strict": false,
+                })
+            })
+            .collect()
+    }
+
+    pub fn encode_tool_outputs(results: &[Value]) -> Result<Vec<Value>, String> {
+        results
+            .iter()
+            .map(|result| {
+                let call_id = result
+                    .get("toolCallId")
+                    .or_else(|| result.get("tool_call_id"))
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "completed tool result is missing toolCallId".to_string())?;
+                let output = result
+                    .get("envelope")
+                    .and_then(|envelope| envelope.get("modelContent"))
+                    .and_then(Value::as_str)
                     .ok_or_else(|| {
-                        format!("Responses function tool at index {index} requires function")
+                        format!("completed tool result `{call_id}` is missing modelContent")
                     })?;
-                function.insert("type".to_string(), Value::String("function".to_string()));
-                function
-                    .entry("strict".to_string())
-                    .or_insert(Value::Bool(false));
-                Ok(Value::Object(function))
+                Ok(serde_json::json!({
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "output": output,
+                }))
             })
             .collect()
     }
@@ -268,6 +312,7 @@ fn sanitize_replayed_item(item: &Value, index: usize) -> Result<Value, String> {
     }
     if item.get("type").and_then(Value::as_str) == Some("function_call_output") {
         item.remove("status");
+        item.remove("tinybot_result");
     }
     Ok(Value::Object(item))
 }
@@ -530,21 +575,58 @@ mod tests {
     }
 
     #[test]
-    fn flattens_chat_function_tools_and_preserves_non_strict_default() {
-        let tools = ResponsesAdapter::encode_tools(&[json!({
-            "type": "function",
-            "function": {
-                "name": "web_open",
-                "description": "Open a page",
-                "parameters": { "type": "object" }
-            }
-        })])
-        .expect("tool should encode");
+    fn encodes_canonical_function_tools_with_responses_shape() {
+        let tools = ResponsesAdapter::encode_tools(&[AgentToolDefinition {
+            name: "web_open".to_string(),
+            description: "Open a page".to_string(),
+            input_schema: json!({ "type": "object" }),
+        }]);
 
         assert_eq!(tools[0]["type"], "function");
         assert_eq!(tools[0]["name"], "web_open");
         assert_eq!(tools[0]["strict"], false);
         assert!(tools[0].get("function").is_none());
+    }
+
+    #[test]
+    fn encodes_runtime_tool_results_as_responses_function_outputs() {
+        let outputs = ResponsesAdapter::encode_tool_outputs(&[json!({
+            "toolCallId": "call-1",
+            "envelope": { "modelContent": "contents" }
+        })])
+        .expect("tool result should encode");
+
+        assert_eq!(
+            outputs,
+            vec![json!({
+                "type": "function_call_output",
+                "call_id": "call-1",
+                "output": "contents"
+            })]
+        );
+    }
+
+    #[test]
+    fn replay_removes_tinybot_tool_result_sidecar_before_provider_request() {
+        let replayed = sanitize_replayed_item(
+            &json!({
+                "type": "function_call_output",
+                "call_id": "call-1",
+                "output": "Applied patch",
+                "tinybot_result": { "files_changed": 1 }
+            }),
+            0,
+        )
+        .expect("replayed tool output should sanitize");
+
+        assert_eq!(
+            replayed,
+            json!({
+                "type": "function_call_output",
+                "call_id": "call-1",
+                "output": "Applied patch"
+            })
+        );
     }
 
     #[test]
