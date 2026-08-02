@@ -73,10 +73,15 @@ jobs:
           tagName: v__VERSION__
           releaseName: Tinybot Desktop v__VERSION__
           releaseBody: |
-            Tinybot Desktop for Windows x64.
+            Highlights
 
-            > [!WARNING]
-            > Tinybot's Rust backend is under active development. This release may contain breaking changes, and data created by earlier versions may not remain compatible. Back up important `.tinybot` data before upgrading.
+            • Added OpenAI Responses API support and persistent Responses sessions.
+            • Added workspace apply_patch support with visible code diffs.
+            • Improved tool activity, composer slash commands, and agent workflows.
+            • Stabilized the TinyOS browser lifecycle and fixed drag-time memory growth.
+            • Added About Tinybot with manual update review and installation.
+
+            Before updating, save active work. Tinybot closes its runtime before launching the installer.
 
             The installer is not Authenticode-signed yet, so Windows SmartScreen may show an unknown publisher warning.
           releaseDraft: true

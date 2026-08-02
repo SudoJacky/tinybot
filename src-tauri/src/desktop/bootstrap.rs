@@ -71,8 +71,10 @@ pub(crate) fn truncate_utf8_with_ellipsis(mut value: String, max_bytes: usize) -
 
 pub(crate) fn run() {
     let runtime_state = Arc::new(Mutex::new(NativeRuntimeState::default()));
+    let update_state = super::update::new_shared_desktop_update_state(env!("CARGO_PKG_VERSION"));
     let close_state = runtime_state.clone();
     let setup_state = runtime_state.clone();
+    let setup_update_state = update_state.clone();
     let close_started = Arc::new(AtomicBool::new(false));
 
     tauri::Builder::default()
@@ -80,6 +82,7 @@ pub(crate) fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(runtime_state)
+        .manage(update_state)
         .setup(move |app| {
             let browser_runtime = native_browser::create_runtime(app.handle())?;
             {
@@ -146,11 +149,18 @@ pub(crate) fn run() {
                 );
             }
             #[cfg(windows)]
-            super::update::spawn_startup_auto_update(app.handle().clone(), setup_state.clone());
+            super::update::spawn_startup_update_check(
+                app.handle().clone(),
+                setup_update_state.clone(),
+                setup_state.clone(),
+            );
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             record_renderer_diagnostic,
+            crate::desktop::update::desktop_update_status,
+            crate::desktop::update::desktop_check_for_update,
+            crate::desktop::update::desktop_install_update,
             crate::desktop_commands::agent::worker_submit_thread_turn,
             crate::desktop_commands::skills::worker_skills_list,
             crate::desktop_commands::skills::worker_skills_detail,

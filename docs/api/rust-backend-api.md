@@ -173,6 +173,28 @@ The command serializes the supplied JSON value, records it in the process-local 
 and appends it to the persistent native backend log. A single serialized renderer entry is bounded
 to 16 KiB with UTF-8-safe truncation. Log write failures reject the command.
 
+## Desktop Update Commands
+
+| Command | Args | Response |
+| --- | --- | --- |
+| `desktop_update_status` | none | `DesktopUpdateSnapshot` |
+| `desktop_check_for_update` | none | `DesktopUpdateSnapshot` |
+| `desktop_install_update` | `{ input: { expectedVersion: string } }` | `DesktopUpdateSnapshot` |
+
+`DesktopUpdateSnapshot` contains `currentVersion`, optional `availableVersion`, `releaseNotes`,
+`displayNotes`, and `publishedAt`, plus `phase`, optional `progressPercent`, and optional `error`.
+Phases are `idle`, `checking`, `up_to_date`, `available`, `downloading`, `installing`, and `failed`.
+
+On Windows startup, Tinybot starts a background check and stops after publishing either
+`up_to_date`, `available`, or `failed`. Startup never downloads an artifact, shuts down the native
+runtime, or launches an installer. Download, signature verification, runtime shutdown, and installer
+launch are reachable only through `desktop_install_update`; the command rejects a stale
+`expectedVersion` so a changed release must be reviewed before installation.
+
+The updater endpoint's standard `notes` value becomes `releaseNotes`. An endpoint may also add a
+top-level `display_notes` string (`displayNotes` is accepted as an alias) for a separate highlighted
+instruction in the update dialog. Blank values are omitted rather than rendered.
+
 ## Config Commands
 
 | Command | Args | Response |
@@ -1488,6 +1510,7 @@ The desktop shell also emits:
 | Tauri event | Payload |
 | --- | --- |
 | `desktop-menu-command` | Native application-menu command |
+| `desktop-update-status` | `DesktopUpdateSnapshot` after each update phase or download-progress change |
 | `tinyos:host-operation` | Asynchronous TinyOS host-operation status |
 | `tinyos:browser-snapshot` | `BrowserNativeSnapshot` |
 | `tinyos:browser-diagnostic` | `BrowserRuntimeDiagnostic` |
@@ -1581,6 +1604,7 @@ Prefer these wrappers instead of direct command strings:
 | Wrapper | File | Commands/routes covered |
 | --- | --- | --- |
 | `createDesktopNativeConfigApi` | `src/app-core/native/desktopNativeConfig.ts` | Config snapshot |
+| `createDesktopNativeUpdateClient` | `src/app-core/native/desktopNativeUpdate.ts` | Desktop update status, check, install, and status events |
 | `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread, Turn timeline, and effective-capability commands |
 | `createDesktopNativeHostCommandApi` | `src/app-core/native/desktopNativeHostCommand.ts` | Remaining non-chat TinyOS host commands |
 | `createDesktopNativeWebuiApi` | `src/app-core/native/desktopNativeWebui.ts` | `worker_webui_route` |

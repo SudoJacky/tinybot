@@ -16,6 +16,8 @@ import { AgentDefaultsSettingsPage } from "../settings/AgentDefaultsSettingsPage
 import { ConfigSettingsPage, type ConfigSettingsGroupId } from "../settings/ConfigSettingsPage";
 import { ProviderModelsSettingsPage } from "../settings/ProviderModelsSettingsPage";
 import type { AppServices, ToolCatalogSummary, WorkspaceFileSummary } from "../services";
+import type { DesktopUpdateClient } from "../../app-core/native/desktopNativeUpdate";
+import { DesktopUpdateDialogs } from "./DesktopUpdateDialogs";
 
 type AppRoute = "chat" | "files" | "github" | "docs" | "tools" | "settings";
 
@@ -28,6 +30,7 @@ type RouteHistory = {
 export type DesktopShellProps = {
   services: AppServices;
   now?: () => number;
+  updateClient?: DesktopUpdateClient | null;
   windowControls?: WindowFrameControls;
 };
 
@@ -64,6 +67,7 @@ type TopMenuCommandId =
   | "open-page-help"
   | "open-backend-logs"
   | "open-safe-mode"
+  | "open-about"
   | "toggle-theme"
   | "toggle-sidebar";
 
@@ -103,6 +107,8 @@ const topMenuItems: TopMenuItem[] = [
       menuSeparator("app-view-separator"),
       menuCommand({ id: "toggle-theme", label: "Toggle Theme", shortcut: "Ctrl+Shift+T" }),
       menuCommand({ id: "toggle-sidebar", label: "Toggle Sidebar", shortcut: "Ctrl+B" }),
+      menuSeparator("app-about-separator"),
+      menuCommand({ id: "open-about", label: "About Tinybot" }),
     ],
   },
   {
@@ -148,7 +154,7 @@ const topMenuItems: TopMenuItem[] = [
   },
 ];
 
-export function DesktopShell({ now, services, windowControls }: DesktopShellProps) {
+export function DesktopShell({ now, services, updateClient, windowControls }: DesktopShellProps) {
   const [routeHistory, setRouteHistory] = useState<RouteHistory>({
     back: [],
     current: "chat",
@@ -161,6 +167,7 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
   const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(false);
   const [sidebarMotionSource, setSidebarMotionSource] = useState<MotionSource>("pointer");
   const [createChatSignal, setCreateChatSignal] = useState(0);
+  const [aboutOpenSignal, setAboutOpenSignal] = useState(0);
   const [stopGenerationSessionId, setStopGenerationSessionId] = useState("");
   const stopGenerationSessionIdRef = useRef("");
   const frameControls = useMemo(() => windowControls ?? resolveWindowFrameControls(), [windowControls]);
@@ -299,6 +306,9 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
       case "toggle-sidebar":
         setSidebarMotionSource(source);
         setSessionSidebarCollapsed((collapsed) => !collapsed);
+        return;
+      case "open-about":
+        setAboutOpenSignal((current) => current + 1);
         return;
       default:
         return;
@@ -513,6 +523,11 @@ export function DesktopShell({ now, services, windowControls }: DesktopShellProp
         />
         </section>
       </div>
+
+      <DesktopUpdateDialogs
+        aboutOpenSignal={aboutOpenSignal}
+        updateClient={updateClient}
+      />
 
     </div>
   );

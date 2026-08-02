@@ -11,6 +11,7 @@ import type { AppServices, SessionSummary } from "../services";
 import type { ReactChatMessage } from "../chat/messageActions";
 import { timelineFromReactMessages } from "../chat/testTimelineFixtures";
 import { unavailableTinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
+import type { DesktopUpdateClient, DesktopUpdateSnapshot } from "../../app-core/native/desktopNativeUpdate";
 
 beforeEach(() => window.localStorage.clear());
 afterEach(() => cleanup());
@@ -98,6 +99,31 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
   };
 }
 
+function createUpdateClient(
+  snapshot: DesktopUpdateSnapshot = {
+    currentVersion: "0.1.3",
+    availableVersion: null,
+    releaseNotes: null,
+    displayNotes: null,
+    publishedAt: null,
+    phase: "up_to_date",
+    progressPercent: null,
+    error: null,
+  },
+): DesktopUpdateClient & {
+  status: ReturnType<typeof vi.fn>;
+  check: ReturnType<typeof vi.fn>;
+  install: ReturnType<typeof vi.fn>;
+  listen: ReturnType<typeof vi.fn>;
+} {
+  return {
+    status: vi.fn(async () => snapshot),
+    check: vi.fn(async () => snapshot),
+    install: vi.fn(async () => snapshot),
+    listen: vi.fn(async () => () => undefined),
+  };
+}
+
 describe("DesktopShell", () => {
   it("keeps the React window frame draggable and top menus compact", () => {
     const controls = {
@@ -175,11 +201,11 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "App" }));
     const appMenu = screen.getByRole("menu", { name: "Application menu" });
-    for (const item of ["New Chat", "Search Sessions", "Stop Generation", "Toggle Theme", "Toggle Sidebar"]) {
+    for (const item of ["New Chat", "Search Sessions", "Stop Generation", "Toggle Theme", "Toggle Sidebar", "About Tinybot"]) {
       expect(within(appMenu).getByRole("menuitem", { name: new RegExp(item) })).toBeTruthy();
     }
     expect(within(appMenu).queryByRole("menuitem", { name: /Command Palette/ })).toBeNull();
-    expect(within(appMenu).getAllByRole("separator")).toHaveLength(2);
+    expect(within(appMenu).getAllByRole("separator")).toHaveLength(3);
     expect(within(appMenu).getByText("Ctrl+N").classList.contains("react-top-menu__shortcut")).toBe(true);
 
     await user.click(within(appMenu).getByRole("menuitem", { name: /New Chat/ }));
@@ -211,6 +237,27 @@ describe("DesktopShell", () => {
     for (const item of ["Shortcut Help", "Page Help", "Backend Logs", "Open native workbench", "Tinybot repo"]) {
       expect(within(moreHelpMenu).getByRole("menuitem", { name: new RegExp(item) })).toBeTruthy();
     }
+  });
+
+  it("opens About Tinybot from the App menu and checks for updates on demand", async () => {
+    const user = userEvent.setup();
+    const updateClient = createUpdateClient();
+    render(
+      <DesktopShell
+        now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
+        services={createServices()}
+        updateClient={updateClient}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "App" }));
+    await user.click(within(screen.getByRole("menu", { name: "Application menu" })).getByRole("menuitem", { name: "About Tinybot" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "About Tinybot" });
+    expect(within(dialog).getByText("v0.1.3")).toBeTruthy();
+    await user.click(within(dialog).getByRole("button", { name: "Check again" }));
+
+    expect(updateClient.check).toHaveBeenCalledTimes(1);
   });
 
   it("routes session search recommendations through the shell", async () => {
