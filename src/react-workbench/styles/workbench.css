@@ -5692,14 +5692,14 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-execution-timeline__trigger {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 24px;
+  grid-template-columns: 24px minmax(0, 1fr) 24px;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
-  min-height: 44px;
+  min-height: 52px;
   border-bottom: 1px solid var(--color-hairline);
   border-radius: 0;
-  padding: 0 0 8px;
+  padding: 0 0 10px;
   color: inherit;
   text-align: left;
   cursor: pointer;
@@ -5718,7 +5718,9 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .react-execution-timeline__status {
-  display: none;
+  display: inline-grid;
+  place-items: center;
+  color: var(--color-muted);
 }
 
 .react-execution-timeline__heading {
@@ -5745,8 +5747,8 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-execution-timeline__content {
   display: grid;
-  gap: 10px;
-  padding: 12px 0 0;
+  gap: 0;
+  padding: 2px 0 0;
 }
 
 .react-execution-timeline__content[hidden] {
@@ -5756,6 +5758,10 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-execution-timeline__item {
   position: relative;
   min-width: 0;
+}
+
+.react-execution-timeline__item + .react-execution-timeline__item {
+  border-top: 1px solid var(--color-hairline);
 }
 
 .react-execution-timeline__canvas-button {
@@ -5806,7 +5812,8 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-execution-timeline__item > .react-agent-steps,
 .react-execution-timeline__item > .react-canonical-step,
 .react-execution-timeline__item > .react-error-recovery,
-.react-execution-timeline__item > .react-canonical-step-stack {
+.react-execution-timeline__item > .react-canonical-step-stack,
+.react-execution-timeline__item > .react-patch-change {
   width: 100%;
   margin: 0;
 }
@@ -5858,6 +5865,414 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-execution-timeline__item .react-agent-step:focus-visible {
   border: 0;
   background: var(--color-surface-soft);
+}
+
+.react-tool-activity,
+.react-patch-change {
+  display: grid;
+  min-width: 0;
+  color: var(--color-ink);
+}
+
+.react-tool-activity__header {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto 30px 24px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 56px;
+  padding: 10px 0;
+  transition: background-color var(--motion-duration-fast) ease;
+}
+
+.react-tool-activity__header:hover {
+  background: color-mix(in srgb, var(--color-surface-soft) 58%, transparent);
+}
+
+.react-tool-activity__icon {
+  display: inline-grid;
+  place-items: center;
+  color: var(--color-body);
+}
+
+.react-tool-activity__copy {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
+.react-tool-activity__copy strong,
+.react-tool-activity__copy small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-tool-activity__copy strong {
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.react-tool-activity__copy small {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-tool-activity__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.react-tool-activity__status[data-status="success"] {
+  color: color-mix(in srgb, var(--color-success) 82%, #245b31);
+}
+
+.react-tool-activity__status[data-status="active"] {
+  color: #3b75d9;
+}
+
+.react-tool-activity__status[data-status="active"] svg {
+  animation: react-spin 1s linear infinite;
+}
+
+.react-tool-activity__status[data-status="waiting"] {
+  color: var(--color-warning);
+}
+
+.react-tool-activity__status[data-status="error"] {
+  color: var(--color-error);
+}
+
+.react-tool-activity__open-details,
+.react-tool-activity__toggle,
+.react-patch-file__copy {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 7px;
+  color: var(--color-muted);
+  transition: background-color var(--motion-duration-fast) ease, color var(--motion-duration-fast) ease, opacity var(--motion-duration-fast) ease;
+}
+
+.react-tool-activity__open-details {
+  opacity: 0;
+}
+
+.react-tool-activity__header:hover .react-tool-activity__open-details,
+.react-tool-activity__open-details:focus-visible {
+  opacity: 1;
+}
+
+.react-tool-activity__open-details:hover,
+.react-tool-activity__toggle:hover,
+.react-patch-file__copy:hover {
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+}
+
+.react-tool-activity__open-details:focus-visible,
+.react-tool-activity__toggle:focus-visible,
+.react-patch-file__copy:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+.react-tool-activity__toggle svg {
+  transition: transform var(--motion-duration-fast) ease;
+}
+
+.react-tool-activity__toggle[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+
+.react-tool-activity__action-spacer {
+  width: 30px;
+  height: 1px;
+}
+
+.react-tool-activity__details {
+  display: grid;
+  gap: 10px;
+  padding: 0 0 16px 32px;
+}
+
+.react-tool-activity__details[hidden] {
+  display: none;
+}
+
+.react-tool-activity__preview,
+.react-patch-change__file-summary,
+.react-patch-change__diff-block {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-canvas) 90%, white);
+}
+
+.react-tool-activity__preview {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  min-height: 46px;
+  padding: 12px 14px;
+}
+
+.react-tool-activity__preview[data-preview-kind="code"] {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.react-tool-activity__preview[data-preview-kind="prose"] {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.react-tool-activity__preview pre,
+.react-tool-activity__preview code {
+  margin: 0;
+  color: var(--color-body);
+  font-family: var(--font-code);
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.react-tool-activity__preview p {
+  margin: 0;
+  color: var(--color-body);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.react-tool-activity__prompt {
+  color: var(--color-muted);
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.react-tool-activity__preview-meta {
+  align-self: end;
+  border: 1px solid var(--color-hairline);
+  border-radius: 5px;
+  padding: 2px 6px;
+  color: var(--color-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.react-tool-activity__code-lines {
+  display: grid;
+  min-width: 0;
+  margin: -12px -14px;
+}
+
+.react-tool-activity__code-lines > div {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  min-width: 0;
+}
+
+.react-tool-activity__code-lines span {
+  border-right: 1px solid var(--color-hairline);
+  padding: 3px 9px;
+  color: var(--color-muted-soft);
+  font-family: var(--font-code);
+  font-size: 10px;
+  line-height: 1.55;
+  text-align: right;
+  user-select: none;
+}
+
+.react-tool-activity__code-lines code {
+  padding: 3px 12px;
+}
+
+.react-patch-change__file-summary > header,
+.react-patch-change__file-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 30px;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 3px 7px 3px 12px;
+}
+
+.react-patch-change__file-summary > header {
+  grid-template-columns: minmax(0, 1fr) auto 30px;
+  border-bottom: 1px solid var(--color-hairline);
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-patch-change__file-summary > header::after {
+  content: "";
+}
+
+.react-patch-change__file-row + .react-patch-change__file-row {
+  border-top: 1px solid color-mix(in srgb, var(--color-hairline) 75%, transparent);
+}
+
+.react-patch-change__file-path {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-body);
+  font-family: var(--font-code);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-patch-file {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.react-patch-file + .react-patch-file {
+  border-top: 1px solid var(--color-hairline);
+}
+
+.react-patch-file__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 3px 12px;
+}
+
+.react-patch-file__path {
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  gap: 7px;
+}
+
+.react-patch-file__path strong,
+.react-patch-file__path small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-patch-file__path strong {
+  flex: 0 0 auto;
+  max-width: 55%;
+  font-family: var(--font-code);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.react-patch-file__path small {
+  color: var(--color-muted);
+  font-family: var(--font-code);
+  font-size: 10px;
+}
+
+.react-patch-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-code);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.react-patch-stats > span:first-child {
+  color: color-mix(in srgb, var(--color-success) 80%, #245b31);
+}
+
+.react-patch-stats > span:last-child {
+  color: var(--color-error);
+}
+
+.react-patch-file__diff {
+  overflow-x: auto;
+  padding: 4px 0 6px;
+  font-family: var(--font-code);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.react-patch-hunk + .react-patch-hunk {
+  border-top: 1px solid var(--color-hairline);
+  margin-top: 5px;
+  padding-top: 5px;
+}
+
+.react-patch-hunk__header {
+  min-width: max-content;
+  padding: 3px 12px;
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.react-patch-diff-row {
+  display: grid;
+  grid-template-columns: 42px 42px 18px minmax(max-content, 1fr);
+  min-width: max-content;
+}
+
+.react-patch-diff-row > [data-line-side] {
+  border-right: 1px solid color-mix(in srgb, var(--color-hairline) 82%, transparent);
+  padding: 1px 8px 1px 4px;
+  color: var(--color-muted-soft);
+  text-align: right;
+  user-select: none;
+}
+
+.react-patch-diff-row__marker {
+  padding: 1px 2px 1px 7px;
+  color: var(--color-muted);
+  user-select: none;
+}
+
+.react-patch-diff-row code {
+  padding: 1px 12px 1px 2px;
+  color: inherit;
+  font: inherit;
+  white-space: pre;
+}
+
+.react-patch-diff-row[data-diff-kind="add"] {
+  background: color-mix(in srgb, var(--color-success) 15%, transparent);
+  color: color-mix(in srgb, var(--color-ink) 88%, #1f6a33);
+}
+
+.react-patch-diff-row[data-diff-kind="add"] .react-patch-diff-row__marker {
+  color: color-mix(in srgb, var(--color-success) 78%, #245b31);
+}
+
+.react-patch-diff-row[data-diff-kind="remove"] {
+  background: color-mix(in srgb, var(--color-error) 10%, transparent);
+  color: color-mix(in srgb, var(--color-ink) 88%, #7b2929);
+}
+
+.react-patch-diff-row[data-diff-kind="remove"] .react-patch-diff-row__marker {
+  color: var(--color-error);
+}
+
+.react-patch-file__notice {
+  margin: 0;
+  padding: 14px 12px;
+  color: var(--color-muted);
+  font-size: 12px;
 }
 
 .react-canonical-tool-group {
@@ -8405,6 +8820,23 @@ button.tinyos-overlay-backdrop:focus-visible {
 
   .react-composer--raised .claude-ai-input__panel {
     min-height: 138px;
+  }
+
+  .react-tool-activity__header {
+    grid-template-columns: 22px minmax(0, 1fr) auto 26px 22px;
+    gap: 6px;
+  }
+
+  .react-tool-activity__details {
+    padding-left: 30px;
+  }
+
+  .react-tool-activity__status > span {
+    display: none;
+  }
+
+  .react-patch-diff-row {
+    grid-template-columns: 34px 34px 16px minmax(max-content, 1fr);
   }
 }
 
