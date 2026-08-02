@@ -21,3 +21,6 @@
 A lightweight personal AI assistant powered by Large Language Models and a native tool system.
 
 To install Tinybot, open [GitHub Tags](https://github.com/SudoJacky/tinybot/tags), select the latest version, and download the installer for your platform.
+
+<img width="2389" height="1393" alt="image" src="https://github.com/user-attachments/assets/e78f6ddd-3d7b-43eb-beb5-d3628d846e82" />
+
