@@ -1,5 +1,6 @@
 mod compression;
 mod projection;
+mod protocol_projection;
 mod reader;
 mod reconstruction;
 mod recorder;
@@ -44,8 +45,8 @@ pub use crate::threads::rollout::format::reconstruct_rollout as replay_thread;
 use crate::threads::rollout::format::reconstruct_transcript as replay_thread_transcript;
 pub use crate::threads::rollout::format::{
     CompactedItem, EventKind, EventMsg, ResponseItem, RolloutItem as ThreadLogItem,
-    RolloutLine as ThreadLogLine, RolloutReconstruction as ThreadReplay, SessionMeta as ThreadMeta,
-    ThreadStateRecord,
+    RolloutLine as ThreadLogLine, RolloutReconstruction as ThreadReplay, SessionApiMode,
+    SessionMeta as ThreadMeta, ThreadStateRecord,
 };
 pub(crate) use crate::threads::time::now_thread_timestamp;
 pub const THREAD_LOG_SCHEMA_VERSION: u32 = crate::threads::rollout::format::ROLLOUT_SCHEMA_VERSION;
@@ -423,6 +424,7 @@ impl WorkerThreadLogRpc {
         )?;
         let memory_snapshot =
             self.new_thread_memory_snapshot(thread.metadata.working_directory.as_deref())?;
+        let api_mode = thread_api_mode(thread)?;
         let meta = ThreadMeta {
             schema_version: THREAD_LOG_SCHEMA_VERSION,
             thread_id: thread.thread_id.clone(),
@@ -435,6 +437,7 @@ impl WorkerThreadLogRpc {
                 .unwrap_or_default(),
             source: thread.source.clone(),
             model_provider: None,
+            api_mode: Some(api_mode),
             model: thread.metadata.model.clone(),
             base_instructions: None,
             memory_snapshot: Some(memory_snapshot),
@@ -778,6 +781,7 @@ impl WorkerThreadLogRpc {
                 .unwrap_or_else(|| source_record.cwd.clone()),
             source: "fork".to_string(),
             model_provider: source_record.model_provider,
+            api_mode: Some(reconstructed.meta.effective_api_mode()),
             model: fork.metadata.model.clone().or(source_record.model),
             base_instructions: None,
             memory_snapshot: source_memory_snapshot,
@@ -3914,6 +3918,27 @@ fn initial_thread_metadata(thread: &ThreadRecord) -> serde_json::Map<String, Val
         durable_thread_metadata(&thread.metadata).expect("thread metadata should serialize"),
     );
     metadata
+}
+
+fn thread_api_mode(thread: &ThreadRecord) -> Result<SessionApiMode, WorkerProtocolError> {
+    let Some(value) = thread
+        .metadata
+        .extra
+        .get("apiMode")
+        .or_else(|| thread.metadata.extra.get("api_mode"))
+    else {
+        return Ok(SessionApiMode::ChatCompletions);
+    };
+    serde_json::from_value(value.clone()).map_err(|error| {
+        thread_log_consistency_error(
+            "thread metadata contains an invalid API mode",
+            serde_json::json!({
+                "threadId": thread.thread_id,
+                "apiMode": value,
+                "error": error.to_string(),
+            }),
+        )
+    })
 }
 
 fn durable_thread_metadata(

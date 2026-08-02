@@ -13,6 +13,7 @@ fn future_thread_log_schema_is_rejected_explicitly() {
             cwd: String::new(),
             source: "test".to_string(),
             model_provider: None,
+            api_mode: None,
             model: None,
             base_instructions: None,
             memory_snapshot: None,
@@ -28,6 +29,53 @@ fn future_thread_log_schema_is_rejected_explicitly() {
         .message
         .contains("unsupported thread log schema version"));
     assert_eq!(error.details["supportedSchemaVersion"], 1);
+}
+
+#[test]
+fn new_thread_pins_responses_mode_in_session_meta() {
+    let root = std::env::temp_dir().join(format!(
+        "tinybot-thread-api-mode-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let rpc = WorkerThreadLogRpc::new(
+        root.clone(),
+        CapabilityPolicy::new([WorkerCapability::SessionWrite]),
+    );
+    let thread = ThreadRecord {
+        thread_id: "thread-responses-mode".to_string(),
+        title: "Responses mode".to_string(),
+        status: ThreadStatus::Empty,
+        session_key: Some("session-responses-mode".to_string()),
+        root_turn_id: None,
+        active_turn_id: None,
+        parent_thread_id: None,
+        source: "test".to_string(),
+        created_at: "2026-08-01T00:00:00Z".to_string(),
+        updated_at: "2026-08-01T00:00:00Z".to_string(),
+        archived_at: None,
+        metadata: ThreadMetadata {
+            extra: serde_json::json!({ "apiMode": "responses" }),
+            ..Default::default()
+        },
+    };
+
+    rpc.create_from_thread_record(&thread).unwrap();
+    let record = rpc
+        .state
+        .find_by_session_or_thread_id(&thread.thread_id)
+        .unwrap()
+        .unwrap();
+    let lines = read_thread_lines(Path::new(&record.thread_path)).unwrap();
+    let meta = thread_meta_from_lines(&lines).unwrap();
+
+    assert_eq!(meta.api_mode, Some(SessionApiMode::Responses));
+    drop(rpc);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

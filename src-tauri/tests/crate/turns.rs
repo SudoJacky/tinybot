@@ -330,6 +330,7 @@ fn worker_run_agent_stops_before_provider_when_run_start_persistence_fails() {
                 final_content: "provider should not run".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -399,6 +400,7 @@ fn worker_run_agent_fails_when_trace_persistence_breaks_after_provider_response(
                 final_content: "result must not be reported as durable".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -515,6 +517,7 @@ impl crate::agent::runtime::NativeAgentProvider for UsageNativeAgentProvider {
                 "completion_tokens": 97,
                 "total_tokens": 107,
             })),
+            response_items: Vec::new(),
             tool_calls: Vec::new(),
         })
     }
@@ -536,6 +539,7 @@ impl crate::agent::runtime::NativeAgentProvider for LongFinalNativeAgentProvider
             final_content: long_final_content(),
             reasoning_delta: None,
             usage: None,
+            response_items: Vec::new(),
             tool_calls: Vec::new(),
         })
     }
@@ -559,6 +563,7 @@ impl crate::agent::runtime::NativeAgentProvider for RecordingNativeAgentProvider
             final_content: "remembered answer".to_string(),
             reasoning_delta: None,
             usage: None,
+            response_items: Vec::new(),
             tool_calls: Vec::new(),
         })
     }
@@ -587,6 +592,7 @@ impl crate::agent::runtime::NativeAgentProvider for ToolLoopRecordingNativeAgent
                 final_content: String::new(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: vec![crate::agent::runtime::NativeAgentToolCall {
                     id: "call-durable-history".to_string(),
                     name: "update_plan".to_string(),
@@ -601,6 +607,7 @@ impl crate::agent::runtime::NativeAgentProvider for ToolLoopRecordingNativeAgent
                 final_content: "combined history and tool result".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -634,6 +641,7 @@ impl crate::agent::runtime::NativeAgentProvider for MultiExchangeRecallProvider 
             final_content: final_content.to_string(),
             reasoning_delta: None,
             usage: None,
+            response_items: Vec::new(),
             tool_calls: Vec::new(),
         })
     }
@@ -818,6 +826,7 @@ fn worker_run_agent_combines_thread_history_with_current_tool_results() {
             "id",
             "output",
             "status",
+            "tinybot_result",
             "tool_name",
             "turnId",
             "type",
@@ -833,6 +842,7 @@ fn worker_run_agent_combines_thread_history_with_current_tool_results() {
     assert!(tool_output["payload"]["output"]
         .as_str()
         .is_some_and(|output| output.contains("Plan updated")));
+    assert!(!tool_output["payload"]["tinybot_result"].is_null());
 }
 
 #[test]

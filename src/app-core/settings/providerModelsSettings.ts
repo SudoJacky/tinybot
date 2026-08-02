@@ -32,6 +32,7 @@ export type ProviderCardModel = {
   profileId: string;
   baseUrl: string;
   apiKeyConfigured: boolean;
+  useResponsesApi: boolean;
   modelCount: number;
   defaultModel: string | null;
   models: ProviderModelItem[];
@@ -52,6 +53,7 @@ export type ProviderConfigurePatchInput = {
   displayName?: string;
   apiBase: string;
   apiKey?: string;
+  useResponsesApi?: boolean;
   enabled?: boolean;
   activate?: boolean;
 };
@@ -62,6 +64,7 @@ export type CustomProviderPatchInput = {
   displayName: string;
   apiBase: string;
   apiKey?: string;
+  useResponsesApi?: boolean;
   model: string;
   supportsModelDiscovery?: boolean;
   activate?: boolean;
@@ -170,6 +173,9 @@ export function buildProviderConfigurePatch(input: ProviderConfigurePatchInput):
   if (apiKey) {
     profile.apiKey = apiKey;
   }
+  if (input.useResponsesApi !== undefined) {
+    profile.apiMode = input.useResponsesApi ? "responses" : "chat_completions";
+  }
   return withOptionalAgentsPatch(input.activate ? { activeProfile: profileId } : null, {
     providers: {
       profiles: {
@@ -197,6 +203,9 @@ export function buildCustomProviderPatch(input: CustomProviderPatchInput): JsonR
   const apiKey = input.apiKey?.trim();
   if (apiKey) {
     profile.apiKey = apiKey;
+  }
+  if (input.useResponsesApi !== undefined) {
+    profile.apiMode = input.useResponsesApi ? "responses" : "chat_completions";
   }
   return withOptionalAgentsPatch(input.activate
     ? { activeProfile: profileId, ...(model ? { model } : {}) }
@@ -297,6 +306,7 @@ function buildProviderCard(
     profileId,
     baseUrl: stringValue(pick(profile, "apiBase", "api_base")) || preset.defaultBaseUrl,
     apiKeyConfigured,
+    useResponsesApi: usesResponsesApi(profile),
     modelCount: models.length,
     defaultModel,
     models,
@@ -337,6 +347,7 @@ function buildCustomProviderCard(
     profileId,
     baseUrl,
     apiKeyConfigured: hasConfiguredApiKey(profile),
+    useResponsesApi: usesResponsesApi(profile),
     modelCount: models.length,
     defaultModel,
     models,
@@ -384,6 +395,10 @@ function hasConfiguredApiKey(profile: JsonRecord): boolean {
     return true;
   }
   return pick(profile, "apiKeyConfigured", "api_key_configured") === true;
+}
+
+function usesResponsesApi(profile: JsonRecord): boolean {
+  return stringValue(pick(profile, "apiMode", "api_mode")).trim().toLowerCase() === "responses";
 }
 
 function parseModelList(value: unknown): string[] {

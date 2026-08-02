@@ -646,6 +646,21 @@ fn provider_models_group(config: &Value) -> SettingsGroup {
                     .cloned(),
             ));
             fields.push(config_field(
+                &format!("provider-profile-{profile_id}-api-mode"),
+                "API mode",
+                &format!("{prefix}.apiMode"),
+                SettingScope::Profile,
+                SettingValueType::Select,
+                true,
+                Some(
+                    profile
+                        .get("apiMode")
+                        .or_else(|| profile.get("api_mode"))
+                        .cloned()
+                        .unwrap_or_else(|| Value::String("chat_completions".to_string())),
+                ),
+            ));
+            fields.push(config_field(
                 &format!("provider-profile-{profile_id}-request-timeout"),
                 "Request timeout",
                 &format!("{prefix}.requestTimeoutMs"),

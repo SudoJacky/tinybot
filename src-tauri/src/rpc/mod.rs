@@ -191,6 +191,22 @@ impl WorkerRpcRouter {
         )
     }
 
+    pub(crate) fn with_workspace_thread_store_and_workspace_root(
+        threads: WorkspaceThreadStore,
+        workspace_root: PathBuf,
+        config_snapshot: Value,
+        diagnostic_capacity: usize,
+        policy: CapabilityPolicy,
+    ) -> Self {
+        Self::from_workspace_thread_store(
+            threads,
+            workspace_root,
+            config_snapshot,
+            diagnostic_capacity,
+            policy,
+        )
+    }
+
     #[cfg(test)]
     pub fn with_config_store(
         workspace_root: PathBuf,
@@ -822,7 +838,7 @@ pub(crate) fn call_rust_state_service(
     let mut router = native_request_router(threads.clone(), config_snapshot);
     let response = router.dispatch(&request);
     if let Some(error) = response.error {
-        return Err(format!("{label} failed: {}", error.message));
+        return Err(worker_service_error_message(label, &error));
     }
     response
         .result
@@ -831,6 +847,7 @@ pub(crate) fn call_rust_state_service(
 
 pub(crate) fn call_rust_state_service_with_mcp_runtime(
     threads: &WorkspaceThreadStore,
+    workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     mcp_runtime: McpRuntime,
     shell_runtime: WorkerShellRuntime,
@@ -838,17 +855,38 @@ pub(crate) fn call_rust_state_service_with_mcp_runtime(
     request: WorkerRequest,
     label: &str,
 ) -> Result<serde_json::Value, String> {
-    let mut router = native_request_router(threads.clone(), config_snapshot)
-        .with_mcp_runtime(mcp_runtime)
-        .with_shell_runtime(shell_runtime)
-        .with_subagent_manager(subagent_manager);
+    let mut router =
+        native_request_router_with_workspace_root(threads.clone(), workspace_root, config_snapshot)
+            .with_mcp_runtime(mcp_runtime)
+            .with_shell_runtime(shell_runtime)
+            .with_subagent_manager(subagent_manager);
     let response = router.dispatch(&request);
     if let Some(error) = response.error {
-        return Err(format!("{label} failed: {}", error.message));
+        return Err(worker_service_error_message(label, &error));
     }
     response
         .result
         .ok_or_else(|| format!("{label} failed: missing response result"))
+}
+
+fn worker_service_error_message(label: &str, error: &WorkerProtocolError) -> String {
+    const MAX_DETAILS_CHARS: usize = 4_096;
+
+    let prefix = format!("{label} failed: {}", error.message);
+    if error.details.is_null()
+        || error
+            .details
+            .as_object()
+            .is_some_and(|details| details.is_empty())
+    {
+        return prefix;
+    }
+    let details = error.details.to_string();
+    if details.chars().count() <= MAX_DETAILS_CHARS {
+        return format!("{prefix}; details={details}");
+    }
+    let bounded = details.chars().take(MAX_DETAILS_CHARS).collect::<String>();
+    format!("{prefix}; details={bounded}…")
 }
 
 pub(crate) fn native_request_router(
@@ -857,6 +895,21 @@ pub(crate) fn native_request_router(
 ) -> WorkerRpcRouter {
     WorkerRpcRouter::with_workspace_thread_store(
         threads,
+        config_snapshot,
+        200,
+        crate::protocol::capability::default_desktop_capability_policy(),
+    )
+    .with_builtin_skills_root(crate::config::application::repo_root())
+}
+
+fn native_request_router_with_workspace_root(
+    threads: WorkspaceThreadStore,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+) -> WorkerRpcRouter {
+    WorkerRpcRouter::with_workspace_thread_store_and_workspace_root(
+        threads,
+        workspace_root,
         config_snapshot,
         200,
         crate::protocol::capability::default_desktop_capability_policy(),

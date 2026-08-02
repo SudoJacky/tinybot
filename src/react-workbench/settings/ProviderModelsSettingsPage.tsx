@@ -477,6 +477,7 @@ function ProviderConfigureDialog({
 }) {
   const [apiBase, setApiBase] = useState(provider.baseUrl);
   const [apiKey, setApiKey] = useState("");
+  const [useResponsesApi, setUseResponsesApi] = useState(provider.useResponsesApi);
   const [activate, setActivate] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -490,6 +491,7 @@ function ProviderConfigureDialog({
         displayName: provider.label,
         apiBase,
         apiKey,
+        useResponsesApi,
         enabled: true,
         activate,
       }));
@@ -528,7 +530,15 @@ function ProviderConfigureDialog({
         </label>
         <section className="react-settings-dialog__advanced">
           <h3>Advanced</h3>
-          <p>Custom headers and generation parameters are reserved for a later provider config pass.</p>
+          <label className="react-settings-checkbox">
+            <input
+              checked={useResponsesApi}
+              type="checkbox"
+              onChange={(event) => setUseResponsesApi(event.currentTarget.checked)}
+            />
+            <span>Use Responses API</span>
+          </label>
+          <p>Enable only when this endpoint supports <code>/responses</code>.</p>
         </section>
         <footer>
           <button type="button" onClick={onClose}>Cancel</button>
@@ -559,6 +569,7 @@ function CustomProviderDialog({
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [supportsModelDiscovery, setSupportsModelDiscovery] = useState(true);
+  const [useResponsesApi, setUseResponsesApi] = useState(false);
   const [activate, setActivate] = useState(false);
   const [saving, setSaving] = useState(false);
   const normalizedProviderId = providerId.trim().toLowerCase();
@@ -590,6 +601,7 @@ function CustomProviderDialog({
         apiKey,
         model,
         supportsModelDiscovery,
+        useResponsesApi,
         activate,
       }));
     } finally {
@@ -641,6 +653,10 @@ function CustomProviderDialog({
         <label className="react-settings-checkbox">
           <input checked={supportsModelDiscovery} type="checkbox" onChange={(event) => setSupportsModelDiscovery(event.currentTarget.checked)} />
           <span>Discover models from the /models endpoint</span>
+        </label>
+        <label className="react-settings-checkbox">
+          <input checked={useResponsesApi} type="checkbox" onChange={(event) => setUseResponsesApi(event.currentTarget.checked)} />
+          <span>Use Responses API <small>Requires a compatible /responses endpoint</small></span>
         </label>
         <label className="react-settings-checkbox">
           <input checked={activate} type="checkbox" onChange={(event) => setActivate(event.currentTarget.checked)} />

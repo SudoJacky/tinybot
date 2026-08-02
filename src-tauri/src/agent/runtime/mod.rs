@@ -14,6 +14,7 @@ use tokio_util::sync::CancellationToken;
 
 pub(crate) const DEFAULT_NATIVE_AGENT_MAX_ITERATIONS: i64 = 200;
 
+mod chat_completions_adapter;
 mod checkpoint;
 mod context;
 mod context_contributors;
@@ -27,6 +28,8 @@ mod items;
 mod provider;
 mod provider_adapter;
 mod provider_loop;
+mod provider_protocol;
+mod responses_adapter;
 mod result;
 mod settings;
 mod state;
@@ -60,7 +63,7 @@ pub use self::items::{
     AgentPlanStep, AgentReasoningItem, AgentToolCallItem, AgentToolResultItem, AgentUsageItem,
 };
 #[cfg(test)]
-use self::provider::agent_chat_completion_request;
+use self::provider::{agent_chat_completion_request, agent_responses_request};
 use self::provider::{agent_provider_config, chat_completion_content, RustNativeAgentProvider};
 pub use self::settings::AgentTurnSettings;
 use self::tool_router::NativeToolRouter;
@@ -173,6 +176,8 @@ pub struct AgentTurnContext {
     pub metadata: Value,
     pub model: String,
     pub provider: Option<String>,
+    pub api_mode: Option<String>,
+    pub responses_input_items: Option<Vec<Value>>,
     pub system_prompt: Option<String>,
     pub instructions: Option<ComposedInstructions>,
     assembled_system_prompt: Option<String>,
@@ -195,6 +200,7 @@ pub struct NativeAgentProviderResponse {
     pub reasoning_delta: Option<String>,
     pub usage: Option<Value>,
     pub tool_calls: Vec<NativeAgentToolCall>,
+    pub response_items: Vec<Value>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

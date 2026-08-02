@@ -30,6 +30,17 @@ impl AgentTurnContext {
             .or_else(|| string_field(&metadata, "thread_id"));
         let model = normalized_model(&spec, &metadata, &config_snapshot);
         let provider = normalized_provider(&spec, &metadata, &config_snapshot);
+        let api_mode = string_field(&spec, "apiMode")
+            .or_else(|| string_field(&spec, "api_mode"))
+            .or_else(|| string_field(&metadata, "apiMode"))
+            .or_else(|| string_field(&metadata, "api_mode"));
+        let mut responses_input_items = (api_mode.as_deref() == Some("responses")).then(|| {
+            spec.get("responseItems")
+                .or_else(|| spec.get("response_items"))
+                .and_then(Value::as_array)
+                .cloned()
+                .unwrap_or_default()
+        });
         let max_iterations = spec
             .get("maxIterations")
             .or_else(|| spec.get("max_iterations"))
@@ -82,6 +93,27 @@ impl AgentTurnContext {
             .or_else(|| string_field(&metadata, "turnId"))
             .or_else(|| string_field(&metadata, "turn_id"))
             .unwrap_or_else(|| "native-rust-turn".to_string());
+        if let Some(response_items) = responses_input_items.as_mut() {
+            let has_current_user = response_items.iter().any(|item| {
+                item.get("role").and_then(Value::as_str) == Some("user")
+                    && item
+                        .get("turnId")
+                        .or_else(|| item.get("turn_id"))
+                        .and_then(Value::as_str)
+                        == Some(turn_id.as_str())
+            });
+            if !has_current_user {
+                if let Some(current_user) = messages
+                    .iter()
+                    .rev()
+                    .find(|message| message.get("role").and_then(Value::as_str) == Some("user"))
+                {
+                    let mut current_user = current_user.clone();
+                    current_user["turnId"] = Value::String(turn_id.clone());
+                    response_items.push(current_user);
+                }
+            }
+        }
         let request_id = string_field(&spec, "requestId")
             .or_else(|| string_field(&spec, "request_id"))
             .or_else(|| string_field(trace_value, "requestId"))
@@ -119,6 +151,8 @@ impl AgentTurnContext {
             metadata,
             model,
             provider,
+            api_mode,
+            responses_input_items,
             system_prompt: None,
             instructions: None,
             assembled_system_prompt: None,

@@ -196,6 +196,20 @@ fn native_agent_turn_context(
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default();
     let trace_context = agent_trace_context_from_value(spec);
+    let api_mode = spec
+        .get("apiMode")
+        .or_else(|| spec.get("api_mode"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string)
+        .or_else(|| {
+            crate::agent::provider::resolve_provider_profile(
+                config_snapshot,
+                native_agent_provider(spec, config_snapshot).as_deref(),
+                None,
+            )
+            .map(|profile| profile.api_mode)
+        })
+        .unwrap_or_else(|| "chat_completions".to_string());
     serde_json::json!({
         "turn_id": if trace_context.turn_id.trim().is_empty() {
             turn_id
@@ -223,6 +237,7 @@ fn native_agent_turn_context(
         "network": spec.get("network").cloned().unwrap_or(serde_json::Value::Null),
         "model": native_agent_model(spec, config_snapshot),
         "provider": native_agent_provider(spec, config_snapshot),
+        "api_mode": api_mode,
         "comp_hash": spec
             .get("compHash")
             .or_else(|| spec.get("comp_hash"))

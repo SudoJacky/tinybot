@@ -150,7 +150,10 @@ fn dispatches_workspace_apply_patch_request_with_structured_change_summary() {
         json!({}),
         vec![],
         20,
-        CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]),
+        CapabilityPolicy::new([
+            WorkerCapability::FsWorkspaceRead,
+            WorkerCapability::FsWorkspaceWrite,
+        ]),
     );
 
     let response = router.dispatch(&WorkerRequest::new(
@@ -170,8 +173,28 @@ fn dispatches_workspace_apply_patch_request_with_structured_change_summary() {
     assert_eq!(result["hunks_applied"], 2);
     assert_eq!(result["changed_files"][0]["path"], "notes/today.md");
     assert_eq!(result["changed_files"][0]["operation"], "update");
+    assert_eq!(result["changed_files"][0]["delta_truncated"], false);
+    assert_eq!(result["changed_files"][0]["delta"][0]["old_start"], 1);
+    assert_eq!(result["changed_files"][0]["delta"][0]["new_start"], 1);
+    assert_eq!(
+        result["changed_files"][0]["delta"][0]["old_lines"],
+        json!(["before"])
+    );
+    assert_eq!(
+        result["changed_files"][0]["delta"][0]["new_lines"],
+        json!(["after"])
+    );
     assert_eq!(result["changed_files"][1]["path"], "notes/new.md");
     assert_eq!(result["changed_files"][1]["operation"], "add");
+    assert_eq!(result["changed_files"][1]["delta_truncated"], false);
+    assert_eq!(
+        result["changed_files"][1]["delta"][0]["old_lines"],
+        json!([])
+    );
+    assert_eq!(
+        result["changed_files"][1]["delta"][0]["new_lines"],
+        json!(["new file"])
+    );
 }
 
 #[test]

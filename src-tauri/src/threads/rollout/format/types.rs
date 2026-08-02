@@ -314,8 +314,14 @@ fn validate_response_item(kind: &ResponseItemKind, raw: &Value) -> Result<(), St
         }
         ResponseItemKind::Reasoning => {
             required_response_string(raw, &["id"], "reasoning id")?;
-            if raw.get("summary").is_none() && raw.get("content").is_none() {
-                return Err("reasoning response item requires `summary` or `content`".to_string());
+            if raw.get("summary").is_none()
+                && raw.get("content").is_none()
+                && raw.get("encrypted_content").is_none()
+            {
+                return Err(
+                    "reasoning response item requires `summary`, `content`, or `encrypted_content`"
+                        .to_string(),
+                );
             }
         }
         ResponseItemKind::CustomToolCall => {
@@ -575,6 +581,8 @@ pub struct TurnContextItem {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_mode: Option<SessionApiMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comp_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub personality: Option<Value>,
@@ -601,6 +609,8 @@ pub struct SessionMeta {
     pub source: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_mode: Option<SessionApiMode>,
     #[serde(skip, default)]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -619,6 +629,20 @@ pub struct SessionMeta {
     pub parent_thread_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub originator: Option<String>,
+}
+
+impl SessionMeta {
+    pub fn effective_api_mode(&self) -> SessionApiMode {
+        self.api_mode.unwrap_or_default()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionApiMode {
+    #[default]
+    ChatCompletions,
+    Responses,
 }
 
 fn current_rollout_schema_version() -> u32 {
@@ -737,6 +761,8 @@ pub struct RolloutReconstruction {
     pub title: String,
     pub updated_at: String,
     pub messages: Vec<Value>,
+    pub response_items: Vec<Value>,
+    pub api_mode: SessionApiMode,
     pub user_profile: Value,
     pub token_usage_info: Option<TokenUsageInfo>,
     pub context_checkpoint: Option<Value>,

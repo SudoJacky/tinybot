@@ -1,3 +1,9 @@
+#[cfg(test)]
+use super::protocol_projection::response_item_from_runtime_event;
+use super::protocol_projection::{
+    project_response_items, response_items_from_runtime_event, runtime_event_kind,
+    ProtocolEventProjection,
+};
 use super::{
     is_default_thread_title, now_thread_timestamp, preview_from_messages, read_thread_lines,
     thread_id_for_session_id, title_from_messages, value_event, AgentTurnRecoveryEntry,
@@ -11,7 +17,7 @@ use crate::threads::turn::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -130,8 +136,9 @@ impl WorkerThreadLogRpc {
             .as_ref()
             .map(|context| context.cwd.as_str())
             .filter(|cwd| !cwd.trim().is_empty());
+        let api_mode = context.as_ref().and_then(|context| context.api_mode);
         let mut state =
-            self.ensure_turn_thread(&record.session_id, &timestamp, working_directory)?;
+            self.ensure_turn_thread(&record.session_id, &timestamp, working_directory, api_mode)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         let mut items = vec![value_event(
@@ -210,16 +217,18 @@ impl WorkerThreadLogRpc {
         if events.is_empty() {
             return Err(empty_turn_semantic_batch_error(session_id, turn_id));
         }
+        let timestamp = now_thread_timestamp();
+        let mut state = self.ensure_turn_thread(session_id, &timestamp, None, None)?;
+        let path = PathBuf::from(state.thread_path.clone());
+        self.recorder.validate_thread_path(&path)?;
+        let existing_lines = read_thread_lines(&path)?;
+        let api_mode = super::thread_meta_from_lines(&existing_lines)?.effective_api_mode();
         for (index, event) in events.iter().enumerate() {
-            validate_turn_semantic_event(session_id, turn_id, index, event)?;
+            validate_turn_semantic_event(session_id, turn_id, index, event, api_mode)?;
         }
         let mut record = self
             .get_turn_record(session_id, turn_id)?
             .ok_or_else(|| unknown_turn_error(session_id, turn_id))?;
-        let timestamp = now_thread_timestamp();
-        let mut state = self.ensure_turn_thread(session_id, &timestamp, None)?;
-        let path = PathBuf::from(state.thread_path.clone());
-        self.recorder.validate_thread_path(&path)?;
         let latest_total_tokens = events.iter().rev().find_map(|event| {
             if runtime_event_kind(event) != Some(AgentEventKind::TokenCount) {
                 return None;
@@ -238,27 +247,50 @@ impl WorkerThreadLogRpc {
                 })
                 .and_then(Value::as_i64)
         });
-        let has_response_items = events.iter().any(|event| {
-            event
-                .get("eventName")
-                .and_then(Value::as_str)
-                .is_some_and(|event_name| response_item_from_runtime_event_name(event_name))
-        });
         let mut items = Vec::new();
-        for event in events.iter().cloned() {
-            let response_item = response_item_from_runtime_event(&event)
-                .map(|mut item| {
-                    item["turnId"] = Value::String(
-                        event
-                            .get("turnId")
-                            .and_then(Value::as_str)
-                            .unwrap_or(turn_id)
-                            .to_string(),
+        let mut represented_function_calls = response_function_call_ids(&existing_lines, turn_id);
+        let mut appended_response_items = false;
+        let mut already_represented_events = 0usize;
+        for (index, event) in events.iter().cloned().enumerate() {
+            let response_items = match project_response_items(&event, api_mode) {
+                ProtocolEventProjection::ResponseItems(response_items) => response_items,
+                ProtocolEventProjection::AlreadyRepresented { call_id } => {
+                    if !represented_function_calls.contains(&call_id) {
+                        return Err(unrepresented_responses_tool_call_error(
+                            session_id, turn_id, index, &event, &call_id,
+                        ));
+                    }
+                    already_represented_events = already_represented_events.saturating_add(1);
+                    eprintln!(
+                        "turn_semantic_event_already_represented session_id={} turn_id={} api_mode=responses event_name=agent.tool_call.delta call_id={}",
+                        session_id, turn_id, call_id,
                     );
+                    Vec::new()
+                }
+            };
+            for call_id in response_items.iter().filter_map(response_function_call_id) {
+                represented_function_calls.insert(call_id);
+            }
+            appended_response_items |= !response_items.is_empty();
+            let response_items = response_items
+                .into_iter()
+                .map(|mut item| {
+                    if let Some(object) = item.as_object_mut() {
+                        object.insert(
+                            "turnId".to_string(),
+                            Value::String(
+                                event
+                                    .get("turnId")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or(turn_id)
+                                    .to_string(),
+                            ),
+                        );
+                    }
                     item
                 })
                 .map(|item| super::typed_response_item(item, "agent turn semantic event"))
-                .transpose()?;
+                .collect::<Result<Vec<_>, _>>()?;
             let token_info = (runtime_event_kind(&event) == Some(AgentEventKind::TokenCount))
                 .then(|| {
                     event
@@ -290,7 +322,7 @@ impl WorkerThreadLogRpc {
                     }),
                 ));
             }
-            if let Some(response_item) = response_item {
+            for response_item in response_items {
                 items.push(ThreadLogItem::ResponseItem(response_item));
             }
             if let Some(thread_item) =
@@ -303,6 +335,9 @@ impl WorkerThreadLogRpc {
             }
         }
         if items.is_empty() {
+            if already_represented_events == events.len() {
+                return Ok(record);
+            }
             return Err(invalid_turn_semantic_event_error(
                 "agent turn semantic batch contains no canonical records",
                 session_id,
@@ -319,7 +354,7 @@ impl WorkerThreadLogRpc {
             state.tokens_used = total_tokens;
             state.updated_at = timestamp.clone();
         }
-        if has_response_items {
+        if appended_response_items {
             let replay =
                 super::reconstruction::reconstruct_canonical_rollout(&read_thread_lines(&path)?)?
                     .semantic;
@@ -489,7 +524,7 @@ impl WorkerThreadLogRpc {
         let mut record = self
             .get_turn_record(session_id, turn_id)?
             .unwrap_or_else(|| turn_from_checkpoint(session_id, turn_id, &checkpoint, &timestamp));
-        let mut state = self.ensure_turn_thread(session_id, &timestamp, None)?;
+        let mut state = self.ensure_turn_thread(session_id, &timestamp, None, None)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         self.recorder.append_item(
@@ -566,7 +601,7 @@ impl WorkerThreadLogRpc {
             .get_turn_record(session_id, turn_id)?
             .ok_or_else(|| unknown_turn_error(session_id, turn_id))?;
         let timestamp = now_thread_timestamp();
-        let mut state = self.ensure_turn_thread(session_id, &timestamp, None)?;
+        let mut state = self.ensure_turn_thread(session_id, &timestamp, None, None)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         self.recorder.append_item(
@@ -750,9 +785,26 @@ impl WorkerThreadLogRpc {
         session_id: &str,
         timestamp: &str,
         working_directory: Option<&str>,
+        api_mode: Option<super::SessionApiMode>,
     ) -> Result<super::ThreadStateRecord, WorkerProtocolError> {
         self.ensure_state_index()?;
         if let Some(record) = self.state.find_by_session_or_thread_id(session_id)? {
+            if let Some(api_mode) = api_mode {
+                let path = PathBuf::from(&record.thread_path);
+                self.recorder.validate_thread_path(&path)?;
+                let persisted =
+                    super::thread_meta_from_lines(&read_thread_lines(&path)?)?.effective_api_mode();
+                if persisted != api_mode {
+                    return Err(super::thread_log_consistency_error(
+                        "agent turn API mode does not match its session",
+                        serde_json::json!({
+                            "sessionId": session_id,
+                            "sessionApiMode": persisted,
+                            "turnApiMode": api_mode,
+                        }),
+                    ));
+                }
+            }
             return Ok(record);
         }
         let thread_id = thread_id_for_session_id(session_id);
@@ -764,6 +816,7 @@ impl WorkerThreadLogRpc {
             cwd: String::new(),
             source: "desktop".to_string(),
             model_provider: None,
+            api_mode: Some(api_mode.unwrap_or_default()),
             model: None,
             base_instructions: None,
             memory_snapshot: Some(self.new_thread_memory_snapshot(working_directory)?),
@@ -811,7 +864,7 @@ impl WorkerThreadLogRpc {
             .get_turn_record(session_id, turn_id)?
             .ok_or_else(|| unknown_turn_error(session_id, turn_id))?;
         let timestamp = now_thread_timestamp();
-        let mut state = self.ensure_turn_thread(session_id, &timestamp, None)?;
+        let mut state = self.ensure_turn_thread(session_id, &timestamp, None, None)?;
         let path = PathBuf::from(state.thread_path.clone());
         self.recorder.validate_thread_path(&path)?;
         let lifecycle_kind = if status == AgentTurnStatus::Completed {
@@ -867,138 +920,6 @@ impl WorkerThreadLogRpc {
         state.preview = final_content_preview(&record).unwrap_or(state.preview);
         self.state.upsert_thread_projection(&state, &log_head)?;
         Ok(record)
-    }
-}
-
-fn runtime_event_kind(event: &Value) -> Option<AgentEventKind> {
-    let event_name = event.get("eventName").and_then(Value::as_str)?;
-    match resolve_event_name(event_name) {
-        EventNameResolution::Canonical(kind) => Some(kind),
-        EventNameResolution::DeprecatedIgnored(_) | EventNameResolution::Unknown => None,
-    }
-}
-
-fn response_item_from_runtime_event(event: &Value) -> Option<Value> {
-    let payload = event.get("payload")?;
-    match runtime_event_kind(event)? {
-        AgentEventKind::TurnStarted => {
-            let mut message = payload.get("userMessage")?.clone();
-            let content = message.get("content").cloned().unwrap_or(Value::Null);
-            message["type"] = Value::String("message".to_string());
-            message["role"] = Value::String("user".to_string());
-            message["content"] = canonical_message_content(content, "input_text");
-            if message.get("id").is_none() {
-                message["id"] = message
-                    .get("messageId")
-                    .or_else(|| message.get("message_id"))
-                    .or_else(|| payload.get("userMessageId"))
-                    .cloned()
-                    .unwrap_or(Value::Null);
-            }
-            if message.get("messageId").is_none() {
-                message["messageId"] = message.get("id").cloned().unwrap_or(Value::Null);
-            }
-            Some(message)
-        }
-        AgentEventKind::MessageCompleted => {
-            let content = payload.get("content")?.as_str()?;
-            let message_id = payload.get("messageId").cloned().unwrap_or(Value::Null);
-            Some(serde_json::json!({
-                "type": "message",
-                "id": message_id,
-                "role": "assistant",
-                "content": canonical_message_content(Value::String(content.to_string()), "output_text"),
-                "messageId": message_id,
-                "phase": payload
-                    .get("messagePhase")
-                    .cloned()
-                    .unwrap_or_else(|| Value::String("final_answer".to_string())),
-            }))
-        }
-        AgentEventKind::MessageClassified => {
-            let message_id = payload.get("messageId").cloned().unwrap_or(Value::Null);
-            Some(serde_json::json!({
-                "type": "message",
-                "id": message_id,
-                "role": "assistant",
-                "content": canonical_message_content(
-                    payload.get("content").cloned().unwrap_or(Value::Null),
-                    "output_text",
-                ),
-                "messageId": message_id,
-                "phase": payload
-                    .get("messagePhase")
-                    .cloned()
-                    .unwrap_or_else(|| Value::String("commentary".to_string())),
-            }))
-        }
-        AgentEventKind::ReasoningCompleted => {
-            let summary = payload.get("summary")?.as_str()?;
-            Some(serde_json::json!({
-                "type": "reasoning",
-                "id": payload
-                    .get("reasoningId")
-                    .cloned()
-                    .unwrap_or_else(|| payload.get("modelCallId").cloned().unwrap_or(Value::Null)),
-                "summary": [{
-                    "type": "summary_text",
-                    "text": summary,
-                }],
-                "content": null,
-                "encrypted_content": null,
-                "modelCallId": payload.get("modelCallId").cloned().unwrap_or(Value::Null),
-                "reasoningId": payload.get("reasoningId").cloned().unwrap_or(Value::Null),
-            }))
-        }
-        AgentEventKind::ToolCallDelta => Some(serde_json::json!({
-            "type": "custom_tool_call",
-            "id": payload.get("toolCallId")?.clone(),
-            "call_id": payload.get("toolCallId")?.clone(),
-            "name": payload
-                .get("toolName")
-                .or_else(|| payload.get("name"))?
-                .clone(),
-            "input": payload
-                .get("argumentsDelta")
-                .cloned()
-                .unwrap_or_else(|| serde_json::json!("{}")),
-        })),
-        AgentEventKind::CommandAcknowledged => Some(serde_json::json!({
-            "type": "custom_tool_call",
-            "id": payload.get("commandId")?.clone(),
-            "call_id": payload.get("commandId")?.clone(),
-            "name": payload.get("commandKind")?.clone(),
-            "input": payload.get("target").cloned().unwrap_or_else(|| serde_json::json!({})),
-        })),
-        AgentEventKind::ToolResult => {
-            let call_id = payload.get("toolCallId")?.clone();
-            let item_id = call_id
-                .as_str()
-                .map(|call_id| format!("tool-output:{call_id}"))?;
-            Some(serde_json::json!({
-                "type": "custom_tool_call_output",
-                "id": item_id,
-                "call_id": call_id,
-                "tool_name": payload
-                    .get("toolName")
-                    .or_else(|| payload.get("name"))
-                    .cloned()
-                    .unwrap_or(Value::Null),
-                "status": payload
-                    .get("resultStatus")
-                    .or_else(|| payload.get("result_status"))
-                    .or_else(|| payload.get("envelope").and_then(|envelope| envelope.get("status")))
-                    .cloned()
-                    .unwrap_or(Value::Null),
-                "output": payload
-                    .get("content")
-                    .or_else(|| payload.get("result"))
-                    .or_else(|| payload.get("summary"))
-                    .cloned()
-                    .unwrap_or(Value::Null),
-            }))
-        }
-        _ => None,
     }
 }
 
@@ -1096,21 +1017,6 @@ fn semantic_thread_item_from_runtime_event(
     })
 }
 
-fn canonical_message_content(content: Value, part_type: &str) -> Value {
-    match content {
-        Value::Array(_) => content,
-        Value::String(text) => serde_json::json!([{
-            "type": part_type,
-            "text": text,
-        }]),
-        Value::Null => Value::Array(Vec::new()),
-        value => serde_json::json!([{
-            "type": part_type,
-            "text": value.to_string(),
-        }]),
-    }
-}
-
 pub(crate) fn is_turn_semantic_event(event_name: &str) -> bool {
     match resolve_event_name(event_name) {
         EventNameResolution::Canonical(kind) => {
@@ -1142,11 +1048,58 @@ fn response_item_from_runtime_event_name(event_name: &str) -> bool {
     )
 }
 
+fn response_function_call_ids(lines: &[super::ThreadLogLine], turn_id: &str) -> HashSet<String> {
+    lines
+        .iter()
+        .filter_map(|line| match &line.item {
+            ThreadLogItem::ResponseItem(item)
+                if item.get("turnId").and_then(Value::as_str) == Some(turn_id) =>
+            {
+                response_function_call_id(item.as_value())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn response_function_call_id(item: &Value) -> Option<String> {
+    (item.get("type").and_then(Value::as_str) == Some("function_call"))
+        .then(|| item.get("call_id").and_then(Value::as_str))
+        .flatten()
+        .filter(|call_id| !call_id.trim().is_empty())
+        .map(str::to_string)
+}
+
+fn unrepresented_responses_tool_call_error(
+    session_id: &str,
+    turn_id: &str,
+    index: usize,
+    event: &Value,
+    call_id: &str,
+) -> WorkerProtocolError {
+    WorkerProtocolError::new(
+        WorkerProtocolErrorCode::InvalidProtocol,
+        "Responses tool lifecycle event has no persisted native function_call",
+        serde_json::json!({
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "event_index": index,
+            "event_id": event.get("eventId"),
+            "event_name": event.get("eventName"),
+            "call_id": call_id,
+            "api_mode": "responses",
+        }),
+        false,
+        WorkerProtocolErrorSource::RustCore,
+    )
+}
+
 fn validate_turn_semantic_event(
     session_id: &str,
     turn_id: &str,
     index: usize,
     event: &Value,
+    api_mode: super::SessionApiMode,
 ) -> Result<(), WorkerProtocolError> {
     let event_name = event
         .get("eventName")
@@ -1183,8 +1136,20 @@ fn validate_turn_semantic_event(
             Some(event_name),
         ));
     }
-    let requires_response_item = response_item_from_runtime_event_name(event_name);
-    if requires_response_item && response_item_from_runtime_event(event).is_none() {
+    let requires_response_item = if api_mode == super::SessionApiMode::Responses {
+        matches!(
+            runtime_event_kind(event),
+            Some(
+                AgentEventKind::TurnStarted
+                    | AgentEventKind::MessageClassified
+                    | AgentEventKind::MessageCompleted
+                    | AgentEventKind::ToolResult
+            )
+        )
+    } else {
+        response_item_from_runtime_event_name(event_name)
+    };
+    if requires_response_item && response_items_from_runtime_event(event, api_mode).is_empty() {
         return Err(invalid_turn_semantic_event_error(
             "semantic runtime event cannot be materialized as a typed response item",
             session_id,
@@ -1366,7 +1331,10 @@ fn apply_response_item_to_turns(
     let Some(record) = turns.get_mut(turn_id) else {
         return Ok(());
     };
-    if item.get("type").and_then(Value::as_str) == Some("custom_tool_call_output") {
+    if matches!(
+        item.get("type").and_then(Value::as_str),
+        Some("custom_tool_call_output" | "function_call_output")
+    ) {
         let completed_result = completed_tool_result_from_response_item(item);
         let call_id = completed_result
             .get("toolCallId")

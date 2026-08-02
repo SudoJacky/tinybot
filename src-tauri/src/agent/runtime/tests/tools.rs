@@ -271,6 +271,7 @@ fn feeds_tool_observation_back_into_second_provider_call() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "call-read".to_string(),
                         name: "workspace.read_file".to_string(),
@@ -283,6 +284,7 @@ fn feeds_tool_observation_back_into_second_provider_call() {
                     final_content: "I read README body.".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 })
             }
@@ -352,6 +354,7 @@ fn selected_deferred_tool_calls_are_permitted_by_runtime_dispatch() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "call-test-lookup".to_string(),
                         name: "test.lookup".to_string(),
@@ -364,6 +367,7 @@ fn selected_deferred_tool_calls_are_permitted_by_runtime_dispatch() {
                 final_content: "lookup complete".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -418,6 +422,7 @@ fn tool_runtime_dispatches_through_async_dispatch_seam() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "call-async-dispatch".to_string(),
                         name: "workspace.read_file".to_string(),
@@ -430,6 +435,7 @@ fn tool_runtime_dispatches_through_async_dispatch_seam() {
                 final_content: "async dispatch complete".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -618,6 +624,7 @@ fn read_only_tool_batch_runs_concurrently_and_preserves_model_ordered_observatio
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![
                         NativeAgentToolCall {
                             id: "call-read-first".to_string(),
@@ -638,6 +645,7 @@ fn read_only_tool_batch_runs_concurrently_and_preserves_model_ordered_observatio
                 final_content: "parallel tools complete".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -738,6 +746,7 @@ fn mcp_call_scheduling_uses_registry_runtime_policy() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![
                         NativeAgentToolCall {
                             id: "call-mcp-read-one".to_string(),
@@ -762,6 +771,7 @@ fn mcp_call_scheduling_uses_registry_runtime_policy() {
                 final_content: "mcp reads complete".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -867,6 +877,7 @@ fn shell_read_only_allowlist_uses_read_lock_only_when_explicitly_enabled() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![
                         NativeAgentToolCall {
                             id: "call-shell-status".to_string(),
@@ -887,6 +898,7 @@ fn shell_read_only_allowlist_uses_read_lock_only_when_explicitly_enabled() {
                 final_content: "shell reads complete".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -989,6 +1001,7 @@ fn parallel_tool_failures_are_returned_to_the_model_in_call_order() {
                     final_content: "handled both tool errors".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 });
             }
@@ -996,6 +1009,7 @@ fn parallel_tool_failures_are_returned_to_the_model_in_call_order() {
                 final_content: String::new(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: vec![
                     NativeAgentToolCall {
                         id: "call-first-fails".to_string(),
@@ -1107,6 +1121,7 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![
                         NativeAgentToolCall {
                             id: "call-read-one".to_string(),
@@ -1139,6 +1154,7 @@ fn mixed_parallel_and_non_parallel_tool_batch_uses_read_write_lock_scheduling() 
                 final_content: "mixed tools complete".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -1355,6 +1371,7 @@ fn cancellation_before_queued_write_lock_dispatch_skips_waiting_tool() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![
                         NativeAgentToolCall {
                             id: "call-read-cancels".to_string(),
@@ -1375,6 +1392,7 @@ fn cancellation_before_queued_write_lock_dispatch_skips_waiting_tool() {
                 final_content: "unreachable after cancellation".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -1471,6 +1489,7 @@ fn returned_failure_before_queued_write_does_not_skip_waiting_tool() {
                     final_content: "handled write failure".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 });
             }
@@ -1478,6 +1497,7 @@ fn returned_failure_before_queued_write_does_not_skip_waiting_tool() {
                 final_content: String::new(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: vec![
                     NativeAgentToolCall {
                         id: "call-first-write-fails".to_string(),
@@ -1568,6 +1588,7 @@ fn cancellation_during_non_cleanup_parallel_tool_returns_without_waiting_for_lat
                 final_content: String::new(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: vec![
                     NativeAgentToolCall {
                         id: "call-slow-read-one".to_string(),
@@ -1707,6 +1728,7 @@ fn provider_error_after_tool_result_preserves_accumulated_tool_state() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "call-before-provider-error".to_string(),
                         name: "workspace.read_file".to_string(),
@@ -2026,6 +2048,7 @@ fn private_user_subagent_input_is_not_added_to_main_model_context() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "call-private-spawn".to_string(),
                         name: "subagent.spawn".to_string(),
@@ -2040,6 +2063,7 @@ fn private_user_subagent_input_is_not_added_to_main_model_context() {
                     final_content: "Main thread finished.".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 })
             }
@@ -2287,6 +2311,7 @@ fn later_tool_error_and_earlier_success_are_both_returned_to_the_model() {
                     final_content: "handled mixed tool results".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 });
             }
@@ -2294,6 +2319,7 @@ fn later_tool_error_and_earlier_success_are_both_returned_to_the_model() {
                 final_content: "".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: vec![
                     NativeAgentToolCall {
                         id: "call-first-ok".to_string(),
@@ -2399,6 +2425,7 @@ fn single_tool_dispatch_error_is_returned_to_the_model() {
                     final_content: "single tool error handled".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 });
             }
@@ -2406,6 +2433,7 @@ fn single_tool_dispatch_error_is_returned_to_the_model() {
                 final_content: String::new(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: vec![NativeAgentToolCall {
                     id: "call-single-fails".to_string(),
                     name: "workspace.read_file".to_string(),
@@ -2645,6 +2673,7 @@ fn tool_task_panic_remains_terminal() {
                 final_content: String::new(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: vec![NativeAgentToolCall {
                     id: "call-panics".to_string(),
                     name: "workspace.read_file".to_string(),
@@ -2711,6 +2740,7 @@ fn cancellation_before_tool_dispatch_stops_without_dispatching_tool() {
                 final_content: "needs cancelled tool".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: vec![NativeAgentToolCall {
                     id: "call-cancel-before-tool".to_string(),
                     name: "workspace.read_file".to_string(),
@@ -2832,6 +2862,7 @@ fn cancellation_context_is_available_to_provider_and_tool_dispatch() {
                 final_content: "dispatch cancellable tool".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: vec![NativeAgentToolCall {
                     id: "call-cancellable-tool".to_string(),
                     name: "workspace.read_file".to_string(),
@@ -2928,6 +2959,7 @@ fn cancellation_after_tool_result_preserves_completed_tool_state() {
                 final_content: "needs one tool".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: vec![NativeAgentToolCall {
                     id: "call-cancel-after-result".to_string(),
                     name: "workspace.read_file".to_string(),
@@ -3046,6 +3078,7 @@ fn malformed_tool_arguments_fail_before_dispatch() {
                 final_content: String::new(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: vec![NativeAgentToolCall {
                     id: "call-invalid-json".to_string(),
                     name: "workspace.read_file".to_string(),

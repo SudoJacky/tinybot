@@ -163,6 +163,139 @@ fn agent_defaults_apply_temperature_and_max_tokens_to_provider_requests() {
 }
 
 #[test]
+fn builds_internal_responses_api_request_without_changing_chat_defaults() {
+    let context = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({
+            "agents": {
+                "defaults": {
+                    "provider": "openai",
+                    "model": "gpt-test",
+                    "maxTokens": 512
+                }
+            },
+            "providers": {
+                "openai": {
+                    "api_key": "sk-test",
+                    "api_mode": "responses"
+                }
+            }
+        }),
+    );
+
+    let responses_request =
+        agent_responses_request(&context).expect("Responses request should build");
+    let chat_request =
+        agent_chat_completion_request(&context).expect("Chat request should still build");
+
+    assert_eq!(responses_request["input"][0]["role"], "user");
+    assert_eq!(responses_request["store"], false);
+    assert_eq!(responses_request["max_output_tokens"], 512);
+    assert!(responses_request.get("messages").is_none());
+    assert!(chat_request.get("messages").is_some());
+    assert!(chat_request.get("input").is_none());
+}
+
+#[test]
+fn responses_request_replays_native_items_and_keeps_repeated_user_turns() {
+    let context = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "apiMode": "responses",
+            "responseItems": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{ "type": "input_text", "text": "first" }],
+                    "messageId": "internal-user-id",
+                    "turnId": "turn-1"
+                },
+                {
+                    "type": "reasoning",
+                    "id": "reasoning-1",
+                    "summary": [],
+                    "encrypted_content": "opaque",
+                    "turnId": "turn-1"
+                },
+                {
+                    "type": "message",
+                    "id": "message-1",
+                    "role": "assistant",
+                    "phase": "final_answer",
+                    "status": "completed",
+                    "content": [{ "type": "output_text", "text": "answer" }],
+                    "turnId": "turn-1"
+                }
+            ],
+            "messages": [
+                { "role": "user", "content": "first" },
+                { "role": "assistant", "content": "answer" },
+                {
+                    "role": "user",
+                    "content": "first",
+                    "references": [{ "type": "tinyos.browser", "title": "Example" }]
+                }
+            ]
+        }),
+        json!({
+            "agents": { "defaults": { "provider": "openai", "model": "gpt-test" } },
+            "providers": { "openai": { "api_key": "sk-test", "api_mode": "chat_completions" } }
+        }),
+    );
+
+    let request = agent_responses_request(&context).expect("native response history should replay");
+    let input = request["input"].as_array().unwrap();
+
+    assert_eq!(input.len(), 4);
+    assert_eq!(input[1]["encrypted_content"], "opaque");
+    assert_eq!(input[2]["phase"], "final_answer");
+    assert_eq!(input[3]["role"], "user");
+    assert!(input[3]["content"]
+        .as_str()
+        .is_some_and(|content| content.starts_with("first\n\n[TinyOS attached evidence]")));
+    assert!(input[3].get("references").is_none());
+    assert_eq!(
+        input
+            .iter()
+            .filter(|item| item.get("role").and_then(Value::as_str) == Some("user"))
+            .count(),
+        2
+    );
+    assert!(input[0].get("messageId").is_none());
+    assert!(input[1].get("turnId").is_none());
+}
+
+#[test]
+fn rust_provider_selects_responses_adapter_only_for_internal_api_mode() {
+    let context = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "provider": "fixture",
+            "model": "fixture-model",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({
+            "providers": {
+                "fixture": {
+                    "api_mode": "responses",
+                    "responses": [{ "content": "Responses answer" }]
+                }
+            }
+        }),
+    );
+
+    let response = RustNativeAgentProvider
+        .complete(&context)
+        .expect("fixture Responses turn should complete");
+
+    assert_eq!(response.final_content, "Responses answer");
+    assert!(!response.response_items.is_empty());
+}
+
+#[test]
 fn defaults_native_agent_turns_to_the_desktop_iteration_limit() {
     let context = AgentTurnContext::from_spec(json!({}), json!({}));
 
@@ -200,6 +333,7 @@ fn composed_workspace_instructions_reach_provider_and_reload_user_edits() {
                 final_content: "done".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -500,6 +634,7 @@ fn tool_search_activates_dispatches_and_expires_a_deferred_tool() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "tool-search-1".to_string(),
                         name: "tool_search".to_string(),
@@ -511,6 +646,7 @@ fn tool_search_activates_dispatches_and_expires_a_deferred_tool() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "deferred-echo-1".to_string(),
                         name: "test.deferred_echo".to_string(),
@@ -522,6 +658,7 @@ fn tool_search_activates_dispatches_and_expires_a_deferred_tool() {
                     final_content: "search complete".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 }),
             }

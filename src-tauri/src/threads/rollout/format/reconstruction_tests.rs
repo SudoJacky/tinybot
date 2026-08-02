@@ -1,4 +1,5 @@
 use super::*;
+use crate::threads::rollout::format::SessionApiMode;
 use crate::threads::rollout::store::{ThreadLogItem, ThreadLogLine, ThreadMeta};
 use serde_json::json;
 
@@ -40,6 +41,43 @@ fn replay_projects_messages_and_latest_token_count() {
             .total_tokens,
         200
     );
+}
+
+#[test]
+fn replay_keeps_native_response_items_separate_from_message_projection() {
+    let mut meta = meta_line(
+        "thread-responses",
+        Some("session-responses"),
+        "2026-07-08T10:00:00Z",
+    );
+    let ThreadLogItem::SessionMeta(session_meta) = &mut meta.item else {
+        unreachable!();
+    };
+    session_meta.api_mode = Some(SessionApiMode::Responses);
+    let reasoning = json!({
+        "type": "reasoning",
+        "id": "reasoning-1",
+        "summary": [],
+        "encrypted_content": "opaque"
+    });
+    let message = json!({
+        "type": "message",
+        "id": "message-1",
+        "role": "assistant",
+        "phase": "final_answer",
+        "content": [{ "type": "output_text", "text": "done" }]
+    });
+    let replay = reconstruct_rollout(&[
+        meta,
+        response_line("2026-07-08T10:01:00Z", reasoning.clone()),
+        response_line("2026-07-08T10:02:00Z", message.clone()),
+    ])
+    .unwrap();
+
+    assert_eq!(replay.api_mode, SessionApiMode::Responses);
+    assert_eq!(replay.response_items, vec![reasoning, message]);
+    assert_eq!(replay.messages.len(), 1);
+    assert_eq!(replay.messages[0]["content"], "done");
 }
 
 #[test]
@@ -473,6 +511,7 @@ fn meta_line(thread_id: &str, session_id: Option<&str>, timestamp: &str) -> Thre
             cwd: String::new(),
             source: "desktop".to_string(),
             model_provider: Some("deepseek".to_string()),
+            api_mode: None,
             model: Some("deepseek-v4-pro".to_string()),
             base_instructions: None,
             memory_snapshot: None,

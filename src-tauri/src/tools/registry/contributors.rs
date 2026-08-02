@@ -153,18 +153,21 @@ pub(super) fn workspace_tool_entries() -> Vec<ToolRegistryEntry> {
             "workspace.apply_patch",
             "workspace",
             "Apply workspace patch",
-            "Apply a strict multi-file patch under the current workspace. Patch context must match exactly.",
+            "Apply a structured multi-file patch under the current workspace. Patch context must match uniquely.",
             ToolExposure::Hidden,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
-            vec![WorkerCapability::FsWorkspaceWrite],
+            vec![
+                WorkerCapability::FsWorkspaceRead,
+                WorkerCapability::FsWorkspaceWrite,
+            ],
             json!({
                 "type": "object",
                 "required": ["patch"],
                 "properties": {
                     "patch": {
                         "type": "string",
-                        "description": "Strict patch text delimited by *** Begin Patch and *** End Patch."
+                        "description": "Structured patch text delimited by *** Begin Patch and *** End Patch."
                     }
                 },
                 "additionalProperties": false
@@ -175,18 +178,21 @@ pub(super) fn workspace_tool_entries() -> Vec<ToolRegistryEntry> {
             "workspace.apply_patch",
             "workspace",
             "Apply workspace patch",
-            "Apply a strict multi-file patch under the current workspace. Patch context must match exactly.",
+            "Apply a structured multi-file patch under the current workspace. Patch context must match uniquely.",
             ToolExposure::Model,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
-            vec![WorkerCapability::FsWorkspaceWrite],
+            vec![
+                WorkerCapability::FsWorkspaceRead,
+                WorkerCapability::FsWorkspaceWrite,
+            ],
             json!({
                 "type": "object",
                 "required": ["patch"],
                 "properties": {
                     "patch": {
                         "type": "string",
-                        "description": "Strict patch text delimited by *** Begin Patch and *** End Patch."
+                        "description": "Structured patch text delimited by *** Begin Patch and *** End Patch."
                     }
                 },
                 "additionalProperties": false

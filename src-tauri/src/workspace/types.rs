@@ -134,7 +134,11 @@ pub struct WorkspacePatchApplyResult {
 pub struct WorkspacePatchFileChange {
     pub path: String,
     pub operation: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub move_path: Option<String>,
     pub hunks: Vec<WorkspacePatchHunkSummary>,
+    pub delta: Vec<WorkspacePatchHunkDelta>,
+    pub delta_truncated: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -142,6 +146,14 @@ pub struct WorkspacePatchHunkSummary {
     pub index: usize,
     pub removed_lines: usize,
     pub added_lines: usize,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+pub struct WorkspacePatchHunkDelta {
+    pub old_start: usize,
+    pub new_start: usize,
+    pub old_lines: Vec<String>,
+    pub new_lines: Vec<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]

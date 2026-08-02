@@ -36,6 +36,41 @@ pub struct NativeProviderProfile {
     pub capabilities: Value,
     pub request_timeout_ms: u64,
     pub stream_idle_timeout_ms: u64,
+    pub api_mode: String,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NativeProviderApiMode {
+    ChatCompletions,
+    Responses,
+}
+
+impl NativeProviderProfile {
+    pub fn parsed_api_mode(&self) -> Result<NativeProviderApiMode, String> {
+        NativeProviderApiMode::parse(&self.api_mode).map_err(|unsupported| {
+            format!(
+                "provider `{}` has unsupported api_mode `{unsupported}`",
+                self.provider_id
+            )
+        })
+    }
+}
+
+impl NativeProviderApiMode {
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "chat" | "chat_completions" | "chat-completions" => Ok(Self::ChatCompletions),
+            "responses" => Ok(Self::Responses),
+            unsupported => Err(unsupported.to_string()),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ChatCompletions => "chat_completions",
+            Self::Responses => "responses",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
@@ -504,6 +539,10 @@ pub fn resolve_provider_profile(
             }),
         request_timeout_ms,
         stream_idle_timeout_ms,
+        api_mode: string_field(provider_config.unwrap_or(&Value::Null), "api_mode")
+            .or_else(|| string_field(provider_config.unwrap_or(&Value::Null), "apiMode"))
+            .unwrap_or_else(|| "chat_completions".to_string())
+            .to_ascii_lowercase(),
     })
 }
 

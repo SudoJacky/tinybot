@@ -1,6 +1,7 @@
 use super::checkpoint::save_phase_checkpoint;
 use super::continuations::restore_activated_tools_for_continuation;
 use super::hooks::AgentHookEvaluation;
+use super::provider_protocol::ProviderProtocolAdapter;
 use super::result::{cancelled_result, cancelled_turn_result, error_result};
 use super::state::AgentTurnState;
 use super::tool_runtime::{execute_tool_calls_for_iteration, NativeAgentToolExecutionOutcome};
@@ -564,13 +565,19 @@ impl<'a> NativeAgentTurnExecution<'a> {
             AgentEventKind::TurnStarted.wire_name(),
         )?;
         let start_iteration = match continuation_resume {
-            Some(resume) => resume.apply(&context, &mut state),
+            Some(resume) => {
+                let iteration = resume.apply(&context, &mut state)?;
+                if let Some(result) = state.completed_tool_results.last() {
+                    append_response_tool_outputs(&mut context, std::slice::from_ref(result))?;
+                }
+                iteration
+            }
             None => {
                 state.emit_turn_started(&context)?;
                 state.emit_tinyos_command_acknowledgement(&context)?;
-                Ok(0)
+                0
             }
-        }?;
+        };
         let turn_start_invocation = AgentHookInvocation::lifecycle(
             AgentHookStage::TurnStart,
             context.trace_context.clone(),
@@ -660,6 +667,8 @@ impl<'a> NativeAgentTurnExecution<'a> {
             }
         };
         if let Some(action) = projection.action.as_ref() {
+            provider_protocol(&self.context)?
+                .reset_replay_after_context_projection(&mut self.context)?;
             let mut payload = context_window_action_payload(&self.context, iteration, action);
             if let Some(tokens) = payload.get("estimatedTokensBefore").and_then(Value::as_i64) {
                 self.context
@@ -889,6 +898,15 @@ impl<'a> NativeAgentTurnExecution<'a> {
             ));
         }
 
+        let response_protocol = if completed.response.response_items.is_empty() {
+            provider_protocol(&self.context)?
+        } else {
+            ProviderProtocolAdapter::Responses
+        };
+        response_protocol.record_provider_response_items(
+            &mut self.context,
+            &completed.response.response_items,
+        )?;
         self.project_provider_fallbacks(&mut completed)?;
         if completed.response.tool_calls.is_empty() {
             Ok(IterationOutcome::Finished(
@@ -963,7 +981,10 @@ impl<'a> NativeAgentTurnExecution<'a> {
         completed: CompletedProviderIteration,
     ) -> Result<IterationOutcome, String> {
         let CompletedProviderIteration { response, attempt } = completed;
-        if attempt.stream.streamed_content || !response.final_content.is_empty() {
+        if attempt.stream.streamed_content
+            || !response.final_content.is_empty()
+            || !response.response_items.is_empty()
+        {
             self.state.emit(ModelOutputEvent::MessageClassified(
                 serde_json::json!({
                     "iteration": attempt.iteration,
@@ -976,9 +997,11 @@ impl<'a> NativeAgentTurnExecution<'a> {
                         "completion_fallback"
                     },
                     "content": response.final_content,
+                    "responseItems": response.response_items,
                 }),
             ))?;
         }
+        let completed_result_count = self.state.completed_tool_results.len();
         let outcome = execute_tool_calls_for_iteration(
             self.dependencies,
             &mut self.context,
@@ -992,6 +1015,10 @@ impl<'a> NativeAgentTurnExecution<'a> {
             self.state.attach_context_checkpoint(&mut result, None);
             return Ok(IterationOutcome::Finished(result));
         }
+        append_response_tool_outputs(
+            &mut self.context,
+            &self.state.completed_tool_results[completed_result_count..],
+        )?;
 
         if let Some(message) = self.state.drain_pending_guidance()? {
             self.state.emit(PendingAgentEvent::new(
@@ -1045,6 +1072,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                     "completion_fallback"
                 },
                 "content": final_content.clone(),
+                "responseItems": response.response_items,
             }),
         ))?;
         self.state.set_stop_reason(
@@ -1198,6 +1226,17 @@ async fn honor_pause_request(
         }),
     ))?;
     Ok(())
+}
+
+fn append_response_tool_outputs(
+    context: &mut AgentTurnContext,
+    results: &[Value],
+) -> Result<(), String> {
+    provider_protocol(context)?.record_tool_outputs(context, results)
+}
+
+fn provider_protocol(context: &AgentTurnContext) -> Result<ProviderProtocolAdapter, String> {
+    ProviderProtocolAdapter::from_runtime_context(context)
 }
 
 fn turn_context_is_cancelled(context: &AgentTurnContext) -> bool {

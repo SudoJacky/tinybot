@@ -481,7 +481,13 @@ fn trace_projection_combines_tool_lifecycle_into_one_item() {
                 "envelope": {
                     "status": "ok",
                     "summary": "read README",
-                    "metrics": { "durationMs": 42 }
+                    "metrics": { "durationMs": 42 },
+                    "raw": {
+                        "result": {
+                            "path": "README.md",
+                            "contents": "read README"
+                        }
+                    }
                 }
             }),
         ),
@@ -498,6 +504,15 @@ fn trace_projection_combines_tool_lifecycle_into_one_item() {
     assert_eq!(items[0].payload["status"], "completed");
     assert_eq!(items[0].payload["resultStatus"], "ok");
     assert_eq!(items[0].payload["summary"], "read README");
+    assert_eq!(
+        items[0].payload["result"],
+        json!({
+            "result": {
+                "path": "README.md",
+                "contents": "read README"
+            }
+        })
+    );
     assert_eq!(items[0].payload["detailId"], "tool:call-1");
     assert_eq!(
         items[0].payload["timing"],
@@ -919,7 +934,7 @@ fn canonical_user_item_preserves_tinyos_references() {
 }
 
 #[test]
-fn canonical_timeline_preserves_interleaved_model_calls_and_message_phases() {
+fn canonical_timeline_preserves_interleaved_messages_tools_and_phases() {
     let events = vec![
         runtime_event(
             "turn-interleaved",
@@ -1012,16 +1027,14 @@ fn canonical_timeline_preserves_interleaved_model_calls_and_message_phases() {
             .map(|item| (&item.kind, item.sequence))
             .collect::<Vec<_>>(),
         vec![
-            (&AgentTurnItemKind::Reasoning, 1),
             (&AgentTurnItemKind::AssistantMessage, 2),
             (&AgentTurnItemKind::ToolCall, 4),
             (&AgentTurnItemKind::PlanProgress, 6),
-            (&AgentTurnItemKind::Reasoning, 7),
             (&AgentTurnItemKind::AssistantMessage, 8),
         ]
     );
     assert!(matches!(
-        &snapshot.items[1].data,
+        &snapshot.items[0].data,
         AgentTurnItemData::AssistantMessage {
             model_call_id,
             phase: AgentAssistantMessagePhase::Commentary,
@@ -1030,7 +1043,7 @@ fn canonical_timeline_preserves_interleaved_model_calls_and_message_phases() {
         } if model_call_id == "call-0" && content == "I will inspect the workspace."
     ));
     assert!(matches!(
-        &snapshot.items[5].data,
+        &snapshot.items[3].data,
         AgentTurnItemData::AssistantMessage {
             model_call_id,
             phase: AgentAssistantMessagePhase::FinalAnswer,
@@ -1247,7 +1260,7 @@ fn incremental_timeline_projector_matches_full_projection_at_every_event() {
 }
 
 #[test]
-fn live_deltas_do_not_advance_durable_timeline_revision() {
+fn hidden_reasoning_and_live_deltas_do_not_advance_durable_timeline_revision() {
     let events = vec![
         runtime_event(
             "turn-durable-revision",
@@ -1290,17 +1303,16 @@ fn live_deltas_do_not_advance_durable_timeline_revision() {
                 .apply_event(event)
                 .unwrap()
                 .map(|patch| patch.snapshot_revision)
-                .unwrap()
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(revisions, vec![0, 1, 1, 2]);
-    assert_eq!(projector.snapshot().unwrap().snapshot_revision, 2);
+    assert_eq!(revisions, vec![None, None, Some(0), Some(1)]);
+    assert_eq!(projector.snapshot().unwrap().snapshot_revision, 1);
     assert_eq!(
         project_timeline_snapshot("session-1", "turn-durable-revision", &events)
             .unwrap()
             .snapshot_revision,
-        2
+        1
     );
 }
 

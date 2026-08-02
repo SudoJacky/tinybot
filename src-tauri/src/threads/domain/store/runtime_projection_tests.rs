@@ -1,5 +1,7 @@
 use super::{runtime_events_from_thread_items, turn_items_from_thread_items};
-use crate::agent::runtime_protocol::{AgentTurnItemData, AgentTurnItemKind};
+use crate::agent::runtime_protocol::{
+    AgentRuntimeEventVisibility, AgentTurnItemData, AgentTurnItemKind,
+};
 use crate::threads::domain::types::{ThreadItem, ThreadItemKind};
 use serde_json::json;
 
@@ -61,6 +63,10 @@ fn slim_tool_output_replays_through_the_tool_call_item() {
                 "id": "tool-output:call-1",
                 "call_id": "call-1",
                 "output": "README contents",
+                "tinybot_result": {
+                    "path": "README.md",
+                    "contents": "README contents"
+                },
             })),
         ),
     ];
@@ -70,23 +76,98 @@ fn slim_tool_output_replays_through_the_tool_call_item() {
         events[1].payload,
         json!({
             "toolCallId": "call-1",
-            "content": "README contents",
+            "result": {
+                "path": "README.md",
+                "contents": "README contents"
+            },
         })
     );
 
     let projected = turn_items_from_thread_items(&items, "thread-1", "turn-1");
     assert_eq!(projected.len(), 1);
+    assert_eq!(projected[0].summary, None);
     assert!(matches!(
         &projected[0].data,
         AgentTurnItemData::ToolCall { name, args, result, .. }
             if name == "workspace.read_file"
                 && args == "{\"path\":\"README.md\"}"
-                && result == "README contents"
+                && result == &json!({
+                    "path": "README.md",
+                    "contents": "README contents"
+                })
     ));
 }
 
 #[test]
-fn typed_completed_records_replay_without_stream_deltas() {
+fn responses_raw_reasoning_stays_hidden_and_tool_output_gets_a_display_summary() {
+    let item = |item_id: &str, sequence: u64, kind: ThreadItemKind| ThreadItem {
+        item_id: item_id.to_string(),
+        thread_id: "thread-1".to_string(),
+        turn_id: "turn-1".to_string(),
+        parent_item_id: None,
+        sequence,
+        created_at: sequence.to_string(),
+        kind,
+    };
+    let items = vec![
+        item(
+            "reasoning-1",
+            1,
+            ThreadItemKind::Reasoning(json!({
+                "type": "reasoning",
+                "id": "reasoning-1",
+                "summary": [],
+                "content": [{
+                    "type": "reasoning_text",
+                    "text": "Private provider chain of thought.",
+                }],
+            })),
+        ),
+        item(
+            "tool-call-1",
+            2,
+            ThreadItemKind::ToolCallStarted(json!({
+                "type": "function_call",
+                "id": "tool-call-1",
+                "call_id": "call-1",
+                "name": "exec_command",
+                "arguments": "{\"command\":\"dir /b\"}",
+            })),
+        ),
+        item(
+            "tool-output-1",
+            3,
+            ThreadItemKind::ToolCallOutput(json!({
+                "type": "function_call_output",
+                "call_id": "call-1",
+                "output": "{\"chunks\":[{\"content\":\"reply.json\",\"sequence\":1,\"stream\":\"stdout\"}],\"output\":\"reply.json\\r\\n\",\"stdout\":\"reply.json\\r\\n\",\"stderr\":\"\",\"exitCode\":0}",
+            })),
+        ),
+    ];
+
+    let events = runtime_events_from_thread_items(&items, "thread-1", "turn-1");
+    let reasoning = events
+        .iter()
+        .find(|event| event.event_name == "agent.reasoning.completed")
+        .expect("reasoning remains available in the runtime trace");
+    assert_eq!(reasoning.visibility, AgentRuntimeEventVisibility::Debug);
+    assert_eq!(reasoning.payload["summary"], "");
+
+    let projected = turn_items_from_thread_items(&items, "thread-1", "turn-1");
+    assert_eq!(projected.len(), 1);
+    assert_eq!(projected[0].kind, AgentTurnItemKind::ToolCall);
+    assert_eq!(projected[0].summary.as_deref(), Some("reply.json"));
+    assert!(matches!(
+        &projected[0].data,
+        AgentTurnItemData::ToolCall { name, result, .. }
+            if name == "exec_command"
+                && result["stdout"] == "reply.json\r\n"
+                && result["exitCode"] == 0
+    ));
+}
+
+#[test]
+fn typed_completed_records_replay_without_stream_deltas_or_user_reasoning() {
     let persisted_item = |item_id: &str, sequence: u64, kind: ThreadItemKind| ThreadItem {
         item_id: item_id.to_string(),
         thread_id: "thread-1".to_string(),
@@ -128,14 +209,9 @@ fn typed_completed_records_replay_without_stream_deltas() {
     )));
     let projected = turn_items_from_thread_items(&items, "thread-1", "turn-1");
 
-    assert_eq!(projected.len(), 2);
+    assert_eq!(projected.len(), 1);
     assert!(matches!(
         &projected[0],
-        item if item.kind == AgentTurnItemKind::Reasoning
-            && matches!(&item.data, AgentTurnItemData::Reasoning { summary, .. } if summary == "Inspect first.")
-    ));
-    assert!(matches!(
-        &projected[1],
         item if item.kind == AgentTurnItemKind::AssistantMessage
             && matches!(&item.data, AgentTurnItemData::AssistantMessage { content, .. } if content == "Hello world.")
     ));

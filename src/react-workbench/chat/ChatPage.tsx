@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent } from "react";
 import {
+  Activity,
   AlertTriangle,
   Check,
   ChevronDown,
@@ -54,6 +55,8 @@ import { canBranchFromMessage, canCopyMessage, type ContextReferenceSummary, typ
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { AgentUiFormCard } from "./AgentUiFormCard";
 import { AssistantMarkdown } from "./AssistantMarkdown";
+import { isApplyPatchToolCall, PatchDiffCard, patchChangeSetFromToolResult } from "./PatchDiffCard";
+import { ToolActivityItem } from "./ToolActivityItem";
 import { clampTinyOsWidth, LiveCanvas, type LiveCanvasEntry, type LiveCanvasMode } from "./LiveCanvas";
 import { SessionTabStrip, type SessionTabItem } from "./SessionTabStrip";
 import {
@@ -2880,9 +2883,9 @@ function ExecutionTimeline({
           });
         }}
       >
-        <span className="react-execution-timeline__status"><AgentStepIcon status={abnormal ? "error" : hasFinalAnswer ? "success" : "active"} /></span>
+        <span className="react-execution-timeline__status"><Activity aria-hidden="true" size={17} /></span>
         <span className="react-execution-timeline__heading">
-          <strong>Execution details</strong>
+          <strong>Work performed</strong>
           <small aria-live="polite">{summary}</small>
         </span>
         <ChevronDown aria-hidden="true" className="react-execution-timeline__chevron" size={18} />
@@ -2931,7 +2934,7 @@ function executionTimelineSummary(turn: ChatTurn, items: ChatStep[], abnormal: b
   const durationMs = turn.completedAt
     ? Math.max(0, Date.parse(turn.completedAt) - Date.parse(turn.startedAt))
     : undefined;
-  const parts = [executionStatusLabel(turn.status), `${items.length} ${items.length === 1 ? "item" : "items"}`];
+  const parts = [executionStatusLabel(turn.status), `${items.length} ${items.length === 1 ? "action" : "actions"}`];
   if (plan) {
     parts.push(`plan ${plan.completed}/${plan.total}`);
   }
@@ -3040,7 +3043,25 @@ function CanonicalChatStep({
     );
   }
   if (step.kind === "tool_call" && step.toolCall) {
-    return <AgentSteps flat onOpenTool={onOpenLiveCanvas ? () => onOpenLiveCanvas(step) : onOpenTool} toolCalls={[toolCallSummaryFromStep(step, step.toolCall)]} />;
+    if (isApplyPatchToolCall(step.toolCall) && patchChangeSetFromToolResult(step.toolCall.resultJson)?.files.length) {
+      return (
+        <PatchDiffCard
+          status={step.status}
+          toolCall={step.toolCall}
+          onOpenDetails={() => onOpenTool(toolCallSummaryFromStep(step, step.toolCall!))}
+        />
+      );
+    }
+    return (
+      <ToolActivityItem
+        fallbackSummary={step.summary}
+        status={step.status}
+        toolCall={step.toolCall}
+        onOpenDetails={onOpenLiveCanvas
+          ? () => onOpenLiveCanvas(step)
+          : () => onOpenTool(toolCallSummaryFromStep(step, step.toolCall!))}
+      />
+    );
   }
   if (step.kind === "form" && step.form) {
     const values = canonicalFormEntries(step.form.values);

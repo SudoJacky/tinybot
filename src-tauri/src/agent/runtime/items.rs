@@ -452,7 +452,7 @@ impl AgentItem {
         }
     }
 
-    fn kind(&self) -> &'static str {
+    pub(super) fn kind(&self) -> &'static str {
         match self {
             Self::Instruction(_) => "instruction",
             Self::UserMessage(_) => "user_message",
@@ -569,10 +569,23 @@ impl AgentUsageItem {
             .ok_or_else(|| "provider usage must be an object".to_string())?;
         Ok(Self {
             id: None,
-            input_tokens: optional_usage_number(object, &["prompt_tokens", "promptTokens"])?,
+            input_tokens: optional_usage_number(
+                object,
+                &[
+                    "prompt_tokens",
+                    "promptTokens",
+                    "input_tokens",
+                    "inputTokens",
+                ],
+            )?,
             output_tokens: optional_usage_number(
                 object,
-                &["completion_tokens", "completionTokens"],
+                &[
+                    "completion_tokens",
+                    "completionTokens",
+                    "output_tokens",
+                    "outputTokens",
+                ],
             )?,
             total_tokens: optional_usage_number(object, &["total_tokens", "totalTokens"])?,
             provider_payload,
@@ -754,5 +767,19 @@ mod tests {
         .expect("provider tool call should parse");
 
         assert_eq!(call.arguments_json, arguments_json);
+    }
+
+    #[test]
+    fn provider_usage_accepts_responses_token_names() {
+        let usage = AgentUsageItem::from_provider_payload(serde_json::json!({
+            "input_tokens": 7,
+            "output_tokens": 5,
+            "total_tokens": 12
+        }))
+        .expect("Responses usage should parse");
+
+        assert_eq!(usage.input_tokens, Some(7));
+        assert_eq!(usage.output_tokens, Some(5));
+        assert_eq!(usage.total_tokens, Some(12));
     }
 }

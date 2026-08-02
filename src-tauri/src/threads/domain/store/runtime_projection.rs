@@ -35,13 +35,18 @@ fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(AgentEventKind,
                 "argumentsDelta": value.get("input").or_else(|| value.get("arguments")).cloned().unwrap_or_else(|| serde_json::json!({})),
             }),
         )),
-        ThreadItemKind::ToolCallOutput(value) => Some((
-            AgentEventKind::ToolResult,
-            serde_json::json!({
+        ThreadItemKind::ToolCallOutput(value) => {
+            let result = normalized_response_tool_output(value);
+            let summary = response_tool_output_summary(&result);
+            let mut payload = serde_json::json!({
                 "toolCallId": semantic_item_id(item),
-                "content": value.get("output").cloned().unwrap_or(Value::Null),
-            }),
-        )),
+                "result": result,
+            });
+            if let Some(summary) = summary {
+                payload["summary"] = Value::String(summary);
+            }
+            Some((AgentEventKind::ToolResult, payload))
+        }
         ThreadItemKind::SubagentSpawned(value) => {
             Some((AgentEventKind::DelegateSpawned, value.clone()))
         }
@@ -78,16 +83,57 @@ fn reasoning_response_text(value: &Value) -> String {
         return text.to_string();
     }
     value
-        .get("content")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|entry| entry.get("text").and_then(Value::as_str))
-        .next()
-        .or_else(|| value.get("summary").and_then(Value::as_str))
-        .or_else(|| value.get("content").and_then(Value::as_str))
+        .get("summary")
+        .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string()
+}
+
+fn normalized_response_tool_output(value: &Value) -> Value {
+    let output = value
+        .get("tinybot_result")
+        .or_else(|| value.get("output"))
+        .cloned()
+        .unwrap_or(Value::Null);
+    match output {
+        Value::String(text) => serde_json::from_str::<Value>(&text).unwrap_or(Value::String(text)),
+        output => output,
+    }
+}
+
+fn response_tool_output_summary(value: &Value) -> Option<String> {
+    let text = match value {
+        Value::String(text) => Some(text.as_str()),
+        Value::Object(output) => [
+            "summary",
+            "output",
+            "stdout",
+            "stderr",
+            "modelContent",
+            "content",
+            "text",
+            "message",
+        ]
+        .into_iter()
+        .filter_map(|key| output.get(key).and_then(Value::as_str))
+        .find(|text| !text.trim().is_empty()),
+        Value::Number(number) => return Some(number.to_string()),
+        Value::Bool(value) => return Some(value.to_string()),
+        Value::Null | Value::Array(_) => None,
+    }?;
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    const MAX_SUMMARY_CHARS: usize = 2_048;
+    let original_chars = text.chars().count();
+    if original_chars <= MAX_SUMMARY_CHARS {
+        return Some(text.to_string());
+    }
+    Some(format!(
+        "{}… [truncated from {original_chars} chars]",
+        text.chars().take(MAX_SUMMARY_CHARS).collect::<String>()
+    ))
 }
 
 fn runtime_event_from_thread_item(

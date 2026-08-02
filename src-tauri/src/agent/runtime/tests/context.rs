@@ -888,6 +888,7 @@ fn compacted_context_becomes_the_next_tool_iteration_baseline() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "compact-read-1".to_string(),
                         name: "workspace.read_file".to_string(),
@@ -900,6 +901,7 @@ fn compacted_context_becomes_the_next_tool_iteration_baseline() {
                     final_content: "finished after compact".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 })
             }
@@ -1106,6 +1108,34 @@ fn usage_context_window_prefers_provider_total_tokens() {
 }
 
 #[test]
+fn responses_usage_is_normalized_for_existing_usage_consumers() {
+    let context = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({}),
+    );
+
+    let usage = enrich_usage_with_context_window(
+        &context,
+        json!({
+            "input_tokens": 5,
+            "output_tokens": 7,
+            "total_tokens": 12
+        }),
+        9,
+        0,
+    );
+
+    assert_eq!(usage["prompt_tokens"], 5);
+    assert_eq!(usage["promptTokens"], 5);
+    assert_eq!(usage["completion_tokens"], 7);
+    assert_eq!(usage["completionTokens"], 7);
+    assert_eq!(usage["contextWindowUsedTokens"], 12);
+}
+
+#[test]
 fn agent_usage_event_falls_back_to_estimated_context_when_provider_omits_usage() {
     struct NoUsageProvider;
 
@@ -1118,6 +1148,7 @@ fn agent_usage_event_falls_back_to_estimated_context_when_provider_omits_usage()
                 final_content: "no usage answer".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -1134,6 +1165,7 @@ fn agent_usage_event_falls_back_to_estimated_context_when_provider_omits_usage()
                 final_content: "no usage answer".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }

@@ -16,6 +16,7 @@ fn strict_patch_search_and_real_dispatch_work_end_to_end() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "apply-patch".to_string(),
                         name: "apply_patch".to_string(),
@@ -30,13 +31,15 @@ fn strict_patch_search_and_real_dispatch_work_end_to_end() {
                     final_content: "patch applied".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 }),
             }
         }
     }
 
-    let workspace = SystemPromptWorkspace::new();
+    let persistence_workspace = SystemPromptWorkspace::new();
+    let turn_workspace = SystemPromptWorkspace::new();
     let services = NativeAgentRuntimeServices::new(
         Arc::new(PatchProvider {
             calls: AtomicUsize::new(0),
@@ -46,20 +49,21 @@ fn strict_patch_search_and_real_dispatch_work_end_to_end() {
         Arc::new(InMemoryNativeAgentCancellation::default()),
     )
     .with_thread_store(crate::threads::workspace_store::WorkspaceThreadStore::new(
-        workspace.root.clone(),
+        persistence_workspace.root.clone(),
         crate::protocol::capability::default_desktop_capability_policy(),
     ));
     let trace_sink = Arc::new(RecordingTraceSink::default());
     let services = crate::agent::bridge::native_agent_services_with_tool_executor(
         services,
-        workspace.root.clone(),
+        persistence_workspace.root.clone(),
         json!({}),
     )
     .expect("workspace thread store should configure the tool executor")
     .with_trace_sink(trace_sink.clone());
 
     let run_services = services.clone();
-    let run_workspace = workspace.root.clone();
+    let run_workspace = persistence_workspace.root.clone();
+    let turn_working_directory = turn_workspace.root.clone();
     let run = thread::spawn(move || {
         run_native_agent_turn_with_workspace(
             &run_services,
@@ -67,6 +71,7 @@ fn strict_patch_search_and_real_dispatch_work_end_to_end() {
                 "turnId": "turn-real-patch",
                 "sessionId": "session-real-patch",
                 "maxIterations": 4,
+                "cwd": turn_working_directory,
                 "messages": [{ "role": "user", "content": "create the note" }]
             }),
             json!({}),
@@ -81,8 +86,12 @@ fn strict_patch_search_and_real_dispatch_work_end_to_end() {
     assert_eq!(completed["stopReason"], "final_response");
     assert_eq!(completed["finalContent"], "patch applied");
     assert_eq!(completed["toolsUsed"], json!(["apply_patch"]));
+    assert!(
+        !persistence_workspace.root.join("notes/created.md").exists(),
+        "apply_patch must not write into the thread persistence workspace"
+    );
     assert_eq!(
-        std::fs::read_to_string(workspace.root.join("notes/created.md"))
+        std::fs::read_to_string(turn_workspace.root.join("notes/created.md"))
             .expect("patch should create the file"),
         "created by strict patch\n"
     );
@@ -105,6 +114,7 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "clarify-1".to_string(),
                         name: "request_user_input".to_string(),
@@ -136,6 +146,7 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
                         final_content: String::new(),
                         reasoning_delta: None,
                         usage: None,
+                        response_items: Vec::new(),
                         tool_calls: vec![NativeAgentToolCall {
                             id: "read-after-input".to_string(),
                             name: "workspace.read_file".to_string(),
@@ -148,6 +159,7 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
                     final_content: "input accepted and file inspected".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 }),
             }
@@ -306,6 +318,7 @@ fn request_user_input_rejects_invalid_forms_without_waiting() {
                     final_content: "invalid form handled".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 });
             }
@@ -313,6 +326,7 @@ fn request_user_input_rejects_invalid_forms_without_waiting() {
                 final_content: String::new(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: vec![NativeAgentToolCall {
                     id: "invalid-form".to_string(),
                     name: "request_user_input".to_string(),
@@ -366,6 +380,7 @@ fn discovered_mcp_tool_searches_activates_and_calls_real_server() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "search-real-mcp".to_string(),
                         name: "tool_search".to_string(),
@@ -378,6 +393,7 @@ fn discovered_mcp_tool_searches_activates_and_calls_real_server() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "call-real-mcp".to_string(),
                         name: "mcp.4:docs.4:echo".to_string(),
@@ -397,6 +413,7 @@ fn discovered_mcp_tool_searches_activates_and_calls_real_server() {
                         final_content: "real MCP complete".to_string(),
                         reasoning_delta: None,
                         usage: None,
+                        response_items: Vec::new(),
                         tool_calls: Vec::new(),
                     })
                 }
@@ -543,6 +560,7 @@ fn max_iterations_clears_deferred_tool_activation_checkpoint() {
                 final_content: String::new(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: vec![NativeAgentToolCall {
                     id: "search-before-max-iterations".to_string(),
                     name: "tool_search".to_string(),
@@ -595,6 +613,7 @@ fn provider_error_clears_deferred_tool_activation_checkpoint() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "search-before-provider-error".to_string(),
                         name: "tool_search".to_string(),
@@ -833,6 +852,7 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
                     final_content: "deferred tool rejection handled".to_string(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: Vec::new(),
                 });
             }
@@ -840,6 +860,7 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
                 final_content: String::new(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: vec![NativeAgentToolCall {
                     id: "unactivated-deferred".to_string(),
                     name: "test.deferred_echo".to_string(),
@@ -930,6 +951,7 @@ fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![
                         NativeAgentToolCall {
                             id: "batch-write".to_string(),
@@ -957,6 +979,7 @@ fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_
                         final_content: "batch complete".to_string(),
                         reasoning_delta: None,
                         usage: None,
+                        response_items: Vec::new(),
                         tool_calls: Vec::new(),
                     })
                 }
@@ -1042,6 +1065,7 @@ fn write_tool_dispatches_and_does_not_abort_the_turn() {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
+                    response_items: Vec::new(),
                     tool_calls: vec![NativeAgentToolCall {
                         id: "denied-write".to_string(),
                         name: "apply_patch".to_string(),
@@ -1061,6 +1085,7 @@ fn write_tool_dispatches_and_does_not_abort_the_turn() {
                 final_content: "continued after execution".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
@@ -1431,7 +1456,7 @@ fn typed_turn_settings_encode_declared_provider_features() {
 fn selected_turn_tools_limit_the_production_provider_registry() {
     #[derive(Clone)]
     struct ToolRegistryProvider {
-        specs: Arc<Mutex<Vec<Vec<Value>>>>,
+        definitions: Arc<Mutex<Vec<Vec<String>>>>,
         activated: Arc<Mutex<Vec<Vec<String>>>>,
     }
 
@@ -1440,10 +1465,17 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
             &self,
             context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
-            self.specs
+            self.definitions
                 .lock()
                 .expect("tool registry provider lock should not be poisoned")
-                .push(context.tool_router.provider_specs()?);
+                .push(
+                    context
+                        .tool_router
+                        .tool_definitions()?
+                        .into_iter()
+                        .map(|definition| definition.name)
+                        .collect(),
+                );
             self.activated
                 .lock()
                 .expect("activated tools lock should not be poisoned")
@@ -1452,16 +1484,17 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
                 final_content: "selected tools applied".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }
     }
 
-    let specs = Arc::new(Mutex::new(Vec::new()));
+    let definitions = Arc::new(Mutex::new(Vec::new()));
     let activated = Arc::new(Mutex::new(Vec::new()));
     let services = NativeAgentRuntimeServices::new(
         Arc::new(ToolRegistryProvider {
-            specs: specs.clone(),
+            definitions: definitions.clone(),
             activated: activated.clone(),
         }),
         Arc::new(FakeNativeAgentToolDispatcher),
@@ -1490,7 +1523,7 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
         }),
     )
     .expect("selected canonical patch tool should configure the turn");
-    let captured = specs
+    let captured = definitions
         .lock()
         .expect("tool registry provider lock should not be poisoned");
     let activated = activated
@@ -1500,15 +1533,11 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
     assert_eq!(result["stopReason"], "final_response");
     assert_eq!(captured.len(), 2);
     assert_eq!(captured[0].len(), 2);
-    assert_eq!(captured[0][0]["function"]["name"], "update_plan");
-    assert_eq!(captured[0][1]["function"]["name"], "subagent_wait");
-    assert!(captured[1]
-        .iter()
-        .any(|tool| tool["function"]["name"] == "update_plan"));
+    assert_eq!(captured[0][0], "update_plan");
+    assert_eq!(captured[0][1], "subagent_wait");
+    assert!(captured[1].iter().any(|name| name == "update_plan"));
     assert_eq!(activated[0], vec!["subagent.wait"]);
-    assert!(captured[1]
-        .iter()
-        .any(|tool| tool["function"]["name"] == "apply_patch"));
+    assert!(captured[1].iter().any(|name| name == "apply_patch"));
     assert!(activated[1].is_empty());
 }
 
@@ -1529,6 +1558,7 @@ fn invalid_turn_policy_stops_before_provider_dispatch() {
                 final_content: "provider should not run".to_string(),
                 reasoning_delta: None,
                 usage: None,
+                response_items: Vec::new(),
                 tool_calls: Vec::new(),
             })
         }

@@ -14,6 +14,7 @@ fn thread_meta(root: &Path, thread_id: &str, created_at: &str) -> ThreadMeta {
         cwd: root.display().to_string(),
         source: "desktop".to_string(),
         model_provider: Some("deepseek".to_string()),
+        api_mode: None,
         model: Some("deepseek-v4-pro".to_string()),
         base_instructions: None,
         memory_snapshot: None,

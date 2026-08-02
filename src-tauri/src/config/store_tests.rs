@@ -412,7 +412,7 @@ fn apply_operations_writes_canonical_key_for_legacy_alias_path() {
     let fixture = ConfigStoreFixture::new();
     let path = fixture.write(
             "config.json",
-            r#"{"agents":{"defaults":{"maxTokens":2048,"max_tokens":2048,"contextWindowStrategy":"discard","context_window_strategy":"discard"}}}"#,
+            r#"{"agents":{"defaults":{"maxTokens":2048,"max_tokens":2048,"contextWindowStrategy":"discard","context_window_strategy":"discard"}},"providers":{"profiles":{"openai-default":{"provider":"openai","api_mode":"chat_completions"}}}}"#,
         );
     let mut store =
         ConfigStore::load(path.clone(), default_snapshot()).expect("fixture config should load");
@@ -429,6 +429,10 @@ fn apply_operations_writes_canonical_key_for_legacy_alias_path() {
                     path: "agents.defaults.context_window_strategy".to_string(),
                     value: json!("compact"),
                 },
+                ConfigOperation::Replace {
+                    path: "providers.profiles.openai-default.api_mode".to_string(),
+                    value: json!("responses"),
+                },
             ],
         })
         .expect("alias operation should save");
@@ -438,7 +442,8 @@ fn apply_operations_writes_canonical_key_for_legacy_alias_path() {
         result.updated_fields,
         vec![
             "agents.defaults.maxTokens",
-            "agents.defaults.contextWindowStrategy"
+            "agents.defaults.contextWindowStrategy",
+            "providers.profiles.openai-default.apiMode"
         ]
     );
     let saved = serde_json::from_str::<serde_json::Value>(
@@ -453,6 +458,13 @@ fn apply_operations_writes_canonical_key_for_legacy_alias_path() {
     assert!(saved["agents"]["defaults"].get("max_tokens").is_none());
     assert!(saved["agents"]["defaults"]
         .get("context_window_strategy")
+        .is_none());
+    assert_eq!(
+        saved["providers"]["profiles"]["openai-default"]["apiMode"],
+        "responses"
+    );
+    assert!(saved["providers"]["profiles"]["openai-default"]
+        .get("api_mode")
         .is_none());
 }
 

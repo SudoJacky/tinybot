@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { createRef } from "react";
+import { createRef, Profiler } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -989,6 +989,40 @@ describe("LiveCanvas TinyOS", () => {
       rect: { x: 200 },
       visible: true,
     });
+  });
+
+  it("previews window movement without committing React state for every pointer event", async () => {
+    const terminalEntry = entry(step({
+      id: "terminal-drag-preview",
+      toolCall: { id: "terminal-drag-preview", name: "shell.exec" },
+    }));
+    const onRender = vi.fn();
+    const persistLayout = vi.spyOn(window.localStorage, "setItem");
+    render(
+      <Profiler id="tinyos-drag-preview" onRender={onRender}>
+        <LiveCanvas {...canvasProps([terminalEntry], { widthPx: 900, workspaceKey: "drag-preview-workspace" })} />
+      </Profiler>,
+    );
+
+    const titlebar = screen.getByLabelText("Move Terminal window");
+    onRender.mockClear();
+    persistLayout.mockClear();
+    fireEvent.pointerDown(titlebar, { button: 0, clientX: 120, clientY: 80, pointerId: 17 });
+    const commitsAfterStart = onRender.mock.calls.length;
+
+    fireEvent.pointerMove(titlebar, { clientX: 180, clientY: 120, pointerId: 17 });
+    fireEvent.pointerMove(titlebar, { clientX: 240, clientY: 160, pointerId: 17 });
+    fireEvent.pointerMove(titlebar, { clientX: 300, clientY: 200, pointerId: 17 });
+    await act(async () => {
+      await new Promise((resolve) => window.requestAnimationFrame(resolve));
+    });
+
+    expect(onRender).toHaveBeenCalledTimes(commitsAfterStart);
+    expect(persistLayout).not.toHaveBeenCalled();
+
+    fireEvent.pointerUp(titlebar, { clientX: 300, clientY: 200, pointerId: 17 });
+    await waitFor(() => expect(persistLayout).toHaveBeenCalledTimes(1));
+    persistLayout.mockRestore();
   });
 
   it("switches applications with keyboard shortcuts and restores session UI state", async () => {

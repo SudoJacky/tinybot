@@ -309,7 +309,7 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    await screen.findByRole("button", { name: /Execution details Running · 1 item/ });
+    await screen.findByRole("button", { name: /Work performed Running · 1 action/ });
     mountWorkbenchCss();
     const executionTimeline = document.querySelector<HTMLElement>(".react-execution-timeline")!;
     const executionContent = document.querySelector<HTMLElement>(".react-execution-timeline__content")!;
@@ -633,7 +633,7 @@ describe("ChatPage", () => {
     expect(within(canvas).getByRole("heading", { name: "Execution plan" })).toBeTruthy();
     expect(within(canvas).getByText("Verify output")).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Open details for workspace.read_file" }));
+    await user.click(screen.getByRole("button", { name: "Open details for Inspected main.ts" }));
     canvas = screen.getByLabelText("TinyOS shared desktop");
     expect(canvas.querySelector(".tinyos-system-bar__status")).toBeNull();
     expect(within(canvas).getByRole("article", { name: "Files window" })).toBeTruthy();
@@ -2044,7 +2044,7 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    const toggle = await screen.findByRole("button", { name: /Execution details Completed · 4 items/ });
+    const toggle = await screen.findByRole("button", { name: /Work performed Completed · 4 actions/ });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.getByText("Verification passed.")).toBeTruthy();
     await user.click(toggle);
@@ -2058,9 +2058,62 @@ describe("ChatPage", () => {
     ]);
     const toolItem = [...orderedItems].find((item) => item.getAttribute("data-kind") === "tool_call")!;
     expect(toolItem.querySelector(".react-agent-steps__header")).toBeNull();
-    expect(toolItem.querySelector(".react-agent-step")).not.toBeNull();
+    expect(toolItem.querySelector(".react-tool-activity")).not.toBeNull();
     expect(screen.getByText("I found the first file.")).toBeTruthy();
     expect(screen.getByText("Now I will verify it.")).toBeTruthy();
+  });
+
+  it("renders apply_patch tool results as an inline file diff", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const timeline = timelineFromReactMessages("s1", [{
+      id: "u-patch-preview",
+      role: "user" as const,
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Update the parser",
+      status: "complete" as const,
+    }]);
+    const turn = timeline.turns[0];
+    turn.steps = [{
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      id: "patch-1",
+      kind: "tool_call",
+      sequence: 1,
+      status: "completed",
+      title: "apply_patch",
+      toolCall: {
+        id: "patch-1",
+        name: "apply_patch",
+        resultJson: {
+          result: {
+            changed_files: [{
+              path: "src/parser.rs",
+              operation: "update",
+              hunks: [{ index: 1, removed_lines: 1, added_lines: 1 }],
+              delta: [{
+                old_start: 44,
+                new_start: 44,
+                old_lines: ["let marker = line.trim();"],
+                new_lines: ["let marker = line.trim_end();"],
+              }],
+              delta_truncated: false,
+            }],
+          },
+        },
+      },
+    }];
+    turn.executionItems = turn.steps;
+    stores.chatStore.load = vi.fn(async () => timeline);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    expect(await screen.findByRole("region", { name: "Changes from apply_patch" })).toBeTruthy();
+    expect(screen.getByRole("article", { name: "Diff for src/parser.rs" })).toBeTruthy();
+    expect(screen.getByText("let marker = line.trim();")).toBeTruthy();
+    expect(screen.getByText("let marker = line.trim_end();")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Open details for Edited parser.rs" }));
+    expect(screen.getByLabelText("Details drawer").textContent).toContain("apply_patch");
   });
 
   it("auto-folds untouched execution on final answer and preserves explicit user-open intent", async () => {
@@ -2112,7 +2165,7 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    let toggle = await screen.findByRole("button", { name: /Execution details Running · 1 item/ });
+    let toggle = await screen.findByRole("button", { name: /Work performed Running · 1 action/ });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     const conversation = document.querySelector<HTMLElement>(".react-conversation-view")!;
     const executionTimeline = document.querySelector<HTMLElement>(".react-execution-timeline")!;
@@ -2149,7 +2202,7 @@ describe("ChatPage", () => {
       return 1;
     });
     act(() => listener?.({ type: "timeline.patch", timeline: timelineFor(true) }));
-    toggle = await screen.findByRole("button", { name: /Execution details Completed · 1 item/ });
+    toggle = await screen.findByRole("button", { name: /Work performed Completed · 1 action/ });
     await waitFor(() => expect(toggle.getAttribute("aria-expanded")).toBe("false"));
     act(() => animationFrame?.(0));
     expect(conversation.scrollTop).toBe(450);
@@ -2194,7 +2247,7 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    const toggle = await screen.findByRole("button", { name: /Execution details Running · 1 item/ });
+    const toggle = await screen.findByRole("button", { name: /Work performed Running · 1 action/ });
     await user.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     turn.status = "completed";
@@ -2216,7 +2269,7 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    const toggle = await screen.findByRole("button", { name: /Execution details Failed · 3 items/ });
+    const toggle = await screen.findByRole("button", { name: /Work performed Failed · 3 actions/ });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     const error = screen.getByRole("alert", { name: "任务执行失败" });
     expect(within(error).getByRole("button", { name: "继续执行" })).toBeTruthy();

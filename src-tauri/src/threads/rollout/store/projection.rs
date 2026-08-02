@@ -1,4 +1,6 @@
-use crate::threads::rollout::format::{RolloutReconstruction as ThreadReplay, TokenUsageInfo};
+use crate::threads::rollout::format::{
+    RolloutReconstruction as ThreadReplay, SessionApiMode, TokenUsageInfo,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
@@ -7,6 +9,9 @@ use serde_json::{json, Value};
 pub struct ThreadHistoryProjection {
     pub thread_id: String,
     pub messages: Vec<Value>,
+    pub api_mode: SessionApiMode,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub response_items: Vec<Value>,
     pub user_profile: Value,
     pub updated_at: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -19,8 +24,10 @@ fn history_from_replay(
     limit: usize,
 ) -> ThreadHistoryProjection {
     let mut messages = replay.messages;
+    let mut response_items = replay.response_items;
     if limit == 0 {
         messages.clear();
+        response_items.clear();
     } else if messages.len() > limit {
         let start = messages.len() - limit;
         messages = messages.split_off(start);
@@ -29,6 +36,8 @@ fn history_from_replay(
     ThreadHistoryProjection {
         thread_id: thread_id.to_string(),
         messages,
+        api_mode: replay.api_mode,
+        response_items,
         user_profile: if replay.user_profile.is_null() {
             json!({})
         } else {
@@ -45,6 +54,7 @@ pub(super) fn thread_history_from_replay(
     limit: usize,
 ) -> ThreadHistoryProjection {
     replay.messages.retain(is_visible_thread_message);
+    replay.response_items.clear();
     history_from_replay(thread_id, replay, limit)
 }
 
@@ -53,14 +63,24 @@ pub(super) fn thread_agent_context_from_replay(
     mut replay: ThreadReplay,
     limit: usize,
 ) -> ThreadHistoryProjection {
-    replay.messages.retain(|message| {
-        let is_materialized_instruction = matches!(
-            message.get("role").and_then(Value::as_str),
-            Some("system" | "developer")
-        ) && message.get("contentHash").is_some();
-        !is_materialized_instruction
-    });
+    replay
+        .messages
+        .retain(|message| !is_materialized_instruction(message));
+    if replay.api_mode != SessionApiMode::Responses {
+        replay.response_items.clear();
+    } else {
+        replay
+            .response_items
+            .retain(|item| !is_materialized_instruction(item));
+    }
     history_from_replay(thread_id, replay, limit)
+}
+
+fn is_materialized_instruction(item: &Value) -> bool {
+    matches!(
+        item.get("role").and_then(Value::as_str),
+        Some("system" | "developer")
+    ) && item.get("contentHash").is_some()
 }
 
 fn is_visible_thread_message(message: &Value) -> bool {
@@ -136,4 +156,30 @@ fn usage_from_token_usage_info(info: &TokenUsageInfo) -> Value {
         "cumulativeUsageTokens": info.total_token_usage.total_tokens,
         "percent": percent,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn responses_context_reuses_current_instructions_without_replaying_materialized_ones() {
+        let materialized_instruction = serde_json::json!({
+            "role": "system",
+            "content": "old instructions",
+            "contentHash": "hash-old",
+        });
+        let user = serde_json::json!({ "role": "user", "content": "hello" });
+        let replay = ThreadReplay {
+            messages: vec![materialized_instruction.clone(), user.clone()],
+            response_items: vec![materialized_instruction, user.clone()],
+            api_mode: SessionApiMode::Responses,
+            ..ThreadReplay::default()
+        };
+
+        let context = thread_agent_context_from_replay("thread-1", replay, 50);
+
+        assert_eq!(context.messages, vec![user.clone()]);
+        assert_eq!(context.response_items, vec![user]);
+    }
 }

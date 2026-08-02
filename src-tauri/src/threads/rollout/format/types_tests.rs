@@ -14,6 +14,7 @@ fn rollout_line_serializes_codex_compatible_session_meta() {
             cwd: "D:/code/tinybot/tinybot".to_string(),
             source: "desktop".to_string(),
             model_provider: Some("deepseek".to_string()),
+            api_mode: Some(SessionApiMode::Responses),
             model: Some("deepseek-v4-pro".to_string()),
             base_instructions: Some(json!({"text": "base"})),
             memory_snapshot: Some("## User memory\n\n- Prefers concise answers.\n".to_string()),
@@ -34,6 +35,7 @@ fn rollout_line_serializes_codex_compatible_session_meta() {
         "## User memory\n\n- Prefers concise answers.\n"
     );
     assert_eq!(value["payload"]["model_provider"], "deepseek");
+    assert_eq!(value["payload"]["api_mode"], "responses");
     assert!(value["payload"].get("schemaVersion").is_none());
     assert!(value["payload"].get("schema_version").is_none());
     assert!(value["payload"].get("threadId").is_none());
@@ -57,6 +59,7 @@ fn session_meta_reads_codex_wire_keys_without_a_tinybot_schema_field() {
     assert_eq!(meta.thread_id, "thread-codex");
     assert_eq!(meta.session_id.as_deref(), Some("session-codex"));
     assert_eq!(meta.forked_from_thread_id.as_deref(), Some("thread-parent"));
+    assert_eq!(meta.effective_api_mode(), SessionApiMode::ChatCompletions);
 }
 
 #[test]
@@ -72,6 +75,7 @@ fn turn_context_serializes_with_codex_snake_case_keys() {
         network: Some(json!({"enabled": true})),
         model: "deepseek-v4-pro".to_string(),
         provider: Some("deepseek".to_string()),
+        api_mode: None,
         comp_hash: Some("hash".to_string()),
         personality: None,
         collaboration_mode: None,

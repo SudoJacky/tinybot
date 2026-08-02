@@ -33,6 +33,62 @@ impl StreamingChatCompletion {
     }
 }
 
+#[derive(Default)]
+pub(super) struct StreamingResponsesCompletion {
+    completed_response: Option<Value>,
+}
+
+impl StreamingResponsesCompletion {
+    pub(super) fn push_event(
+        &mut self,
+        event: &Value,
+        mut observer: Option<&mut (dyn FnMut(NativeProviderStreamEvent) + Send)>,
+    ) -> Result<(), String> {
+        let event_type = event
+            .get("type")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "Responses API stream event requires type".to_string())?;
+        match event_type {
+            "response.output_text.delta" => {
+                if let Some(delta) = event.get("delta").and_then(Value::as_str) {
+                    if !delta.is_empty() {
+                        if let Some(observer) = observer.as_deref_mut() {
+                            observer(NativeProviderStreamEvent::ContentDelta(delta.to_string()));
+                        }
+                    }
+                }
+            }
+            "response.reasoning_summary_text.delta" => {
+                if let Some(delta) = event.get("delta").and_then(Value::as_str) {
+                    if !delta.is_empty() {
+                        if let Some(observer) = observer.as_deref_mut() {
+                            observer(NativeProviderStreamEvent::ReasoningDelta(delta.to_string()));
+                        }
+                    }
+                }
+            }
+            "response.completed" => {
+                self.completed_response =
+                    Some(event.get("response").cloned().ok_or_else(|| {
+                        "Responses API response.completed event requires response".to_string()
+                    })?);
+            }
+            "response.failed" | "response.incomplete" | "error" => {
+                return Err(format!(
+                    "Responses API stream returned terminal event `{event_type}`: {event}"
+                ));
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    pub(super) fn finish(self) -> Result<Value, String> {
+        self.completed_response
+            .ok_or_else(|| "Responses API stream ended before response.completed".to_string())
+    }
+}
+
 struct ParsedStreamChunk<'a> {
     provider_error: Option<&'a Value>,
     model: Option<&'a str>,
@@ -214,6 +270,32 @@ pub(super) fn chat_completion_body(model: &str, content: &str) -> Value {
         "usage": {
             "prompt_tokens": 0,
             "completion_tokens": 0,
+            "total_tokens": 0,
+        },
+    })
+}
+
+pub(super) fn responses_body(model: &str, content: &str) -> Value {
+    serde_json::json!({
+        "id": format!("resp-rust-{}", unix_timestamp()),
+        "object": "response",
+        "created_at": unix_timestamp(),
+        "status": "completed",
+        "model": model,
+        "output": [{
+            "id": format!("msg-rust-{}", unix_timestamp()),
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [{
+                "type": "output_text",
+                "text": content,
+                "annotations": [],
+            }],
+        }],
+        "usage": {
+            "input_tokens": 0,
+            "output_tokens": 0,
             "total_tokens": 0,
         },
     })
