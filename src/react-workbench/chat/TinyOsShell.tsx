@@ -54,10 +54,12 @@ import { filterTinyOsDesktopByAgent } from "../../app-core/chat/tinyOsDesktopMod
 import {
   createTinyOsUiState,
   loadTinyOsLayout,
+  normalizeWindowLayout,
   reduceTinyOsUiState,
   saveTinyOsLayout,
   type TinyOsAgentRequestIntent,
   type TinyOsAgentRequestReference,
+  type TinyOsDesktopBounds,
   type TinyOsLayoutMode,
   type TinyOsContextReference,
   type TinyOsWindowRect,
@@ -1049,6 +1051,7 @@ export function TinyOsShell({
             active={uiState.focusedAppId === window.appId}
             activeTabId={uiState.activeTabs[window.appId]}
             animateEntry={!initialWindowIds.current.has(window.id)}
+            bounds={uiState.bounds}
             commandRegistry={shellCommandRegistry}
             canDirectEdit={canDirectEdit && !history}
             canRequestChange={canRequestChange}
@@ -1400,6 +1403,7 @@ function TinyOsAppWindow({
   active,
   activeTabId,
   animateEntry,
+  bounds,
   browserRuntime,
   browserSurfaceAllowed,
   canDirectEdit,
@@ -1436,6 +1440,7 @@ function TinyOsAppWindow({
   active: boolean;
   activeTabId?: string;
   animateEntry: boolean;
+  bounds: TinyOsDesktopBounds;
   browserRuntime?: NativeBrowserRuntimeApi;
   browserSurfaceAllowed: boolean;
   canDirectEdit: boolean;
@@ -1474,8 +1479,10 @@ function TinyOsAppWindow({
   const windowRef = useRef<HTMLElement>(null);
   const [pointerActive, setPointerActive] = useState(false);
   const pointerState = useRef<{
+    animationFrame?: number;
     kind: "move" | "resize";
     pointerId: number;
+    previewRect?: TinyOsWindowRect;
     startClientX: number;
     startClientY: number;
     startRect: TinyOsWindowRect;
@@ -1487,6 +1494,11 @@ function TinyOsAppWindow({
     width: `${layout.width}px`,
     zIndex,
   } satisfies CSSProperties : { zIndex };
+
+  useLayoutEffect(() => {
+    if (pointerActive || !layout) return;
+    applyWindowRect(windowRef.current, layout);
+  }, [layout?.height, layout?.width, layout?.x, layout?.y, pointerActive]);
 
   useLayoutEffect(() => {
     const element = windowRef.current;
@@ -1508,6 +1520,11 @@ function TinyOsAppWindow({
     return () => context.revert();
   }, [animateEntry]);
 
+  useEffect(() => () => {
+    const animationFrame = pointerState.current?.animationFrame;
+    if (animationFrame !== undefined) globalThis.cancelAnimationFrame(animationFrame);
+  }, []);
+
   function startPointer(event: PointerEvent<HTMLElement>, kind: "move" | "resize") {
     if (!layout || event.button !== 0) return;
     if (kind === "move" && (event.target as Element).closest("button")) return;
@@ -1527,21 +1544,26 @@ function TinyOsAppWindow({
   function movePointer(event: PointerEvent<HTMLElement>) {
     const interaction = pointerState.current;
     if (!interaction || interaction.pointerId !== event.pointerId) return;
-    const dx = event.clientX - interaction.startClientX;
-    const dy = event.clientY - interaction.startClientY;
-    onSetRect(interaction.kind === "move" ? {
-      ...interaction.startRect,
-      x: interaction.startRect.x + dx,
-      y: interaction.startRect.y + dy,
-    } : {
-      ...interaction.startRect,
-      height: interaction.startRect.height + dy,
-      width: interaction.startRect.width + dx,
+    interaction.previewRect = pointerInteractionRect(interaction, event.clientX, event.clientY, bounds);
+    if (interaction.animationFrame !== undefined) return;
+    interaction.animationFrame = globalThis.requestAnimationFrame(() => {
+      interaction.animationFrame = undefined;
+      if (pointerState.current === interaction) applyWindowRect(windowRef.current, interaction.previewRect);
     });
   }
 
   function endPointer(event: PointerEvent<HTMLElement>) {
-    if (pointerState.current?.pointerId !== event.pointerId) return;
+    const interaction = pointerState.current;
+    if (!interaction || interaction.pointerId !== event.pointerId) return;
+    if (interaction.animationFrame !== undefined) globalThis.cancelAnimationFrame(interaction.animationFrame);
+    const finalRect = event.type === "pointerup"
+      && (event.clientX !== interaction.startClientX || event.clientY !== interaction.startClientY)
+      ? pointerInteractionRect(interaction, event.clientX, event.clientY, bounds)
+      : interaction.previewRect;
+    if (finalRect) {
+      applyWindowRect(windowRef.current, finalRect);
+      onSetRect(finalRect);
+    }
     pointerState.current = undefined;
     setPointerActive(false);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
@@ -1657,6 +1679,38 @@ function TinyOsAppWindow({
       />
     </article>
   );
+}
+
+function pointerInteractionRect(
+  interaction: {
+    kind: "move" | "resize";
+    startClientX: number;
+    startClientY: number;
+    startRect: TinyOsWindowRect;
+  },
+  clientX: number,
+  clientY: number,
+  bounds: TinyOsDesktopBounds,
+): TinyOsWindowRect {
+  const dx = clientX - interaction.startClientX;
+  const dy = clientY - interaction.startClientY;
+  return normalizeWindowLayout(interaction.kind === "move" ? {
+    ...interaction.startRect,
+    x: interaction.startRect.x + dx,
+    y: interaction.startRect.y + dy,
+  } : {
+    ...interaction.startRect,
+    height: interaction.startRect.height + dy,
+    width: interaction.startRect.width + dx,
+  }, bounds);
+}
+
+function applyWindowRect(element: HTMLElement | null, rect: TinyOsWindowRect | undefined): void {
+  if (!element || !rect) return;
+  element.style.height = `${rect.height}px`;
+  element.style.left = `${rect.x}px`;
+  element.style.top = `${rect.y}px`;
+  element.style.width = `${rect.width}px`;
 }
 
 function TinyOsAppContent({ activeTabId, browserRuntime, browserSurfaceLayout, browserSurfaceVisible, canDirectEdit, canRequestChange, canSaveFile, commandLifecycle, commandRegistry, directEditUnavailableReason, filesController, kernel, layoutMode, window, onAgentRequest, onAttachContext, onBrowserHandoffComplete, onDeleteFile, onMoveFile, onOpenArtifact, onSaveFile, onTabChange, requestChangeUnavailableReason, runningTerminalOperationId, saveFileUnavailableReason, systemMonitorControls }: {
