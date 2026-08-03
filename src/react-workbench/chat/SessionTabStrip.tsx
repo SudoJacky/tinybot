@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type WheelEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type WheelEvent } from "react";
 import { AlertTriangle, Circle, List, Loader2, Plus, X } from "lucide-react";
 import type { SessionSummary } from "../services";
 
@@ -27,6 +27,10 @@ export function SessionTabStrip({
 
   useEffect(() => {
     setMenuOpen(false);
+  }, [activeSessionId]);
+
+  useLayoutEffect(() => {
+    tabRefs.current.get(activeSessionId)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activeSessionId]);
 
   const focusTab = (sessionId: string) => {
