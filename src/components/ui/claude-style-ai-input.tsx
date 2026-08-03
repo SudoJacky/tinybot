@@ -159,8 +159,10 @@ export function ClaudeStyleAiInput({
   const slashListboxId = useId();
   const currentMessage = value ?? message;
   const selectedModel = useMemo(
-    () => models.find((model) => model.id === selectedModelId) ?? models[0],
-    [models, selectedModelId],
+    () => models.find((model) => model.id === selectedModelId)
+      ?? models.find((model) => model.id === defaultModel)
+      ?? models[0],
+    [defaultModel, models, selectedModelId],
   );
   const contextUsageView = useMemo(() => buildContextUsageView(contextUsage), [contextUsage]);
   const enabledToolIdSet = useMemo(() => new Set(enabledToolIds), [enabledToolIds]);

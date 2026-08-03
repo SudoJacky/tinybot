@@ -613,7 +613,9 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 iteration
             }
             None => {
-                state.emit_turn_started(&context)?;
+                if !manual_context_compaction_requested(&context.spec) {
+                    state.emit_turn_started(&context)?;
+                }
                 state.emit_tinyos_command_acknowledgement(&context)?;
                 0
             }

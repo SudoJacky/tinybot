@@ -490,8 +490,9 @@ export function createDesktopAppServices(): AppServices {
         const thread = controller.state.threads.find((item) => item.threadId === sessionId);
         if (thread && controller.state.activeThreadId !== thread.threadId) {
           await controller.selectSession(thread.threadId);
+          return controller.loadTimeline(sessionId);
         }
-        return controller.loadTimeline(sessionId);
+        return controller.reloadTimeline(sessionId);
       },
       async loadTinyOsCapabilities(threadId) {
         await initialize();

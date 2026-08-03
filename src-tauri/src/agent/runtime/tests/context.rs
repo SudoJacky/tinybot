@@ -656,6 +656,11 @@ fn manual_context_compaction_bypasses_threshold_and_finishes_without_a_normal_re
     assert_eq!(compact_event["payload"]["trigger"], "manual");
     assert_eq!(compact_event["payload"]["reason"], "user_requested");
     assert_eq!(compact_event["payload"]["phase"], "standalone_turn");
+    assert!(result["runtimeEvents"]
+        .as_array()
+        .is_some_and(|events| !events
+            .iter()
+            .any(|event| event["eventName"] == "agent.turn.started")));
     assert!(compact_event["payload"]["droppedMessageCount"]
         .as_u64()
         .is_some_and(|count| count > 0));

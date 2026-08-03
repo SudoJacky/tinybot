@@ -103,6 +103,21 @@ describe("desktop native app services", () => {
     expect(commands).toContain("worker_threads_list");
   });
 
+  test("reloads canonical runtime state whenever an existing session is loaded", async () => {
+    const services = createDesktopAppServices();
+
+    await services.chatStore.load("thread-1");
+    const firstLoadCount = mocks.invoke.mock.calls
+      .filter(([command]) => command === "thread_list_turns")
+      .length;
+    await services.chatStore.load("thread-1");
+
+    const secondLoadCount = mocks.invoke.mock.calls
+      .filter(([command]) => command === "thread_list_turns")
+      .length;
+    expect(secondLoadCount).toBe(firstLoadCount + 1);
+  });
+
   test("lists and creates real Thread sessions", async () => {
     const services = createDesktopAppServices();
 

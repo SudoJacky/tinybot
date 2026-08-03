@@ -278,3 +278,117 @@ fn legacy_subagent_messages_receive_canonical_identity_without_merging_lifecycle
             && content == "Research complete."
     ));
 }
+
+#[test]
+fn persisted_context_compaction_replays_after_session_reload() {
+    let items = vec![ThreadItem {
+        item_id: "thread-runtime:thread-1:turn-compact:event-id:compact-1".to_string(),
+        thread_id: "thread-1".to_string(),
+        turn_id: "turn-compact".to_string(),
+        parent_item_id: None,
+        sequence: 7,
+        created_at: "2026-08-03T12:00:00Z".to_string(),
+        kind: ThreadItemKind::ContextCompaction(json!({
+            "itemId": "context-1",
+            "eventId": "compact-1",
+            "sequence": 7,
+            "timestamp": "2026-08-03T12:00:00Z",
+            "eventName": "agent.context.compacted",
+            "turnId": "turn-compact",
+            "source": "rust_backend",
+            "visibility": "user",
+            "payload": {
+                "summary": "Compacted conversation history",
+                "droppedMessageCount": 12,
+                "contextWindowTokens": 128000,
+                "strategy": "compact",
+                "estimatedTokensBefore": 12000,
+                "estimatedTokensAfter": 4200
+            }
+        })),
+    }];
+
+    let events = runtime_events_from_thread_items(&items, "thread-1", "turn-compact");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_name, "agent.context.compacted");
+
+    let projected = turn_items_from_thread_items(&items, "thread-1", "turn-compact");
+    assert_eq!(projected.len(), 1);
+    assert_eq!(projected[0].kind, AgentTurnItemKind::ContextCompaction);
+    assert!(matches!(
+        &projected[0].data,
+        AgentTurnItemData::ContextCompaction {
+            dropped_item_count: 12,
+            estimated_tokens_before: Some(12000),
+            estimated_tokens_after: Some(4200),
+            ..
+        }
+    ));
+    let projected_data = serde_json::to_value(&projected[0].data).unwrap();
+    assert_eq!(projected_data["contextWindowTokens"], 128000);
+    assert_eq!(projected_data["strategy"], "compact");
+}
+
+#[test]
+fn persisted_usage_restores_context_window_after_session_reload() {
+    let items = vec![ThreadItem {
+        item_id: "thread-runtime:thread-1:turn-1:event-id:usage-1".to_string(),
+        thread_id: "thread-1".to_string(),
+        turn_id: "turn-1".to_string(),
+        parent_item_id: None,
+        sequence: 8,
+        created_at: "2026-08-03T12:00:01Z".to_string(),
+        kind: ThreadItemKind::Event(json!({
+            "itemId": "usage-1",
+            "eventId": "usage-event-1",
+            "sequence": 8,
+            "timestamp": "2026-08-03T12:00:01Z",
+            "eventName": "agent.usage",
+            "turnId": "turn-1",
+            "source": "provider",
+            "visibility": "debug",
+            "payload": {
+                "inputTokens": 100,
+                "outputTokens": 25,
+                "totalTokens": 125,
+                "contextWindowRemainingTokens": 127875,
+                "contextWindowTokens": 128000,
+                "contextWindowUsedTokens": 125,
+                "percent": 0.09765625
+            }
+        })),
+    }];
+
+    let events = runtime_events_from_thread_items(&items, "thread-1", "turn-1");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].event_name, "agent.usage");
+
+    let projected = turn_items_from_thread_items(&items, "thread-1", "turn-1");
+    assert_eq!(projected.len(), 1);
+    assert_eq!(projected[0].kind, AgentTurnItemKind::Usage);
+    assert!(matches!(
+        &projected[0].data,
+        AgentTurnItemData::Usage { provider_payload, .. }
+            if provider_payload["contextWindowTokens"] == 128000
+                && provider_payload["contextWindowUsedTokens"] == 125
+    ));
+}
+
+#[test]
+fn unrelated_domain_events_are_not_projected_as_agent_context_state() {
+    let items = vec![ThreadItem {
+        item_id: "thread-runtime:thread-1:turn-1:event-id:continue-1".to_string(),
+        thread_id: "thread-1".to_string(),
+        turn_id: "turn-1".to_string(),
+        parent_item_id: None,
+        sequence: 9,
+        created_at: "2026-08-03T12:00:02Z".to_string(),
+        kind: ThreadItemKind::Event(json!({
+            "eventName": "thread.continue_turn",
+            "payload": { "message": "continue" }
+        })),
+    }];
+
+    assert!(runtime_events_from_thread_items(&items, "thread-1", "turn-1").is_empty());
+    assert!(turn_items_from_thread_items(&items, "thread-1", "turn-1").is_empty());
+}

@@ -1025,6 +1025,9 @@ fn semantic_thread_item_from_runtime_event(
         AgentEventKind::DelegateCompleted => {
             crate::threads::domain::ThreadItemKind::SubagentCompleted(payload)
         }
+        AgentEventKind::ContextCompacted
+        | AgentEventKind::ContextTrimmed
+        | AgentEventKind::Usage => crate::threads::domain::ThreadItemKind::Event(event.clone()),
         _ => return None,
     };
     let event_id = event.get("eventId").and_then(Value::as_str)?;

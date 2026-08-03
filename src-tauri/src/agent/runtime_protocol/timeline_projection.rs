@@ -781,6 +781,18 @@ fn legacy_item_data(
                 .or_else(|| payload.get("dropped_item_count"))
                 .and_then(Value::as_u64)
                 .unwrap_or(0) as usize,
+            context_window_tokens: payload
+                .get("contextWindowTokens")
+                .or_else(|| payload.get("context_window_tokens"))
+                .and_then(Value::as_u64),
+            strategy: item_string(
+                payload,
+                &[
+                    "strategy",
+                    "contextWindowStrategy",
+                    "context_window_strategy",
+                ],
+            ),
             estimated_tokens_before: payload
                 .get("estimatedTokensBefore")
                 .or_else(|| payload.get("estimated_tokens_before"))

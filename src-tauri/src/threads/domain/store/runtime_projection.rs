@@ -1,6 +1,7 @@
 use crate::agent::runtime_protocol::{
-    project_turn_items_from_trace_events, AgentEventKind, AgentRuntimeEventEnvelope,
-    AgentRuntimeEventEnvelopeInput, AgentRuntimePhase, AgentTurnItem,
+    project_turn_items_from_trace_events, resolve_event_name, AgentEventKind,
+    AgentRuntimeEventEnvelope, AgentRuntimeEventEnvelopeInput, AgentRuntimePhase, AgentTurnItem,
+    EventNameResolution,
 };
 use crate::threads::domain::types::{ThreadItem, ThreadItemKind};
 use serde_json::Value;
@@ -59,16 +60,54 @@ fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(AgentEventKind,
         }
         ThreadItemKind::Error(value) => Some((AgentEventKind::Error, value.clone())),
         ThreadItemKind::Cancelled(value) => Some((AgentEventKind::Cancelled, value.clone())),
+        ThreadItemKind::ContextCompaction(value) => {
+            persisted_context_state_event(value).or_else(|| {
+                Some((
+                    AgentEventKind::ContextCompacted,
+                    context_checkpoint(value).clone(),
+                ))
+            })
+        }
+        ThreadItemKind::ContextTrimmed(value) => persisted_context_state_event(value)
+            .or_else(|| Some((AgentEventKind::ContextTrimmed, value.clone()))),
+        ThreadItemKind::Event(value) => persisted_context_state_event(value),
         ThreadItemKind::AssistantMessageDelta(_)
         | ThreadItemKind::TurnStarted(_)
         | ThreadItemKind::TurnStep(_)
         | ThreadItemKind::TurnCompleted(_)
         | ThreadItemKind::CheckpointCreated(_)
-        | ThreadItemKind::ContextTrimmed(_)
-        | ThreadItemKind::ContextCompaction(_)
-        | ThreadItemKind::SettingsChanged(_)
-        | ThreadItemKind::Event(_) => None,
+        | ThreadItemKind::SettingsChanged(_) => None,
     }
+}
+
+fn persisted_context_state_event(value: &Value) -> Option<(AgentEventKind, Value)> {
+    let event = if value.get("eventName").is_some() {
+        value
+    } else {
+        let checkpoint = context_checkpoint(value);
+        checkpoint.get("eventName")?;
+        checkpoint
+    };
+    let event_name = event.get("eventName").and_then(Value::as_str)?;
+    let kind = match resolve_event_name(event_name) {
+        EventNameResolution::Canonical(
+            kind @ (AgentEventKind::ContextCompacted
+            | AgentEventKind::ContextTrimmed
+            | AgentEventKind::Usage),
+        ) => kind,
+        EventNameResolution::Canonical(_)
+        | EventNameResolution::DeprecatedIgnored(_)
+        | EventNameResolution::Unknown => return None,
+    };
+    Some((kind, event.get("payload").cloned().unwrap_or(Value::Null)))
+}
+
+fn context_checkpoint(value: &Value) -> &Value {
+    value
+        .get("payload")
+        .and_then(|payload| payload.get("contextCheckpoint"))
+        .or_else(|| value.get("contextCheckpoint"))
+        .unwrap_or(value)
 }
 
 fn reasoning_response_text(value: &Value) -> String {
@@ -180,7 +219,10 @@ fn semantic_item_id(item: &ThreadItem) -> String {
         | ThreadItemKind::ToolCallOutput(value)
         | ThreadItemKind::SubagentSpawned(value)
         | ThreadItemKind::SubagentMessage(value)
-        | ThreadItemKind::SubagentCompleted(value) => value,
+        | ThreadItemKind::SubagentCompleted(value)
+        | ThreadItemKind::ContextCompaction(value)
+        | ThreadItemKind::ContextTrimmed(value)
+        | ThreadItemKind::Event(value) => value,
         _ => return item.item_id.clone(),
     };
     [
@@ -191,6 +233,8 @@ fn semantic_item_id(item: &ThreadItem) -> String {
         "reasoningId",
         "delegateId",
         "subagentId",
+        "itemId",
+        "contextId",
         "id",
     ]
     .into_iter()
@@ -242,9 +286,27 @@ pub(crate) fn runtime_events_from_thread_items(
     session_id: &str,
     turn_id: &str,
 ) -> Vec<AgentRuntimeEventEnvelope> {
+    let has_persisted_context_event = items.iter().any(|item| {
+        item.turn_id == turn_id
+            && matches!(
+                &item.kind,
+                ThreadItemKind::Event(value)
+                    if persisted_context_state_event(value).is_some_and(|(kind, _)| matches!(
+                        kind,
+                        AgentEventKind::ContextCompacted | AgentEventKind::ContextTrimmed
+                    ))
+            )
+    });
     items
         .iter()
         .filter(|item| item.turn_id == turn_id)
+        .filter(|item| {
+            !has_persisted_context_event
+                || !matches!(
+                    &item.kind,
+                    ThreadItemKind::ContextCompaction(_) | ThreadItemKind::ContextTrimmed(_)
+                )
+        })
         .filter_map(|item| runtime_event_from_thread_item(item, session_id))
         .collect()
 }

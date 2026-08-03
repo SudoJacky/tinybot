@@ -693,6 +693,16 @@ Product-facing canonical item data includes the following lifecycle details:
 - `error`: `code`, `message`, and `cancelled`. An error with `parentItemId` is scoped to its owner;
   errors without a parent remain terminal timeline rows.
 
+`agent.context.compacted`, `agent.context.trimmed`, and `agent.usage` are durable semantic events.
+`thread_get_turn_runtime_state` reconstructs them after an application restart, and historical
+context checkpoints without a stored semantic event still project as a `context_compaction` item.
+Desktop session loads refresh the canonical turn runtime states instead of reusing an indefinitely
+cached timeline. Until a later provider usage item exists, the current context indicator combines
+the latest compaction's `estimatedTokensAfter` with its canonical `contextWindowTokens`; older
+items without that field fall back to the most recent known usage budget, then to the currently
+loaded Agent Defaults context-window budget. Canonical compaction data also preserves `strategy` so
+the restored indicator matches the live context policy.
+
 The desktop loads Subagent traces and artifact content through
 `worker_background_trace_get_delegate_trace` and `worker_background_trace_get_artifact`. Timeline
 paths are metadata only and are never used directly as browser image URLs. Raster previews accept
@@ -821,8 +831,14 @@ Thread continuation helper commands:
 | --- | --- |
 | `worker_submit_thread_turn` | `{ input: { threadId?: string, input: unknown, spec?: unknown } }` |
 | `worker_submit_thread_form` | `{ input: { threadId, formId, values?, action? } }` |
+| `worker_compact_thread` | `{ input: { threadId, clientEventId? } }` |
 
 Agent checkpoint continuation supports structured forms only.
+
+`worker_compact_thread` creates a standalone manual-compaction turn. Historical messages are input
+to the compaction algorithm, not new user input: the turn does not emit `agent.turn.started` and its
+turn-start record does not materialize the last historical user message again. Successful completion
+is represented by the canonical `context_compaction` item; failure remains an explicit backend error.
 
 The renderer prepares the final user text before calling `worker_submit_thread_turn`. When the user
 mentions files, it prepends their absolute paths to that text; the backend persists and forwards the

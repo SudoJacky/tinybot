@@ -142,6 +142,34 @@ describe("chat turn model", () => {
     });
   });
 
+  test("preserves the context window budget from a restored compaction item", () => {
+    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("turn-compacted", [{
+      itemId: "turn-compacted:context",
+      kind: "context_compaction",
+      status: "completed",
+      data: {
+        type: "context_compaction",
+        id: "context-1",
+        summary: "compact",
+        droppedItemCount: 0,
+        contextWindowTokens: 128000,
+        strategy: "compact",
+        estimatedTokensBefore: 48428,
+        estimatedTokensAfter: 32066,
+      },
+    }]));
+
+    const [turn] = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
+
+    expect(turn.steps[0]?.compaction).toEqual({
+      contextWindowTokens: 128000,
+      droppedItemCount: 0,
+      estimatedTokensAfter: 32066,
+      estimatedTokensBefore: 48428,
+      strategy: "compact",
+    });
+  });
+
   test("reconciles stale running steps when a canonical turn fails", () => {
     const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("turn-failed", [
       {

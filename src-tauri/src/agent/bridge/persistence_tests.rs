@@ -17,3 +17,23 @@ fn materialized_turn_messages_preserve_frontend_user_content_verbatim() {
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0]["content"], content);
 }
+
+#[test]
+fn manual_compaction_does_not_materialize_historical_user_messages() {
+    let messages = materialized_turn_messages(
+        &serde_json::json!({
+            "contextCompaction": {
+                "trigger": "manual",
+                "reason": "user_requested",
+                "phase": "standalone_turn"
+            },
+            "messages": [
+                { "role": "user", "content": "historical question" },
+                { "role": "assistant", "content": "historical answer" }
+            ]
+        }),
+        "turn-compact-1",
+    );
+
+    assert!(messages.is_empty());
+}

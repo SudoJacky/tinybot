@@ -4210,6 +4210,116 @@ fn dispatches_agent_turn_store_round_trip_requests() {
 }
 
 #[test]
+fn reloads_persisted_compaction_and_context_usage_events() {
+    let fixture = WorkspaceFixture::new();
+    let mut router = WorkerRpcRouter::new(
+        fixture.root.clone(),
+        json!({}),
+        vec![],
+        20,
+        CapabilityPolicy::new([
+            WorkerCapability::SessionMetadataRead,
+            WorkerCapability::SessionWrite,
+        ]),
+    );
+    let start = router.dispatch(&WorkerRequest::new(
+        "req-context-state-start",
+        "trace-context-state",
+        "thread.turn.start",
+        json!({
+            "record": {
+                "sessionId": "session-context-state",
+                "turnId": "turn-context-state",
+                "status": "running",
+                "phase": "active_turn",
+                "startedAt": "unix-ms:1",
+                "updatedAt": "unix-ms:1",
+                "completedAt": null,
+                "stopReason": null,
+                "model": "fixture-model",
+                "provider": "fixture",
+                "maxIterations": 4,
+                "currentIteration": 0,
+                "conversationMessageIds": [],
+                "traceMessages": [],
+                "completedToolResults": [],
+                "pendingToolCalls": [],
+                "checkpoint": null,
+                "artifacts": [],
+                "usage": [],
+                "error": null
+            }
+        }),
+    ));
+    assert_eq!(start.error, None);
+
+    let append = router.dispatch(&WorkerRequest::new(
+        "req-context-state-events",
+        "trace-context-state",
+        "thread.turn.append_semantic_batch",
+        json!({
+            "threadId": "session-context-state",
+            "turnId": "turn-context-state",
+            "events": [
+                {
+                    "eventId": "context-compacted-1",
+                    "eventName": "agent.context.compacted",
+                    "itemId": "context-1",
+                    "sequence": 7,
+                    "timestamp": "2026-08-03T12:00:00Z",
+                    "turnId": "turn-context-state",
+                    "payload": {
+                        "summary": "Compacted conversation history",
+                        "droppedMessageCount": 12,
+                        "estimatedTokensBefore": 12000,
+                        "estimatedTokensAfter": 4200
+                    }
+                },
+                {
+                    "eventId": "context-usage-1",
+                    "eventName": "agent.usage",
+                    "itemId": "usage-1",
+                    "sequence": 8,
+                    "timestamp": "2026-08-03T12:00:01Z",
+                    "turnId": "turn-context-state",
+                    "payload": {
+                        "inputTokens": 100,
+                        "outputTokens": 25,
+                        "totalTokens": 125,
+                        "contextWindowRemainingTokens": 127875,
+                        "contextWindowTokens": 128000,
+                        "contextWindowUsedTokens": 125,
+                        "percent": 0.09765625
+                    }
+                }
+            ]
+        }),
+    ));
+    assert_eq!(append.error, None);
+
+    let runtime_state = router.dispatch(&WorkerRequest::new(
+        "req-context-state-reload",
+        "trace-context-state",
+        "thread.turn.runtime_state",
+        json!({
+            "threadId": "session-context-state",
+            "turnId": "turn-context-state"
+        }),
+    ));
+    assert_eq!(runtime_state.error, None);
+    let items = runtime_state.result.as_ref().unwrap()["timeline"]["items"]
+        .as_array()
+        .unwrap();
+    assert_eq!(items.len(), 2);
+    assert_eq!(items[0]["kind"], "context_compaction");
+    assert_eq!(items[1]["kind"], "usage");
+    assert_eq!(
+        items[1]["data"]["providerPayload"]["contextWindowUsedTokens"],
+        125
+    );
+}
+
+#[test]
 fn agent_turn_requests_ignore_thread_only_items() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(

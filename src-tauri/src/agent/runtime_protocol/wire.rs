@@ -249,6 +249,8 @@ pub enum AgentTurnItemData {
         id: String,
         summary: String,
         dropped_item_count: usize,
+        context_window_tokens: Option<u64>,
+        strategy: Option<String>,
         estimated_tokens_before: Option<u64>,
         estimated_tokens_after: Option<u64>,
     },

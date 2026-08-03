@@ -12,6 +12,7 @@ import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { createTinyOsAgentCancelCommand } from "../../app-core/chat/tinyOsCommand";
 import type { TinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
 import { createTinyOsBrowserSessionSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
+import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefaultsSettings";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
 import { timelineFromReactMessages } from "./testTimelineFixtures";
 
@@ -1182,9 +1183,13 @@ describe("ChatPage", () => {
   it("runs /compact as a control command without creating a user message", async () => {
     const user = userEvent.setup();
     const stores = createStores();
+    let resolveCompact!: () => void;
+    stores.chatStore.dispatch = vi.fn(() => new Promise<void>((resolve) => {
+      resolveCompact = resolve;
+    }));
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
-    const input = await screen.findByRole("textbox", { name: /message/i });
+    const input = await screen.findByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
     await user.type(input, "/comp");
     await user.keyboard("{Enter}");
 
@@ -1193,7 +1198,35 @@ describe("ChatPage", () => {
       source: { control: "slash-compact", surface: "chat" },
       target: { sessionId: "s1" },
     })));
+    expect(input.value).toBe("");
+    expect(screen.getByRole("status").textContent).toContain("正在压缩上下文");
+    expect(screen.queryByText("/compact")).toBeNull();
     expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
+
+    act(() => resolveCompact());
+    await waitFor(() => expect(screen.queryByText("正在压缩上下文")).toBeNull());
+  });
+
+  it("surfaces /compact failures and removes the running state", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    stores.chatStore.dispatch = vi.fn(async () => {
+      throw new Error("Compaction failed at the runtime boundary");
+    });
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const input = await screen.findByRole("textbox", { name: /message/i });
+    await user.type(input, "/comp");
+    await user.keyboard("{Enter}");
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Compaction failed at the runtime boundary");
+    expect(screen.queryByText("正在压缩上下文")).toBeNull();
+    expect(consoleError).toHaveBeenCalledWith("[chat] context.compact.failed", {
+      error: "Compaction failed at the runtime boundary",
+      sessionId: "s1",
+    });
+    consoleError.mockRestore();
   });
 
   it("preserves manual scroll position and offers a back-to-latest action", async () => {
@@ -1263,6 +1296,172 @@ describe("ChatPage", () => {
     expect(indicator.classList.contains("claude-ai-input__context-usage")).toBe(true);
     expect(indicator.getAttribute("data-state")).toBe("normal");
     expect(indicator.textContent).toContain("0 tokens used");
+  });
+
+  it("restores the post-compaction context usage when a session is loaded", async () => {
+    const stores = createStores();
+    const canonical = timelineFromReactMessages("s1", [
+      {
+        id: "u-context-before",
+        role: "user",
+        createdAtMs: Date.UTC(2026, 6, 4, 11, 57, 0),
+        text: "Use the existing context",
+        status: "complete",
+      },
+      {
+        id: "a-context-before",
+        role: "assistant",
+        createdAtMs: Date.UTC(2026, 6, 4, 11, 58, 0),
+        text: "Context is near the limit.",
+        status: "complete",
+        usage: {
+          contextWindowRemainingTokens: 116000,
+          contextWindowStrategy: "compact",
+          contextWindowTokens: 128000,
+          contextWindowUsedTokens: 12000,
+          percent: 9.375,
+        },
+      },
+    ]);
+    canonical.turns.push({
+      completedAt: "2026-07-04T11:59:00.000Z",
+      id: "turn-context-compacted",
+      sessionKey: "s1",
+      startedAt: "2026-07-04T11:59:00.000Z",
+      status: "completed",
+      steps: [{
+        agentContext: { id: "main", title: "Tinybot", type: "main" },
+        compaction: {
+          droppedItemCount: 12,
+          estimatedTokensAfter: 4200,
+          estimatedTokensBefore: 12000,
+        },
+        id: "context-compaction-1",
+        kind: "compaction",
+        sequence: 1,
+        status: "completed",
+        title: "Context compacted",
+      }],
+      updatedAt: "2026-07-04T11:59:00.000Z",
+      userMessage: {
+        id: "user:turn-context-compacted",
+        role: "user",
+        text: "",
+        timestamp: "2026-07-04T11:59:00.000Z",
+      },
+      userMessageId: "user:turn-context-compacted",
+    });
+    stores.chatStore.load = vi.fn(async () => canonical);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const indicator = await screen.findByLabelText("Context window 3% used, 97% left");
+    expect(indicator.textContent).toContain("4.2k / 128k tokens used");
+    expect(indicator.textContent).toContain("Strategy: compact");
+  });
+
+  it("restores compacted token usage when no historical usage event was persisted", async () => {
+    const stores = createStores();
+    const settingsStore: SettingsStore = {
+      load: vi.fn(async () => []),
+      loadAgentDefaultsSettings: vi.fn(async () => buildAgentDefaultsSettings({
+        agents: {
+          defaults: {
+            contextWindowStrategy: "compact",
+            contextWindowTokens: 128000,
+          },
+        },
+      })),
+    };
+    const canonical = timelineFromReactMessages("s1", []);
+    canonical.turns.push({
+      completedAt: "2026-07-04T11:59:00.000Z",
+      id: "turn-context-compacted-only",
+      sessionKey: "s1",
+      startedAt: "2026-07-04T11:59:00.000Z",
+      status: "completed",
+      steps: [{
+        agentContext: { id: "main", title: "Tinybot", type: "main" },
+        compaction: {
+          droppedItemCount: 0,
+          estimatedTokensAfter: 32066,
+          estimatedTokensBefore: 48428,
+        },
+        id: "context-compaction-only",
+        kind: "compaction",
+        sequence: 1,
+        status: "completed",
+        title: "Context compacted",
+      }],
+      updatedAt: "2026-07-04T11:59:00.000Z",
+      userMessage: {
+        id: "user:turn-context-compacted-only",
+        role: "user",
+        text: "",
+        timestamp: "2026-07-04T11:59:00.000Z",
+      },
+      userMessageId: "user:turn-context-compacted-only",
+    });
+    stores.chatStore.load = vi.fn(async () => canonical);
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
+        sessionStore={stores.sessionStore}
+        settingsStore={settingsStore}
+      />,
+    );
+
+    const indicator = await screen.findByLabelText("Context window 25% used, 75% left");
+    expect(indicator.textContent).toContain("32.1k / 128k tokens used");
+    expect(indicator.textContent).toContain("Strategy: compact");
+  });
+
+  it("prefers provider usage emitted after compaction in the same turn", async () => {
+    const stores = createStores();
+    const canonical = timelineFromReactMessages("s1", [
+      {
+        id: "u-context-current",
+        role: "user",
+        createdAtMs: Date.UTC(2026, 6, 4, 11, 57, 0),
+        text: "Continue after compacting",
+        status: "complete",
+      },
+      {
+        id: "a-context-current",
+        role: "assistant",
+        createdAtMs: Date.UTC(2026, 6, 4, 11, 58, 0),
+        text: "Continued.",
+        status: "complete",
+        usage: {
+          contextWindowRemainingTokens: 123000,
+          contextWindowStrategy: "compact",
+          contextWindowTokens: 128000,
+          contextWindowUsedTokens: 5000,
+          percent: 3.90625,
+        },
+      },
+    ]);
+    canonical.turns[0]?.steps.push({
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      compaction: {
+        droppedItemCount: 12,
+        estimatedTokensAfter: 4200,
+        estimatedTokensBefore: 12000,
+      },
+      id: "context-compaction-current",
+      kind: "compaction",
+      sequence: 1,
+      status: "completed",
+      title: "Context compacted",
+    });
+    stores.chatStore.load = vi.fn(async () => canonical);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const indicator = await screen.findByLabelText("Context window 4% used, 96% left");
+    expect(indicator.textContent).toContain("5k / 128k tokens used");
   });
 
   it("updates context usage from a canonical timeline subscription without reloading history", async () => {
@@ -1916,7 +2115,7 @@ describe("ChatPage", () => {
     expect(screen.getByText("Inspect model").closest("li")?.getAttribute("data-status")).toBe("completed");
     expect(screen.getByText("Render progress")).toBeTruthy();
     expect(screen.getByText("Run tests").closest("li")?.getAttribute("data-status")).toBe("pending");
-    await user.click(screen.getByText("Context compacted"));
+    await user.click(screen.getByText("上下文已压缩"));
     const compaction = screen.getByText("Before: 12,000 tokens").closest("details");
     expect(compaction?.textContent).toContain("After: 4,200 tokens");
     expect(compaction?.textContent).toContain("Dropped items: 12");
@@ -3292,6 +3491,7 @@ describe("ChatPage", () => {
 
     await user.click(screen.getByRole("option", { name: /deepseek-reasoner/i }));
     await waitFor(() => expect(modelTrigger.textContent).toContain("deepseek-reasoner"));
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-reasoner");
     await user.type(screen.getByRole("textbox", { name: /message/i }), "Use a specific model");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
@@ -3299,6 +3499,52 @@ describe("ChatPage", () => {
       model: "deepseek-reasoner",
       text: "Use a specific model",
     });
+  });
+
+  it("restores a valid cached composer model and clears a stale one", async () => {
+    const stores = createStores();
+    const settingsStore: SettingsStore = {
+      load: vi.fn(async () => []),
+      loadChatModels: vi.fn(async () => [
+        {
+          id: "deepseek-chat",
+          label: "deepseek-chat",
+          description: "DeepSeek",
+          default: true,
+        },
+        {
+          id: "deepseek-reasoner",
+          label: "deepseek-reasoner",
+          description: "DeepSeek",
+        },
+      ]),
+    };
+    window.localStorage.setItem("tinybot.ui.chat.composer-model", "deepseek-reasoner");
+
+    const view = render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
+        sessionStore={stores.sessionStore}
+        settingsStore={settingsStore}
+      />,
+    );
+
+    expect((await screen.findByRole("button", { name: "Select model" })).textContent).toContain("deepseek-reasoner");
+
+    view.unmount();
+    window.localStorage.setItem("tinybot.ui.chat.composer-model", "removed-model");
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
+        sessionStore={stores.sessionStore}
+        settingsStore={settingsStore}
+      />,
+    );
+
+    expect((await screen.findByRole("button", { name: "Select model" })).textContent).toContain("deepseek-chat");
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBeNull();
   });
 
   it("stops the active running session from the composer", async () => {

@@ -68,6 +68,16 @@ describe("desktop native chat session controller", () => {
     expect(api.listTurns).toHaveBeenCalledWith(threadId);
   });
 
+  test("refreshes canonical runtime state when an existing session is selected again", async () => {
+    const { api, controller } = createController();
+    await controller.loadSessions();
+    expect(api.listTurns).toHaveBeenCalledTimes(1);
+
+    await controller.selectSession("thread-1");
+
+    expect(api.listTurns).toHaveBeenCalledTimes(2);
+  });
+
   test("submits a typed Thread turn and preserves optimistic references", async () => {
     const { controller, submitThreadTurn } = createController();
     await controller.loadSessions();
