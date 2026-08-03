@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type WheelEvent } from "react";
 import { AlertTriangle, Circle, List, Loader2, Plus, X } from "lucide-react";
 import type { SessionSummary } from "../services";
 
@@ -60,9 +60,31 @@ export function SessionTabStrip({
     focusTab(target.id);
   };
 
+  const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
+    const scroller = event.currentTarget;
+    const maxScrollLeft = scroller.scrollWidth - scroller.clientWidth;
+    if (maxScrollLeft <= 0) {
+      return;
+    }
+
+    const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, scroller.scrollLeft + delta));
+    if (nextScrollLeft === scroller.scrollLeft) {
+      return;
+    }
+
+    event.preventDefault();
+    scroller.scrollLeft = nextScrollLeft;
+  };
+
   return (
     <div className="react-session-tabs">
-      <div className="react-session-tabs__scroller" aria-label="Open conversations" role="tablist">
+      <div
+        className="react-session-tabs__scroller"
+        aria-label="Open conversations"
+        role="tablist"
+        onWheel={handleWheel}
+      >
         {tabs.length ? tabs.map((tab) => {
           const active = tab.id === activeSessionId;
           const statusLabel = sessionTabStatusLabel(tab);
