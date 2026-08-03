@@ -15,6 +15,8 @@ desktop or Worker RPC boundaries.
   reconciliation.
 - `lifecycle.rs`: startup consistency checks/recovery and coordinated shutdown.
 - `observability.rs`: process-local, secret-safe runtime counters and snapshots.
+- `working_directory.rs`: validation and canonicalization of requested working
+  directories.
 
 ## Agent task ownership
 
@@ -30,17 +32,17 @@ maintaining a parallel map of spawned tasks.
 
 Startup reconciliation runs before the runtime accepts new agent work. It:
 
-1. Checks typed Thread journal/projection consistency and performs only the
-   named legacy migration when applicable.
-2. Checks the session-compatible log index and performs its named missing-index
-   migration when applicable.
-3. Reconciles persisted turn records, marking orphaned active turns interrupted
-   while preserving resumable waiting turns.
+1. Prepares and verifies the derived Rollout state index, applying only its
+   named missing-index migration when needed.
+2. Rebuilds the typed in-memory Thread projection from canonical Rollouts.
+3. Reconciles active Thread and persisted turn records, marking orphaned work
+   interrupted while preserving resumable waiting turns.
 4. Records a queryable recovery report or a visible startup failure.
 
 Shutdown stops accepting new work, requests cancellation, drains owned agent
-tasks, cleans up shell processes, MCP connections, subagents, and background
-workers, and records all stage failures in the lifecycle report.
+tasks, cleans up shell processes, MCP connections, and subagents, then flushes
+or shuts down Thread persistence. All stage failures remain in the lifecycle
+report.
 
 ## Invariants
 

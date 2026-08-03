@@ -16,7 +16,7 @@ to [`agent::bridge`](../bridge/README.md).
 - Call the configured provider and adapt provider-specific responses.
 - Maintain the typed `AgentItem` history used inside the runtime.
 - Route model-requested tools through injected dispatch services.
-- Evaluate hooks around provider, tool, turn, and context stages.
+- Evaluate hooks around provider, turn, thread, and context-compaction stages.
 - Emit correlated runtime events and project typed items for compatibility
   consumers.
 - Track token usage, cancellation, pause/resume continuations, and resumable
@@ -103,18 +103,20 @@ conditionals throughout those shared runtime modules.
   tool, history, settings, and response adapters.
 - `provider_adapter.rs`: protocol-neutral adapter helpers and decoded result
   types.
-- `items.rs`, `item_event_projection.rs`: canonical items and compatibility
-  projections.
-- `context.rs`, `context_contributors.rs`, `instructions.rs`: model-visible
-  context and instruction composition.
+- `items.rs`, `item_event_projection.rs`, `subagent_projection.rs`: canonical
+  items and compatibility projections.
+- `context.rs`, `context_manager.rs`, `context_contributors.rs`,
+  `instructions.rs`, `usage.rs`: model-visible context, compaction, usage, and
+  instruction composition.
 - `tool_router.rs`, `tool_dispatcher.rs`, `tool_runtime.rs`: discovery,
   routing, execution, cleanup, and deferred tools.
 - `tool_projection.rs`, `tool_result.rs`: normalized tool lifecycle output.
-- `hooks.rs`, `events.rs`: runtime hooks and event construction.
+- `hooks.rs`, `events.rs`, `trace_commit.rs`: runtime hooks, event construction,
+  and ordered trace commits.
 - `checkpoint.rs`, `continuations.rs`, `stores.rs`: resumable form and pause
   boundaries plus default in-memory services.
-- `settings.rs`, `state.rs`, `usage.rs`, `user_input.rs`, `result.rs`: validated
-  turn state and result construction.
+- `settings.rs`, `state.rs`, `user_input.rs`, `result.rs`: validated turn state
+  and result construction.
 
 ## Invariants
 
@@ -146,9 +148,10 @@ than prompt text, contribution content, document names, or filesystem paths.
 Long-term memory is an instruction source and does not use this extension point.
 
 Hooks run at provider, turn, thread, and context-compaction boundaries. A hook
-error, malformed diagnostic, or decision at an inactive stage fails the turn;
-tool and permission hooks are not evaluated because those calls dispatch after
-registry and capability validation.
+error, malformed diagnostic, or invalid decision at an active stage fails the
+turn. The hook type currently declares before/after-tool stages for the shared
+interface, but tool and permission hooks are not invoked; those calls dispatch
+after registry and capability validation.
 
 Every runtime event in one Turn shares the same trace context. Provider events
 add `providerAttemptId`, tool events retain `itemId` and `toolCallId`, and
@@ -211,11 +214,12 @@ finish during cleanup are recorded before the Turn becomes cancelled.
 
 ## Deferred tools, plans, and forms
 
-The foundational tool set contains available instances of `exec_command`,
-`write_stdin`, `apply_patch`, `request_user_input`, `update_plan`, and
-`tool_search`. Browser, subagent, and MCP tools remain deferred until selected
-or activated through `tool_search`. Activation lasts only for the current Turn;
-inactive calls fail before dispatch.
+The foundational model-visible tool set contains available instances of
+`exec_command`, `write_stdin`, `apply_patch`, `request_user_input`,
+`update_plan`, `tool_search`, `web.open`, `web.read`, and `web.act`. Subagent
+and MCP tools remain deferred until selected or activated through
+`tool_search`. Activation lasts only for the current Turn; inactive calls fail
+before dispatch.
 
 `update_plan` replaces the complete Turn plan. States are `pending`,
 `in_progress`, and `completed`; an incomplete plan has exactly one active step.

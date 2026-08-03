@@ -23,13 +23,15 @@ Thread data model. Those belong to `agent::runtime` and `threads::domain`.
 `agent_flow::run_agent_with_services` is the main orchestration path:
 
 1. Ensure the turn has a trace context and reject terminal re-entry.
-2. Compose instructions and attach their diagnostics to the persisted spec.
-3. Hydrate the runtime history.
-4. Persist the turn start before provider work begins.
-5. Build tool and trace services, selecting the Thread-owned or direct-session
-   trace path.
+2. Hydrate the Thread's fixed memory snapshot, compose instructions, and attach
+   instruction diagnostics to the persisted spec.
+3. Persist the turn start before history loading or provider work begins.
+4. Hydrate the runtime history from the canonical Thread projection.
+5. Build tool, context-checkpoint, and trace services, selecting the
+   Thread-owned or direct-session trace path.
 6. Execute the native agent loop and flush the trace sink.
-7. Persist the turn metadata, checkpoint, and final turn boundary as applicable.
+7. Persist the terminal boundary or resumable checkpoint as applicable.
+8. Schedule memory extraction only after a completed turn is durably persisted.
 
 Changing this order requires care. In particular, a turn must be recoverable
 after its start is visible, and trace flushing must not be reported as success
@@ -38,6 +40,7 @@ when it failed.
 ## Internal layout
 
 - `agent_flow.rs`: complete turn orchestration.
+- `context_checkpoint.rs`: commit durable context-compaction checkpoints.
 - `thread_flow.rs`: submit/continue turns and resolve Thread forms.
 - `history.rs`: select and normalize persisted history for the runtime.
 - `persistence.rs`: turn/checkpoint persistence and cancellation/restore.

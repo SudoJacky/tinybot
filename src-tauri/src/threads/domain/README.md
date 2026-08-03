@@ -18,7 +18,7 @@ projection details.
 - Provide idempotency through client event IDs.
 - Project status, activity, Turns, checkpoints, and timeline events from stored
   items.
-- Reconstruct typed Thread snapshots from canonical Rollout records.
+- Accept typed projections reconstructed from canonical Rollout records.
 - Provide an in-memory projection for typed operations without creating a
   second durable authority.
 
@@ -38,18 +38,23 @@ projection details.
 typed request / ThreadOp
         |
         v
-WorkerThreadRpc --> canonical Rollout append/reconstruction
-                              |
-                              v
-                  MemoryThreadStore projection
-                              |
-                              v
-                    ThreadRuntime / LiveThread
+WorkspaceThreadStore operation
+        |
+        +--> WorkerThreadRpc / ThreadRuntime --> MemoryThreadStore mutation
+        |
+        +--> canonical Rollout persistence
+                         |
+                         v
+              projection synchronization
+                         |
+                         v
+                 MemoryThreadStore
 ```
 
 `ThreadRuntime` does not own durable state. Snapshots, Turn summaries, status,
 pending interactions, and activity must remain reconstructable from the
-canonical Rollout.
+canonical Rollout. `WorkspaceThreadStore` coordinates the in-memory service and
+Rollout store under one operation boundary.
 
 ## Internal layout
 

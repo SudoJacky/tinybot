@@ -15,9 +15,9 @@ write.
 | `~/.tinybot/threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | Active canonical per-Thread Rollout |
 | `~/.tinybot/archived_threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | Archived canonical per-Thread Rollout |
 
-A log begins with `ThreadMeta` and can contain event messages, strongly typed
-response items, turn context, world state, compaction records, and inter-agent
-communication.
+A log begins with `SessionMeta` (re-exported here as `ThreadMeta`) and can
+contain event messages, strongly typed response items, turn context, world
+state, compaction records, and inter-agent communication.
 Canonical reconstruction produces Thread items, Thread history, model context,
 agent turns, checkpoints, and token usage.
 
@@ -35,10 +35,10 @@ can replay the exact stateless input. User-facing history still exposes the
 canonical message projection; `thread.context` includes raw response items only
 for the agent runtime.
 
-Tool outputs may also carry a local-only `tinybot_result` sidecar with the structured executor
-result used by desktop projections such as patch previews. Responses replay strips this field
-before sending `function_call_output` back to the provider; the model-visible `output` remains the
-same text payload.
+Tool outputs may also carry a local-only `tinybot_result` sidecar with the
+structured executor result used by desktop projections such as patch previews.
+Responses replay strips this field before sending `function_call_output` back
+to the provider; the model-visible `output` remains the same text payload.
 
 `protocol_projection.rs` owns this protocol-specific persistence mapping. In a
 Responses Thread, the native `function_call` from `response.output` is the
@@ -72,13 +72,18 @@ successful append.
   response-item projection.
 - `state_index.rs`: process-local Thread metadata, checkpoint, and Rollout-head index.
 - `turn.rs`: agent-turn persistence and recovery over log/index state.
+- `compression.rs`: background compression and transparent materialization of
+  older Rollouts.
+- `checkpoint_lock.rs`: cross-process serialization for context-checkpoint
+  commits.
 - `mod.rs`: capability-checked service and index consistency/repair behavior.
 
 ## Invariants
 
 - Rollouts are canonical; the process-local Thread index is always derived.
-- Paths must remain under `~/.tinybot/threads`; caller-provided paths are
-  validated before reads or appends.
+- Paths must remain under the configured data root's `threads` or
+  `archived_threads` tree; caller-provided paths are validated before reads or
+  appends.
 - Startup migrates the former `<workspace>/.tinybot/{threads,archived_threads}`
   layout without overwriting conflicts. The migrated Rollouts populate the
   in-memory index.

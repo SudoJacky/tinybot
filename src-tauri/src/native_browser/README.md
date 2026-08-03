@@ -12,10 +12,15 @@ Tauri access, or a privileged host object.
 
 ## Ownership and Agent tools
 
-`browser.observe` and `browser.interact` are deferred Agent tools. They dispatch
-directly to the `SharedBrowserRuntime` installed in Tauri state.
-`browser.observe` creates or reuses the session owned by the current chat.
-`browser.interact` rejects sessions and tabs owned by another chat.
+The model-facing tools are `web.open`, `web.read`, and `web.act`. They are
+registered directly for each Turn and use the `SharedBrowserRuntime` installed
+in Tauri state. `web.open` creates or reuses the session owned by the current
+chat; reads and actions reject sessions or tabs owned by another chat.
+
+`browser.observe` and `browser.interact` are internal adapter operations, not
+registered model tools. The `tools::web` layer supplies their session, tab,
+control-epoch, capture, and observation identifiers so those details do not
+leak into the model-facing interface.
 
 State-sensitive actions must match the current control epoch and observation
 revision. Coordinate clicks additionally require the current capture and must
@@ -25,6 +30,9 @@ epoch and invalidates pending Agent work with `user_interrupted`.
 Agent cancellation is forwarded to the matching in-flight browser command.
 Capture bytes remain available for native Agent observation but are not
 returned in model tool results or rendered as a TinyOS fallback.
+
+See [`tools::web`](../tools/web/README.md) for the model-facing snapshot and
+action contract.
 
 ## Session snapshot
 
