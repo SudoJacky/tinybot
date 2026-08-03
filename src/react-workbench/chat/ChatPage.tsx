@@ -409,6 +409,8 @@ export function ChatPage({
     ? "Effective capabilities are stale for the current Agent turn."
     : resumeCapability.reason || "Resume is unavailable for this Agent turn.";
   const cancelInFlight = isTinyOsCommandInFlight(commandLifecycle);
+  const showCommandLifecycleStatus = commandLifecycle.stage !== "idle"
+    && commandLifecycle.command.kind !== "agent.cancel";
   const requestChangeCapability = tinyOsCapabilities.capabilities.files.requestChange;
   const canRequestChange = Boolean(
     activeSession
@@ -2058,7 +2060,7 @@ export function ChatPage({
           />
         ) : null}
         {queueMessage ? <p className="react-queued-inputs__message">{queueMessage}</p> : null}
-        {commandLifecycle.stage !== "idle" ? (
+        {showCommandLifecycleStatus ? (
           <p
             aria-live="polite"
             className="react-agent-command-status"
@@ -2717,7 +2719,9 @@ function CanonicalChatTurn({
   const finalAnswer = turn.finalAnswer ?? turn.finalMessage;
   const reasoningSteps = turn.steps.filter((step) => step.kind === "reasoning");
   const planSteps = turn.steps.filter((step) => step.kind === "plan");
-  const errorSteps = turn.steps.filter((step) => step.kind === "error");
+  const errorSteps = turn.status === "interrupted"
+    ? []
+    : turn.steps.filter((step) => step.kind === "error");
   const legacyProcessSteps = turn.steps.filter((step) => (
     step.kind !== "reasoning"
     && step.kind !== "plan"
@@ -2849,7 +2853,10 @@ function ExecutionTimeline({
   const hasFinalAnswer = Boolean(turn.finalAnswer ?? turn.finalMessage);
   const [foldIntent, setFoldIntent] = useState<ExecutionFoldIntent>("untouched");
   const [open, setOpen] = useState(() => abnormal || !hasFinalAnswer);
-  const errorItems = executionItems.filter((step) => step.kind === "error");
+  const visibleExecutionItems = turn.status === "interrupted"
+    ? executionItems.filter((step) => step.kind !== "error")
+    : executionItems;
+  const errorItems = visibleExecutionItems.filter((step) => step.kind === "error");
 
   useEffect(() => {
     if (foldIntent !== "untouched") {
@@ -2902,7 +2909,7 @@ function ExecutionTimeline({
         <ChevronDown aria-hidden="true" className="react-execution-timeline__chevron" size={18} />
       </button>
       <div className="react-execution-timeline__content" hidden={!open} id={contentId}>
-        {executionItems.map((step) => (
+        {visibleExecutionItems.map((step) => (
           <div className="react-execution-timeline__item" data-kind={step.kind} data-status={step.status} key={step.id}>
             {step.kind === "tool_call" ? null : (
               <button

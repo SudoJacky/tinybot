@@ -128,6 +128,14 @@ conditionals throughout those shared runtime modules.
   boundaries; late work must not overwrite a terminal outcome.
 - Tool execution goes through the dispatcher so capability, ownership, trace,
   and cleanup behavior remain consistent.
+- Model-visible shell results keep one compact process-control view with the
+  interleaved output. The full process snapshot is available to live runtime
+  projections, but durable response items use that compact view as their sole
+  Shell output and checkpoints omit the redundant raw snapshot. Generic tool
+  envelopes own their raw result only once.
+- Checkpoint top-level fields are the canonical resumable state. The nested
+  payload contains only phase-specific data and does not repeat promoted
+  iteration, message, pending-call, or completed-result fields.
 - Runtime events for one turn retain the same trace context and stable identity
   fields across provider, tool, checkpoint, and terminal stages.
 - Errors should preserve the failing stage; do not convert provider, tool, or

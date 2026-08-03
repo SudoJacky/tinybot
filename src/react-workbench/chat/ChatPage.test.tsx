@@ -2276,6 +2276,20 @@ describe("ChatPage", () => {
     expect(within(error).getByRole("button", { name: "继续执行" })).toBeTruthy();
   });
 
+  it("keeps interrupted work visible without rendering a failure recovery card", async () => {
+    const stores = createStores();
+    const timeline = failedPlanTimeline();
+    timeline.turns[0].status = "interrupted";
+    timeline.turns[0].executionItems = timeline.turns[0].steps;
+    stores.chatStore.load = vi.fn(async () => timeline);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    expect(await screen.findByRole("button", { name: /Work performed Interrupted/ })).toBeTruthy();
+    expect(screen.getByText("Read project files")).toBeTruthy();
+    expect(screen.queryByRole("alert", { name: "任务执行失败" })).toBeNull();
+  });
+
   it("sends a contextual recovery prompt for continue", async () => {
     const user = userEvent.setup();
     const stores = createStores();
@@ -2932,7 +2946,7 @@ describe("ChatPage", () => {
     expect(queuedInputs.textContent).toContain("Paused");
   });
 
-  it("shares command lifecycle state for cancellation dispatched outside ChatPage", async () => {
+  it("shares cancellation lifecycle state without rendering transient command status", async () => {
     const user = userEvent.setup();
     let subscribed: ((event: ChatEvent) => void) | undefined;
     const runningSession = {
@@ -2962,12 +2976,12 @@ describe("ChatPage", () => {
 
     act(() => subscribed?.({ command, type: "command.dispatched" }));
 
-    expect(screen.getByText(/Sending cancel command/)).toBeTruthy();
+    expect(screen.queryByText(/Sending cancel command/)).toBeNull();
     expect(screen.getByLabelText("Queued inputs").textContent).toContain("Paused");
 
     act(() => subscribed?.({ commandId: command.commandId, type: "command.accepted" }));
 
-    expect(screen.getByText(/Waiting for runtime confirmation/)).toBeTruthy();
+    expect(screen.queryByText(/Waiting for runtime confirmation/)).toBeNull();
 
     act(() => subscribed?.({ commandId: command.commandId, type: "command.canonical-updated" }));
 

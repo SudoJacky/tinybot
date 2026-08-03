@@ -231,7 +231,7 @@ fn project_responses_items(event: &Value) -> ProtocolEventProjection {
 }
 
 fn structured_tool_result(payload: &Value) -> Option<Value> {
-    payload
+    let result = payload
         .get("result")
         .or_else(|| {
             payload
@@ -239,7 +239,24 @@ fn structured_tool_result(payload: &Value) -> Option<Value> {
                 .and_then(|envelope| envelope.get("raw"))
         })
         .filter(|result| !result.is_null())
-        .cloned()
+        .cloned()?;
+    if is_shell_process_result(payload, &result) {
+        return None;
+    }
+    Some(result)
+}
+
+fn is_shell_process_result(payload: &Value, result: &Value) -> bool {
+    let tool_name = payload
+        .get("toolName")
+        .or_else(|| payload.get("name"))
+        .and_then(Value::as_str);
+    if !matches!(tool_name, Some("exec_command" | "write_stdin")) {
+        return false;
+    }
+    let result = result.get("result").unwrap_or(result);
+    result.get("processId").and_then(Value::as_str).is_some()
+        && result.get("output").and_then(Value::as_str).is_some()
 }
 
 fn canonical_message_content(content: Value, part_type: &str) -> Value {

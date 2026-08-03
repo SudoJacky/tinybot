@@ -155,6 +155,54 @@ fn existing_session_rejects_a_different_turn_api_mode() {
 }
 
 #[test]
+fn shell_results_persist_only_the_canonical_model_output() {
+    let model_output = serde_json::json!({
+        "cursor": 1,
+        "droppedBytes": 0,
+        "exitCode": 0,
+        "output": "listed.txt\r\n",
+        "processId": "process-1",
+        "running": false,
+        "status": "exited",
+        "truncated": false
+    })
+    .to_string();
+    let items = response_items_from_runtime_event(
+        &json!({
+            "eventName": "agent.tool.result",
+            "payload": {
+                "toolCallId": "call-shell-1",
+                "toolName": "exec_command",
+                "resultStatus": "ok",
+                "content": model_output,
+                "envelope": {
+                    "raw": {
+                        "chunks": [
+                            { "content": "listed.txt\r\n", "sequence": 1, "stream": "stdout" }
+                        ],
+                        "command": "dir /b",
+                        "output": "listed.txt\r\n",
+                        "processId": "process-1",
+                        "stderr": "",
+                        "stdout": "listed.txt\r\n",
+                        "workingDir": "D:/workspace"
+                    }
+                }
+            }
+        }),
+        SessionApiMode::Responses,
+    );
+
+    assert_eq!(items.len(), 1);
+    assert!(items[0].get("tinybot_result").is_none());
+    assert_eq!(items[0]["output"], model_output);
+    let serialized = serde_json::to_string(&items[0]).expect("tool result should serialize");
+    assert_eq!(serialized.matches("listed.txt").count(), 1);
+    assert!(!serialized.contains("chunks"));
+    assert!(!serialized.contains("stdout"));
+}
+
+#[test]
 fn user_interruption_persists_an_interrupted_turn_aborted_boundary() {
     let root = std::env::temp_dir().join(format!(
         "tinybot-user-interruption-{}-{}",

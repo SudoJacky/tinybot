@@ -35,10 +35,13 @@ can replay the exact stateless input. User-facing history still exposes the
 canonical message projection; `thread.context` includes raw response items only
 for the agent runtime.
 
-Tool outputs may also carry a local-only `tinybot_result` sidecar with the
-structured executor result used by desktop projections such as patch previews.
-Responses replay strips this field before sending `function_call_output` back
-to the provider; the model-visible `output` remains the same text payload.
+Tool outputs may also carry a local-only `tinybot_result` sidecar when a desktop
+projection needs structured data that the model-visible `output` cannot express,
+such as a patch preview. Responses replay strips this field before sending
+`function_call_output` back to the provider. Shell results do not use the
+sidecar: their compact structured `output` is the single durable representation.
+Executor permission snapshots and live stdout chunk buffers are not copied into
+the durable tool-output item.
 
 `protocol_projection.rs` owns this protocol-specific persistence mapping. In a
 Responses Thread, the native `function_call` from `response.output` is the
