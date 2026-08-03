@@ -41,6 +41,21 @@ function renderTabStrip() {
 }
 
 describe("SessionTabStrip", () => {
+  it("registers wheel handling as non-passive so scrolling can be cancelled", () => {
+    const addEventListener = vi.spyOn(HTMLElement.prototype, "addEventListener");
+
+    render(tabStrip());
+
+    const tablist = screen.getByRole("tablist", { name: "Open conversations" });
+    const registration = addEventListener.mock.calls.find((call, index) => (
+      addEventListener.mock.instances[index] === tablist
+      && call[0] === "wheel"
+      && typeof call[2] === "object"
+      && call[2]?.passive === false
+    ));
+    expect(registration).toBeDefined();
+  });
+
   it("reveals a tab when it becomes active", () => {
     const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView");
     const { rerender } = render(tabStrip());
