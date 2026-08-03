@@ -60,7 +60,7 @@ pub(crate) fn reject_native_agent_terminal_turn_reentry(
         .get("status")
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default();
-    if !matches!(status, "completed" | "failed" | "cancelled") {
+    if !matches!(status, "completed" | "failed" | "cancelled" | "interrupted") {
         return Ok(None);
     }
     let phase = existing

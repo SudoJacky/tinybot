@@ -128,14 +128,14 @@ async fn run_owned_native_agent_turn_async(
         .status(&identity.turn_id)
         .and_then(|status| status.terminal_outcome)
         .as_deref()
-        == Some("cancelled")
+        .is_some_and(|outcome| matches!(outcome, "cancelled" | "interrupted"))
     {
         return services
             .task_runtime
             .terminal_result(&identity.turn_id)
             .ok_or_else(|| {
                 format!(
-                    "cancelled agent turn `{}` is missing its owned terminal result",
+                    "interrupted agent turn `{}` is missing its owned terminal result",
                     identity.turn_id
                 )
             })?;
@@ -229,6 +229,7 @@ async fn run_owned_native_agent_turn_async(
 struct ProviderStreamState {
     streamed_content: bool,
     streamed_reasoning: bool,
+    message_content: String,
     reasoning_content: String,
     message_phase: AgentAssistantMessagePhase,
     observer_cancelled: bool,
@@ -240,6 +241,7 @@ impl ProviderStreamState {
         Self {
             streamed_content: false,
             streamed_reasoning: false,
+            message_content: String::new(),
             reasoning_content: String::new(),
             message_phase: AgentAssistantMessagePhase::Unknown,
             observer_cancelled: false,
@@ -281,6 +283,7 @@ impl ProviderStreamState {
                     return;
                 }
                 self.streamed_content = true;
+                self.message_content.push_str(&delta);
                 if let Err(error) = state.transition_phase(
                     AgentRuntimePhase::StreamingModel,
                     iteration,
@@ -325,6 +328,42 @@ impl ProviderStreamState {
                 }
             }
         }
+    }
+
+    fn materialize_interrupted_message(
+        &self,
+        state: &mut AgentTurnState,
+        iteration: i64,
+        provider_attempt_id: &str,
+        assistant_message_id: &str,
+    ) -> Result<(), String> {
+        if !self.streamed_content || self.message_content.is_empty() {
+            return Ok(());
+        }
+        let message_phase = match self.message_phase {
+            AgentAssistantMessagePhase::Unknown => "unknown",
+            AgentAssistantMessagePhase::Commentary => "commentary",
+            AgentAssistantMessagePhase::FinalAnswer => "final_answer",
+        };
+        state.emit(ModelOutputEvent::MessageCompleted(serde_json::json!({
+            "iteration": iteration,
+            "modelCallId": provider_attempt_id,
+            "messageId": assistant_message_id,
+            "messagePhase": message_phase,
+            "classificationSource": "turn_interrupted",
+            "content": self.message_content,
+            "interrupted": true,
+            "responseItems": [{
+                "type": "message",
+                "id": assistant_message_id,
+                "role": "assistant",
+                "phase": message_phase,
+                "content": [{
+                    "type": "output_text",
+                    "text": self.message_content,
+                }],
+            }],
+        })))
     }
 }
 
@@ -839,6 +878,12 @@ impl<'a> NativeAgentTurnExecution<'a> {
         self.state
             .emit_hook_evaluation(&after_provider_invocation, &after_provider_evaluation)?;
         if attempt.stream.observer_cancelled {
+            attempt.stream.materialize_interrupted_message(
+                &mut self.state,
+                attempt.iteration,
+                &attempt.id,
+                &attempt.assistant_message_id,
+            )?;
             return Ok(ExecutionStage::Finished(
                 self.finish_cancelled(attempt.iteration)?,
             ));
@@ -846,6 +891,12 @@ impl<'a> NativeAgentTurnExecution<'a> {
         let response = match provider_response {
             Ok(response) => response,
             Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
+                attempt.stream.materialize_interrupted_message(
+                    &mut self.state,
+                    attempt.iteration,
+                    &attempt.id,
+                    &attempt.assistant_message_id,
+                )?;
                 return Ok(ExecutionStage::Finished(
                     self.finish_cancelled(attempt.iteration)?,
                 ));

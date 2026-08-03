@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent } from "react";
+import { useEffect, useId, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -365,12 +365,14 @@ export function ChatPage({
   const timelineLoaded = Boolean(activeSession) && timeline?.sessionId === activeSession?.id;
   const emptyActiveSession = draftNewSession || (timelineLoaded && timeline?.turns.length === 0 && optimisticMessages.length === 0);
   const sessionRunning = activeSession?.status === "running";
-  const sessionResponding = sessionRunning && !emptyActiveSession;
-  const activeTurn = useMemo(() => [...(timeline?.turns ?? [])].reverse().find((turn) => (
-    turn.status === "pending"
-    || turn.status === "running"
-    || turn.status === "awaiting_user"
-  )), [timeline]);
+  const activeTurn = useMemo(() => timelineLoaded
+    ? [...(timeline?.turns ?? [])].reverse().find((turn) => (
+      turn.status === "pending"
+      || turn.status === "running"
+      || turn.status === "awaiting_user"
+    ))
+    : undefined, [timeline, timelineLoaded]);
+  const sessionResponding = Boolean(activeTurn) || (sessionRunning && !emptyActiveSession);
   const cancelCapability = tinyOsCapabilities.capabilities.agent.cancel;
   const capabilityTargetsActiveTurn = !tinyOsCapabilities.evaluatedTurnId
     || tinyOsCapabilities.evaluatedTurnId === activeTurn?.id;
@@ -1785,6 +1787,14 @@ export function ChatPage({
     dispatchSessionTabs({ type: "draft.changed", sessionId: activeSessionId, value });
   }
 
+  function handleChatPageKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+    if (event.key !== "Escape" || event.defaultPrevented || !sessionResponding || !canCancelTurn || !activeSession) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('[role="dialog"], [role="menu"], [role="listbox"]')) return;
+    event.preventDefault();
+    void handleStopGeneration(activeSession, "chat");
+  }
+
   const visibleAgentUiForms = agentUiForms.filter(isVisibleAgentUiForm);
   const interactiveFormIds = new Set(visibleAgentUiForms.map((form) => form.form_id));
   const headerTitle = activeSession ? displaySessionTitle(activeSession.title) : draftNewSession ? "新会话" : "未选择会话";
@@ -1797,6 +1807,7 @@ export function ChatPage({
       data-live-canvas-open={liveCanvasPresent ? "true" : undefined}
       data-session-sidebar-collapsed={resolvedSessionSidebarCollapsed}
       style={{ "--tinyos-width": `${tinyOsWidth}px` } as CSSProperties}
+      onKeyDown={handleChatPageKeyDown}
     >
       <aside className="react-session-list" aria-label="Sessions" data-collapsed={resolvedSessionSidebarCollapsed}>
         <div className="react-session-list__header">

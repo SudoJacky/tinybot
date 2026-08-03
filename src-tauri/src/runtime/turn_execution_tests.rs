@@ -93,12 +93,12 @@ fn cancellation_removes_active_handle_and_ignores_late_completion() {
     assert!(outcome.cleanup_pending);
     assert_eq!(runtime.active_count(), 0);
     assert_eq!(runtime.draining_count(), 1);
-    assert_eq!(result["stopReason"], "cancelled");
+    assert_eq!(result["stopReason"], "interrupted");
 
     release_sender.send(()).expect("release should send");
     wait_until(Duration::from_secs(1), || runtime.draining_count() == 0);
     let status = runtime.status("turn-cancel").expect("status should remain");
-    assert_eq!(status.terminal_outcome.as_deref(), Some("cancelled"));
+    assert_eq!(status.terminal_outcome.as_deref(), Some("interrupted"));
     assert_eq!(status.late_results_ignored, 1);
 }
 
@@ -349,7 +349,7 @@ fn async_cancellation_drops_operation_without_a_late_completion() {
             .expect("async cancellation should complete");
 
         assert_eq!(outcome.state, "cancel_requested");
-        assert_eq!(result["stopReason"], "cancelled");
+        assert_eq!(result["stopReason"], "interrupted");
         for _ in 0..100 {
             if runtime.draining_count() == 0 {
                 break;
@@ -408,7 +408,8 @@ fn cooperative_async_cancellation_reports_cleanup_timeout_and_releases_owner() {
 
         assert_eq!(outcome.state, "cancel_requested");
         assert!(!outcome.active_task_removed);
-        assert_eq!(result["stopReason"], "cancellation_cleanup_timeout");
+        assert_eq!(result["stopReason"], "interrupted");
+        assert_eq!(result["cancellationCleanup"]["outcome"], "timeout");
         assert!(result["runtimeEvents"]
             .as_array()
             .expect("cleanup timeout events should be an array")
@@ -417,6 +418,14 @@ fn cooperative_async_cancellation_reports_cleanup_timeout_and_releases_owner() {
         assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
         assert_eq!(runtime.active_count(), 0);
         assert_eq!(runtime.draining_count(), 0);
+        assert_eq!(
+            runtime
+                .status("turn-cooperative-cleanup-timeout")
+                .expect("timed out cancellation status should remain")
+                .terminal_outcome
+                .as_deref(),
+            Some("interrupted")
+        );
         let metrics_after =
             crate::runtime::observability::global_agent_runtime_metrics().snapshot();
         assert!(

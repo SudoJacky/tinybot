@@ -462,15 +462,16 @@ Turn-level runtime controls are also typed and validated before MCP discovery or
 
 ### Cancellation response
 
-`worker_thread_interrupt` is idempotent. Its response includes the owned task transition as
-`taskCancellation`:
+`worker_thread_interrupt` only targets the current active turn. A supplied `turnId` must match that
+turn; a stale ID or a thread without an active turn is rejected. Its response includes the owned
+task transition as `taskCancellation`:
 
 ```json
 {
   "runtime": "rust",
   "turnId": "turn-1",
   "cancelled": true,
-  "stopReason": "cancelled",
+  "stopReason": "interrupted",
   "task": {
     "turnId": "turn-1",
     "state": "cancel_requested",
@@ -482,8 +483,12 @@ Turn-level runtime controls are also typed and validated before MCP discovery or
 ```
 
 Possible task states are `cancel_requested`, `cancelled_waiting`, `already_terminal`, and
-`not_found`. A repeated request for an already-cancelled turn replays the owned cancellation result
-without starting another task.
+`not_found`. User interruption cancels the provider stream and notifies running tools to clean up.
+If cooperative cleanup exceeds its grace period, the owned task is aborted and an
+`agent.cleanup_timeout` diagnostic is retained, while the turn still ends as `interrupted`.
+Already streamed assistant text is materialized before the terminal boundary so it remains visible
+after reload. The durable Rollout boundary is `TurnAborted` with `status`, `phase`, and `stopReason`
+set to `interrupted`. Provider-initiated cancellation and runtime shutdown remain `cancelled`.
 
 ### Provider failure results
 

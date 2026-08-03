@@ -1022,6 +1022,22 @@ fn dispatches_thread_runtime_turn_requests() {
         "turn-runtime-1"
     );
 
+    let stale_interrupt = router.dispatch(&WorkerRequest::new(
+        "req-thread-runtime-interrupt-stale",
+        "trace-thread-runtime",
+        "thread.interrupt",
+        json!({
+            "threadId": thread_id,
+            "turnId": "turn-runtime-stale",
+            "reason": "stale stop"
+        }),
+    ));
+    assert!(stale_interrupt.result.is_none());
+    assert_eq!(
+        stale_interrupt.error.as_ref().unwrap().message,
+        "thread operation targets a turn that is not active"
+    );
+
     let interrupt = router.dispatch(&WorkerRequest::new(
         "req-thread-runtime-interrupt",
         "trace-thread-runtime",
@@ -1035,6 +1051,10 @@ fn dispatches_thread_runtime_turn_requests() {
     assert_eq!(
         interrupt.result.as_ref().unwrap()["appendedItems"][0]["kind"]["type"],
         "cancelled"
+    );
+    assert_eq!(
+        interrupt.result.as_ref().unwrap()["appendedItems"][0]["kind"]["payload"]["stopReason"],
+        "interrupted"
     );
     assert_eq!(interrupt.result.as_ref().unwrap()["turn"]["active"], false);
     assert_eq!(

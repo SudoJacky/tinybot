@@ -706,10 +706,32 @@ impl WorkerThreadLogRpc {
                 }
             }),
         )?;
-        self.mark_turn_interrupted_terminal(session_id, turn_id, reason)
+        self.mark_turn_runtime_restarted_terminal(session_id, turn_id, reason)
     }
 
     pub fn mark_turn_interrupted_terminal(
+        &self,
+        session_id: &str,
+        turn_id: &str,
+        reason: &str,
+    ) -> Result<AgentTurnRecord, WorkerProtocolError> {
+        self.mark_turn_terminal(
+            session_id,
+            turn_id,
+            AgentTurnStatus::Interrupted,
+            "interrupted",
+            Some("interrupted".to_string()),
+            None,
+            Some(serde_json::json!({
+                "code": "interrupted",
+                "message": reason,
+                "source": "user_interrupt"
+            })),
+            None,
+        )
+    }
+
+    fn mark_turn_runtime_restarted_terminal(
         &self,
         session_id: &str,
         turn_id: &str,

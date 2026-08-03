@@ -501,6 +501,7 @@ describe("ChatPage", () => {
       },
     }];
     timeline.turns[0].executionItems = timeline.turns[0].steps;
+    timeline.turns[0].status = "completed";
     stores.chatStore.load = vi.fn(async () => timeline);
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
@@ -3291,6 +3292,56 @@ describe("ChatPage", () => {
       kind: "agent.cancel",
       source: { control: "stop-response", surface: "chat" },
       target: expect.objectContaining({ sessionId: "s1" }),
+    }));
+  });
+
+  it("shows stop generation from the canonical active turn when the session list is stale", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Planning notes",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "idle",
+      }],
+    });
+    const runningTimeline = await stores.chatStore.load("s1");
+    runningTimeline.turns[runningTimeline.turns.length - 1].status = "running";
+    vi.mocked(stores.chatStore.load).mockResolvedValue(runningTimeline);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await user.click(await screen.findByRole("button", { name: "Stop generation" }));
+
+    expect(stores.chatStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "agent.cancel",
+      target: expect.objectContaining({ sessionId: "s1", turnId: runningTimeline.turns[runningTimeline.turns.length - 1].id }),
+    }));
+  });
+
+  it("interrupts the canonical active turn with Escape from the Chat surface", async () => {
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Planning notes",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "running",
+      }],
+    });
+    const runningTimeline = await stores.chatStore.load("s1");
+    runningTimeline.turns[runningTimeline.turns.length - 1].status = "running";
+    vi.mocked(stores.chatStore.load).mockResolvedValue(runningTimeline);
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await screen.findByRole("button", { name: "Stop generation" });
+    fireEvent.keyDown(await screen.findByRole("textbox", { name: /message/i }), { key: "Escape" });
+
+    expect(stores.chatStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "agent.cancel",
+      source: { control: "stop-response", surface: "chat" },
+      target: expect.objectContaining({ turnId: runningTimeline.turns[runningTimeline.turns.length - 1].id }),
     }));
   });
 

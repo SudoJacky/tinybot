@@ -68,7 +68,7 @@ fn owned_task_runtime_cancels_normal_turn_and_ignores_late_provider_result() {
         .expect("owned runner should not panic")
         .expect("owned cancellation should return a result");
     assert_eq!(cancellation["task"]["state"], "cancel_requested");
-    assert_eq!(result["stopReason"], "cancelled");
+    assert_eq!(result["stopReason"], "interrupted");
     assert_eq!(services.task_runtime.active_count(), 0);
     assert_eq!(services.task_runtime.draining_count(), 0);
 
@@ -80,7 +80,7 @@ fn owned_task_runtime_cancels_normal_turn_and_ignores_late_provider_result() {
         .status("turn-owned-cancel")
         .expect("cancelled turn status should remain");
     assert_eq!(services.task_runtime.draining_count(), 0);
-    assert_eq!(cancelled.terminal_outcome.as_deref(), Some("cancelled"));
+    assert_eq!(cancelled.terminal_outcome.as_deref(), Some("interrupted"));
     assert_eq!(cancelled.late_results_ignored, 0);
 }
 
@@ -1306,8 +1306,18 @@ fn async_provider_cancellation_after_partial_output_drops_stream_without_late_ev
             .filter(|event| event.event_name == "agent.delta")
             .map(|event| event.payload["delta"].as_str().unwrap_or_default())
             .collect::<Vec<_>>();
-        assert_eq!(cancellation["stopReason"], "cancelled");
-        assert_eq!(result["stopReason"], "cancelled");
+        let partial_message = events
+            .iter()
+            .find(|event| event.event_name == "agent.message.completed")
+            .expect("interruption should materialize the streamed assistant prefix");
+        assert_eq!(partial_message.payload["content"], "first");
+        assert_eq!(partial_message.payload["interrupted"], true);
+        assert_eq!(
+            partial_message.payload["responseItems"][0]["content"][0]["text"],
+            "first"
+        );
+        assert_eq!(cancellation["stopReason"], "interrupted");
+        assert_eq!(result["stopReason"], "interrupted");
         assert!(dropped.load(Ordering::SeqCst));
         assert_eq!(services.task_runtime().active_count(), 0);
         assert_eq!(services.task_runtime().draining_count(), 0);

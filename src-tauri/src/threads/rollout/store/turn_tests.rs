@@ -4,7 +4,9 @@ use super::{
 };
 use crate::protocol::capability::{CapabilityPolicy, WorkerCapability};
 use crate::threads::rollout::format::SessionApiMode;
-use crate::threads::rollout::store::{read_thread_lines, ThreadLogItem, WorkerThreadLogRpc};
+use crate::threads::rollout::store::{
+    read_thread_lines, EventKind, ThreadLogItem, WorkerThreadLogRpc,
+};
 use crate::threads::turn::{AgentTurnRecord, AgentTurnStatus};
 use serde_json::json;
 
@@ -148,6 +150,86 @@ fn existing_session_rejects_a_different_turn_api_mode() {
         .expect_err("an existing session must not switch API modes");
 
     assert!(error.message.contains("does not match its session"));
+    drop(rpc);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn user_interruption_persists_an_interrupted_turn_aborted_boundary() {
+    let root = std::env::temp_dir().join(format!(
+        "tinybot-user-interruption-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let rpc = WorkerThreadLogRpc::new(
+        root.clone(),
+        CapabilityPolicy::new([WorkerCapability::SessionWrite]),
+    );
+    let session_id = "interrupted-session";
+    let turn_id = "interrupted-turn";
+    let timestamp = "2026-08-03T00:00:00Z";
+    let thread = rpc
+        .ensure_turn_thread(session_id, timestamp, None, Some(SessionApiMode::Responses))
+        .unwrap();
+    rpc.start_turn(
+        AgentTurnRecord {
+            session_id: session_id.to_string(),
+            turn_id: turn_id.to_string(),
+            thread_id: None,
+            parent_thread_id: None,
+            child_thread_ids: Vec::new(),
+            status: AgentTurnStatus::Running,
+            phase: "streaming_model".to_string(),
+            started_at: timestamp.to_string(),
+            updated_at: timestamp.to_string(),
+            completed_at: None,
+            stop_reason: None,
+            model: "gpt-test".to_string(),
+            provider: Some("openai".to_string()),
+            max_iterations: 8,
+            current_iteration: 1,
+            conversation_message_ids: Vec::new(),
+            trace_messages: Vec::new(),
+            completed_tool_results: Vec::new(),
+            pending_tool_calls: Vec::new(),
+            checkpoint: None,
+            artifacts: Vec::new(),
+            usage: Vec::new(),
+            token_usage_info: None,
+            instruction_provenance: None,
+            instruction_diagnostics: Vec::new(),
+            trace_context: None,
+            error: None,
+        },
+        None,
+        Vec::new(),
+    )
+    .unwrap();
+
+    let interrupted = rpc
+        .mark_turn_interrupted_terminal(session_id, turn_id, "Interrupted by user")
+        .unwrap();
+
+    assert_eq!(interrupted.status, AgentTurnStatus::Interrupted);
+    assert_eq!(interrupted.phase, "interrupted");
+    assert_eq!(interrupted.stop_reason.as_deref(), Some("interrupted"));
+    let boundary = read_thread_lines(std::path::Path::new(&thread.thread_path))
+        .unwrap()
+        .into_iter()
+        .find_map(|line| match line.item {
+            ThreadLogItem::EventMsg(event) if *event.kind() == EventKind::TurnAborted => {
+                Some(event.payload().clone())
+            }
+            _ => None,
+        })
+        .expect("interruption should append a turn_aborted boundary");
+    assert_eq!(boundary["status"], "interrupted");
+    assert_eq!(boundary["stopReason"], "interrupted");
+
     drop(rpc);
     std::fs::remove_dir_all(root).unwrap();
 }

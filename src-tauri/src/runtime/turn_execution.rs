@@ -439,22 +439,23 @@ impl TurnExecutionRuntime {
                             result = &mut operation => Some(async_operation_result(result)),
                             _ = cancellation.cancelled() => {
                                 let cleanup_started = Instant::now();
-                                let result = match tokio::time::timeout(grace, &mut operation).await {
-                                    Ok(result) => async_operation_result(result),
-                                    Err(_) => Ok(cancellation_cleanup_timeout_result(
+                                let (result, cleanup_timed_out) = match tokio::time::timeout(grace, &mut operation).await {
+                                    Ok(result) => (async_operation_result(result), false),
+                                    Err(_) => (Ok(cancellation_cleanup_timeout_result(
                                         &async_task.request,
                                         grace,
-                                    )),
+                                        owned_cancellation_stop_reason(
+                                            &inner,
+                                            &async_task.request.turn_id,
+                                        ),
+                                    )), true),
                                 };
                                 let metrics = crate::runtime::observability::global_agent_runtime_metrics();
                                 metrics.record_duration(
                                     "cancellation.cleanup.durationMs",
                                     cleanup_started.elapsed(),
                                 );
-                                metrics.increment(if result.as_ref().is_ok_and(|value| {
-                                    value.get("stopReason").and_then(Value::as_str)
-                                        == Some("cancellation_cleanup_timeout")
-                                }) {
+                                metrics.increment(if cleanup_timed_out {
                                     "cancellation.cleanup.timed_out"
                                 } else {
                                     "cancellation.cleanup.completed"
@@ -720,6 +721,7 @@ impl TurnExecutionRuntime {
     pub(crate) fn cancel(&self, turn_id: &str, reason: AgentCancelReason) -> CancelOutcome {
         let turn_id = turn_id.trim();
         let reason_value = reason.as_str().to_string();
+        let terminal_outcome = cancellation_terminal_outcome(&reason);
         let mut state = self
             .inner
             .state
@@ -735,12 +737,12 @@ impl TurnExecutionRuntime {
                 .statuses
                 .get_mut(turn_id)
                 .expect("active agent task must have a status");
-            status.phase = "cancelled".to_string();
+            status.phase = terminal_outcome.to_string();
             status.active = false;
             status.cancellation_requested = true;
             status.cancellation_reason = Some(reason_value.clone());
             status.checkpoint_ref = None;
-            status.terminal_outcome = Some("cancelled".to_string());
+            status.terminal_outcome = Some(terminal_outcome.to_string());
             let cancelled_result = cancelled_task_result(&task.request, &reason_value);
             state
                 .terminal_results
@@ -776,12 +778,12 @@ impl TurnExecutionRuntime {
             };
         }
 
-        status.phase = "cancelled".to_string();
+        status.phase = terminal_outcome.to_string();
         status.active = false;
         status.cancellation_requested = true;
         status.cancellation_reason = Some(reason_value.clone());
         status.checkpoint_ref = None;
-        status.terminal_outcome = Some("cancelled".to_string());
+        status.terminal_outcome = Some(terminal_outcome.to_string());
         let request = StartAgentTurn::new(status.turn_id.clone(), status.session_id.clone());
         state.terminal_results.insert(
             turn_id.to_string(),
@@ -1103,6 +1105,11 @@ fn turn_execution_thread_name(turn_id: &str) -> String {
 }
 
 fn cancelled_task_result(request: &StartAgentTurn, reason: &str) -> Value {
+    let stop_reason = if reason == AgentCancelReason::UserRequested.as_str() {
+        "interrupted"
+    } else {
+        "cancelled"
+    };
     let runtime_event = standalone_runtime_event(
         &request.turn_id,
         &request.session_id,
@@ -1111,7 +1118,7 @@ fn cancelled_task_result(request: &StartAgentTurn, reason: &str) -> Value {
             "turnId": request.turn_id,
             "sessionId": request.session_id,
             "cancelled": true,
-            "stopReason": "cancelled",
+            "stopReason": stop_reason,
             "reason": reason
         }),
     );
@@ -1120,14 +1127,14 @@ fn cancelled_task_result(request: &StartAgentTurn, reason: &str) -> Value {
         "turnId": request.turn_id,
         "sessionId": request.session_id,
         "finalContent": "",
-        "stopReason": "cancelled",
+        "stopReason": stop_reason,
         "cancellationReason": reason,
         "checkpoint": {
             "schemaVersion": 1,
             "runtime": "rust",
             "turnId": request.turn_id,
             "sessionId": request.session_id,
-            "phase": "cancelled",
+            "phase": stop_reason,
             "resumeToken": null,
             "payload": {
                 "cancelled": true,
@@ -1140,7 +1147,37 @@ fn cancelled_task_result(request: &StartAgentTurn, reason: &str) -> Value {
     })
 }
 
-fn cancellation_cleanup_timeout_result(request: &StartAgentTurn, grace: Duration) -> Value {
+fn cancellation_terminal_outcome(reason: &AgentCancelReason) -> &'static str {
+    match reason {
+        AgentCancelReason::UserRequested => "interrupted",
+        AgentCancelReason::Shutdown => "cancelled",
+    }
+}
+
+fn owned_cancellation_stop_reason(
+    inner: &TurnExecutionRuntimeInner,
+    turn_id: &str,
+) -> &'static str {
+    let is_user_requested = inner
+        .state
+        .lock()
+        .expect("agent task runtime state lock should not be poisoned")
+        .statuses
+        .get(turn_id)
+        .and_then(|status| status.cancellation_reason.as_deref())
+        == Some(AgentCancelReason::UserRequested.as_str());
+    if is_user_requested {
+        "interrupted"
+    } else {
+        "cancelled"
+    }
+}
+
+fn cancellation_cleanup_timeout_result(
+    request: &StartAgentTurn,
+    grace: Duration,
+    stop_reason: &str,
+) -> Value {
     let runtime_event = standalone_runtime_event(
         &request.turn_id,
         &request.session_id,
@@ -1148,7 +1185,8 @@ fn cancellation_cleanup_timeout_result(request: &StartAgentTurn, grace: Duration
         serde_json::json!({
             "turnId": request.turn_id,
             "sessionId": request.session_id,
-            "stopReason": "cancellation_cleanup_timeout",
+            "stopReason": stop_reason,
+            "cleanupOutcome": "timeout",
             "timeoutMs": grace.as_millis(),
         }),
     );
@@ -1157,7 +1195,11 @@ fn cancellation_cleanup_timeout_result(request: &StartAgentTurn, grace: Duration
         "turnId": request.turn_id,
         "sessionId": request.session_id,
         "finalContent": "",
-        "stopReason": "cancellation_cleanup_timeout",
+        "stopReason": stop_reason,
+        "cancellationCleanup": {
+            "outcome": "timeout",
+            "timeoutMs": grace.as_millis(),
+        },
         "error": format!(
             "agent cancellation cleanup exceeded {} ms",
             grace.as_millis()
@@ -1267,6 +1309,11 @@ fn apply_completion_status(
                     status.phase = "cancelled".to_string();
                     status.cancellation_requested = true;
                     status.terminal_outcome = Some("cancelled".to_string());
+                }
+                Some("interrupted") => {
+                    status.phase = "interrupted".to_string();
+                    status.cancellation_requested = true;
+                    status.terminal_outcome = Some("interrupted".to_string());
                 }
                 Some(phase @ ("awaiting_form" | "awaiting_tool" | "awaiting_subagent")) => {
                     status.phase = phase.to_string();
