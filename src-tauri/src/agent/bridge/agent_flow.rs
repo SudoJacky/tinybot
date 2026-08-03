@@ -116,6 +116,9 @@ fn schedule_completed_turn_memory_extraction(
         .get("stopReason")
         .or_else(|| result.get("stop_reason"))
         .and_then(serde_json::Value::as_str);
+    if stop_reason == Some("context_compacted") {
+        return;
+    }
     if native_agent_turn_status(stop_reason) != "completed" {
         return;
     }

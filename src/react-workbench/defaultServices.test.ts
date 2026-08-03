@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { createDesktopAppServices } from "./defaultServices";
 import type { ChatEvent } from "./services";
-import { createDesktopStopCommand, createDesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
+import { createDesktopCompactCommand, createDesktopStopCommand, createDesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -455,6 +455,24 @@ describe("desktop native app services", () => {
         turnId: "turn-live",
         clientEventId: "command-stop-1",
       }) },
+    });
+  });
+
+  test("runs standalone context compaction through the typed Thread command", async () => {
+    const services = createDesktopAppServices();
+    await services.sessionStore.list();
+
+    await services.chatStore.dispatch(createDesktopCompactCommand({
+      commandId: "command-compact-1",
+      sessionId: "thread-1",
+      source: { control: "slash-compact", surface: "chat" },
+    }));
+
+    expect(mocks.invoke).toHaveBeenCalledWith("worker_compact_thread", {
+      input: {
+        threadId: "thread-1",
+        clientEventId: "command-compact-1",
+      },
     });
   });
 

@@ -611,6 +611,63 @@ fn agent_turn_emits_context_compaction_event_when_old_messages_are_summarized() 
 }
 
 #[test]
+fn manual_context_compaction_bypasses_threshold_and_finishes_without_a_normal_response() {
+    let result = run_native_agent_turn_with_config(
+        &NativeAgentRuntimeServices::default(),
+        json!({
+            "runtime": "rust",
+            "turnId": "turn-context-compact-manual",
+            "sessionId": "session-context-compact-manual",
+            "contextCompaction": {
+                "trigger": "manual",
+                "reason": "user_requested",
+                "phase": "standalone_turn"
+            },
+            "messages": [
+                { "role": "user", "content": "earlier question ".repeat(80) },
+                { "role": "assistant", "content": "earlier answer ".repeat(80) },
+                { "role": "user", "content": "recent question" }
+            ]
+        }),
+        json!({
+            "agents": { "defaults": {
+                "provider": "fixture",
+                "model": "fixture-model",
+                "contextWindowTokens": 8_000,
+                "contextWindowStrategy": "discard",
+                "compactSummaryMaxTokens": 64
+            } },
+            "providers": { "fixture": { "responses": [
+                { "content": "manual summary of earlier turns" }
+            ] } }
+        }),
+    )
+    .expect("manual compaction should complete");
+
+    assert_eq!(result["stopReason"], "context_compacted");
+    assert_eq!(result["finalContent"], "");
+    assert_eq!(result["messages"], json!([]));
+    let compact_event = result["runtimeEvents"]
+        .as_array()
+        .expect("events should be present")
+        .iter()
+        .find(|event| event["eventName"] == "agent.context.compacted")
+        .expect("manual compaction should emit its canonical item");
+    assert_eq!(compact_event["payload"]["trigger"], "manual");
+    assert_eq!(compact_event["payload"]["reason"], "user_requested");
+    assert_eq!(compact_event["payload"]["phase"], "standalone_turn");
+    assert!(compact_event["payload"]["droppedMessageCount"]
+        .as_u64()
+        .is_some_and(|count| count > 0));
+    assert_eq!(result["contextCheckpoint"]["checkpointStage"], "finalized");
+    assert!(result["runtimeEvents"]
+        .as_array()
+        .is_some_and(|events| !events
+            .iter()
+            .any(|event| event["eventName"] == "agent.message.completed")));
+}
+
+#[test]
 fn context_checkpoint_uses_hydrated_parent_context_id() {
     let context = AgentTurnContext::from_spec(
         json!({

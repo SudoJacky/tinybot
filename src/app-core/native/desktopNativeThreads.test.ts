@@ -69,6 +69,10 @@ describe("desktop native threads API", () => {
         },
       },
     });
+    await expect(api.compact({ threadId: "thread-1", clientEventId: "command-compact-1" })).resolves.toEqual({
+      command: "worker_compact_thread",
+      args: { input: { threadId: "thread-1", clientEventId: "command-compact-1" } },
+    });
     await expect(api.submitForm({ threadId: "thread-1", formId: "form-1", values: {}, action: "submit" })).resolves.toEqual({
       command: "worker_submit_thread_form",
       args: { input: { threadId: "thread-1", formId: "form-1", values: {}, action: "submit" } },

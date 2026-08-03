@@ -33,6 +33,81 @@ pub(crate) struct SubmitThreadFormInput {
     pub(crate) action: Option<String>,
 }
 
+pub(crate) struct CompactThreadInput {
+    pub(crate) thread_id: String,
+    pub(crate) client_event_id: Option<String>,
+}
+
+pub(crate) async fn compact_thread_with_services(
+    base_services: NativeAgentRuntimeServices,
+    input: CompactThreadInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+) -> Result<serde_json::Value, String> {
+    let thread_store = base_services.thread_store()?;
+    let snapshot = read_thread_snapshot(
+        &input.thread_id,
+        &thread_store,
+        config_snapshot.clone(),
+        "thread compaction target read",
+    )?;
+    if snapshot
+        .get("activeTurn")
+        .or_else(|| snapshot.get("active_turn"))
+        .is_some_and(|turn| !turn.is_null())
+    {
+        return Err("Cannot compact context while the thread has an active turn.".to_string());
+    }
+    let thread = snapshot
+        .get("thread")
+        .ok_or_else(|| "thread compaction target read returned no thread".to_string())?;
+    let thread_id = thread_thread_id(thread)?;
+    let turn_id = generate_thread_compaction_turn_id();
+    let mut spec = serde_json::json!({
+        "runtime": "rust",
+        "sessionId": thread_id,
+        "threadId": thread_id,
+        "turnId": turn_id,
+        "messages": [],
+        "contextCompaction": {
+            "trigger": "manual",
+            "reason": "user_requested",
+            "phase": "standalone_turn"
+        },
+        "metadata": {
+            "threadId": thread_id,
+            "workingDirectory": thread_working_directory(thread),
+            "clientEventId": input.client_event_id,
+        }
+    });
+    if let Some(model) = native_agent_string_field(thread, "model") {
+        spec["model"] = serde_json::Value::String(model);
+    }
+    if let Some(provider) = native_agent_string_field(thread, "modelProvider")
+        .or_else(|| native_agent_string_field(thread, "model_provider"))
+        .or_else(|| native_agent_string_field(thread, "provider"))
+    {
+        spec["provider"] = serde_json::Value::String(provider);
+    }
+    let result = run_agent_with_services(
+        base_services,
+        spec,
+        workspace_root,
+        config_snapshot,
+        live_trace_sink,
+    )
+    .await?;
+    if result.get("stopReason").and_then(serde_json::Value::as_str) != Some("context_compacted") {
+        return Err(result
+            .get("error")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("Context compaction failed.")
+            .to_string());
+    }
+    Ok(result)
+}
+
 pub(crate) async fn submit_thread_turn_with_services(
     base_services: NativeAgentRuntimeServices,
     input: SubmitThreadTurnInput,
@@ -356,6 +431,10 @@ fn validate_turn_messages(messages: &serde_json::Value) -> Result<(), String> {
 
 fn generate_thread_turn_id() -> String {
     format!("turn-thread-{}", now_unix_ms())
+}
+
+fn generate_thread_compaction_turn_id() -> String {
+    format!("turn-compact-{}", now_unix_ms())
 }
 
 fn generate_thread_turn_thread_id() -> String {

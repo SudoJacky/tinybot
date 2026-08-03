@@ -59,6 +59,7 @@ export interface ComposerSlashCommand {
   description: string;
   label: string;
   prompt: string;
+  submitOnSelect?: boolean;
 }
 
 export interface ComposerSendOptions {
@@ -295,6 +296,10 @@ export function ClaudeStyleAiInput({
     if (!command) return;
     setSlashMenuDismissed(true);
     updateMessage(command.prompt);
+    if (command.submitOnSelect) {
+      window.requestAnimationFrame(() => textareaRef.current?.form?.requestSubmit());
+      return;
+    }
     textareaRef.current?.focus();
   }
 

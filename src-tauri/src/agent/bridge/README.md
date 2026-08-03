@@ -41,7 +41,8 @@ when it failed.
 
 - `agent_flow.rs`: complete turn orchestration.
 - `context_checkpoint.rs`: commit durable context-compaction checkpoints.
-- `thread_flow.rs`: submit/continue turns and resolve Thread forms.
+- `thread_flow.rs`: submit/continue turns, trigger standalone context
+  compaction, and resolve Thread forms.
 - `history.rs`: select and normalize persisted history for the runtime.
 - `persistence.rs`: turn/checkpoint persistence and cancellation/restore.
 - `trace_sink.rs`: live desktop and durable trace sinks.

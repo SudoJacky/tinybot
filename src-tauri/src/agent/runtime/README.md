@@ -30,6 +30,9 @@ decide which durable conversation store a caller uses.
 1. The caller provides `NativeAgentRuntimeServices`, a turn specification, the
    effective configuration, workspace context, and composed instructions.
 2. `provider_loop.rs` validates turn settings and prepares the typed history.
+   A standalone manual-compaction turn summarizes older history through the
+   same context path, installs its checkpoint, and finishes without a normal
+   assistant message.
 3. `context.rs`, `context_contributors.rs`, and `instructions.rs` build the
    bounded request context and record provenance/diagnostics.
 4. `provider.rs` selects one adapter through `provider_protocol.rs`.

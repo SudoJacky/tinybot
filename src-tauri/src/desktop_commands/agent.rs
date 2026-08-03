@@ -1,6 +1,7 @@
 use crate::agent::bridge::{
-    desktop_agent_event_sink, run_agent_with_services, submit_thread_form_with_services,
-    submit_thread_turn_with_services, SubmitThreadFormInput, SubmitThreadTurnInput,
+    compact_thread_with_services, desktop_agent_event_sink, run_agent_with_services,
+    submit_thread_form_with_services, submit_thread_turn_with_services, CompactThreadInput,
+    SubmitThreadFormInput, SubmitThreadTurnInput,
 };
 use crate::agent::runtime::NativeAgentTraceSink;
 use crate::collaboration::subagents::{
@@ -35,6 +36,14 @@ pub(crate) struct WorkerSubmitThreadFormInput {
     pub(crate) values: serde_json::Value,
     #[serde(default)]
     pub(crate) action: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkerCompactThreadInput {
+    pub(crate) thread_id: String,
+    #[serde(default)]
+    pub(crate) client_event_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -115,6 +124,24 @@ pub(crate) async fn worker_submit_thread_turn<R: Runtime + 'static>(
 ) -> Result<serde_json::Value, String> {
     let shared = state.inner().clone();
     worker_submit_thread_turn_with_live_trace_sink_async(
+        &shared,
+        input,
+        native_backend_workspace_root(),
+        native_config_snapshot(),
+        Duration::from_secs(120),
+        Some(desktop_agent_event_sink(app)),
+    )
+    .await
+}
+
+#[tauri::command]
+pub(crate) async fn worker_compact_thread<R: Runtime + 'static>(
+    input: WorkerCompactThreadInput,
+    state: State<'_, SharedNativeRuntime>,
+    app: AppHandle<R>,
+) -> Result<serde_json::Value, String> {
+    let shared = state.inner().clone();
+    worker_compact_thread_with_live_trace_sink_async(
         &shared,
         input,
         native_backend_workspace_root(),
@@ -487,6 +514,50 @@ pub(crate) async fn worker_submit_thread_turn_with_live_trace_sink_async(
             thread_id: input.thread_id,
             input: input.input,
             spec: input.spec,
+        },
+        workspace_root,
+        config_snapshot,
+        live_trace_sink,
+    )
+    .await
+}
+
+#[cfg(test)]
+pub(crate) fn worker_compact_thread_with_options(
+    shared: &SharedNativeRuntime,
+    input: WorkerCompactThreadInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    tauri::async_runtime::block_on(worker_compact_thread_with_live_trace_sink_async(
+        shared,
+        input,
+        workspace_root,
+        config_snapshot,
+        timeout,
+        None,
+    ))
+}
+
+pub(crate) async fn worker_compact_thread_with_live_trace_sink_async(
+    shared: &SharedNativeRuntime,
+    input: WorkerCompactThreadInput,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    timeout: Duration,
+    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+) -> Result<serde_json::Value, String> {
+    let _ = timeout;
+    let base_services = {
+        let runtime = lock_runtime(shared);
+        runtime.native_agent_services()
+    };
+    compact_thread_with_services(
+        base_services,
+        CompactThreadInput {
+            thread_id: input.thread_id,
+            client_event_id: input.client_event_id,
         },
         workspace_root,
         config_snapshot,

@@ -1179,6 +1179,23 @@ describe("ChatPage", () => {
     expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
   });
 
+  it("runs /compact as a control command without creating a user message", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const input = await screen.findByRole("textbox", { name: /message/i });
+    await user.type(input, "/comp");
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(stores.chatStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "context.compact",
+      source: { control: "slash-compact", surface: "chat" },
+      target: { sessionId: "s1" },
+    })));
+    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
+  });
+
   it("preserves manual scroll position and offers a back-to-latest action", async () => {
     const user = userEvent.setup();
     const stores = createStores();

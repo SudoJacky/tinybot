@@ -27,6 +27,9 @@ pub(super) struct ContextWindowProjection {
 pub(super) struct ContextWindowAction {
     pub(super) event_kind: AgentEventKind,
     strategy: &'static str,
+    trigger: &'static str,
+    reason: &'static str,
+    phase: &'static str,
     dropped_message_count: usize,
     retained_message_count: usize,
     replacement_message_count: usize,
@@ -89,11 +92,13 @@ pub(super) async fn context_window_projection_async(
         .max(1);
     let full_estimate =
         estimate_messages_tokens(&context.messages).saturating_add(system_prompt_tokens);
-    if context_window_strategy(context) == "compact"
-        && compact_threshold_reached(context, full_estimate, context_window_tokens)
-    {
+    let manual_compaction = manual_context_compaction_requested(&context.spec);
+    let automatic_compaction = context_window_strategy(context) == "compact"
+        && compact_threshold_reached(context, full_estimate, context_window_tokens);
+    if manual_compaction || automatic_compaction {
         if let Some(compacted) =
-            compact_messages_to_context_window_async(context, message_budget).await?
+            compact_messages_to_context_window_async(context, message_budget, manual_compaction)
+                .await?
         {
             let estimated_tokens_after =
                 estimate_messages_tokens(&compacted.messages).saturating_add(system_prompt_tokens);
@@ -103,6 +108,17 @@ pub(super) async fn context_window_projection_async(
                 action: Some(ContextWindowAction {
                     event_kind: AgentEventKind::ContextCompacted,
                     strategy: "compact",
+                    trigger: if manual_compaction { "manual" } else { "auto" },
+                    reason: if manual_compaction {
+                        "user_requested"
+                    } else {
+                        "context_limit"
+                    },
+                    phase: if manual_compaction {
+                        "standalone_turn"
+                    } else {
+                        "pre_turn"
+                    },
                     dropped_message_count: compacted.old_count,
                     retained_message_count: compacted.recent_count,
                     replacement_message_count,
@@ -112,6 +128,12 @@ pub(super) async fn context_window_projection_async(
                     masked_tool_output_count: compacted.masked_tool_output_count,
                     summary_request_count: compacted.summary_request_count,
                 }),
+            });
+        }
+        if manual_compaction {
+            return Ok(ContextWindowProjection {
+                messages: context.messages.clone(),
+                action: None,
             });
         }
     }
@@ -137,6 +159,9 @@ pub(super) async fn context_window_projection_async(
         action: (dropped_message_count > 0).then_some(ContextWindowAction {
             event_kind: AgentEventKind::ContextTrimmed,
             strategy: "discard",
+            trigger: "auto",
+            reason: "context_limit",
+            phase: "pre_turn",
             dropped_message_count,
             retained_message_count,
             replacement_message_count: retained_message_count,
@@ -158,9 +183,15 @@ pub(super) fn context_window_action_payload(
     serde_json::json!({
         "iteration": iteration,
         "contextId": compacted.then(|| format!("{}:context:{}", context.turn_id, iteration + 1)),
-        "trigger": compacted.then_some("auto"),
-        "reason": compacted.then_some("context_limit"),
-        "phase": compacted.then_some(if iteration == 0 { "pre_turn" } else { "mid_turn" }),
+        "trigger": compacted.then_some(action.trigger),
+        "reason": compacted.then_some(action.reason),
+        "phase": compacted.then_some(if action.trigger == "manual" {
+            action.phase
+        } else if iteration == 0 {
+            "pre_turn"
+        } else {
+            "mid_turn"
+        }),
         "method": compacted.then_some("summary"),
         "provider": context.provider,
         "model": context.model,
@@ -174,6 +205,14 @@ pub(super) fn context_window_action_payload(
         "maskedToolOutputCount": action.masked_tool_output_count,
         "summaryRequestCount": action.summary_request_count,
     })
+}
+
+pub(crate) fn manual_context_compaction_requested(spec: &Value) -> bool {
+    spec.get("contextCompaction")
+        .or_else(|| spec.get("context_compaction"))
+        .and_then(|request| request.get("trigger"))
+        .and_then(Value::as_str)
+        == Some("manual")
 }
 
 pub(super) fn context_with_projected_messages(
@@ -470,12 +509,17 @@ fn mask_tool_output(content: &str, max_chars: usize) -> String {
 async fn compact_messages_to_context_window_async(
     context: &AgentTurnContext,
     context_window_tokens: i64,
+    manual: bool,
 ) -> Result<Option<CompactedContextMessages>, NativeAgentProviderFailure> {
     let (bounded_messages, masked_tool_output_count) = mask_oversized_tool_outputs(
         &context.messages,
         compact_tool_output_char_limit(context_window_tokens),
     );
-    let recent_budget = (context_window_tokens.saturating_mul(2) / 3).max(1);
+    let recent_budget = if manual {
+        (estimate_messages_tokens(&bounded_messages).saturating_mul(2) / 3).max(1)
+    } else {
+        (context_window_tokens.saturating_mul(2) / 3).max(1)
+    };
     let recent_messages = trim_messages_to_context_window(&bounded_messages, recent_budget);
     let recent_count = recent_messages.len();
     let old_count = bounded_messages.len().saturating_sub(recent_messages.len());

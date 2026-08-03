@@ -47,7 +47,7 @@ import {
 import { TextType } from "../../components/ui/TextType";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
 import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore, WorkspaceStore } from "../services";
-import { createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
+import { createDesktopCompactCommand, createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import { pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
 import { pickDesktopWorkspaceDirectory } from "../../app-core/native/desktopNativeWorkspacePicker";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
@@ -226,6 +226,13 @@ const EMPTY_CHAT_PROMPTS = [
 ] as const;
 
 const COMPOSER_SLASH_COMMANDS = [
+  {
+    command: "/compact",
+    description: "立即总结较早上下文并释放窗口空间",
+    label: "压缩上下文",
+    prompt: "/compact",
+    submitOnSelect: true,
+  },
   {
     command: "/plan",
     description: "先分析目标、风险和验证方式",
@@ -1328,6 +1335,20 @@ export function ChatPage({
     options: ComposerSendOptions,
   ) {
     const references = tinyOsContextReferences.map(nativeReferenceFromTinyOs);
+    if (message.trim() === "/compact") {
+      if (files.length || pastedContent.length || references.length) {
+        throw new Error("/compact 不能与附件或上下文引用一起使用。");
+      }
+      if (!activeSession) {
+        throw new Error("请先打开一个已有会话，再使用 /compact。");
+      }
+      await chatStore.dispatch(createDesktopCompactCommand({
+        sessionId: activeSession.id,
+        source: { control: "slash-compact", surface: "chat" },
+      }));
+      await handleSessionStoreRefresh(activeSession);
+      return;
+    }
     const visibleText = formatComposerMessage(
       message || (files.length ? "Review the attached files." : references.length ? "Use the attached TinyOS context." : ""),
       pastedContent,
