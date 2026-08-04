@@ -475,8 +475,16 @@ describe("DesktopShell", () => {
     await user.click(within(providerActions).getByRole("menuitem", { name: "Configure" }));
     const dialog = screen.getByRole("dialog", { name: "Configure OpenAI" });
     expect((within(dialog).getByLabelText("API base") as HTMLInputElement).value).toBe("https://api.openai.com/v1");
+    expect(within(dialog).getByText("Configured")).toBeTruthy();
+    expect((within(dialog).getByRole("radio", { name: "Chat Completions" }) as HTMLInputElement).checked).toBe(true);
+    const activeProfile = within(dialog).getByRole("checkbox", { name: "Set as active profile" }) as HTMLInputElement;
+    expect(activeProfile.checked).toBe(true);
+    expect(activeProfile.disabled).toBe(true);
+    const saveChanges = within(dialog).getByRole("button", { name: "Save changes" }) as HTMLButtonElement;
+    expect(saveChanges.disabled).toBe(true);
     await user.type(within(dialog).getByLabelText("API key"), "sk-test");
-    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(saveChanges.disabled).toBe(false);
+    await user.click(saveChanges);
 
     await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(2));
     expect(saveProviderSettings.mock.calls[1][1]).toEqual({

@@ -115,7 +115,12 @@ export function AgentDefaultsSettingsPage({ onNavigateToProviderModels, settings
             <dd>{data.defaultModel ?? "Not configured"}</dd>
           </div>
         </dl>
-        <button type="button" aria-label="Change default model in Provider & Models" onClick={onNavigateToProviderModels}>
+        <button
+          data-press-feedback="true"
+          type="button"
+          aria-label="Change default model in Provider & Models"
+          onClick={onNavigateToProviderModels}
+        >
           <span>Provider & Models</span>
           <ArrowUpRight aria-hidden="true" size={15} />
         </button>

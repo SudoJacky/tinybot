@@ -218,7 +218,7 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
             {dirty ? <small>Unsaved changes</small> : <small>Up to date</small>}
           </div>
           <div>
-            <button type="button" disabled={!dirty || saving} onClick={resetDraft}>
+            <button data-press-feedback="true" type="button" disabled={!dirty || saving} onClick={resetDraft}>
               <RotateCcw aria-hidden="true" size={14} />
               Reset
             </button>
