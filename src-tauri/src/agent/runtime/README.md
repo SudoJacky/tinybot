@@ -30,6 +30,9 @@ decide which durable conversation store a caller uses.
 1. The caller provides `NativeAgentRuntimeServices`, a turn specification, the
    effective configuration, workspace context, and composed instructions.
 2. `provider_loop.rs` validates turn settings and prepares the typed history.
+   A standalone manual-compaction turn summarizes older history through the
+   same context path, installs its checkpoint, and finishes without a normal
+   assistant message.
 3. `context.rs`, `context_contributors.rs`, and `instructions.rs` build the
    bounded request context and record provenance/diagnostics.
 4. `provider.rs` selects one adapter through `provider_protocol.rs`.
@@ -128,6 +131,14 @@ conditionals throughout those shared runtime modules.
   boundaries; late work must not overwrite a terminal outcome.
 - Tool execution goes through the dispatcher so capability, ownership, trace,
   and cleanup behavior remain consistent.
+- Model-visible shell results keep one compact process-control view with the
+  interleaved output. The full process snapshot is available to live runtime
+  projections, but durable response items use that compact view as their sole
+  Shell output and checkpoints omit the redundant raw snapshot. Generic tool
+  envelopes own their raw result only once.
+- Checkpoint top-level fields are the canonical resumable state. The nested
+  payload contains only phase-specific data and does not repeat promoted
+  iteration, message, pending-call, or completed-result fields.
 - Runtime events for one turn retain the same trace context and stable identity
   fields across provider, tool, checkpoint, and terminal stages.
 - Errors should preserve the failing stage; do not convert provider, tool, or

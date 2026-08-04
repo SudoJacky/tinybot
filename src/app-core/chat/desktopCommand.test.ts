@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { createDesktopStopCommand, createDesktopTurnSubmitCommand } from "./desktopCommand";
+import { createDesktopCompactCommand, createDesktopStopCommand, createDesktopTurnSubmitCommand } from "./desktopCommand";
 
 describe("desktop command", () => {
   test("creates a correlated turn command", () => {
@@ -33,6 +33,22 @@ describe("desktop command", () => {
       issuedAt: "2026-07-15T00:00:00.000Z",
       kind: "agent.stop",
       source: { control: "keyboard-shortcut", surface: "chat" },
+      target: { sessionId: "thread-1" },
+    });
+  });
+
+  test("creates a standalone context compaction intent", () => {
+    expect(createDesktopCompactCommand({
+      commandId: "command-3",
+      issuedAt: "2026-07-15T00:00:00.000Z",
+      sessionId: "thread-1",
+      source: { control: "slash-compact", surface: "chat" },
+    })).toEqual({
+      schemaVersion: "tinybot.command.v1",
+      commandId: "command-3",
+      issuedAt: "2026-07-15T00:00:00.000Z",
+      kind: "context.compact",
+      source: { control: "slash-compact", surface: "chat" },
       target: { sessionId: "thread-1" },
     });
   });

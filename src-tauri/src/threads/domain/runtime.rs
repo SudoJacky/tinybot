@@ -528,19 +528,9 @@ impl<S: ThreadStore> ThreadRuntime<S> {
         }
         let live = self.live_thread(thread_id.clone());
         let status = self.store.get_thread_status(&thread_id)?;
-        let turn_id = request
-            .turn_id
-            .or_else(|| status.active_turn.as_ref().map(|turn| turn.turn_id.clone()));
-        let Some(turn_id) = turn_id else {
-            let snapshot = live.snapshot(None, None)?;
-            return Ok(ThreadTurnRuntimeResult {
-                snapshot,
-                turn: None,
-                appended_items: Vec::new(),
-            });
-        };
+        let turn_id = active_turn_id_for_thread_op(&status, &thread_id, request.turn_id)?;
         let append = live.append_with_client_event_id(
-            cancelled_item(&thread_id, &turn_id, request.reason),
+            interrupted_item(&thread_id, &turn_id, request.reason),
             request.client_event_id.as_deref(),
         )?;
         let snapshot = live.snapshot(None, None)?;
@@ -661,9 +651,9 @@ fn continuation_item(thread_id: &str, turn_id: &str, input: Value) -> ThreadItem
     }
 }
 
-fn cancelled_item(thread_id: &str, turn_id: &str, reason: Option<String>) -> ThreadItem {
+fn interrupted_item(thread_id: &str, turn_id: &str, reason: Option<String>) -> ThreadItem {
     ThreadItem {
-        item_id: format!("thread-runtime:{thread_id}:{turn_id}:cancelled"),
+        item_id: format!("thread-runtime:{thread_id}:{turn_id}:interrupted"),
         thread_id: String::new(),
         turn_id: turn_id.to_string(),
         parent_item_id: None,
@@ -672,6 +662,9 @@ fn cancelled_item(thread_id: &str, turn_id: &str, reason: Option<String>) -> Thr
         kind: ThreadItemKind::Cancelled(json!({
             "turnId": turn_id,
             "reason": reason,
+            "status": "interrupted",
+            "phase": "interrupted",
+            "stopReason": "interrupted",
             "source": "thread.interrupt"
         })),
     }

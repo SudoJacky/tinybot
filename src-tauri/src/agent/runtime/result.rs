@@ -42,6 +42,7 @@ pub(super) fn cancelled_result(
     session_id: &str,
     checkpoint: Value,
 ) -> Value {
+    let stop_reason = cancellation_stop_reason(services, turn_id);
     let runtime_events = vec![standalone_runtime_event(
         turn_id,
         session_id,
@@ -51,8 +52,8 @@ pub(super) fn cancelled_result(
             "sessionId": session_id,
             "commandId": services.cancellations.command_id(turn_id),
             "cancelled": true,
-            "stopReason": "cancelled",
-            "error": "cancelled",
+            "stopReason": stop_reason,
+            "error": stop_reason,
         }),
     )];
     serde_json::json!({
@@ -60,8 +61,8 @@ pub(super) fn cancelled_result(
         "turnId": turn_id,
         "sessionId": session_id,
         "finalContent": "",
-        "stopReason": "cancelled",
-        "error": "cancelled",
+        "stopReason": stop_reason,
+        "error": stop_reason,
         "messages": [],
         "toolsUsed": [],
         "checkpoint": checkpoint,
@@ -75,24 +76,25 @@ pub(super) fn cancelled_turn_result(
     state: &mut AgentTurnState,
     iteration: i64,
 ) -> Result<Value, String> {
+    let stop_reason = cancellation_stop_reason(services, &context.turn_id);
     let completed_tool_results = state.completed_tool_results.clone();
     let checkpoint = save_phase_checkpoint(
         services,
         context,
-        "cancelled",
+        stop_reason,
         serde_json::json!({
             "cancelled": true,
             "iteration": iteration,
             "completedToolResults": completed_tool_results.clone(),
-            "stopReason": "cancelled",
+            "stopReason": stop_reason,
         }),
     );
     state.emit(TerminalEvent::Cancelled(serde_json::json!({
         "iteration": iteration,
         "commandId": services.cancellations.command_id(&context.turn_id),
         "cancelled": true,
-        "stopReason": "cancelled",
-        "error": "cancelled",
+        "stopReason": stop_reason,
+        "error": stop_reason,
     })))?;
     let runtime_events = state.take_runtime_events();
     Ok(serde_json::json!({
@@ -100,12 +102,26 @@ pub(super) fn cancelled_turn_result(
         "turnId": context.turn_id,
         "sessionId": context.session_id,
         "finalContent": "",
-        "stopReason": "cancelled",
+        "stopReason": stop_reason,
         "messages": [],
         "toolsUsed": std::mem::take(&mut state.tools_used),
         "completedToolResults": std::mem::take(&mut state.completed_tool_results),
-        "error": "cancelled",
+        "error": stop_reason,
         "checkpoint": checkpoint,
         "runtimeEvents": runtime_events,
     }))
+}
+
+fn cancellation_stop_reason(services: &NativeAgentRuntimeServices, turn_id: &str) -> &'static str {
+    if services
+        .task_runtime
+        .status(turn_id)
+        .and_then(|status| status.cancellation_reason)
+        .as_deref()
+        == Some("user_requested")
+    {
+        "interrupted"
+    } else {
+        "cancelled"
+    }
 }

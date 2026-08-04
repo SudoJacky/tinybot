@@ -6,15 +6,28 @@ use std::ops::{Deref, DerefMut};
 impl NativeToolResultEnvelope {
     pub fn generic_success(tool_call: &NativeAgentToolCall, raw_content: Value) -> Self {
         let model_content = legacy_tool_content(&raw_content);
+        Self::generic_success_with_model_content(
+            tool_call,
+            model_content.clone(),
+            model_content,
+            raw_content,
+        )
+    }
+
+    fn generic_success_with_model_content(
+        tool_call: &NativeAgentToolCall,
+        summary: String,
+        model_content: String,
+        raw_content: Value,
+    ) -> Self {
         Self::from_parts(
             "ok",
-            model_content.clone(),
+            summary,
             model_content,
             "generic_result",
             tool_call.name.clone(),
             serde_json::json!({
                 "kind": "generic_result",
-                "value": raw_content,
             }),
             serde_json::json!([]),
             serde_json::json!([]),
@@ -37,7 +50,6 @@ impl NativeToolResultEnvelope {
             tool_call.name.clone(),
             serde_json::json!({
                 "kind": "generic_error",
-                "value": raw_content,
             }),
             serde_json::json!([]),
             serde_json::json!([]),
@@ -132,5 +144,46 @@ impl NativeAgentToolResult {
             content: Value::String(message),
             envelope,
         }
+    }
+
+    pub(crate) fn generic_success_with_model_content(
+        tool_call: &NativeAgentToolCall,
+        summary: String,
+        model_content: String,
+        raw_content: Value,
+    ) -> Self {
+        let envelope = NativeToolResultEnvelope::generic_success_with_model_content(
+            tool_call,
+            summary,
+            model_content.clone(),
+            raw_content,
+        );
+        Self {
+            content: Value::String(model_content),
+            envelope,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn generic_envelope_keeps_raw_result_only_once() {
+        let tool_call = NativeAgentToolCall {
+            id: "call-1".to_string(),
+            name: "exec_command".to_string(),
+            arguments_json: r#"{"command":"echo hello"}"#.to_string(),
+            result: Value::Null,
+        };
+        let raw = json!({ "content": "hello", "stdout": "hello" });
+
+        let result = NativeAgentToolResult::generic_success(&tool_call, raw.clone());
+
+        assert_eq!(result.envelope["raw"], raw);
+        assert_eq!(result.envelope["structured"]["kind"], "generic_result");
+        assert!(result.envelope["structured"].get("value").is_none());
     }
 }

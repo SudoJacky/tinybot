@@ -26,7 +26,16 @@ export type DesktopStopCommand = {
   target: { sessionId: string };
 };
 
-export type DesktopCommand = DesktopTurnSubmitCommand | DesktopStopCommand | TinyOsCommand;
+export type DesktopCompactCommand = {
+  schemaVersion: "tinybot.command.v1";
+  commandId: string;
+  issuedAt: string;
+  kind: "context.compact";
+  source: TinyOsCommandSource;
+  target: { sessionId: string };
+};
+
+export type DesktopCommand = DesktopTurnSubmitCommand | DesktopStopCommand | DesktopCompactCommand | TinyOsCommand;
 
 export function createDesktopTurnSubmitCommand(input: {
   commandId?: string;
@@ -57,6 +66,22 @@ export function createDesktopStopCommand(input: {
     commandId: input.commandId ?? createDesktopCommandId(),
     issuedAt: input.issuedAt ?? new Date().toISOString(),
     kind: "agent.stop",
+    source: input.source,
+    target: { sessionId: input.sessionId },
+  };
+}
+
+export function createDesktopCompactCommand(input: {
+  commandId?: string;
+  issuedAt?: string;
+  sessionId: string;
+  source: TinyOsCommandSource;
+}): DesktopCompactCommand {
+  return {
+    schemaVersion: "tinybot.command.v1",
+    commandId: input.commandId ?? createDesktopCommandId(),
+    issuedAt: input.issuedAt ?? new Date().toISOString(),
+    kind: "context.compact",
     source: input.source,
     target: { sessionId: input.sessionId },
   };

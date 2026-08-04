@@ -64,6 +64,11 @@ export type NativeThreadFormInput = {
   action: "submit" | "cancel";
 };
 
+export type NativeThreadCompactInput = {
+  threadId: string;
+  clientEventId?: string;
+};
+
 export type NativeThreadsApi = {
   create(body?: Record<string, unknown>): Promise<NativeThreadRecord>;
   read(body: Record<string, unknown>): Promise<unknown>;
@@ -88,6 +93,7 @@ export type NativeThreadsApi = {
   getTurnRuntimeState(threadId: string, turnId: string): Promise<unknown>;
   getEffectiveCapabilities(threadId: string): Promise<unknown>;
   submitTurn(body: NativeThreadTurnInput): Promise<NativeThreadTurnResult>;
+  compact(body: NativeThreadCompactInput): Promise<unknown>;
   submitForm(body: NativeThreadFormInput): Promise<unknown>;
 };
 
@@ -118,6 +124,7 @@ export function createDesktopNativeThreadsApi(options: { invoke?: TauriInvoke } 
     getTurnRuntimeState: (threadId, turnId) => thread("thread_get_turn_runtime_state", { threadId, turnId }),
     getEffectiveCapabilities: (threadId) => thread("thread_get_effective_capabilities", { threadId }),
     submitTurn: (body) => invoke("worker_submit_thread_turn", { input: body }) as Promise<NativeThreadTurnResult>,
+    compact: (body) => invoke("worker_compact_thread", { input: body }),
     submitForm: (body) => invoke("worker_submit_thread_form", { input: body }),
   };
 }

@@ -5,7 +5,7 @@ use crate::agent::bridge::{
     native_agent_turn_completed_at, native_agent_turn_id, native_agent_turn_phase_from_stop_reason,
     native_agent_turn_status, native_agent_usage,
 };
-use crate::agent::runtime::agent_trace_context_from_value;
+use crate::agent::runtime::{agent_trace_context_from_value, manual_context_compaction_requested};
 use crate::agent::runtime_protocol::AgentTraceContext;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
@@ -60,7 +60,7 @@ pub(crate) fn reject_native_agent_terminal_turn_reentry(
         .get("status")
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default();
-    if !matches!(status, "completed" | "failed" | "cancelled") {
+    if !matches!(status, "completed" | "failed" | "cancelled" | "interrupted") {
         return Ok(None);
     }
     let phase = existing
@@ -143,6 +143,9 @@ pub(crate) fn persist_native_agent_turn_start(
 }
 
 fn materialized_turn_messages(spec: &serde_json::Value, turn_id: &str) -> Vec<serde_json::Value> {
+    if manual_context_compaction_requested(spec) {
+        return Vec::new();
+    }
     let mut messages = Vec::new();
     if let Some(content) = spec
         .get("materializedSystemPrompt")

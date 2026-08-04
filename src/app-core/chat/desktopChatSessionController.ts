@@ -110,7 +110,7 @@ export function createDesktopChatSessionController({
     });
     state.activeThreadId = threadId;
     try {
-      await loadTimeline(threadId);
+      await reloadTimeline(threadId);
       state.error = "";
     } catch (error) {
       state.error = error instanceof Error ? error.message : String(error);

@@ -156,9 +156,7 @@ pub(super) fn commit_tool_observation(
     }
     state
         .completed_tool_results
-        .push(completed_tool_result_entry(
-            &tool_call, &result, &status, &summary,
-        ));
+        .push(completed_tool_result_entry(&tool_call, &result, &status));
     Ok(())
 }
 
@@ -348,13 +346,11 @@ fn completed_tool_result_entry(
     tool_call: &NativeAgentToolCall,
     result: &NativeAgentToolResult,
     status: &str,
-    summary: &str,
 ) -> Value {
     serde_json::json!({
         "toolCallId": tool_call.id,
         "toolName": tool_call.name,
         "status": status,
-        "summary": summary,
         "envelope": result.envelope,
     })
 }
@@ -406,5 +402,33 @@ mod tests {
         assert_eq!(state.history.messages().len(), 1);
         assert!(state.completed_tool_results.is_empty());
         assert!(state.runtime_events().is_empty());
+    }
+
+    #[test]
+    fn completed_tool_result_does_not_repeat_envelope_summary() {
+        let context = AgentTurnContext::from_spec(
+            json!({
+                "turnId": "turn-compact-tool-result",
+                "sessionId": "session-compact-tool-result",
+                "messages": [{ "role": "user", "content": "run a tool" }]
+            }),
+            json!({}),
+        );
+        let mut state = AgentTurnState::new(&context, None).expect("state should initialize");
+        let tool_call = NativeAgentToolCall {
+            id: "call-compact".to_string(),
+            name: "workspace.read_file".to_string(),
+            arguments_json: r#"{"path":"README.md"}"#.to_string(),
+            result: Value::Null,
+        };
+        let result =
+            NativeAgentToolResult::generic_success(&tool_call, json!({ "content": "README" }));
+
+        commit_tool_observation(&context, &mut state, 0, tool_call, result)
+            .expect("valid tool result should be committed");
+
+        let completed = &state.completed_tool_results[0];
+        assert!(completed.get("summary").is_none());
+        assert_eq!(completed["envelope"]["summary"], "README");
     }
 }

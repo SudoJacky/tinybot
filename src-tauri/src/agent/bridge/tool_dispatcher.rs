@@ -122,25 +122,7 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
         );
         match executor_result {
             Ok(executor_result) => {
-                let raw_result = executor_result
-                    .get("result")
-                    .cloned()
-                    .unwrap_or_else(|| executor_result.clone());
-                let model_content = native_tool_executor_model_content(&raw_result);
-                if is_persisted_subagent_tool(&tool_call.name) {
-                    Ok(NativeAgentToolResult::generic_success(
-                        tool_call, raw_result,
-                    ))
-                } else {
-                    Ok(NativeAgentToolResult::generic_success(
-                        tool_call,
-                        serde_json::json!({
-                            "content": model_content,
-                            "result": raw_result,
-                            "executor": executor_result,
-                        }),
-                    ))
-                }
+                native_tool_result_from_executor_response(tool_call, executor_result)
             }
             Err(error) => Err(error),
         }
@@ -464,6 +446,61 @@ fn native_agent_tool_executor_should_fallback(tool_name: &str) -> bool {
     )
 }
 
+fn native_tool_executor_result(
+    mut executor_result: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let raw_result = executor_result
+        .as_object_mut()
+        .ok_or_else(|| "native tool executor result must be an object".to_string())?
+        .remove("result")
+        .ok_or_else(|| "native tool executor result is missing `result`".to_string())?;
+    Ok(raw_result)
+}
+
+fn native_tool_result_from_executor_response(
+    tool_call: &PreparedToolCall,
+    executor_result: serde_json::Value,
+) -> Result<NativeAgentToolResult, String> {
+    let raw_result = native_tool_executor_result(executor_result)?;
+    if is_persisted_subagent_tool(&tool_call.name) {
+        return Ok(NativeAgentToolResult::generic_success(
+            tool_call, raw_result,
+        ));
+    }
+    let model_content = native_tool_executor_model_content(&raw_result);
+    let summary = native_tool_executor_summary(&raw_result, &model_content);
+    Ok(NativeAgentToolResult::generic_success_with_model_content(
+        tool_call,
+        summary,
+        model_content,
+        raw_result,
+    ))
+}
+
+fn native_tool_executor_summary(value: &serde_json::Value, model_content: &str) -> String {
+    if value.get("processId").is_none() || value.get("output").is_none() {
+        return model_content.to_string();
+    }
+    if value
+        .get("running")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        return "Command is running".to_string();
+    }
+    match value.get("exitCode").and_then(serde_json::Value::as_i64) {
+        Some(0) => "Command completed".to_string(),
+        Some(exit_code) => format!("Command exited with code {exit_code}"),
+        None if value
+            .get("failure")
+            .is_some_and(|failure| !failure.is_null()) =>
+        {
+            "Command failed".to_string()
+        }
+        None => "Command finished".to_string(),
+    }
+}
+
 fn native_tool_executor_model_content(value: &serde_json::Value) -> String {
     if let Some(content) = value.as_str() {
         return content.to_string();
@@ -471,5 +508,35 @@ fn native_tool_executor_model_content(value: &serde_json::Value) -> String {
     if let Some(content) = value.get("content").and_then(serde_json::Value::as_str) {
         return content.to_string();
     }
+    if let Some(content) = compact_shell_process_model_content(value) {
+        return content;
+    }
     value.to_string()
+}
+
+fn compact_shell_process_model_content(value: &serde_json::Value) -> Option<String> {
+    let source = value.as_object()?;
+    if !source.contains_key("processId") || !source.contains_key("output") {
+        return None;
+    }
+    let mut compact = serde_json::Map::new();
+    for field in [
+        "processId",
+        "status",
+        "running",
+        "exitCode",
+        "output",
+        "cursor",
+        "truncated",
+        "droppedBytes",
+        "failure",
+    ] {
+        if let Some(field_value) = source
+            .get(field)
+            .filter(|field_value| !field_value.is_null())
+        {
+            compact.insert(field.to_string(), field_value.clone());
+        }
+    }
+    Some(serde_json::Value::Object(compact).to_string())
 }

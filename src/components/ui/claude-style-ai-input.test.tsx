@@ -54,4 +54,30 @@ describe("ClaudeStyleAiInput slash commands", () => {
     expect(screen.queryByRole("listbox", { name: "Slash commands" })).toBeNull();
     expect(input.value).toBe("/");
   });
+
+  it("submits control commands immediately when selected", async () => {
+    const user = userEvent.setup();
+    const onSendMessage = vi.fn();
+    render(<ClaudeStyleAiInput
+      onSendMessage={onSendMessage}
+      slashCommands={[{
+        command: "/compact",
+        description: "Compact context",
+        label: "Compact",
+        prompt: "/compact",
+        submitOnSelect: true,
+      }]}
+    />);
+
+    const input = screen.getByRole("textbox", { name: "Message" });
+    await user.type(input, "/comp");
+    await user.keyboard("{Enter}");
+
+    await vi.waitFor(() => expect(onSendMessage).toHaveBeenCalledWith(
+      "/compact",
+      [],
+      [],
+      {},
+    ));
+  });
 });

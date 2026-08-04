@@ -1058,7 +1058,7 @@ fn worker_thread_commands_expose_thread_service_surface() {
         owned_handle
             .wait()
             .expect("thread interrupt should complete the owned handle")["stopReason"],
-        "cancelled"
+        "interrupted"
     );
     release_sender
         .send(())

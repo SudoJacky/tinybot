@@ -850,6 +850,73 @@ fn async_agent_stream_stops_observing_after_partial_output_cancellation() {
 }
 
 #[test]
+fn async_responses_stream_stops_observing_after_partial_output_cancellation() {
+    struct TestCancellation(Arc<AtomicBool>);
+
+    impl WorkerRequestCancellation for TestCancellation {
+        fn is_cancelled(&self) -> bool {
+            self.0.load(Ordering::SeqCst)
+        }
+    }
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
+    let api_base = format!("http://{}", listener.local_addr().unwrap());
+    let server = thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut buffer = [0_u8; 8192];
+            let _ = stream.read(&mut buffer);
+            let body = concat!(
+                "data: {\"type\":\"response.output_text.delta\",\"sequence_number\":0,\"item_id\":\"message-1\",\"output_index\":0,\"content_index\":0,\"delta\":\"first\"}\n\n",
+                "data: {\"type\":\"response.output_text.delta\",\"sequence_number\":1,\"item_id\":\"message-1\",\"output_index\":0,\"content_index\":0,\"delta\":\"late\"}\n\n",
+                "data: [DONE]\n\n"
+            );
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.flush();
+        }
+    });
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let cancellation = Arc::new(TestCancellation(cancelled.clone()));
+    let observer_cancellation = cancelled.clone();
+    let mut observed = Vec::new();
+    let mut observer = |event: NativeProviderStreamEvent| {
+        observed.push(event);
+        observer_cancellation.store(true, Ordering::SeqCst);
+    };
+
+    let error = tauri::async_runtime::block_on(complete_responses_for_agent_with_observer_async(
+        &json!({
+            "agents": { "defaults": { "provider": "openai", "model": "gpt-test" } },
+            "providers": { "openai": {
+                "api_key": "sk-test",
+                "api_base": api_base,
+                "api_mode": "responses",
+                "request_timeout_ms": 500,
+                "stream_idle_timeout_ms": 500
+            } }
+        }),
+        &json!({
+            "model": "gpt-test",
+            "input": [{ "role": "user", "content": "hello" }],
+            "stream": true
+        }),
+        &mut observer,
+        Some(cancellation),
+    ))
+    .expect_err("Responses cancellation should stop before a second delta");
+
+    let _ = server.join();
+    assert_eq!(error.kind(), NativeProviderFailureKind::Cancelled);
+    assert_eq!(
+        observed,
+        vec![NativeProviderStreamEvent::ContentDelta("first".to_string())]
+    );
+}
+
+#[test]
 fn async_agent_chat_honors_cancellation_before_provider_request() {
     struct TestCancellation(Arc<AtomicBool>);
 

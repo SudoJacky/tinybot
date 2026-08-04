@@ -82,6 +82,7 @@ pub use stores::{InMemoryNativeAgentCancellation, InMemoryNativeAgentCheckpointS
 #[cfg(test)]
 pub use tool_dispatcher::FakeNativeAgentToolDispatcher;
 pub use tool_dispatcher::SubagentNativeAgentToolDispatcher;
+pub(crate) use usage::manual_context_compaction_requested;
 
 #[cfg(test)]
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -780,9 +781,9 @@ impl NativeAgentRuntimeServices {
             "turnId": turn_id,
             "cancelled": true,
             "finalContent": "",
-            "stopReason": "cancelled",
+            "stopReason": "interrupted",
             "commandId": command_id,
-            "error": "cancelled",
+            "error": "interrupted",
             "messages": [],
             "toolsUsed": [],
             "task": task,

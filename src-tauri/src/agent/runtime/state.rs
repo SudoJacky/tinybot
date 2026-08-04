@@ -177,7 +177,7 @@ impl AgentTurnState {
     ) -> Result<(), String> {
         self.stop_reason = Some(stop_reason.to_string());
         let phase = match stop_reason {
-            "final_response" => AgentRuntimePhase::Completed,
+            "final_response" | "context_compacted" => AgentRuntimePhase::Completed,
             "cancelled" => AgentRuntimePhase::Cancelled,
             "awaiting_form" => AgentRuntimePhase::AwaitingForm,
             _ => AgentRuntimePhase::Failed,

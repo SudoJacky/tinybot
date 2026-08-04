@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { AlertTriangle, Circle, List, Loader2, Plus, X } from "lucide-react";
 import type { SessionSummary } from "../services";
 
@@ -23,11 +23,42 @@ export function SessionTabStrip({
   tabs,
 }: SessionTabStripProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const scrollerRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
 
   useEffect(() => {
     setMenuOpen(false);
   }, [activeSessionId]);
+
+  useLayoutEffect(() => {
+    tabRefs.current.get(activeSessionId)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+    if (!scroller) {
+      return;
+    }
+
+    const handleWheel = (event: WheelEvent) => {
+      const maxScrollLeft = scroller.scrollWidth - scroller.clientWidth;
+      if (maxScrollLeft <= 0) {
+        return;
+      }
+
+      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+      const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, scroller.scrollLeft + delta));
+      if (nextScrollLeft === scroller.scrollLeft) {
+        return;
+      }
+
+      event.preventDefault();
+      scroller.scrollLeft = nextScrollLeft;
+    };
+
+    scroller.addEventListener("wheel", handleWheel, { passive: false });
+    return () => scroller.removeEventListener("wheel", handleWheel);
+  }, []);
 
   const focusTab = (sessionId: string) => {
     onActivate(sessionId);
@@ -62,7 +93,12 @@ export function SessionTabStrip({
 
   return (
     <div className="react-session-tabs">
-      <div className="react-session-tabs__scroller" aria-label="Open conversations" role="tablist">
+      <div
+        className="react-session-tabs__scroller"
+        aria-label="Open conversations"
+        ref={scrollerRef}
+        role="tablist"
+      >
         {tabs.length ? tabs.map((tab) => {
           const active = tab.id === activeSessionId;
           const statusLabel = sessionTabStatusLabel(tab);

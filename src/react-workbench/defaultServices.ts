@@ -365,6 +365,23 @@ export function createDesktopAppServices(): AppServices {
       await dispatchTinyOsCommand(cancelCommand);
       return;
     }
+    if (command.kind === "context.compact") {
+      await initialize();
+      const sessionId = command.target.sessionId;
+      const thread = controller.state.threads.find((candidate) => candidate.threadId === sessionId);
+      if (!thread) throw new Error(`Cannot compact unknown Thread ${sessionId}`);
+      if (controller.state.activeThreadId !== sessionId) {
+        await controller.selectSession(sessionId);
+      }
+      await requireNative(nativeThreads, "Thread").compact({
+        threadId: sessionId,
+        clientEventId: command.commandId,
+      });
+      const timeline = await controller.loadTimeline(sessionId);
+      notifySession(sessionId, { type: "timeline.patch", timeline });
+      notifyTerminalTimelineState(sessionId, timeline);
+      return;
+    }
     await dispatchTinyOsCommand(command);
   }
 
@@ -473,8 +490,9 @@ export function createDesktopAppServices(): AppServices {
         const thread = controller.state.threads.find((item) => item.threadId === sessionId);
         if (thread && controller.state.activeThreadId !== thread.threadId) {
           await controller.selectSession(thread.threadId);
+          return controller.loadTimeline(sessionId);
         }
-        return controller.loadTimeline(sessionId);
+        return controller.reloadTimeline(sessionId);
       },
       async loadTinyOsCapabilities(threadId) {
         await initialize();

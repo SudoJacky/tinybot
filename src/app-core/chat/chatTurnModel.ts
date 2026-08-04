@@ -164,9 +164,11 @@ export type PlanState = {
 };
 
 export type CompactionState = {
+  contextWindowTokens?: number;
   droppedItemCount: number;
   estimatedTokensAfter?: number;
   estimatedTokensBefore?: number;
+  strategy?: string;
 };
 
 export type ScopedErrorState = {
@@ -263,7 +265,7 @@ export type CanonicalTurnItemData = Record<string, unknown> & (
   | { type: "subagent_lifecycle"; agentId: string; action: string; status: string; message?: string | null; childTurnId?: string | null; childThreadId?: string | null; parentAgentId?: string | null; parentTurnId?: string | null; name?: string | null; task?: string | null; traceRef?: string | null }
   | { type: "subagent_message"; agentId: string; messageId: string; content: string; visibility: string }
   | { type: "plan_progress"; id: string; explanation?: string | null; steps: Array<{ step: string; status: "pending" | "in_progress" | "completed" }>; summary: string; completed: number; total: number; currentStep?: string | null }
-  | { type: "context_compaction"; id: string; summary: string; droppedItemCount: number; estimatedTokensBefore?: number | null; estimatedTokensAfter?: number | null }
+  | { type: "context_compaction"; id: string; summary: string; droppedItemCount: number; contextWindowTokens?: number | null; strategy?: string | null; estimatedTokensBefore?: number | null; estimatedTokensAfter?: number | null }
   | { type: "usage"; id?: string | null; inputTokens?: number | null; outputTokens?: number | null; totalTokens?: number | null; providerPayload: unknown }
   | { type: "file_reference"; id: string; path: string; mimeType?: string | null; referenceKind: string }
   | { type: "error"; id?: string | null; code: string; message: string; commandId?: string | null; cancelled: boolean }
@@ -713,12 +715,18 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem): void {
   if (item.kind === "context_compaction") {
     turn.steps.push(runtimeStep(item, sequence, {
       compaction: {
+        ...(numberValue(payload.contextWindowTokens) !== undefined
+          ? { contextWindowTokens: numberValue(payload.contextWindowTokens) }
+          : {}),
         droppedItemCount: numberValue(payload.droppedItemCount) ?? 0,
         ...(numberValue(payload.estimatedTokensBefore) !== undefined
           ? { estimatedTokensBefore: numberValue(payload.estimatedTokensBefore) }
           : {}),
         ...(numberValue(payload.estimatedTokensAfter) !== undefined
           ? { estimatedTokensAfter: numberValue(payload.estimatedTokensAfter) }
+          : {}),
+        ...(stringValue(payload.strategy)
+          ? { strategy: stringValue(payload.strategy) }
           : {}),
       },
       kind: "compaction",

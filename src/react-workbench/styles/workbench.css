@@ -6921,13 +6921,35 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-canonical-step[data-kind="compaction"] {
   display: block;
+  border: 0;
+  background: transparent;
+  color: var(--color-muted);
+  padding-block: 4px;
 }
 
-.react-canonical-step summary {
-  min-height: 44px;
+.react-canonical-step[data-kind="compaction"] summary {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 8px;
   cursor: pointer;
-  font-weight: 650;
-  line-height: 44px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+  list-style: none;
+}
+
+.react-canonical-step[data-kind="compaction"] summary::-webkit-details-marker {
+  display: none;
+}
+
+.react-context-compaction-chevron {
+  margin-left: auto;
+  transition: transform 160ms ease;
+}
+
+.react-canonical-step[data-kind="compaction"][open] .react-context-compaction-chevron {
+  transform: rotate(90deg);
 }
 
 .react-canonical-step p,
@@ -9113,6 +9135,23 @@ button.tinyos-overlay-backdrop:focus-visible {
   .react-patch-diff-row {
     grid-template-columns: 34px 34px 16px minmax(max-content, 1fr);
   }
+}
+
+.react-context-compaction-status {
+  display: flex;
+  width: min(720px, calc(100% - 32px));
+  align-items: center;
+  gap: 8px;
+  margin: 0 auto 8px;
+  border-top: 1px solid var(--color-hairline);
+  color: var(--color-muted);
+  font-size: 14px;
+  padding: 12px 2px 2px;
+}
+
+.react-context-compaction-status svg {
+  flex: none;
+  animation: react-spin 1s linear infinite;
 }
 
 @media (max-width: 860px) {

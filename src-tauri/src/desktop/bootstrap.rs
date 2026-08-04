@@ -162,6 +162,7 @@ pub(crate) fn run() {
             crate::desktop::update::desktop_check_for_update,
             crate::desktop::update::desktop_install_update,
             crate::desktop_commands::agent::worker_submit_thread_turn,
+            crate::desktop_commands::agent::worker_compact_thread,
             crate::desktop_commands::skills::worker_skills_list,
             crate::desktop_commands::skills::worker_skills_detail,
             crate::desktop_commands::skills::worker_skills_create,

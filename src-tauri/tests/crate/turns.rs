@@ -2,7 +2,9 @@ use super::support::*;
 use crate::agent::bridge::native_agent_turn_record;
 use crate::agent::runtime::NativeAgentRuntimeServices;
 use crate::desktop::state::NativeRuntimeState;
-use crate::desktop_commands::agent::worker_run_agent_with_options;
+use crate::desktop_commands::agent::{
+    worker_compact_thread_with_options, worker_run_agent_with_options, WorkerCompactThreadInput,
+};
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
 use std::path::PathBuf;
@@ -1277,6 +1279,113 @@ fn agent_run_compaction_commits_installed_checkpoint_before_final_turn_persisten
         })
         .collect::<Vec<_>>();
     assert_eq!(stages, vec!["installed", "finalized"]);
+}
+
+#[test]
+fn worker_compact_thread_reuses_durable_history_and_finishes_without_a_message() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
+    let session_id = "session-manual-context-compaction";
+    let seed_config = serde_json::json!({
+        "agents": { "defaults": {
+            "provider": "fixture",
+            "model": "fixture-model",
+            "contextWindowTokens": 16_000,
+            "contextWindowStrategy": "discard"
+        } },
+        "providers": { "fixture": { "responses": [
+            { "content": "earlier answer ".repeat(200) }
+        ] } }
+    });
+    worker_run_agent_with_options(
+        &shared,
+        serde_json::json!({
+            "runtime": "rust",
+            "turnId": "turn-manual-context-seed",
+            "sessionId": session_id,
+            "messages": [{ "role": "user", "content": "earlier question ".repeat(200) }]
+        }),
+        fixture.root.clone(),
+        seed_config,
+        Duration::from_millis(10),
+    )
+    .expect("seed turn should create durable conversation history");
+
+    let compact_config = serde_json::json!({
+        "agents": { "defaults": {
+            "provider": "fixture",
+            "model": "fixture-model",
+            "contextWindowTokens": 16_000,
+            "contextWindowStrategy": "discard",
+            "compactSummaryMaxTokens": 64
+        } },
+        "providers": { "fixture": { "responses": [
+            { "content": "manual summary of the earlier exchange" }
+        ] } }
+    });
+    let result = worker_compact_thread_with_options(
+        &shared,
+        WorkerCompactThreadInput {
+            thread_id: session_id.to_string(),
+            client_event_id: Some("command-manual-compact".to_string()),
+        },
+        fixture.root.clone(),
+        compact_config.clone(),
+        Duration::from_millis(10),
+    )
+    .expect("manual compaction should reuse the durable Thread history");
+
+    assert_eq!(result["stopReason"], "context_compacted");
+    assert_eq!(result["finalContent"], "");
+    assert_eq!(result["messages"], serde_json::json!([]));
+    assert_eq!(result["contextCheckpoint"]["checkpointStage"], "finalized");
+    let compact_event = result["runtimeEvents"]
+        .as_array()
+        .expect("runtime events should exist")
+        .iter()
+        .find(|event| event["eventName"] == "agent.context.compacted")
+        .expect("manual compaction event should exist");
+    assert_eq!(compact_event["payload"]["trigger"], "manual");
+    assert!(result["runtimeEvents"]
+        .as_array()
+        .is_some_and(|events| !events
+            .iter()
+            .any(|event| event["eventName"] == "agent.message.completed")));
+
+    let compact_turn_id = result["turnId"]
+        .as_str()
+        .expect("compact turn id should be returned");
+    let turn = read_agent_turn_record(
+        &fixture.thread_store,
+        compact_config.clone(),
+        session_id,
+        compact_turn_id,
+    );
+    assert_eq!(turn["status"], "completed");
+    assert_eq!(turn["stopReason"], "context_compacted");
+    let context = call_rust_state_service(
+        &fixture.thread_store,
+        compact_config,
+        WorkerRequest::new(
+            "req-manual-context-after-compact",
+            "trace-manual-context-after-compact",
+            "thread.context",
+            serde_json::json!({ "threadId": session_id, "limit": 50 }),
+        ),
+        "manual compact context read",
+    )
+    .expect("manual compaction checkpoint should be durable");
+    assert_eq!(
+        context["contextCheckpoint"]["contextId"],
+        result["contextCheckpoint"]["contextId"]
+    );
+    assert!(context["messages"]
+        .as_array()
+        .is_some_and(|messages| messages.iter().any(|message| message["content"]
+            .as_str()
+            .is_some_and(|content| content.contains("manual summary of the earlier exchange")))));
 }
 
 #[test]

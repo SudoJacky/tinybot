@@ -388,7 +388,7 @@ impl AgentEventKind {
                 UserVisibility,
                 Some(ContextCompaction),
                 AgentItem,
-                Ephemeral,
+                Durable,
             ),
             Self::ContextTrimmed => definition(
                 "agent.context.trimmed",
@@ -397,7 +397,7 @@ impl AgentEventKind {
                 UserVisibility,
                 Some(ContextCompaction),
                 AgentItem,
-                Ephemeral,
+                Durable,
             ),
             Self::ContextCompactionFailed => definition(
                 "agent.context.compaction_failed",
@@ -613,7 +613,7 @@ impl AgentEventKind {
                 Debug,
                 Some(Usage),
                 AgentItem,
-                Ephemeral,
+                Durable,
             ),
             Self::FileReference => definition(
                 "agent.file.reference",
@@ -834,6 +834,18 @@ mod tests {
                 definition.wire_name
             );
         }
+    }
+
+    #[test]
+    fn context_state_is_durable_without_persisting_reasoning_deltas() {
+        for kind in [
+            AgentEventKind::ContextCompacted,
+            AgentEventKind::ContextTrimmed,
+            AgentEventKind::Usage,
+        ] {
+            assert!(kind.definition().is_durable(), "{kind:?} should be durable");
+        }
+        assert!(!AgentEventKind::ReasoningDelta.definition().is_durable());
     }
 
     #[test]

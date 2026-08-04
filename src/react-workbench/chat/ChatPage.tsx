@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent } from "react";
+import { useEffect, useId, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -13,6 +13,7 @@ import {
   FolderPlus,
   GitBranch,
   Loader2,
+  ListCollapse,
   Play,
   RefreshCw,
   RotateCcw,
@@ -47,7 +48,7 @@ import {
 import { TextType } from "../../components/ui/TextType";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
 import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore, WorkspaceStore } from "../services";
-import { createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
+import { createDesktopCompactCommand, createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import { pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
 import { pickDesktopWorkspaceDirectory } from "../../app-core/native/desktopNativeWorkspacePicker";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
@@ -141,6 +142,11 @@ type ConversationViewState = {
   stickToLatest: boolean;
 };
 
+type ContextUsageDefaults = {
+  contextWindowStrategy?: string;
+  contextWindowTokens?: number;
+};
+
 type LiveCanvasState = {
   mode: LiveCanvasMode;
   selection?: { eventIndex?: number; itemId: string; turnId: string };
@@ -218,6 +224,39 @@ function readStoredTinyOsWidth(): number {
   return Number.isFinite(stored) && stored > 0 ? clampTinyOsWidth(stored) : 480;
 }
 
+function readStoredComposerModel(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(CHAT_COMPOSER_MODEL_STORAGE_KEY)?.trim() ?? "";
+  } catch (error) {
+    console.warn("Unable to read the cached chat model preference.", error);
+    return "";
+  }
+}
+
+function writeStoredComposerModel(modelId: string): void {
+  try {
+    window.localStorage.setItem(CHAT_COMPOSER_MODEL_STORAGE_KEY, modelId);
+  } catch (error) {
+    console.warn("Unable to cache the selected chat model.", error);
+  }
+}
+
+function resolveComposerModel(models: readonly ModelOption[], configuredDefaultModel: string): string {
+  const storedModel = readStoredComposerModel();
+  if (storedModel && models.some((model) => model.id === storedModel)) {
+    return storedModel;
+  }
+  if (storedModel) {
+    try {
+      window.localStorage.removeItem(CHAT_COMPOSER_MODEL_STORAGE_KEY);
+    } catch (error) {
+      console.warn("Unable to clear the stale chat model preference.", error);
+    }
+  }
+  return configuredDefaultModel || models[0]?.id || "";
+}
+
 const EMPTY_CHAT_PROMPTS = [
   "规划一个任务并列出执行步骤",
   "分析当前项目并提出改进建议",
@@ -226,6 +265,13 @@ const EMPTY_CHAT_PROMPTS = [
 ] as const;
 
 const COMPOSER_SLASH_COMMANDS = [
+  {
+    command: "/compact",
+    description: "立即总结较早上下文并释放窗口空间",
+    label: "压缩上下文",
+    prompt: "/compact",
+    submitOnSelect: true,
+  },
   {
     command: "/plan",
     description: "先分析目标、风险和验证方式",
@@ -261,6 +307,7 @@ const COMPOSER_SLASH_COMMANDS = [
 const LIVE_CANVAS_CLOSE_MS = 160;
 const SESSION_DELETE_DISSOLVE_MS = 180;
 const TINYOS_WIDTH_STORAGE_KEY = "tinybot.ui.tinyos.width";
+const CHAT_COMPOSER_MODEL_STORAGE_KEY = "tinybot.ui.chat.composer-model";
 const EMPTY_OPTIMISTIC_MESSAGES: ReactChatMessage[] = [];
 
 export function ChatPage({
@@ -295,6 +342,7 @@ export function ChatPage({
   ));
   const [composerModels, setComposerModels] = useState<ModelOption[]>([]);
   const [defaultComposerModel, setDefaultComposerModel] = useState("");
+  const [contextUsageDefaults, setContextUsageDefaults] = useState<ContextUsageDefaults>({});
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [sessionWorkspaceError, setSessionWorkspaceError] = useState("");
@@ -307,6 +355,7 @@ export function ChatPage({
     reduceTinyOsCommandLifecycle,
     { stage: "idle" } as TinyOsCommandLifecycle,
   );
+  const [compactingSessionId, setCompactingSessionId] = useState("");
   const [tinyOsWidth, setTinyOsWidth] = useState(readStoredTinyOsWidth);
   const [agentUiForms, setAgentUiForms] = useState<AgentUiForm[]>([]);
   const [queuedInputsBySession, setQueuedInputsBySession] = useState<Map<string, QueuedComposerInput[]>>(() => new Map());
@@ -365,12 +414,14 @@ export function ChatPage({
   const timelineLoaded = Boolean(activeSession) && timeline?.sessionId === activeSession?.id;
   const emptyActiveSession = draftNewSession || (timelineLoaded && timeline?.turns.length === 0 && optimisticMessages.length === 0);
   const sessionRunning = activeSession?.status === "running";
-  const sessionResponding = sessionRunning && !emptyActiveSession;
-  const activeTurn = useMemo(() => [...(timeline?.turns ?? [])].reverse().find((turn) => (
-    turn.status === "pending"
-    || turn.status === "running"
-    || turn.status === "awaiting_user"
-  )), [timeline]);
+  const activeTurn = useMemo(() => timelineLoaded
+    ? [...(timeline?.turns ?? [])].reverse().find((turn) => (
+      turn.status === "pending"
+      || turn.status === "running"
+      || turn.status === "awaiting_user"
+    ))
+    : undefined, [timeline, timelineLoaded]);
+  const sessionResponding = Boolean(activeTurn) || (sessionRunning && !emptyActiveSession);
   const cancelCapability = tinyOsCapabilities.capabilities.agent.cancel;
   const capabilityTargetsActiveTurn = !tinyOsCapabilities.evaluatedTurnId
     || tinyOsCapabilities.evaluatedTurnId === activeTurn?.id;
@@ -407,6 +458,9 @@ export function ChatPage({
     ? "Effective capabilities are stale for the current Agent turn."
     : resumeCapability.reason || "Resume is unavailable for this Agent turn.";
   const cancelInFlight = isTinyOsCommandInFlight(commandLifecycle);
+  const compactingActiveSession = Boolean(activeSession && compactingSessionId === activeSession.id);
+  const showCommandLifecycleStatus = commandLifecycle.stage !== "idle"
+    && commandLifecycle.command.kind !== "agent.cancel";
   const requestChangeCapability = tinyOsCapabilities.capabilities.files.requestChange;
   const canRequestChange = Boolean(
     activeSession
@@ -446,7 +500,10 @@ export function ChatPage({
     ? commandLifecycle.command.form.formId
     : "";
   const activeQueuedInputs = activeSession ? queuedInputsBySession.get(activeSession.id) ?? [] : [];
-  const activeContextUsage = useMemo(() => latestTimelineUsage(timeline?.turns ?? []), [timeline]);
+  const activeContextUsage = useMemo(
+    () => latestTimelineUsage(timeline?.turns ?? [], contextUsageDefaults),
+    [contextUsageDefaults, timeline],
+  );
   const latestFailedTurnId = useMemo(() => (
     [...(timeline?.turns ?? [])].reverse().find((turn) => turn.status === "failed" || turn.status === "interrupted")?.id ?? ""
   ), [timeline]);
@@ -1020,12 +1077,43 @@ export function ChatPage({
         return;
       }
       const nextModels = models.map(toComposerModelOption);
+      const configuredDefaultModel = models.find((model) => model.default)?.id ?? nextModels[0]?.id ?? "";
       setComposerModels(nextModels);
-      setDefaultComposerModel(models.find((model) => model.default)?.id ?? nextModels[0]?.id ?? "");
+      setDefaultComposerModel(resolveComposerModel(nextModels, configuredDefaultModel));
     }).catch(() => {
       if (!cancelled) {
         setComposerModels([]);
         setDefaultComposerModel("");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [settingsStore]);
+
+  useEffect(() => {
+    if (!settingsStore?.loadAgentDefaultsSettings) {
+      setContextUsageDefaults({});
+      return;
+    }
+    let cancelled = false;
+    void settingsStore.loadAgentDefaultsSettings().then((settings) => {
+      const contextWindowTokens = Number(settings.values.contextWindowTokens);
+      if (!Number.isSafeInteger(contextWindowTokens) || contextWindowTokens <= 0) {
+        throw new Error(`Invalid context window token budget: ${settings.values.contextWindowTokens}`);
+      }
+      if (!cancelled) {
+        setContextUsageDefaults({
+          contextWindowStrategy: settings.values.contextWindowStrategy.trim() || undefined,
+          contextWindowTokens,
+        });
+      }
+    }).catch((error) => {
+      console.error("[chat] context.defaults.load.failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (!cancelled) {
+        setContextUsageDefaults({});
       }
     });
     return () => {
@@ -1324,6 +1412,33 @@ export function ChatPage({
     options: ComposerSendOptions,
   ) {
     const references = tinyOsContextReferences.map(nativeReferenceFromTinyOs);
+    if (message.trim() === "/compact") {
+      if (files.length || pastedContent.length || references.length) {
+        throw new Error("/compact 不能与附件或上下文引用一起使用。");
+      }
+      if (!activeSession) {
+        throw new Error("请先打开一个已有会话，再使用 /compact。");
+      }
+      const compactSession = activeSession;
+      handleComposerDraftChange("");
+      setCompactingSessionId(compactSession.id);
+      try {
+        await chatStore.dispatch(createDesktopCompactCommand({
+          sessionId: compactSession.id,
+          source: { control: "slash-compact", surface: "chat" },
+        }));
+        await handleSessionStoreRefresh(compactSession);
+      } catch (error) {
+        console.error("[chat] context.compact.failed", {
+          error: error instanceof Error ? error.message : String(error),
+          sessionId: compactSession.id,
+        });
+        throw error;
+      } finally {
+        setCompactingSessionId((current) => current === compactSession.id ? "" : current);
+      }
+      return;
+    }
     const visibleText = formatComposerMessage(
       message || (files.length ? "Review the attached files." : references.length ? "Use the attached TinyOS context." : ""),
       pastedContent,
@@ -1785,6 +1900,14 @@ export function ChatPage({
     dispatchSessionTabs({ type: "draft.changed", sessionId: activeSessionId, value });
   }
 
+  function handleChatPageKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
+    if (event.key !== "Escape" || event.defaultPrevented || !sessionResponding || !canCancelTurn || !activeSession) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('[role="dialog"], [role="menu"], [role="listbox"]')) return;
+    event.preventDefault();
+    void handleStopGeneration(activeSession, "chat");
+  }
+
   const visibleAgentUiForms = agentUiForms.filter(isVisibleAgentUiForm);
   const interactiveFormIds = new Set(visibleAgentUiForms.map((form) => form.form_id));
   const headerTitle = activeSession ? displaySessionTitle(activeSession.title) : draftNewSession ? "新会话" : "未选择会话";
@@ -1797,6 +1920,7 @@ export function ChatPage({
       data-live-canvas-open={liveCanvasPresent ? "true" : undefined}
       data-session-sidebar-collapsed={resolvedSessionSidebarCollapsed}
       style={{ "--tinyos-width": `${tinyOsWidth}px` } as CSSProperties}
+      onKeyDown={handleChatPageKeyDown}
     >
       <aside className="react-session-list" aria-label="Sessions" data-collapsed={resolvedSessionSidebarCollapsed}>
         <div className="react-session-list__header">
@@ -2047,7 +2171,13 @@ export function ChatPage({
           />
         ) : null}
         {queueMessage ? <p className="react-queued-inputs__message">{queueMessage}</p> : null}
-        {commandLifecycle.stage !== "idle" ? (
+        {compactingActiveSession ? (
+          <p aria-live="polite" className="react-context-compaction-status" role="status">
+            <Loader2 aria-hidden="true" />
+            <span>正在压缩上下文</span>
+          </p>
+        ) : null}
+        {showCommandLifecycleStatus ? (
           <p
             aria-live="polite"
             className="react-agent-command-status"
@@ -2074,6 +2204,10 @@ export function ChatPage({
           defaultModel={defaultComposerModel}
           contextUsage={activeContextUsage}
           models={composerModels}
+          onModelChange={(modelId) => {
+            setDefaultComposerModel(modelId);
+            writeStoredComposerModel(modelId);
+          }}
           responding={sessionResponding}
           slashCommands={COMPOSER_SLASH_COMMANDS}
           canStopResponding={canCancelTurn}
@@ -2416,8 +2550,63 @@ function canDispatchQueuedInputForSession(session: SessionSummary | undefined): 
   return session?.status !== "running" && session?.status !== "failed";
 }
 
-function latestTimelineUsage(turns: ChatTurn[]): TokenUsage | undefined {
-  return [...turns].reverse().find((turn) => turn.usage)?.usage;
+function latestTimelineUsage(
+  turns: ChatTurn[],
+  defaults: ContextUsageDefaults = {},
+): TokenUsage | undefined {
+  let latestCompactedTokens: number | undefined;
+  let latestCompactionStrategy: string | undefined;
+  for (const turn of [...turns].reverse()) {
+    if (turn.usage) {
+      if (latestCompactedTokens === undefined || turn.usage.contextWindowTokens === undefined) {
+        return turn.usage;
+      }
+      return usageAfterCompaction(
+        latestCompactedTokens,
+        turn.usage.contextWindowTokens,
+        latestCompactionStrategy,
+        turn.usage,
+      );
+    }
+    const compaction = [...turn.steps]
+      .reverse()
+      .find((step) => step.kind === "compaction" && step.compaction?.estimatedTokensAfter !== undefined)
+      ?.compaction;
+    latestCompactedTokens ??= compaction?.estimatedTokensAfter;
+    latestCompactionStrategy ??= compaction?.strategy;
+    if (latestCompactedTokens !== undefined && compaction?.contextWindowTokens !== undefined) {
+      return usageAfterCompaction(
+        latestCompactedTokens,
+        compaction.contextWindowTokens,
+        latestCompactionStrategy,
+      );
+    }
+  }
+  if (latestCompactedTokens !== undefined && defaults.contextWindowTokens !== undefined) {
+    return usageAfterCompaction(
+      latestCompactedTokens,
+      defaults.contextWindowTokens,
+      latestCompactionStrategy ?? defaults.contextWindowStrategy,
+    );
+  }
+  return undefined;
+}
+
+function usageAfterCompaction(
+  estimatedTokensAfter: number,
+  contextWindowTokens: number,
+  contextWindowStrategy?: string,
+  previousUsage: TokenUsage = {},
+): TokenUsage {
+  const contextWindowUsedTokens = Math.min(estimatedTokensAfter, contextWindowTokens);
+  return {
+    ...previousUsage,
+    contextWindowRemainingTokens: Math.max(0, contextWindowTokens - contextWindowUsedTokens),
+    ...(contextWindowStrategy ? { contextWindowStrategy } : {}),
+    contextWindowTokens,
+    contextWindowUsedTokens,
+    percent: contextWindowTokens > 0 ? (contextWindowUsedTokens / contextWindowTokens) * 100 : 0,
+  };
 }
 
 function isQueueableRunningSession(session: SessionSummary, emptyActiveSession: boolean): boolean {
@@ -2706,20 +2895,26 @@ function CanonicalChatTurn({
   const finalAnswer = turn.finalAnswer ?? turn.finalMessage;
   const reasoningSteps = turn.steps.filter((step) => step.kind === "reasoning");
   const planSteps = turn.steps.filter((step) => step.kind === "plan");
-  const errorSteps = turn.steps.filter((step) => step.kind === "error");
+  const errorSteps = turn.status === "interrupted"
+    ? []
+    : turn.steps.filter((step) => step.kind === "error");
   const legacyProcessSteps = turn.steps.filter((step) => (
     step.kind !== "reasoning"
     && step.kind !== "plan"
     && step.kind !== "error"
     && !(step.kind === "form" && step.form && interactiveFormIds.has(step.form.formId))
   ));
+  const hasUserMessage = Boolean(turn.userMessage.text.trim() || turn.userMessage.references?.length);
   return (
     <section aria-label="Chat turn" className="react-canonical-turn" data-status={turn.status}>
-      <CanonicalMessage
-        messageId={turn.userMessage.id}
-        role="user"
-        text={turn.userMessage.text}
-      />
+      {hasUserMessage ? (
+        <CanonicalMessage
+          messageId={turn.userMessage.id}
+          references={turn.userMessage.references}
+          role="user"
+          text={turn.userMessage.text}
+        />
+      ) : null}
       {turn.executionItems && executionItems.length ? (
         <ExecutionTimeline
           executionItems={executionItems}
@@ -2838,7 +3033,10 @@ function ExecutionTimeline({
   const hasFinalAnswer = Boolean(turn.finalAnswer ?? turn.finalMessage);
   const [foldIntent, setFoldIntent] = useState<ExecutionFoldIntent>("untouched");
   const [open, setOpen] = useState(() => abnormal || !hasFinalAnswer);
-  const errorItems = executionItems.filter((step) => step.kind === "error");
+  const visibleExecutionItems = turn.status === "interrupted"
+    ? executionItems.filter((step) => step.kind !== "error")
+    : executionItems;
+  const errorItems = visibleExecutionItems.filter((step) => step.kind === "error");
 
   useEffect(() => {
     if (foldIntent !== "untouched") {
@@ -2891,7 +3089,7 @@ function ExecutionTimeline({
         <ChevronDown aria-hidden="true" className="react-execution-timeline__chevron" size={18} />
       </button>
       <div className="react-execution-timeline__content" hidden={!open} id={contentId}>
-        {executionItems.map((step) => (
+        {visibleExecutionItems.map((step) => (
           <div className="react-execution-timeline__item" data-kind={step.kind} data-status={step.status} key={step.id}>
             {step.kind === "tool_call" ? null : (
               <button
@@ -3131,8 +3329,12 @@ function CanonicalChatStep({
   if (step.kind === "compaction") {
     const compaction = step.compaction;
     return (
-      <details className="react-canonical-step" data-kind={step.kind}>
-        <summary>{step.title}</summary>
+      <details className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
+        <summary>
+          <span className="react-canonical-step__icon"><ListCollapse aria-hidden="true" size={16} /></span>
+          <span>上下文已压缩</span>
+          <ChevronRight aria-hidden="true" className="react-context-compaction-chevron" size={15} />
+        </summary>
         {step.summary ? <p>{step.summary}</p> : null}
         {compaction ? (
           <ul aria-label="Compaction details">

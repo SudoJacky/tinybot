@@ -123,6 +123,7 @@ pub(crate) fn hydrate_native_agent_history_for_runtime(
         .get("contextCheckpoint")
         .or_else(|| history.get("context_checkpoint"))
         .and_then(crate::threads::rollout::checkpoint_lineage::checkpoint_lineage_metadata);
+    let manual_compaction = crate::agent::runtime::manual_context_compaction_requested(&spec);
 
     if let Some(object) = spec.as_object_mut() {
         object.insert(
@@ -135,7 +136,12 @@ pub(crate) fn hydrate_native_agent_history_for_runtime(
                 serde_json::Value::Array(response_items),
             );
         }
-        if !requested_messages.is_empty() && !history_messages.is_empty() {
+        if manual_compaction && !history_messages.is_empty() {
+            object.insert(
+                "messages".to_string(),
+                serde_json::Value::Array(history_messages),
+            );
+        } else if !requested_messages.is_empty() && !history_messages.is_empty() {
             object.insert(
                 "messages".to_string(),
                 serde_json::Value::Array(native_agent_merge_history_messages(
