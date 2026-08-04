@@ -48,6 +48,34 @@ fn completed_turn_releases_its_active_handle_and_records_one_terminal_outcome() 
 }
 
 #[test]
+fn context_compaction_records_a_completed_terminal_outcome() {
+    let runtime = TurnExecutionRuntime::new();
+    let handle = runtime
+        .start_blocking(request("turn-compact"), || {
+            Ok(serde_json::json!({
+                "runtime": "rust",
+                "turnId": "turn-compact",
+                "sessionId": "session:turn-compact",
+                "stopReason": "context_compacted",
+                "finalContent": ""
+            }))
+        })
+        .expect("compaction turn should start");
+
+    let result = handle.wait().expect("compaction turn should complete");
+    let status = runtime
+        .status("turn-compact")
+        .expect("compaction status should remain");
+
+    assert_eq!(result["stopReason"], "context_compacted");
+    assert_eq!(runtime.active_count(), 0);
+    assert_eq!(runtime.draining_count(), 0);
+    assert_eq!(status.phase, "completed");
+    assert_eq!(status.terminal_outcome.as_deref(), Some("completed"));
+    assert_eq!(status.late_results_ignored, 0);
+}
+
+#[test]
 fn duplicate_active_turn_is_rejected() {
     let runtime = TurnExecutionRuntime::new();
     let (release_sender, release_receiver) = mpsc::channel();

@@ -1301,7 +1301,7 @@ fn apply_completion_status(
                 .or_else(|| result.get("stop_reason"))
                 .and_then(Value::as_str);
             match stop_reason {
-                Some("final_response") => {
+                Some("final_response" | "context_compacted") => {
                     status.phase = "completed".to_string();
                     status.terminal_outcome = Some("completed".to_string());
                 }
