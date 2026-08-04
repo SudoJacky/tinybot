@@ -173,7 +173,7 @@ describe("DesktopShell", () => {
     expect(controls.toggleMaximize).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps shell navigation typography compact", () => {
+  it("keeps shell navigation and settings layouts compact", () => {
     const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
 
     expect(css).toMatch(/\.react-window-frame__history button\s*{[^}]*width:\s*32px;[^}]*height:\s*32px;/s);
@@ -189,8 +189,12 @@ describe("DesktopShell", () => {
     expect(css).toMatch(/\.react-session-row__title\s*{[^}]*font-size:\s*12px;/s);
     expect(css).toMatch(/\.react-default-model-picker\s*{[^}]*grid-template-columns:\s*minmax\(170px,\s*0\.72fr\) minmax\(300px,\s*1\.45fr\);/s);
     expect(css).toMatch(/\.react-default-model-picker__models-list\s*{[^}]*max-height:\s*220px;[^}]*overflow-y:\s*auto;/s);
-    expect(css).toMatch(/\.react-default-llm-summary\s*{[^}]*grid-template-columns:\s*42px minmax\(145px,\s*0\.85fr\) minmax\(180px,\s*1\.15fr\) 88px auto;/s);
-    expect(css).toMatch(/\.react-provider-directory__columns,\s*\.react-provider-card\s*{[^}]*grid-template-columns:/s);
+    expect(css).toMatch(/\.react-settings-sidebar button\s*{[^}]*grid-template-columns:\s*18px minmax\(0,\s*1fr\) 15px;/s);
+    expect(css).toMatch(/\.react-default-llm-summary\s*{[^}]*grid-template-columns:\s*44px minmax\(180px,\s*1fr\) minmax\(132px,\s*0\.6fr\) auto auto;/s);
+    expect(css).toMatch(/\.react-default-llm-panel\s*{[^}]*border-radius:\s*0;[^}]*background:\s*transparent;/s);
+    expect(css).toMatch(/\.react-provider-grid\s*{[^}]*border-top:\s*1px solid var\(--color-hairline\);[^}]*border-bottom:\s*1px solid var\(--color-hairline\);/s);
+    expect(css).toMatch(/\.react-provider-card\s*{[^}]*grid-template-columns:\s*minmax\(250px,\s*1\.35fr\) minmax\(150px,\s*0\.8fr\) minmax\(130px,\s*0\.6fr\) auto;/s);
+    expect(css).toMatch(/\.react-settings-dialog-backdrop\s*{[^}]*place-items:\s*stretch end;/s);
     expect(css).toMatch(/\.react-settings-choice-item \.react-top-menu__menu-label\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) max-content;/s);
   });
 
@@ -471,8 +475,16 @@ describe("DesktopShell", () => {
     await user.click(within(providerActions).getByRole("menuitem", { name: "Configure" }));
     const dialog = screen.getByRole("dialog", { name: "Configure OpenAI" });
     expect((within(dialog).getByLabelText("API base") as HTMLInputElement).value).toBe("https://api.openai.com/v1");
+    expect(within(dialog).getByText("Configured")).toBeTruthy();
+    expect((within(dialog).getByRole("radio", { name: "Chat Completions" }) as HTMLInputElement).checked).toBe(true);
+    const activeProfile = within(dialog).getByRole("checkbox", { name: "Set as active profile" }) as HTMLInputElement;
+    expect(activeProfile.checked).toBe(true);
+    expect(activeProfile.disabled).toBe(true);
+    const saveChanges = within(dialog).getByRole("button", { name: "Save changes" }) as HTMLButtonElement;
+    expect(saveChanges.disabled).toBe(true);
     await user.type(within(dialog).getByLabelText("API key"), "sk-test");
-    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+    expect(saveChanges.disabled).toBe(false);
+    await user.click(saveChanges);
 
     await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(2));
     expect(saveProviderSettings.mock.calls[1][1]).toEqual({

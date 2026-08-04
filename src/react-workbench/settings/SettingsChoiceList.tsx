@@ -62,6 +62,7 @@ export function SettingsChoiceList({
         aria-haspopup="menu"
         aria-label={`${label}: ${selectedOption?.label ?? "Not configured"}`}
         className="react-settings-choice-trigger"
+        data-press-feedback="true"
         type="button"
         onClick={() => setOpen((current) => !current)}
       >
@@ -83,6 +84,7 @@ export function SettingsChoiceList({
             <button
               aria-checked={selected}
               className="react-top-menu__menu-item react-settings-choice-item"
+              data-press-feedback="true"
               disabled={option.disabled}
               key={option.value}
               role="menuitemradio"

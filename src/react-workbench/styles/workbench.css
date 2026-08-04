@@ -18,6 +18,7 @@
   --motion-duration-medium: 220ms;
   --motion-duration-text: 720ms;
   --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --motion-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--color-ink);
   background: var(--color-canvas);
@@ -7308,9 +7309,25 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-settings-layout {
   display: grid;
-  grid-template-columns: 196px minmax(0, 1fr);
-  gap: 34px;
+  grid-template-columns: 204px minmax(0, 860px);
+  justify-content: start;
+  gap: 46px;
   align-items: start;
+}
+
+.react-workbench-page--settings {
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+  background: color-mix(in srgb, var(--color-canvas) 86%, #fff);
+}
+
+.react-workbench-page--settings > header {
+  padding: 20px 30px 17px;
+}
+
+.react-workbench-page--settings > .react-settings-layout {
+  padding: 28px 30px 48px;
 }
 
 .react-data-row__content {
@@ -7321,53 +7338,98 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-settings-sidebar {
   position: sticky;
-  top: 16px;
-  min-height: calc(100vh - 138px);
-  border-right: 1px solid var(--color-hairline);
-  padding-right: 20px;
+  top: 0;
+  min-height: calc(100vh - 154px);
+  padding-right: 8px;
 }
 
 .react-settings-sidebar nav {
   display: grid;
-  gap: 6px;
+  gap: 4px;
+}
+
+.react-settings-sidebar__intro {
+  display: grid;
+  gap: 4px;
+  padding: 2px 10px 16px;
+}
+
+.react-settings-sidebar__intro span {
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.react-settings-sidebar__intro small {
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: normal;
 }
 
 .react-settings-sidebar button {
+  position: relative;
   display: grid;
-  gap: 2px;
+  grid-template-columns: 18px minmax(0, 1fr) 15px;
+  align-items: center;
+  gap: 10px;
   width: 100%;
-  min-height: 44px;
-  border-radius: 8px;
-  padding: 8px 10px;
+  min-height: 42px;
+  border: 0;
+  border-radius: 4px;
+  padding: 0 10px;
+  color: var(--color-muted);
   text-align: left;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
 .react-settings-sidebar button[aria-current="page"] {
-  background: var(--color-surface-soft);
+  background: color-mix(in srgb, var(--color-surface-soft) 82%, transparent);
   color: var(--color-ink);
+  box-shadow: none;
 }
 
-.react-settings-sidebar span,
-.react-settings-sidebar small {
+.react-settings-sidebar button[aria-current="page"]::before {
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 0;
+  width: 2px;
+  background: var(--color-primary);
+  content: "";
+}
+
+.react-settings-sidebar button span {
   min-width: 0;
   overflow: hidden;
+  font-size: 13px;
+  font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.react-settings-sidebar span {
-  color: var(--color-ink);
-  font-size: 13px;
-  font-weight: 650;
+.react-settings-sidebar button[aria-current="page"] > svg:first-child {
+  color: var(--color-primary-active);
 }
 
-.react-settings-sidebar small {
-  color: var(--color-muted);
-  font-size: 11px;
+.react-settings-sidebar__chevron {
+  color: var(--color-muted-soft);
+  opacity: 0;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-settings-sidebar button:hover .react-settings-sidebar__chevron,
+.react-settings-sidebar button:focus-visible .react-settings-sidebar__chevron,
+.react-settings-sidebar button[aria-current="page"] .react-settings-sidebar__chevron {
+  opacity: 1;
 }
 
 .react-settings-detail {
   min-width: 0;
+  width: 100%;
 }
 
 .react-provider-settings,
@@ -7379,12 +7441,9 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-config-settings__persistence {
   flex: 0 0 auto;
-  border-radius: 999px;
-  background: var(--color-surface-soft);
-  padding: 5px 9px;
   color: var(--color-muted);
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -7395,27 +7454,45 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-config-settings__fields {
   display: grid;
-  grid-template-columns: repeat(2, minmax(190px, 1fr));
-  gap: 12px;
+  gap: 0;
+  border-top: 1px solid var(--color-hairline);
+  border-bottom: 1px solid var(--color-hairline);
 }
 
 .react-config-settings__field,
 .react-config-settings__toggle {
   min-width: 0;
-  border: 1px solid var(--color-hairline);
-  border-radius: 9px;
-  background: #fff;
-  padding: 15px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--color-hairline);
+  border-radius: 0;
+  background: transparent;
+  padding: 14px 0;
+}
+
+.react-config-settings__field:last-child,
+.react-config-settings__toggle:last-child {
+  border-bottom: 0;
 }
 
 .react-config-settings__field {
   display: grid;
-  align-content: start;
-  gap: 8px;
+  grid-template-areas:
+    "label control"
+    "description control"
+    ". error";
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  align-items: center;
+  gap: 4px 28px;
 }
 
 .react-config-settings__field--wide {
-  grid-column: 1 / -1;
+  grid-template-areas:
+    "label"
+    "description"
+    "control"
+    "error";
+  grid-template-columns: minmax(0, 1fr);
+  gap: 7px;
 }
 
 .react-config-settings__field > span,
@@ -7425,6 +7502,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-config-settings__field > span {
   display: flex;
+  grid-area: label;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
@@ -7504,6 +7582,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-config-settings__input-wrap {
   position: relative;
+  min-width: 0;
 }
 
 .react-config-settings__input-wrap > span {
@@ -7542,7 +7621,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   height: 20px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--color-muted) 28%, #fff);
-  transition: background-color 140ms ease;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
 .react-config-settings__toggle i::after {
@@ -7555,7 +7634,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   background: #fff;
   box-shadow: 0 1px 3px rgb(20 20 19 / 22%);
   content: "";
-  transition: transform 140ms ease;
+  transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
 .react-config-settings__toggle input:checked + i {
@@ -7567,8 +7646,8 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .react-config-settings__toggle:focus-within {
-  border-color: color-mix(in srgb, var(--color-primary) 52%, var(--color-hairline));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 18%, transparent);
+  background: color-mix(in srgb, var(--color-surface-soft) 46%, transparent);
+  box-shadow: none;
 }
 
 .react-config-settings__notice {
@@ -7576,6 +7655,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .react-config-settings__error {
+  grid-area: error;
   color: #b42318 !important;
 }
 
@@ -7644,9 +7724,20 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-provider-settings__header h2 {
   margin: 0;
   color: var(--color-ink);
-  font-size: 28px;
+  font-size: 27px;
   line-height: 1.15;
   letter-spacing: -0.025em;
+}
+
+.react-config-settings__field > small:not(.react-config-settings__error) {
+  grid-area: description;
+}
+
+.react-config-settings__field > input,
+.react-config-settings__field > select,
+.react-config-settings__field > textarea,
+.react-config-settings__field > .react-config-settings__input-wrap {
+  grid-area: control;
 }
 
 .react-provider-settings__header p {
@@ -7655,6 +7746,16 @@ button.tinyos-overlay-backdrop:focus-visible {
   color: var(--color-muted);
   font-size: 14px;
   line-height: 1.45;
+}
+
+.react-settings-eyebrow {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--color-primary-active);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
 }
 
 .react-provider-settings__summary {
@@ -7778,7 +7879,12 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-default-llm-panel {
   display: grid;
-  gap: 14px;
+  gap: 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 4px 0 0;
+  box-shadow: none;
 }
 
 .react-default-llm-panel > header {
@@ -7791,7 +7897,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-default-llm-panel h3 {
   margin: 0;
   color: var(--color-ink);
-  font-size: 18px;
+  font-size: 17px;
   letter-spacing: -0.01em;
 }
 
@@ -7802,20 +7908,23 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-default-llm-summary {
   display: grid;
-  grid-template-columns: 42px minmax(145px, 0.85fr) minmax(180px, 1.15fr) 88px auto;
+  grid-template-columns: 44px minmax(180px, 1fr) minmax(132px, 0.6fr) auto auto;
   align-items: center;
   gap: 16px;
-  min-height: 88px;
+  min-height: 78px;
+  border: 0;
   border-top: 1px solid var(--color-hairline);
   border-bottom: 1px solid var(--color-hairline);
-  padding: 14px 10px;
+  border-radius: 0;
+  background: transparent;
+  padding: 14px 0;
 }
 
 .react-default-llm-summary__provider,
 .react-default-llm-summary__model {
   display: grid;
   min-width: 0;
-  gap: 5px;
+  gap: 4px;
 }
 
 .react-default-llm-summary__provider strong,
@@ -7830,38 +7939,39 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .react-default-llm-summary__model {
-  border-left: 1px solid var(--color-hairline);
-  padding-left: 22px;
+  padding-left: 2px;
 }
 
 .react-default-llm-summary__model span {
   justify-self: start;
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
-  padding: 2px 6px;
-  color: var(--color-primary-active);
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.react-default-llm-summary__provider small {
+  color: var(--color-muted);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .react-default-llm-summary__count {
   color: var(--color-muted);
-  font-size: 13px;
+  font-size: 11px;
+  font-weight: 600;
   white-space: nowrap;
 }
 
 .react-default-llm-editor {
-  display: grid;
+  display: flex;
+  min-height: 0;
   overflow: hidden;
-  border: 1px solid var(--color-hairline);
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 18px 42px rgb(20 20 19 / 7%);
 }
 
 .react-default-model-picker {
   display: grid;
   grid-template-columns: minmax(170px, 0.72fr) minmax(300px, 1.45fr);
+  flex: 1 1 auto;
   min-height: 310px;
 }
 
@@ -8132,7 +8242,9 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-settings-choice-trigger svg {
   justify-self: end;
   color: var(--color-muted);
-  transition: transform 160ms ease, color 160ms ease;
+  transition:
+    transform var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
 .react-settings-choice-trigger[aria-expanded="true"] svg {
@@ -8196,11 +8308,17 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-height: 38px;
   gap: 6px;
   border: 1px solid var(--color-hairline);
-  border-radius: 8px;
+  border-radius: 6px;
   background: #fff;
   color: var(--color-ink);
   font-size: 12px;
   font-weight: 650;
+}
+
+.react-default-llm-summary > button {
+  border-color: var(--color-hairline);
+  background: transparent;
+  color: var(--color-primary-active);
 }
 
 .react-default-llm-summary > button:disabled,
@@ -8237,15 +8355,14 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-agent-defaults-form {
   display: grid;
   gap: 14px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  background: #fff;
-  padding: 18px 20px;
 }
 
 .react-settings-linked-summary {
   grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.2fr) auto;
   align-items: center;
+  border-top: 1px solid var(--color-hairline);
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 16px 0;
 }
 
 .react-settings-linked-summary h3,
@@ -8294,7 +8411,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 6px;
   min-height: 34px;
   border: 1px solid var(--color-hairline);
-  border-radius: 8px;
+  border-radius: 6px;
   background: #fff;
   color: var(--color-ink);
   font-size: 12px;
@@ -8312,16 +8429,51 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-agent-defaults-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(180px, 1fr));
-  gap: 12px;
+  gap: 0;
+  border-top: 1px solid var(--color-hairline);
+  border-bottom: 1px solid var(--color-hairline);
 }
 
-.react-agent-defaults-grid label {
+.react-agent-defaults-grid > label,
+.react-agent-defaults-grid > .react-settings-choice {
   display: grid;
-  gap: 7px;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  align-items: center;
+  gap: 4px 28px;
+  min-height: 68px;
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 12px 0;
   color: var(--color-body);
   font-size: 13px;
   font-weight: 650;
+}
+
+.react-agent-defaults-grid > :last-child {
+  border-bottom: 0;
+}
+
+.react-agent-defaults-grid > label > span,
+.react-agent-defaults-grid > .react-settings-choice > .react-settings-choice__label {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.react-agent-defaults-grid > label > input,
+.react-agent-defaults-grid > .react-settings-choice > .react-settings-choice-trigger {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.react-agent-defaults-grid > label > small,
+.react-agent-defaults-grid > .react-settings-choice > small {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.react-agent-defaults-grid .react-settings-choice-popover {
+  right: 0;
+  left: auto;
+  width: min(320px, 100%);
 }
 
 .react-agent-defaults-grid input,
@@ -8336,7 +8488,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   font-size: 13px;
 }
 
-.react-agent-defaults-grid small {
+.react-agent-defaults-grid > label > small {
   color: #b42318;
   font-size: 12px;
   font-weight: 500;
@@ -8361,15 +8513,21 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-provider-grid {
   display: grid;
+  gap: 0;
+  border-top: 1px solid var(--color-hairline);
+  border-bottom: 1px solid var(--color-hairline);
 }
 
 .react-provider-directory {
   display: grid;
-  gap: 0;
+  gap: 14px;
 }
 
 .react-provider-directory > header {
-  margin-bottom: 18px;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
 }
 
 .react-provider-directory > header h3 {
@@ -8385,33 +8543,29 @@ button.tinyos-overlay-backdrop:focus-visible {
   font-size: 13px;
 }
 
-.react-provider-directory__columns,
 .react-provider-card {
   display: grid;
-  grid-template-columns: minmax(145px, 1fr) minmax(160px, 1.25fr) minmax(132px, 0.95fr) 88px 118px;
+  grid-template-columns: minmax(250px, 1.35fr) minmax(150px, 0.8fr) minmax(130px, 0.6fr) auto;
   align-items: center;
   gap: 16px;
-}
-
-.react-provider-directory__columns {
-  min-height: 38px;
+  min-height: 88px;
+  border: 0;
   border-bottom: 1px solid var(--color-hairline);
-  color: var(--color-muted);
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.02em;
-}
-
-.react-provider-card {
-  min-height: 92px;
-  border-bottom: 1px solid var(--color-hairline);
+  border-radius: 0;
+  background: transparent;
   padding: 14px 0;
-  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard);
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-provider-card:last-child {
+  border-bottom: 0;
 }
 
 .react-provider-card:hover,
 .react-provider-card:focus-within {
-  background: color-mix(in srgb, var(--color-surface-soft) 56%, transparent);
+  background: color-mix(in srgb, var(--color-surface-soft) 46%, transparent);
+  box-shadow: none;
 }
 
 .react-provider-card__identity,
@@ -8425,6 +8579,19 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-provider-card__identity {
   min-width: 0;
+}
+
+.react-provider-card__identity > div {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.react-provider-card__identity > div > span:first-child {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 7px;
 }
 
 .react-provider-brand-icon {
@@ -8460,6 +8627,20 @@ button.tinyos-overlay-backdrop:focus-visible {
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.react-default-llm-summary > .react-provider-brand-icon,
+.react-provider-card .react-provider-brand-icon {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.react-provider-card__identity small {
+  flex: 0 0 auto;
+  color: var(--color-primary-active);
+  font-size: 10px;
+  font-weight: 700;
 }
 
 .react-provider-status {
@@ -8499,9 +8680,6 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-provider-card__state small,
 .react-provider-model-row > span {
   justify-self: start;
-  border-radius: 6px;
-  background: var(--color-surface-soft);
-  padding: 3px 6px;
   color: var(--color-muted);
   font-size: 11px;
   font-weight: 650;
@@ -8514,17 +8692,42 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .react-provider-card__url,
-.react-provider-card__models {
+.react-provider-card__models,
+.react-provider-card__model strong {
   min-width: 0;
   overflow: hidden;
-  color: var(--color-muted);
-  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .react-provider-card__url {
+  color: var(--color-muted);
   font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.react-provider-card__model {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.react-provider-card__model > small {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.react-provider-card__model strong {
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-provider-card__models {
+  color: var(--color-muted);
+  font-size: 11px;
 }
 
 .react-provider-card__actions {
@@ -8542,7 +8745,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-height: 32px;
   gap: 6px;
   border: 1px solid var(--color-hairline);
-  border-radius: 8px;
+  border-radius: 6px;
   background: #fff;
   padding: 0 10px;
   color: var(--color-ink);
@@ -8591,8 +8794,10 @@ button.tinyos-overlay-backdrop:focus-visible {
   justify-self: start;
   min-height: 38px;
   gap: 7px;
-  margin-top: 16px;
+  margin: 0;
   border: 0;
+  border-radius: 4px;
+  background: transparent;
   padding: 0 4px;
   color: var(--color-primary-active);
   font-size: 13px;
@@ -8609,26 +8814,56 @@ button.tinyos-overlay-backdrop:focus-visible {
   inset: 0;
   z-index: 40;
   display: grid;
-  place-items: center;
+  place-items: stretch end;
   background: rgb(20 20 19 / 34%);
-  padding: 24px;
+  padding: 0;
+  opacity: 1;
+  transition: opacity 180ms var(--motion-ease-standard);
 }
 
 .react-settings-dialog {
-  display: grid;
-  width: min(760px, 100%);
-  max-height: min(720px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  width: min(500px, 100%);
+  height: 100%;
+  max-height: 100vh;
   gap: 16px;
   overflow: auto;
   border: 1px solid var(--color-hairline);
-  border-radius: 8px;
+  border-width: 0 0 0 1px;
+  border-radius: 18px 0 0 18px;
   background: #fff;
-  padding: 20px;
-  box-shadow: 0 24px 80px rgb(20 20 19 / 18%);
+  padding: 24px;
+  box-shadow: -24px 0 80px rgb(20 20 19 / 15%);
+  transform: translateX(0);
+  transition: transform 280ms var(--motion-ease-drawer);
+  will-change: transform;
+}
+
+.react-settings-dialog-backdrop[data-state="closing"] {
+  opacity: 0;
+}
+
+.react-settings-dialog-backdrop[data-state="closing"] .react-settings-dialog {
+  transform: translateX(100%);
+}
+
+@starting-style {
+  .react-settings-dialog-backdrop {
+    opacity: 0;
+  }
+
+  .react-settings-dialog {
+    transform: translateX(100%);
+  }
 }
 
 .react-settings-dialog--wide {
-  width: min(820px, 100%);
+  width: min(680px, 100%);
+}
+
+.react-settings-dialog--compact {
+  width: min(460px, 100%);
 }
 
 .react-settings-dialog header,
@@ -8643,6 +8878,26 @@ button.tinyos-overlay-backdrop:focus-visible {
   margin: 0;
   color: var(--color-ink);
   font-size: 16px;
+}
+
+.react-settings-dialog header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.react-settings-dialog header p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.react-settings-sheet__content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  gap: 16px;
 }
 
 .react-settings-dialog header button {
@@ -8673,6 +8928,12 @@ button.tinyos-overlay-backdrop:focus-visible {
   font-size: 13px;
 }
 
+.react-settings-dialog input:focus-visible {
+  outline: 0;
+  border-color: color-mix(in srgb, var(--color-primary) 56%, var(--color-hairline));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 16%, transparent);
+}
+
 .react-settings-checkbox {
   display: flex !important;
   grid-template-columns: unset;
@@ -8688,25 +8949,202 @@ button.tinyos-overlay-backdrop:focus-visible {
   padding: 0;
 }
 
-.react-settings-dialog__advanced {
-  border-top: 1px solid var(--color-hairline);
-  padding-top: 14px;
+.react-provider-config {
+  gap: 0;
 }
 
-.react-settings-dialog__advanced h3,
-.react-settings-dialog__advanced p {
+.react-provider-config__section {
+  display: grid;
+  gap: 14px;
   margin: 0;
+  border: 0;
+  border-top: 1px solid var(--color-hairline);
+  padding: 20px 0;
 }
 
-.react-settings-dialog__advanced h3 {
+.react-provider-config__section:first-child {
+  border-top: 0;
+  padding-top: 4px;
+}
+
+.react-provider-config__section h3,
+.react-provider-config__section legend {
+  margin: 0;
+  padding: 0;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.react-provider-config__field-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.react-provider-config__field-heading small {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.react-provider-config__field-heading small::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-muted-soft);
+  content: "";
+}
+
+.react-provider-config__field-heading small[data-status="configured"] {
+  color: color-mix(in srgb, var(--color-success) 74%, var(--color-ink));
+}
+
+.react-provider-config__field-heading small[data-status="configured"]::before {
+  background: var(--color-success);
+}
+
+.react-provider-config__help,
+.react-provider-config__mode > small {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.react-provider-config__switch {
+  position: relative;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: 16px !important;
+  cursor: pointer;
+}
+
+.react-provider-config__switch > span {
+  display: grid;
+  gap: 4px;
+}
+
+.react-provider-config__switch strong {
   color: var(--color-ink);
   font-size: 13px;
+  font-weight: 650;
 }
 
-.react-settings-dialog__advanced p {
-  margin-top: 4px;
+.react-provider-config__switch small {
   color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.react-provider-config__switch input,
+.react-provider-config__mode input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  opacity: 0;
+}
+
+.react-provider-config__switch i {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-muted) 28%, #fff);
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-provider-config__switch i::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(20 20 19 / 22%);
+  content: "";
+  transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-provider-config__switch input:checked + i {
+  background: var(--color-primary);
+}
+
+.react-provider-config__switch input:checked + i::after {
+  transform: translateX(16px);
+}
+
+.react-provider-config__switch:has(input:focus-visible) i {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+
+.react-provider-config__switch[data-disabled="true"] {
+  cursor: default;
+}
+
+.react-provider-config__mode > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-soft);
+  padding: 3px;
+}
+
+.react-provider-config__mode label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border-radius: 6px;
+  color: var(--color-muted);
+  cursor: pointer;
   font-size: 12px;
+  font-weight: 600;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-provider-config__mode label[data-selected="true"] {
+  background: #fff;
+  color: var(--color-ink);
+  box-shadow: 0 1px 4px rgb(20 20 19 / 11%);
+}
+
+.react-provider-config__mode label:has(input:focus-visible) {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 35%, transparent);
+}
+
+.react-provider-config__cancel {
+  border-color: transparent;
+  background: transparent;
+}
+
+.react-provider-config__save {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.react-provider-config__save:hover,
+.react-provider-config__save:focus-visible {
+  border-color: var(--color-primary-active);
+  background: var(--color-primary-active);
+  color: #fff;
 }
 
 .react-provider-model-list {
@@ -8950,37 +9388,44 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 @media (max-width: 1080px) {
   .react-settings-layout {
-    grid-template-columns: 176px minmax(0, 1fr);
-    gap: 24px;
+    grid-template-columns: 184px minmax(0, 1fr);
+    gap: 28px;
   }
 
   .react-settings-sidebar {
-    padding-right: 14px;
+    padding-right: 4px;
   }
 
   .react-default-llm-summary {
-    grid-template-columns: 40px minmax(120px, 1fr) minmax(160px, 1.15fr) auto;
+    grid-template-columns: 40px minmax(160px, 1fr) minmax(132px, 0.6fr) auto;
   }
 
   .react-default-llm-summary__count {
     display: none;
   }
 
-  .react-provider-directory__columns,
   .react-provider-card {
-    grid-template-columns: minmax(135px, 1fr) minmax(132px, 0.9fr) 76px 110px;
+    grid-template-columns: minmax(210px, 1.2fr) minmax(135px, 0.8fr) minmax(120px, 0.65fr) auto;
   }
 
-  .react-provider-directory__columns > span:nth-child(2),
   .react-provider-card__url {
     display: none;
   }
 }
 
+.react-settings-dialog footer {
+  position: sticky;
+  bottom: -24px;
+  margin-top: auto;
+  border-top: 1px solid var(--color-hairline);
+  background: #fff;
+  padding: 16px 0 2px;
+}
+
 @media (max-width: 780px) {
   .react-settings-layout {
     grid-template-columns: minmax(0, 1fr);
-    gap: 24px;
+    gap: 22px;
   }
 
   .react-settings-sidebar {
@@ -8988,11 +9433,28 @@ button.tinyos-overlay-backdrop:focus-visible {
     min-height: 0;
     border-right: 0;
     border-bottom: 1px solid var(--color-hairline);
-    padding: 0 0 16px;
+    overflow-x: auto;
+    padding: 0 0 14px;
   }
 
   .react-settings-sidebar nav {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
+    gap: 6px;
+    min-width: max-content;
+  }
+
+  .react-settings-sidebar__intro {
+    display: none;
+  }
+
+  .react-settings-sidebar button {
+    grid-template-columns: 17px auto;
+    width: auto;
+    padding-inline: 11px;
+  }
+
+  .react-settings-sidebar__chevron {
+    display: none;
   }
 
   .react-provider-settings__header h2 {
@@ -9014,8 +9476,8 @@ button.tinyos-overlay-backdrop:focus-visible {
 
   .react-default-llm-summary {
     grid-template-areas:
-      "icon provider action"
-      "model model model";
+      "icon model action"
+      "provider provider provider";
     grid-template-columns: 40px minmax(0, 1fr) auto;
   }
 
@@ -9025,13 +9487,15 @@ button.tinyos-overlay-backdrop:focus-visible {
 
   .react-default-llm-summary__provider {
     grid-area: provider;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    border-top: 1px solid var(--color-hairline);
+    padding-top: 12px;
   }
 
   .react-default-llm-summary__model {
     grid-area: model;
-    border-top: 1px solid var(--color-hairline);
-    border-left: 0;
-    padding: 12px 0 0;
+    padding: 0;
   }
 
   .react-default-llm-summary > button {
@@ -9052,39 +9516,39 @@ button.tinyos-overlay-backdrop:focus-visible {
     padding-inline: 7px;
   }
 
-  .react-provider-directory__columns {
-    display: none;
+  .react-provider-directory > header {
+    align-items: center;
   }
 
   .react-provider-card {
     grid-template-areas:
       "identity actions"
-      "url actions"
-      "state models";
+      "model state";
     grid-template-columns: minmax(0, 1fr) auto;
-    gap: 8px 14px;
+    gap: 12px 16px;
   }
 
   .react-provider-card__identity {
     grid-area: identity;
   }
 
-  .react-provider-card__url {
-    display: block;
-    grid-area: url;
+  .react-provider-card__model {
+    grid-area: model;
   }
 
   .react-provider-card__state {
     grid-area: state;
   }
 
-  .react-provider-card__models {
-    grid-area: models;
-    justify-self: end;
-  }
-
   .react-provider-card__actions {
     grid-area: actions;
+    align-self: start;
+  }
+
+  .react-settings-dialog,
+  .react-settings-dialog--wide {
+    width: 100%;
+    border-radius: 0;
   }
 }
 
@@ -9195,8 +9659,24 @@ button.tinyos-overlay-backdrop:focus-visible {
 
   .react-chat-page,
   .react-session-list,
-  .react-session-list__collapse svg {
+  .react-session-list__collapse svg,
+  .react-settings-choice-trigger svg,
+  .react-config-settings__toggle i,
+  .react-config-settings__toggle i::after,
+  .react-provider-config__switch i,
+  .react-provider-config__switch i::after,
+  .react-provider-config__mode label {
     transition-duration: 0ms;
+  }
+
+  .react-settings-dialog {
+    transform: none !important;
+    transition: none;
+    will-change: auto;
+  }
+
+  .react-settings-dialog-backdrop {
+    transition-duration: 140ms;
   }
 
   .react-session-list__header h2,
