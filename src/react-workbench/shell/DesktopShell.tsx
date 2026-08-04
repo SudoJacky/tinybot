@@ -9,7 +9,24 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { ArrowLeft, ArrowRight, BookOpen, Check, ChevronRight, Command, Folder, Minus, Settings, Square, X } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Bot,
+  BookOpen,
+  Cable,
+  Check,
+  ChevronRight,
+  Cloud,
+  Command,
+  Folder,
+  Minus,
+  Radio,
+  Settings,
+  Square,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { createDesktopStopCommand } from "../../app-core/chat/desktopCommand";
 import { ChatPage } from "../chat/ChatPage";
 import { AgentDefaultsSettingsPage } from "../settings/AgentDefaultsSettingsPage";
@@ -771,11 +788,19 @@ function SettingsPage({ services }: { services: AppServices }) {
 
 type SettingsModuleId = "provider-models" | "agent-defaults" | ConfigSettingsGroupId;
 
-const settingsModules: Array<{ id: SettingsModuleId; label: string; description: string; groupId?: ConfigSettingsGroupId }> = [
-  { id: "provider-models", label: "Provider & Models", description: "Providers, API keys, and model defaults" },
-  { id: "agent-defaults", label: "Agent Defaults", description: "Runtime behavior for new agent turns" },
-  { id: "tools-mcp", label: "Tools & MCP", description: "Tool access and MCP server configuration", groupId: "tools-mcp" },
-  { id: "channels", label: "Channels", description: "Progress signals and delivery retries", groupId: "channels" },
+type SettingsModule = {
+  id: SettingsModuleId;
+  label: string;
+  description: string;
+  icon: LucideIcon;
+  groupId?: ConfigSettingsGroupId;
+};
+
+const settingsModules: SettingsModule[] = [
+  { id: "provider-models", label: "Provider & Models", description: "Providers, API keys, and model defaults", icon: Cloud },
+  { id: "agent-defaults", label: "Agent Defaults", description: "Runtime behavior for new agent turns", icon: Bot },
+  { id: "tools-mcp", label: "Tools & MCP", description: "Tool access and MCP server configuration", icon: Cable, groupId: "tools-mcp" },
+  { id: "channels", label: "Channels", description: "Progress signals and delivery retries", icon: Radio, groupId: "channels" },
 ];
 
 function SettingsLayout({
@@ -786,25 +811,34 @@ function SettingsLayout({
 }: {
   activeModuleId: SettingsModuleId;
   children: ReactNode;
-  modules: Array<{ id: SettingsModuleId; label: string; description: string }>;
+  modules: SettingsModule[];
   onSelectModule: (moduleId: SettingsModuleId) => void;
 }) {
   return (
     <div className="react-settings-layout">
       <aside className="react-settings-sidebar">
+        <div className="react-settings-sidebar__intro">
+          <span>Preferences</span>
+          <small>Configure Tinybot for your workflow.</small>
+        </div>
         <nav aria-label="Settings categories">
-          {modules.map((module) => (
-            <button
-              key={module.id}
-              aria-current={module.id === activeModuleId ? "page" : undefined}
-              aria-label={module.label}
-              onClick={() => onSelectModule(module.id)}
-              type="button"
-            >
-              <span>{module.label}</span>
-              <small>{module.description}</small>
-            </button>
-          ))}
+          {modules.map((module) => {
+            const Icon = module.icon;
+            return (
+              <button
+                key={module.id}
+                aria-current={module.id === activeModuleId ? "page" : undefined}
+                aria-label={module.label}
+                onClick={() => onSelectModule(module.id)}
+                title={module.description}
+                type="button"
+              >
+                <Icon aria-hidden="true" size={17} />
+                <span>{module.label}</span>
+                <ChevronRight aria-hidden="true" className="react-settings-sidebar__chevron" size={15} />
+              </button>
+            );
+          })}
         </nav>
       </aside>
       <div className="react-settings-detail">

@@ -81,8 +81,9 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
     <section className="react-provider-settings" aria-labelledby="provider-models-title">
       <div className="react-provider-settings__header">
         <div>
+          <span className="react-settings-eyebrow">AI connections</span>
           <h2 id="provider-models-title">Provider & Models</h2>
-          <p>Built-in providers use backend config profiles for credentials, endpoints, and model defaults.</p>
+          <p>Choose the model Tinybot uses by default, then manage the connections that make it available.</p>
         </div>
       </div>
 
@@ -95,16 +96,20 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
 
       <section className="react-provider-directory" aria-labelledby="providers-title">
         <header>
-          <h3 id="providers-title">Providers</h3>
-          <p>Manage provider connections, credentials, and available models.</p>
+          <div>
+            <h3 id="providers-title">Connections</h3>
+            <p>Credentials, endpoints, and models for each provider.</p>
+          </div>
+          <button
+            className="react-provider-add"
+            data-press-feedback="true"
+            type="button"
+            onClick={() => setCreatingProvider(true)}
+          >
+            <Plus aria-hidden="true" size={16} />
+            Add provider
+          </button>
         </header>
-        <div className="react-provider-directory__columns" aria-hidden="true">
-          <span>Provider</span>
-          <span>Base URL</span>
-          <span>Status</span>
-          <span>Models</span>
-          <span>Action</span>
-        </div>
         <div className="react-provider-grid">
         {data.providers.map((provider) => (
           <ProviderPresetRow
@@ -123,15 +128,6 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
           />
         ))}
         </div>
-        <button
-          className="react-provider-add"
-          data-press-feedback="true"
-          type="button"
-          onClick={() => setCreatingProvider(true)}
-        >
-          <Plus aria-hidden="true" size={16} />
-          Add provider
-        </button>
       </section>
 
       {creatingProvider ? (
@@ -235,22 +231,23 @@ function DefaultLlmPanel({
     <section className="react-default-llm-panel" aria-labelledby="default-llm-title">
       <header>
         <div>
+          <span className="react-settings-eyebrow">Current default</span>
           <h3 id="default-llm-title">Default model</h3>
-          <p>This model is used for new chats and agent turns unless overridden.</p>
+          <p>Used for new chats and agent turns unless a conversation overrides it.</p>
         </div>
       </header>
       <div className="react-default-llm-summary">
         {selectedProvider ? <ProviderBrandIcon provider={selectedProvider} /> : null}
+        <div className="react-default-llm-summary__model">
+          <strong>{model || "No model configured"}</strong>
+          <span>{selectedProvider?.label ?? "No provider"}</span>
+        </div>
         <div className="react-default-llm-summary__provider">
-          <strong>{selectedProvider?.label ?? "No provider"}</strong>
           <span className="react-provider-status" data-status={selectedProvider?.status}>
             <span aria-hidden="true" />
             {selectedProvider ? providerStatusLabel(selectedProvider.status) : "Not configured"}
           </span>
-        </div>
-        <div className="react-default-llm-summary__model">
-          <strong>{model || "No model configured"}</strong>
-          {model ? <span>Default</span> : null}
+          <small>{selectedProvider?.useResponsesApi ? "Responses API" : "Chat Completions"}</small>
         </div>
         <span className="react-default-llm-summary__count">
           {selectedProvider?.modelCount ? `${selectedProvider.modelCount} models` : "No models"}
@@ -379,25 +376,39 @@ function ProviderPresetRow({
   const primaryAction = provider.status === "available" ? "models" : "configure";
 
   return (
-    <article className="react-provider-card" aria-label={`${provider.label} provider`} data-status={provider.status}>
+    <article
+      className="react-provider-card"
+      aria-label={`${provider.label} provider`}
+      data-active={provider.active || undefined}
+      data-status={provider.status}
+    >
       <div className="react-provider-card__identity">
         <ProviderBrandIcon provider={provider} />
-        <strong>{provider.label}</strong>
+        <div>
+          <span>
+            <strong>{provider.label}</strong>
+            {provider.active ? <small>Active</small> : null}
+          </span>
+          <span className="react-provider-card__url" title={provider.baseUrl}>{provider.baseUrl}</span>
+        </div>
       </div>
-      <span className="react-provider-card__url" title={provider.baseUrl}>{provider.baseUrl}</span>
+      <div className="react-provider-card__model">
+        <small>Default model</small>
+        <strong>{provider.defaultModel ?? "Not selected"}</strong>
+        <span className="react-provider-card__models">{provider.modelCount ? `${provider.modelCount} models` : "No models"}</span>
+      </div>
       <div className="react-provider-card__state">
         <span className="react-provider-status" data-status={provider.status}>
           <span aria-hidden="true" />
           {providerStatusLabel(provider.status)}
         </span>
-        {provider.active ? <small>Active</small> : !provider.apiKeyConfigured ? <small>API key not set</small> : null}
+        <small>{provider.apiKeyConfigured ? (provider.useResponsesApi ? "Responses API" : "Chat Completions") : "API key not set"}</small>
       </div>
-      <span className="react-provider-card__models">{provider.modelCount ? `${provider.modelCount} models` : "—"}</span>
       <div className="react-provider-card__actions">
         {primaryAction === "models" ? (
-          <button type="button" aria-label={`Manage ${provider.label} models`} onClick={onModels}>Models</button>
+          <button type="button" aria-label={`Manage ${provider.label} models`} onClick={onModels}>Manage</button>
         ) : (
-          <button type="button" aria-label={`Configure ${provider.label}`} onClick={onConfigure}>Configure</button>
+          <button type="button" aria-label={`Configure ${provider.label}`} onClick={onConfigure}>Set up</button>
         )}
         <button
           className="react-provider-card__more"
@@ -502,7 +513,7 @@ function ProviderConfigureDialog({
 
   return (
     <div className="react-settings-dialog-backdrop">
-      <form className="react-settings-dialog" aria-label={`Configure ${provider.label}`} role="dialog" onSubmit={submit}>
+      <form aria-modal="true" className="react-settings-dialog" aria-label={`Configure ${provider.label}`} role="dialog" onSubmit={submit}>
         <header>
           <h2>Configure {provider.label}</h2>
           <button type="button" aria-label={`Close ${provider.label} configuration`} onClick={onClose}>
@@ -611,7 +622,7 @@ function CustomProviderDialog({
 
   return (
     <div className="react-settings-dialog-backdrop">
-      <form className="react-settings-dialog" aria-label="Add provider" role="dialog" onSubmit={submit}>
+      <form aria-modal="true" className="react-settings-dialog" aria-label="Add provider" role="dialog" onSubmit={submit}>
         <header>
           <div>
             <h2>Add provider</h2>
@@ -765,7 +776,7 @@ function ProviderModelsDialog({
 
   return (
     <div className="react-settings-dialog-backdrop">
-      <section className="react-settings-dialog react-settings-dialog--wide" aria-label={`${provider.label} models`} role="dialog">
+      <section aria-modal="true" className="react-settings-dialog react-settings-dialog--wide" aria-label={`${provider.label} models`} role="dialog">
         <header>
           <h2>{provider.label} models</h2>
           <button type="button" aria-label="Close models" onClick={onClose}>
