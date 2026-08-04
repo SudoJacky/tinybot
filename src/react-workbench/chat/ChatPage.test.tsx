@@ -376,17 +376,22 @@ describe("ChatPage", () => {
     expect(document.activeElement).toBe(openButton);
   }, 10_000);
 
-  it("prepares the active chat browser session before TinyOS is opened", async () => {
+  it("does not create a browser session until TinyOS or an Agent web tool needs it", async () => {
+    const user = userEvent.setup();
     const stores = createStores();
     const createSession = vi.fn(async () => handoffBrowserSnapshot("idle", 0));
     stores.chatStore.browserRuntime = {
       createSession,
+      updateSurface: vi.fn(async () => handoffBrowserSnapshot("idle", 0)),
     } as unknown as NativeBrowserRuntimeApi;
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 29, 0, 0, 0)} sessionStore={stores.sessionStore} />);
 
-    await waitFor(() => expect(createSession).toHaveBeenCalledWith({ ownerSessionId: "s1" }));
+    await screen.findByText("Can you help?");
+    expect(createSession).not.toHaveBeenCalled();
     expect(screen.queryByLabelText("TinyOS shared desktop")).toBeNull();
+    await user.click(screen.getByRole("button", { name: /^Open TinyOS/ }));
+    await waitFor(() => expect(createSession).toHaveBeenCalledWith({ ownerSessionId: "s1" }));
   });
 
   it("releases the TinyOS browser session on explicit exit and recreates it when reopened", async () => {
@@ -403,8 +408,10 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 29, 0, 0, 0)} sessionStore={stores.sessionStore} />);
 
-    await waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
+    await screen.findByText("Can you help?");
+    expect(createSession).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: /^Open TinyOS/ }));
+    await waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
     await user.click(await screen.findByRole("button", { name: "Exit TinyOS and release browser" }));
 
     await waitFor(() => expect(closeSession).toHaveBeenCalledWith("browser-handoff"));

@@ -106,6 +106,8 @@ async fn exercise_public_commands(
         ));
     }
 
+    exercise_lazy_agent_open(app, fixture).await?;
+
     let created = browser_create_session(
         runtime_state(app),
         BrowserCreateSessionInput {
@@ -174,6 +176,39 @@ async fn exercise_public_commands(
     Ok(())
 }
 
+async fn exercise_lazy_agent_open(
+    app: &tauri::AppHandle,
+    fixture: &NativeBrowserFixture,
+) -> Result<(), String> {
+    let runtime = runtime_state(app).inner().clone();
+    let owner_session_id = "native-browser-lazy-agent-open";
+    let opened = crate::tools::web::dispatch_web_open(
+        &runtime,
+        owner_session_id,
+        None,
+        json!({ "url": fixture.url("/") }),
+    )
+    .await
+    .map_err(|error| format!("Lazy Agent web.open failed: {error}"))?;
+    let snapshot = runtime
+        .snapshot_for_owner(owner_session_id)
+        .ok_or_else(|| "Lazy Agent web.open did not create an owned session".to_string())?;
+    let browser_session_id = snapshot.data.browser_session_id.clone();
+    let valid = opened["status"] == "completed"
+        && opened["snapshot"]["url"] == fixture.url("/")
+        && opened["snapshot"]["targets"]
+            .as_array()
+            .is_some_and(|targets| !targets.is_empty());
+    let close_result = runtime.close_session(&browser_session_id).await;
+    close_result?;
+    if !valid {
+        return Err(format!(
+            "Lazy Agent web.open returned incomplete evidence: {opened}"
+        ));
+    }
+    Ok(())
+}
+
 async fn exercise_open_session(
     app: &tauri::AppHandle,
     fixture: &NativeBrowserFixture,
@@ -190,15 +225,28 @@ async fn exercise_open_session(
         return Err("Public create/snapshot commands returned unexpected tab state".to_string());
     }
 
-    browser_navigate(
-        runtime_state(app),
-        BrowserNavigateInput {
-            browser_session_id: browser_session_id.clone(),
-            tab_id: tab_id.clone(),
-            url: fixture.url("/"),
-        },
+    let runtime = runtime_state(app).inner().clone();
+    let background_open = crate::tools::web::dispatch_web_open(
+        &runtime,
+        "native-browser-integration",
+        None,
+        json!({
+            "commandId": "native-browser-background-open",
+            "url": fixture.url("/"),
+        }),
     )
-    .await?;
+    .await
+    .map_err(|error| format!("Detached Agent web.open failed: {error}"))?;
+    if background_open["status"] != "completed"
+        || background_open["snapshot"]["url"] != fixture.url("/")
+        || background_open["snapshot"]["targets"]
+            .as_array()
+            .is_none_or(Vec::is_empty)
+    {
+        return Err(format!(
+            "Detached Agent web.open returned incomplete evidence: {background_open}"
+        ));
+    }
 
     browser_update_surface(
         runtime_state(app),

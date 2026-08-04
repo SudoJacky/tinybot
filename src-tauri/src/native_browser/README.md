@@ -31,6 +31,12 @@ Agent cancellation is forwarded to the matching in-flight browser command.
 Capture bytes remain available for native Agent observation but are not
 returned in model tool results or rendered as a TinyOS fallback.
 
+Agent observation does not require the TinyOS surface to be open. On Windows,
+detached tabs are rendered offscreen only for the duration of a serialized
+observation and return to the hidden state before the tool call continues.
+Surface updates and background observations share the same presentation lock,
+so opening or closing TinyOS cannot race screenshot capture.
+
 See [`tools::web`](../tools/web/README.md) for the model-facing snapshot and
 action contract.
 
@@ -41,6 +47,10 @@ capture, and surface identities; monotonically increasing snapshot and
 observation revisions; ordered tabs and history; lifecycle state; control
 epoch; profile persistence; bounded semantic targets; and at most one pending
 popup or external-protocol policy request.
+
+Opening or switching to a Chat does not preheat a native browser session. The
+session is created lazily when the Agent first invokes a `web.*` tool or the
+user opens TinyOS, so chats that never browse do not retain WebView2 processes.
 
 Calling `browser_create_session` again with the same owner identity rehydrates
 the existing session. Agent actions include navigation, coordinate or semantic

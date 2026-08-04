@@ -159,6 +159,13 @@ struct BrowserTabHandle {
     webview: Webview<Wry>,
     profile: BrowserPlatformProfile,
     navigation: Arc<NavigationCompletion>,
+    presentation: Arc<BrowserTabPresentation>,
+}
+
+#[derive(Default)]
+struct BrowserTabPresentation {
+    lock: tokio::sync::Mutex<()>,
+    surface_visible: AtomicBool,
 }
 
 #[derive(Default)]
@@ -485,6 +492,7 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
                 webview,
                 profile: request.profile,
                 navigation: navigation_completion,
+                presentation: Arc::new(BrowserTabPresentation::default()),
             },
         );
         Ok(BrowserPlatformTabState {
@@ -523,6 +531,7 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
 
     async fn set_surface(&self, surface: BrowserPlatformSurface) -> Result<(), String> {
         let handle = self.tab(&surface.tab_id)?;
+        let _presentation_guard = handle.presentation.lock.lock().await;
         if surface.visible {
             handle
                 .webview
@@ -547,7 +556,12 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
                 .hide()
                 .map_err(|error| format!("Failed to hide native browser surface: {error}"))?;
         }
-        wait_for_webview_dispatch(&handle.webview, "surface update").await
+        wait_for_webview_dispatch(&handle.webview, "surface update").await?;
+        handle
+            .presentation
+            .surface_visible
+            .store(surface.visible, Ordering::Release);
+        Ok(())
     }
 
     async fn navigate(&self, tab_id: &BrowserTabId, url: &str) -> Result<(), String> {
@@ -605,41 +619,26 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
         semantic: bool,
     ) -> Result<BrowserPlatformObservation, String> {
         let handle = self.tab(tab_id)?;
-        let observed: ObservedDocument = eval_json(&handle.webview, OBSERVE_SCRIPT).await?;
-        let capture_base64 = if capture {
-            let result = call_cdp(
-                &handle.webview,
-                "Page.captureScreenshot",
-                json!({ "format": "png", "fromSurface": true, "captureBeyondViewport": false }),
-            )
-            .await?;
-            Some(
-                result
-                    .get("data")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| "WebView2 screenshot response omitted image data".to_string())?
-                    .to_string(),
-            )
+        let _presentation_guard = handle.presentation.lock.lock().await;
+        let background_observation = !handle.presentation.surface_visible.load(Ordering::Acquire);
+        if background_observation {
+            prepare_background_observation(&handle.webview).await?;
+        }
+
+        let observation = observe_webview(&handle.webview, capture, semantic).await;
+        let restore = if background_observation {
+            restore_hidden_surface(&handle.webview).await
         } else {
-            None
+            Ok(())
         };
-        Ok(BrowserPlatformObservation {
-            capture_base64,
-            viewport_width: observed.viewport_width,
-            viewport_height: observed.viewport_height,
-            device_scale: observed.device_scale,
-            semantic_nodes: if semantic {
-                observed
-                    .nodes
-                    .into_iter()
-                    .take(MAX_SEMANTIC_NODES)
-                    .map(Into::into)
-                    .collect()
-            } else {
-                Vec::new()
-            },
-            semantic_truncated: semantic && observed.truncated,
-        })
+        match (observation, restore) {
+            (Ok(observation), Ok(())) => Ok(observation),
+            (Err(error), Ok(())) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+            (Err(observe_error), Err(restore_error)) => Err(format!(
+                "{observe_error}; restoring the hidden browser surface also failed: {restore_error}"
+            )),
+        }
     }
 
     async fn interact(
@@ -883,6 +882,77 @@ fn selector_action(selector: &str, kind: &str, text: Option<&str>) -> Result<Str
         }
         _ => Err("Unsupported normalized browser selector action".to_string()),
     }
+}
+
+async fn prepare_background_observation(webview: &Webview<Wry>) -> Result<(), String> {
+    webview
+        .set_bounds(Rect {
+            position: LogicalPosition::new(-(f64::from(BACKGROUND_VIEWPORT_WIDTH) + 16.0), 0.0)
+                .into(),
+            size: LogicalSize::new(
+                f64::from(BACKGROUND_VIEWPORT_WIDTH),
+                f64::from(BACKGROUND_VIEWPORT_HEIGHT),
+            )
+            .into(),
+        })
+        .map_err(|error| format!("Failed to place background browser surface: {error}"))?;
+    webview
+        .show()
+        .map_err(|error| format!("Failed to enable background browser rendering: {error}"))?;
+    if let Err(error) = wait_for_webview_dispatch(webview, "background observation").await {
+        let _ = webview.hide();
+        return Err(error);
+    }
+    Ok(())
+}
+
+async fn restore_hidden_surface(webview: &Webview<Wry>) -> Result<(), String> {
+    webview
+        .hide()
+        .map_err(|error| format!("Failed to restore hidden browser surface: {error}"))?;
+    wait_for_webview_dispatch(webview, "background observation cleanup").await
+}
+
+async fn observe_webview(
+    webview: &Webview<Wry>,
+    capture: bool,
+    semantic: bool,
+) -> Result<BrowserPlatformObservation, String> {
+    let observed: ObservedDocument = eval_json(webview, OBSERVE_SCRIPT).await?;
+    let capture_base64 = if capture {
+        let result = call_cdp(
+            webview,
+            "Page.captureScreenshot",
+            json!({ "format": "png", "fromSurface": true, "captureBeyondViewport": false }),
+        )
+        .await?;
+        Some(
+            result
+                .get("data")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "WebView2 screenshot response omitted image data".to_string())?
+                .to_string(),
+        )
+    } else {
+        None
+    };
+    Ok(BrowserPlatformObservation {
+        capture_base64,
+        viewport_width: observed.viewport_width,
+        viewport_height: observed.viewport_height,
+        device_scale: observed.device_scale,
+        semantic_nodes: if semantic {
+            observed
+                .nodes
+                .into_iter()
+                .take(MAX_SEMANTIC_NODES)
+                .map(Into::into)
+                .collect()
+        } else {
+            Vec::new()
+        },
+        semantic_truncated: semantic && observed.truncated,
+    })
 }
 
 async fn eval_unit(webview: &Webview<Wry>, script: &str) -> Result<(), String> {
