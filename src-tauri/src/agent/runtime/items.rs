@@ -60,6 +60,12 @@ pub struct AgentAssistantMessage {
     pub reasoning: Option<String>,
     #[serde(default)]
     pub tool_calls: Vec<AgentToolCallItem>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub context_compaction: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -349,6 +355,11 @@ impl AgentItem {
                     "assistant reasoning content",
                 )?,
                 tool_calls: parse_legacy_tool_calls(object.get("tool_calls"))?,
+                context_compaction: object
+                    .get("contextCompaction")
+                    .or_else(|| object.get("context_compaction"))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
             })),
             "tool" => Ok(Self::ToolResult(AgentToolResultItem {
                 id,
@@ -396,6 +407,28 @@ impl AgentItem {
                 "content": message.content.to_value(),
             })),
             Self::AssistantMessage(message) => {
+                if message.context_compaction {
+                    if message.reasoning.is_some() || !message.tool_calls.is_empty() {
+                        return Err(
+                            "context compaction summary cannot contain reasoning or tool calls"
+                                .to_string(),
+                        );
+                    }
+                    let content = message.content.as_ref().ok_or_else(|| {
+                        "context compaction summary requires message content".to_string()
+                    })?;
+                    if provider_names {
+                        return Ok(serde_json::json!({
+                            "role": "user",
+                            "content": content.to_value(),
+                        }));
+                    }
+                    return Ok(serde_json::json!({
+                        "role": "assistant",
+                        "content": content.to_value(),
+                        "contextCompaction": true,
+                    }));
+                }
                 let tool_calls = message
                     .tool_calls
                     .iter()

@@ -9,12 +9,15 @@ use std::sync::Arc;
 const DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS: i64 = 128_000;
 const DEFAULT_COMPACT_TRIGGER_PERCENT: i64 = 90;
 const DEFAULT_COMPACT_SUMMARY_MAX_TOKENS: i64 = 1024;
+const COMPACT_USER_MESSAGE_MAX_TOKENS: i64 = 20_000;
+const COMPACT_USER_MESSAGE_BUDGET_PERCENT: i64 = 25;
 const APPROX_BYTES_PER_TOKEN: usize = 4;
 const MAX_COMPACT_TOOL_OUTPUT_CHARS: usize = 16_000;
 const MIN_COMPACT_TOOL_OUTPUT_CHARS: usize = 64;
 const MAX_COMPACTION_SUMMARY_LAYERS: usize = 8;
 const COMPACTION_REQUEST_LIMIT_PERCENT: i64 = 95;
-const SOURCE_SUMMARY_INSTRUCTION: &str = "Summarize earlier conversation context for a coding agent. Preserve user goals, decisions, constraints, file paths, commands, tool results, and unresolved tasks. Be concise and factual.";
+const COMPACTION_SUMMARY_PREFIX: &str = "Conversation summary so far:\n";
+const SOURCE_SUMMARY_INSTRUCTION: &str = "User messages are retained separately. Summarize assistant and tool work: decisions, constraints, files, commands, results, errors, tests, and next steps. Be concise and factual.";
 const MERGE_SUMMARY_INSTRUCTION: &str = "Merge partial coding-agent conversation summaries into one concise, factual continuation summary. Preserve goals, decisions, constraints, paths, tool results, progress, and unresolved tasks without duplicating facts.";
 
 #[derive(Clone, Debug)]
@@ -38,15 +41,25 @@ pub(super) struct ContextWindowAction {
     estimated_tokens_after: i64,
     masked_tool_output_count: usize,
     summary_request_count: usize,
+    preserved_user_message_count: usize,
+    dropped_user_message_count: usize,
+    dropped_assistant_message_count: usize,
+    dropped_tool_message_count: usize,
+    merged_compaction_summary_count: usize,
 }
 
 #[derive(Clone, Debug)]
 struct CompactedContextMessages {
     messages: Vec<Value>,
-    old_count: usize,
-    recent_count: usize,
+    dropped_count: usize,
+    retained_count: usize,
     masked_tool_output_count: usize,
     summary_request_count: usize,
+    preserved_user_message_count: usize,
+    dropped_user_message_count: usize,
+    dropped_assistant_message_count: usize,
+    dropped_tool_message_count: usize,
+    merged_compaction_summary_count: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -97,8 +110,7 @@ pub(super) async fn context_window_projection_async(
         && compact_threshold_reached(context, full_estimate, context_window_tokens);
     if manual_compaction || automatic_compaction {
         if let Some(compacted) =
-            compact_messages_to_context_window_async(context, message_budget, manual_compaction)
-                .await?
+            compact_messages_to_context_window_async(context, message_budget).await?
         {
             let estimated_tokens_after =
                 estimate_messages_tokens(&compacted.messages).saturating_add(system_prompt_tokens);
@@ -119,14 +131,19 @@ pub(super) async fn context_window_projection_async(
                     } else {
                         "pre_turn"
                     },
-                    dropped_message_count: compacted.old_count,
-                    retained_message_count: compacted.recent_count,
+                    dropped_message_count: compacted.dropped_count,
+                    retained_message_count: compacted.retained_count,
                     replacement_message_count,
                     context_window_tokens,
                     estimated_tokens_before: full_estimate,
                     estimated_tokens_after,
                     masked_tool_output_count: compacted.masked_tool_output_count,
                     summary_request_count: compacted.summary_request_count,
+                    preserved_user_message_count: compacted.preserved_user_message_count,
+                    dropped_user_message_count: compacted.dropped_user_message_count,
+                    dropped_assistant_message_count: compacted.dropped_assistant_message_count,
+                    dropped_tool_message_count: compacted.dropped_tool_message_count,
+                    merged_compaction_summary_count: compacted.merged_compaction_summary_count,
                 }),
             });
         }
@@ -170,6 +187,11 @@ pub(super) async fn context_window_projection_async(
             estimated_tokens_after,
             masked_tool_output_count,
             summary_request_count: 0,
+            preserved_user_message_count: 0,
+            dropped_user_message_count: 0,
+            dropped_assistant_message_count: 0,
+            dropped_tool_message_count: 0,
+            merged_compaction_summary_count: 0,
         }),
     })
 }
@@ -204,6 +226,11 @@ pub(super) fn context_window_action_payload(
         "estimatedTokensAfter": action.estimated_tokens_after,
         "maskedToolOutputCount": action.masked_tool_output_count,
         "summaryRequestCount": action.summary_request_count,
+        "preservedUserMessageCount": action.preserved_user_message_count,
+        "droppedUserMessageCount": action.dropped_user_message_count,
+        "droppedAssistantMessageCount": action.dropped_assistant_message_count,
+        "droppedToolMessageCount": action.dropped_tool_message_count,
+        "mergedCompactionSummaryCount": action.merged_compaction_summary_count,
     })
 }
 
@@ -509,41 +536,142 @@ fn mask_tool_output(content: &str, max_chars: usize) -> String {
 async fn compact_messages_to_context_window_async(
     context: &AgentTurnContext,
     context_window_tokens: i64,
-    manual: bool,
 ) -> Result<Option<CompactedContextMessages>, NativeAgentProviderFailure> {
     let (bounded_messages, masked_tool_output_count) = mask_oversized_tool_outputs(
         &context.messages,
         compact_tool_output_char_limit(context_window_tokens),
     );
-    let recent_budget = if manual {
-        (estimate_messages_tokens(&bounded_messages).saturating_mul(2) / 3).max(1)
-    } else {
-        (context_window_tokens.saturating_mul(2) / 3).max(1)
-    };
-    let recent_messages = trim_messages_to_context_window(&bounded_messages, recent_budget);
-    let recent_count = recent_messages.len();
-    let old_count = bounded_messages.len().saturating_sub(recent_messages.len());
-    if old_count == 0 {
-        return Ok(None);
-    }
-    let old_messages = &bounded_messages[..old_count];
-    let summary = compact_old_messages_async(context, old_messages).await?;
-    if summary.content.trim().is_empty() {
+    if bounded_messages.is_empty() {
         return Ok(None);
     }
 
-    let mut compacted = vec![serde_json::json!({
-        "role": "system",
-        "content": format!("Conversation summary so far:\n{}", summary.content.trim()),
-    })];
-    compacted.extend(recent_messages);
+    let instruction_messages = bounded_messages
+        .iter()
+        .filter(|message| {
+            matches!(message_role(message), Some("system") | Some("developer"))
+                && !is_context_compaction_summary(message)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let user_messages = bounded_messages
+        .iter()
+        .filter(|message| {
+            message_role(message) == Some("user") && !is_context_compaction_summary(message)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let instruction_tokens = estimate_messages_tokens(&instruction_messages);
+    let summary_reserve = effective_compact_summary_max_tokens(context).saturating_add(32);
+    let user_budget = context_window_tokens
+        .saturating_sub(instruction_tokens)
+        .saturating_sub(summary_reserve)
+        .min(
+            context_window_tokens
+                .saturating_mul(COMPACT_USER_MESSAGE_BUDGET_PERCENT)
+                .saturating_div(100),
+        )
+        .min(COMPACT_USER_MESSAGE_MAX_TOKENS)
+        .max(1);
+    let selected_user_messages = trim_messages_to_context_window(&user_messages, user_budget);
+    let compactable_message_count = bounded_messages
+        .len()
+        .saturating_sub(instruction_messages.len())
+        .saturating_sub(user_messages.len());
+    if compactable_message_count == 0 && selected_user_messages.len() == user_messages.len() {
+        return Ok(None);
+    }
+
+    let dropped_user_source_count = user_messages
+        .len()
+        .saturating_sub(selected_user_messages.len());
+    let mut seen_user_messages = 0usize;
+    let summary_source_messages = bounded_messages
+        .iter()
+        .filter_map(|message| {
+            if message_role(message) == Some("user") && !is_context_compaction_summary(message) {
+                let include = seen_user_messages < dropped_user_source_count;
+                seen_user_messages = seen_user_messages.saturating_add(1);
+                return include.then(|| message.clone());
+            }
+            if matches!(message_role(message), Some("system") | Some("developer"))
+                && !is_context_compaction_summary(message)
+            {
+                return None;
+            }
+            Some(message.clone())
+        })
+        .collect::<Vec<_>>();
+    if summary_source_messages.is_empty() {
+        return Ok(None);
+    }
+    let summary = compact_old_messages_async(context, &summary_source_messages).await?;
+    if summary.content.trim().is_empty() {
+        return Err(NativeAgentProviderFailure::provider(
+            "context compaction produced an empty summary",
+        ));
+    }
+
+    let merged_compaction_summary_count = bounded_messages
+        .iter()
+        .filter(|message| is_context_compaction_summary(message))
+        .count();
+    let dropped_assistant_message_count = bounded_messages
+        .iter()
+        .filter(|message| message_role(message) == Some("assistant"))
+        .count();
+    let dropped_tool_message_count = bounded_messages
+        .iter()
+        .filter(|message| message_role(message) == Some("tool"))
+        .count();
+    let mut compacted = instruction_messages;
+    compacted.extend(selected_user_messages);
+    compacted.push(serde_json::json!({
+        "role": "assistant",
+        "content": format!("{COMPACTION_SUMMARY_PREFIX}{}", summary.content.trim()),
+        "contextCompaction": true,
+    }));
+    let messages = trim_messages_to_context_window(&compacted, context_window_tokens);
+    let preserved_user_message_count = messages
+        .iter()
+        .filter(|message| {
+            message_role(message) == Some("user") && !is_context_compaction_summary(message)
+        })
+        .count();
+    let retained_instruction_count = messages
+        .iter()
+        .filter(|message| {
+            matches!(message_role(message), Some("system") | Some("developer"))
+                && !is_context_compaction_summary(message)
+        })
+        .count();
+    let retained_count = retained_instruction_count.saturating_add(preserved_user_message_count);
+    let dropped_count = bounded_messages.len().saturating_sub(retained_count);
     Ok(Some(CompactedContextMessages {
-        messages: trim_messages_to_context_window(&compacted, context_window_tokens),
-        old_count,
-        recent_count,
+        messages,
+        dropped_count,
+        retained_count,
         masked_tool_output_count,
         summary_request_count: summary.request_count,
+        preserved_user_message_count,
+        dropped_user_message_count: user_messages
+            .len()
+            .saturating_sub(preserved_user_message_count),
+        dropped_assistant_message_count,
+        dropped_tool_message_count,
+        merged_compaction_summary_count,
     }))
+}
+
+fn is_context_compaction_summary(message: &Value) -> bool {
+    message
+        .get("contextCompaction")
+        .or_else(|| message.get("context_compaction"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || message
+            .get("content")
+            .and_then(Value::as_str)
+            .is_some_and(|content| content.starts_with(COMPACTION_SUMMARY_PREFIX))
 }
 
 async fn compact_old_messages_async(

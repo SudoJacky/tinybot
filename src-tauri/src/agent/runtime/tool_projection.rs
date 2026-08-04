@@ -23,6 +23,7 @@ pub(super) fn assistant_tool_calls_message(
                 arguments_json: tool_call.arguments_json.clone(),
             })
             .collect(),
+        context_compaction: false,
     })
     .to_legacy_message()
     .expect("constructed assistant tool-call item must serialize")

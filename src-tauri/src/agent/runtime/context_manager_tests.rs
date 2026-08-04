@@ -55,6 +55,27 @@ fn prompt_accepts_complete_tool_pairs() {
 }
 
 #[test]
+fn compaction_summary_round_trips_as_internal_assistant_and_provider_user_message() {
+    let history = ContextManager::from_legacy_messages(&[json!({
+        "role": "assistant",
+        "content": "Conversation summary so far:\nfinished the first task",
+        "contextCompaction": true
+    })])
+    .unwrap();
+
+    let stored = history.messages();
+    assert_eq!(stored[0]["role"], "assistant");
+    assert_eq!(stored[0]["contextCompaction"], true);
+
+    let prompt = history.for_prompt().unwrap();
+    assert_eq!(prompt[0]["role"], "user");
+    assert!(prompt[0].get("contextCompaction").is_none());
+    assert!(prompt[0]["content"]
+        .as_str()
+        .is_some_and(|content| content.starts_with("Conversation summary so far:")));
+}
+
+#[test]
 fn token_info_tracks_total_and_last_model_call_usage() {
     let mut history = ContextManager::from_legacy_messages(&[]).unwrap();
 

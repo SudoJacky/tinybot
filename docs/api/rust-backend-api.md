@@ -703,6 +703,15 @@ items without that field fall back to the most recent known usage budget, then t
 loaded Agent Defaults context-window budget. Canonical compaction data also preserves `strategy` so
 the restored indicator matches the live context policy.
 
+Manual and automatic compaction share one replacement-history policy. Current system/developer
+instructions and recent user messages are retained within the context budget; assistant messages,
+tool calls, tool results, and any previous compaction summary are replaced by exactly one marked
+assistant summary (`contextCompaction: true`). Provider adapters project that internal summary as a
+continuation user message without exposing the marker. `agent.context.compacted` reports
+`preservedUserMessageCount`, `droppedUserMessageCount`, `droppedAssistantMessageCount`,
+`droppedToolMessageCount`, and `mergedCompactionSummaryCount` alongside the existing token and
+message counts.
+
 The desktop loads Subagent traces and artifact content through
 `worker_background_trace_get_delegate_trace` and `worker_background_trace_get_artifact`. Timeline
 paths are metadata only and are never used directly as browser image URLs. Raster previews accept
