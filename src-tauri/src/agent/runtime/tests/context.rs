@@ -1264,6 +1264,44 @@ fn agent_usage_event_includes_context_window_budget() {
 }
 
 #[test]
+fn context_window_uses_whitelisted_model_default_when_unconfigured() {
+    for model in ["deepseek-v4-flash", "deepseek-v4-pro"] {
+        let context = AgentTurnContext::from_spec(json!({ "model": model }), json!({}));
+
+        let usage = enrich_usage_with_context_window(&context, json!({}), 10, 0);
+
+        assert_eq!(usage["contextWindowTokens"], 1_000_000, "model: {model}");
+    }
+}
+
+#[test]
+fn context_window_keeps_generic_default_for_unlisted_models() {
+    let context = AgentTurnContext::from_spec(json!({ "model": "custom-model" }), json!({}));
+
+    let usage = enrich_usage_with_context_window(&context, json!({}), 10, 0);
+
+    assert_eq!(usage["contextWindowTokens"], 128_000);
+}
+
+#[test]
+fn configured_context_window_overrides_whitelisted_model_default() {
+    let context = AgentTurnContext::from_spec(
+        json!({ "model": "deepseek-v4-pro" }),
+        json!({
+            "agents": {
+                "defaults": {
+                    "contextWindowTokens": 64_000
+                }
+            }
+        }),
+    );
+
+    let usage = enrich_usage_with_context_window(&context, json!({}), 10, 0);
+
+    assert_eq!(usage["contextWindowTokens"], 64_000);
+}
+
+#[test]
 fn user_file_and_image_parts_emit_typed_reference_items() {
     let result = run_native_agent_turn_with_services(
         &NativeAgentRuntimeServices::default(),

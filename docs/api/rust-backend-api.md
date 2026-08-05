@@ -1599,8 +1599,8 @@ context-window budget fields:
 
 Rust agent context-window controls are read from `agents.defaults` or the turn specification:
 
-- `contextWindowTokens` / `context_window_tokens`: effective context window. The fallback is
-  `128000`.
+- `contextWindowTokens` / `context_window_tokens`: effective context window. When unset,
+  `deepseek-v4-flash` and `deepseek-v4-pro` use `1000000`; other models fall back to `128000`.
 - `contextWindowStrategy` / `context_window_strategy`: `discard` or `compact`. The fallback is
   `discard`.
 - `compactTriggerPercent` / `compact_trigger_percent`: percentage threshold for `compact`; default
