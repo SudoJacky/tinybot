@@ -23,6 +23,7 @@ export type ContextReferenceSummary = {
   kind: string;
   title: string;
   detail?: string;
+  presentation?: "attachment" | "context";
   sourcePath?: string;
   sourceLine?: number;
 };

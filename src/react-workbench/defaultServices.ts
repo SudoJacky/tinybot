@@ -747,6 +747,9 @@ function createOptimisticUserMessage(clientEventId: string, text: string, refere
         detail: reference.detail,
         id: reference.evidenceId || `reference-${index}`,
         kind: reference.kind,
+        presentation: reference.type === "tinyos.file" && Boolean(reference.rawPath) && !reference.sourcePath
+          ? "attachment"
+          : "context",
         sourceLine: reference.sourceLine,
         sourcePath: reference.sourcePath,
         title: reference.title,

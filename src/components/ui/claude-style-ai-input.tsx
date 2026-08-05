@@ -441,7 +441,7 @@ export function ClaudeStyleAiInput({
           ))}
           {files.map((item) => (
             <AttachmentChip
-              detail={`${getFileTypeLabel(item.mimeType)} - ${formatFileSize(item.sizeBytes)}`}
+              detail={formatFileMetadata(item.mimeType, item.sizeBytes)}
               icon={getFileIcon(item.mimeType)}
               key={item.id}
               label={item.name}
@@ -793,6 +793,10 @@ function getFileTypeLabel(type: string): string {
     label = `${label.substring(0, 10)}...`;
   }
   return label;
+}
+
+export function formatFileMetadata(mimeType: string, sizeBytes: number): string {
+  return `${getFileTypeLabel(mimeType)} - ${formatFileSize(sizeBytes)}`;
 }
 
 function countWords(text: string): number {

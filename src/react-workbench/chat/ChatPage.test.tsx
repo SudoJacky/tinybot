@@ -2858,7 +2858,7 @@ describe("ChatPage", () => {
     expect((input as HTMLTextAreaElement).value).toBe("");
   });
 
-  it("sends native file paths inside the final user text", async () => {
+  it("sends native files as structured references without exposing paths in user text", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     nativeFilePickerMocks.pickDesktopChatFiles.mockResolvedValueOnce([{
@@ -2877,8 +2877,44 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     expectTurnSubmit(stores.chatStore, "s1", {
-      text: "# Files mentioned by the user:\n\n## notes.md: C:\\Users\\tester\\notes.md\n\n## My request for Tinybot:\nReview this file",
+      references: [{
+        detail: "MARKDOWN - 16 Bytes",
+        kind: "reference",
+        rawPath: "C:\\Users\\tester\\notes.md",
+        title: "notes.md",
+        type: "tinyos.file",
+      }],
+      text: "Review this file",
     });
+  });
+
+  it("renders native file metadata without exposing its absolute path", async () => {
+    const stores = createStores();
+    const timeline = timelineFromReactMessages("s1", [{
+      id: "u-native-file",
+      role: "user",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      text: "文件中的内容是什么",
+      status: "complete",
+    }]);
+    timeline.turns[0].userMessage.references = [{
+      detail: "MARKDOWN - 1.67 KB",
+      kind: "reference",
+      rawPath: "D:\\code\\tinybot\\test\\AI_Agent_第一性原理_文档.md",
+      title: "AI_Agent_第一性原理_文档.md",
+      type: "tinyos.file",
+    }];
+    stores.chatStore.load = vi.fn(async () => timeline);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const message = await screen.findByTestId("message-u-native-file");
+    const attachments = within(message).getByLabelText("Attachments");
+    expect(message.textContent).toContain("文件中的内容是什么");
+    expect(attachments.textContent).toContain("AI_Agent_第一性原理_文档.md");
+    expect(attachments.textContent).toContain("MARKDOWN - 1.67 KB");
+    expect(message.textContent).not.toContain("D:\\code\\tinybot\\test");
+    expect(message.textContent).not.toContain("Files mentioned by the user");
   });
 
   it("queues composer text while the active session is running", async () => {
