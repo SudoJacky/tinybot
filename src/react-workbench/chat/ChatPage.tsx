@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Circle,
   Copy,
+  FileText,
   Folder,
   FolderOpen,
   FolderPlus,
@@ -38,6 +39,7 @@ import {
 import type { QueuedInput } from "../../app-core/chat/chatUiProjection";
 import {
   ClaudeStyleAiInput,
+  formatFileMetadata,
   type ComposerFileReference,
   type ComposerContextReference,
   type ComposerSendOptions,
@@ -1401,7 +1403,10 @@ export function ChatPage({
     pastedContent: PastedContent[],
     options: ComposerSendOptions,
   ) {
-    const references = tinyOsContextReferences.map(nativeReferenceFromTinyOs);
+    const references = [
+      ...files.map(nativeReferenceFromComposerFile),
+      ...tinyOsContextReferences.map(nativeReferenceFromTinyOs),
+    ];
     if (message.trim() === "/compact") {
       if (files.length || pastedContent.length || references.length) {
         throw new Error("/compact 不能与附件或上下文引用一起使用。");
@@ -1433,13 +1438,12 @@ export function ChatPage({
       message || (files.length ? "Review the attached files." : references.length ? "Use the attached TinyOS context." : ""),
       pastedContent,
     );
-    const text = formatComposerFileReferences(visibleText, files);
     const sendSession = activeSession ?? await createSessionForDraft();
-    if (!text || !sendSession) {
+    if (!visibleText || !sendSession) {
       return;
     }
     const queuedResult = submitComposerText({
-      content: text,
+      content: visibleText,
       isRunning: isQueueableRunningSession(sendSession, emptyActiveSession),
       now: nextQueuedInputTimestamp(),
       queuedInputs: activeQueuedInputs,
@@ -2711,6 +2715,16 @@ function nativeReferenceFromTinyOs(reference: TinyOsAgentRequestReference): Agen
   };
 }
 
+function nativeReferenceFromComposerFile(file: ComposerFileReference): AgentInputReference {
+  return {
+    detail: formatFileMetadata(file.mimeType, file.sizeBytes),
+    kind: "reference",
+    rawPath: file.path,
+    title: file.name,
+    type: "tinyos.file",
+  };
+}
+
 function tinyOsAgentRequestControl(reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent): string {
   return `${reference.kind}-${intent.replace(/_/g, "-")}`;
 }
@@ -2790,14 +2804,6 @@ function formatComposerMessage(message: string, pastedContent: PastedContent[]):
     segments.push(`Pasted content:\n${pasted.content}`);
   }
   return segments.join("\n\n");
-}
-
-function formatComposerFileReferences(message: string, files: ComposerFileReference[]): string {
-  if (!files.length) {
-    return message;
-  }
-  const mentionedFiles = files.map((file) => `## ${file.name}: ${file.path}`).join("\n\n");
-  return `# Files mentioned by the user:\n\n${mentionedFiles}\n\n## My request for Tinybot:\n${message}`;
 }
 
 function toComposerModelOption(model: ChatModelOption): ModelOption {
@@ -3555,6 +3561,9 @@ function canonicalReferenceSummary(reference: AgentInputReference, index: number
   return {
     id: reference.noteId || reference.evidenceId || `${reference.kind}:${index}`,
     kind: reference.kind,
+    presentation: reference.type === "tinyos.file" && Boolean(reference.rawPath) && !reference.sourcePath
+      ? "attachment"
+      : "context",
     title: reference.title,
     detail: reference.detail,
     sourcePath: reference.sourcePath,
@@ -3669,19 +3678,29 @@ function MessageReasoning({ durationMs, streaming, text }: { durationMs?: number
 }
 
 function MessageContext({ references }: { references: ContextReferenceSummary[] }) {
+  const attachmentsOnly = references.every((reference) => reference.presentation === "attachment");
   return (
-    <section className="react-message-context" aria-label="Context">
-      <h3>Context</h3>
+    <section
+      aria-label={attachmentsOnly ? "Attachments" : "Context"}
+      className="react-message-context"
+      data-presentation={attachmentsOnly ? "attachment" : "context"}
+    >
+      <h3>{attachmentsOnly ? "Attachments" : "Context"}</h3>
       <ul>
         {references.map((reference) => (
-          <li key={reference.id}>
-            <span>{reference.title}</span>
-            {reference.detail ? <small>{reference.detail}</small> : null}
-            {reference.sourcePath ? (
-              <small>
-                {reference.sourcePath}{typeof reference.sourceLine === "number" ? `:${reference.sourceLine}` : ""}
-              </small>
+          <li data-presentation={reference.presentation ?? "context"} key={reference.id}>
+            {reference.presentation === "attachment" ? (
+              <span className="react-message-context__icon"><FileText aria-hidden="true" size={16} /></span>
             ) : null}
+            <span className="react-message-context__text">
+              <strong>{reference.title}</strong>
+              {reference.detail ? <small>{reference.detail}</small> : null}
+              {reference.sourcePath ? (
+                <small>
+                  {reference.sourcePath}{typeof reference.sourceLine === "number" ? `:${reference.sourceLine}` : ""}
+                </small>
+              ) : null}
+            </span>
           </li>
         ))}
       </ul>

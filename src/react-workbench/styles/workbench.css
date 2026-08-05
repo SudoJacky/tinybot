@@ -4936,6 +4936,48 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 2px;
 }
 
+.react-message-context li[data-presentation="attachment"] {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  max-width: min(280px, 100%);
+  gap: 8px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: var(--color-surface-soft);
+  padding: 7px 9px;
+}
+
+.react-message-context__icon {
+  display: inline-grid;
+  flex: 0 0 28px;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-muted);
+}
+
+.react-message-context__text {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.react-message-context li[data-presentation="attachment"] .react-message-context__text strong,
+.react-message-context li[data-presentation="attachment"] .react-message-context__text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-message-context__text strong {
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .react-message-context small {
   color: var(--color-muted);
 }

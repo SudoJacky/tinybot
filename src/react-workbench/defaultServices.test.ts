@@ -221,6 +221,41 @@ describe("desktop native app services", () => {
     expect(events).toContainEqual(expect.objectContaining({ type: "message-sent" }));
   });
 
+  test("projects native file references as optimistic attachment metadata", async () => {
+    const services = createDesktopAppServices();
+    await services.sessionStore.list();
+    const events: ChatEvent[] = [];
+    services.chatStore.subscribe("thread-1", (event) => events.push(event));
+
+    await services.chatStore.dispatch(createDesktopTurnSubmitCommand({
+      commandId: "command-file-1",
+      message: {
+        references: [{
+          detail: "MARKDOWN - 16 Bytes",
+          kind: "reference",
+          rawPath: "C:\\Users\\tester\\notes.md",
+          title: "notes.md",
+          type: "tinyos.file",
+        }],
+        text: "Review this file",
+      },
+      sessionId: "thread-1",
+      source: { control: "test", surface: "chat" },
+    }));
+
+    expect(events).toContainEqual(expect.objectContaining({
+      message: expect.objectContaining({
+        contextReferences: [expect.objectContaining({
+          detail: "MARKDOWN - 16 Bytes",
+          presentation: "attachment",
+          title: "notes.md",
+        })],
+        text: "Review this file",
+      }),
+      type: "message-sent",
+    }));
+  });
+
   test("preserves live reasoning after the completed Thread result arrives", async () => {
     let completedTurnId = "";
     let resolveSubmit!: (value: unknown) => void;
