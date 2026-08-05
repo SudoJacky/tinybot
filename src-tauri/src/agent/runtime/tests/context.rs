@@ -1,3 +1,4 @@
+use super::super::usage::{context_window_action_payload, context_window_projection};
 use super::*;
 
 #[test]
@@ -423,12 +424,14 @@ fn agent_chat_request_compacts_old_messages_when_strategy_is_compact() {
         .expect("messages should be an array");
 
     assert_eq!(messages.len(), 2);
-    assert_eq!(messages[0]["role"], "system");
-    assert!(messages[0]["content"]
+    assert_eq!(messages[0]["role"], "user");
+    assert_eq!(messages[0]["content"], "current question");
+    assert_eq!(messages[1]["role"], "user");
+    assert!(messages[1]["content"]
         .as_str()
         .expect("summary content should be text")
         .contains("summary of earlier turns"));
-    assert_eq!(messages[1]["content"], "current question");
+    assert!(messages[1].get("contextCompaction").is_none());
 }
 
 #[test]
@@ -568,6 +571,10 @@ fn agent_turn_emits_context_compaction_event_when_old_messages_are_summarized() 
     assert_eq!(compact_event["payload"]["droppedMessageCount"], 2);
     assert_eq!(compact_event["payload"]["retainedMessageCount"], 1);
     assert_eq!(compact_event["payload"]["replacementMessageCount"], 2);
+    assert_eq!(compact_event["payload"]["preservedUserMessageCount"], 1);
+    assert_eq!(compact_event["payload"]["droppedUserMessageCount"], 1);
+    assert_eq!(compact_event["payload"]["droppedAssistantMessageCount"], 1);
+    assert_eq!(compact_event["payload"]["droppedToolMessageCount"], 0);
     assert_eq!(compact_event["payload"]["contextWindowTokens"], 800);
     assert_eq!(
         compact_event["payload"]["agentItem"]["type"],
@@ -665,11 +672,183 @@ fn manual_context_compaction_bypasses_threshold_and_finishes_without_a_normal_re
         .as_u64()
         .is_some_and(|count| count > 0));
     assert_eq!(result["contextCheckpoint"]["checkpointStage"], "finalized");
+    let replacement = result["contextCheckpoint"]["replacementHistory"]
+        .as_array()
+        .expect("manual compaction should persist replacement history");
+    assert_eq!(replacement.len(), 3);
+    assert_eq!(replacement[0]["role"], "user");
+    assert_eq!(replacement[1]["role"], "user");
+    assert_eq!(replacement[2]["role"], "assistant");
+    assert_eq!(replacement[2]["contextCompaction"], true);
     assert!(result["runtimeEvents"]
         .as_array()
         .is_some_and(|events| !events
             .iter()
             .any(|event| event["eventName"] == "agent.message.completed")));
+}
+
+#[test]
+fn manual_and_auto_compaction_install_the_same_role_aware_history() {
+    let messages = json!([
+        { "role": "system", "content": "historical system instruction" },
+        { "role": "user", "content": "The login page returns 401; investigate it." },
+        { "role": "assistant", "content": "I will inspect authentication. ".repeat(100) },
+        {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [{
+                "id": "compact-call-1",
+                "type": "function",
+                "function": { "name": "workspace.search", "arguments": "{}" }
+            }]
+        },
+        { "role": "tool", "tool_call_id": "compact-call-1", "content": "search results" },
+        { "role": "assistant", "content": "The token validation is wrong." },
+        { "role": "user", "content": "Keep the old Session API compatible." },
+        { "role": "assistant", "content": "I will preserve that constraint." },
+        {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [{
+                "id": "compact-call-2",
+                "type": "function",
+                "function": { "name": "workspace.read_file", "arguments": "{}" }
+            }]
+        },
+        { "role": "tool", "tool_call_id": "compact-call-2", "content": "auth.ts contents" },
+        { "role": "assistant", "content": "I changed the middleware." },
+        {
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [{
+                "id": "compact-call-3",
+                "type": "function",
+                "function": { "name": "workspace.run_tests", "arguments": "{}" }
+            }]
+        },
+        { "role": "tool", "tool_call_id": "compact-call-3", "content": "all tests passed" },
+        { "role": "assistant", "content": "The fix is complete." }
+    ]);
+    let config = json!({
+        "agents": { "defaults": {
+            "provider": "fixture",
+            "model": "fixture-model",
+            "contextWindowTokens": 10_000,
+            "contextWindowStrategy": "compact",
+            "compactTriggerPercent": 1,
+            "compactSummaryMaxTokens": 64
+        }},
+        "providers": { "fixture": { "responses": [
+            { "content": "fixed token validation, preserved Session compatibility, and passed tests" }
+        ]}}
+    });
+    let base_spec = json!({
+        "runtime": "rust",
+        "turnId": "turn-unified-compaction",
+        "sessionId": "session-unified-compaction",
+        "messages": messages
+    });
+    let auto_context = AgentTurnContext::from_spec(base_spec.clone(), config.clone());
+    let mut manual_spec = base_spec;
+    manual_spec["contextCompaction"] = json!({
+        "trigger": "manual",
+        "reason": "user_requested",
+        "phase": "standalone_turn"
+    });
+    let manual_context = AgentTurnContext::from_spec(manual_spec, config);
+
+    let auto = context_window_projection(&auto_context).expect("auto compaction should project");
+    let manual =
+        context_window_projection(&manual_context).expect("manual compaction should project");
+
+    assert_eq!(manual.messages, auto.messages);
+    assert_eq!(manual.messages.len(), 4);
+    assert_eq!(manual.messages[0]["role"], "system");
+    assert_eq!(manual.messages[1]["role"], "user");
+    assert_eq!(manual.messages[2]["role"], "user");
+    assert_eq!(manual.messages[3]["role"], "assistant");
+    assert_eq!(manual.messages[3]["contextCompaction"], true);
+    assert!(manual.messages[3]["content"]
+        .as_str()
+        .is_some_and(|content| content.contains("fixed token validation")));
+    assert!(!manual
+        .messages
+        .iter()
+        .any(|message| message["role"] == "tool" || message.get("tool_calls").is_some()));
+
+    let auto_payload = context_window_action_payload(
+        &auto_context,
+        0,
+        auto.action.as_ref().expect("auto action should exist"),
+    );
+    let manual_payload = context_window_action_payload(
+        &manual_context,
+        0,
+        manual.action.as_ref().expect("manual action should exist"),
+    );
+    assert_eq!(auto_payload["trigger"], "auto");
+    assert_eq!(manual_payload["trigger"], "manual");
+    assert_eq!(auto_payload["preservedUserMessageCount"], 2);
+    assert_eq!(auto_payload["droppedAssistantMessageCount"], 8);
+    assert_eq!(auto_payload["droppedToolMessageCount"], 3);
+}
+
+#[test]
+fn repeated_compaction_replaces_the_previous_summary() {
+    let context = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "turnId": "turn-repeat-compaction",
+            "sessionId": "session-repeat-compaction",
+            "contextCompaction": { "trigger": "manual" },
+            "messages": [
+                { "role": "system", "content": "historical system instruction" },
+                { "role": "user", "content": "first request" },
+                { "role": "user", "content": "second request" },
+                {
+                    "role": "assistant",
+                    "content": "Conversation summary so far:\nOLD SUMMARY MUST BE REPLACED",
+                    "contextCompaction": true
+                },
+                { "role": "user", "content": "third request" },
+                { "role": "assistant", "content": "new work after the first compaction" }
+            ]
+        }),
+        json!({
+            "agents": { "defaults": {
+                "provider": "fixture",
+                "model": "fixture-model",
+                "contextWindowTokens": 10_000,
+                "contextWindowStrategy": "compact",
+                "compactSummaryMaxTokens": 64
+            }},
+            "providers": { "fixture": { "responses": [
+                { "content": "NEW MERGED SUMMARY" }
+            ]}}
+        }),
+    );
+
+    let projection = context_window_projection(&context).expect("repeat compaction should project");
+
+    assert_eq!(projection.messages.len(), 5);
+    assert_eq!(
+        projection
+            .messages
+            .iter()
+            .filter(|message| message["contextCompaction"] == true)
+            .count(),
+        1
+    );
+    assert!(!projection
+        .messages
+        .iter()
+        .any(|message| message.to_string().contains("OLD SUMMARY MUST BE REPLACED")));
+    assert!(projection.messages.last().is_some_and(|message| {
+        message["role"] == "assistant"
+            && message["content"]
+                .as_str()
+                .is_some_and(|content| content.contains("NEW MERGED SUMMARY"))
+    }));
 }
 
 #[test]
@@ -909,24 +1088,20 @@ fn context_compaction_masks_large_tool_output_without_splitting_its_call() {
     let replacement = result["contextCheckpoint"]["replacementHistory"]
         .as_array()
         .expect("replacement history should be present");
-    assert!(replacement.iter().any(|message| {
-        message["role"] == "assistant"
-            && message["tool_calls"].as_array().is_some_and(|tool_calls| {
-                tool_calls
-                    .iter()
-                    .any(|call| call["id"] == "context-tool-mask-1")
-            })
+    assert!(!replacement.iter().any(|message| message["role"] == "tool"));
+    assert!(!replacement.iter().any(|message| {
+        message["tool_calls"].as_array().is_some_and(|tool_calls| {
+            tool_calls
+                .iter()
+                .any(|call| call["id"] == "context-tool-mask-1")
+        })
     }));
-    let tool_message = replacement
-        .iter()
-        .find(|message| message["role"] == "tool")
-        .expect("tool call unit should be retained together");
-    let content = tool_message["content"]
-        .as_str()
-        .expect("masked tool content should be text");
-    assert!(content.starts_with("HEAD-"));
-    assert!(content.contains("tool output compacted"));
-    assert!(content.ends_with("-TAIL"));
+    assert!(replacement.iter().any(|message| {
+        message["contextCompaction"] == true
+            && message["content"]
+                .as_str()
+                .is_some_and(|content| content.contains("summary before the tool call"))
+    }));
 }
 
 #[test]
@@ -1086,6 +1261,44 @@ fn agent_usage_event_includes_context_window_budget() {
         usage_event["payload"]["agentItem"]["providerPayload"],
         *usage
     );
+}
+
+#[test]
+fn context_window_uses_whitelisted_model_default_when_unconfigured() {
+    for model in ["deepseek-v4-flash", "deepseek-v4-pro"] {
+        let context = AgentTurnContext::from_spec(json!({ "model": model }), json!({}));
+
+        let usage = enrich_usage_with_context_window(&context, json!({}), 10, 0);
+
+        assert_eq!(usage["contextWindowTokens"], 1_000_000, "model: {model}");
+    }
+}
+
+#[test]
+fn context_window_keeps_generic_default_for_unlisted_models() {
+    let context = AgentTurnContext::from_spec(json!({ "model": "custom-model" }), json!({}));
+
+    let usage = enrich_usage_with_context_window(&context, json!({}), 10, 0);
+
+    assert_eq!(usage["contextWindowTokens"], 128_000);
+}
+
+#[test]
+fn configured_context_window_overrides_whitelisted_model_default() {
+    let context = AgentTurnContext::from_spec(
+        json!({ "model": "deepseek-v4-pro" }),
+        json!({
+            "agents": {
+                "defaults": {
+                    "contextWindowTokens": 64_000
+                }
+            }
+        }),
+    );
+
+    let usage = enrich_usage_with_context_window(&context, json!({}), 10, 0);
+
+    assert_eq!(usage["contextWindowTokens"], 64_000);
 }
 
 #[test]

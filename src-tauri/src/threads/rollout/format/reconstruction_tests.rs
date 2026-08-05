@@ -232,6 +232,7 @@ fn replay_compacted_replacement_history_wins() {
                         "role": "assistant",
                         "messageId": "compact-summary",
                         "content": "Summary of earlier context",
+                        "contextCompaction": true,
                         "timestamp": "2026-07-08T10:02:00Z"
                     }
                 ]
@@ -242,6 +243,7 @@ fn replay_compacted_replacement_history_wins() {
 
     assert_eq!(replay.messages.len(), 1);
     assert_eq!(replay.messages[0]["messageId"], "compact-summary");
+    assert_eq!(replay.messages[0]["contextCompaction"], true);
 }
 
 #[test]

@@ -118,6 +118,7 @@ impl ChatCompletionsAdapter {
                     .as_ref()
                     .map(|reasoning| reasoning.summary.clone()),
                 tool_calls,
+                context_compaction: false,
             },
             reasoning,
             usage,

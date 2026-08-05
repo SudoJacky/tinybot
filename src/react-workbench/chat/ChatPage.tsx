@@ -539,17 +539,7 @@ export function ChatPage({
   useEffect(() => {
     setBrowserSnapshot(undefined);
     setBrowserRuntimeError("");
-    if (!activeSession?.id || !chatStore.browserRuntime) return;
-    let cancelled = false;
-    void chatStore.browserRuntime.createSession({ ownerSessionId: activeSession.id }).then((snapshot) => {
-      if (!cancelled) setBrowserSnapshot(snapshot);
-    }).catch((error) => {
-      if (!cancelled) setBrowserRuntimeError(error instanceof Error ? error.message : String(error));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeSession?.id, chatStore]);
+  }, [activeSession?.id]);
 
   useEffect(() => {
     if (liveCanvas.visibility !== "open"
