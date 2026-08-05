@@ -60,7 +60,23 @@ fn injected_scripts_are_narrow_and_privacy_bounded() {
     assert!(OBSERVE_SCRIPT.contains("const limit = 500"));
     assert!(OBSERVE_SCRIPT.contains("parts.length < 8"));
     assert!(OBSERVE_SCRIPT.contains("slice(0, 160)"));
+    assert!(OBSERVE_SCRIPT.contains("const maxPageTextChars = 1000000"));
+    assert!(OBSERVE_SCRIPT.contains("main, article, [role=\"main\"]"));
+    assert!(OBSERVE_SCRIPT.contains("pageTextRevision"));
+    assert!(!OBSERVE_SCRIPT.contains("pageText: normalizedPageText"));
     assert!(OBSERVE_SCRIPT.contains("inputType === 'password'"));
     assert!(OBSERVE_SCRIPT.contains("cc-|one-time-code"));
     assert!(OBSERVE_SCRIPT.contains("sensitive ? ''"));
+}
+
+#[test]
+fn page_text_script_returns_only_the_requested_bounded_chunk() {
+    let script = page_text_script(64_000, 8_000);
+
+    assert!(script.contains("const maxPageTextChars = 1000000"));
+    assert!(script.contains("const requestedOffset = 64000"));
+    assert!(script.contains("const requestedChars = 8000"));
+    assert!(script.contains("nextTextOffset"));
+    assert!(script.contains("sourceTruncated"));
+    assert!(script.contains("pageTextHash"));
 }

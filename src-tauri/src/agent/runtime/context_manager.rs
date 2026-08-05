@@ -1,4 +1,4 @@
-use super::{AgentItem, AgentItemHistory};
+use super::{AgentItem, AgentItemHistory, AgentMessageContent};
 use crate::threads::rollout::format::{TokenUsage, TokenUsageInfo};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -49,11 +49,10 @@ impl ContextManager {
     }
 
     pub(super) fn for_prompt(&self) -> Result<Vec<Value>, String> {
-        validate_tool_pairs(&self.items)?;
-        AgentItemHistory {
-            items: self.items.clone(),
-        }
-        .to_provider_messages()
+        let mut items = self.items.clone();
+        project_superseded_web_targets(&mut items);
+        validate_tool_pairs(&items)?;
+        AgentItemHistory { items }.to_provider_messages()
     }
 
     pub(super) fn record_message(&mut self, message: Value) -> Result<(), String> {
@@ -65,6 +64,39 @@ impl ContextManager {
         self.items = AgentItemHistory::from_legacy_messages(&messages)?.items;
         self.history_version = self.history_version.saturating_add(1);
         Ok(())
+    }
+}
+
+fn project_superseded_web_targets(items: &mut [AgentItem]) {
+    let web_call_ids = items
+        .iter()
+        .filter_map(|item| match item {
+            AgentItem::AssistantMessage(message) => Some(&message.tool_calls),
+            _ => None,
+        })
+        .flatten()
+        .filter(|call| crate::tools::web::is_web_tool(&call.name))
+        .map(|call| call.id.clone())
+        .collect::<HashSet<_>>();
+    let mut retained_targets = false;
+    for item in items.iter_mut().rev() {
+        let AgentItem::ToolResult(result) = item else {
+            continue;
+        };
+        let is_web_result = result
+            .name
+            .as_deref()
+            .is_some_and(crate::tools::web::is_web_tool)
+            || web_call_ids.contains(result.tool_call_id.as_str());
+        if !is_web_result {
+            continue;
+        }
+        let AgentMessageContent::Text(content) = &mut result.content else {
+            continue;
+        };
+        if crate::tools::web::project_web_result_history(content, !retained_targets) {
+            retained_targets = true;
+        }
     }
 }
 

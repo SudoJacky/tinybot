@@ -13,6 +13,7 @@ fn creates_default_tool_notes_with_usage_guidance() {
     assert!(saved.contains("usage scenarios"));
     assert!(saved.contains("`web.open`"));
     assert!(saved.contains("latest `snapshotId`"));
+    assert!(saved.contains("`nextTextOffset`"));
     assert!(saved.contains("Hand control to the user"));
 }
 

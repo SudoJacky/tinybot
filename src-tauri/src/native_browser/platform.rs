@@ -6,6 +6,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc};
 
+pub(crate) const MAX_BROWSER_PAGE_TEXT_CHARS: usize = 1_000_000;
+
 pub(crate) type BrowserPlatformEventSink = Arc<dyn Fn(BrowserPlatformEvent) + Send + Sync>;
 
 #[cfg_attr(
@@ -101,8 +103,19 @@ pub(crate) struct BrowserPlatformObservation {
     pub viewport_width: u32,
     pub viewport_height: u32,
     pub device_scale: f64,
+    pub page_text_revision: String,
     pub semantic_nodes: Vec<BrowserPlatformSemanticNode>,
     pub semantic_truncated: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct BrowserPlatformPageText {
+    pub revision: String,
+    pub text_offset: usize,
+    pub text: String,
+    pub next_text_offset: Option<usize>,
+    pub source_truncated: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -157,6 +170,12 @@ pub(crate) trait BrowserRuntimeAdapter: Send + Sync {
         capture: bool,
         semantic: bool,
     ) -> Result<BrowserPlatformObservation, String>;
+    async fn read_page_text(
+        &self,
+        tab_id: &BrowserTabId,
+        text_offset: usize,
+        max_chars: usize,
+    ) -> Result<BrowserPlatformPageText, String>;
     async fn interact(
         &self,
         tab_id: &BrowserTabId,

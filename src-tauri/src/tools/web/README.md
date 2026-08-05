@@ -54,7 +54,11 @@ target-<observation revision>-<index>
 
 其中 observation revision 只标识语义目标集合，不等同于页面级 `snapshotId`。agent 不应解析或拼接 `targetRef`。
 
-返回给 agent 的 targets 只保留当前 viewport 中有名称或受保护含义的节点，并限制为最多 100 个。底层仍保留本次 observation 的完整目标映射。
+返回给 agent 的 targets 只保留当前 viewport 中有名称或受保护含义的节点，并限制为最多 100 个。每个 target 默认只包含 `targetRef`、`role` 和 `name`；仅在非默认状态下附加 frame、disabled、focused、sensitive 或 protectedReason。坐标、尺寸和固定浏览器能力保留在底层快照中，不重复进入模型上下文。底层仍保留本次 observation 的完整目标映射。
+
+`web.open` 和首次 `web.read` 还会返回经过空白归一化的页面正文。正文优先取 `main`、`article` 或 `[role="main"]`，回退到 `body`。observe 只保留正文 revision，不传输或缓存整页正文；每次 `web.read` 由浏览器按需返回最多 8000 字符，并标记为 `trust: "untrusted"`。存在后续内容时返回 `nextTextOffset`，agent 必须把原 `snapshotId` 和该 offset 一起传给 `web.read`；续读不重复 targets。页面在两次读取间变化时返回 `stale_snapshot`、`textOffsetReset: true` 和新页面首段，避免旧偏移跳过新内容。单页最多可按需读取 1000000 字符，超过时返回 `sourceTruncated: true`。`web.act` 不重复返回正文，需要正文时再调用 `web.read`。
+
+构造后续模型请求时，仅保留最近一个 Web 工具结果中的 targets；更早结果的 targets 会替换为 `targetsSuperseded: true`，但页面正文、工具调用/结果配对以及持久化历史保持不变。该投影同时应用于 Chat Completions 和 Responses 原生回放。
 
 ## dirty 与刷新
 

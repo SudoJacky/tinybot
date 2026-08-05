@@ -10,6 +10,7 @@ use super::{
     AgentToolResultItem, AgentTurnSettings,
 };
 use serde_json::{Map, Value};
+use std::collections::HashSet;
 
 pub(super) struct ResponsesAdapter;
 
@@ -264,11 +265,53 @@ fn encode_native_response_history(
             "content": system_prompt,
         }));
     }
+    let response_items = project_superseded_web_response_targets(response_items);
     for (index, item) in response_items.iter().enumerate() {
         input.push(sanitize_replayed_item(item, index)?);
     }
 
     Ok(Value::Array(input))
+}
+
+fn project_superseded_web_response_targets(response_items: &[Value]) -> Vec<Value> {
+    let mut response_items = response_items.to_vec();
+    let web_call_ids = response_items
+        .iter()
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("function_call"))
+        .filter(|item| {
+            matches!(
+                item.get("name").and_then(Value::as_str),
+                Some("web.open" | "web.read" | "web.act" | "web_open" | "web_read" | "web_act")
+            )
+        })
+        .filter_map(|item| {
+            item.get("call_id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .collect::<HashSet<_>>();
+    let mut retained_targets = false;
+    for item in response_items.iter_mut().rev() {
+        if item.get("type").and_then(Value::as_str) != Some("function_call_output")
+            || !item
+                .get("call_id")
+                .and_then(Value::as_str)
+                .is_some_and(|call_id| web_call_ids.contains(call_id))
+        {
+            continue;
+        }
+        let Some(output) = item.get_mut("output") else {
+            continue;
+        };
+        let Some(mut content) = output.as_str().map(str::to_string) else {
+            continue;
+        };
+        if crate::tools::web::project_web_result_history(&mut content, !retained_targets) {
+            retained_targets = true;
+            *output = Value::String(content);
+        }
+    }
+    response_items
 }
 
 fn sanitize_replayed_item(item: &Value, index: usize) -> Result<Value, String> {
@@ -627,6 +670,43 @@ mod tests {
                 "call_id": "call-1",
                 "output": "Applied patch"
             })
+        );
+    }
+
+    #[test]
+    fn native_replay_only_keeps_targets_from_the_latest_web_snapshot() {
+        let output = |target_ref: &str, text: &str| {
+            json!({
+                "status": "completed",
+                "snapshot": {
+                    "targets": [{ "targetRef": target_ref }],
+                    "targetsTruncated": false,
+                    "content": { "trust": "untrusted", "text": text }
+                }
+            })
+            .to_string()
+        };
+        let input = ResponsesAdapter::encode_history_with_response_items(
+            &[],
+            None,
+            Some(&[
+                json!({ "type": "function_call", "call_id": "call-old", "name": "web_read", "arguments": "{}" }),
+                json!({ "type": "function_call_output", "call_id": "call-old", "output": output("target-old", "Older page text") }),
+                json!({ "type": "function_call", "call_id": "call-latest", "name": "web_act", "arguments": "{}" }),
+                json!({ "type": "function_call_output", "call_id": "call-latest", "output": output("target-latest", "Latest page text") }),
+            ]),
+        )
+        .unwrap();
+        let old_result: Value = serde_json::from_str(input[1]["output"].as_str().unwrap()).unwrap();
+        let latest_result: Value =
+            serde_json::from_str(input[3]["output"].as_str().unwrap()).unwrap();
+
+        assert!(old_result["snapshot"].get("targets").is_none());
+        assert_eq!(old_result["snapshot"]["targetsSuperseded"], true);
+        assert_eq!(old_result["snapshot"]["content"]["text"], "Older page text");
+        assert_eq!(
+            latest_result["snapshot"]["targets"][0]["targetRef"],
+            "target-latest"
         );
     }
 
