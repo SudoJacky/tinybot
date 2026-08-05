@@ -101,6 +101,8 @@ pub(crate) struct BrowserPlatformObservation {
     pub viewport_width: u32,
     pub viewport_height: u32,
     pub device_scale: f64,
+    pub page_text: String,
+    pub page_text_truncated: bool,
     pub semantic_nodes: Vec<BrowserPlatformSemanticNode>,
     pub semantic_truncated: bool,
 }

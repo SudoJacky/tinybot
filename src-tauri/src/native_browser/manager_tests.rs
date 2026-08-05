@@ -146,6 +146,10 @@ impl BrowserRuntimeAdapter for FakeAdapter {
             viewport_width: 800,
             viewport_height: 600,
             device_scale: 1.0,
+            page_text: semantic
+                .then(|| "Fixture page content".to_string())
+                .unwrap_or_default(),
+            page_text_truncated: false,
             semantic_nodes: if semantic {
                 vec![
                     BrowserPlatformSemanticNode {
@@ -523,11 +527,27 @@ async fn high_level_web_tools_refresh_and_reject_stale_actions() {
     assert!(first["snapshot"].get("interaction").is_none());
     assert!(first["snapshot"]["targets"][0].get("x").is_none());
     assert!(first["snapshot"]["targets"][0].get("disabled").is_none());
+    assert_eq!(first["snapshot"]["content"]["trust"], "untrusted");
+    assert_eq!(first["snapshot"]["content"]["text"], "Fixture page content");
     let first_snapshot_id = first["snapshotId"].as_str().unwrap().to_string();
     let first_target_ref = first["snapshot"]["targets"][0]["targetRef"]
         .as_str()
         .unwrap()
         .to_string();
+    let continued = crate::tools::web::dispatch_web_read(
+        &manager,
+        "chat-web-snapshot",
+        serde_json::json!({
+            "snapshotId": first_snapshot_id,
+            "textOffset": 8
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(continued["status"], "completed");
+    assert_eq!(continued["snapshot"]["content"]["textOffset"], 8);
+    assert_eq!(continued["snapshot"]["content"]["text"], "page content");
+    assert!(continued["snapshot"].get("targets").is_none());
     let tab_id = manager
         .snapshot_for_owner("chat-web-snapshot")
         .unwrap()
@@ -585,6 +605,7 @@ async fn high_level_web_tools_refresh_and_reject_stale_actions() {
     assert_eq!(completed["status"], "completed");
     assert_eq!(completed["actionExecuted"], true);
     assert_ne!(completed["snapshotId"], current_snapshot_id);
+    assert!(completed["snapshot"].get("content").is_none());
     assert_eq!(adapter.interactions.lock().unwrap().len(), 1);
 
     let page = manager

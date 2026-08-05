@@ -78,6 +78,8 @@ struct BrowserSessionRecord {
 pub(crate) struct BrowserAgentPageState {
     pub(crate) snapshot_id: String,
     pub(crate) dirty: bool,
+    pub(crate) page_text: String,
+    pub(crate) page_text_truncated: bool,
     pub(crate) observation: BrowserObserveResult,
 }
 
@@ -119,6 +121,8 @@ struct BrowserTabRecord {
     captures: VecDeque<BrowserCaptureSnapshot>,
     semantic: Option<BrowserSemanticObservation>,
     semantic_targets: HashMap<String, BrowserSemanticTarget>,
+    agent_page_text: String,
+    agent_page_text_truncated: bool,
     agent_snapshot_generation: String,
     agent_snapshot_revision: u64,
     agent_snapshot_dirty: bool,
@@ -225,6 +229,8 @@ impl BrowserSessionManager {
         Some(BrowserAgentPageState {
             snapshot_id: agent_snapshot_id(tab),
             dirty: tab.agent_snapshot_dirty,
+            page_text: tab.agent_page_text.clone(),
+            page_text_truncated: tab.agent_page_text_truncated,
             observation: BrowserObserveResult {
                 snapshot: snapshot_from_state(&state, session_id, self.adapter.as_ref())?,
                 capture: tab.captures.back().cloned(),
@@ -365,6 +371,8 @@ impl BrowserSessionManager {
                 captures: VecDeque::new(),
                 semantic: None,
                 semantic_targets: HashMap::new(),
+                agent_page_text: String::new(),
+                agent_page_text_truncated: false,
                 agent_snapshot_generation,
                 agent_snapshot_revision: 0,
                 agent_snapshot_dirty: true,
@@ -1171,6 +1179,10 @@ impl BrowserSessionManager {
                                 tab.semantic.as_ref(),
                                 &platform.semantic_nodes,
                                 platform.semantic_truncated,
+                                &tab.agent_page_text,
+                                tab.agent_page_text_truncated,
+                                &platform.page_text,
+                                platform.page_text_truncated,
                             ));
                     if semantic_changed {
                         tab.observation_revision = tab.observation_revision.saturating_add(1);
@@ -1220,6 +1232,8 @@ impl BrowserSessionManager {
 
                     let semantic = if input.semantic {
                         if semantic_changed {
+                            tab.agent_page_text = platform.page_text.clone();
+                            tab.agent_page_text_truncated = platform.page_text_truncated;
                             tab.semantic_targets.clear();
                             let nodes = platform
                                 .semantic_nodes
@@ -2572,6 +2586,8 @@ fn new_tab_record(
         captures: VecDeque::new(),
         semantic: None,
         semantic_targets: HashMap::new(),
+        agent_page_text: String::new(),
+        agent_page_text_truncated: false,
         agent_snapshot_generation,
         agent_snapshot_revision: 0,
         agent_snapshot_dirty: true,
@@ -2871,11 +2887,17 @@ fn semantic_content_matches(
     current: Option<&BrowserSemanticObservation>,
     nodes: &[BrowserPlatformSemanticNode],
     truncated: bool,
+    current_page_text: &str,
+    current_page_text_truncated: bool,
+    page_text: &str,
+    page_text_truncated: bool,
 ) -> bool {
     let Some(current) = current else {
         return false;
     };
     current.truncated == truncated
+        && current_page_text == page_text
+        && current_page_text_truncated == page_text_truncated
         && current.nodes.len() == nodes.len()
         && current.nodes.iter().zip(nodes).all(|(current, node)| {
             current.role == node.role

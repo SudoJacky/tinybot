@@ -60,6 +60,9 @@ fn injected_scripts_are_narrow_and_privacy_bounded() {
     assert!(OBSERVE_SCRIPT.contains("const limit = 500"));
     assert!(OBSERVE_SCRIPT.contains("parts.length < 8"));
     assert!(OBSERVE_SCRIPT.contains("slice(0, 160)"));
+    assert!(OBSERVE_SCRIPT.contains("const maxPageTextChars = 64000"));
+    assert!(OBSERVE_SCRIPT.contains("main, article, [role=\"main\"]"));
+    assert!(OBSERVE_SCRIPT.contains("pageTextTruncated"));
     assert!(OBSERVE_SCRIPT.contains("inputType === 'password'"));
     assert!(OBSERVE_SCRIPT.contains("cc-|one-time-code"));
     assert!(OBSERVE_SCRIPT.contains("sensitive ? ''"));

@@ -115,6 +115,7 @@ fn browser_tools_are_always_exposed_to_the_model() {
     assert!(open.runtime_policy.mutates_session);
     assert_eq!(read.exposure, ToolExposure::Model);
     assert!(read.available);
+    assert_eq!(read.input_schema["properties"]["textOffset"]["minimum"], 0);
     assert_eq!(act.exposure, ToolExposure::Model);
     assert!(act.available);
     assert_eq!(

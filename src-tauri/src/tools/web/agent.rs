@@ -6,6 +6,29 @@ use crate::native_browser::{
 use serde_json::{json, Map, Value};
 
 const MAX_AGENT_SNAPSHOT_TARGETS: usize = 100;
+const MAX_AGENT_PAGE_TEXT_CHARS: usize = 8_000;
+
+#[derive(Clone, Copy)]
+struct SnapshotProjection {
+    content_offset: Option<usize>,
+    include_targets: bool,
+}
+
+impl SnapshotProjection {
+    fn initial_page() -> Self {
+        Self {
+            content_offset: Some(0),
+            include_targets: true,
+        }
+    }
+
+    fn interaction() -> Self {
+        Self {
+            content_offset: None,
+            include_targets: true,
+        }
+    }
+}
 
 pub(crate) async fn dispatch_web_open(
     runtime: &SharedBrowserRuntime,
@@ -26,7 +49,11 @@ pub(crate) async fn dispatch_web_open(
         )
         .await?;
         let page = refresh_page(runtime, owner_session_id).await?;
-        return Ok(completed_response(&page, None));
+        return Ok(completed_response(
+            &page,
+            None,
+            SnapshotProjection::initial_page(),
+        ));
     }
 
     let page = refresh_page(runtime, owner_session_id).await?;
@@ -40,6 +67,7 @@ pub(crate) async fn dispatch_web_open(
             .and_then(Value::as_str)
             .ok_or_else(|| "web.open command id is missing".to_string())?,
         json!({ "type": "navigate", "url": url }),
+        SnapshotProjection::initial_page(),
     )
     .await
 }
@@ -51,14 +79,22 @@ pub(crate) async fn dispatch_web_read(
 ) -> Result<Value, String> {
     ensure_session(runtime, owner_session_id).await?;
     let requested_snapshot_id = optional_text(&arguments, "snapshotId")?;
+    let text_offset = optional_usize(&arguments, "textOffset")?.unwrap_or_default();
     let page = refresh_page(runtime, owner_session_id).await?;
-    if requested_snapshot_id.as_deref() == Some(page.snapshot_id.as_str()) {
+    if text_offset == 0 && requested_snapshot_id.as_deref() == Some(page.snapshot_id.as_str()) {
         return Ok(json!({
             "status": "unchanged",
             "snapshotId": page.snapshot_id,
         }));
     }
-    Ok(completed_response(&page, None))
+    Ok(completed_response(
+        &page,
+        None,
+        SnapshotProjection {
+            content_offset: Some(text_offset),
+            include_targets: text_offset == 0,
+        },
+    ))
 }
 
 pub(crate) async fn dispatch_web_act(
@@ -79,7 +115,11 @@ pub(crate) async fn dispatch_web_act(
     ensure_session(runtime, owner_session_id).await?;
     let page = refresh_page(runtime, owner_session_id).await?;
     if requested_snapshot_id != page.snapshot_id {
-        return Ok(stale_response(&requested_snapshot_id, &page));
+        return Ok(stale_response(
+            &requested_snapshot_id,
+            &page,
+            SnapshotProjection::interaction(),
+        ));
     }
     execute_action(
         runtime,
@@ -88,6 +128,7 @@ pub(crate) async fn dispatch_web_act(
         &page,
         &command_id,
         action,
+        SnapshotProjection::interaction(),
     )
     .await
 }
@@ -165,6 +206,7 @@ async fn execute_action(
     page: &BrowserAgentPageState,
     command_id: &str,
     action: Value,
+    projection: SnapshotProjection,
 ) -> Result<Value, String> {
     let native = &page.observation.snapshot.data;
     let tab = native
@@ -193,7 +235,7 @@ async fn execute_action(
         Ok(command) => command,
         Err(error) if error == AGENT_SNAPSHOT_STALE => {
             let latest = refresh_page(runtime, owner_session_id).await?;
-            return Ok(stale_response(&page.snapshot_id, &latest));
+            return Ok(stale_response(&page.snapshot_id, &latest, projection));
         }
         Err(error) => return Err(error),
     };
@@ -208,10 +250,14 @@ async fn execute_action(
             .agent_page_state_for_owner(owner_session_id)
             .ok_or_else(|| "TinyOS browser session disappeared after interaction".to_string())?;
     }
-    Ok(completed_response(&latest, Some(&command)))
+    Ok(completed_response(&latest, Some(&command), projection))
 }
 
-fn completed_response(page: &BrowserAgentPageState, command: Option<&Value>) -> Value {
+fn completed_response(
+    page: &BrowserAgentPageState,
+    command: Option<&Value>,
+    projection: SnapshotProjection,
+) -> Value {
     let status = command
         .and_then(|command| command.get("status"))
         .and_then(Value::as_str)
@@ -219,7 +265,7 @@ fn completed_response(page: &BrowserAgentPageState, command: Option<&Value>) -> 
     let mut response = json!({
         "status": status,
         "snapshotId": page.snapshot_id,
-        "snapshot": snapshot_payload(page),
+        "snapshot": snapshot_payload(page, projection),
     });
     if let Some(command) = command {
         response["actionExecuted"] = Value::Bool(status == "completed");
@@ -233,17 +279,21 @@ fn completed_response(page: &BrowserAgentPageState, command: Option<&Value>) -> 
     response
 }
 
-fn stale_response(requested_snapshot_id: &str, page: &BrowserAgentPageState) -> Value {
+fn stale_response(
+    requested_snapshot_id: &str,
+    page: &BrowserAgentPageState,
+    projection: SnapshotProjection,
+) -> Value {
     json!({
         "status": "stale_snapshot",
         "actionExecuted": false,
         "requestedSnapshotId": requested_snapshot_id,
         "snapshotId": page.snapshot_id,
-        "snapshot": snapshot_payload(page),
+        "snapshot": snapshot_payload(page, projection),
     })
 }
 
-fn snapshot_payload(page: &BrowserAgentPageState) -> Value {
+fn snapshot_payload(page: &BrowserAgentPageState, projection: SnapshotProjection) -> Value {
     let native = &page.observation.snapshot.data;
     let Some(tab) = native
         .tabs
@@ -253,10 +303,10 @@ fn snapshot_payload(page: &BrowserAgentPageState) -> Value {
         return json!({});
     };
     let mut targets_truncated = false;
-    let targets = page
-        .observation
-        .semantic
-        .as_ref()
+    let targets = projection
+        .include_targets
+        .then(|| page.observation.semantic.as_ref())
+        .flatten()
         .map(|semantic| {
             targets_truncated = semantic.truncated;
             let mut targets = semantic
@@ -291,11 +341,20 @@ fn snapshot_payload(page: &BrowserAgentPageState) -> Value {
     let mut snapshot = Map::new();
     snapshot.insert("url".to_string(), Value::String(tab.url.clone()));
     snapshot.insert("title".to_string(), Value::String(tab.title.clone()));
-    snapshot.insert("targets".to_string(), Value::Array(targets));
-    snapshot.insert(
-        "targetsTruncated".to_string(),
-        Value::Bool(targets_truncated),
-    );
+    if projection.include_targets {
+        snapshot.insert("targets".to_string(), Value::Array(targets));
+        snapshot.insert(
+            "targetsTruncated".to_string(),
+            Value::Bool(targets_truncated),
+        );
+    }
+    if let Some(offset) = projection.content_offset {
+        if let Some(content) =
+            page_content_payload(&page.page_text, page.page_text_truncated, offset)
+        {
+            snapshot.insert("content".to_string(), content);
+        }
+    }
     if tab.loading {
         snapshot.insert("loading".to_string(), Value::Bool(true));
     }
@@ -327,6 +386,38 @@ fn snapshot_payload(page: &BrowserAgentPageState) -> Value {
         );
     }
     Value::Object(snapshot)
+}
+
+fn page_content_payload(page_text: &str, source_truncated: bool, offset: usize) -> Option<Value> {
+    if page_text.is_empty() && offset == 0 {
+        return None;
+    }
+    let mut remaining = page_text.chars().skip(offset);
+    let text = remaining
+        .by_ref()
+        .take(MAX_AGENT_PAGE_TEXT_CHARS)
+        .collect::<String>();
+    let has_more = remaining.next().is_some();
+    let returned_chars = text.chars().count();
+    let mut content = Map::new();
+    content.insert("trust".to_string(), Value::String("untrusted".to_string()));
+    content.insert("text".to_string(), Value::String(text));
+    if offset > 0 {
+        content.insert("textOffset".to_string(), json!(offset));
+    }
+    if has_more {
+        content.insert(
+            "nextTextOffset".to_string(),
+            json!(offset.saturating_add(returned_chars)),
+        );
+    }
+    if has_more || source_truncated {
+        content.insert("truncated".to_string(), Value::Bool(true));
+    }
+    if source_truncated {
+        content.insert("sourceTruncated".to_string(), Value::Bool(true));
+    }
+    Some(Value::Object(content))
 }
 
 fn snapshot_target_payload(target: &BrowserSemanticNode) -> Value {
@@ -411,6 +502,18 @@ fn optional_text(value: &Value, key: &str) -> Result<Option<String>, String> {
     }
 }
 
+fn optional_usize(value: &Value, key: &str) -> Result<Option<usize>, String> {
+    match value.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Number(number)) => number
+            .as_u64()
+            .and_then(|number| usize::try_from(number).ok())
+            .map(Some)
+            .ok_or_else(|| format!("{key} must be a non-negative integer")),
+        Some(_) => Err(format!("{key} must be a non-negative integer")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -488,6 +591,45 @@ mod tests {
         let compact_chars = serde_json::to_string(&compact).unwrap().chars().count();
 
         assert!(compact_chars * 2 < native_chars);
+    }
+
+    #[test]
+    fn page_content_is_untrusted_bounded_and_continuable() {
+        let page_text = format!("{}tail", "A".repeat(MAX_AGENT_PAGE_TEXT_CHARS));
+
+        let first = page_content_payload(&page_text, false, 0).unwrap();
+        let next_offset = first["nextTextOffset"].as_u64().unwrap() as usize;
+        let continued = page_content_payload(&page_text, false, next_offset).unwrap();
+
+        assert_eq!(first["trust"], "untrusted");
+        assert_eq!(first["text"].as_str().unwrap().chars().count(), 8_000);
+        assert_eq!(first["truncated"], true);
+        assert_eq!(next_offset, 8_000);
+        assert_eq!(continued["trust"], "untrusted");
+        assert_eq!(continued["textOffset"], 8_000);
+        assert_eq!(continued["text"], "tail");
+        assert!(continued.get("nextTextOffset").is_none());
+        assert!(continued.get("truncated").is_none());
+    }
+
+    #[test]
+    fn page_content_reports_native_extraction_limit() {
+        let content = page_content_payload("bounded source", true, 0).unwrap();
+
+        assert_eq!(content["truncated"], true);
+        assert_eq!(content["sourceTruncated"], true);
+        assert!(content.get("nextTextOffset").is_none());
+    }
+
+    #[test]
+    fn text_offset_requires_a_non_negative_integer() {
+        assert_eq!(
+            optional_usize(&json!({ "textOffset": 12 }), "textOffset"),
+            Ok(Some(12))
+        );
+        assert!(optional_usize(&json!({ "textOffset": -1 }), "textOffset").is_err());
+        assert!(optional_usize(&json!({ "textOffset": 1.5 }), "textOffset").is_err());
+        assert!(optional_usize(&json!({ "textOffset": "12" }), "textOffset").is_err());
     }
 
     #[test]

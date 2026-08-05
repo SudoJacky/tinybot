@@ -91,6 +91,7 @@ const DIRECT_INPUT_SCRIPT: &str = r#"
 const OBSERVE_SCRIPT: &str = r#"
 (() => {
   const limit = 500;
+  const maxPageTextChars = 64000;
   const candidates = Array.from(document.querySelectorAll(
     'a[href],button,input,textarea,select,[role],[tabindex],[contenteditable="true"],iframe[src*="captcha" i],[class*="captcha" i],[id*="captcha" i]'
   ));
@@ -144,10 +145,18 @@ const OBSERVE_SCRIPT: &str = r#"
       protectedReason
     });
   }
+  const contentRoot = document.querySelector('main, article, [role="main"]') || document.body;
+  const normalizedPageText = String(contentRoot?.innerText || '')
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n');
   return {
     viewportWidth: Math.max(1, Math.round(window.innerWidth)),
     viewportHeight: Math.max(1, Math.round(window.innerHeight)),
     deviceScale: window.devicePixelRatio || 1,
+    pageText: normalizedPageText.slice(0, maxPageTextChars),
+    pageTextTruncated: normalizedPageText.length > maxPageTextChars,
     truncated: candidates.length > limit,
     nodes
   };
@@ -941,6 +950,8 @@ async fn observe_webview(
         viewport_width: observed.viewport_width,
         viewport_height: observed.viewport_height,
         device_scale: observed.device_scale,
+        page_text: semantic.then_some(observed.page_text).unwrap_or_default(),
+        page_text_truncated: semantic && observed.page_text_truncated,
         semantic_nodes: if semantic {
             observed
                 .nodes
@@ -1204,6 +1215,8 @@ struct ObservedDocument {
     viewport_width: u32,
     viewport_height: u32,
     device_scale: f64,
+    page_text: String,
+    page_text_truncated: bool,
     truncated: bool,
     nodes: Vec<ObservedNode>,
 }
