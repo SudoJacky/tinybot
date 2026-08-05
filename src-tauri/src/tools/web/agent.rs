@@ -480,6 +480,25 @@ pub(crate) fn result_summary(method: &str, result: &Value) -> String {
     }
 }
 
+pub(crate) fn project_web_result_history(model_content: &mut String, retain_targets: bool) -> bool {
+    let Ok(mut result) = serde_json::from_str::<Value>(model_content) else {
+        return false;
+    };
+    let Some(snapshot) = result.get_mut("snapshot").and_then(Value::as_object_mut) else {
+        return false;
+    };
+    if !snapshot.contains_key("targets") {
+        return false;
+    }
+    if !retain_targets {
+        snapshot.remove("targets");
+        snapshot.remove("targetsTruncated");
+        snapshot.insert("targetsSuperseded".to_string(), Value::Bool(true));
+        *model_content = result.to_string();
+    }
+    true
+}
+
 fn compact_label(label: &str, max_chars: usize) -> String {
     let mut characters = label.trim().chars();
     let compact = characters.by_ref().take(max_chars).collect::<String>();
@@ -650,6 +669,30 @@ mod tests {
         assert_eq!(
             result_summary("web.read", &unchanged),
             "Page unchanged: current page"
+        );
+    }
+
+    #[test]
+    fn superseded_history_projection_only_removes_targets() {
+        let mut content = json!({
+            "status": "completed",
+            "snapshot": {
+                "url": "https://example.com",
+                "targets": [{ "targetRef": "target-1", "role": "button", "name": "Save" }],
+                "targetsTruncated": false,
+                "content": { "trust": "untrusted", "text": "Important page text" }
+            }
+        })
+        .to_string();
+
+        assert!(project_web_result_history(&mut content, false));
+        let projected: Value = serde_json::from_str(&content).unwrap();
+        assert!(projected["snapshot"].get("targets").is_none());
+        assert!(projected["snapshot"].get("targetsTruncated").is_none());
+        assert_eq!(projected["snapshot"]["targetsSuperseded"], true);
+        assert_eq!(
+            projected["snapshot"]["content"]["text"],
+            "Important page text"
         );
     }
 }

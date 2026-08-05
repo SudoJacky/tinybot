@@ -58,6 +58,8 @@ target-<observation revision>-<index>
 
 `web.open` 和首次 `web.read` 还会返回经过空白归一化的页面正文。正文优先取 `main`、`article` 或 `[role="main"]`，回退到 `body`；浏览器内存最多保留 64000 字符，每次给 agent 最多返回 8000 字符，并标记为 `trust: "untrusted"`。存在后续内容时返回 `nextTextOffset`，agent 可通过 `web.read.textOffset` 继续读取；续读不重复 targets。`web.act` 不重复返回正文，需要正文时再调用 `web.read`。
 
+构造后续模型请求时，仅保留最近一个 Web 工具结果中的 targets；更早结果的 targets 会替换为 `targetsSuperseded: true`，但页面正文、工具调用/结果配对以及持久化历史保持不变。该投影同时应用于 Chat Completions 和 Responses 原生回放。
+
 ## dirty 与刷新
 
 页面 DOM 变化时，WebView 只发送 dirty 信号：

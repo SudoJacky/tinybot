@@ -94,3 +94,66 @@ fn token_info_tracks_total_and_last_model_call_usage() {
     assert_eq!(info.last_token_usage.total_tokens, 9);
     assert_eq!(info.model_context_window, Some(128_000));
 }
+
+#[test]
+fn prompt_only_keeps_targets_from_the_latest_web_snapshot() {
+    let snapshot = |target_ref: &str, text: &str| {
+        json!({
+            "status": "completed",
+            "snapshot": {
+                "targets": [{ "targetRef": target_ref, "role": "button", "name": "Save" }],
+                "targetsTruncated": false,
+                "content": { "trust": "untrusted", "text": text }
+            }
+        })
+        .to_string()
+    };
+    let history = ContextManager::from_legacy_messages(&[
+        json!({
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [{
+                "id": "call-old",
+                "type": "function",
+                "function": { "name": "web.read", "arguments": "{}" }
+            }]
+        }),
+        json!({
+            "role": "tool",
+            "tool_call_id": "call-old",
+            "content": snapshot("target-old", "Older page text")
+        }),
+        json!({
+            "role": "assistant",
+            "content": null,
+            "tool_calls": [{
+                "id": "call-latest",
+                "type": "function",
+                "function": { "name": "web.act", "arguments": "{}" }
+            }]
+        }),
+        json!({
+            "role": "tool",
+            "tool_call_id": "call-latest",
+            "content": snapshot("target-latest", "Latest page text")
+        }),
+    ])
+    .unwrap();
+
+    let prompt = history.for_prompt().unwrap();
+    let old_result: Value = serde_json::from_str(prompt[1]["content"].as_str().unwrap()).unwrap();
+    let latest_result: Value =
+        serde_json::from_str(prompt[3]["content"].as_str().unwrap()).unwrap();
+
+    assert!(old_result["snapshot"].get("targets").is_none());
+    assert_eq!(old_result["snapshot"]["targetsSuperseded"], true);
+    assert_eq!(old_result["snapshot"]["content"]["text"], "Older page text");
+    assert_eq!(
+        latest_result["snapshot"]["targets"][0]["targetRef"],
+        "target-latest"
+    );
+    assert_eq!(
+        history.messages()[1]["content"],
+        snapshot("target-old", "Older page text")
+    );
+}
