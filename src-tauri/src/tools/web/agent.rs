@@ -1,7 +1,7 @@
 use super::browser::{dispatch_browser_interact, dispatch_browser_observe, WebToolCancellation};
 use crate::native_browser::{
-    BrowserAgentPageState, BrowserControlState, BrowserCreateSessionInput, BrowserNativeSnapshot,
-    BrowserSemanticNode, SharedBrowserRuntime, AGENT_SNAPSHOT_STALE,
+    BrowserAgentPageState, BrowserAgentPageText, BrowserControlState, BrowserCreateSessionInput,
+    BrowserNativeSnapshot, BrowserSemanticNode, SharedBrowserRuntime, AGENT_SNAPSHOT_STALE,
 };
 use serde_json::{json, Map, Value};
 
@@ -48,11 +48,12 @@ pub(crate) async fn dispatch_web_open(
             .map_err(|error| format!("web.open payload is invalid: {error}"))?,
         )
         .await?;
-        let page = refresh_page(runtime, owner_session_id).await?;
+        let (page, content) = refresh_page_with_initial_content(runtime, owner_session_id).await?;
         return Ok(completed_response(
             &page,
             None,
             SnapshotProjection::initial_page(),
+            Some(&content),
         ));
     }
 
@@ -87,13 +88,54 @@ pub(crate) async fn dispatch_web_read(
             "snapshotId": page.snapshot_id,
         }));
     }
+    if text_offset > 0 {
+        let requested_snapshot_id = requested_snapshot_id.as_deref().ok_or_else(|| {
+            "web.read textOffset requires the snapshotId that returned nextTextOffset".to_string()
+        })?;
+        if requested_snapshot_id != page.snapshot_id {
+            let (latest, content) =
+                refresh_page_with_initial_content(runtime, owner_session_id).await?;
+            return Ok(read_reset_response(
+                requested_snapshot_id,
+                &latest,
+                &content,
+            ));
+        }
+        let content = match read_page_content(runtime, owner_session_id, &page, text_offset).await {
+            Ok(content) => content,
+            Err(error) if error == AGENT_SNAPSHOT_STALE => {
+                let (latest, content) =
+                    refresh_page_with_initial_content(runtime, owner_session_id).await?;
+                return Ok(read_reset_response(
+                    requested_snapshot_id,
+                    &latest,
+                    &content,
+                ));
+            }
+            Err(error) => return Err(error),
+        };
+        return Ok(completed_response(
+            &page,
+            None,
+            SnapshotProjection {
+                content_offset: Some(text_offset),
+                include_targets: false,
+            },
+            Some(&content),
+        ));
+    }
+    let (page, content) = match read_page_content(runtime, owner_session_id, &page, 0).await {
+        Ok(content) => (page, content),
+        Err(error) if error == AGENT_SNAPSHOT_STALE => {
+            refresh_page_with_initial_content(runtime, owner_session_id).await?
+        }
+        Err(error) => return Err(error),
+    };
     Ok(completed_response(
         &page,
         None,
-        SnapshotProjection {
-            content_offset: Some(text_offset),
-            include_targets: text_offset == 0,
-        },
+        SnapshotProjection::initial_page(),
+        Some(&content),
     ))
 }
 
@@ -199,6 +241,37 @@ async fn refresh_page(
     Ok(page)
 }
 
+async fn refresh_page_with_initial_content(
+    runtime: &SharedBrowserRuntime,
+    owner_session_id: &str,
+) -> Result<(BrowserAgentPageState, BrowserAgentPageText), String> {
+    for _ in 0..3 {
+        let page = refresh_page(runtime, owner_session_id).await?;
+        match read_page_content(runtime, owner_session_id, &page, 0).await {
+            Ok(content) => return Ok((page, content)),
+            Err(error) if error == AGENT_SNAPSHOT_STALE => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err("Browser page kept changing while its first text chunk was read".to_string())
+}
+
+async fn read_page_content(
+    runtime: &SharedBrowserRuntime,
+    owner_session_id: &str,
+    page: &BrowserAgentPageState,
+    text_offset: usize,
+) -> Result<BrowserAgentPageText, String> {
+    runtime
+        .read_agent_page_text_for_owner(
+            owner_session_id,
+            &page.snapshot_id,
+            text_offset,
+            MAX_AGENT_PAGE_TEXT_CHARS,
+        )
+        .await
+}
+
 async fn execute_action(
     runtime: &SharedBrowserRuntime,
     owner_session_id: &str,
@@ -250,13 +323,26 @@ async fn execute_action(
             .agent_page_state_for_owner(owner_session_id)
             .ok_or_else(|| "TinyOS browser session disappeared after interaction".to_string())?;
     }
-    Ok(completed_response(&latest, Some(&command), projection))
+    let content = if projection.content_offset.is_some() {
+        let (page, content) = refresh_page_with_initial_content(runtime, owner_session_id).await?;
+        latest = page;
+        Some(content)
+    } else {
+        None
+    };
+    Ok(completed_response(
+        &latest,
+        Some(&command),
+        projection,
+        content.as_ref(),
+    ))
 }
 
 fn completed_response(
     page: &BrowserAgentPageState,
     command: Option<&Value>,
     projection: SnapshotProjection,
+    content: Option<&BrowserAgentPageText>,
 ) -> Value {
     let status = command
         .and_then(|command| command.get("status"))
@@ -265,7 +351,7 @@ fn completed_response(
     let mut response = json!({
         "status": status,
         "snapshotId": page.snapshot_id,
-        "snapshot": snapshot_payload(page, projection),
+        "snapshot": snapshot_payload(page, projection, content),
     });
     if let Some(command) = command {
         response["actionExecuted"] = Value::Bool(status == "completed");
@@ -289,11 +375,29 @@ fn stale_response(
         "actionExecuted": false,
         "requestedSnapshotId": requested_snapshot_id,
         "snapshotId": page.snapshot_id,
-        "snapshot": snapshot_payload(page, projection),
+        "snapshot": snapshot_payload(page, projection, None),
     })
 }
 
-fn snapshot_payload(page: &BrowserAgentPageState, projection: SnapshotProjection) -> Value {
+fn read_reset_response(
+    requested_snapshot_id: &str,
+    page: &BrowserAgentPageState,
+    content: &BrowserAgentPageText,
+) -> Value {
+    json!({
+        "status": "stale_snapshot",
+        "requestedSnapshotId": requested_snapshot_id,
+        "snapshotId": page.snapshot_id,
+        "textOffsetReset": true,
+        "snapshot": snapshot_payload(page, SnapshotProjection::initial_page(), Some(content)),
+    })
+}
+
+fn snapshot_payload(
+    page: &BrowserAgentPageState,
+    projection: SnapshotProjection,
+    content: Option<&BrowserAgentPageText>,
+) -> Value {
     let native = &page.observation.snapshot.data;
     let Some(tab) = native
         .tabs
@@ -348,12 +452,8 @@ fn snapshot_payload(page: &BrowserAgentPageState, projection: SnapshotProjection
             Value::Bool(targets_truncated),
         );
     }
-    if let Some(offset) = projection.content_offset {
-        if let Some(content) =
-            page_content_payload(&page.page_text, page.page_text_truncated, offset)
-        {
-            snapshot.insert("content".to_string(), content);
-        }
+    if let Some(content) = content.and_then(page_content_payload) {
+        snapshot.insert("content".to_string(), content);
     }
     if tab.loading {
         snapshot.insert("loading".to_string(), Value::Bool(true));
@@ -388,33 +488,27 @@ fn snapshot_payload(page: &BrowserAgentPageState, projection: SnapshotProjection
     Value::Object(snapshot)
 }
 
-fn page_content_payload(page_text: &str, source_truncated: bool, offset: usize) -> Option<Value> {
-    if page_text.is_empty() && offset == 0 {
+fn page_content_payload(page_text: &BrowserAgentPageText) -> Option<Value> {
+    if page_text.text.is_empty()
+        && page_text.text_offset == 0
+        && page_text.next_text_offset.is_none()
+        && !page_text.source_truncated
+    {
         return None;
     }
-    let mut remaining = page_text.chars().skip(offset);
-    let text = remaining
-        .by_ref()
-        .take(MAX_AGENT_PAGE_TEXT_CHARS)
-        .collect::<String>();
-    let has_more = remaining.next().is_some();
-    let returned_chars = text.chars().count();
     let mut content = Map::new();
     content.insert("trust".to_string(), Value::String("untrusted".to_string()));
-    content.insert("text".to_string(), Value::String(text));
-    if offset > 0 {
-        content.insert("textOffset".to_string(), json!(offset));
+    content.insert("text".to_string(), Value::String(page_text.text.clone()));
+    if page_text.text_offset > 0 {
+        content.insert("textOffset".to_string(), json!(page_text.text_offset));
     }
-    if has_more {
-        content.insert(
-            "nextTextOffset".to_string(),
-            json!(offset.saturating_add(returned_chars)),
-        );
+    if let Some(next_text_offset) = page_text.next_text_offset {
+        content.insert("nextTextOffset".to_string(), json!(next_text_offset));
     }
-    if has_more || source_truncated {
+    if page_text.next_text_offset.is_some() || page_text.source_truncated {
         content.insert("truncated".to_string(), Value::Bool(true));
     }
-    if source_truncated {
+    if page_text.source_truncated {
         content.insert("sourceTruncated".to_string(), Value::Bool(true));
     }
     Some(Value::Object(content))
@@ -467,6 +561,9 @@ pub(crate) fn result_summary(method: &str, result: &Value) -> String {
 
     match status {
         "unchanged" => format!("Page unchanged: {page}"),
+        "stale_snapshot" if method == "web.read" => {
+            format!("Page changed while reading; text offset reset: {page}")
+        }
         "stale_snapshot" => format!("Page changed before the action: {page}"),
         "completed" => match method {
             "web.open" => format!("Opened {page} with {target_count} visible targets"),
@@ -614,16 +711,25 @@ mod tests {
 
     #[test]
     fn page_content_is_untrusted_bounded_and_continuable() {
-        let page_text = format!("{}tail", "A".repeat(MAX_AGENT_PAGE_TEXT_CHARS));
-
-        let first = page_content_payload(&page_text, false, 0).unwrap();
-        let next_offset = first["nextTextOffset"].as_u64().unwrap() as usize;
-        let continued = page_content_payload(&page_text, false, next_offset).unwrap();
+        let first = page_content_payload(&BrowserAgentPageText {
+            text_offset: 0,
+            text: "A".repeat(MAX_AGENT_PAGE_TEXT_CHARS),
+            next_text_offset: Some(MAX_AGENT_PAGE_TEXT_CHARS),
+            source_truncated: false,
+        })
+        .unwrap();
+        let continued = page_content_payload(&BrowserAgentPageText {
+            text_offset: MAX_AGENT_PAGE_TEXT_CHARS,
+            text: "tail".to_string(),
+            next_text_offset: None,
+            source_truncated: false,
+        })
+        .unwrap();
 
         assert_eq!(first["trust"], "untrusted");
         assert_eq!(first["text"].as_str().unwrap().chars().count(), 8_000);
         assert_eq!(first["truncated"], true);
-        assert_eq!(next_offset, 8_000);
+        assert_eq!(first["nextTextOffset"], 8_000);
         assert_eq!(continued["trust"], "untrusted");
         assert_eq!(continued["textOffset"], 8_000);
         assert_eq!(continued["text"], "tail");
@@ -633,7 +739,13 @@ mod tests {
 
     #[test]
     fn page_content_reports_native_extraction_limit() {
-        let content = page_content_payload("bounded source", true, 0).unwrap();
+        let content = page_content_payload(&BrowserAgentPageText {
+            text_offset: 0,
+            text: "bounded source".to_string(),
+            next_text_offset: None,
+            source_truncated: true,
+        })
+        .unwrap();
 
         assert_eq!(content["truncated"], true);
         assert_eq!(content["sourceTruncated"], true);
@@ -661,6 +773,10 @@ mod tests {
             }
         });
         let unchanged = json!({ "status": "unchanged" });
+        let reset = json!({
+            "status": "stale_snapshot",
+            "snapshot": { "title": "Updated article" }
+        });
 
         assert_eq!(
             result_summary("web.open", &opened),
@@ -669,6 +785,10 @@ mod tests {
         assert_eq!(
             result_summary("web.read", &unchanged),
             "Page unchanged: current page"
+        );
+        assert_eq!(
+            result_summary("web.read", &reset),
+            "Page changed while reading; text offset reset: Updated article"
         );
     }
 

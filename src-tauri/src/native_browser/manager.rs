@@ -16,8 +16,8 @@ use super::{
     platform::{
         diagnostic_details, external_protocol_url, redact_browser_url, safe_browser_url,
         BrowserPlatformAction, BrowserPlatformCreateTab, BrowserPlatformEvent,
-        BrowserPlatformProfile, BrowserPlatformSemanticNode, BrowserPlatformSurface,
-        BrowserRuntimeAdapter,
+        BrowserPlatformPageText, BrowserPlatformProfile, BrowserPlatformSemanticNode,
+        BrowserPlatformSurface, BrowserRuntimeAdapter,
     },
 };
 use chrono::{SecondsFormat, Utc};
@@ -78,9 +78,15 @@ struct BrowserSessionRecord {
 pub(crate) struct BrowserAgentPageState {
     pub(crate) snapshot_id: String,
     pub(crate) dirty: bool,
-    pub(crate) page_text: String,
-    pub(crate) page_text_truncated: bool,
     pub(crate) observation: BrowserObserveResult,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct BrowserAgentPageText {
+    pub(crate) text_offset: usize,
+    pub(crate) text: String,
+    pub(crate) next_text_offset: Option<usize>,
+    pub(crate) source_truncated: bool,
 }
 
 #[derive(Clone)]
@@ -121,8 +127,7 @@ struct BrowserTabRecord {
     captures: VecDeque<BrowserCaptureSnapshot>,
     semantic: Option<BrowserSemanticObservation>,
     semantic_targets: HashMap<String, BrowserSemanticTarget>,
-    agent_page_text: String,
-    agent_page_text_truncated: bool,
+    agent_page_text_revision: String,
     agent_snapshot_generation: String,
     agent_snapshot_revision: u64,
     agent_snapshot_dirty: bool,
@@ -229,14 +234,98 @@ impl BrowserSessionManager {
         Some(BrowserAgentPageState {
             snapshot_id: agent_snapshot_id(tab),
             dirty: tab.agent_snapshot_dirty,
-            page_text: tab.agent_page_text.clone(),
-            page_text_truncated: tab.agent_page_text_truncated,
             observation: BrowserObserveResult {
                 snapshot: snapshot_from_state(&state, session_id, self.adapter.as_ref())?,
                 capture: tab.captures.back().cloned(),
                 semantic: tab.semantic.clone(),
             },
         })
+    }
+
+    pub(crate) async fn read_agent_page_text_for_owner(
+        &self,
+        owner_session_id: &str,
+        snapshot_id: &str,
+        text_offset: usize,
+        max_chars: usize,
+    ) -> Result<BrowserAgentPageText, String> {
+        if max_chars == 0 {
+            return Err("Browser page-text chunk size must be greater than zero".to_string());
+        }
+        let started = Instant::now();
+        let (tab_id, expected_revision) =
+            {
+                let state = self.lock_state();
+                let session_id = state.owner_sessions.get(owner_session_id).ok_or_else(|| {
+                    "TinyOS browser session is unavailable for this chat".to_string()
+                })?;
+                let session = state.sessions.get(session_id).ok_or_else(|| {
+                    "TinyOS browser session is unavailable for this chat".to_string()
+                })?;
+                let tab = session
+                    .tabs
+                    .get(&session.active_tab_id)
+                    .ok_or_else(|| "TinyOS browser active tab is unavailable".to_string())?;
+                if tab.agent_snapshot_dirty || agent_snapshot_id(tab) != snapshot_id {
+                    return Err(AGENT_SNAPSHOT_STALE.to_string());
+                }
+                (tab.id.clone(), tab.agent_page_text_revision.clone())
+            };
+
+        let page_text = match self
+            .adapter
+            .read_page_text(&tab_id, text_offset, max_chars)
+            .await
+        {
+            Ok(page_text) => page_text,
+            Err(error) => {
+                let mut state = self.lock_state();
+                increment_counter(&mut state, "browser.page_text.failed");
+                record_duration(&mut state, "browser.page_text", started.elapsed());
+                return Err(error);
+            }
+        };
+        let mut state = self.lock_state();
+        let still_current = state
+            .owner_sessions
+            .get(owner_session_id)
+            .and_then(|session_id| state.sessions.get(session_id))
+            .and_then(|session| session.tabs.get(&session.active_tab_id))
+            .is_some_and(|tab| {
+                tab.id == tab_id
+                    && !tab.agent_snapshot_dirty
+                    && agent_snapshot_id(tab) == snapshot_id
+                    && tab.agent_page_text_revision == expected_revision
+                    && page_text.revision == expected_revision
+            });
+        if !still_current {
+            let marked_dirty = state
+                .owner_sessions
+                .get(owner_session_id)
+                .cloned()
+                .and_then(|session_id| state.sessions.get_mut(&session_id))
+                .and_then(|session| {
+                    let active_tab_id = session.active_tab_id.clone();
+                    session.tabs.get_mut(&active_tab_id)
+                })
+                .is_some_and(|tab| {
+                    if tab.id == tab_id && page_text.revision != expected_revision {
+                        mark_agent_snapshot_dirty(tab, false);
+                        true
+                    } else {
+                        false
+                    }
+                });
+            if marked_dirty {
+                bump_revision(&mut state);
+            }
+            increment_counter(&mut state, "browser.page_text.stale");
+            record_duration(&mut state, "browser.page_text", started.elapsed());
+            return Err(AGENT_SNAPSHOT_STALE.to_string());
+        }
+        increment_counter(&mut state, "browser.page_text.completed");
+        record_duration(&mut state, "browser.page_text", started.elapsed());
+        Ok(agent_page_text(page_text))
     }
 
     pub(crate) fn advance_agent_snapshot_for_owner(
@@ -371,8 +460,7 @@ impl BrowserSessionManager {
                 captures: VecDeque::new(),
                 semantic: None,
                 semantic_targets: HashMap::new(),
-                agent_page_text: String::new(),
-                agent_page_text_truncated: false,
+                agent_page_text_revision: String::new(),
                 agent_snapshot_generation,
                 agent_snapshot_revision: 0,
                 agent_snapshot_dirty: true,
@@ -1179,10 +1267,8 @@ impl BrowserSessionManager {
                                 tab.semantic.as_ref(),
                                 &platform.semantic_nodes,
                                 platform.semantic_truncated,
-                                &tab.agent_page_text,
-                                tab.agent_page_text_truncated,
-                                &platform.page_text,
-                                platform.page_text_truncated,
+                                &tab.agent_page_text_revision,
+                                &platform.page_text_revision,
                             ));
                     if semantic_changed {
                         tab.observation_revision = tab.observation_revision.saturating_add(1);
@@ -1232,8 +1318,7 @@ impl BrowserSessionManager {
 
                     let semantic = if input.semantic {
                         if semantic_changed {
-                            tab.agent_page_text = platform.page_text.clone();
-                            tab.agent_page_text_truncated = platform.page_text_truncated;
+                            tab.agent_page_text_revision = platform.page_text_revision.clone();
                             tab.semantic_targets.clear();
                             let nodes = platform
                                 .semantic_nodes
@@ -2586,8 +2671,7 @@ fn new_tab_record(
         captures: VecDeque::new(),
         semantic: None,
         semantic_targets: HashMap::new(),
-        agent_page_text: String::new(),
-        agent_page_text_truncated: false,
+        agent_page_text_revision: String::new(),
         agent_snapshot_generation,
         agent_snapshot_revision: 0,
         agent_snapshot_dirty: true,
@@ -2883,21 +2967,27 @@ fn mark_agent_snapshot_dirty(tab: &mut BrowserTabRecord, advance_revision: bool)
     }
 }
 
+fn agent_page_text(page_text: BrowserPlatformPageText) -> BrowserAgentPageText {
+    BrowserAgentPageText {
+        text_offset: page_text.text_offset,
+        text: page_text.text,
+        next_text_offset: page_text.next_text_offset,
+        source_truncated: page_text.source_truncated,
+    }
+}
+
 fn semantic_content_matches(
     current: Option<&BrowserSemanticObservation>,
     nodes: &[BrowserPlatformSemanticNode],
     truncated: bool,
-    current_page_text: &str,
-    current_page_text_truncated: bool,
-    page_text: &str,
-    page_text_truncated: bool,
+    current_page_text_revision: &str,
+    page_text_revision: &str,
 ) -> bool {
     let Some(current) = current else {
         return false;
     };
     current.truncated == truncated
-        && current_page_text == page_text
-        && current_page_text_truncated == page_text_truncated
+        && current_page_text_revision == page_text_revision
         && current.nodes.len() == nodes.len()
         && current.nodes.iter().zip(nodes).all(|(current, node)| {
             current.role == node.role

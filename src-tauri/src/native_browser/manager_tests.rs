@@ -1,7 +1,8 @@
 use super::super::model::{BrowserSurfaceId, BrowserSurfaceRect};
 use super::super::platform::{
     available_windows_capabilities, BrowserPlatformEventSink, BrowserPlatformObservation,
-    BrowserPlatformSemanticNode, BrowserPlatformTabState,
+    BrowserPlatformPageText, BrowserPlatformSemanticNode, BrowserPlatformTabState,
+    MAX_BROWSER_PAGE_TEXT_CHARS,
 };
 use super::*;
 use async_trait::async_trait;
@@ -23,7 +24,33 @@ struct FakeAdapter {
     observe_completed: std::sync::atomic::AtomicU64,
     protected_semantic: std::sync::atomic::AtomicBool,
     sensitive_semantic: std::sync::atomic::AtomicBool,
+    page_text: Mutex<Option<String>>,
+    page_text_revision: std::sync::atomic::AtomicU64,
     fail_create: std::sync::atomic::AtomicBool,
+}
+
+impl FakeAdapter {
+    fn page_text(&self) -> String {
+        self.page_text
+            .lock()
+            .unwrap()
+            .clone()
+            .unwrap_or_else(|| "Fixture page content".to_string())
+    }
+
+    fn set_page_text(&self, page_text: impl Into<String>) {
+        *self.page_text.lock().unwrap() = Some(page_text.into());
+        self.page_text_revision
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn page_text_revision(&self) -> String {
+        format!(
+            "fixture:{}",
+            self.page_text_revision
+                .load(std::sync::atomic::Ordering::Relaxed)
+        )
+    }
 }
 
 #[derive(Default)]
@@ -146,10 +173,9 @@ impl BrowserRuntimeAdapter for FakeAdapter {
             viewport_width: 800,
             viewport_height: 600,
             device_scale: 1.0,
-            page_text: semantic
-                .then(|| "Fixture page content".to_string())
+            page_text_revision: semantic
+                .then(|| self.page_text_revision())
                 .unwrap_or_default(),
-            page_text_truncated: false,
             semantic_nodes: if semantic {
                 vec![
                     BrowserPlatformSemanticNode {
@@ -206,6 +232,35 @@ impl BrowserRuntimeAdapter for FakeAdapter {
                 vec![]
             },
             semantic_truncated: false,
+        })
+    }
+    async fn read_page_text(
+        &self,
+        _tab_id: &BrowserTabId,
+        text_offset: usize,
+        max_chars: usize,
+    ) -> Result<BrowserPlatformPageText, String> {
+        let page_text = self.page_text();
+        let source_truncated = page_text.chars().nth(MAX_BROWSER_PAGE_TEXT_CHARS).is_some();
+        let bounded = page_text
+            .chars()
+            .take(MAX_BROWSER_PAGE_TEXT_CHARS)
+            .collect::<String>();
+        let bounded_chars = bounded.chars().count();
+        let text_offset = text_offset.min(bounded_chars);
+        let text = bounded
+            .chars()
+            .skip(text_offset)
+            .take(max_chars)
+            .collect::<String>();
+        let next_text_offset = text_offset.saturating_add(text.chars().count());
+        let next_text_offset = (next_text_offset < bounded_chars).then_some(next_text_offset);
+        Ok(BrowserPlatformPageText {
+            revision: self.page_text_revision(),
+            text_offset,
+            text,
+            next_text_offset,
+            source_truncated,
         })
     }
     async fn interact(
@@ -635,6 +690,108 @@ async fn high_level_web_tools_refresh_and_reject_stale_actions() {
         .unwrap_err();
     assert_eq!(rejected, AGENT_SNAPSHOT_STALE);
     assert_eq!(adapter.interactions.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn high_level_web_read_pages_large_text_and_resets_stale_offsets() {
+    let adapter = Arc::new(FakeAdapter::default());
+    adapter.set_page_text(format!("{}tail-after-old-limit", "A".repeat(64_000)));
+    let manager = manager(adapter.clone());
+
+    let first =
+        crate::tools::web::dispatch_web_read(&manager, "chat-large-page", serde_json::json!({}))
+            .await
+            .unwrap();
+    let snapshot_id = first["snapshotId"].as_str().unwrap().to_string();
+    assert_eq!(first["snapshot"]["content"]["nextTextOffset"], 8_000);
+    assert!(first["snapshot"]["content"]
+        .get("sourceTruncated")
+        .is_none());
+
+    let continued = crate::tools::web::dispatch_web_read(
+        &manager,
+        "chat-large-page",
+        serde_json::json!({
+            "snapshotId": snapshot_id,
+            "textOffset": 8_000
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(continued["snapshot"]["content"]["textOffset"], 8_000);
+    assert_eq!(continued["snapshot"]["content"]["nextTextOffset"], 16_000);
+    assert!(continued["snapshot"].get("targets").is_none());
+
+    let beyond_old_limit = crate::tools::web::dispatch_web_read(
+        &manager,
+        "chat-large-page",
+        serde_json::json!({
+            "snapshotId": snapshot_id,
+            "textOffset": 64_000
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        beyond_old_limit["snapshot"]["content"]["text"],
+        "tail-after-old-limit"
+    );
+
+    let tab_id = manager
+        .snapshot_for_owner("chat-large-page")
+        .unwrap()
+        .data
+        .active_tab_id;
+    adapter.set_page_text("Changed page");
+    let reset = crate::tools::web::dispatch_web_read(
+        &manager,
+        "chat-large-page",
+        serde_json::json!({
+            "snapshotId": snapshot_id,
+            "textOffset": 8_000
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(reset["status"], "stale_snapshot");
+    assert_eq!(reset["textOffsetReset"], true);
+    assert_ne!(reset["snapshotId"], snapshot_id);
+    assert_eq!(reset["snapshot"]["content"]["text"], "Changed page");
+    assert!(reset["snapshot"]["content"].get("textOffset").is_none());
+    assert!(reset["snapshot"].get("targets").is_some());
+
+    let missing_snapshot = crate::tools::web::dispatch_web_read(
+        &manager,
+        "chat-large-page",
+        serde_json::json!({ "textOffset": 8_000 }),
+    )
+    .await
+    .unwrap_err();
+    assert!(missing_snapshot.contains("requires the snapshotId"));
+
+    adapter.set_page_text("Z".repeat(MAX_BROWSER_PAGE_TEXT_CHARS + 4));
+    adapter.sink.read().unwrap().as_ref().unwrap()(BrowserPlatformEvent::ContentDirty { tab_id });
+    let capped =
+        crate::tools::web::dispatch_web_read(&manager, "chat-large-page", serde_json::json!({}))
+            .await
+            .unwrap();
+    let capped_snapshot_id = capped["snapshotId"].as_str().unwrap();
+    assert_eq!(capped["snapshot"]["content"]["sourceTruncated"], true);
+    let capped_tail = crate::tools::web::dispatch_web_read(
+        &manager,
+        "chat-large-page",
+        serde_json::json!({
+            "snapshotId": capped_snapshot_id,
+            "textOffset": MAX_BROWSER_PAGE_TEXT_CHARS - 2
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(capped_tail["snapshot"]["content"]["text"], "ZZ");
+    assert_eq!(capped_tail["snapshot"]["content"]["sourceTruncated"], true);
+    assert!(capped_tail["snapshot"]["content"]
+        .get("nextTextOffset")
+        .is_none());
 }
 
 #[tokio::test]

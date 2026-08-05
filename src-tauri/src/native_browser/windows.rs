@@ -4,8 +4,9 @@ use super::{
         available_windows_capabilities, navigation_policy, safe_browser_url,
         BrowserNavigationPolicy, BrowserPlatformAction, BrowserPlatformCreateTab,
         BrowserPlatformEvent, BrowserPlatformEventSink, BrowserPlatformObservation,
-        BrowserPlatformProfile, BrowserPlatformSemanticNode, BrowserPlatformSurface,
-        BrowserPlatformTabState, BrowserRuntimeAdapter,
+        BrowserPlatformPageText, BrowserPlatformProfile, BrowserPlatformSemanticNode,
+        BrowserPlatformSurface, BrowserPlatformTabState, BrowserRuntimeAdapter,
+        MAX_BROWSER_PAGE_TEXT_CHARS,
     },
 };
 use async_trait::async_trait;
@@ -91,7 +92,7 @@ const DIRECT_INPUT_SCRIPT: &str = r#"
 const OBSERVE_SCRIPT: &str = r#"
 (() => {
   const limit = 500;
-  const maxPageTextChars = 64000;
+  const maxPageTextChars = 1000000;
   const candidates = Array.from(document.querySelectorAll(
     'a[href],button,input,textarea,select,[role],[tabindex],[contenteditable="true"],iframe[src*="captcha" i],[class*="captcha" i],[id*="captcha" i]'
   ));
@@ -151,12 +152,16 @@ const OBSERVE_SCRIPT: &str = r#"
     .map((line) => line.replace(/\s+/g, ' ').trim())
     .filter(Boolean)
     .join('\n');
+  const boundedPageTextLength = Math.min(normalizedPageText.length, maxPageTextChars);
+  let pageTextHash = 2166136261;
+  for (let index = 0; index < boundedPageTextLength; index += 1) {
+    pageTextHash = Math.imul(pageTextHash ^ normalizedPageText.charCodeAt(index), 16777619);
+  }
   return {
     viewportWidth: Math.max(1, Math.round(window.innerWidth)),
     viewportHeight: Math.max(1, Math.round(window.innerHeight)),
     deviceScale: window.devicePixelRatio || 1,
-    pageText: normalizedPageText.slice(0, maxPageTextChars),
-    pageTextTruncated: normalizedPageText.length > maxPageTextChars,
+    pageTextRevision: `${normalizedPageText.length}:${pageTextHash >>> 0}`,
     truncated: candidates.length > limit,
     nodes
   };
@@ -650,6 +655,35 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
         }
     }
 
+    async fn read_page_text(
+        &self,
+        tab_id: &BrowserTabId,
+        text_offset: usize,
+        max_chars: usize,
+    ) -> Result<BrowserPlatformPageText, String> {
+        let handle = self.tab(tab_id)?;
+        let _presentation_guard = handle.presentation.lock.lock().await;
+        let background_read = !handle.presentation.surface_visible.load(Ordering::Acquire);
+        if background_read {
+            prepare_background_observation(&handle.webview).await?;
+        }
+
+        let page_text = read_page_text_webview(&handle.webview, text_offset, max_chars).await;
+        let restore = if background_read {
+            restore_hidden_surface(&handle.webview).await
+        } else {
+            Ok(())
+        };
+        match (page_text, restore) {
+            (Ok(page_text), Ok(())) => Ok(page_text),
+            (Err(error), Ok(())) => Err(error),
+            (Ok(_), Err(error)) => Err(error),
+            (Err(read_error), Err(restore_error)) => Err(format!(
+                "{read_error}; restoring the hidden browser surface also failed: {restore_error}"
+            )),
+        }
+    }
+
     async fn interact(
         &self,
         tab_id: &BrowserTabId,
@@ -950,8 +984,9 @@ async fn observe_webview(
         viewport_width: observed.viewport_width,
         viewport_height: observed.viewport_height,
         device_scale: observed.device_scale,
-        page_text: semantic.then_some(observed.page_text).unwrap_or_default(),
-        page_text_truncated: semantic && observed.page_text_truncated,
+        page_text_revision: semantic
+            .then_some(observed.page_text_revision)
+            .unwrap_or_default(),
         semantic_nodes: if semantic {
             observed
                 .nodes
@@ -964,6 +999,65 @@ async fn observe_webview(
         },
         semantic_truncated: semantic && observed.truncated,
     })
+}
+
+async fn read_page_text_webview(
+    webview: &Webview<Wry>,
+    text_offset: usize,
+    max_chars: usize,
+) -> Result<BrowserPlatformPageText, String> {
+    eval_json(
+        webview,
+        &page_text_script(text_offset, max_chars.min(MAX_BROWSER_PAGE_TEXT_CHARS)),
+    )
+    .await
+}
+
+fn page_text_script(text_offset: usize, max_chars: usize) -> String {
+    format!(
+        r#"
+(() => {{
+  const maxPageTextChars = {MAX_BROWSER_PAGE_TEXT_CHARS};
+  const requestedOffset = {text_offset};
+  const requestedChars = {max_chars};
+  const contentRoot = document.querySelector('main, article, [role="main"]') || document.body;
+  const normalizedPageText = String(contentRoot?.innerText || '')
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n');
+  const boundedPageTextLength = Math.min(normalizedPageText.length, maxPageTextChars);
+  let pageTextHash = 2166136261;
+  for (let index = 0; index < boundedPageTextLength; index += 1) {{
+    pageTextHash = Math.imul(pageTextHash ^ normalizedPageText.charCodeAt(index), 16777619);
+  }}
+  const revision = `${{normalizedPageText.length}}:${{pageTextHash >>> 0}}`;
+  let start = Math.min(requestedOffset, boundedPageTextLength);
+  if (start > 0 && start < boundedPageTextLength) {{
+    const current = normalizedPageText.charCodeAt(start);
+    const previous = normalizedPageText.charCodeAt(start - 1);
+    if (current >= 0xDC00 && current <= 0xDFFF && previous >= 0xD800 && previous <= 0xDBFF) {{
+      start += 1;
+    }}
+  }}
+  let end = Math.min(start + requestedChars, boundedPageTextLength);
+  if (end > start && end < boundedPageTextLength) {{
+    const previous = normalizedPageText.charCodeAt(end - 1);
+    const current = normalizedPageText.charCodeAt(end);
+    if (previous >= 0xD800 && previous <= 0xDBFF && current >= 0xDC00 && current <= 0xDFFF) {{
+      end += 1;
+    }}
+  }}
+  return {{
+    revision,
+    textOffset: start,
+    text: normalizedPageText.slice(start, end),
+    nextTextOffset: end < boundedPageTextLength ? end : null,
+    sourceTruncated: normalizedPageText.length > maxPageTextChars
+  }};
+}})()
+"#
+    )
 }
 
 async fn eval_unit(webview: &Webview<Wry>, script: &str) -> Result<(), String> {
@@ -1215,8 +1309,7 @@ struct ObservedDocument {
     viewport_width: u32,
     viewport_height: u32,
     device_scale: f64,
-    page_text: String,
-    page_text_truncated: bool,
+    page_text_revision: String,
     truncated: bool,
     nodes: Vec<ObservedNode>,
 }

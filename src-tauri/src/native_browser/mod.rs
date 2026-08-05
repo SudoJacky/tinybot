@@ -17,7 +17,9 @@ mod unsupported;
 mod windows;
 
 use crate::desktop_commands::runtime::native_backend_log_path;
-pub(crate) use manager::{BrowserAgentPageState, SharedBrowserRuntime, AGENT_SNAPSHOT_STALE};
+pub(crate) use manager::{
+    BrowserAgentPageState, BrowserAgentPageText, SharedBrowserRuntime, AGENT_SNAPSHOT_STALE,
+};
 use manager::{BrowserDiagnosticSink, BrowserSessionManager, BrowserSnapshotSink};
 pub(crate) use model::{
     BrowserControlState, BrowserCreateSessionInput, BrowserInteractionInput, BrowserNativeSnapshot,

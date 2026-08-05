@@ -2,8 +2,9 @@ use super::{
     model::{BrowserRuntimeCapabilities, BrowserTabId},
     platform::{
         unsupported_capabilities, BrowserPlatformAction, BrowserPlatformCreateTab,
-        BrowserPlatformEventSink, BrowserPlatformObservation, BrowserPlatformProfile,
-        BrowserPlatformSurface, BrowserPlatformTabState, BrowserRuntimeAdapter,
+        BrowserPlatformEventSink, BrowserPlatformObservation, BrowserPlatformPageText,
+        BrowserPlatformProfile, BrowserPlatformSurface, BrowserPlatformTabState,
+        BrowserRuntimeAdapter,
     },
 };
 use async_trait::async_trait;
@@ -79,6 +80,14 @@ impl BrowserRuntimeAdapter for UnsupportedBrowserRuntime {
         _capture: bool,
         _semantic: bool,
     ) -> Result<BrowserPlatformObservation, String> {
+        Err(self.unavailable())
+    }
+    async fn read_page_text(
+        &self,
+        _tab_id: &BrowserTabId,
+        _text_offset: usize,
+        _max_chars: usize,
+    ) -> Result<BrowserPlatformPageText, String> {
         Err(self.unavailable())
     }
     async fn interact(
