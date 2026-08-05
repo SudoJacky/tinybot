@@ -54,7 +54,7 @@ target-<observation revision>-<index>
 
 其中 observation revision 只标识语义目标集合，不等同于页面级 `snapshotId`。agent 不应解析或拼接 `targetRef`。
 
-返回给 agent 的 targets 只保留当前 viewport 中有名称或受保护含义的节点，并限制为最多 100 个。底层仍保留本次 observation 的完整目标映射。
+返回给 agent 的 targets 只保留当前 viewport 中有名称或受保护含义的节点，并限制为最多 100 个。每个 target 默认只包含 `targetRef`、`role` 和 `name`；仅在非默认状态下附加 frame、disabled、focused、sensitive 或 protectedReason。坐标、尺寸和固定浏览器能力保留在底层快照中，不重复进入模型上下文。底层仍保留本次 observation 的完整目标映射。
 
 ## dirty 与刷新
 

@@ -20,8 +20,8 @@ use crate::desktop_commands::runtime::native_backend_log_path;
 pub(crate) use manager::{BrowserAgentPageState, SharedBrowserRuntime, AGENT_SNAPSHOT_STALE};
 use manager::{BrowserDiagnosticSink, BrowserSessionManager, BrowserSnapshotSink};
 pub(crate) use model::{
-    BrowserCreateSessionInput, BrowserInteractionInput, BrowserNativeSnapshot, BrowserObserveInput,
-    BrowserSessionLifecycle,
+    BrowserControlState, BrowserCreateSessionInput, BrowserInteractionInput, BrowserNativeSnapshot,
+    BrowserObserveInput, BrowserSemanticNode, BrowserSessionLifecycle,
 };
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};

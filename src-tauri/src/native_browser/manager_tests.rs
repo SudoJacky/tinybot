@@ -519,6 +519,10 @@ async fn high_level_web_tools_refresh_and_reject_stale_actions() {
     assert_eq!(first["status"], "completed");
     assert!(first["snapshot"].get("browserSessionId").is_none());
     assert_eq!(first["snapshot"]["targets"].as_array().unwrap().len(), 1);
+    assert!(first["snapshot"].get("viewport").is_none());
+    assert!(first["snapshot"].get("interaction").is_none());
+    assert!(first["snapshot"]["targets"][0].get("x").is_none());
+    assert!(first["snapshot"]["targets"][0].get("disabled").is_none());
     let first_snapshot_id = first["snapshotId"].as_str().unwrap().to_string();
     let first_target_ref = first["snapshot"]["targets"][0]["targetRef"]
         .as_str()

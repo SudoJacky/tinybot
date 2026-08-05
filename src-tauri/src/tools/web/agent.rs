@@ -1,9 +1,9 @@
 use super::browser::{dispatch_browser_interact, dispatch_browser_observe, WebToolCancellation};
 use crate::native_browser::{
-    BrowserAgentPageState, BrowserCreateSessionInput, BrowserNativeSnapshot, SharedBrowserRuntime,
-    AGENT_SNAPSHOT_STALE,
+    BrowserAgentPageState, BrowserControlState, BrowserCreateSessionInput, BrowserNativeSnapshot,
+    BrowserSemanticNode, SharedBrowserRuntime, AGENT_SNAPSHOT_STALE,
 };
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 const MAX_AGENT_SNAPSHOT_TARGETS: usize = 100;
 
@@ -252,13 +252,6 @@ fn snapshot_payload(page: &BrowserAgentPageState) -> Value {
     else {
         return json!({});
     };
-    let viewport = page.observation.capture.as_ref().map(|capture| {
-        json!({
-            "width": capture.viewport_width,
-            "height": capture.viewport_height,
-            "deviceScale": capture.device_scale,
-        })
-    });
     let mut targets_truncated = false;
     let targets = page
         .observation
@@ -290,27 +283,120 @@ fn snapshot_payload(page: &BrowserAgentPageState) -> Value {
                 targets_truncated = true;
             }
             targets
+                .into_iter()
+                .map(snapshot_target_payload)
+                .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    json!({
-        "url": tab.url,
-        "title": tab.title,
-        "loading": tab.loading,
-        "canGoBack": tab.can_go_back,
-        "canGoForward": tab.can_go_forward,
-        "viewport": viewport,
-        "targets": targets,
-        "targetsTruncated": targets_truncated,
-        "interaction": native.interaction,
-        "control": {
-            "state": native.control.state,
-            "reason": native.control.reason,
+    let mut snapshot = Map::new();
+    snapshot.insert("url".to_string(), Value::String(tab.url.clone()));
+    snapshot.insert("title".to_string(), Value::String(tab.title.clone()));
+    snapshot.insert("targets".to_string(), Value::Array(targets));
+    snapshot.insert(
+        "targetsTruncated".to_string(),
+        Value::Bool(targets_truncated),
+    );
+    if tab.loading {
+        snapshot.insert("loading".to_string(), Value::Bool(true));
+    }
+    if tab.can_go_back {
+        snapshot.insert("canGoBack".to_string(), Value::Bool(true));
+    }
+    if tab.can_go_forward {
+        snapshot.insert("canGoForward".to_string(), Value::Bool(true));
+    }
+    if !matches!(
+        native.control.state,
+        BrowserControlState::Idle | BrowserControlState::AgentActive
+    ) || native.control.reason.is_some()
+    {
+        let mut control = Map::new();
+        control.insert("state".to_string(), json!(native.control.state));
+        if let Some(reason) = native.control.reason.as_ref() {
+            control.insert("reason".to_string(), Value::String(reason.clone()));
+        }
+        snapshot.insert("control".to_string(), Value::Object(control));
+    }
+    if let Some(request) = native.pending_policy_request.as_ref() {
+        snapshot.insert(
+            "pendingPolicyRequest".to_string(),
+            json!({
+                "kind": request.kind,
+                "safeUrl": request.safe_url,
+            }),
+        );
+    }
+    Value::Object(snapshot)
+}
+
+fn snapshot_target_payload(target: &BrowserSemanticNode) -> Value {
+    let mut payload = Map::new();
+    payload.insert(
+        "targetRef".to_string(),
+        Value::String(target.target_ref.clone()),
+    );
+    payload.insert("role".to_string(), Value::String(target.role.clone()));
+    payload.insert("name".to_string(), Value::String(target.name.clone()));
+    if target.frame != "top" {
+        payload.insert("frame".to_string(), Value::String(target.frame.clone()));
+    }
+    if target.disabled {
+        payload.insert("disabled".to_string(), Value::Bool(true));
+    }
+    if target.focused {
+        payload.insert("focused".to_string(), Value::Bool(true));
+    }
+    if target.sensitive {
+        payload.insert("sensitive".to_string(), Value::Bool(true));
+    }
+    if let Some(reason) = target.protected_reason.as_ref() {
+        payload.insert("protectedReason".to_string(), Value::String(reason.clone()));
+    }
+    Value::Object(payload)
+}
+
+pub(crate) fn result_summary(method: &str, result: &Value) -> String {
+    let status = result
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("completed");
+    let snapshot = result.get("snapshot").unwrap_or(&Value::Null);
+    let page = snapshot
+        .get("title")
+        .and_then(Value::as_str)
+        .filter(|title| !title.trim().is_empty())
+        .or_else(|| snapshot.get("url").and_then(Value::as_str))
+        .map(|label| compact_label(label, 80))
+        .unwrap_or_else(|| "current page".to_string());
+    let target_count = snapshot
+        .get("targets")
+        .and_then(Value::as_array)
+        .map(Vec::len)
+        .unwrap_or_default();
+
+    match status {
+        "unchanged" => format!("Page unchanged: {page}"),
+        "stale_snapshot" => format!("Page changed before the action: {page}"),
+        "completed" => match method {
+            "web.open" => format!("Opened {page} with {target_count} visible targets"),
+            "web.read" => format!("Read {page} with {target_count} visible targets"),
+            "web.act" => {
+                format!("Web action completed on {page} with {target_count} visible targets")
+            }
+            _ => format!("Read {page} with {target_count} visible targets"),
         },
-        "pendingPolicyRequest": native.pending_policy_request.as_ref().map(|request| json!({
-            "kind": request.kind,
-            "safeUrl": request.safe_url,
-        })),
-    })
+        other => format!("Web action returned {other}: {page}"),
+    }
+}
+
+fn compact_label(label: &str, max_chars: usize) -> String {
+    let mut characters = label.trim().chars();
+    let compact = characters.by_ref().take(max_chars).collect::<String>();
+    if characters.next().is_some() {
+        format!("{compact}…")
+    } else {
+        compact
+    }
 }
 
 fn required_text(value: &Value, key: &str) -> Result<String, String> {
@@ -322,5 +408,106 @@ fn optional_text(value: &Value, key: &str) -> Result<Option<String>, String> {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(text)) if !text.trim().is_empty() => Ok(Some(text.trim().to_string())),
         Some(_) => Err(format!("{key} must be a non-empty string")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn semantic_node(index: usize) -> BrowserSemanticNode {
+        BrowserSemanticNode {
+            target_ref: format!("target-4-{index}"),
+            role: "button".to_string(),
+            name: "Open account settings".to_string(),
+            frame: "top".to_string(),
+            x: 10.0,
+            y: index as f64 * 30.0,
+            width: 180.0,
+            height: 28.0,
+            disabled: false,
+            focused: false,
+            sensitive: false,
+            protected_reason: None,
+        }
+    }
+
+    #[test]
+    fn agent_target_payload_omits_geometry_and_default_state() {
+        let payload = snapshot_target_payload(&semantic_node(7));
+
+        assert_eq!(payload["targetRef"], "target-4-7");
+        assert_eq!(payload["role"], "button");
+        assert_eq!(payload["name"], "Open account settings");
+        for omitted in [
+            "x",
+            "y",
+            "width",
+            "height",
+            "frame",
+            "disabled",
+            "focused",
+            "sensitive",
+            "protectedReason",
+        ] {
+            assert!(
+                payload.get(omitted).is_none(),
+                "unexpected field: {omitted}"
+            );
+        }
+    }
+
+    #[test]
+    fn agent_target_payload_preserves_non_default_safety_state() {
+        let mut target = semantic_node(2);
+        target.frame = "child".to_string();
+        target.disabled = true;
+        target.focused = true;
+        target.sensitive = true;
+        target.protected_reason = Some("native_file_picker".to_string());
+
+        let payload = snapshot_target_payload(&target);
+
+        assert_eq!(payload["frame"], "child");
+        assert_eq!(payload["disabled"], true);
+        assert_eq!(payload["focused"], true);
+        assert_eq!(payload["sensitive"], true);
+        assert_eq!(payload["protectedReason"], "native_file_picker");
+    }
+
+    #[test]
+    fn compact_targets_are_materially_smaller_than_native_nodes() {
+        let nodes = (0..MAX_AGENT_SNAPSHOT_TARGETS)
+            .map(semantic_node)
+            .collect::<Vec<_>>();
+        let compact = nodes
+            .iter()
+            .map(snapshot_target_payload)
+            .collect::<Vec<_>>();
+        let native_chars = serde_json::to_string(&nodes).unwrap().chars().count();
+        let compact_chars = serde_json::to_string(&compact).unwrap().chars().count();
+
+        assert!(compact_chars * 2 < native_chars);
+    }
+
+    #[test]
+    fn web_result_summary_is_short_and_status_specific() {
+        let opened = json!({
+            "status": "completed",
+            "snapshot": {
+                "title": "Account settings",
+                "targets": [{}, {}, {}]
+            }
+        });
+        let unchanged = json!({ "status": "unchanged" });
+
+        assert_eq!(
+            result_summary("web.open", &opened),
+            "Opened Account settings with 3 visible targets"
+        );
+        assert_eq!(
+            result_summary("web.read", &unchanged),
+            "Page unchanged: current page"
+        );
     }
 }

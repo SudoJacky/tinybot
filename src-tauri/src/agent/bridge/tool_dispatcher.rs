@@ -238,7 +238,14 @@ impl NativeAgentToolExecutorDispatcher {
                 format!("native browser tool result serialization failed: {error}")
             })?;
             web::strip_browser_capture_data(&mut raw);
-            Ok(NativeAgentToolResult::generic_success(tool_call, raw))
+            let summary = web::result_summary(&tool_call.name, &raw);
+            let model_content = raw.to_string();
+            Ok(NativeAgentToolResult::generic_success_with_model_content(
+                tool_call,
+                summary,
+                model_content,
+                raw,
+            ))
         }))
     }
 
