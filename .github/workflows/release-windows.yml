@@ -4,6 +4,20 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "v<semver> tag to create or reuse at the current master commit"
+        required: true
+        type: string
+      release_notes:
+        description: "Custom What's new notes; leave blank to generate them from GitHub"
+        required: false
+        type: string
+      display_notes:
+        description: "Optional highlighted Before you update notice"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -16,17 +30,19 @@ jobs:
       CARGO_HTTP_TIMEOUT: "120"
       CARGO_NET_RETRY: "10"
       CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+      RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'master' || github.ref }}
 
       - name: Verify release source
         shell: pwsh
         run: |
-          git merge-base --is-ancestor "${{ github.sha }}" origin/master
+          git merge-base --is-ancestor HEAD origin/master
           if ($LASTEXITCODE -ne 0) {
             throw "Release tags must point to a commit on master"
           }
@@ -47,7 +63,10 @@ jobs:
         run: npm ci
 
       - name: Verify release version
-        run: node .github/scripts/check-release-version.mjs "${{ github.ref_name }}"
+        run: node .github/scripts/check-release-version.mjs "$env:RELEASE_TAG"
+
+      - name: Test updater manifest customization
+        run: node --test .github/scripts/customize-updater-manifest.test.mjs
 
       - name: Run frontend tests
         run: npm test
@@ -63,6 +82,22 @@ jobs:
         working-directory: src-tauri
         run: cargo test --lib desktop::update::tests -- --test-threads=1
 
+      - name: Ensure manual release tag
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        shell: pwsh
+        run: |
+          $headCommit = git rev-parse HEAD
+          $tagCommit = git rev-list -n 1 "$env:RELEASE_TAG" 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            if ($tagCommit -ne $headCommit) {
+              throw "Release tag $env:RELEASE_TAG already points to a different commit"
+            }
+            Write-Host "Release tag $env:RELEASE_TAG already points to $headCommit"
+          } else {
+            git tag "$env:RELEASE_TAG" HEAD
+            git push origin "refs/tags/$env:RELEASE_TAG"
+          }
+
       - name: Build and upload signed updater artifacts
         uses: tauri-apps/tauri-action@v1
         env:
@@ -72,25 +107,28 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: Tinybot Desktop v__VERSION__
-          releaseBody: |
-            Highlights
-
-            • Added OpenAI Responses API support and persistent Responses sessions.
-            • Added workspace apply_patch support with visible code diffs.
-            • Improved tool activity, composer slash commands, and agent workflows.
-            • Stabilized the TinyOS browser lifecycle and fixed drag-time memory growth.
-            • Added About Tinybot with manual update review and installation.
-
-            Before updating, save active work. Tinybot closes its runtime before launching the installer.
-
-            The installer is not Authenticode-signed yet, so Windows SmartScreen may show an unknown publisher warning.
+          releaseBody: ${{ inputs.release_notes || '' }}
           releaseDraft: true
           prerelease: false
-          generateReleaseNotes: true
+          generateReleaseNotes: ${{ inputs.release_notes == '' }}
           updaterJsonPreferNsis: true
           args: --bundles nsis --target x86_64-pc-windows-msvc
+
+      - name: Apply custom updater notes
+        if: ${{ inputs.release_notes != '' || inputs.display_notes != '' }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPDATE_DISPLAY_NOTES: ${{ inputs.display_notes }}
+          UPDATE_RELEASE_NOTES: ${{ inputs.release_notes }}
+        run: |
+          $manifestDirectory = Join-Path $env:RUNNER_TEMP "tinybot-updater-manifest"
+          New-Item -ItemType Directory -Force -Path $manifestDirectory | Out-Null
+          gh release download "$env:RELEASE_TAG" --pattern "latest.json" --dir $manifestDirectory --clobber
+          node .github/scripts/customize-updater-manifest.mjs (Join-Path $manifestDirectory "latest.json")
+          gh release upload "$env:RELEASE_TAG" (Join-Path $manifestDirectory "latest.json") --clobber
 
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${{ github.ref_name }}" --draft=false --latest
+        run: gh release edit "$env:RELEASE_TAG" --draft=false --latest
