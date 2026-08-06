@@ -42,6 +42,27 @@ describe("ClaudeStyleAiInput slash commands", () => {
     expect(onSendMessage).not.toHaveBeenCalled();
   });
 
+  it("offers explicit interrupt and next-turn actions while responding", async () => {
+    const user = userEvent.setup();
+    const onInterruptMessage = vi.fn();
+    const onSendMessage = vi.fn();
+    render(<ClaudeStyleAiInput
+      onInterruptMessage={onInterruptMessage}
+      onSendMessage={onSendMessage}
+      responding
+    />);
+
+    const input = screen.getByRole("textbox", { name: "Message" });
+    await user.type(input, "Change direction");
+    await user.click(screen.getByRole("button", { name: "插入当前任务" }));
+    expect(onInterruptMessage).toHaveBeenCalledWith("Change direction", [], [], {});
+    expect(onSendMessage).not.toHaveBeenCalled();
+
+    await user.type(input, "Do this afterward");
+    await user.click(screen.getByRole("button", { name: "排队为下一轮" }));
+    expect(onSendMessage).toHaveBeenCalledWith("Do this afterward", [], [], {});
+  });
+
   it("dismisses the menu with Escape without changing the draft", async () => {
     const user = userEvent.setup();
     render(<ClaudeStyleAiInput slashCommands={slashCommands} />);

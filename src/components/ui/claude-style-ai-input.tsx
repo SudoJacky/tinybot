@@ -82,6 +82,12 @@ export interface ClaudeStyleAiInputProps {
     pastedContent: PastedContent[],
     options: ComposerSendOptions,
   ) => void | Promise<void>;
+  onInterruptMessage?: (
+    message: string,
+    files: ComposerFileReference[],
+    pastedContent: PastedContent[],
+    options: ComposerSendOptions,
+  ) => void | Promise<void>;
   disabled?: boolean;
   disabledReason?: string;
   placeholder?: string;
@@ -128,6 +134,7 @@ export function ClaudeStyleAiInput({
   models = EMPTY_MODELS,
   onModelChange,
   onClearContextReferences,
+  onInterruptMessage,
   onRemoveContextReference,
   onSelectFiles,
   onSendMessage,
@@ -236,15 +243,15 @@ export function ClaudeStyleAiInput({
     return () => document.removeEventListener("pointerdown", closeMenus, true);
   }, [modelMenuOpen, slashMenuOpen, toolMenuOpen]);
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function sendMessage(mode: "interrupt" | "queue") {
     if (!canSend) {
       return;
     }
     setSending(true);
     setError("");
     try {
-      await onSendMessage?.(currentMessage.trim(), files, pastedContent, {
+      const handler = mode === "interrupt" ? onInterruptMessage : onSendMessage;
+      await handler?.(currentMessage.trim(), files, pastedContent, {
         ...(selectedModel?.id ? { model: selectedModel.id } : {}),
       });
       updateMessage("");
@@ -256,6 +263,11 @@ export function ClaudeStyleAiInput({
     } finally {
       setSending(false);
     }
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await sendMessage("queue");
   }
 
   async function handleStopResponding() {
@@ -606,16 +618,35 @@ export function ClaudeStyleAiInput({
           </div>
 
           {responding ? (
-            <button
-              aria-label={canStopResponding ? "Stop generation" : `Stop generation unavailable: ${stopUnavailableReason || "unsupported"}`}
-              className="claude-ai-input__send"
-              disabled={disabled || !canStopResponding}
-              title={canStopResponding ? "Stop generation" : stopUnavailableReason || "Stopping is unavailable"}
-              type="button"
-              onClick={() => void handleStopResponding()}
-            >
-              <Square aria-hidden="true" size={15} />
-            </button>
+            <div className="claude-ai-input__running-actions">
+              <button
+                className="claude-ai-input__running-action claude-ai-input__running-action--primary"
+                disabled={!canSend || !onInterruptMessage}
+                title={canSend ? "中断当前回复并作为新一轮发送" : "输入内容后插入当前任务"}
+                type="button"
+                onClick={() => void sendMessage("interrupt")}
+              >
+                插入当前任务
+              </button>
+              <button
+                className="claude-ai-input__running-action"
+                disabled={!canSend}
+                title={canSend ? "当前任务完成后作为下一轮发送" : "输入内容后排队"}
+                type="submit"
+              >
+                排队为下一轮
+              </button>
+              <button
+                aria-label={canStopResponding ? "Stop generation" : `Stop generation unavailable: ${stopUnavailableReason || "unsupported"}`}
+                className="claude-ai-input__send"
+                disabled={disabled || !canStopResponding}
+                title={canStopResponding ? "Stop generation" : stopUnavailableReason || "Stopping is unavailable"}
+                type="button"
+                onClick={() => void handleStopResponding()}
+              >
+                <Square aria-hidden="true" size={15} />
+              </button>
+            </div>
           ) : (
             <button
               aria-label="Send message"

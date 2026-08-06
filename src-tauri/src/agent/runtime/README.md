@@ -184,6 +184,17 @@ work. Duplicate active Turn IDs are rejected. A form continuation starts a new
 generation only after the previous execution reaches a non-terminal waiting
 state.
 
+User-authored conversation messages never continue an active Turn. The desktop
+"insert" action cancels the active Turn, waits for both native cancellation
+confirmation and its interrupted terminal event, then submits the message through
+the normal Turn-start path with a new Turn ID. Its complete input envelope,
+including the selected model and references, is preserved exactly as it is for a
+normal or queued message. Queued messages use the same Turn-start path after the
+active Turn completes normally. Once either pending input is successfully
+submitted, it is removed from the pending-input queue. Protocol-level guidance
+remains reserved for internal controls and is not used as a desktop
+conversation-message transport.
+
 Cancellation is idempotent and has one terminal owner. The Turn remains in
 `cancelling` while owned children perform bounded cleanup, and a late result
 cannot replace the published terminal result.
