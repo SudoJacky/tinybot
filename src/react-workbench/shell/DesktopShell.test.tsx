@@ -482,7 +482,7 @@ describe("DesktopShell", () => {
     expect(activeProfile.disabled).toBe(true);
     const saveChanges = within(dialog).getByRole("button", { name: "Save changes" }) as HTMLButtonElement;
     expect(saveChanges.disabled).toBe(true);
-    await user.type(within(dialog).getByLabelText("API key"), "sk-test");
+    fireEvent.change(within(dialog).getByLabelText("API key"), { target: { value: "sk-test" } });
     expect(saveChanges.disabled).toBe(false);
     await user.click(saveChanges);
 
