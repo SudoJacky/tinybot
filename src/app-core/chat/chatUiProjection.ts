@@ -54,10 +54,10 @@ export type LiveSubagent = {
 
 export type QueuedInput = {
   id: string;
-  mode: "queued" | "guide";
+  mode: "queued" | "interrupt";
   content: string;
   createdAt: string;
-  status: "queued" | "paused" | "sent" | "guided";
+  status: "queued" | "paused" | "sent" | "failed";
 };
 
 export type DetailPanelState = {

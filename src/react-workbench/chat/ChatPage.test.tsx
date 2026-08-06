@@ -34,6 +34,7 @@ vi.mock("../../app-core/native/desktopNativeWorkspacePicker", () => ({
 
 afterEach(() => {
   cleanup();
+  nativeFilePickerMocks.pickDesktopChatFiles.mockReset();
   nativeWorkspacePickerMocks.pickDesktopWorkspaceDirectory.mockReset();
   window.localStorage.clear();
   document.head.querySelectorAll("[data-test-style='workbench']").forEach((element) => element.remove());
@@ -159,6 +160,16 @@ function expectTurnSubmit(chatStore: ChatStore, sessionId: string, input: unknow
     kind: "turn.submit",
     target: { sessionId },
   }));
+}
+
+async function mockLatestTurnStatus(
+  chatStore: ChatStore,
+  status: "pending" | "running" | "awaiting_user" | "completed" | "failed" | "interrupted",
+): Promise<void> {
+  const timeline = await chatStore.load("s1");
+  timeline.turns[timeline.turns.length - 1].status = status;
+  vi.mocked(chatStore.load).mockReset();
+  vi.mocked(chatStore.load).mockResolvedValue(timeline);
 }
 
 function mockTurnSubmit(
@@ -2928,6 +2939,9 @@ describe("ChatPage", () => {
         status: "running",
       }],
     });
+    const runningTimeline = await stores.chatStore.load("s1");
+    runningTimeline.turns[runningTimeline.turns.length - 1].status = "running";
+    vi.mocked(stores.chatStore.load).mockResolvedValue(runningTimeline);
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const input = await screen.findByRole("textbox", { name: /message/i });
@@ -2938,6 +2952,129 @@ describe("ChatPage", () => {
     expect(queuedInputs.textContent).toContain("Summarize after this run");
     expect(queuedInputs.textContent).toContain("Waiting");
     expect((input as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("restores the normal send action when the canonical timeline is terminal", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Planning notes",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "running",
+      }],
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    await screen.findByText("I ran a tool.");
+    const input = screen.getByRole("textbox", { name: /message/i });
+    await user.type(input, "Start another turn");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    expectTurnSubmit(stores.chatStore, "s1", { text: "Start another turn" });
+    expect(screen.queryByRole("button", { name: "插入当前任务" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "排队为下一轮" })).toBeNull();
+  });
+
+  it("interrupts the canonical active turn even when the session summary is stale", async () => {
+    const user = userEvent.setup();
+    let subscribed: ((event: ChatEvent) => void) | undefined;
+    nativeFilePickerMocks.pickDesktopChatFiles.mockResolvedValueOnce([{
+      name: "new-api.md",
+      path: "C:\\Users\\tester\\new-api.md",
+      mimeType: "text/markdown",
+      sizeBytes: 32,
+    }]);
+    const staleIdleSession = {
+      id: "s1",
+      chatId: "chat-1",
+      title: "Planning notes",
+      updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+      status: "idle" as const,
+    };
+    const stores = createStores({ sessions: [staleIdleSession] });
+    const settingsStore: SettingsStore = {
+      load: vi.fn(async () => []),
+      loadChatModels: vi.fn(async () => [{
+        id: "deepseek-v4-flash",
+        label: "deepseek-v4-flash",
+        description: "DeepSeek",
+        default: true,
+      }, {
+        id: "deepseek-v4-pro",
+        label: "deepseek-v4-pro",
+        description: "DeepSeek",
+      }]),
+    };
+    const runningTimeline = await stores.chatStore.load("s1");
+    const active = runningTimeline.turns[runningTimeline.turns.length - 1];
+    active.status = "running";
+    vi.mocked(stores.chatStore.load).mockResolvedValue(runningTimeline);
+    let confirmCancellation: (() => void) | undefined;
+    stores.chatStore.dispatch = vi.fn(async (command) => {
+      if (command.kind === "agent.cancel") {
+        await new Promise<void>((resolve) => {
+          confirmCancellation = resolve;
+        });
+      }
+    });
+    stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
+      subscribed = listener;
+      return () => undefined;
+    });
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
+        sessionStore={stores.sessionStore}
+        settingsStore={settingsStore}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Select model" }).textContent).toContain("deepseek-v4-flash"));
+    const input = await screen.findByRole("textbox", { name: /message/i });
+    await user.click(screen.getByRole("button", { name: "Attach files" }));
+    await waitFor(() => expect(nativeFilePickerMocks.pickDesktopChatFiles).toHaveBeenCalledTimes(1));
+    await user.type(input, "Use the new API instead");
+    await user.click(screen.getByRole("button", { name: "插入当前任务" }));
+
+    const cancelCommand = vi.mocked(stores.chatStore.dispatch).mock.calls
+      .map(([command]) => command)
+      .find((command) => command.kind === "agent.cancel");
+    expect(cancelCommand).toEqual(expect.objectContaining({
+      target: expect.objectContaining({ sessionId: "s1", turnId: active.id }),
+    }));
+    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
+    expect(screen.getByLabelText("Queued inputs").textContent).toContain("正在中断当前回复");
+
+    act(() => subscribed?.({
+      eventType: "agent.turn.interrupted",
+      type: "agent.event",
+    }));
+    act(() => subscribed?.({
+      eventType: "agent.turn.interrupted",
+      type: "agent.event",
+    }));
+    await waitFor(() => expect(vi.mocked(stores.sessionStore.list).mock.calls.length).toBeGreaterThanOrEqual(3));
+    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
+
+    act(() => confirmCancellation?.());
+
+    await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
+      model: "deepseek-v4-flash",
+      references: [{
+        detail: "MARKDOWN - 32 Bytes",
+        kind: "reference",
+        rawPath: "C:\\Users\\tester\\new-api.md",
+        title: "new-api.md",
+        type: "tinyos.file",
+      }],
+      text: "Use the new API instead",
+    }));
+    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(1);
+    await waitFor(() => expect(screen.queryByLabelText("Queued inputs")).toBeNull());
   });
 
   it("deletes queued composer text before it is sent", async () => {
@@ -2951,6 +3088,7 @@ describe("ChatPage", () => {
         status: "running",
       }],
     });
+    await mockLatestTurnStatus(stores.chatStore, "running");
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const input = await screen.findByRole("textbox", { name: /message/i });
@@ -2972,6 +3110,7 @@ describe("ChatPage", () => {
         status: "running",
       }],
     });
+    await mockLatestTurnStatus(stores.chatStore, "running");
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const input = await screen.findByRole("textbox", { name: /message/i });
@@ -2997,6 +3136,7 @@ describe("ChatPage", () => {
     };
     const idleSession = { ...runningSession, status: "idle" as const };
     const stores = createStores({ sessions: [runningSession] });
+    await mockLatestTurnStatus(stores.chatStore, "running");
     stores.sessionStore.list = vi.fn()
       .mockResolvedValueOnce([runningSession])
       .mockResolvedValueOnce([idleSession])
@@ -3044,6 +3184,7 @@ describe("ChatPage", () => {
     };
     const idleSession = { ...runningSession, status: "idle" as const };
     const stores = createStores({ sessions: [runningSession] });
+    await mockLatestTurnStatus(stores.chatStore, "running");
     stores.sessionStore.list = vi.fn()
       .mockResolvedValueOnce([runningSession])
       .mockResolvedValueOnce([idleSession])
@@ -3082,6 +3223,7 @@ describe("ChatPage", () => {
       status: "running" as const,
     };
     const stores = createStores({ sessions: [runningSession] });
+    await mockLatestTurnStatus(stores.chatStore, "running");
     stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
       subscribed = listener;
       return () => undefined;
@@ -3110,6 +3252,7 @@ describe("ChatPage", () => {
       status: "running" as const,
     };
     const stores = createStores({ sessions: [runningSession] });
+    await mockLatestTurnStatus(stores.chatStore, "running");
     stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
       subscribed = listener;
       return () => undefined;
@@ -3141,9 +3284,11 @@ describe("ChatPage", () => {
     };
     const failedSession = { ...runningSession, status: "failed" as const };
     const stores = createStores({ sessions: [runningSession] });
+    await mockLatestTurnStatus(stores.chatStore, "running");
     stores.sessionStore.list = vi.fn()
       .mockResolvedValueOnce([runningSession])
-      .mockResolvedValueOnce([failedSession]);
+      .mockResolvedValueOnce([failedSession])
+      .mockResolvedValue([failedSession]);
     stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
       subscribed = listener;
       return () => undefined;
@@ -3216,6 +3361,7 @@ describe("ChatPage", () => {
       status: "running" as const,
     };
     const stores = createStores({ sessions: [runningSession] });
+    await mockLatestTurnStatus(stores.chatStore, "running");
     stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
       subscribed = listener;
       return () => undefined;

@@ -34,7 +34,7 @@ import {
   pauseQueuedInputs,
   resumeNextQueuedInput,
   submitComposerText,
-  type SubmitComposerTextResult,
+  updateInterruptStatus,
 } from "../../app-core/chat/chatInputState";
 import type { QueuedInput } from "../../app-core/chat/chatUiProjection";
 import {
@@ -202,7 +202,7 @@ function reduceLiveCanvasState(state: LiveCanvasState, action: LiveCanvasAction)
 
 type RecoveryAction = "continue" | "retry" | "restart";
 
-type QueuedComposerInput = QueuedInput & Pick<ChatInput, "model" | "references">;
+type QueuedComposerInput = QueuedInput & { turnInput: ChatInput };
 
 function shouldFrameBatchTimeline(timeline: ChatTimelineSnapshot): boolean {
   return timeline.turns[timeline.turns.length - 1]?.status === "running";
@@ -371,6 +371,9 @@ export function ChatPage({
   const sessionsRef = useRef<SessionSummary[]>([]);
   const queuedInputsRef = useRef<Map<string, QueuedComposerInput[]>>(new Map());
   const queuedInputSequence = useRef(0);
+  const interruptCancellationConfirmedInputIdsRef = useRef(new Set<string>());
+  const interruptDispatchingInputIdsRef = useRef(new Set<string>());
+  const interruptTerminalInputIdsRef = useRef(new Set<string>());
   const deleteDissolveTimers = useRef<number[]>([]);
   const lastCreateSessionSignal = useRef(createSessionSignal);
   const draftSessionCreatePromise = useRef<Promise<SessionSummary> | null>(null);
@@ -423,7 +426,9 @@ export function ChatPage({
       || turn.status === "awaiting_user"
     ))
     : undefined, [timeline, timelineLoaded]);
-  const sessionResponding = Boolean(activeTurn) || (sessionRunning && !emptyActiveSession);
+  const sessionResponding = timelineLoaded
+    ? Boolean(activeTurn) || (sessionRunning && optimisticMessages.length > 0)
+    : sessionRunning && !emptyActiveSession;
   const cancelCapability = tinyOsCapabilities.capabilities.agent.cancel;
   const capabilityTargetsActiveTurn = !tinyOsCapabilities.evaluatedTurnId
     || tinyOsCapabilities.evaluatedTurnId === activeTurn?.id;
@@ -1402,6 +1407,7 @@ export function ChatPage({
     files: ComposerFileReference[],
     pastedContent: PastedContent[],
     options: ComposerSendOptions,
+    runningAction: "interrupt" | "queue" = "queue",
   ) {
     const references = [
       ...files.map(nativeReferenceFromComposerFile),
@@ -1444,12 +1450,39 @@ export function ChatPage({
     }
     const queuedResult = submitComposerText({
       content: visibleText,
-      isRunning: isQueueableRunningSession(sendSession, emptyActiveSession),
+      isRunning: sendSession.id === activeSession?.id
+        ? sessionResponding
+        : isQueueableRunningSession(sendSession, emptyActiveSession),
       now: nextQueuedInputTimestamp(),
       queuedInputs: activeQueuedInputs,
+      runningAction,
     });
-    if (queuedResult.kind !== "send_message") {
-      handleQueuedComposerResult(sendSession.id, queuedResult, options, references);
+    if (queuedResult.kind === "queue_limit_reached") {
+      setQueueMessage("Already have 5 queued messages. Wait for processing or delete one before sending more.");
+      return;
+    }
+    const turnInput = createComposerChatInput(
+      queuedResult.kind === "send_message" ? queuedResult.content : queuedResult.input.content,
+      options,
+      references,
+    );
+    if (queuedResult.kind === "interrupt_input") {
+      if (!activeTurn || activeTurn.status === "awaiting_user") {
+        throw new Error("当前没有可以中断的 Agent Turn，请改用“排队为下一轮”。");
+      }
+      if (activeQueuedInputs.some((input) => (
+        input.mode === "interrupt" && (input.status === "queued" || input.status === "sent")
+      ))) {
+        throw new Error("已有一条插入消息正在等待新一轮开始。");
+      }
+      await handleInterruptComposerResult(sendSession.id, activeTurn.id, {
+        ...queuedResult.input,
+        turnInput,
+      });
+      return;
+    }
+    if (queuedResult.kind === "queue_input") {
+      handleQueuedComposerResult(sendSession.id, queuedResult.input, turnInput);
       return;
     }
     const optimisticSession = isDefaultSessionTitle(sendSession.title)
@@ -1460,11 +1493,7 @@ export function ChatPage({
       setSessions((current) => current.map((session) => session.id === sendSession.id ? optimisticSession : session));
       await sessionStore.rename(sendSession.id, optimisticSession.title);
     }
-    await dispatchTurn(sendSession.id, {
-      text: queuedResult.content,
-      ...(options.model ? { model: options.model } : {}),
-      ...(references.length ? { references } : {}),
-    }, "composer-send");
+    await dispatchTurn(sendSession.id, turnInput, "composer-send");
     await handleSessionStoreRefresh(optimisticSession);
   }
 
@@ -1556,22 +1585,58 @@ export function ChatPage({
 
   function handleQueuedComposerResult(
     sessionId: string,
-    result: Exclude<SubmitComposerTextResult, { kind: "send_message" }>,
-    options: ComposerSendOptions,
-    references: AgentInputReference[],
+    input: QueuedInput,
+    turnInput: ChatInput,
   ) {
-    if (result.kind === "queue_limit_reached") {
-      setQueueMessage("Already have 5 queued messages. Wait for processing or delete one before sending more.");
-      return;
-    }
     setQueueMessage("");
     updateQueuedInputsBySession((current) => {
       const next = new Map(current);
       next.set(sessionId, [...(next.get(sessionId) ?? []), {
-        ...result.input,
-        ...(options.model ? { model: options.model } : {}),
-        ...(references.length ? { references } : {}),
+        ...input,
+        turnInput,
       }]);
+      return next;
+    });
+  }
+
+  async function handleInterruptComposerResult(
+    sessionId: string,
+    turnId: string,
+    input: QueuedComposerInput,
+  ) {
+    setQueueMessage("");
+    updateQueuedInputsBySession((current) => {
+      const next = new Map(current);
+      next.set(sessionId, [...(next.get(sessionId) ?? []), input]);
+      return next;
+    });
+    const command = createTinyOsAgentCancelCommand({
+      sessionId,
+      source: { control: "composer-interrupt", surface: "chat" },
+      turnId,
+    });
+    try {
+      await chatStore.dispatch(command);
+      interruptCancellationConfirmedInputIdsRef.current.add(input.id);
+      await sendPendingInterruptInput(sessionId);
+    } catch (error) {
+      interruptCancellationConfirmedInputIdsRef.current.delete(input.id);
+      interruptTerminalInputIdsRef.current.delete(input.id);
+      updateInterruptForSession(sessionId, input.id, "failed");
+      throw error;
+    }
+  }
+
+  function updateInterruptForSession(
+    sessionId: string,
+    inputId: string,
+    status: "sent" | "failed",
+  ) {
+    updateQueuedInputsBySession((current) => {
+      const inputs = current.get(sessionId) ?? [];
+      if (!inputs.some((input) => input.id === inputId && input.mode === "interrupt")) return current;
+      const next = new Map(current);
+      next.set(sessionId, updateInterruptStatus(inputs, inputId, status) as QueuedComposerInput[]);
       return next;
     });
   }
@@ -1601,11 +1666,15 @@ export function ChatPage({
 
   function handleDeleteQueuedInput(sessionId: string, inputId: string) {
     setQueueMessage("");
+    removeQueuedInputForSession(sessionId, inputId);
+  }
+
+  function removeQueuedInputForSession(sessionId: string, inputId: string) {
     updateQueuedInputsBySession((current) => {
       const next = new Map(current);
       const remaining = deleteQueuedInput(next.get(sessionId) ?? [], inputId);
       if (remaining.length) {
-        next.set(sessionId, remaining);
+        next.set(sessionId, remaining as QueuedComposerInput[]);
       } else {
         next.delete(sessionId);
       }
@@ -1660,6 +1729,9 @@ export function ChatPage({
 
   async function handleQueueStateAfterChatEvent(sessionId: string, event: ChatEvent) {
     const nextSessions = await handleSessionStoreRefresh();
+    if (isTerminalAgentEvent(event) && await sendPendingInterruptInput(sessionId, true)) {
+      return;
+    }
     if (shouldPauseQueuedInputsForChatEvent(event)) {
       pauseQueuedInputsForSession(sessionId);
       return;
@@ -1672,6 +1744,39 @@ export function ChatPage({
       return;
     }
     await sendNextQueuedInput(sessionId, "normal_completion");
+  }
+
+  async function sendPendingInterruptInput(
+    sessionId: string,
+    terminalEventReceived = false,
+  ): Promise<boolean> {
+    const input = (queuedInputsRef.current.get(sessionId) ?? []).find((candidate) => (
+      candidate.mode === "interrupt" && (candidate.status === "queued" || candidate.status === "sent")
+    ));
+    if (!input) return false;
+    if (terminalEventReceived) {
+      interruptTerminalInputIdsRef.current.add(input.id);
+    }
+    if (!interruptCancellationConfirmedInputIdsRef.current.has(input.id)
+      || !interruptTerminalInputIdsRef.current.has(input.id)) {
+      return true;
+    }
+    if (interruptDispatchingInputIdsRef.current.has(input.id)) return true;
+    interruptDispatchingInputIdsRef.current.add(input.id);
+    updateInterruptForSession(sessionId, input.id, "sent");
+    try {
+      await dispatchTurn(sessionId, toChatInput(input), "interrupt-new-turn");
+      removeQueuedInputForSession(sessionId, input.id);
+      await handleSessionStoreRefresh();
+    } catch (error) {
+      updateInterruptForSession(sessionId, input.id, "failed");
+      setQueueMessage(`插入消息发送失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      interruptCancellationConfirmedInputIdsRef.current.delete(input.id);
+      interruptDispatchingInputIdsRef.current.delete(input.id);
+      interruptTerminalInputIdsRef.current.delete(input.id);
+    }
+    return true;
   }
 
   async function handleResumeQueuedInputs(sessionId: string) {
@@ -2213,7 +2318,8 @@ export function ChatPage({
           onSelectFiles={pickDesktopChatFiles}
           onValueChange={handleComposerDraftChange}
           onSendMessage={(message, files, pastedContent, options) => handleComposerSend(message, files, pastedContent, options)}
-            onStopResponding={() => activeSession && handleStopGeneration(activeSession, "chat")}
+          onInterruptMessage={(message, files, pastedContent, options) => handleComposerSend(message, files, pastedContent, options, "interrupt")}
+          onStopResponding={() => activeSession && handleStopGeneration(activeSession, "chat")}
           />
           {tinyOsDropError ? <p className="tinyos-composer-drop-error" role="alert">{tinyOsDropError}</p> : null}
         </div>
@@ -2533,6 +2639,10 @@ function shouldDispatchQueuedInputForChatEvent(event: ChatEvent): boolean {
   return event.type === "agent.event" && event.eventType === "agent.turn.completed";
 }
 
+function isTerminalAgentEvent(event: ChatEvent): boolean {
+  return event.type === "agent.event" && Boolean(event.eventType && TERMINAL_AGENT_EVENT_TYPES.has(event.eventType));
+}
+
 function shouldPauseQueuedInputsForChatEvent(event: ChatEvent): boolean {
   return event.type === "interrupted"
     || (event.type === "agent.event" && (
@@ -2608,10 +2718,18 @@ function isQueueableRunningSession(session: SessionSummary, emptyActiveSession: 
 }
 
 function toChatInput(input: QueuedComposerInput): ChatInput {
+  return input.turnInput;
+}
+
+function createComposerChatInput(
+  text: string,
+  options: ComposerSendOptions,
+  references: AgentInputReference[],
+): ChatInput {
   return {
-    text: input.content,
-    ...(input.model ? { model: input.model } : {}),
-    ...(input.references?.length ? { references: input.references } : {}),
+    text,
+    ...(options.model ? { model: options.model } : {}),
+    ...(references.length ? { references } : {}),
   };
 }
 
@@ -2825,12 +2943,13 @@ function QueuedInputsPanel({
   onResume: () => void;
 }) {
   const hasPausedInput = inputs.some((input) => input.status === "paused");
+  const pendingCount = inputs.filter((input) => input.status === "queued" || input.status === "paused").length;
   return (
-    <section aria-label="Queued inputs" className="react-queued-inputs">
+    <section aria-label="Queued inputs" aria-live="polite" className="react-queued-inputs">
       <div className="react-queued-inputs__header">
-        <h2>Queued inputs</h2>
+        <h2>运行中输入</h2>
         <div>
-          <span>{inputs.length}/{MAX_QUEUED_INPUTS}</span>
+          <span>待处理 {pendingCount}/{MAX_QUEUED_INPUTS}</span>
           {hasPausedInput ? <button type="button" onClick={onResume}>Resume queue</button> : null}
         </div>
       </div>
@@ -2839,8 +2958,8 @@ function QueuedInputsPanel({
           <li className="react-queued-input" data-status={input.status} key={input.id}>
             <span>{queuedInputStatusLabel(input)}</span>
             <p>{input.content}</p>
-            {input.status === "queued" || input.status === "paused" ? (
-              <button type="button" onClick={() => onDelete(input.id)}>Delete queued input</button>
+            {(input.mode === "queued" && (input.status === "queued" || input.status === "paused")) || (input.mode === "interrupt" && input.status !== "queued") ? (
+              <button type="button" onClick={() => onDelete(input.id)}>{input.mode === "interrupt" ? "清除插入状态" : "Delete queued input"}</button>
             ) : null}
           </li>
         ))}
@@ -2850,13 +2969,23 @@ function QueuedInputsPanel({
 }
 
 function queuedInputStatusLabel(input: QueuedInput): string {
+  if (input.mode === "interrupt") {
+    switch (input.status) {
+      case "sent":
+        return "正在发送为新一轮";
+      case "failed":
+        return "插入失败";
+      default:
+        return "正在中断当前回复";
+    }
+  }
   switch (input.status) {
-    case "guided":
-      return "Guided";
     case "paused":
       return "Paused";
     case "sent":
       return "Sent";
+    case "failed":
+      return "Failed";
     default:
       return "Waiting";
   }

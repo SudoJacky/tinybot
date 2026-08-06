@@ -5582,6 +5582,43 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 6px;
 }
 
+.claude-ai-input__running-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.claude-ai-input__running-action {
+  min-height: 34px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 999px;
+  background: var(--color-surface-card);
+  padding: 0 12px;
+  color: var(--color-body);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.claude-ai-input__running-action:hover,
+.claude-ai-input__running-action:focus-visible {
+  border-color: var(--color-primary);
+  outline: none;
+}
+
+.claude-ai-input__running-action--primary {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface-card));
+  color: var(--color-primary-active);
+}
+
+.claude-ai-input__running-action:disabled {
+  border-color: var(--color-hairline);
+  background: var(--color-surface-card);
+  color: var(--color-muted-soft);
+}
+
 .claude-ai-input__icon-button,
 .claude-ai-input__send {
   display: inline-grid;
@@ -9595,6 +9632,19 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 @media (max-width: 680px) {
+  .claude-ai-input__toolbar {
+    align-items: flex-end;
+  }
+
+  .claude-ai-input__running-actions {
+    flex-wrap: wrap;
+  }
+
+  .claude-ai-input__running-action {
+    padding: 0 9px;
+    font-size: 11px;
+  }
+
   .react-chat-surface[data-empty-session="true"] .react-conversation-view {
     padding: 24px 18px;
   }

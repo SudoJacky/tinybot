@@ -4,6 +4,7 @@ export const MAX_QUEUED_INPUTS = 5;
 
 export type SubmitComposerTextInput = {
   isRunning: boolean;
+  runningAction?: "interrupt" | "queue";
   content: string;
   queuedInputs: QueuedInput[];
   now: string;
@@ -12,6 +13,10 @@ export type SubmitComposerTextInput = {
 export type SubmitComposerTextResult =
   | {
       kind: "queue_input";
+      input: QueuedInput;
+    }
+  | {
+      kind: "interrupt_input";
       input: QueuedInput;
     }
   | {
@@ -27,11 +32,26 @@ export type SubmitComposerTextResult =
 export function submitComposerText(input: SubmitComposerTextInput): SubmitComposerTextResult {
   const content = input.content.trim();
   if (input.isRunning) {
-    if (input.queuedInputs.length >= MAX_QUEUED_INPUTS) {
+    const pendingCount = input.queuedInputs.filter((queued) => (
+      queued.status === "queued" || queued.status === "paused"
+    )).length;
+    if (pendingCount >= MAX_QUEUED_INPUTS) {
       return {
         kind: "queue_limit_reached",
         maxQueuedInputs: MAX_QUEUED_INPUTS,
         message: "已有 5 条排队消息，请等待处理或删除一条后再发送。",
+      };
+    }
+    if (input.runningAction === "interrupt") {
+      return {
+        kind: "interrupt_input",
+        input: {
+          id: `interrupt-${input.now}`,
+          mode: "interrupt",
+          content,
+          createdAt: input.now,
+          status: "queued",
+        },
       };
     }
     return {
@@ -52,7 +72,13 @@ export function submitComposerText(input: SubmitComposerTextInput): SubmitCompos
 }
 
 export function pauseQueuedInputs(inputs: QueuedInput[]): QueuedInput[] {
-  return inputs.map((input) => input.status === "sent" || input.status === "guided" ? input : { ...input, status: "paused" });
+  return inputs.map((input) => (
+    input.mode === "interrupt"
+      || input.status === "sent"
+      || input.status === "failed"
+      ? input
+      : { ...input, status: "paused" }
+  ));
 }
 
 export function resumeNextQueuedInput(inputs: QueuedInput[]): { nextInput?: QueuedInput; remainingInputs: QueuedInput[] } {
@@ -78,5 +104,17 @@ export function dispatchNextQueuedInput(inputs: QueuedInput[]): { nextInput?: Qu
 }
 
 export function deleteQueuedInput(inputs: QueuedInput[], inputId: string): QueuedInput[] {
-  return inputs.filter((input) => input.id !== inputId || input.status === "sent" || input.status === "guided");
+  return inputs.filter((input) => input.id !== inputId || (input.mode === "queued" && input.status === "sent"));
+}
+
+export function updateInterruptStatus(
+  inputs: QueuedInput[],
+  inputId: string,
+  status: "sent" | "failed",
+): QueuedInput[] {
+  return inputs.map((input) => {
+    if (input.id !== inputId || input.mode !== "interrupt") return input;
+    if (status === "sent" && input.status !== "queued") return input;
+    return { ...input, status };
+  });
 }
