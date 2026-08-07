@@ -49,6 +49,8 @@ fn outcome_summary(outcome: &NativeToolOutcome) -> String {
     let label = match outcome.effect.as_str() {
         "unchanged" => "No change",
         "stale_state" => "State changed",
+        "in_progress" => "Still running",
+        "partial_result" => "Partial result",
         "alternative_required" => "Alternative action required",
         "user_action_required" => "User action required",
         "failed" => "Tool failed",

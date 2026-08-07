@@ -176,7 +176,10 @@ observed effect, whether an action ran, the reason, retry disposition, and an
 optional next tool call. A central projection derives model recovery guidance,
 the envelope summary, and UI metadata from those facts. Malformed outcomes fail
 projection rather than reaching the model. Ordinary successful results retain
-the existing generic projection.
+the existing generic projection. Web adapters report navigation and page-state
+effects; Shell adapters report retained processes, cancellation, timeout,
+non-zero exit, failure, and truncated output; MCP adapters report configuration,
+allowlist, transport, and MCP `isError` results through the same projection.
 
 `runtime.metrics` exposes bounded process-local counters, duration aggregates,
 and gauges for turns, providers, tools, persistence, cancellation, MCP,
