@@ -123,6 +123,8 @@ pub(crate) struct BrowserPlatformSemanticNode {
     pub selector: String,
     pub role: String,
     pub name: String,
+    pub href: Option<String>,
+    pub opens_new_window: bool,
     pub frame: String,
     pub x: f64,
     pub y: f64,

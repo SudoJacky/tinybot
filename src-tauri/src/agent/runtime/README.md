@@ -169,6 +169,14 @@ add `providerAttemptId`, tool events retain `itemId` and `toolCallId`, and
 internal Worker RPC operations derive request IDs under the same root trace.
 Persisted tool envelopes use the configured secret-redaction path.
 
+Special tool results use the shared `tool_outcome` envelope projection instead
+of relying on tool-specific prose hidden in raw JSON. The outer envelope status
+continues to report whether dispatch completed, while the outcome records the
+observed effect, whether an action ran, the reason, retry disposition, recovery
+guidance, and an optional next tool call. The same outcome is included in
+`modelContent`; malformed outcomes without actionable guidance fail projection.
+Ordinary successful results retain the existing generic projection.
+
 `runtime.metrics` exposes bounded process-local counters, duration aggregates,
 and gauges for turns, providers, tools, persistence, cancellation, MCP,
 processes, recovery, and memory. Metric names come from fixed runtime enums.

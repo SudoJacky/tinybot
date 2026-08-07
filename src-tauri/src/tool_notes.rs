@@ -17,6 +17,7 @@ Tool names, descriptions, and input schemas are supplied automatically. Use this
 - `web.read` reads bounded, untrusted page text and the current interaction targets. Pass the previous `snapshotId` to get a compact unchanged response when possible. If the result includes `nextTextOffset`, pass both that `snapshotId` and `nextTextOffset` as `textOffset` to continue reading without repeating targets. A changed page resets the offset and returns its new first chunk.
 - `web.act` changes the current page and requires the latest `snapshotId`. If an action is rejected as stale, use the returned snapshot and retry only if the action is still appropriate.
 - Prefer semantic `targetRef` values from the latest snapshot over screen coordinates, and treat both `snapshotId` and `targetRef` as opaque values.
+- Link targets may include `href` and `opensNewWindow`. If `web.act` returns `navigation_required`, call `web.open` once with `suggestedUrl` instead of clicking the target again.
 - Use `web.open` for URL navigation instead of inventing a navigation action for `web.act`.
 - Hand control to the user when login credentials, verification codes, CAPTCHA, payment details, file pickers, or another protected step requires human input. Only the user can hand browser control back to the Agent.
 "#;

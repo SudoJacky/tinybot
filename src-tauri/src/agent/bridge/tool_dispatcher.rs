@@ -1,6 +1,7 @@
 use crate::agent::runtime::{
     AgentTurnContext, NativeAgentCancellationContext, NativeAgentRuntimeServices,
-    NativeAgentToolDispatcher, NativeAgentToolResult, PreparedToolCall,
+    NativeAgentToolDispatcher, NativeAgentToolResult, NativeToolNextAction, NativeToolOutcome,
+    NativeToolRetry, PreparedToolCall,
 };
 use crate::collaboration::subagents::SubagentThreadManager;
 use crate::protocol::{WorkerRequest, WorkerRequestCancellation};
@@ -238,14 +239,7 @@ impl NativeAgentToolExecutorDispatcher {
                 format!("native browser tool result serialization failed: {error}")
             })?;
             web::strip_browser_capture_data(&mut raw);
-            let summary = web::result_summary(&tool_call.name, &raw);
-            let model_content = raw.to_string();
-            Ok(NativeAgentToolResult::generic_success_with_model_content(
-                tool_call,
-                summary,
-                model_content,
-                raw,
-            ))
+            Ok(native_web_tool_result(tool_call, raw))
         }))
     }
 
@@ -333,6 +327,126 @@ impl NativeAgentToolExecutorDispatcher {
             )
         }))
     }
+}
+
+fn native_web_tool_result(
+    tool_call: &PreparedToolCall,
+    raw: serde_json::Value,
+) -> NativeAgentToolResult {
+    let summary = web::result_summary(&tool_call.name, &raw);
+    if let Some(outcome) = native_web_tool_outcome(&tool_call.name, &raw) {
+        return NativeAgentToolResult::success_with_outcome(tool_call, summary, raw, outcome);
+    }
+    let model_content = raw.to_string();
+    NativeAgentToolResult::generic_success_with_model_content(
+        tool_call,
+        summary,
+        model_content,
+        raw,
+    )
+}
+
+fn native_web_tool_outcome(tool_name: &str, raw: &serde_json::Value) -> Option<NativeToolOutcome> {
+    let status = raw.get("status").and_then(serde_json::Value::as_str)?;
+    let action_executed = raw
+        .get("actionExecuted")
+        .and_then(serde_json::Value::as_bool);
+    let result_reason_code = || {
+        raw.get("reasonCode")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+    };
+    let result_reason = || {
+        raw.get("reason")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+    };
+
+    let outcome = match status {
+        "completed" => return None,
+        "unchanged" => NativeToolOutcome {
+            effect: "unchanged".to_string(),
+            action_executed,
+            reason_code: "page_unchanged".to_string(),
+            reason: "The page has not changed since the supplied snapshot.".to_string(),
+            retry: NativeToolRetry::DoNotRetry,
+            guidance: "Reuse the prior snapshot. Do not call web.read again with the same snapshotId until the page may have changed.".to_string(),
+            next_action: None,
+        },
+        "stale_snapshot" => {
+            let guidance = if tool_name == "web.read" {
+                "The page changed while paginated text was being read. Use the returned content from offset 0 and continue with the returned snapshotId; do not reuse requestedSnapshotId."
+            } else {
+                "The action was not executed because the page snapshot is stale. Reassess the target in the returned snapshot before issuing a new web.act."
+            };
+            NativeToolOutcome {
+                effect: "stale_state".to_string(),
+                action_executed: Some(false),
+                reason_code: "snapshot_stale".to_string(),
+                reason: "The browser page changed after the supplied snapshot was captured."
+                    .to_string(),
+                retry: NativeToolRetry::RetryWithUpdatedState,
+                guidance: guidance.to_string(),
+                next_action: None,
+            }
+        }
+        "navigation_required" => {
+            let next_action = raw
+                .get("suggestedUrl")
+                .and_then(serde_json::Value::as_str)
+                .map(|url| NativeToolNextAction {
+                    tool: "web.open".to_string(),
+                    arguments: serde_json::json!({ "url": url }),
+                });
+            NativeToolOutcome {
+                effect: "alternative_required".to_string(),
+                action_executed: Some(false),
+                reason_code: result_reason_code()
+                    .unwrap_or_else(|| "navigation_required".to_string()),
+                reason: result_reason().unwrap_or_else(|| {
+                    "The requested target cannot be activated in the current browser tab."
+                        .to_string()
+                }),
+                retry: NativeToolRetry::DoNotRetry,
+                guidance: "Do not repeat the click. Use web.open with suggestedUrl instead."
+                    .to_string(),
+                next_action,
+            }
+        }
+        "user_required" => NativeToolOutcome {
+            effect: "user_action_required".to_string(),
+            action_executed: Some(false),
+            reason_code: result_reason_code().unwrap_or_else(|| "user_required".to_string()),
+            reason: result_reason().unwrap_or_else(|| {
+                "The browser requires direct user interaction before Agent work can continue."
+                    .to_string()
+            }),
+            retry: NativeToolRetry::AfterUserAction,
+            guidance: "Stop automated browser actions and ask the user to complete the required interaction. Resume only after the user confirms it is complete.".to_string(),
+            next_action: None,
+        },
+        "failed" | "cancelled" | "timed_out" => NativeToolOutcome {
+            effect: status.to_string(),
+            action_executed: Some(false),
+            reason_code: result_reason_code().unwrap_or_else(|| status.to_string()),
+            reason: result_reason()
+                .unwrap_or_else(|| format!("The browser action returned {status}.")),
+            retry: NativeToolRetry::Replan,
+            guidance: "Do not assume the page changed and do not retry automatically. Inspect the reason and current snapshot, then choose a new action.".to_string(),
+            next_action: None,
+        },
+        other => NativeToolOutcome {
+            effect: "unrecognized".to_string(),
+            action_executed,
+            reason_code: result_reason_code().unwrap_or_else(|| other.to_string()),
+            reason: result_reason()
+                .unwrap_or_else(|| format!("The web tool returned the special status `{other}`.")),
+            retry: NativeToolRetry::Replan,
+            guidance: "Treat this result as no confirmed progress. Inspect the result and replan before issuing another browser action.".to_string(),
+            next_action: None,
+        },
+    };
+    Some(outcome)
 }
 
 pub(crate) fn native_agent_services_with_tool_executor(

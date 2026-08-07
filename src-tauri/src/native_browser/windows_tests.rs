@@ -67,6 +67,9 @@ fn injected_scripts_are_narrow_and_privacy_bounded() {
     assert!(OBSERVE_SCRIPT.contains("inputType === 'password'"));
     assert!(OBSERVE_SCRIPT.contains("cc-|one-time-code"));
     assert!(OBSERVE_SCRIPT.contains("sensitive ? ''"));
+    assert!(OBSERVE_SCRIPT.contains("element.closest?.('a[href]')"));
+    assert!(OBSERVE_SCRIPT.contains("anchor.target"));
+    assert!(OBSERVE_SCRIPT.contains("opensNewWindow"));
 }
 
 #[test]
@@ -79,4 +82,20 @@ fn page_text_script_returns_only_the_requested_bounded_chunk() {
     assert!(script.contains("nextTextOffset"));
     assert!(script.contains("sourceTruncated"));
     assert!(script.contains("pageTextHash"));
+}
+
+#[test]
+fn observed_link_urls_are_absolute_and_embeddable() {
+    assert_eq!(
+        safe_observed_href(Some("https://agentskills.io/specification".to_string())),
+        Some("https://agentskills.io/specification".to_string())
+    );
+    assert_eq!(
+        safe_observed_href(Some("javascript:alert(1)".to_string())),
+        None
+    );
+    assert_eq!(
+        safe_observed_href(Some("mailto:test@example.com".to_string())),
+        None
+    );
 }

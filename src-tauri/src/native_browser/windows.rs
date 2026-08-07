@@ -131,10 +131,15 @@ const OBSERVE_SCRIPT: &str = r#"
     const protectedReason = inputType === 'file' ? 'native_file_picker' : captchaSignal ? 'captcha' : null;
     const explicitName = element.getAttribute('aria-label') || element.getAttribute('title') || '';
     const textName = sensitive ? '' : String(element.innerText || element.getAttribute('placeholder') || '').trim();
+    const anchor = element.closest?.('a[href]') || null;
+    const href = anchor ? String(anchor.href || '') : '';
+    const opensNewWindow = Boolean(anchor && String(anchor.target || '').toLowerCase() === '_blank');
     nodes.push({
       selector: cssPath(element),
       role: element.getAttribute('role') || element.localName || 'element',
       name: String(explicitName || textName).slice(0, 160),
+      href: href || null,
+      opensNewWindow,
       frame: window === window.top ? 'top' : 'child',
       x: rect.x,
       y: rect.y,
@@ -1320,6 +1325,8 @@ struct ObservedNode {
     selector: String,
     role: String,
     name: String,
+    href: Option<String>,
+    opens_new_window: bool,
     frame: String,
     x: f64,
     y: f64,
@@ -1333,10 +1340,13 @@ struct ObservedNode {
 
 impl From<ObservedNode> for BrowserPlatformSemanticNode {
     fn from(value: ObservedNode) -> Self {
+        let href = safe_observed_href(value.href);
         Self {
             selector: value.selector,
             role: value.role,
             name: value.name,
+            opens_new_window: value.opens_new_window && href.is_some(),
+            href,
             frame: value.frame,
             x: value.x,
             y: value.y,
@@ -1348,6 +1358,13 @@ impl From<ObservedNode> for BrowserPlatformSemanticNode {
             protected_reason: value.protected_reason,
         }
     }
+}
+
+fn safe_observed_href(value: Option<String>) -> Option<String> {
+    value
+        .and_then(|href| url::Url::parse(&href).ok())
+        .filter(|href| navigation_policy(href) == BrowserNavigationPolicy::Embedded)
+        .map(|href| href.to_string())
 }
 
 #[cfg(test)]

@@ -24,6 +24,7 @@ struct FakeAdapter {
     observe_completed: std::sync::atomic::AtomicU64,
     protected_semantic: std::sync::atomic::AtomicBool,
     sensitive_semantic: std::sync::atomic::AtomicBool,
+    new_window_semantic: std::sync::atomic::AtomicBool,
     page_text: Mutex<Option<String>>,
     page_text_revision: std::sync::atomic::AtomicU64,
     fail_create: std::sync::atomic::AtomicBool,
@@ -177,11 +178,22 @@ impl BrowserRuntimeAdapter for FakeAdapter {
                 .then(|| self.page_text_revision())
                 .unwrap_or_default(),
             semantic_nodes: if semantic {
+                let new_window_semantic = self
+                    .new_window_semantic
+                    .load(std::sync::atomic::Ordering::Relaxed);
                 vec![
                     BrowserPlatformSemanticNode {
                         selector: "#submit".to_string(),
-                        role: "button".to_string(),
-                        name: "Submit".to_string(),
+                        role: if new_window_semantic { "a" } else { "button" }.to_string(),
+                        name: if new_window_semantic {
+                            "Agent Skills specification"
+                        } else {
+                            "Submit"
+                        }
+                        .to_string(),
+                        href: new_window_semantic
+                            .then(|| "https://agentskills.io/specification".to_string()),
+                        opens_new_window: new_window_semantic,
                         frame: "top".to_string(),
                         x: 10.0,
                         y: 20.0,
@@ -203,6 +215,8 @@ impl BrowserRuntimeAdapter for FakeAdapter {
                         selector: "#offscreen".to_string(),
                         role: "button".to_string(),
                         name: "Offscreen".to_string(),
+                        href: None,
+                        opens_new_window: false,
                         frame: "top".to_string(),
                         x: 900.0,
                         y: 20.0,
@@ -217,6 +231,8 @@ impl BrowserRuntimeAdapter for FakeAdapter {
                         selector: "#unnamed".to_string(),
                         role: "button".to_string(),
                         name: String::new(),
+                        href: None,
+                        opens_new_window: false,
                         frame: "top".to_string(),
                         x: 100.0,
                         y: 20.0,
@@ -690,6 +706,53 @@ async fn high_level_web_tools_refresh_and_reject_stale_actions() {
         .unwrap_err();
     assert_eq!(rejected, AGENT_SNAPSHOT_STALE);
     assert_eq!(adapter.interactions.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn high_level_web_act_redirects_new_window_links_to_web_open() {
+    let adapter = Arc::new(FakeAdapter::default());
+    adapter
+        .new_window_semantic
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    let manager = manager(adapter.clone());
+    let first = crate::tools::web::dispatch_web_read(
+        &manager,
+        "chat-new-window-link",
+        serde_json::json!({}),
+    )
+    .await
+    .unwrap();
+    let snapshot_id = first["snapshotId"].as_str().unwrap();
+    let target = &first["snapshot"]["targets"][0];
+
+    assert_eq!(target["href"], "https://agentskills.io/specification");
+    assert_eq!(target["opensNewWindow"], true);
+
+    let result = crate::tools::web::dispatch_web_act(
+        &manager,
+        "chat-new-window-link",
+        None,
+        serde_json::json!({
+            "commandId": "open-new-window-link",
+            "snapshotId": snapshot_id,
+            "action": {
+                "type": "clickTarget",
+                "targetRef": target["targetRef"]
+            }
+        }),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(result["status"], "navigation_required");
+    assert_eq!(result["actionExecuted"], false);
+    assert_eq!(result["reasonCode"], "target_opens_new_window");
+    assert_eq!(
+        result["suggestedUrl"],
+        "https://agentskills.io/specification"
+    );
+    assert_eq!(result["snapshotId"], snapshot_id);
+    assert!(adapter.interactions.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

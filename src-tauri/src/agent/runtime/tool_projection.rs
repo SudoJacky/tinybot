@@ -174,6 +174,7 @@ fn normalize_tool_result_for_context(
             "tool result envelope has unsupported status `{status}`"
         ));
     }
+    validate_tool_outcome(&result.envelope)?;
     let summary = required_envelope_string(&result.envelope, "summary")?.to_string();
     let mut model_content = required_envelope_string(&result.envelope, "modelContent")?.to_string();
     let secrets = config_redaction_values(&context.config_snapshot);
@@ -240,6 +241,71 @@ fn normalize_tool_result_for_context(
     }
     result.content = Value::String(model_content);
     Ok(result)
+}
+
+fn validate_tool_outcome(envelope: &NativeToolResultEnvelope) -> Result<(), String> {
+    let Some(structured) = envelope.get("structured") else {
+        return Ok(());
+    };
+    if structured.get("kind").and_then(Value::as_str) != Some("tool_outcome") {
+        return Ok(());
+    }
+    let outcome = structured
+        .get("outcome")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "field `structured.outcome` must be an object".to_string())?;
+    for field in ["effect", "reasonCode", "reason", "retry", "guidance"] {
+        if outcome
+            .get(field)
+            .and_then(Value::as_str)
+            .is_none_or(|value| value.trim().is_empty())
+        {
+            return Err(format!(
+                "field `structured.outcome.{field}` must be a non-empty string"
+            ));
+        }
+    }
+    let retry = outcome
+        .get("retry")
+        .and_then(Value::as_str)
+        .expect("validated tool outcome retry must be a string");
+    if !matches!(
+        retry,
+        "do_not_retry" | "retry_with_updated_state" | "after_user_action" | "replan"
+    ) {
+        return Err(format!(
+            "field `structured.outcome.retry` has unsupported value `{retry}`"
+        ));
+    }
+    if outcome
+        .get("actionExecuted")
+        .is_some_and(|value| !value.is_boolean())
+    {
+        return Err("field `structured.outcome.actionExecuted` must be a boolean".to_string());
+    }
+    if let Some(next_action) = outcome.get("nextAction") {
+        let next_action = next_action
+            .as_object()
+            .ok_or_else(|| "field `structured.outcome.nextAction` must be an object".to_string())?;
+        if next_action
+            .get("tool")
+            .and_then(Value::as_str)
+            .is_none_or(|value| value.trim().is_empty())
+        {
+            return Err(
+                "field `structured.outcome.nextAction.tool` must be a non-empty string".to_string(),
+            );
+        }
+        if next_action
+            .get("arguments")
+            .is_none_or(|value| !value.is_object())
+        {
+            return Err(
+                "field `structured.outcome.nextAction.arguments` must be an object".to_string(),
+            );
+        }
+    }
+    Ok(())
 }
 
 fn required_envelope_string<'a>(
@@ -431,5 +497,50 @@ mod tests {
         let completed = &state.completed_tool_results[0];
         assert!(completed.get("summary").is_none());
         assert_eq!(completed["envelope"]["summary"], "README");
+    }
+
+    #[test]
+    fn commit_tool_observation_rejects_tool_outcome_without_guidance() {
+        let context = AgentTurnContext::from_spec(
+            json!({
+                "turnId": "turn-malformed-tool-outcome",
+                "sessionId": "session-malformed-tool-outcome",
+                "messages": [{ "role": "user", "content": "use the browser" }]
+            }),
+            json!({}),
+        );
+        let mut state = AgentTurnState::new(&context, None).expect("state should initialize");
+        let tool_call = NativeAgentToolCall {
+            id: "call-malformed-outcome".to_string(),
+            name: "web.act".to_string(),
+            arguments_json: r#"{"snapshotId":"snapshot-1"}"#.to_string(),
+            result: Value::Null,
+        };
+        let outcome = super::super::NativeToolOutcome {
+            effect: "unchanged".to_string(),
+            action_executed: Some(false),
+            reason_code: "page_unchanged".to_string(),
+            reason: "The page did not change.".to_string(),
+            retry: super::super::NativeToolRetry::DoNotRetry,
+            guidance: "Use another action.".to_string(),
+            next_action: None,
+        };
+        let mut result = NativeAgentToolResult::success_with_outcome(
+            &tool_call,
+            "Page unchanged".to_string(),
+            json!({ "status": "unchanged" }),
+            outcome,
+        );
+        result.envelope["structured"]["outcome"]
+            .as_object_mut()
+            .expect("test outcome should be an object")
+            .remove("guidance");
+
+        let error = commit_tool_observation(&context, &mut state, 0, tool_call, result)
+            .expect_err("tool outcomes without guidance must fail fast");
+
+        assert!(error.contains("structured.outcome.guidance"));
+        assert_eq!(state.history.messages().len(), 1);
+        assert!(state.completed_tool_results.is_empty());
     }
 }

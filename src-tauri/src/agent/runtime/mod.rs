@@ -337,6 +337,36 @@ pub struct NativeAgentToolResult {
     pub envelope: NativeToolResultEnvelope,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NativeToolOutcome {
+    pub effect: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action_executed: Option<bool>,
+    pub reason_code: String,
+    pub reason: String,
+    pub retry: NativeToolRetry,
+    pub guidance: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_action: Option<NativeToolNextAction>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NativeToolNextAction {
+    pub tool: String,
+    pub arguments: Value,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum NativeToolRetry {
+    DoNotRetry,
+    RetryWithUpdatedState,
+    AfterUserAction,
+    Replan,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(transparent)]
 pub struct NativeToolResultEnvelope {
