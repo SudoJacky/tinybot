@@ -3,7 +3,6 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   buildCustomProviderPatch,
   buildProviderConfigurePatch,
-  buildProviderDefaultLlmPatch,
   buildProviderModelsPatch,
   buildProviderModelsSettings,
   type ProviderModelFetchInput,
@@ -12,6 +11,7 @@ import {
   type ProviderModelItem,
   type ProviderModelsSettingsData,
 } from "../../app-core/settings/providerModelsSettings";
+import { readCurrentChatModel, writeCurrentChatModel } from "../../app-core/chat/chatModelPreference";
 import type { SettingsStore } from "../services";
 import { SettingsSaveStatus, type SettingsSaveState } from "./SettingsSaveStatus";
 import { SettingsSheet } from "./SettingsSheet";
@@ -84,14 +84,11 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
         <div>
           <span className="react-settings-eyebrow">AI connections</span>
           <h2 id="provider-models-title">Provider & Models</h2>
-          <p>Choose the model Tinybot uses by default, then manage the connections that make it available.</p>
+          <p>Manage the current model and the provider connections that make models available.</p>
         </div>
       </div>
 
-      <DefaultLlmPanel
-        data={data}
-        onSave={(patch) => savePatch(patch)}
-      />
+      <DefaultLlmPanel data={data} />
 
       <SettingsSaveStatus message={saveStatus} state={saveState} />
 
@@ -163,20 +160,22 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
 
 function DefaultLlmPanel({
   data,
-  onSave,
 }: {
   data: ProviderModelsSettingsData;
-  onSave: (patch: unknown) => Promise<void>;
 }) {
-  const initialProfileId = data.activeProfileId
+  const savedCurrentModel = readCurrentChatModel();
+  const initialProviderFromCurrentModel = data.providers.find((provider) => (
+    provider.models.some((model) => model.id === savedCurrentModel)
+  ));
+  const initialProfileId = initialProviderFromCurrentModel?.profileId ?? data.activeProfileId
     ?? data.providers.find((provider) => provider.configured)?.profileId
     ?? data.providers[0]?.profileId
     ?? "";
   const initialProvider = data.providers.find((provider) => provider.profileId === initialProfileId) ?? data.providers[0];
   const initialModelOptions = initialProvider?.models ?? [];
-  const initialModel = data.agentDefaultModel
-    && initialModelOptions.some((model) => model.id === data.agentDefaultModel)
-    ? data.agentDefaultModel
+  const initialModel = savedCurrentModel
+    && initialModelOptions.some((model) => model.id === savedCurrentModel)
+    ? savedCurrentModel
     : initialProvider?.defaultModel ?? initialModelOptions[0]?.id ?? "";
   const [profileId, setProfileId] = useState(initialProfileId);
   const selectedProvider = data.providers.find((provider) => provider.profileId === profileId) ?? data.providers[0];
@@ -199,20 +198,20 @@ function DefaultLlmPanel({
     }
   }, [data.providers, model, profileId]);
 
-  const dirty = profileId !== (data.activeProfileId ?? "") || model !== (data.agentDefaultModel ?? "");
+  const dirty = model !== savedCurrentModel;
   const canSave = Boolean(profileId && model && dirty && !saving);
   const normalizedModelSearch = modelSearch.trim().toLocaleLowerCase();
   const filteredModelOptions = useMemo(() => normalizedModelSearch
     ? modelOptions.filter((option) => `${option.label} ${option.id}`.toLocaleLowerCase().includes(normalizedModelSearch))
     : modelOptions, [modelOptions, normalizedModelSearch]);
 
-  async function saveDefaultLlm(onSaved: () => void) {
+  async function saveCurrentModel(onSaved: () => void) {
     if (!canSave) {
       return;
     }
     setSaving(true);
     try {
-      await onSave(buildProviderDefaultLlmPatch({ profileId, model }));
+      writeCurrentChatModel(model);
       onSaved();
     } finally {
       setSaving(false);
@@ -230,9 +229,9 @@ function DefaultLlmPanel({
     <section className="react-default-llm-panel" aria-labelledby="default-llm-title">
       <header>
         <div>
-          <span className="react-settings-eyebrow">Current default</span>
-          <h3 id="default-llm-title">Default model</h3>
-          <p>Used for new chats and agent turns unless a conversation overrides it.</p>
+          <span className="react-settings-eyebrow">Recently used</span>
+          <h3 id="default-llm-title">Current model</h3>
+          <p>New conversations start with this model. Existing conversations keep their own selection.</p>
         </div>
       </header>
       <div className="react-default-llm-summary">
@@ -262,11 +261,11 @@ function DefaultLlmPanel({
       </div>
       {editing ? (
         <SettingsSheet
-          ariaLabel="Change default model"
+          ariaLabel="Change current model"
           closeLabel="Close model selection"
-          description="Choose a provider and model for new chats and agent turns."
+          description="Choose the model new conversations should start with."
           onClose={closeEditor}
-          title="Change default model"
+          title="Change current model"
           wide
         >
           {(requestClose) => (
@@ -345,15 +344,15 @@ function DefaultLlmPanel({
                 </section>
               </div>
               <footer>
-                <span>{data.revision ? `Config revision ${data.revision}` : "Changes apply to new agent turns."}</span>
+                <span>Changes apply to new conversations. Existing conversations keep their model.</span>
                 <div>
                   <button data-press-feedback="true" type="button" onClick={requestClose}>Cancel</button>
                   <button
                     type="button"
-                    aria-label="Save default LLM"
+                    aria-label="Save current model"
                     data-press-feedback="true"
                     disabled={!canSave}
-                    onClick={() => saveDefaultLlm(requestClose)}
+                    onClick={() => saveCurrentModel(requestClose)}
                   >
                     {saving
                       ? <Loader2 aria-hidden="true" className="react-settings-spinner" size={15} />
@@ -403,7 +402,7 @@ function ProviderPresetRow({
         </div>
       </div>
       <div className="react-provider-card__model">
-        <small>Default model</small>
+        <small>Provider fallback</small>
         <strong>{provider.defaultModel ?? "Not selected"}</strong>
         <span className="react-provider-card__models">{provider.modelCount ? `${provider.modelCount} models` : "No models"}</span>
       </div>
@@ -726,8 +725,8 @@ function CustomProviderDialog({
             <input aria-label="Custom API key" autoComplete="off" type="password" value={apiKey} onChange={(event) => setApiKey(event.currentTarget.value)} />
           </label>
           <label>
-            <span>Default model</span>
-            <input aria-label="Default model" placeholder="model-id" value={model} onChange={(event) => setModel(event.currentTarget.value)} />
+            <span>Provider fallback model</span>
+            <input aria-label="Provider fallback model" placeholder="model-id" value={model} onChange={(event) => setModel(event.currentTarget.value)} />
           </label>
           <label className="react-settings-checkbox">
             <input checked={supportsModelDiscovery} type="checkbox" onChange={(event) => setSupportsModelDiscovery(event.currentTarget.checked)} />
@@ -780,7 +779,6 @@ function ProviderModelsDialog({
   const [models, setModels] = useState(provider.models);
   const [newModel, setNewModel] = useState("");
   const [defaultModel, setDefaultModel] = useState(provider.defaultModel ?? provider.models[0]?.id ?? "");
-  const [setAgentDefault, setSetAgentDefault] = useState(provider.active);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const filteredModels = useMemo(() => {
@@ -849,7 +847,6 @@ function ProviderModelsDialog({
       profileId: provider.profileId,
       models: models.map((model) => model.id),
       defaultModel,
-      setAgentDefault,
     }));
     onSaved();
   }
@@ -885,7 +882,7 @@ function ProviderModelsDialog({
                 <span>{modelSourceLabel(model.source)}</span>
                 <button data-press-feedback="true" type="button" onClick={() => setDefaultModel(model.id)}>
                   {defaultModel === model.id ? <Check aria-hidden="true" size={15} /> : null}
-                  Default
+                  Provider fallback
                 </button>
                 <button
                   data-press-feedback="true"
@@ -907,10 +904,6 @@ function ProviderModelsDialog({
               Add model
             </button>
           </div>
-          <label className="react-settings-checkbox">
-            <input checked={setAgentDefault} type="checkbox" onChange={(event) => setSetAgentDefault(event.currentTarget.checked)} />
-            <span>Use selected model as agent default</span>
-          </label>
           {refreshMessage ? <p className="react-settings-save-status" role="status">{refreshMessage}</p> : null}
           <footer>
             <button data-press-feedback="true" type="button" disabled={!canRefresh || refreshing} onClick={refreshModels}>

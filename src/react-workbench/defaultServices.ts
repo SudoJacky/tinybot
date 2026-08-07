@@ -56,6 +56,7 @@ import {
   type TinyOsDirectHostCommand,
   type TinyOsHostCommand,
 } from "../app-core/chat/tinyOsCommand";
+import { readCurrentChatModel } from "../app-core/chat/chatModelPreference";
 import { normalizeTinyOsEffectiveCapabilities } from "../app-core/chat/tinyOsCapabilities";
 
 type Listener = (event: ChatEvent) => void;
@@ -309,8 +310,13 @@ export function createDesktopAppServices(): AppServices {
       await controller.selectSession(thread.threadId);
     }
     const input = command.input;
+    const threadModel = stringValue(thread.metadata?.model);
+    const model = stringValue(input.model) || threadModel || readCurrentChatModel();
+    if (model && model !== threadModel) {
+      await controller.patchSession(sessionId, { model });
+    }
     const result = await controller.submitMessage(input.text, {
-      ...(input.model ? { model: input.model } : {}),
+      ...(model ? { model } : {}),
       ...(input.references?.length ? { references: input.references } : {}),
       ...(input.selectedSkills?.length ? { selectedSkills: input.selectedSkills } : {}),
       clientEventId: command.commandId,
@@ -438,14 +444,15 @@ export function createDesktopAppServices(): AppServices {
       },
       async create(input) {
         await initialize();
+        const model = stringValue(input?.model) || readCurrentChatModel();
+        const metadata = {
+          ...(input?.workingDirectory ? { workingDirectory: input.workingDirectory } : {}),
+          ...(model ? { model } : {}),
+        };
         const thread = await requireNative(nativeThreads, "Thread").create({
           title: input?.title || "New session",
           source: "desktop",
-          ...(input?.workingDirectory ? {
-            metadata: {
-              workingDirectory: input.workingDirectory,
-            },
-          } : {}),
+          ...(Object.keys(metadata).length ? { metadata } : {}),
         });
         await controller.loadSessions();
         const sessionId = thread.threadId;
@@ -465,6 +472,12 @@ export function createDesktopAppServices(): AppServices {
         await initialize();
         await controller.patchSession(id, { title });
         notifySession(id, { type: "session-renamed" });
+      },
+      async setModel(id, model) {
+        await initialize();
+        const patched = await controller.patchSession(id, { model });
+        if (!patched) throw new Error(`Cannot set the model for unknown Thread ${id}`);
+        notifySession(id, { type: "session-model-changed" });
       },
       async pin(id, pinned) {
         await initialize();
@@ -745,6 +758,7 @@ function mapSession(thread: NativeThreadRecord, responding: boolean, fallbackPay
     ...(extra.pinned === true ? { pinned: true } : {}),
     ...(thread.archivedAt || thread.status === "archived" ? { archived: true } : {}),
     ...(thread.metadata?.workingDirectory ? { workingDirectory: thread.metadata.workingDirectory } : {}),
+    ...(stringValue(thread.metadata?.model) ? { model: stringValue(thread.metadata?.model) } : {}),
     status: responding || thread.status === "running" || thread.status === "cancelling"
       ? "running"
       : thread.status === "failed" ? "failed" : "idle",
@@ -965,9 +979,16 @@ function formMatchesSession(form: AgentUiForm, sessionId: string): boolean {
 function nativeThreadMetadataPatch(body: unknown): Record<string, unknown> {
   if (!isRecord(body)) return {};
   const metadata = isRecord(body.metadata) ? body.metadata : {};
+  const model = stringValue(body.model ?? metadata.model);
+  const workingDirectory = stringValue(body.workingDirectory ?? metadata.workingDirectory);
+  const extra = Object.fromEntries(Object.entries(metadata).filter(([key]) => (
+    key !== "model" && key !== "workingDirectory"
+  )));
   return {
     ...(typeof body.title === "string" ? { title: body.title } : {}),
-    ...(Object.keys(metadata).length ? { extra: metadata } : {}),
+    ...(model ? { model } : {}),
+    ...(workingDirectory ? { workingDirectory } : {}),
+    ...(Object.keys(extra).length ? { extra } : {}),
   };
 }
 

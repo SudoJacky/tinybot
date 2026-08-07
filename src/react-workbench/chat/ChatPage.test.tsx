@@ -133,6 +133,7 @@ function createStores(options: { sessions?: SessionSummary[] } = {}): { chatStor
       })),
       delete: vi.fn(async () => undefined),
       rename: vi.fn(async () => undefined),
+      setModel: vi.fn(async () => undefined),
       pin: vi.fn(async () => undefined),
       archive: vi.fn(async () => undefined),
     },
@@ -3681,6 +3682,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("option", { name: /deepseek-reasoner/i }));
     await waitFor(() => expect(modelTrigger.textContent).toContain("deepseek-reasoner"));
     expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-reasoner");
+    expect(stores.sessionStore.setModel).toHaveBeenCalledWith("s1", "deepseek-reasoner");
     await user.type(screen.getByRole("textbox", { name: /message/i }), "Use a specific model");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
@@ -3690,7 +3692,55 @@ describe("ChatPage", () => {
     });
   });
 
-  it("restores a valid cached composer model and clears a stale one", async () => {
+  it("restores each Thread model when switching conversations", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [
+        {
+          id: "s1",
+          chatId: "chat-1",
+          title: "Reasoning thread",
+          updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+          status: "idle",
+          model: "deepseek-reasoner",
+        },
+        {
+          id: "s2",
+          chatId: "chat-2",
+          title: "Chat thread",
+          updatedAtMs: Date.UTC(2026, 6, 4, 11, 0, 0),
+          status: "idle",
+          model: "deepseek-chat",
+        },
+      ],
+    });
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
+    const settingsStore: SettingsStore = {
+      load: vi.fn(async () => []),
+      loadChatModels: vi.fn(async () => [
+        { id: "deepseek-chat", label: "deepseek-chat" },
+        { id: "deepseek-reasoner", label: "deepseek-reasoner" },
+      ]),
+    };
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
+        sessionStore={stores.sessionStore}
+        settingsStore={settingsStore}
+      />,
+    );
+
+    const modelTrigger = await screen.findByRole("button", { name: "Select model" });
+    await waitFor(() => expect(modelTrigger.textContent).toContain("deepseek-reasoner"));
+
+    await user.click(screen.getByRole("button", { name: "Chat thread" }));
+    await waitFor(() => expect(modelTrigger.textContent).toContain("deepseek-chat"));
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-chat");
+  });
+
+  it("restores a valid current model and replaces a stale one", async () => {
     const stores = createStores();
     const settingsStore: SettingsStore = {
       load: vi.fn(async () => []),
@@ -3733,7 +3783,7 @@ describe("ChatPage", () => {
     );
 
     expect((await screen.findByRole("button", { name: "Select model" })).textContent).toContain("deepseek-chat");
-    expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBeNull();
+    await waitFor(() => expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-chat"));
   });
 
   it("stops the active running session from the composer", async () => {

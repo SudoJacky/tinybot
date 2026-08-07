@@ -51,6 +51,11 @@ import { TextType } from "../../components/ui/TextType";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
 import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore, WorkspaceStore } from "../services";
 import { createDesktopCompactCommand, createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
+import {
+  clearCurrentChatModel,
+  readCurrentChatModel,
+  writeCurrentChatModel,
+} from "../../app-core/chat/chatModelPreference";
 import { pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
 import { pickDesktopWorkspaceDirectory } from "../../app-core/native/desktopNativeWorkspacePicker";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
@@ -226,37 +231,18 @@ function readStoredTinyOsWidth(): number {
   return Number.isFinite(stored) && stored > 0 ? clampTinyOsWidth(stored) : 480;
 }
 
-function readStoredComposerModel(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    return window.localStorage.getItem(CHAT_COMPOSER_MODEL_STORAGE_KEY)?.trim() ?? "";
-  } catch (error) {
-    console.warn("Unable to read the cached chat model preference.", error);
-    return "";
+function resolveComposerModel(models: readonly ModelOption[], sessionModel = ""): string {
+  if (sessionModel && models.some((model) => model.id === sessionModel)) {
+    return sessionModel;
   }
-}
-
-function writeStoredComposerModel(modelId: string): void {
-  try {
-    window.localStorage.setItem(CHAT_COMPOSER_MODEL_STORAGE_KEY, modelId);
-  } catch (error) {
-    console.warn("Unable to cache the selected chat model.", error);
-  }
-}
-
-function resolveComposerModel(models: readonly ModelOption[], configuredDefaultModel: string): string {
-  const storedModel = readStoredComposerModel();
+  const storedModel = readCurrentChatModel();
   if (storedModel && models.some((model) => model.id === storedModel)) {
     return storedModel;
   }
   if (storedModel) {
-    try {
-      window.localStorage.removeItem(CHAT_COMPOSER_MODEL_STORAGE_KEY);
-    } catch (error) {
-      console.warn("Unable to clear the stale chat model preference.", error);
-    }
+    clearCurrentChatModel();
   }
-  return configuredDefaultModel || models[0]?.id || "";
+  return models[0]?.id || "";
 }
 
 const EMPTY_CHAT_PROMPTS = [
@@ -309,7 +295,6 @@ const COMPOSER_SLASH_COMMANDS = [
 const LIVE_CANVAS_CLOSE_MS = 160;
 const SESSION_DELETE_DISSOLVE_MS = 180;
 const TINYOS_WIDTH_STORAGE_KEY = "tinybot.ui.tinyos.width";
-const CHAT_COMPOSER_MODEL_STORAGE_KEY = "tinybot.ui.chat.composer-model";
 const EMPTY_OPTIMISTIC_MESSAGES: ReactChatMessage[] = [];
 
 export function ChatPage({
@@ -1074,9 +1059,8 @@ export function ChatPage({
         return;
       }
       const nextModels = models.map(toComposerModelOption);
-      const configuredDefaultModel = models.find((model) => model.default)?.id ?? nextModels[0]?.id ?? "";
       setComposerModels(nextModels);
-      setDefaultComposerModel(resolveComposerModel(nextModels, configuredDefaultModel));
+      setDefaultComposerModel(resolveComposerModel(nextModels));
     }).catch(() => {
       if (!cancelled) {
         setComposerModels([]);
@@ -1087,6 +1071,13 @@ export function ChatPage({
       cancelled = true;
     };
   }, [settingsStore]);
+
+  useEffect(() => {
+    if (!composerModels.length) return;
+    const model = resolveComposerModel(composerModels, activeSession?.model);
+    setDefaultComposerModel(model);
+    if (model) writeCurrentChatModel(model);
+  }, [activeSession?.id, activeSession?.model, composerModels]);
 
   useEffect(() => {
     if (!settingsStore?.loadAgentDefaultsSettings) {
@@ -1165,7 +1156,10 @@ export function ChatPage({
     setSessionCreatePending(true);
     setSessionWorkspaceError("");
     try {
-      const created = await sessionStore.create(workingDirectory ? { workingDirectory } : undefined);
+      const created = await sessionStore.create({
+        ...(workingDirectory ? { workingDirectory } : {}),
+        ...(defaultComposerModel ? { model: defaultComposerModel } : {}),
+      });
       activateCreatedSession(created);
       return created;
     } catch (error) {
@@ -1543,7 +1537,10 @@ export function ChatPage({
         return;
       }
       if (action === "restart") {
-        const created = await sessionStore.create({ title: deriveSessionTitle(turn.userMessage.text) });
+        const created = await sessionStore.create({
+          title: deriveSessionTitle(turn.userMessage.text),
+          ...(activeSession.model || defaultComposerModel ? { model: activeSession.model || defaultComposerModel } : {}),
+        });
         activateCreatedSession(created);
         await dispatchTurn(created.id, { text: turn.userMessage.text }, "recovery-restart");
         await handleSessionStoreRefresh(created);
@@ -1646,7 +1643,7 @@ export function ChatPage({
       return null;
     }
     if (!draftSessionCreatePromise.current) {
-      draftSessionCreatePromise.current = sessionStore.create()
+      draftSessionCreatePromise.current = sessionStore.create(defaultComposerModel ? { model: defaultComposerModel } : undefined)
         .then((created) => {
           activateCreatedSession(created);
           return created;
@@ -2305,7 +2302,15 @@ export function ChatPage({
           models={composerModels}
           onModelChange={(modelId) => {
             setDefaultComposerModel(modelId);
-            writeStoredComposerModel(modelId);
+            writeCurrentChatModel(modelId);
+            if (activeSession) {
+              setSessions((current) => current.map((session) => (
+                session.id === activeSession.id ? { ...session, model: modelId } : session
+              )));
+              void sessionStore.setModel?.(activeSession.id, modelId).catch((error) => {
+                setTimelineError(`Model selection could not be saved: ${error instanceof Error ? error.message : String(error)}`);
+              });
+            }
           }}
           responding={sessionResponding}
           slashCommands={COMPOSER_SLASH_COMMANDS}
@@ -2929,7 +2934,6 @@ function toComposerModelOption(model: ChatModelOption): ModelOption {
     id: model.id,
     name: model.label || model.id,
     description: model.description || model.providerLabel || "Configured model",
-    ...(model.default ? { badge: "Default" } : {}),
   };
 }
 

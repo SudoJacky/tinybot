@@ -23,6 +23,7 @@ export type NativeThreadRecord = {
   metadata?: {
     extra?: Record<string, unknown>;
     workingDirectory?: string;
+    model?: string;
     [key: string]: unknown;
   };
   [key: string]: unknown;

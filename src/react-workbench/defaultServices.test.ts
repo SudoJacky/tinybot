@@ -74,6 +74,7 @@ describe("desktop native app services", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.listeners.clear();
+    window.localStorage.clear();
     (globalThis as typeof globalThis & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
     mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };
@@ -128,6 +129,7 @@ describe("desktop native app services", () => {
         workingDirectory: "D:\\Code\\py\\tinybot",
       }),
     ]);
+    window.localStorage.setItem("tinybot.ui.chat.composer-model", "model-current");
     await expect(services.sessionStore.create({
       title: "New Thread",
       workingDirectory: "D:\\Code\\py\\tinybot",
@@ -142,6 +144,7 @@ describe("desktop native app services", () => {
           source: "desktop",
           metadata: {
             workingDirectory: "D:\\Code\\py\\tinybot",
+            model: "model-current",
           },
         },
       },
@@ -225,7 +228,55 @@ describe("desktop native app services", () => {
         }),
       }),
     });
+    expect(mocks.invoke).toHaveBeenCalledWith("worker_thread_update_metadata", {
+      input: {
+        body: {
+          threadId: "thread-1",
+          metadata: { model: "model-1" },
+        },
+      },
+    });
     expect(events).toContainEqual(expect.objectContaining({ type: "message-sent" }));
+  });
+
+  test("uses the Thread model when an automatic turn omits model", async () => {
+    const modeledThread = {
+      ...thread,
+      metadata: {
+        ...thread.metadata,
+        model: "thread-model",
+      },
+    };
+    mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "worker_threads_list") return { threads: [modeledThread], total: 1 };
+      if (command === "thread_list_turns") return { turns: [] };
+      if (command === "thread_get_turn_runtime_state") return null;
+      if (command === "worker_submit_thread_turn") {
+        const input = args?.input as { spec?: { turnId?: string } } | undefined;
+        return {
+          threadId: "thread-1",
+          sessionId: "thread-1",
+          turnId: input?.spec?.turnId,
+        };
+      }
+      return {};
+    });
+    const services = createDesktopAppServices();
+    await services.sessionStore.list();
+
+    await services.chatStore.dispatch(createDesktopTurnSubmitCommand({
+      commandId: "command-thread-model",
+      message: { text: "continue" },
+      sessionId: "thread-1",
+      source: { control: "automatic", surface: "chat" },
+    }));
+
+    expect(mocks.invoke).toHaveBeenCalledWith("worker_submit_thread_turn", {
+      input: expect.objectContaining({
+        spec: expect.objectContaining({ model: "thread-model" }),
+      }),
+    });
+    expect(mocks.invoke).not.toHaveBeenCalledWith("worker_thread_update_metadata", expect.anything());
   });
 
   test("projects native file references as optimistic attachment metadata", async () => {

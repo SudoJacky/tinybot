@@ -200,12 +200,7 @@ export function ClaudeStyleAiInput({
 
   useEffect(() => {
     const nextModelId = defaultModel || models[0]?.id || "";
-    setSelectedModelId((current) => {
-      if (current && models.some((model) => model.id === current)) {
-        return current;
-      }
-      return nextModelId;
-    });
+    setSelectedModelId(nextModelId);
   }, [defaultModel, models]);
 
   useEffect(() => {

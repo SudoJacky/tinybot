@@ -40,6 +40,7 @@ export type SessionSummary = {
   archived?: boolean;
   status?: "idle" | "running" | "failed";
   workingDirectory?: string;
+  model?: string;
 };
 
 export type ChatInput = DesktopChatInput;
@@ -59,8 +60,9 @@ export type ChatEvent = {
 
 export type SessionStore = {
   list(): Promise<SessionSummary[]>;
-  create(input?: { title?: string; workingDirectory?: string }): Promise<SessionSummary>;
+  create(input?: { title?: string; workingDirectory?: string; model?: string }): Promise<SessionSummary>;
   rename(id: string, title: string): Promise<void>;
+  setModel?(id: string, model: string): Promise<void>;
   delete(id: string): Promise<void>;
   pin(id: string, pinned: boolean): Promise<void>;
   archive(id: string): Promise<void>;

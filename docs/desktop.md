@@ -98,6 +98,19 @@ Tinybot supports Agent Plugin MCP servers using `stdio` and `streamable-http`. U
 
 The page also offers an explicit Agent-assisted migration for standalone Skills, MCP configurations, and recognized client-plugin layouts. Tinybot copies the selected source into an isolated job under `~/.tinybot/plugins/migrations/<job-id>/source`, gives the Agent an empty `output` directory, and starts a normal chat turn scoped to that job. The original source is not modified, the Agent cannot install the result directly, and the generated output must still pass the normal strict plugin import before it can be enabled.
 
+## Conversation Models
+
+Model selection belongs to the conversation rather than a separate editable global default. Tinybot stores the recently used model as the starting choice for a new conversation, then persists the selected model in that Thread's metadata. Switching conversations restores each Thread's model, and changing the Composer model updates both the Thread and the recently used choice.
+
+Desktop turn submission resolves models in this order:
+
+1. a model explicitly supplied by the turn;
+2. the target Thread's persisted model;
+3. the recently used model for new conversations;
+4. the native runtime's configured fallback when no user selection exists.
+
+Automatic turns, including Agent-assisted plugin migration, use the same resolution path. Provider profiles keep a provider-specific fallback model for connection setup and native runtime recovery, but that value is not presented as the user's current conversation model.
+
 ## Desktop Adapters
 
 The desktop route keeps the Rust backend contract as the source of truth and layers native capabilities around it:

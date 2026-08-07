@@ -96,29 +96,25 @@ export function AgentDefaultsSettingsPage({ onNavigateToProviderModels, settings
       <div className="react-provider-settings__header">
         <div>
           <h2 id="agent-defaults-title">Agent Defaults</h2>
-          <p>Runtime defaults apply to new chat and agent turns unless a specific Agent overrides them.</p>
+          <p>Runtime fallback and execution limits used when a conversation does not provide an explicit value.</p>
         </div>
       </div>
 
       <section className="react-settings-linked-summary" aria-labelledby="agent-default-model-title">
         <div>
-          <h3 id="agent-default-model-title">Default LLM</h3>
-          <p>Change the active profile and default model from Provider & Models.</p>
+          <h3 id="agent-default-model-title">Fallback provider</h3>
+          <p>The model itself is selected per conversation. Change provider connections from Provider & Models.</p>
         </div>
         <dl>
           <div>
             <dt>Active profile</dt>
             <dd>{data.activeProfileId ?? "Not configured"}</dd>
           </div>
-          <div>
-            <dt>Default model</dt>
-            <dd>{data.defaultModel ?? "Not configured"}</dd>
-          </div>
         </dl>
         <button
           data-press-feedback="true"
           type="button"
-          aria-label="Change default model in Provider & Models"
+          aria-label="Manage providers and models"
           onClick={onNavigateToProviderModels}
         >
           <span>Provider & Models</span>

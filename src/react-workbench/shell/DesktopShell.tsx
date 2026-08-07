@@ -32,6 +32,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { createDesktopStopCommand, createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
+import { readCurrentChatModel } from "../../app-core/chat/chatModelPreference";
 import { ChatPage } from "../chat/ChatPage";
 import { AgentDefaultsSettingsPage } from "../settings/AgentDefaultsSettingsPage";
 import { ConfigSettingsPage, type ConfigSettingsGroupId } from "../settings/ConfigSettingsPage";
@@ -855,13 +856,16 @@ function PluginsSection({
         .filter((plugin) => plugin.enabled)
         .flatMap((plugin) => plugin.skills)
         .find((skill) => skill.qualifiedName === OFFICIAL_PLUGIN_MIGRATION_SKILL);
+      const model = readCurrentChatModel();
       const session = await services.sessionStore.create({
         title: "Migrate Skill or MCP",
         workingDirectory: job.workingDirectory,
+        ...(model ? { model } : {}),
       });
       await services.chatStore.dispatch(createDesktopTurnSubmitCommand({
         message: {
           text: pluginMigrationPrompt(job),
+          ...(model ? { model } : {}),
           ...(officialSkill ? { selectedSkills: [officialSkill.qualifiedName] } : {}),
         },
         sessionId: session.id,
