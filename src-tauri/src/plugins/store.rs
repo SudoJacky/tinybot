@@ -81,6 +81,14 @@ pub(crate) struct PluginMigrationJob {
     pub(crate) detected_artifacts: Vec<String>,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PluginMigrationInstallResult {
+    pub(crate) plugin: PluginSummary,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) cleanup_warning: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct PluginStore {
     root: PathBuf,
@@ -147,6 +155,14 @@ impl PluginStore {
     }
 
     pub(crate) fn install_from_directory(&self, source: &Path) -> Result<PluginSummary, String> {
+        self.install_from_directory_with_source(source, None)
+    }
+
+    fn install_from_directory_with_source(
+        &self,
+        source: &Path,
+        source_path: Option<String>,
+    ) -> Result<PluginSummary, String> {
         let source_plugin = load_plugin(source)?;
         let plugin_name = source_plugin.manifest.name.clone();
         fs::create_dir_all(self.cache_root()).map_err(|error| {
@@ -154,9 +170,6 @@ impl PluginStore {
                 "failed to create plugin cache {}: {error}",
                 self.cache_root().display()
             )
-        })?;
-        fs::create_dir_all(self.data_root().join(&plugin_name)).map_err(|error| {
-            format!("failed to create plugin data directory for `{plugin_name}`: {error}")
         })?;
         let nonce = install_nonce();
         let stage = self
@@ -198,9 +211,9 @@ impl PluginStore {
             return Err(format!("failed to install plugin `{plugin_name}`: {error}"));
         }
         let installed = InstalledPluginState {
-            enabled: previous.as_ref().is_some_and(|plugin| plugin.enabled),
+            enabled: previous.as_ref().map_or(true, |plugin| plugin.enabled),
             installed_at_ms: now_ms(),
-            source_path: source_plugin.root.display().to_string(),
+            source_path: source_path.unwrap_or_else(|| source_plugin.root.display().to_string()),
         };
         state.plugins.insert(plugin_name.clone(), installed.clone());
         if let Err(error) = self.write_state(&state) {
@@ -299,6 +312,30 @@ impl PluginStore {
             source_directory: source_snapshot.display().to_string(),
             output_directory: output.display().to_string(),
             detected_artifacts,
+        })
+    }
+
+    pub(crate) fn install_migration(
+        &self,
+        job_id: &str,
+    ) -> Result<PluginMigrationInstallResult, String> {
+        let job_root = self.resolve_migration_job(job_id)?;
+        let output = job_root.join("output");
+        let plugin = self
+            .install_from_directory_with_source(&output, Some(format!("migration:{job_id}")))
+            .map_err(|error| {
+                format!("migration `{job_id}` output is not an installable Agent Plugin: {error}")
+            })?;
+        let cleanup_warning = fs::remove_dir_all(&job_root).err().map(|error| {
+            format!(
+                "plugin `{}` was installed, but migration workspace {} could not be removed: {error}",
+                plugin.name,
+                job_root.display()
+            )
+        });
+        Ok(PluginMigrationInstallResult {
+            plugin,
+            cleanup_warning,
         })
     }
 
@@ -406,6 +443,38 @@ impl PluginStore {
 
     fn data_root(&self) -> PathBuf {
         self.root.join("data")
+    }
+
+    fn resolve_migration_job(&self, job_id: &str) -> Result<PathBuf, String> {
+        if !job_id.starts_with("migration-")
+            || !job_id
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || character == '-')
+        {
+            return Err("invalid plugin migration job id".to_string());
+        }
+        let migrations_root = self
+            .root
+            .join("migrations")
+            .canonicalize()
+            .map_err(|error| {
+                format!(
+                    "failed to resolve plugin migrations directory {}: {error}",
+                    self.root.join("migrations").display()
+                )
+            })?;
+        let job_root = migrations_root
+            .join(job_id)
+            .canonicalize()
+            .map_err(|error| {
+                format!("plugin migration `{job_id}` does not exist or is inaccessible: {error}")
+            })?;
+        if job_root.parent() != Some(migrations_root.as_path()) {
+            return Err(format!(
+                "plugin migration `{job_id}` resolves outside Tinybot's migration storage"
+            ));
+        }
+        Ok(job_root)
     }
 
     fn state_path(&self) -> PathBuf {

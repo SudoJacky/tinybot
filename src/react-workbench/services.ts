@@ -41,6 +41,7 @@ export type SessionSummary = {
   status?: "idle" | "running" | "failed";
   workingDirectory?: string;
   model?: string;
+  pluginMigration?: PluginMigrationSession;
 };
 
 export type ChatInput = DesktopChatInput;
@@ -60,9 +61,15 @@ export type ChatEvent = {
 
 export type SessionStore = {
   list(): Promise<SessionSummary[]>;
-  create(input?: { title?: string; workingDirectory?: string; model?: string }): Promise<SessionSummary>;
+  create(input?: {
+    title?: string;
+    workingDirectory?: string;
+    model?: string;
+    pluginMigration?: PluginMigrationSession;
+  }): Promise<SessionSummary>;
   rename(id: string, title: string): Promise<void>;
   setModel?(id: string, model: string): Promise<void>;
+  markPluginMigrationInstalled?(id: string, pluginName: string, enabled: boolean, cleanupWarning?: string): Promise<void>;
   delete(id: string): Promise<void>;
   pin(id: string, pinned: boolean): Promise<void>;
   archive(id: string): Promise<void>;
@@ -115,6 +122,18 @@ export type PluginMigrationJob = {
   detectedArtifacts: string[];
 };
 
+export type PluginMigrationSession = PluginMigrationJob & {
+  status: "pending" | "installed";
+  installedPluginName?: string;
+  installedPluginEnabled?: boolean;
+  cleanupWarning?: string;
+};
+
+export type PluginMigrationInstallResult = {
+  plugin: PluginSummary;
+  cleanupWarning?: string;
+};
+
 export type ToolSummary = {
   id: string;
   name: string;
@@ -146,6 +165,7 @@ export type ToolsStore = {
   listPlugins(): Promise<PluginSummary[]>;
   installPlugin(path: string): Promise<PluginSummary>;
   preparePluginMigration(path: string): Promise<PluginMigrationJob>;
+  installPluginMigration(jobId: string): Promise<PluginMigrationInstallResult>;
   setPluginEnabled(name: string, enabled: boolean): Promise<PluginSummary>;
   uninstallPlugin(name: string): Promise<void>;
 };

@@ -42,10 +42,16 @@ export type NativePluginMigrationJob = {
   detectedArtifacts: string[];
 };
 
+export type NativePluginMigrationInstallResult = {
+  plugin: NativePluginSummary;
+  cleanupWarning?: string;
+};
+
 export type NativePluginsApi = {
   list(): Promise<{ plugins: NativePluginSummary[] }>;
   install(path: string): Promise<NativePluginSummary>;
   prepareMigration(path: string): Promise<NativePluginMigrationJob>;
+  installMigration(jobId: string): Promise<NativePluginMigrationInstallResult>;
   setEnabled(name: string, enabled: boolean): Promise<NativePluginSummary>;
   uninstall(name: string): Promise<void>;
 };
@@ -58,6 +64,9 @@ export function createDesktopNativePluginsApi(options: { invoke?: TauriInvoke } 
     prepareMigration: (path) => invoke("worker_plugin_prepare_migration", {
       input: { path },
     }) as Promise<NativePluginMigrationJob>,
+    installMigration: (jobId) => invoke("worker_plugin_install_migration", {
+      input: { jobId },
+    }) as Promise<NativePluginMigrationInstallResult>,
     setEnabled: (name, enabled) => invoke("worker_plugin_set_enabled", {
       input: { enabled, name },
     }) as Promise<NativePluginSummary>,

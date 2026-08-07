@@ -22,6 +22,12 @@ pub(crate) struct WorkerPluginEnableInput {
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct WorkerPluginMigrationInput {
+    job_id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct WorkerPluginNameInput {
     name: String,
 }
@@ -59,6 +65,21 @@ pub(crate) fn worker_plugin_prepare_migration(
     let job = PluginStore::default_global().prepare_migration(&source)?;
     serde_json::to_value(job)
         .map_err(|error| format!("failed to serialize plugin migration job: {error}"))
+}
+
+#[tauri::command]
+pub(crate) fn worker_plugin_install_migration(
+    input: WorkerPluginMigrationInput,
+    state: State<'_, SharedNativeRuntime>,
+) -> Result<serde_json::Value, String> {
+    let job_id = input.job_id.trim();
+    if job_id.is_empty() {
+        return Err("plugin migration job id must not be empty".to_string());
+    }
+    let result = PluginStore::default_global().install_migration(job_id)?;
+    reconcile_plugin_mcp_runtime(state.inner())?;
+    serde_json::to_value(result)
+        .map_err(|error| format!("failed to serialize installed migration result: {error}"))
 }
 
 #[tauri::command]

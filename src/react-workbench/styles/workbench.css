@@ -7347,6 +7347,86 @@ button.tinyos-overlay-backdrop:focus-visible {
   align-content: start;
 }
 
+.react-plugin-migration-result {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  width: min(720px, 100%);
+  margin: 10px auto 0;
+  padding: 12px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: var(--color-surface-soft);
+}
+
+.react-plugin-migration-result[data-status="installed"] {
+  border-color: color-mix(in srgb, var(--color-success) 38%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-success) 7%, #fff);
+}
+
+.react-plugin-migration-result__icon {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #fff;
+  color: var(--color-muted);
+}
+
+.react-plugin-migration-result[data-status="installed"] .react-plugin-migration-result__icon {
+  color: var(--color-success);
+}
+
+.react-plugin-migration-result__copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.react-plugin-migration-result__copy strong {
+  font-size: 13px;
+}
+
+.react-plugin-migration-result__copy small {
+  overflow-wrap: anywhere;
+  color: var(--color-muted);
+}
+
+.react-plugin-migration-result__copy .react-plugin-migration-result__error {
+  color: var(--color-error);
+}
+
+.react-plugin-migration-result > button {
+  min-height: 32px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, var(--color-hairline));
+  border-radius: 8px;
+  background: var(--color-accent);
+  color: #fff;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.react-plugin-migration-result > button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+@media (max-width: 720px) {
+  .react-plugin-migration-result {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .react-plugin-migration-result > button {
+    grid-column: 1 / -1;
+  }
+}
+
 .react-resource-switcher {
   display: inline-grid;
   grid-template-columns: repeat(2, minmax(112px, 1fr));

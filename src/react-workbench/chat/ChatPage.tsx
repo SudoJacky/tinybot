@@ -49,7 +49,7 @@ import {
 } from "../../components/ui/claude-style-ai-input";
 import { TextType } from "../../components/ui/TextType";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
-import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore, WorkspaceStore } from "../services";
+import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore, ToolsStore, WorkspaceStore } from "../services";
 import { createDesktopCompactCommand, createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import {
   clearCurrentChatModel,
@@ -127,6 +127,7 @@ export type ChatPageProps = {
   chatStore: ChatStore;
   sessionStore: SessionStore;
   settingsStore?: SettingsStore;
+  toolsStore?: Pick<ToolsStore, "installPluginMigration">;
   workspaceStore?: Pick<WorkspaceStore, "listDirectory" | "readFile">;
   createSessionSignal?: number;
   sessionSidebarCollapsed?: boolean;
@@ -308,6 +309,7 @@ export function ChatPage({
   sessionSidebarCollapsed,
   sessionStore,
   settingsStore,
+  toolsStore,
   workspaceStore,
 }: ChatPageProps) {
   const tinyOsUiScope = useId();
@@ -350,6 +352,8 @@ export function ChatPage({
   const [tinyOsContextReferences, setTinyOsContextReferences] = useState<TinyOsContextReference[]>([]);
   const [tinyOsDropError, setTinyOsDropError] = useState("");
   const [recoveringTurnId, setRecoveringTurnId] = useState("");
+  const [installingMigrationJobId, setInstallingMigrationJobId] = useState("");
+  const [migrationInstallError, setMigrationInstallError] = useState("");
   const [showBackToLatest, setShowBackToLatest] = useState(false);
   const [dissolvingSessionIds, setDissolvingSessionIds] = useState<Set<string>>(() => new Set());
   const [deleteState, dispatchDelete] = useReducer(reduceSessionDeleteState, { confirmingSessionId: "" });
@@ -387,6 +391,9 @@ export function ChatPage({
     () => sessions.find((session) => session.id === activeSessionId),
     [activeSessionId, sessions],
   );
+  useEffect(() => {
+    setMigrationInstallError("");
+  }, [activeSessionId]);
   const openSessionTabs = useMemo<SessionTabItem[]>(() => (
     sessionTabs.openSessionIds.flatMap((sessionId) => {
       const session = sessions.find((candidate) => candidate.id === sessionId);
@@ -414,6 +421,14 @@ export function ChatPage({
   const sessionResponding = timelineLoaded
     ? Boolean(activeTurn) || (sessionRunning && optimisticMessages.length > 0)
     : sessionRunning && !emptyActiveSession;
+  const latestTurnStatus = timelineLoaded
+    ? timeline?.turns[timeline.turns.length - 1]?.status
+    : undefined;
+  const showPluginMigrationResult = activeSession?.pluginMigration?.status === "installed"
+    || (
+      activeSession?.pluginMigration?.status === "pending"
+      && latestTurnStatus === "completed"
+    );
   const cancelCapability = tinyOsCapabilities.capabilities.agent.cancel;
   const capabilityTargetsActiveTurn = !tinyOsCapabilities.evaluatedTurnId
     || tinyOsCapabilities.evaluatedTurnId === activeTurn?.id;
@@ -1149,7 +1164,9 @@ export function ChatPage({
     }
   }, [activeSessionId, timeline, optimisticMessages, agentUiForms.length]);
 
-  async function handleCreateSession(workingDirectory = activeSession?.workingDirectory): Promise<SessionSummary | null> {
+  async function handleCreateSession(
+    workingDirectory = activeSession?.pluginMigration ? undefined : activeSession?.workingDirectory,
+  ): Promise<SessionSummary | null> {
     if (sessionCreatePending) {
       return null;
     }
@@ -1172,6 +1189,42 @@ export function ChatPage({
       return null;
     } finally {
       setSessionCreatePending(false);
+    }
+  }
+
+  async function handleInstallPluginMigration(session: SessionSummary): Promise<void> {
+    const migration = session.pluginMigration;
+    if (!migration || !toolsStore) return;
+    setInstallingMigrationJobId(migration.jobId);
+    setMigrationInstallError("");
+    try {
+      const result = await toolsStore.installPluginMigration(migration.jobId);
+      const installedMigration = {
+        ...migration,
+        status: "installed" as const,
+        installedPluginName: result.plugin.name,
+        installedPluginEnabled: result.plugin.enabled,
+        ...(result.cleanupWarning ? { cleanupWarning: result.cleanupWarning } : {}),
+      };
+      setSessions((current) => current.map((candidate) => (
+        candidate.id === session.id ? { ...candidate, pluginMigration: installedMigration } : candidate
+      )));
+      try {
+        await sessionStore.markPluginMigrationInstalled?.(
+          session.id,
+          result.plugin.name,
+          result.plugin.enabled,
+          result.cleanupWarning,
+        );
+      } catch (error) {
+        setMigrationInstallError(
+          `Plugin ${result.plugin.name} was installed, but the migration status could not be saved: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    } catch (error) {
+      setMigrationInstallError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setInstallingMigrationJobId("");
     }
   }
 
@@ -2239,6 +2292,39 @@ export function ChatPage({
               sessionRunning={sessionRunning}
             />
           ))}
+          {showPluginMigrationResult && activeSession?.pluginMigration ? (
+            <section
+              aria-label="Plugin migration result"
+              className="react-plugin-migration-result"
+              data-status={activeSession.pluginMigration.status}
+            >
+              <span aria-hidden="true" className="react-plugin-migration-result__icon">
+                {activeSession.pluginMigration.status === "installed"
+                  ? <Check size={16} />
+                  : installingMigrationJobId === activeSession.pluginMigration.jobId
+                    ? <Loader2 className="react-spin" size={16} />
+                    : <FolderOpen size={16} />}
+              </span>
+              <span className="react-plugin-migration-result__copy">
+                <strong>{activeSession.pluginMigration.status === "installed"
+                  ? `${activeSession.pluginMigration.installedPluginName || "Plugin"} installed${activeSession.pluginMigration.installedPluginEnabled === false ? " (kept disabled)" : " and enabled"}`
+                  : "Migration complete — install the generated plugin"}</strong>
+                <small>{activeSession.pluginMigration.status === "installed"
+                  ? activeSession.pluginMigration.cleanupWarning || "The temporary migration workspace was cleaned up."
+                  : "Tinybot will validate the generated package before installing it globally."}</small>
+                {migrationInstallError ? <small className="react-plugin-migration-result__error" role="alert">{migrationInstallError}</small> : null}
+              </span>
+              {activeSession.pluginMigration.status === "pending" ? (
+                <button
+                  disabled={Boolean(installingMigrationJobId) || !toolsStore}
+                  type="button"
+                  onClick={() => void handleInstallPluginMigration(activeSession)}
+                >
+                  {installingMigrationJobId === activeSession.pluginMigration.jobId ? "Installing…" : "Install migrated plugin"}
+                </button>
+              ) : null}
+            </section>
+          ) : null}
           {visibleAgentUiForms.length ? (
             <div className="react-agent-ui-forms" aria-label="Agent forms">
               {visibleAgentUiForms.map((form) => (

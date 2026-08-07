@@ -27,13 +27,6 @@ pub(crate) fn merge_enabled_mcp_servers(config: &mut Value) -> Result<(), String
 
     for plugin in plugins {
         let data_root = store.data_directory(&plugin.manifest.name);
-        if let Err(error) = fs::create_dir_all(&data_root) {
-            eprintln!(
-                "plugin_mcp_skipped plugin={} reason=data_directory error={error}",
-                plugin.manifest.name
-            );
-            continue;
-        }
         for server in plugin.mcp_servers {
             let qualified_name = server.qualified_name();
             match normalize_server(&plugin.root, &data_root, &server.config) {
@@ -72,6 +65,12 @@ fn normalize_stdio_server(
     data_root: &Path,
     config: &Value,
 ) -> Result<Value, String> {
+    fs::create_dir_all(data_root).map_err(|error| {
+        format!(
+            "failed to create plugin data directory {}: {error}",
+            data_root.display()
+        )
+    })?;
     let command = config
         .get("command")
         .and_then(Value::as_str)

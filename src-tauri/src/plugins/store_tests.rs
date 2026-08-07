@@ -43,7 +43,7 @@ impl Drop for Fixture {
 }
 
 #[test]
-fn imports_disabled_then_enables_globally() {
+fn imports_enabled_globally_by_default() {
     let fixture = Fixture::new("enable");
     let source = fixture.plugin();
     let store = PluginStore::new(fixture.root.join("global-plugins"));
@@ -51,16 +51,7 @@ fn imports_disabled_then_enables_globally() {
     let installed = store
         .install_from_directory(&source)
         .expect("plugin should install");
-    assert!(!installed.enabled);
-    assert!(store
-        .enabled()
-        .expect("enabled plugins should load")
-        .is_empty());
-
-    let enabled = store
-        .set_enabled("review-tools", true)
-        .expect("plugin should enable");
-    assert!(enabled.enabled);
+    assert!(installed.enabled);
     let active = store.enabled().expect("enabled plugin should load");
     assert_eq!(active.len(), 1);
     assert_eq!(
@@ -78,15 +69,21 @@ fn reinstall_preserves_enablement_and_uninstall_preserves_plugin_data() {
         .install_from_directory(&source)
         .expect("plugin should install");
     store
-        .set_enabled("review-tools", true)
-        .expect("plugin should enable");
+        .set_enabled("review-tools", false)
+        .expect("plugin should disable");
     let data_file = store.data_directory("review-tools").join("state.txt");
+    assert!(!data_file
+        .parent()
+        .expect("data file should have a parent")
+        .exists());
+    fs::create_dir_all(data_file.parent().expect("data file should have a parent"))
+        .expect("plugin data directory should be writable when needed");
     fs::write(&data_file, "persistent").expect("plugin data should be writable");
 
     let reinstalled = store
         .install_from_directory(&source)
         .expect("plugin should reinstall");
-    assert!(reinstalled.enabled);
+    assert!(!reinstalled.enabled);
     store
         .uninstall("review-tools")
         .expect("plugin should uninstall");
@@ -123,6 +120,61 @@ fn prepares_isolated_migration_workspace_for_standalone_skill() {
         .expect("migration output should be readable")
         .next()
         .is_none());
+}
+
+#[test]
+fn installs_valid_migration_output_and_removes_the_job_workspace() {
+    let fixture = Fixture::new("migration-install");
+    let source = fixture.root.join("legacy-skill");
+    fs::create_dir_all(&source).expect("legacy skill directory should be created");
+    fs::write(
+        source.join("SKILL.md"),
+        "---\nname: legacy-skill\ndescription: Legacy skill.\n---\nUse it.",
+    )
+    .expect("legacy skill should be written");
+    let store = PluginStore::new(fixture.root.join("global-plugins"));
+    let job = store
+        .prepare_migration(&source)
+        .expect("migration should prepare");
+    let output = PathBuf::from(&job.output_directory);
+    fs::create_dir_all(output.join("skills/legacy-skill"))
+        .expect("migration output directories should be created");
+    fs::write(
+        output.join("plugin.json"),
+        r#"{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"legacy-tools","version":"1.0.0"}"#,
+    )
+    .expect("migration manifest should be written");
+    fs::write(
+        output.join("skills/legacy-skill/SKILL.md"),
+        "---\nname: legacy-skill\ndescription: Migrated skill.\n---\nUse it.",
+    )
+    .expect("migrated skill should be written");
+
+    let result = store
+        .install_migration(&job.job_id)
+        .expect("valid migration output should install");
+
+    assert_eq!(result.plugin.name, "legacy-tools");
+    assert!(result.plugin.enabled);
+    assert!(result.cleanup_warning.is_none());
+    assert!(!Path::new(&job.working_directory).exists());
+    assert!(store
+        .list()
+        .expect("installed plugins should list")
+        .iter()
+        .any(|plugin| plugin.name == "legacy-tools" && plugin.enabled));
+}
+
+#[test]
+fn rejects_invalid_migration_job_ids() {
+    let fixture = Fixture::new("migration-invalid-job");
+    let store = PluginStore::new(fixture.root.join("global-plugins"));
+
+    let error = store
+        .install_migration("../outside")
+        .expect_err("path traversal must be rejected");
+
+    assert!(error.contains("invalid plugin migration job id"));
 }
 
 #[test]

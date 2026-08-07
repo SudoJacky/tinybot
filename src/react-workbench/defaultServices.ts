@@ -39,6 +39,7 @@ import type {
   ChatModelOption,
   ChatEvent,
   McpServerSummary,
+  PluginMigrationSession,
   SessionSummary,
   ToolCatalogSummary,
   ToolSummary,
@@ -448,6 +449,7 @@ export function createDesktopAppServices(): AppServices {
         const metadata = {
           ...(input?.workingDirectory ? { workingDirectory: input.workingDirectory } : {}),
           ...(model ? { model } : {}),
+          ...(input?.pluginMigration ? { extra: { pluginMigration: input.pluginMigration } } : {}),
         };
         const thread = await requireNative(nativeThreads, "Thread").create({
           title: input?.title || "New session",
@@ -478,6 +480,28 @@ export function createDesktopAppServices(): AppServices {
         const patched = await controller.patchSession(id, { model });
         if (!patched) throw new Error(`Cannot set the model for unknown Thread ${id}`);
         notifySession(id, { type: "session-model-changed" });
+      },
+      async markPluginMigrationInstalled(id, pluginName, enabled, cleanupWarning) {
+        await initialize();
+        const thread = controller.state.threads.find((candidate) => candidate.threadId === id);
+        if (!thread) throw new Error(`Cannot update migration state for unknown Thread ${id}`);
+        const extra = isRecord(thread.metadata?.extra) ? thread.metadata.extra : {};
+        const current = normalizePluginMigrationSession(extra.pluginMigration);
+        if (!current) throw new Error(`Thread ${id} is not associated with a plugin migration`);
+        const patched = await controller.patchSession(id, {
+          metadata: {
+            ...extra,
+            pluginMigration: {
+              ...current,
+              status: "installed",
+              installedPluginName: pluginName,
+              installedPluginEnabled: enabled,
+              ...(cleanupWarning ? { cleanupWarning } : {}),
+            },
+          },
+        });
+        if (!patched) throw new Error(`Cannot update migration state for unknown Thread ${id}`);
+        notifySession(id, { type: "plugin-migration-installed" });
       },
       async pin(id, pinned) {
         await initialize();
@@ -621,6 +645,10 @@ export function createDesktopAppServices(): AppServices {
         await initialize();
         return requireNative(nativePlugins, "Plugins").prepareMigration(path);
       },
+      async installPluginMigration(jobId) {
+        await initialize();
+        return requireNative(nativePlugins, "Plugins").installMigration(jobId);
+      },
       async setPluginEnabled(name, enabled) {
         await initialize();
         return requireNative(nativePlugins, "Plugins").setEnabled(name, enabled);
@@ -750,6 +778,7 @@ export function createDesktopAppServices(): AppServices {
 
 function mapSession(thread: NativeThreadRecord, responding: boolean, fallbackPayload?: unknown): SessionSummary {
   const extra = isRecord(thread.metadata?.extra) ? thread.metadata.extra : {};
+  const pluginMigration = normalizePluginMigrationSession(extra.pluginMigration);
   return {
     id: thread.threadId,
     chatId: thread.threadId,
@@ -759,6 +788,7 @@ function mapSession(thread: NativeThreadRecord, responding: boolean, fallbackPay
     ...(thread.archivedAt || thread.status === "archived" ? { archived: true } : {}),
     ...(thread.metadata?.workingDirectory ? { workingDirectory: thread.metadata.workingDirectory } : {}),
     ...(stringValue(thread.metadata?.model) ? { model: stringValue(thread.metadata?.model) } : {}),
+    ...(pluginMigration ? { pluginMigration } : {}),
     status: responding || thread.status === "running" || thread.status === "cancelling"
       ? "running"
       : thread.status === "failed" ? "failed" : "idle",
@@ -989,6 +1019,29 @@ function nativeThreadMetadataPatch(body: unknown): Record<string, unknown> {
     ...(model ? { model } : {}),
     ...(workingDirectory ? { workingDirectory } : {}),
     ...(Object.keys(extra).length ? { extra } : {}),
+  };
+}
+
+function normalizePluginMigrationSession(value: unknown): PluginMigrationSession | undefined {
+  if (!isRecord(value)) return undefined;
+  const jobId = stringValue(value.jobId);
+  const workingDirectory = stringValue(value.workingDirectory);
+  const sourceDirectory = stringValue(value.sourceDirectory);
+  const outputDirectory = stringValue(value.outputDirectory);
+  if (!jobId || !workingDirectory || !sourceDirectory || !outputDirectory) return undefined;
+  const status = value.status === "installed" ? "installed" : "pending";
+  return {
+    jobId,
+    workingDirectory,
+    sourceDirectory,
+    outputDirectory,
+    detectedArtifacts: Array.isArray(value.detectedArtifacts)
+      ? value.detectedArtifacts.flatMap((artifact) => typeof artifact === "string" ? [artifact] : [])
+      : [],
+    status,
+    ...(stringValue(value.installedPluginName) ? { installedPluginName: stringValue(value.installedPluginName) } : {}),
+    ...(typeof value.installedPluginEnabled === "boolean" ? { installedPluginEnabled: value.installedPluginEnabled } : {}),
+    ...(stringValue(value.cleanupWarning) ? { cleanupWarning: stringValue(value.cleanupWarning) } : {}),
   };
 }
 

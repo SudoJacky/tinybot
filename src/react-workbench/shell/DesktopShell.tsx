@@ -617,6 +617,7 @@ function RouteSurface({
           now={now}
           sessionStore={services.sessionStore}
           settingsStore={services.settingsStore}
+          toolsStore={services.toolsStore}
           workspaceStore={services.workspaceStore}
           sessionSidebarCollapsed={sessionSidebarCollapsed}
           onOpenFiles={() => onNavigate("files")}
@@ -861,6 +862,7 @@ function PluginsSection({
         title: "Migrate Skill or MCP",
         workingDirectory: job.workingDirectory,
         ...(model ? { model } : {}),
+        pluginMigration: { ...job, status: "pending" },
       });
       await services.chatStore.dispatch(createDesktopTurnSubmitCommand({
         message: {
@@ -916,7 +918,7 @@ function PluginsSection({
             <h2 id="agent-plugins-heading">Plugins</h2>
             {!loading ? <span className="react-resource-count">{enabledCount} enabled · {plugins.length} installed</span> : null}
           </span>
-          <small>Installed globally in ~/.tinybot. New plugins stay disabled until you enable them.</small>
+          <small>Installed globally in ~/.tinybot. Valid plugins are enabled immediately after import.</small>
         </span>
         <div className="react-plugin-heading-actions">
           <button

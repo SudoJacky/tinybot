@@ -29,6 +29,8 @@ export const NATIVE_BACKEND_COMMAND_NAMES = [
   "worker_skills_validate",
   "worker_plugins_list",
   "worker_plugin_install",
+  "worker_plugin_prepare_migration",
+  "worker_plugin_install_migration",
   "worker_plugin_set_enabled",
   "worker_plugin_uninstall",
   "worker_workspace_files",

@@ -172,6 +172,7 @@ pub(crate) fn run() {
             crate::desktop_commands::plugins::worker_plugins_list,
             crate::desktop_commands::plugins::worker_plugin_install,
             crate::desktop_commands::plugins::worker_plugin_prepare_migration,
+            crate::desktop_commands::plugins::worker_plugin_install_migration,
             crate::desktop_commands::plugins::worker_plugin_set_enabled,
             crate::desktop_commands::plugins::worker_plugin_uninstall,
             crate::desktop_commands::workspace::worker_workspace_files,

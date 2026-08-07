@@ -54,4 +54,25 @@ describe("session workspace projection", () => {
     expect(sessionWorkspaceName("/work/projects/tinybot/")).toBe("tinybot");
     expect(sessionWorkspaceName("D:\\")).toBe("D:");
   });
+
+  it("does not expose temporary plugin migration directories as reusable workspaces", () => {
+    const migrationDirectory = "C:\\Users\\test\\.tinybot\\plugins\\migrations\\migration-1";
+    const groups = groupSessionsByWorkspace([{
+      ...session("migration", 30, migrationDirectory),
+      pluginMigration: {
+        jobId: "migration-1",
+        workingDirectory: migrationDirectory,
+        sourceDirectory: `${migrationDirectory}\\source`,
+        outputDirectory: `${migrationDirectory}\\output`,
+        detectedArtifacts: ["standalone Skill"],
+        status: "installed",
+      },
+    }]);
+
+    expect(groups).toEqual([expect.objectContaining({
+      key: GENERAL_SESSION_WORKSPACE_KEY,
+      label: "常规会话",
+    })]);
+    expect(groups[0]).not.toHaveProperty("workingDirectory");
+  });
 });

@@ -30,6 +30,8 @@ describe("native backend contract", () => {
       "worker_subagent_resume",
       "worker_plugins_list",
       "worker_plugin_install",
+      "worker_plugin_prepare_migration",
+      "worker_plugin_install_migration",
       "worker_plugin_set_enabled",
       "worker_plugin_uninstall",
     ]));

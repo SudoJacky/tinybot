@@ -84,19 +84,19 @@ The app owns the native runtime lifecycle. The configured exit policy applies to
 
 ## Agent Plugins
 
-The **Tools & Plugins** page imports local directories that conform to Agent Plugins 1.0.0. Tinybot validates `plugin.json`, discovers immediate child skills from `skills/*/SKILL.md`, and loads MCP definitions from `mcp.json` when present. Imported plugins start disabled and must be enabled explicitly.
+The **Tools & Plugins** page imports local directories that conform to Agent Plugins 1.0.0. Tinybot validates `plugin.json`, discovers immediate child skills from `skills/*/SKILL.md`, and loads MCP definitions from `mcp.json` when present. Successfully imported plugins are enabled immediately; reinstalling a plugin preserves its current enablement state.
 
 Plugins are global rather than workspace-specific:
 
 - managed package copies are stored under `~/.tinybot/plugins/cache/<plugin-name>`;
-- persistent plugin data is stored under `~/.tinybot/plugins/data/<plugin-name>`;
+- persistent data for local stdio MCP servers is created on demand under `~/.tinybot/plugins/data/<plugin-name>` and exposed as `PLUGIN_DATA`;
 - enablement state is stored in `~/.tinybot/plugins/state.json`;
 - every enabled plugin is available in every Tinybot workspace;
 - uninstalling removes the package cache but retains its persistent data.
 
 Tinybot supports Agent Plugin MCP servers using `stdio` and `streamable-http`. Unsupported or invalid MCP entries are reported or skipped independently so valid skills and sibling servers remain usable. Tinybot does not scan or load legacy workspace skill directories into this plugin store.
 
-The page also offers an explicit Agent-assisted migration for standalone Skills, MCP configurations, and recognized client-plugin layouts. Tinybot copies the selected source into an isolated job under `~/.tinybot/plugins/migrations/<job-id>/source`, gives the Agent an empty `output` directory, and starts a normal chat turn scoped to that job. The original source is not modified, the Agent cannot install the result directly, and the generated output must still pass the normal strict plugin import before it can be enabled.
+The page also offers an explicit Agent-assisted migration for standalone Skills, MCP configurations, and recognized client-plugin layouts. Tinybot copies the selected source into an isolated job under `~/.tinybot/plugins/migrations/<job-id>/source`, gives the Agent an empty `output` directory, and starts a normal chat turn scoped to that job. The original source is not modified and the Agent cannot install the result directly. When the turn finishes, the conversation presents an **Install migrated plugin** action. Tinybot resolves the job by ID, validates the generated output with the normal strict plugin loader, installs and enables the plugin, reconciles MCP runtime state, and removes the temporary migration job. Cleanup failures are reported without hiding a successful installation.
 
 ## Conversation Models
 

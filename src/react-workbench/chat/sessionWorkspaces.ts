@@ -13,7 +13,9 @@ export type SessionWorkspaceGroup = {
 export function groupSessionsByWorkspace(sessions: SessionSummary[]): SessionWorkspaceGroup[] {
   const groups = new Map<string, SessionWorkspaceGroup>();
   for (const session of sessions) {
-    const workingDirectory = normalizedDisplayPath(session.workingDirectory);
+    const workingDirectory = normalizedDisplayPath(
+      session.pluginMigration ? undefined : session.workingDirectory,
+    );
     const pathKey = workingDirectory ? normalizedWorkspacePathKey(workingDirectory) : "";
     const key = pathKey ? `session-workspace:${pathKey}` : GENERAL_SESSION_WORKSPACE_KEY;
     const current = groups.get(key);

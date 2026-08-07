@@ -36,6 +36,7 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
     listPlugins: ReturnType<typeof vi.fn>;
     installPlugin: ReturnType<typeof vi.fn>;
     preparePluginMigration: ReturnType<typeof vi.fn>;
+    installPluginMigration: ReturnType<typeof vi.fn>;
     setPluginEnabled: ReturnType<typeof vi.fn>;
     uninstallPlugin: ReturnType<typeof vi.fn>;
   };
@@ -119,7 +120,7 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
       }]),
       installPlugin: vi.fn(async () => ({
         name: "review-tools",
-        enabled: false,
+        enabled: true,
         valid: true,
         installedAtMs: Date.now(),
         sourcePath: "D:\\plugins\\review-tools",
@@ -134,6 +135,19 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
         sourceDirectory: "C:\\Users\\test\\.tinybot\\plugins\\migrations\\migration-1\\source",
         outputDirectory: "C:\\Users\\test\\.tinybot\\plugins\\migrations\\migration-1\\output",
         detectedArtifacts: ["standalone Skill"],
+      })),
+      installPluginMigration: vi.fn(async () => ({
+        plugin: {
+          name: "review-tools",
+          enabled: true,
+          valid: true,
+          installedAtMs: Date.now(),
+          sourcePath: "migration:migration-1",
+          installPath: "C:\\Users\\test\\.tinybot\\plugins\\cache\\review-tools",
+          skills: [],
+          mcpServers: [],
+          diagnostics: [],
+        },
       })),
       setPluginEnabled: vi.fn(async (_name, enabled) => ({
         name: "review-tools",
@@ -462,6 +476,14 @@ describe("DesktopShell", () => {
       title: "Migrate Skill or MCP",
       workingDirectory: "C:\\Users\\test\\.tinybot\\plugins\\migrations\\migration-1",
       model: "deepseek-v4-flash",
+      pluginMigration: {
+        jobId: "migration-1",
+        workingDirectory: "C:\\Users\\test\\.tinybot\\plugins\\migrations\\migration-1",
+        sourceDirectory: "C:\\Users\\test\\.tinybot\\plugins\\migrations\\migration-1\\source",
+        outputDirectory: "C:\\Users\\test\\.tinybot\\plugins\\migrations\\migration-1\\output",
+        detectedArtifacts: ["standalone Skill"],
+        status: "pending",
+      },
     });
     expect(services.chatStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
       kind: "turn.submit",
