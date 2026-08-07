@@ -36,6 +36,7 @@ mod state;
 mod stores;
 mod subagent_projection;
 mod tool_dispatcher;
+mod tool_loop_guard;
 mod tool_outcome_projection;
 mod tool_projection;
 mod tool_result;

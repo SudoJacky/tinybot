@@ -51,6 +51,7 @@ fn outcome_summary(outcome: &NativeToolOutcome) -> String {
         "stale_state" => "State changed",
         "in_progress" => "Still running",
         "partial_result" => "Partial result",
+        "blocked" => "Loop prevented",
         "alternative_required" => "Alternative action required",
         "user_action_required" => "User action required",
         "failed" => "Tool failed",
@@ -74,13 +75,14 @@ fn outcome_guidance(outcome: &NativeToolOutcome) -> String {
             "Do not retry automatically. Inspect the reason and current evidence, then replan."
         }
     };
-    match outcome.next_action.as_ref() {
+    let guidance = match outcome.next_action.as_ref() {
         Some(next_action) => format!(
             "{retry_guidance} Follow nextAction by calling `{}` with its provided arguments.",
             next_action.tool
         ),
         None => retry_guidance.to_string(),
-    }
+    };
+    format!("{guidance} An equivalent call against unchanged state may be blocked by the runtime.")
 }
 
 fn project_ui_action(next_action: &NativeToolNextAction) -> Value {

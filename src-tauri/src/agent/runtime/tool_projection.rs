@@ -1,5 +1,6 @@
 use super::state::AgentTurnState;
 use super::subagent_projection::project_subagent_tool_result;
+use super::tool_dispatcher::{native_tool_mutates_session, native_tool_mutates_workspace};
 use super::{
     AgentAssistantMessage, AgentItem, AgentMessageContent, AgentToolCallItem, AgentToolResultItem,
     AgentTurnContext, NativeAgentToolCall, NativeAgentToolResult, NativeToolResultEnvelope,
@@ -158,6 +159,12 @@ pub(super) fn commit_tool_observation(
     state
         .completed_tool_results
         .push(completed_tool_result_entry(&tool_call, &result, &status));
+    let state_changed = status == "ok"
+        && (native_tool_mutates_workspace(context, &tool_call.name)
+            || native_tool_mutates_session(context, &tool_call.name));
+    state
+        .tool_loop_guard
+        .observe(&tool_call, &result.envelope, state_changed);
     Ok(())
 }
 

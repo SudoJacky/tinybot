@@ -268,10 +268,12 @@ mod tests {
             result.envelope["structured"]["outcome"]["retry"],
             "do_not_retry"
         );
-        assert_eq!(
-            model_content["toolOutcome"]["guidance"],
-            "Do not repeat the same tool call. Follow nextAction by calling `web.open` with its provided arguments."
-        );
+        let guidance = model_content["toolOutcome"]["guidance"]
+            .as_str()
+            .expect("tool outcome guidance should be text");
+        assert!(guidance.contains("Do not repeat the same tool call"));
+        assert!(guidance.contains("Follow nextAction by calling `web.open`"));
+        assert!(guidance.contains("unchanged state may be blocked"));
         assert_eq!(
             result.envelope["summary"],
             "Alternative action required: The target opens a new window."

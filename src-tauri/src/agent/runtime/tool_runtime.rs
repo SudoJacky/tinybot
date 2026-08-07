@@ -7,10 +7,11 @@ use super::tool_dispatcher::{
     native_tool_mutates_workspace, native_tool_rejection_reason,
     native_tool_waits_for_runtime_cancellation,
 };
+use super::tool_loop_guard::ToolLoopBlock;
 use super::tool_projection::{assistant_tool_calls_message, commit_tool_observation};
 use super::{
     AgentTurnContext, NativeAgentRuntimeServices, NativeAgentToolCall, NativeAgentToolDispatcher,
-    PreparedToolCall,
+    NativeToolOutcome, NativeToolRetry, PreparedToolCall,
 };
 use crate::agent::runtime_protocol::{
     AgentEventKind, AgentRuntimePhase, PendingAgentEvent, TerminalEvent, ToolLifecycleEvent,
@@ -657,6 +658,23 @@ async fn execute_tool_batch(
     iteration: i64,
     tool_calls: Vec<PreparedToolCall>,
 ) -> Result<NativeAgentToolExecutionOutcome, String> {
+    let (tool_calls, blocked_calls) = partition_repeated_no_progress_calls(state, tool_calls);
+    commit_loop_blocked_calls(context, state, iteration, blocked_calls)?;
+    if tool_calls.is_empty() {
+        state.clear_pending_tool_calls();
+        state.transition_phase(
+            AgentRuntimePhase::Planning,
+            iteration,
+            AgentEventKind::ToolResult.wire_name(),
+        )?;
+        save_phase_checkpoint(
+            services,
+            context,
+            state.phase.as_str(),
+            state.active_checkpoint_payload("tool_loop_blocked"),
+        );
+        return Ok(NativeAgentToolExecutionOutcome::Continue);
+    }
     let is_multi_call = tool_calls.len() > 1;
     if !is_multi_call && context_is_cancelled(context) {
         return cancelled_result(services, context, state, iteration);
@@ -734,6 +752,75 @@ async fn execute_tool_batch(
         state.active_checkpoint_payload("tool_completed"),
     );
     Ok(NativeAgentToolExecutionOutcome::Continue)
+}
+
+fn partition_repeated_no_progress_calls(
+    state: &AgentTurnState,
+    tool_calls: Vec<PreparedToolCall>,
+) -> (
+    Vec<PreparedToolCall>,
+    Vec<(PreparedToolCall, ToolLoopBlock)>,
+) {
+    let mut allowed = Vec::new();
+    let mut blocked = Vec::new();
+    for tool_call in tool_calls {
+        match state.tool_loop_guard.block_for(&tool_call) {
+            Some(reason) => blocked.push((tool_call, reason)),
+            None => allowed.push(tool_call),
+        }
+    }
+    (allowed, blocked)
+}
+
+fn commit_loop_blocked_calls(
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
+    iteration: i64,
+    blocked_calls: Vec<(PreparedToolCall, ToolLoopBlock)>,
+) -> Result<(), String> {
+    if blocked_calls.is_empty() {
+        return Ok(());
+    }
+    state.transition_phase(
+        AgentRuntimePhase::ToolRunning,
+        iteration,
+        AgentEventKind::ToolStarted.wire_name(),
+    )?;
+    for (tool_call, blocked) in blocked_calls {
+        state.emit(ToolLifecycleEvent::Started(serde_json::json!({
+            "iteration": iteration,
+            "toolCallId": tool_call.id,
+            "toolName": tool_call.name,
+            "name": tool_call.name,
+            "detailId": format!("tool:{}", tool_call.id),
+            "status": "blocked",
+            "reasonCode": "repeated_no_progress",
+        })))?;
+        let reason = format!(
+            "An equivalent `{}` call already returned `{}` (`{}`), and no relevant state-changing tool has completed since then.",
+            tool_call.name, blocked.previous_effect, blocked.previous_reason_code
+        );
+        let raw = serde_json::json!({
+            "status": "blocked",
+            "reasonCode": "repeated_no_progress",
+            "previousEffect": blocked.previous_effect,
+            "previousReasonCode": blocked.previous_reason_code,
+        });
+        let result = super::NativeAgentToolResult::success_with_outcome(
+            &tool_call,
+            raw,
+            NativeToolOutcome {
+                effect: "blocked".to_string(),
+                action_executed: Some(false),
+                reason_code: "repeated_no_progress".to_string(),
+                reason,
+                retry: NativeToolRetry::Replan,
+                next_action: None,
+            },
+        );
+        commit_tool_observation(context, state, iteration, tool_call.into_original(), result)?;
+    }
+    Ok(())
 }
 
 fn queue_tool_batch(

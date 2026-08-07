@@ -181,6 +181,16 @@ effects; Shell adapters report retained processes, cancellation, timeout,
 non-zero exit, failure, and truncated output; MCP adapters report configuration,
 allowlist, transport, and MCP `isError` results through the same projection.
 
+The runtime also guards against equivalent external tool calls that repeat a
+no-progress outcome. Tool names and recursively canonicalized arguments are
+hashed in memory and are not added to diagnostics. The first no-progress result
+reaches the model with replanning guidance; an equivalent call made before a
+successful tool declared to mutate workspace or session state is not dispatched
+and receives a `repeated_no_progress` outcome instead. Changed arguments and
+explicitly recommended same-call continuations remain allowed. Runtime-control
+tools such as plan updates, tool search, and user-input requests are outside
+this guard.
+
 `runtime.metrics` exposes bounded process-local counters, duration aggregates,
 and gauges for turns, providers, tools, persistence, cancellation, MCP,
 processes, recovery, and memory. Metric names come from fixed runtime enums.
