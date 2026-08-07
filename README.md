@@ -28,4 +28,6 @@ To install Tinybot, open [GitHub Tags](https://github.com/SudoJacky/tinybot/tags
 
 Starting with v0.2.3, Tinybot supports the [Agent Plugins 1.0.0 standard](https://agent-plugins.org/). Open **Tools & Plugins** to import a plugin directory you want to use. To get started, you can download and import [agentplugins/agent-plugins-example](https://github.com/agentplugins/agent-plugins-example), then ask the Agent to migrate an existing Skill or MCP configuration into a plugin.
 
-<!-- Add the Agent Plugins screenshot here. -->
+<img width="1362" height="889" alt="image" src="https://github.com/user-attachments/assets/efe401da-826b-4203-a158-d3d0c30293b3" />
+
+
