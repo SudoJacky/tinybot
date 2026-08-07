@@ -23,3 +23,9 @@ Tinybot 是一个由大语言模型和原生工具系统驱动的轻量级个人
 安装 Tinybot 时，请前往 [GitHub Tags](https://github.com/SudoJacky/tinybot/tags)，选择最新版本并下载适合当前平台的安装包。
 
 <img width="2389" height="1393" alt="Tinybot 应用截图" src="https://github.com/user-attachments/assets/e78f6ddd-3d7b-43eb-beb5-d3628d846e82" />
+
+## Agent Plugins
+
+从 v0.2.3 开始，Tinybot 支持 [Agent Plugins 1.0.0 标准](https://agent-plugins.org/)。你可以在 **工具与插件** 页面导入想要使用的插件目录。也可以先下载并导入 [agentplugins/agent-plugins-example](https://github.com/agentplugins/agent-plugins-example)，再让 Agent 帮你把现有 Skill 或 MCP 配置迁移为插件。
+
+<!-- Agent Plugins 说明图放在这里。 -->
