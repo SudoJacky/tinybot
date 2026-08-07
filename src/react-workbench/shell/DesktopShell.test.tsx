@@ -495,6 +495,11 @@ describe("DesktopShell", () => {
       source: { control: "plugin-migration", surface: "chat" },
       target: { sessionId: "s1" },
     }));
+    expect(vi.mocked(services.chatStore.dispatch).mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      input: expect.objectContaining({
+        text: expect.stringContaining("convert an allowed-tools YAML sequence to one space-separated string in the original order"),
+      }),
+    }));
   });
 
   it("renders the provider directory and saves provider configuration from Settings", async () => {

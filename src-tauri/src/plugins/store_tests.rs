@@ -178,6 +178,43 @@ fn rejects_invalid_migration_job_ids() {
 }
 
 #[test]
+fn rejects_invalid_migration_components_without_removing_the_job_workspace() {
+    let fixture = Fixture::new("migration-invalid-component");
+    let source = fixture.root.join("legacy-skill");
+    fs::create_dir_all(&source).expect("legacy skill directory should be created");
+    fs::write(
+        source.join("SKILL.md"),
+        "---\nname: legacy-skill\ndescription: Legacy skill.\n---\nUse it.",
+    )
+    .expect("legacy skill should be written");
+    let store = PluginStore::new(fixture.root.join("global-plugins"));
+    let job = store
+        .prepare_migration(&source)
+        .expect("migration should prepare");
+    let output = PathBuf::from(&job.output_directory);
+    fs::create_dir_all(output.join("skills/legacy-skill"))
+        .expect("migration output directories should be created");
+    fs::write(
+        output.join("plugin.json"),
+        r#"{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"legacy-tools"}"#,
+    )
+    .expect("migration manifest should be written");
+    fs::write(
+        output.join("skills/legacy-skill/SKILL.md"),
+        "---\nname: legacy-skill\ndescription: Migrated skill.\nallowed-tools:\n  - Read\n  - Write\n---\nUse it.",
+    )
+    .expect("invalid migrated skill should be written");
+
+    let error = store
+        .install_migration(&job.job_id)
+        .expect_err("invalid migrated components must block installation");
+
+    assert!(error.contains("skill allowed-tools must be a string"));
+    assert!(Path::new(&job.working_directory).is_dir());
+    assert!(store.list().expect("plugin state should load").is_empty());
+}
+
+#[test]
 fn refuses_to_migrate_an_already_valid_agent_plugin() {
     let fixture = Fixture::new("migration-valid-plugin");
     let source = fixture.plugin();

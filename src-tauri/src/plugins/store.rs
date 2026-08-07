@@ -321,6 +321,21 @@ impl PluginStore {
     ) -> Result<PluginMigrationInstallResult, String> {
         let job_root = self.resolve_migration_job(job_id)?;
         let output = job_root.join("output");
+        let generated = load_plugin(&output).map_err(|error| {
+            format!("migration `{job_id}` output is not an installable Agent Plugin: {error}")
+        })?;
+        let component_errors = generated
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.level == "error")
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>();
+        if !component_errors.is_empty() {
+            return Err(format!(
+                "migration `{job_id}` output contains invalid components: {}",
+                component_errors.join("; ")
+            ));
+        }
         let plugin = self
             .install_from_directory_with_source(&output, Some(format!("migration:{job_id}")))
             .map_err(|error| {

@@ -1037,6 +1037,7 @@ function pluginMigrationPrompt(job: PluginMigrationJob): string {
     "- Do not modify, move, or delete anything under the source snapshot.",
     "- Target Tinybot only. Do not create or retain a legacy compatibility package.",
     "- Create a root plugin.json and place portable Skills under skills/<name>/SKILL.md and portable MCP configuration in root mcp.json.",
+    "- Preserve portable metadata whenever it can be represented without losing information. Normalize every Skill frontmatter to the Agent Skills specification; convert an allowed-tools YAML sequence to one space-separated string in the original order. Omit a field only when it cannot be represented portably or would claim behavior Tinybot cannot provide, and list every omission in the migration report.",
     "- Preserve required scripts, references, and assets inside their owning Skill or plugin package.",
     "- Do not copy credentials, tokens, private keys, or secret headers. Report any secret-dependent configuration that needs user action.",
     "- Do not write to Tinybot's plugin cache and do not install the result yourself.",
