@@ -34,9 +34,18 @@ export type NativePluginSummary = {
   diagnostics: NativePluginDiagnostic[];
 };
 
+export type NativePluginMigrationJob = {
+  jobId: string;
+  workingDirectory: string;
+  sourceDirectory: string;
+  outputDirectory: string;
+  detectedArtifacts: string[];
+};
+
 export type NativePluginsApi = {
   list(): Promise<{ plugins: NativePluginSummary[] }>;
   install(path: string): Promise<NativePluginSummary>;
+  prepareMigration(path: string): Promise<NativePluginMigrationJob>;
   setEnabled(name: string, enabled: boolean): Promise<NativePluginSummary>;
   uninstall(name: string): Promise<void>;
 };
@@ -46,6 +55,9 @@ export function createDesktopNativePluginsApi(options: { invoke?: TauriInvoke } 
   return {
     list: () => invoke("worker_plugins_list") as Promise<{ plugins: NativePluginSummary[] }>,
     install: (path) => invoke("worker_plugin_install", { input: { path } }) as Promise<NativePluginSummary>,
+    prepareMigration: (path) => invoke("worker_plugin_prepare_migration", {
+      input: { path },
+    }) as Promise<NativePluginMigrationJob>,
     setEnabled: (name, enabled) => invoke("worker_plugin_set_enabled", {
       input: { enabled, name },
     }) as Promise<NativePluginSummary>,

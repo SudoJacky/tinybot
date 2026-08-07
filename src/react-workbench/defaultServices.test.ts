@@ -201,7 +201,11 @@ describe("desktop native app services", () => {
 
     await services.chatStore.dispatch(createDesktopTurnSubmitCommand({
       commandId: "command-turn-1",
-      message: { text: "hello", model: "model-1" },
+      message: {
+        text: "hello",
+        model: "model-1",
+        selectedSkills: ["agent-plugins-example:migrate-agent-plugin"],
+      },
       sessionId: "thread-1",
       source: { control: "test", surface: "chat" },
     }));
@@ -214,7 +218,10 @@ describe("desktop native app services", () => {
           sessionId: "thread-1",
           stream: true,
           model: "model-1",
-          metadata: expect.objectContaining({ clientEventId: "command-turn-1" }),
+          metadata: expect.objectContaining({
+            clientEventId: "command-turn-1",
+            selectedSkills: ["agent-plugins-example:migrate-agent-plugin"],
+          }),
         }),
       }),
     });

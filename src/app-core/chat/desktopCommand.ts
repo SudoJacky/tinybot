@@ -5,6 +5,7 @@ export type DesktopChatInput = {
   text: string;
   model?: string;
   references?: AgentInputReference[];
+  selectedSkills?: string[];
 };
 
 export type DesktopTurnSubmitCommand = {

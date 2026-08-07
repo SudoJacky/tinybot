@@ -93,3 +93,63 @@ fn reinstall_preserves_enablement_and_uninstall_preserves_plugin_data() {
     assert!(data_file.exists());
     assert!(store.list().expect("plugin state should load").is_empty());
 }
+
+#[test]
+fn prepares_isolated_migration_workspace_for_standalone_skill() {
+    let fixture = Fixture::new("migration-skill");
+    let source = fixture.root.join("legacy-skill");
+    fs::create_dir_all(source.join("references")).expect("skill directories should be created");
+    fs::write(
+        source.join("SKILL.md"),
+        "---\nname: legacy-skill\ndescription: Legacy skill.\n---\nUse it.",
+    )
+    .expect("skill should be written");
+    fs::write(source.join("references/notes.md"), "notes")
+        .expect("skill reference should be written");
+    let store = PluginStore::new(fixture.root.join("global-plugins"));
+
+    let job = store
+        .prepare_migration(&source)
+        .expect("standalone skill migration should prepare");
+
+    assert_eq!(job.detected_artifacts, vec!["standalone Skill"]);
+    assert!(Path::new(&job.working_directory).is_dir());
+    assert!(Path::new(&job.source_directory).join("SKILL.md").is_file());
+    assert!(Path::new(&job.source_directory)
+        .join("references/notes.md")
+        .is_file());
+    assert!(Path::new(&job.output_directory).is_dir());
+    assert!(fs::read_dir(&job.output_directory)
+        .expect("migration output should be readable")
+        .next()
+        .is_none());
+}
+
+#[test]
+fn refuses_to_migrate_an_already_valid_agent_plugin() {
+    let fixture = Fixture::new("migration-valid-plugin");
+    let source = fixture.plugin();
+    let store = PluginStore::new(fixture.root.join("global-plugins"));
+
+    let error = store
+        .prepare_migration(&source)
+        .expect_err("valid Agent Plugin should use normal import");
+
+    assert!(error.contains("already a valid Agent Plugin"));
+    assert!(!fixture.root.join("global-plugins/migrations").exists());
+}
+
+#[test]
+fn refuses_unrecognized_migration_sources() {
+    let fixture = Fixture::new("migration-unrecognized");
+    let source = fixture.root.join("ordinary-folder");
+    fs::create_dir_all(&source).expect("source directory should be created");
+    fs::write(source.join("README.md"), "not a plugin").expect("ordinary file should be written");
+    let store = PluginStore::new(fixture.root.join("global-plugins"));
+
+    let error = store
+        .prepare_migration(&source)
+        .expect_err("unrecognized source should fail fast");
+
+    assert!(error.contains("no standalone Skill, MCP configuration"));
+}

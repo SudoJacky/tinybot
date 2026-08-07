@@ -71,6 +71,16 @@ pub(crate) struct PluginSummary {
     pub(crate) valid: bool,
 }
 
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PluginMigrationJob {
+    pub(crate) job_id: String,
+    pub(crate) working_directory: String,
+    pub(crate) source_directory: String,
+    pub(crate) output_directory: String,
+    pub(crate) detected_artifacts: Vec<String>,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct PluginStore {
     root: PathBuf,
@@ -209,6 +219,87 @@ impl PluginStore {
             format!("installed plugin `{plugin_name}` could not be loaded: {error}")
         })?;
         Ok(summary_from_loaded(installed_plugin, installed, target))
+    }
+
+    pub(crate) fn prepare_migration(&self, source: &Path) -> Result<PluginMigrationJob, String> {
+        let source = source.canonicalize().map_err(|error| {
+            format!(
+                "failed to resolve migration source {}: {error}",
+                source.display()
+            )
+        })?;
+        if !source.is_dir() {
+            return Err(format!(
+                "migration source is not a directory: {}",
+                source.display()
+            ));
+        }
+        if source.join("plugin.json").is_file() && load_plugin(&source).is_ok() {
+            return Err(
+                "this directory is already a valid Agent Plugin; use Import plugin instead"
+                    .to_string(),
+            );
+        }
+        let detected_artifacts = detect_migration_artifacts(&source);
+        if detected_artifacts.is_empty() {
+            return Err(
+                "no standalone Skill, MCP configuration, or client plugin manifest was found in the selected directory"
+                    .to_string(),
+            );
+        }
+
+        fs::create_dir_all(&self.root).map_err(|error| {
+            format!(
+                "failed to create plugin storage {}: {error}",
+                self.root.display()
+            )
+        })?;
+        let store_root = self.root.canonicalize().map_err(|error| {
+            format!(
+                "failed to resolve plugin storage {}: {error}",
+                self.root.display()
+            )
+        })?;
+        if store_root.starts_with(&source) {
+            return Err(
+                "migration source must not contain Tinybot's global plugin storage directory"
+                    .to_string(),
+            );
+        }
+
+        let migrations_root = store_root.join("migrations");
+        fs::create_dir_all(&migrations_root).map_err(|error| {
+            format!(
+                "failed to create plugin migrations directory {}: {error}",
+                migrations_root.display()
+            )
+        })?;
+        let job_id = format!("migration-{}", install_nonce());
+        let job_root = migrations_root.join(&job_id);
+        fs::create_dir(&job_root).map_err(|error| {
+            format!(
+                "failed to create plugin migration job {}: {error}",
+                job_root.display()
+            )
+        })?;
+        let source_snapshot = job_root.join("source");
+        let output = job_root.join("output");
+        let prepare_result = copy_plugin_directory(&source, &source_snapshot).and_then(|_| {
+            fs::create_dir(&output)
+                .map_err(|error| format!("failed to create migration output directory: {error}"))
+        });
+        if let Err(error) = prepare_result {
+            let _ = fs::remove_dir_all(&job_root);
+            return Err(error);
+        }
+
+        Ok(PluginMigrationJob {
+            job_id,
+            working_directory: job_root.display().to_string(),
+            source_directory: source_snapshot.display().to_string(),
+            output_directory: output.display().to_string(),
+            detected_artifacts,
+        })
     }
 
     pub(crate) fn set_enabled(&self, name: &str, enabled: bool) -> Result<PluginSummary, String> {
@@ -402,6 +493,43 @@ fn copy_plugin_directory(source: &Path, target: &Path) -> Result<(), String> {
         let _ = fs::remove_dir_all(target);
     }
     result
+}
+
+fn detect_migration_artifacts(source: &Path) -> Vec<String> {
+    let mut artifacts = Vec::new();
+    if source.join("SKILL.md").is_file() {
+        artifacts.push("standalone Skill".to_string());
+    }
+    if [
+        "skills",
+        ".agents/skills",
+        ".github/skills",
+        ".claude/skills",
+    ]
+    .iter()
+    .any(|path| source.join(path).is_dir())
+    {
+        artifacts.push("skills directory".to_string());
+    }
+    if ["mcp.json", ".mcp.json", ".github/mcp.json"]
+        .iter()
+        .any(|path| source.join(path).is_file())
+    {
+        artifacts.push("MCP configuration".to_string());
+    }
+    if [
+        "plugin.json",
+        ".plugin/plugin.json",
+        ".codex-plugin/plugin.json",
+        ".claude-plugin/plugin.json",
+        ".github/plugin/plugin.json",
+    ]
+    .iter()
+    .any(|path| source.join(path).is_file())
+    {
+        artifacts.push("client plugin manifest".to_string());
+    }
+    artifacts
 }
 
 fn copy_directory_contents(source_root: &Path, source: &Path, target: &Path) -> Result<(), String> {

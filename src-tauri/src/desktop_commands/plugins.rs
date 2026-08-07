@@ -49,6 +49,19 @@ pub(crate) fn worker_plugin_install(
 }
 
 #[tauri::command]
+pub(crate) fn worker_plugin_prepare_migration(
+    input: WorkerPluginInstallInput,
+) -> Result<serde_json::Value, String> {
+    let source = PathBuf::from(input.path.trim());
+    if input.path.trim().is_empty() {
+        return Err("migration source directory path must not be empty".to_string());
+    }
+    let job = PluginStore::default_global().prepare_migration(&source)?;
+    serde_json::to_value(job)
+        .map_err(|error| format!("failed to serialize plugin migration job: {error}"))
+}
+
+#[tauri::command]
 pub(crate) fn worker_plugin_set_enabled(
     input: WorkerPluginEnableInput,
     state: State<'_, SharedNativeRuntime>,

@@ -312,6 +312,7 @@ export function createDesktopAppServices(): AppServices {
     const result = await controller.submitMessage(input.text, {
       ...(input.model ? { model: input.model } : {}),
       ...(input.references?.length ? { references: input.references } : {}),
+      ...(input.selectedSkills?.length ? { selectedSkills: input.selectedSkills } : {}),
       clientEventId: command.commandId,
     });
     const optimisticText = result.status === "sent" ? result.content : "";
@@ -602,6 +603,10 @@ export function createDesktopAppServices(): AppServices {
       async installPlugin(path) {
         await initialize();
         return requireNative(nativePlugins, "Plugins").install(path);
+      },
+      async preparePluginMigration(path) {
+        await initialize();
+        return requireNative(nativePlugins, "Plugins").prepareMigration(path);
       },
       async setPluginEnabled(name, enabled) {
         await initialize();

@@ -94,7 +94,9 @@ Plugins are global rather than workspace-specific:
 - every enabled plugin is available in every Tinybot workspace;
 - uninstalling removes the package cache but retains its persistent data.
 
-Tinybot supports Agent Plugin MCP servers using `stdio` and `streamable-http`. Unsupported or invalid MCP entries are reported or skipped independently so valid skills and sibling servers remain usable. Tinybot does not scan or migrate legacy workspace skill directories into this plugin store.
+Tinybot supports Agent Plugin MCP servers using `stdio` and `streamable-http`. Unsupported or invalid MCP entries are reported or skipped independently so valid skills and sibling servers remain usable. Tinybot does not scan or load legacy workspace skill directories into this plugin store.
+
+The page also offers an explicit Agent-assisted migration for standalone Skills, MCP configurations, and recognized client-plugin layouts. Tinybot copies the selected source into an isolated job under `~/.tinybot/plugins/migrations/<job-id>/source`, gives the Agent an empty `output` directory, and starts a normal chat turn scoped to that job. The original source is not modified, the Agent cannot install the result directly, and the generated output must still pass the normal strict plugin import before it can be enabled.
 
 ## Desktop Adapters
 

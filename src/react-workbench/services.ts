@@ -105,6 +105,14 @@ export type PluginSummary = {
   diagnostics: Array<{ level: "warning" | "error"; code: string; message: string }>;
 };
 
+export type PluginMigrationJob = {
+  jobId: string;
+  workingDirectory: string;
+  sourceDirectory: string;
+  outputDirectory: string;
+  detectedArtifacts: string[];
+};
+
 export type ToolSummary = {
   id: string;
   name: string;
@@ -135,6 +143,7 @@ export type ToolsStore = {
   loadCatalog(): Promise<ToolCatalogSummary>;
   listPlugins(): Promise<PluginSummary[]>;
   installPlugin(path: string): Promise<PluginSummary>;
+  preparePluginMigration(path: string): Promise<PluginMigrationJob>;
   setPluginEnabled(name: string, enabled: boolean): Promise<PluginSummary>;
   uninstallPlugin(name: string): Promise<void>;
 };
