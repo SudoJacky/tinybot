@@ -21,6 +21,26 @@ fn rejects_inline_sensitive_environment_values_without_echoing_them() {
 }
 
 #[test]
+fn accepts_agent_plugin_environment_values_defined_by_the_plugin_spec() {
+    let config = parse_stdio_server_config(
+        "plugin:example:private",
+        &json!({
+            "transport": "stdio",
+            "command": "node",
+            "env": { "PRIVATE_TOKEN": "plugin-configured-value" },
+            "agent_plugin": true
+        }),
+        &std::env::temp_dir(),
+    )
+    .expect("Agent Plugin environment values are part of the enabled plugin configuration");
+
+    assert_eq!(
+        config.env.get("PRIVATE_TOKEN").map(String::as_str),
+        Some("plugin-configured-value")
+    );
+}
+
+#[test]
 fn resolves_sensitive_child_environment_from_named_host_reference() {
     let host_env = format!("TINYBOT_MCP_STDIO_TOKEN_{}", std::process::id());
     let _guard = ScopedEnv::set(&host_env, "resolved-private-token");

@@ -22,7 +22,13 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
     listDirectory: ReturnType<typeof vi.fn>;
     readFile: ReturnType<typeof vi.fn>;
   };
-  toolsStore: { loadCatalog: ReturnType<typeof vi.fn>; listSkills: ReturnType<typeof vi.fn> };
+  toolsStore: {
+    loadCatalog: ReturnType<typeof vi.fn>;
+    listPlugins: ReturnType<typeof vi.fn>;
+    installPlugin: ReturnType<typeof vi.fn>;
+    setPluginEnabled: ReturnType<typeof vi.fn>;
+    uninstallPlugin: ReturnType<typeof vi.fn>;
+  };
   settingsStore: {
     load: ReturnType<typeof vi.fn>;
     loadAgentDefaultsSettings?: ReturnType<typeof vi.fn>;
@@ -89,9 +95,41 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
         ],
         mcpServers: [],
       })),
-      listSkills: vi.fn(async () => [
-        { name: "review-code", description: "Review current changes" },
-      ]),
+      listPlugins: vi.fn(async () => [{
+        name: "review-tools",
+        description: "Review current changes",
+        enabled: true,
+        valid: true,
+        installedAtMs: Date.now(),
+        sourcePath: "D:\\plugins\\review-tools",
+        installPath: "C:\\Users\\test\\.tinybot\\plugins\\cache\\review-tools",
+        skills: [{ name: "review-code", qualifiedName: "review-tools:review-code", description: "Review code" }],
+        mcpServers: [],
+        diagnostics: [],
+      }]),
+      installPlugin: vi.fn(async () => ({
+        name: "review-tools",
+        enabled: false,
+        valid: true,
+        installedAtMs: Date.now(),
+        sourcePath: "D:\\plugins\\review-tools",
+        installPath: "C:\\Users\\test\\.tinybot\\plugins\\cache\\review-tools",
+        skills: [],
+        mcpServers: [],
+        diagnostics: [],
+      })),
+      setPluginEnabled: vi.fn(async (_name, enabled) => ({
+        name: "review-tools",
+        enabled,
+        valid: true,
+        installedAtMs: Date.now(),
+        sourcePath: "D:\\plugins\\review-tools",
+        installPath: "C:\\Users\\test\\.tinybot\\plugins\\cache\\review-tools",
+        skills: [],
+        mcpServers: [],
+        diagnostics: [],
+      })),
+      uninstallPlugin: vi.fn(async () => undefined),
     },
     settingsStore: {
       load: vi.fn(async () => [{ label: "Default model", value: "tinybot" }]),
@@ -217,7 +255,7 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     const resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
-    for (const item of ["Chat", "Workspace Files", "GitHub", "Tools & Skills"]) {
+    for (const item of ["Chat", "Workspace Files", "GitHub", "Tools & Plugins"]) {
       expect(within(resourcesMenu).getByRole("menuitem", { name: item })).toBeTruthy();
     }
     expect(within(resourcesMenu).getByRole("menuitem", { name: "Chat" }).getAttribute("aria-current")).toBe("page");
@@ -345,10 +383,12 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
-    await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Tools & Skills" }));
-    expect(await screen.findByRole("heading", { name: "Tools & Skills" })).toBeTruthy();
+    await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Tools & Plugins" }));
+    expect(await screen.findByRole("heading", { name: "Tools & Plugins" })).toBeTruthy();
     expect(screen.getByText("Read file")).toBeTruthy();
-    expect(screen.getByText("review-code")).toBeTruthy();
+    expect(screen.getByText(/review-tools/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Disable" }));
+    await waitFor(() => expect(services.toolsStore.setPluginEnabled).toHaveBeenCalledWith("review-tools", false));
 
     await user.click(screen.getByRole("button", { name: "System" }));
     const systemMenu = screen.getByRole("menu", { name: "System menu" });

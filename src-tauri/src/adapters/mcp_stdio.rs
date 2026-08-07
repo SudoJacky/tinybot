@@ -43,6 +43,10 @@ pub(crate) fn parse_stdio_server_config(
     server: &Value,
     workspace_root: &Path,
 ) -> Result<StdioServerConfig, StdioConfigError> {
+    let is_agent_plugin = server
+        .get("agent_plugin")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let transport = server
         .get("transport")
         .and_then(Value::as_str)
@@ -117,7 +121,7 @@ pub(crate) fn parse_stdio_server_config(
         Some(Value::Object(env)) => env
             .iter()
             .map(|(key, value)| {
-                if is_sensitive_env_key(key) {
+                if !is_agent_plugin && is_sensitive_env_key(key) {
                     return Err(StdioConfigError {
                         message: format!(
                             "MCP stdio server `{server_name}` environment `{key}` is sensitive; set it through env_var_refs"

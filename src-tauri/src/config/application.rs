@@ -257,6 +257,14 @@ pub(crate) fn native_config_snapshot() -> Value {
     native_config_snapshot_from_path(&default_tinybot_config_path())
 }
 
+pub(crate) fn native_runtime_config_snapshot() -> Value {
+    let mut snapshot = native_config_snapshot();
+    if let Err(error) = crate::plugins::merge_enabled_mcp_servers(&mut snapshot) {
+        eprintln!("plugin_mcp_configuration_failed error={error}");
+    }
+    snapshot
+}
+
 pub(crate) fn repo_root() -> PathBuf {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir

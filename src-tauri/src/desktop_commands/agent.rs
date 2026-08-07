@@ -7,7 +7,7 @@ use crate::agent::runtime::NativeAgentTraceSink;
 use crate::collaboration::subagents::{
     SubagentSendInputParams, SubagentSpawnParams, SubagentTargetParams, SubagentWaitParams,
 };
-use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
+use crate::config::application::{native_backend_workspace_root, native_runtime_config_snapshot};
 use crate::desktop::{state::lock_runtime, SharedNativeRuntime};
 use crate::protocol::request_id::{next_worker_request_correlation, WorkerRequestCorrelation};
 use crate::protocol::WorkerRequest;
@@ -127,7 +127,7 @@ pub(crate) async fn worker_submit_thread_turn<R: Runtime + 'static>(
         &shared,
         input,
         native_backend_workspace_root(),
-        native_config_snapshot(),
+        native_runtime_config_snapshot(),
         Duration::from_secs(120),
         Some(desktop_agent_event_sink(app)),
     )
@@ -145,7 +145,7 @@ pub(crate) async fn worker_compact_thread<R: Runtime + 'static>(
         &shared,
         input,
         native_backend_workspace_root(),
-        native_config_snapshot(),
+        native_runtime_config_snapshot(),
         Duration::from_secs(120),
         Some(desktop_agent_event_sink(app)),
     )
@@ -163,7 +163,7 @@ pub(crate) async fn worker_submit_thread_form<R: Runtime + 'static>(
         &shared,
         input,
         native_backend_workspace_root(),
-        native_config_snapshot(),
+        native_runtime_config_snapshot(),
         Duration::from_secs(120),
         Some(desktop_agent_event_sink(app)),
     )
@@ -179,7 +179,7 @@ pub(crate) fn worker_background_trace_list(
         state.inner(),
         input,
         native_backend_workspace_root(),
-        native_config_snapshot(),
+        native_runtime_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -193,7 +193,7 @@ pub(crate) fn worker_background_trace_get_delegate_trace(
         state.inner(),
         input,
         native_backend_workspace_root(),
-        native_config_snapshot(),
+        native_runtime_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -207,7 +207,7 @@ pub(crate) fn worker_background_trace_get_artifact(
         state.inner(),
         input,
         native_backend_workspace_root(),
-        native_config_snapshot(),
+        native_runtime_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -221,7 +221,7 @@ pub(crate) fn worker_background_trace_append(
         state.inner(),
         input,
         native_backend_workspace_root(),
-        native_config_snapshot(),
+        native_runtime_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -235,7 +235,7 @@ pub(crate) fn worker_background_subagent_enqueue_input(
         state.inner(),
         input,
         native_backend_workspace_root(),
-        native_config_snapshot(),
+        native_runtime_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -353,7 +353,7 @@ pub(crate) fn worker_task_plan_list(
         state.inner(),
         input,
         native_backend_workspace_root(),
-        native_config_snapshot(),
+        native_runtime_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -367,7 +367,7 @@ pub(crate) fn worker_task_plan_get(
         state.inner(),
         input.plan_id,
         native_backend_workspace_root(),
-        native_config_snapshot(),
+        native_runtime_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -381,7 +381,7 @@ pub(crate) fn worker_task_plan_save(
         state.inner(),
         input.plan,
         native_backend_workspace_root(),
-        native_config_snapshot(),
+        native_runtime_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -395,7 +395,7 @@ pub(crate) fn worker_task_plan_delete(
         state.inner(),
         input.plan_id,
         native_backend_workspace_root(),
-        native_config_snapshot(),
+        native_runtime_config_snapshot(),
         Duration::from_secs(10),
     )
 }
@@ -767,7 +767,7 @@ fn dispatch_worker_subagent_request(
     let params = serde_json::to_value(input)
         .map_err(|error| format!("{context} request serialization failed: {error}"))?;
     let request_id = next_worker_request_correlation();
-    let mut router = native_request_router(thread_store, native_config_snapshot())
+    let mut router = native_request_router(thread_store, native_runtime_config_snapshot())
         .with_subagent_manager(manager);
     let response = router.dispatch(&WorkerRequest::new(
         request_id.id(method),

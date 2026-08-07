@@ -11,7 +11,7 @@ import {
 import type { DesktopCommand, DesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
 import { createDesktopNativeConfigApi } from "../app-core/native/desktopNativeConfig";
 import { applyNativeConfigPatch } from "../app-core/native/desktopNativeConfigPatch";
-import { createDesktopNativeSkillsApi } from "../app-core/native/desktopNativeSkills";
+import { createDesktopNativePluginsApi } from "../app-core/native/desktopNativePlugins";
 import {
   createDesktopNativeThreadsApi,
   type NativeThreadListResult,
@@ -40,7 +40,6 @@ import type {
   ChatEvent,
   McpServerSummary,
   SessionSummary,
-  SkillSummary,
   ToolCatalogSummary,
   ToolSummary,
   WorkspaceDirectoryPage,
@@ -64,7 +63,7 @@ type Listener = (event: ChatEvent) => void;
 export function createDesktopAppServices(): AppServices {
   const nativeMode = hasTauriRuntime();
   const nativeConfig = nativeMode ? createDesktopNativeConfigApi({ invoke }) : undefined;
-  const nativeSkills = nativeMode ? createDesktopNativeSkillsApi({ invoke }) : undefined;
+  const nativePlugins = nativeMode ? createDesktopNativePluginsApi({ invoke }) : undefined;
   const nativeThreads = nativeMode ? createDesktopNativeThreadsApi({ invoke }) : undefined;
   const nativeHostCommands = nativeMode ? createDesktopNativeHostCommandApi({ invoke }) : undefined;
   const nativeBrowser = nativeMode ? createDesktopNativeBrowserApi({ invoke }) : undefined;
@@ -596,9 +595,21 @@ export function createDesktopAppServices(): AppServices {
         await initialize();
         return normalizeToolCatalog(await requireNative(nativeWebui, "WebUI").route({ method: "GET", path: "/api/tools" }));
       },
-      async listSkills() {
+      async listPlugins() {
         await initialize();
-        return normalizeSkills(await requireNative(nativeSkills, "Skills").list());
+        return (await requireNative(nativePlugins, "Plugins").list()).plugins;
+      },
+      async installPlugin(path) {
+        await initialize();
+        return requireNative(nativePlugins, "Plugins").install(path);
+      },
+      async setPluginEnabled(name, enabled) {
+        await initialize();
+        return requireNative(nativePlugins, "Plugins").setEnabled(name, enabled);
+      },
+      async uninstallPlugin(name) {
+        await initialize();
+        await requireNative(nativePlugins, "Plugins").uninstall(name);
       },
     },
     settingsStore: {
@@ -880,22 +891,6 @@ function isWorkspaceQueryErrorCode(value: string): value is WorkspaceQueryErrorC
     "source_changed",
     "io_error",
   ].includes(value);
-}
-
-function normalizeSkills(payload: unknown): SkillSummary[] {
-  return payloadItems(payload, ["skills", "items"]).map((item) => {
-    const name = stringValue(item.name ?? item.id ?? item.slug);
-    return {
-      name: name || "Unnamed skill",
-      description: stringValue(item.description ?? item.summary),
-      source: stringValue(item.source) || undefined,
-      enabled: typeof item.enabled === "boolean" ? item.enabled : undefined,
-      available: typeof item.available === "boolean" ? item.available : undefined,
-      always: item.always === true,
-      effective: typeof item.effective === "boolean" ? item.effective : undefined,
-      reason: stringValue(item.reason) || undefined,
-    };
-  });
 }
 
 function normalizeToolCatalog(payload: unknown): ToolCatalogSummary {

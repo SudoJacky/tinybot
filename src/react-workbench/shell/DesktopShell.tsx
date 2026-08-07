@@ -32,8 +32,9 @@ import { ChatPage } from "../chat/ChatPage";
 import { AgentDefaultsSettingsPage } from "../settings/AgentDefaultsSettingsPage";
 import { ConfigSettingsPage, type ConfigSettingsGroupId } from "../settings/ConfigSettingsPage";
 import { ProviderModelsSettingsPage } from "../settings/ProviderModelsSettingsPage";
-import type { AppServices, ToolCatalogSummary, WorkspaceFileSummary } from "../services";
+import type { AppServices, PluginSummary, ToolCatalogSummary, WorkspaceFileSummary } from "../services";
 import type { DesktopUpdateClient } from "../../app-core/native/desktopNativeUpdate";
+import { pickDesktopPluginDirectory } from "../../app-core/native/desktopNativePluginPicker";
 import { DesktopUpdateDialogs } from "./DesktopUpdateDialogs";
 
 type AppRoute = "chat" | "files" | "github" | "docs" | "tools" | "settings";
@@ -56,7 +57,7 @@ const routeLabels: Record<AppRoute, string> = {
   files: "Workspace Files",
   github: "GitHub",
   docs: "Docs",
-  tools: "Tools & Skills",
+  tools: "Tools & Plugins",
   settings: "Settings",
 };
 
@@ -647,14 +648,14 @@ function FilesPage({ services }: { services: AppServices }) {
 }
 
 function ToolsPage({ services }: { services: AppServices }) {
+  const [catalogRevision, setCatalogRevision] = useState(0);
   const catalog = useAsyncValue<ToolCatalogSummary>(
     () => services.toolsStore.loadCatalog(),
     { tools: [], mcpServers: [] },
-    [services],
+    [services, catalogRevision],
   );
-  const skills = useAsyncList(() => services.toolsStore.listSkills(), [services]);
   return (
-    <WorkbenchPage title="Tools & Skills">
+    <WorkbenchPage title="Tools & Plugins">
       <div className="react-tools-skills-page">
         <section>
           <h2>Tools</h2>
@@ -690,24 +691,142 @@ function ToolsPage({ services }: { services: AppServices }) {
             />
           </section>
         ) : null}
-        <section>
-          <h2>Skills</h2>
-          <DataList
-            empty="No skills found."
-            items={skills}
-            renderItem={(skill) => (
-              <div className="react-data-row" key={skill.name}>
-                <span className="react-data-row__content">
-                  <strong>{skill.name}</strong>
-                  <small>{skill.description || "Skill"}</small>
-                </span>
-                <small>{skillMeta(skill)}</small>
-              </div>
-            )}
-          />
-        </section>
+        <PluginsSection
+          services={services}
+          onRuntimeChanged={() => setCatalogRevision((revision) => revision + 1)}
+        />
       </div>
     </WorkbenchPage>
+  );
+}
+
+function PluginsSection({
+  services,
+  onRuntimeChanged,
+}: {
+  services: AppServices;
+  onRuntimeChanged: () => void;
+}) {
+  const [plugins, setPlugins] = useState<PluginSummary[]>([]);
+  const [error, setError] = useState("");
+  const [busyPlugin, setBusyPlugin] = useState("");
+
+  async function reload(): Promise<void> {
+    setPlugins(await services.toolsStore.listPlugins());
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    void services.toolsStore.listPlugins()
+      .then((items) => {
+        if (!cancelled) setPlugins(items);
+      })
+      .catch((cause) => {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [services]);
+
+  async function importPlugin(): Promise<void> {
+    setBusyPlugin("__import__");
+    setError("");
+    try {
+      const path = await pickDesktopPluginDirectory();
+      if (!path) return;
+      await services.toolsStore.installPlugin(path);
+      await reload();
+      onRuntimeChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusyPlugin("");
+    }
+  }
+
+  async function togglePlugin(plugin: PluginSummary): Promise<void> {
+    setBusyPlugin(plugin.name);
+    setError("");
+    try {
+      await services.toolsStore.setPluginEnabled(plugin.name, !plugin.enabled);
+      await reload();
+      onRuntimeChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusyPlugin("");
+    }
+  }
+
+  async function uninstallPlugin(plugin: PluginSummary): Promise<void> {
+    if (!window.confirm(`Remove ${plugin.name}? Plugin data will be kept.`)) return;
+    setBusyPlugin(plugin.name);
+    setError("");
+    try {
+      await services.toolsStore.uninstallPlugin(plugin.name);
+      await reload();
+      onRuntimeChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusyPlugin("");
+    }
+  }
+
+  return (
+    <section aria-label="Agent Plugins">
+      <div className="react-plugin-section__header">
+        <span>
+          <h2>Agent Plugins</h2>
+          <small>Installed globally in ~/.tinybot and available to every workspace.</small>
+        </span>
+        <button disabled={Boolean(busyPlugin)} type="button" onClick={() => void importPlugin()}>
+          {busyPlugin === "__import__" ? "Importing…" : "Import folder"}
+        </button>
+      </div>
+      {error ? <p className="react-plugin-section__error" role="alert">{error}</p> : null}
+      <DataList
+        empty="No Agent Plugins installed."
+        items={plugins}
+        renderItem={(plugin) => (
+          <article className="react-data-row react-plugin-row" key={plugin.name} aria-label={`${plugin.name} plugin`}>
+            <span className="react-data-row__content">
+              <strong>{plugin.name}{plugin.version ? ` ${plugin.version}` : ""}</strong>
+              <small>{plugin.description || "Agent Plugin"}</small>
+              <small>
+                {plugin.skills.length} skills / {plugin.mcpServers.length} MCP servers
+                {plugin.diagnostics.length ? ` / ${plugin.diagnostics.length} diagnostics` : ""}
+              </small>
+              {plugin.skills.length ? (
+                <small>Skills: {plugin.skills.map((skill) => skill.name).join(", ")}</small>
+              ) : null}
+              {plugin.mcpServers.length ? (
+                <small>MCP: {plugin.mcpServers.map((server) => server.name).join(", ")}</small>
+              ) : null}
+              {plugin.diagnostics.map((diagnostic) => (
+                <small className="react-plugin-row__diagnostic" key={`${diagnostic.code}:${diagnostic.message}`}>
+                  {diagnostic.message}
+                </small>
+              ))}
+            </span>
+            <span className="react-plugin-row__actions">
+              <small>{!plugin.valid ? "invalid" : plugin.enabled ? "enabled" : "disabled"}</small>
+              <button
+                disabled={busyPlugin === plugin.name || (!plugin.valid && !plugin.enabled)}
+                type="button"
+                onClick={() => void togglePlugin(plugin)}
+              >
+                {plugin.enabled ? "Disable" : "Enable"}
+              </button>
+              <button disabled={busyPlugin === plugin.name} type="button" onClick={() => void uninstallPlugin(plugin)}>
+                Remove
+              </button>
+            </span>
+          </article>
+        )}
+      />
+    </section>
   );
 }
 
@@ -715,19 +834,6 @@ function toolMeta(tool: ToolCatalogSummary["tools"][number]): string {
   const source = tool.serverId ? `MCP: ${tool.serverId}` : tool.source;
   const status = !tool.available ? tool.reason || "unavailable" : !tool.enabled ? tool.reason || "disabled" : "available";
   return [source, status].filter(Boolean).join(" / ");
-}
-
-function skillMeta(skill: Awaited<ReturnType<AppServices["toolsStore"]["listSkills"]>>[number]): string {
-  const status = skill.available === false
-    ? skill.reason || "unavailable"
-    : skill.enabled === false
-      ? skill.reason || "disabled"
-      : skill.effective
-        ? "active"
-        : skill.always
-          ? "autoload"
-          : "available";
-  return [skill.source || "skill", status].join(" / ");
 }
 
 function SettingsPage({ services }: { services: AppServices }) {

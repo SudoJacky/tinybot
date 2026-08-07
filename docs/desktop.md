@@ -78,9 +78,23 @@ are not implemented in Rust return explicit errors.
 3. The Tauri shell initializes and checks the in-process native runtime directly.
 4. The desktop window installs the workbench shell without an HTTP bootstrap probe or a local TCP
    port.
-5. Use the desktop app through native workbench modules for chat, sessions, approvals, settings, providers, tools, skills, workspace files, browser frames, language toggle, and theme toggle where Rust support exists.
+5. Use the desktop app through native workbench modules for chat, sessions, approvals, settings, providers, tools, Agent Plugins, workspace files, browser frames, language toggle, and theme toggle where Rust support exists.
 
 The app owns the native runtime lifecycle. The configured exit policy applies to managed native backend state.
+
+## Agent Plugins
+
+The **Tools & Plugins** page imports local directories that conform to Agent Plugins 1.0.0. Tinybot validates `plugin.json`, discovers immediate child skills from `skills/*/SKILL.md`, and loads MCP definitions from `mcp.json` when present. Imported plugins start disabled and must be enabled explicitly.
+
+Plugins are global rather than workspace-specific:
+
+- managed package copies are stored under `~/.tinybot/plugins/cache/<plugin-name>`;
+- persistent plugin data is stored under `~/.tinybot/plugins/data/<plugin-name>`;
+- enablement state is stored in `~/.tinybot/plugins/state.json`;
+- every enabled plugin is available in every Tinybot workspace;
+- uninstalling removes the package cache but retains its persistent data.
+
+Tinybot supports Agent Plugin MCP servers using `stdio` and `streamable-http`. Unsupported or invalid MCP entries are reported or skipped independently so valid skills and sibling servers remain usable. Tinybot does not scan or migrate legacy workspace skill directories into this plugin store.
 
 ## Desktop Adapters
 

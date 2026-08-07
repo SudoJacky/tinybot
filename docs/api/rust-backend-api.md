@@ -936,6 +936,19 @@ Thread statuses:
 | `worker_skills_delete` | `{ input: { name } }` | delete result |
 | `worker_skills_validate` | `{ input: { name } }` | validation result |
 
+These commands belong to the legacy skills API. Native agent turns discover active skills from enabled global Agent Plugins instead.
+
+## Agent Plugin Commands
+
+| Command | Args | Response |
+| --- | --- | --- |
+| `worker_plugins_list` | none | `{ plugins: PluginSummary[] }` |
+| `worker_plugin_install` | `{ input: { path } }` | installed `PluginSummary` |
+| `worker_plugin_set_enabled` | `{ input: { name, enabled } }` | updated `PluginSummary` |
+| `worker_plugin_uninstall` | `{ input: { name } }` | `null` |
+
+Plugin installs use the Agent Plugins 1.0.0 layout and are global under `~/.tinybot/plugins`. A new plugin is disabled by default. Enabling, disabling, replacing, or uninstalling a plugin reconciles the shared MCP runtime. Skill names exposed to turn-level selection are qualified as `<plugin-name>:<skill-name>`; plugin MCP server IDs are qualified as `plugin:<plugin-name>:<server-name>`.
+
 ## Workspace Commands
 
 | Command | Args | Response |

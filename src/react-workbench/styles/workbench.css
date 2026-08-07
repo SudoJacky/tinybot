@@ -7357,6 +7357,62 @@ button.tinyos-overlay-backdrop:focus-visible {
   font-size: 14px;
 }
 
+.react-plugin-section__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.react-plugin-section__header > span {
+  display: grid;
+  gap: 3px;
+}
+
+.react-plugin-section__header small,
+.react-plugin-row__diagnostic {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-plugin-section__header button,
+.react-plugin-row__actions button {
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 7px;
+  background: #fff;
+  color: var(--color-ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.react-plugin-section__header button:disabled,
+.react-plugin-row__actions button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.react-plugin-section__error,
+.react-plugin-row__diagnostic {
+  color: var(--color-danger, #b42318);
+}
+
+.react-plugin-row__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.react-plugin-row .react-data-row__content {
+  display: grid;
+  gap: 3px;
+}
+
+.react-plugin-row small {
+  white-space: normal;
+}
+
 .react-data-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

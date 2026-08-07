@@ -1,5 +1,5 @@
 use crate::agent::bridge::resolve_agent_ui_form_body_with_services;
-use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
+use crate::config::application::{native_backend_workspace_root, native_runtime_config_snapshot};
 use crate::desktop::{state::lock_runtime, SharedNativeRuntime};
 use crate::desktop_commands::skills::{
     worker_skills_create_with_options, worker_skills_delete_with_options,
@@ -42,7 +42,7 @@ pub(crate) async fn worker_webui_route(
         &shared,
         input,
         native_backend_workspace_root(),
-        native_config_snapshot(),
+        native_runtime_config_snapshot(),
         timeout,
     )
     .await

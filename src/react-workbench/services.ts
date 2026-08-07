@@ -91,15 +91,18 @@ export type WorkspaceStore = {
   readFile(request: { cursor?: string; path: string }): Promise<WorkspaceFileChunk>;
 };
 
-export type SkillSummary = {
+export type PluginSummary = {
   name: string;
+  version?: string;
   description?: string;
-  source?: string;
-  enabled?: boolean;
-  available?: boolean;
-  always?: boolean;
-  effective?: boolean;
-  reason?: string;
+  enabled: boolean;
+  valid: boolean;
+  installedAtMs: number;
+  sourcePath: string;
+  installPath: string;
+  skills: Array<{ name: string; qualifiedName: string; description: string }>;
+  mcpServers: Array<{ name: string; qualifiedName: string; transport: string }>;
+  diagnostics: Array<{ level: "warning" | "error"; code: string; message: string }>;
 };
 
 export type ToolSummary = {
@@ -130,7 +133,10 @@ export type ToolCatalogSummary = {
 
 export type ToolsStore = {
   loadCatalog(): Promise<ToolCatalogSummary>;
-  listSkills(): Promise<SkillSummary[]>;
+  listPlugins(): Promise<PluginSummary[]>;
+  installPlugin(path: string): Promise<PluginSummary>;
+  setPluginEnabled(name: string, enabled: boolean): Promise<PluginSummary>;
+  uninstallPlugin(name: string): Promise<void>;
 };
 
 export type SettingsStore = {
