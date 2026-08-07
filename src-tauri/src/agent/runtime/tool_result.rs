@@ -1,3 +1,4 @@
+use super::tool_outcome_projection::project_tool_outcome;
 use super::tool_projection::legacy_tool_content;
 use super::{
     NativeAgentToolCall, NativeAgentToolResult, NativeToolOutcome, NativeToolResultEnvelope,
@@ -26,8 +27,7 @@ impl NativeToolResultEnvelope {
             "ok",
             summary,
             model_content,
-            "generic_result",
-            tool_call.name.clone(),
+            generic_ui("generic_result", tool_call.name.clone()),
             serde_json::json!({
                 "kind": "generic_result",
             }),
@@ -41,27 +41,16 @@ impl NativeToolResultEnvelope {
 
     fn success_with_outcome(
         tool_call: &NativeAgentToolCall,
-        summary: String,
         raw_content: Value,
         outcome: NativeToolOutcome,
     ) -> Self {
-        let outcome =
-            serde_json::to_value(outcome).expect("native tool outcome must serialize to JSON");
-        let model_content = serde_json::json!({
-            "toolOutcome": outcome,
-            "result": raw_content,
-        })
-        .to_string();
+        let projection = project_tool_outcome(tool_call, &raw_content, &outcome);
         Self::from_parts(
             "ok",
-            summary,
-            model_content,
-            "generic_result",
-            tool_call.name.clone(),
-            serde_json::json!({
-                "kind": "tool_outcome",
-                "outcome": outcome,
-            }),
+            projection.summary,
+            projection.model_content,
+            projection.ui,
+            projection.structured,
             serde_json::json!([]),
             serde_json::json!([]),
             serde_json::json!([]),
@@ -79,8 +68,7 @@ impl NativeToolResultEnvelope {
             "error",
             summary.clone(),
             summary,
-            "generic_error",
-            tool_call.name.clone(),
+            generic_ui("generic_error", tool_call.name.clone()),
             serde_json::json!({
                 "kind": "generic_error",
             }),
@@ -96,8 +84,7 @@ impl NativeToolResultEnvelope {
         status: &str,
         summary: String,
         model_content: String,
-        ui_type: &str,
-        title: String,
+        ui: Value,
         structured: Value,
         references: Value,
         artifacts: Value,
@@ -111,11 +98,7 @@ impl NativeToolResultEnvelope {
                 "summary": summary,
                 "modelContent": model_content,
                 "structured": structured,
-                "ui": {
-                    "type": ui_type,
-                    "title": title,
-                    "actions": [],
-                },
+                "ui": ui,
                 "references": references,
                 "artifacts": artifacts,
                 "sideEffects": side_effects,
@@ -199,16 +182,11 @@ impl NativeAgentToolResult {
 
     pub(crate) fn success_with_outcome(
         tool_call: &NativeAgentToolCall,
-        summary: String,
         raw_content: Value,
         outcome: NativeToolOutcome,
     ) -> Self {
-        let envelope = NativeToolResultEnvelope::success_with_outcome(
-            tool_call,
-            summary,
-            raw_content,
-            outcome,
-        );
+        let envelope =
+            NativeToolResultEnvelope::success_with_outcome(tool_call, raw_content, outcome);
         let model_content = envelope
             .get("modelContent")
             .and_then(Value::as_str)
@@ -219,6 +197,14 @@ impl NativeAgentToolResult {
             envelope,
         }
     }
+}
+
+fn generic_ui(ui_type: &str, title: String) -> Value {
+    serde_json::json!({
+        "type": ui_type,
+        "title": title,
+        "actions": [],
+    })
 }
 
 #[cfg(test)]
@@ -262,19 +248,13 @@ mod tests {
             reason_code: "target_opens_new_window".to_string(),
             reason: "The target opens a new window.".to_string(),
             retry: super::super::NativeToolRetry::DoNotRetry,
-            guidance: "Use web.open instead.".to_string(),
             next_action: Some(super::super::NativeToolNextAction {
                 tool: "web.open".to_string(),
                 arguments: json!({ "url": "https://example.com/docs" }),
             }),
         };
 
-        let result = NativeAgentToolResult::success_with_outcome(
-            &tool_call,
-            "Use web.open".to_string(),
-            raw.clone(),
-            outcome,
-        );
+        let result = NativeAgentToolResult::success_with_outcome(&tool_call, raw.clone(), outcome);
         let model_content: Value = serde_json::from_str(
             result.envelope["modelContent"]
                 .as_str()
@@ -290,8 +270,14 @@ mod tests {
         );
         assert_eq!(
             model_content["toolOutcome"]["guidance"],
-            "Use web.open instead."
+            "Do not repeat the same tool call. Follow nextAction by calling `web.open` with its provided arguments."
         );
+        assert_eq!(
+            result.envelope["summary"],
+            "Alternative action required: The target opens a new window."
+        );
+        assert_eq!(result.envelope["ui"]["summary"], result.envelope["summary"]);
+        assert_eq!(result.envelope["ui"]["actions"][0]["tool"], "web.open");
         assert_eq!(model_content["result"], raw);
         assert_eq!(result.envelope["raw"], raw);
     }

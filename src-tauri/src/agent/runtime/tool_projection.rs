@@ -205,6 +205,9 @@ fn normalize_tool_result_for_context(
     if let Some(structured) = envelope.get_mut("structured") {
         redact_sensitive_value(structured, &secrets, &mut redactions);
     }
+    if let Some(ui) = envelope.get_mut("ui") {
+        redact_sensitive_value(ui, &secrets, &mut redactions);
+    }
     if let Some(raw) = envelope.get_mut("raw") {
         redact_sensitive_value(raw, &secrets, &mut redactions);
     }
@@ -254,7 +257,7 @@ fn validate_tool_outcome(envelope: &NativeToolResultEnvelope) -> Result<(), Stri
         .get("outcome")
         .and_then(Value::as_object)
         .ok_or_else(|| "field `structured.outcome` must be an object".to_string())?;
-    for field in ["effect", "reasonCode", "reason", "retry", "guidance"] {
+    for field in ["effect", "reasonCode", "reason", "retry"] {
         if outcome
             .get(field)
             .and_then(Value::as_str)
@@ -500,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn commit_tool_observation_rejects_tool_outcome_without_guidance() {
+    fn commit_tool_observation_rejects_tool_outcome_with_unsupported_retry() {
         let context = AgentTurnContext::from_spec(
             json!({
                 "turnId": "turn-malformed-tool-outcome",
@@ -522,25 +525,86 @@ mod tests {
             reason_code: "page_unchanged".to_string(),
             reason: "The page did not change.".to_string(),
             retry: super::super::NativeToolRetry::DoNotRetry,
-            guidance: "Use another action.".to_string(),
             next_action: None,
         };
         let mut result = NativeAgentToolResult::success_with_outcome(
             &tool_call,
-            "Page unchanged".to_string(),
             json!({ "status": "unchanged" }),
             outcome,
         );
-        result.envelope["structured"]["outcome"]
-            .as_object_mut()
-            .expect("test outcome should be an object")
-            .remove("guidance");
+        result.envelope["structured"]["outcome"]["retry"] =
+            Value::String("retry_forever".to_string());
 
         let error = commit_tool_observation(&context, &mut state, 0, tool_call, result)
-            .expect_err("tool outcomes without guidance must fail fast");
+            .expect_err("tool outcomes with unsupported retry must fail fast");
 
-        assert!(error.contains("structured.outcome.guidance"));
+        assert!(error.contains("unsupported value `retry_forever`"));
         assert_eq!(state.history.messages().len(), 1);
         assert!(state.completed_tool_results.is_empty());
+    }
+
+    #[test]
+    fn tool_outcome_projection_redacts_model_and_ui_content() {
+        let context = AgentTurnContext::from_spec(
+            json!({
+                "turnId": "turn-redacted-tool-outcome",
+                "sessionId": "session-redacted-tool-outcome",
+                "messages": [{ "role": "user", "content": "use the browser" }]
+            }),
+            json!({
+                "providers": {
+                    "fixture": { "api_key": "secret-token" }
+                }
+            }),
+        );
+        let mut state = AgentTurnState::new(&context, None).expect("state should initialize");
+        let tool_call = NativeAgentToolCall {
+            id: "call-redacted-outcome".to_string(),
+            name: "web.act".to_string(),
+            arguments_json: "{}".to_string(),
+            result: Value::Null,
+        };
+        let outcome = super::super::NativeToolOutcome {
+            effect: "alternative_required".to_string(),
+            action_executed: Some(false),
+            reason_code: "secret_redirect".to_string(),
+            reason: "Open secret-token in another tool.".to_string(),
+            retry: super::super::NativeToolRetry::DoNotRetry,
+            next_action: Some(super::super::NativeToolNextAction {
+                tool: "web.open".to_string(),
+                arguments: json!({ "url": "https://example.com/secret-token" }),
+            }),
+        };
+        let result = NativeAgentToolResult::success_with_outcome(
+            &tool_call,
+            json!({ "status": "navigation_required", "secret": "secret-token" }),
+            outcome,
+        );
+
+        commit_tool_observation(&context, &mut state, 0, tool_call, result)
+            .expect("valid outcome should be committed");
+
+        let envelope = &state.completed_tool_results[0]["envelope"];
+        assert!(!envelope.to_string().contains("secret-token"));
+        assert!(envelope["ui"]["summary"]
+            .as_str()
+            .is_some_and(|summary| summary.contains("[REDACTED]")));
+        assert_eq!(
+            envelope["ui"]["actions"][0]["arguments"]["url"],
+            "https://example.com/[REDACTED]"
+        );
+        assert!(envelope["modelContent"]
+            .as_str()
+            .is_some_and(|content| content.contains("[REDACTED]")));
+        let event = state
+            .runtime_events()
+            .into_iter()
+            .find(|event| event.event_name == AgentEventKind::ToolResult.wire_name())
+            .expect("tool result event should be emitted");
+        assert_eq!(event.payload["summary"], envelope["summary"]);
+        assert_eq!(
+            event.payload["envelope"]["ui"]["summary"],
+            envelope["summary"]
+        );
     }
 }

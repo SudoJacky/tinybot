@@ -172,10 +172,11 @@ Persisted tool envelopes use the configured secret-redaction path.
 Special tool results use the shared `tool_outcome` envelope projection instead
 of relying on tool-specific prose hidden in raw JSON. The outer envelope status
 continues to report whether dispatch completed, while the outcome records the
-observed effect, whether an action ran, the reason, retry disposition, recovery
-guidance, and an optional next tool call. The same outcome is included in
-`modelContent`; malformed outcomes without actionable guidance fail projection.
-Ordinary successful results retain the existing generic projection.
+observed effect, whether an action ran, the reason, retry disposition, and an
+optional next tool call. A central projection derives model recovery guidance,
+the envelope summary, and UI metadata from those facts. Malformed outcomes fail
+projection rather than reaching the model. Ordinary successful results retain
+the existing generic projection.
 
 `runtime.metrics` exposes bounded process-local counters, duration aggregates,
 and gauges for turns, providers, tools, persistence, cancellation, MCP,

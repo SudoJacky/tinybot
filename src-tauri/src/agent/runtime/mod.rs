@@ -36,6 +36,7 @@ mod state;
 mod stores;
 mod subagent_projection;
 mod tool_dispatcher;
+mod tool_outcome_projection;
 mod tool_projection;
 mod tool_result;
 mod tool_router;
@@ -346,7 +347,6 @@ pub(crate) struct NativeToolOutcome {
     pub reason_code: String,
     pub reason: String,
     pub retry: NativeToolRetry,
-    pub guidance: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_action: Option<NativeToolNextAction>,
 }

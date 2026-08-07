@@ -198,7 +198,7 @@ fn new_window_navigation_response(page: &BrowserAgentPageState, action: &Value) 
         "status": "navigation_required",
         "actionExecuted": false,
         "reasonCode": "target_opens_new_window",
-        "reason": "This target opens a new browser window. Use web.open with suggestedUrl instead of clicking it again.",
+        "reason": "This target opens a new browser window, which cannot be activated in the current browser tab.",
         "suggestedUrl": href,
         "snapshotId": page.snapshot_id,
         "snapshot": snapshot_payload(page, SnapshotProjection::interaction(), None),
@@ -596,21 +596,6 @@ pub(crate) fn result_summary(method: &str, result: &Value) -> String {
         .unwrap_or_default();
 
     match status {
-        "unchanged" => format!("Page unchanged: {page}"),
-        "stale_snapshot" if method == "web.read" => {
-            format!("Page changed while reading; text offset reset: {page}")
-        }
-        "stale_snapshot" => format!("Page changed before the action: {page}"),
-        "navigation_required" => result
-            .get("suggestedUrl")
-            .and_then(Value::as_str)
-            .map(|url| {
-                format!(
-                    "Target opens a new window; use web.open for {}",
-                    compact_label(url, 80)
-                )
-            })
-            .unwrap_or_else(|| "Target opens a new window; use web.open instead".to_string()),
         "completed" => match method {
             "web.open" => format!("Opened {page} with {target_count} visible targets"),
             "web.read" => format!("Read {page} with {target_count} visible targets"),
@@ -840,7 +825,7 @@ mod tests {
     }
 
     #[test]
-    fn web_result_summary_is_short_and_status_specific() {
+    fn completed_web_result_summary_is_short_and_method_specific() {
         let opened = json!({
             "status": "completed",
             "snapshot": {
@@ -848,32 +833,9 @@ mod tests {
                 "targets": [{}, {}, {}]
             }
         });
-        let unchanged = json!({ "status": "unchanged" });
-        let reset = json!({
-            "status": "stale_snapshot",
-            "snapshot": { "title": "Updated article" }
-        });
-        let navigation_required = json!({
-            "status": "navigation_required",
-            "suggestedUrl": "https://agentskills.io/specification",
-            "snapshot": { "title": "Agent Plugins" }
-        });
-
         assert_eq!(
             result_summary("web.open", &opened),
             "Opened Account settings with 3 visible targets"
-        );
-        assert_eq!(
-            result_summary("web.read", &unchanged),
-            "Page unchanged: current page"
-        );
-        assert_eq!(
-            result_summary("web.read", &reset),
-            "Page changed while reading; text offset reset: Updated article"
-        );
-        assert_eq!(
-            result_summary("web.act", &navigation_required),
-            "Target opens a new window; use web.open for https://agentskills.io/specification"
         );
     }
 

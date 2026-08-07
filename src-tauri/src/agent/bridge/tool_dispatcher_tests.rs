@@ -163,9 +163,16 @@ fn special_web_result_exposes_recovery_guidance_in_the_tool_envelope() {
         outcome["nextAction"]["arguments"]["url"],
         "https://agentskills.io/specification"
     );
+    assert!(outcome.get("guidance").is_none());
     assert!(model_content["toolOutcome"]["guidance"]
         .as_str()
-        .is_some_and(|guidance| guidance.contains("Do not repeat the click")));
+        .is_some_and(|guidance| guidance.contains("Do not repeat the same tool call")));
+    assert_eq!(
+        result.envelope["summary"],
+        "Alternative action required: This target opens a new browser window."
+    );
+    assert_eq!(result.envelope["ui"]["summary"], result.envelope["summary"]);
+    assert_eq!(result.envelope["ui"]["actions"][0]["tool"], "web.open");
     assert_eq!(model_content["result"], raw);
 }
 
@@ -231,11 +238,19 @@ fn web_special_statuses_have_explicit_effects_and_retry_dispositions() {
             }),
         );
         let outcome = &result.envelope["structured"]["outcome"];
+        let model_content: serde_json::Value = serde_json::from_str(
+            result.envelope["modelContent"]
+                .as_str()
+                .expect("model content should be JSON"),
+        )
+        .expect("model content should parse");
 
         assert_eq!(outcome["effect"], effect, "status {status}");
         assert_eq!(outcome["retry"], retry, "status {status}");
-        assert!(outcome["guidance"]
+        assert!(outcome.get("guidance").is_none());
+        assert!(model_content["toolOutcome"]["guidance"]
             .as_str()
             .is_some_and(|guidance| !guidance.trim().is_empty()));
+        assert_eq!(result.envelope["ui"]["summary"], result.envelope["summary"]);
     }
 }

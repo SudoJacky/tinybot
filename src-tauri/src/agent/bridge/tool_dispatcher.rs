@@ -333,10 +333,10 @@ fn native_web_tool_result(
     tool_call: &PreparedToolCall,
     raw: serde_json::Value,
 ) -> NativeAgentToolResult {
-    let summary = web::result_summary(&tool_call.name, &raw);
     if let Some(outcome) = native_web_tool_outcome(&tool_call.name, &raw) {
-        return NativeAgentToolResult::success_with_outcome(tool_call, summary, raw, outcome);
+        return NativeAgentToolResult::success_with_outcome(tool_call, raw, outcome);
     }
+    let summary = web::result_summary(&tool_call.name, &raw);
     let model_content = raw.to_string();
     NativeAgentToolResult::generic_success_with_model_content(
         tool_call,
@@ -370,23 +370,20 @@ fn native_web_tool_outcome(tool_name: &str, raw: &serde_json::Value) -> Option<N
             reason_code: "page_unchanged".to_string(),
             reason: "The page has not changed since the supplied snapshot.".to_string(),
             retry: NativeToolRetry::DoNotRetry,
-            guidance: "Reuse the prior snapshot. Do not call web.read again with the same snapshotId until the page may have changed.".to_string(),
             next_action: None,
         },
         "stale_snapshot" => {
-            let guidance = if tool_name == "web.read" {
-                "The page changed while paginated text was being read. Use the returned content from offset 0 and continue with the returned snapshotId; do not reuse requestedSnapshotId."
+            let reason = if tool_name == "web.read" {
+                "The page changed while paginated text was being read. The returned content restarted at offset 0 with a new snapshot."
             } else {
-                "The action was not executed because the page snapshot is stale. Reassess the target in the returned snapshot before issuing a new web.act."
+                "The page changed after the supplied snapshot was captured, so the requested action was not executed."
             };
             NativeToolOutcome {
                 effect: "stale_state".to_string(),
                 action_executed: Some(false),
                 reason_code: "snapshot_stale".to_string(),
-                reason: "The browser page changed after the supplied snapshot was captured."
-                    .to_string(),
+                reason: reason.to_string(),
                 retry: NativeToolRetry::RetryWithUpdatedState,
-                guidance: guidance.to_string(),
                 next_action: None,
             }
         }
@@ -408,8 +405,6 @@ fn native_web_tool_outcome(tool_name: &str, raw: &serde_json::Value) -> Option<N
                         .to_string()
                 }),
                 retry: NativeToolRetry::DoNotRetry,
-                guidance: "Do not repeat the click. Use web.open with suggestedUrl instead."
-                    .to_string(),
                 next_action,
             }
         }
@@ -422,7 +417,6 @@ fn native_web_tool_outcome(tool_name: &str, raw: &serde_json::Value) -> Option<N
                     .to_string()
             }),
             retry: NativeToolRetry::AfterUserAction,
-            guidance: "Stop automated browser actions and ask the user to complete the required interaction. Resume only after the user confirms it is complete.".to_string(),
             next_action: None,
         },
         "failed" | "cancelled" | "timed_out" => NativeToolOutcome {
@@ -432,7 +426,6 @@ fn native_web_tool_outcome(tool_name: &str, raw: &serde_json::Value) -> Option<N
             reason: result_reason()
                 .unwrap_or_else(|| format!("The browser action returned {status}.")),
             retry: NativeToolRetry::Replan,
-            guidance: "Do not assume the page changed and do not retry automatically. Inspect the reason and current snapshot, then choose a new action.".to_string(),
             next_action: None,
         },
         other => NativeToolOutcome {
@@ -442,7 +435,6 @@ fn native_web_tool_outcome(tool_name: &str, raw: &serde_json::Value) -> Option<N
             reason: result_reason()
                 .unwrap_or_else(|| format!("The web tool returned the special status `{other}`.")),
             retry: NativeToolRetry::Replan,
-            guidance: "Treat this result as no confirmed progress. Inspect the result and replan before issuing another browser action.".to_string(),
             next_action: None,
         },
     };

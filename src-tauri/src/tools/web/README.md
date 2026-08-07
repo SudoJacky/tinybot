@@ -115,7 +115,7 @@ URL 跳转使用 `web.open`，不作为 `web.act` 动作。
 
 语义链接目标可附带经过安全 URL 校验的 `href`，使用 `opensNewWindow: true` 标识会创建新窗口的链接。对这类目标调用 `clickTarget` 时，Tinybot 不执行点击，而是返回 `navigation_required`、`actionExecuted: false` 和 `suggestedUrl`；agent 应只调用一次 `web.open` 打开该 URL，不能继续重复点击。
 
-`unchanged`、`stale_snapshot`、`navigation_required`、`user_required` 以及浏览器失败状态会通过统一的 `toolOutcome` 投影进入模型上下文。该投影明确说明动作是否执行、原因、是否应重试、恢复指导和可选的下一工具调用；原始 Web 结果仍保留在 `result` 和运行时 Envelope 的 `raw` 中。普通 `completed` 结果保持原有格式。
+`unchanged`、`stale_snapshot`、`navigation_required`、`user_required` 以及浏览器失败状态会先映射为只包含事实的结构化 Outcome，再由 Agent Runtime 的统一 Projection 生成模型恢复指导、Envelope/UI 摘要和可选 UI 动作。原始 Web 结果仍保留在 `result` 和运行时 Envelope 的 `raw` 中。普通 `completed` 结果保持原有格式。
 
 ## 转交给用户
 
