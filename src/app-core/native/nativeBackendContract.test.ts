@@ -28,6 +28,12 @@ describe("native backend contract", () => {
       "thread_get_turn_runtime_state",
       "thread_get_effective_capabilities",
       "worker_subagent_resume",
+      "worker_plugins_list",
+      "worker_plugin_install",
+      "worker_plugin_prepare_migration",
+      "worker_plugin_install_migration",
+      "worker_plugin_set_enabled",
+      "worker_plugin_uninstall",
     ]));
     for (const removedCommand of [
       "worker_run_agent",

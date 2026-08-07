@@ -48,7 +48,9 @@ export type ChatDeleteSessionResult =
 
 export type ChatSubmitOptions = {
   model?: string;
+  provider?: string;
   references?: AgentInputReference[];
+  selectedSkills?: string[];
   clientEventId?: string;
 };
 
@@ -286,7 +288,7 @@ export function createDesktopChatSessionController({
       throw new Error("Cannot submit a turn without an active Thread");
     }
     const clientEventId = options.clientEventId || createClientEventId();
-    const { model, references } = options;
+    const { model, provider, references, selectedSkills } = options;
     const turnId = createTurnId();
     const threadId = state.activeThreadId;
     const request: NativeThreadTurnInput = {
@@ -302,9 +304,11 @@ export function createDesktopChatSessionController({
         sessionId: threadId,
         stream: true,
         ...(model ? { model } : {}),
+        ...(provider ? { provider } : {}),
         metadata: {
           clientEventId,
           ...(references?.length ? { references } : {}),
+          ...(selectedSkills?.length ? { selectedSkills } : {}),
         },
       },
     };

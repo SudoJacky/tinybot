@@ -27,6 +27,7 @@ fn reports_truncation_and_invalid_utf8_without_hiding_the_source() {
     .expect("invalid UTF-8 project instructions should write");
     let composer = InstructionComposer {
         project_instruction_max_bytes: 5,
+        ..InstructionComposer::default()
     };
 
     let composed = composer
@@ -137,22 +138,22 @@ fn composes_explicit_turn_developer_instructions_before_workspace_system() {
 }
 
 #[test]
-fn composes_selected_workspace_skill_with_provenance() {
+fn composes_selected_agent_plugin_skill_with_provenance() {
     let fixture = InstructionFixture::new("selected-skill");
-    let skill_dir = fixture.root.join("skills").join("review-work");
-    fs::create_dir_all(&skill_dir).expect("selected skill directory should create");
-    fs::write(
-            skill_dir.join("SKILL.md"),
-            "---\nname: review-work\ndescription: Review work\n---\nReview the actual diff before reporting.\n",
-        )
-        .expect("selected skill should write");
+    let plugin_store_root = fixture.install_plugin(
+        "review-tools",
+        "review-work",
+        "Review work when a code review is requested.",
+        "Review the actual diff before reporting.",
+    );
 
     let composed = InstructionComposer::default()
+        .with_plugin_store_root(plugin_store_root)
         .compose(
             &fixture.root,
             &serde_json::json!({
                 "cwd": fixture.root,
-                "selectedSkills": ["review-work"]
+                "selectedSkills": ["review-tools:review-work"]
             }),
         )
         .expect("selected skill should compose");
@@ -165,7 +166,7 @@ fn composes_selected_workspace_skill_with_provenance() {
                 || source.identifier.ends_with("skills/review-work/SKILL.md")
         })
         .expect("selected skill provenance should be recorded");
-    assert_eq!(skill_source.scope_root, fixture.root.display().to_string());
+    assert!(skill_source.scope_root.ends_with("review-work"));
     assert!(composed
         .rendered_prompt()
         .contains("Review the actual diff before reporting."));
@@ -204,37 +205,36 @@ fn composes_thread_memory_after_workspace_instructions_and_before_turn_context()
 }
 
 #[test]
-fn autoloads_always_skill_only_when_enabled_by_config() {
-    let fixture = InstructionFixture::new("autoload-skill");
-    let skill_dir = fixture.root.join("skills").join("workspace-rules");
-    fs::create_dir_all(&skill_dir).expect("autoload skill directory should create");
-    fs::write(
-            skill_dir.join("SKILL.md"),
-            "---\nname: workspace-rules\ndescription: Workspace rules\nalways: true\n---\nFollow workspace rules.\n",
-        )
-        .expect("autoload skill should write");
+fn exposes_enabled_plugin_skill_metadata_without_eagerly_loading_its_body() {
+    let fixture = InstructionFixture::new("plugin-skill-catalog");
+    let plugin_store_root = fixture.install_plugin(
+        "workspace-tools",
+        "workspace-rules",
+        "Apply workspace rules when changing project files.",
+        "Follow private workspace rules.",
+    );
 
     let composed = InstructionComposer::default()
-        .compose_with_config(
-            &fixture.root,
-            &serde_json::json!({ "cwd": fixture.root }),
-            &serde_json::json!({ "skills": { "enabled": true, "autoload": true } }),
-        )
-        .expect("autoload skill should compose");
+        .with_plugin_store_root(plugin_store_root.clone())
+        .compose(&fixture.root, &serde_json::json!({ "cwd": fixture.root }))
+        .expect("plugin skill catalog should compose");
     assert!(composed
         .rendered_prompt()
-        .contains("Follow workspace rules."));
+        .contains("workspace-tools:workspace-rules"));
+    assert!(!composed
+        .rendered_prompt()
+        .contains("Follow private workspace rules."));
 
+    crate::plugins::PluginStore::new(plugin_store_root.clone())
+        .set_enabled("workspace-tools", false)
+        .expect("plugin should disable");
     let disabled = InstructionComposer::default()
-        .compose_with_config(
-            &fixture.root,
-            &serde_json::json!({ "cwd": fixture.root }),
-            &serde_json::json!({ "skills": { "enabled": false, "autoload": true } }),
-        )
-        .expect("disabled Skill settings should still compose");
+        .with_plugin_store_root(plugin_store_root)
+        .compose(&fixture.root, &serde_json::json!({ "cwd": fixture.root }))
+        .expect("disabled plugin should still compose");
     assert!(!disabled
         .rendered_prompt()
-        .contains("Follow workspace rules."));
+        .contains("workspace-tools:workspace-rules"));
 }
 
 #[test]
@@ -285,6 +285,40 @@ impl InstructionFixture {
         ));
         fs::create_dir_all(&root).expect("instruction fixture should create");
         Self { root }
+    }
+
+    fn install_plugin(
+        &self,
+        plugin_name: &str,
+        skill_name: &str,
+        description: &str,
+        body: &str,
+    ) -> PathBuf {
+        let source = self.root.join(format!("plugin-source-{plugin_name}"));
+        let skill_dir = source.join("skills").join(skill_name);
+        fs::create_dir_all(&skill_dir).expect("plugin skill directory should create");
+        fs::write(
+            source.join("plugin.json"),
+            format!(
+                "{{\"$schema\":\"{}\",\"name\":\"{plugin_name}\"}}",
+                "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json"
+            ),
+        )
+        .expect("plugin manifest should write");
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            format!("---\nname: {skill_name}\ndescription: {description}\n---\n{body}\n"),
+        )
+        .expect("plugin skill should write");
+        let store_root = self.root.join("plugin-store");
+        let store = crate::plugins::PluginStore::new(store_root.clone());
+        store
+            .install_from_directory(&source)
+            .expect("plugin should install");
+        store
+            .set_enabled(plugin_name, true)
+            .expect("plugin should enable");
+        store_root
     }
 }
 

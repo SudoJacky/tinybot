@@ -49,8 +49,13 @@ import {
 } from "../../components/ui/claude-style-ai-input";
 import { TextType } from "../../components/ui/TextType";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
-import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore, WorkspaceStore } from "../services";
+import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore, ToolsStore, WorkspaceStore } from "../services";
 import { createDesktopCompactCommand, createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
+import {
+  clearCurrentChatModel,
+  readCurrentChatModelPreference,
+  writeCurrentChatModel,
+} from "../../app-core/chat/chatModelPreference";
 import { pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
 import { pickDesktopWorkspaceDirectory } from "../../app-core/native/desktopNativeWorkspacePicker";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
@@ -122,6 +127,7 @@ export type ChatPageProps = {
   chatStore: ChatStore;
   sessionStore: SessionStore;
   settingsStore?: SettingsStore;
+  toolsStore?: Pick<ToolsStore, "installPluginMigration">;
   workspaceStore?: Pick<WorkspaceStore, "listDirectory" | "readFile">;
   createSessionSignal?: number;
   sessionSidebarCollapsed?: boolean;
@@ -226,37 +232,49 @@ function readStoredTinyOsWidth(): number {
   return Number.isFinite(stored) && stored > 0 ? clampTinyOsWidth(stored) : 480;
 }
 
-function readStoredComposerModel(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    return window.localStorage.getItem(CHAT_COMPOSER_MODEL_STORAGE_KEY)?.trim() ?? "";
-  } catch (error) {
-    console.warn("Unable to read the cached chat model preference.", error);
-    return "";
+function resolveComposerModel(
+  models: readonly ModelOption[],
+  sessionModel = "",
+  sessionProvider = "",
+): string {
+  const sessionOption = findComposerModel(models, sessionModel, sessionProvider);
+  if (sessionOption) {
+    return sessionOption.id;
   }
+  const stored = readCurrentChatModelPreference();
+  const storedOption = findComposerModel(models, stored?.modelId ?? "", stored?.providerId ?? "");
+  if (storedOption) {
+    return storedOption.id;
+  }
+  if (stored) {
+    clearCurrentChatModel();
+  }
+  return models[0]?.id || "";
 }
 
-function writeStoredComposerModel(modelId: string): void {
-  try {
-    window.localStorage.setItem(CHAT_COMPOSER_MODEL_STORAGE_KEY, modelId);
-  } catch (error) {
-    console.warn("Unable to cache the selected chat model.", error);
-  }
+function findComposerModel(
+  models: readonly ModelOption[],
+  modelId: string,
+  providerId = "",
+): ModelOption | undefined {
+  if (!modelId) return undefined;
+  const actualModelId = (model: ModelOption) => model.modelId || model.id;
+  return (providerId
+    ? models.find((model) => actualModelId(model) === modelId && model.providerId === providerId)
+    : undefined)
+    ?? models.find((model) => actualModelId(model) === modelId);
 }
 
-function resolveComposerModel(models: readonly ModelOption[], configuredDefaultModel: string): string {
-  const storedModel = readStoredComposerModel();
-  if (storedModel && models.some((model) => model.id === storedModel)) {
-    return storedModel;
-  }
-  if (storedModel) {
-    try {
-      window.localStorage.removeItem(CHAT_COMPOSER_MODEL_STORAGE_KEY);
-    } catch (error) {
-      console.warn("Unable to clear the stale chat model preference.", error);
-    }
-  }
-  return configuredDefaultModel || models[0]?.id || "";
+function composerSessionModelInput(
+  models: readonly ModelOption[],
+  selectionId: string,
+): { model?: string; modelProvider?: string } {
+  const selected = models.find((model) => model.id === selectionId);
+  if (!selected) return {};
+  return {
+    model: selected.modelId || selected.id,
+    ...(selected.providerId ? { modelProvider: selected.providerId } : {}),
+  };
 }
 
 const EMPTY_CHAT_PROMPTS = [
@@ -309,7 +327,6 @@ const COMPOSER_SLASH_COMMANDS = [
 const LIVE_CANVAS_CLOSE_MS = 160;
 const SESSION_DELETE_DISSOLVE_MS = 180;
 const TINYOS_WIDTH_STORAGE_KEY = "tinybot.ui.tinyos.width";
-const CHAT_COMPOSER_MODEL_STORAGE_KEY = "tinybot.ui.chat.composer-model";
 const EMPTY_OPTIMISTIC_MESSAGES: ReactChatMessage[] = [];
 
 export function ChatPage({
@@ -323,6 +340,7 @@ export function ChatPage({
   sessionSidebarCollapsed,
   sessionStore,
   settingsStore,
+  toolsStore,
   workspaceStore,
 }: ChatPageProps) {
   const tinyOsUiScope = useId();
@@ -365,6 +383,8 @@ export function ChatPage({
   const [tinyOsContextReferences, setTinyOsContextReferences] = useState<TinyOsContextReference[]>([]);
   const [tinyOsDropError, setTinyOsDropError] = useState("");
   const [recoveringTurnId, setRecoveringTurnId] = useState("");
+  const [installingMigrationJobId, setInstallingMigrationJobId] = useState("");
+  const [migrationInstallError, setMigrationInstallError] = useState("");
   const [showBackToLatest, setShowBackToLatest] = useState(false);
   const [dissolvingSessionIds, setDissolvingSessionIds] = useState<Set<string>>(() => new Set());
   const [deleteState, dispatchDelete] = useReducer(reduceSessionDeleteState, { confirmingSessionId: "" });
@@ -402,6 +422,9 @@ export function ChatPage({
     () => sessions.find((session) => session.id === activeSessionId),
     [activeSessionId, sessions],
   );
+  useEffect(() => {
+    setMigrationInstallError("");
+  }, [activeSessionId]);
   const openSessionTabs = useMemo<SessionTabItem[]>(() => (
     sessionTabs.openSessionIds.flatMap((sessionId) => {
       const session = sessions.find((candidate) => candidate.id === sessionId);
@@ -429,6 +452,14 @@ export function ChatPage({
   const sessionResponding = timelineLoaded
     ? Boolean(activeTurn) || (sessionRunning && optimisticMessages.length > 0)
     : sessionRunning && !emptyActiveSession;
+  const latestTurnStatus = timelineLoaded
+    ? timeline?.turns[timeline.turns.length - 1]?.status
+    : undefined;
+  const showPluginMigrationResult = activeSession?.pluginMigration?.status === "installed"
+    || (
+      activeSession?.pluginMigration?.status === "pending"
+      && latestTurnStatus === "completed"
+    );
   const cancelCapability = tinyOsCapabilities.capabilities.agent.cancel;
   const capabilityTargetsActiveTurn = !tinyOsCapabilities.evaluatedTurnId
     || tinyOsCapabilities.evaluatedTurnId === activeTurn?.id;
@@ -1074,9 +1105,8 @@ export function ChatPage({
         return;
       }
       const nextModels = models.map(toComposerModelOption);
-      const configuredDefaultModel = models.find((model) => model.default)?.id ?? nextModels[0]?.id ?? "";
       setComposerModels(nextModels);
-      setDefaultComposerModel(resolveComposerModel(nextModels, configuredDefaultModel));
+      setDefaultComposerModel(resolveComposerModel(nextModels));
     }).catch(() => {
       if (!cancelled) {
         setComposerModels([]);
@@ -1087,6 +1117,20 @@ export function ChatPage({
       cancelled = true;
     };
   }, [settingsStore]);
+
+  useEffect(() => {
+    if (!composerModels.length) return;
+    const model = resolveComposerModel(
+      composerModels,
+      activeSession?.model,
+      activeSession?.modelProvider,
+    );
+    setDefaultComposerModel(model);
+    const selected = composerModels.find((option) => option.id === model);
+    if (selected) {
+      writeCurrentChatModel(selected.modelId || selected.id, selected.providerId);
+    }
+  }, [activeSession?.id, activeSession?.model, activeSession?.modelProvider, composerModels]);
 
   useEffect(() => {
     if (!settingsStore?.loadAgentDefaultsSettings) {
@@ -1158,14 +1202,19 @@ export function ChatPage({
     }
   }, [activeSessionId, timeline, optimisticMessages, agentUiForms.length]);
 
-  async function handleCreateSession(workingDirectory = activeSession?.workingDirectory): Promise<SessionSummary | null> {
+  async function handleCreateSession(
+    workingDirectory = activeSession?.pluginMigration ? undefined : activeSession?.workingDirectory,
+  ): Promise<SessionSummary | null> {
     if (sessionCreatePending) {
       return null;
     }
     setSessionCreatePending(true);
     setSessionWorkspaceError("");
     try {
-      const created = await sessionStore.create(workingDirectory ? { workingDirectory } : undefined);
+      const created = await sessionStore.create({
+        ...(workingDirectory ? { workingDirectory } : {}),
+        ...composerSessionModelInput(composerModels, defaultComposerModel),
+      });
       activateCreatedSession(created);
       return created;
     } catch (error) {
@@ -1178,6 +1227,42 @@ export function ChatPage({
       return null;
     } finally {
       setSessionCreatePending(false);
+    }
+  }
+
+  async function handleInstallPluginMigration(session: SessionSummary): Promise<void> {
+    const migration = session.pluginMigration;
+    if (!migration || !toolsStore) return;
+    setInstallingMigrationJobId(migration.jobId);
+    setMigrationInstallError("");
+    try {
+      const result = await toolsStore.installPluginMigration(migration.jobId);
+      const installedMigration = {
+        ...migration,
+        status: "installed" as const,
+        installedPluginName: result.plugin.name,
+        installedPluginEnabled: result.plugin.enabled,
+        ...(result.cleanupWarning ? { cleanupWarning: result.cleanupWarning } : {}),
+      };
+      setSessions((current) => current.map((candidate) => (
+        candidate.id === session.id ? { ...candidate, pluginMigration: installedMigration } : candidate
+      )));
+      try {
+        await sessionStore.markPluginMigrationInstalled?.(
+          session.id,
+          result.plugin.name,
+          result.plugin.enabled,
+          result.cleanupWarning,
+        );
+      } catch (error) {
+        setMigrationInstallError(
+          `Plugin ${result.plugin.name} was installed, but the migration status could not be saved: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    } catch (error) {
+      setMigrationInstallError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setInstallingMigrationJobId("");
     }
   }
 
@@ -1543,7 +1628,15 @@ export function ChatPage({
         return;
       }
       if (action === "restart") {
-        const created = await sessionStore.create({ title: deriveSessionTitle(turn.userMessage.text) });
+        const created = await sessionStore.create({
+          title: deriveSessionTitle(turn.userMessage.text),
+          ...(activeSession.model
+            ? {
+                model: activeSession.model,
+                ...(activeSession.modelProvider ? { modelProvider: activeSession.modelProvider } : {}),
+              }
+            : composerSessionModelInput(composerModels, defaultComposerModel)),
+        });
         activateCreatedSession(created);
         await dispatchTurn(created.id, { text: turn.userMessage.text }, "recovery-restart");
         await handleSessionStoreRefresh(created);
@@ -1646,7 +1739,8 @@ export function ChatPage({
       return null;
     }
     if (!draftSessionCreatePromise.current) {
-      draftSessionCreatePromise.current = sessionStore.create()
+      const modelInput = composerSessionModelInput(composerModels, defaultComposerModel);
+      draftSessionCreatePromise.current = sessionStore.create(Object.keys(modelInput).length ? modelInput : undefined)
         .then((created) => {
           activateCreatedSession(created);
           return created;
@@ -2242,6 +2336,39 @@ export function ChatPage({
               sessionRunning={sessionRunning}
             />
           ))}
+          {showPluginMigrationResult && activeSession?.pluginMigration ? (
+            <section
+              aria-label="Plugin migration result"
+              className="react-plugin-migration-result"
+              data-status={activeSession.pluginMigration.status}
+            >
+              <span aria-hidden="true" className="react-plugin-migration-result__icon">
+                {activeSession.pluginMigration.status === "installed"
+                  ? <Check size={16} />
+                  : installingMigrationJobId === activeSession.pluginMigration.jobId
+                    ? <Loader2 className="react-spin" size={16} />
+                    : <FolderOpen size={16} />}
+              </span>
+              <span className="react-plugin-migration-result__copy">
+                <strong>{activeSession.pluginMigration.status === "installed"
+                  ? `${activeSession.pluginMigration.installedPluginName || "Plugin"} installed${activeSession.pluginMigration.installedPluginEnabled === false ? " (kept disabled)" : " and enabled"}`
+                  : "Migration complete — install the generated plugin"}</strong>
+                <small>{activeSession.pluginMigration.status === "installed"
+                  ? activeSession.pluginMigration.cleanupWarning || "The temporary migration workspace was cleaned up."
+                  : "Tinybot will validate the generated package before installing it globally."}</small>
+                {migrationInstallError ? <small className="react-plugin-migration-result__error" role="alert">{migrationInstallError}</small> : null}
+              </span>
+              {activeSession.pluginMigration.status === "pending" ? (
+                <button
+                  disabled={Boolean(installingMigrationJobId) || !toolsStore}
+                  type="button"
+                  onClick={() => void handleInstallPluginMigration(activeSession)}
+                >
+                  {installingMigrationJobId === activeSession.pluginMigration.jobId ? "Installing…" : "Install migrated plugin"}
+                </button>
+              ) : null}
+            </section>
+          ) : null}
           {visibleAgentUiForms.length ? (
             <div className="react-agent-ui-forms" aria-label="Agent forms">
               {visibleAgentUiForms.map((form) => (
@@ -2304,8 +2431,28 @@ export function ChatPage({
           contextUsage={activeContextUsage}
           models={composerModels}
           onModelChange={(modelId) => {
+            const selected = composerModels.find((model) => model.id === modelId);
+            if (!selected) return;
+            const selectedModelId = selected.modelId || selected.id;
             setDefaultComposerModel(modelId);
-            writeStoredComposerModel(modelId);
+            writeCurrentChatModel(selectedModelId, selected.providerId);
+            if (activeSession) {
+              setSessions((current) => current.map((session) => (
+                session.id === activeSession.id
+                  ? {
+                      ...session,
+                      model: selectedModelId,
+                      ...(selected.providerId ? { modelProvider: selected.providerId } : {}),
+                    }
+                  : session
+              )));
+              const setModel = selected.providerId
+                ? sessionStore.setModel?.(activeSession.id, selectedModelId, selected.providerId)
+                : sessionStore.setModel?.(activeSession.id, selectedModelId);
+              void setModel?.catch((error) => {
+                setTimelineError(`Model selection could not be saved: ${error instanceof Error ? error.message : String(error)}`);
+              });
+            }
           }}
           responding={sessionResponding}
           slashCommands={COMPOSER_SLASH_COMMANDS}
@@ -2729,6 +2876,7 @@ function createComposerChatInput(
   return {
     text,
     ...(options.model ? { model: options.model } : {}),
+    ...(options.provider ? { provider: options.provider } : {}),
     ...(references.length ? { references } : {}),
   };
 }
@@ -2926,10 +3074,13 @@ function formatComposerMessage(message: string, pastedContent: PastedContent[]):
 
 function toComposerModelOption(model: ChatModelOption): ModelOption {
   return {
-    id: model.id,
+    id: model.providerId
+      ? `provider:${encodeURIComponent(model.providerId)}|model:${encodeURIComponent(model.id)}`
+      : model.id,
+    modelId: model.id,
+    ...(model.providerId ? { providerId: model.providerId } : {}),
     name: model.label || model.id,
     description: model.description || model.providerLabel || "Configured model",
-    ...(model.default ? { badge: "Default" } : {}),
   };
 }
 

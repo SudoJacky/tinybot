@@ -23,6 +23,7 @@ export type NativeThreadRecord = {
   metadata?: {
     extra?: Record<string, unknown>;
     workingDirectory?: string;
+    model?: string;
     [key: string]: unknown;
   };
   [key: string]: unknown;
@@ -47,6 +48,7 @@ export type NativeThreadTurnInput = {
     sessionId: string;
     stream: true;
     model?: string;
+    provider?: string;
     metadata: Record<string, unknown>;
   };
 };

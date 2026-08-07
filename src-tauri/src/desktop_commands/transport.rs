@@ -1,7 +1,7 @@
 use crate::agent::bridge::desktop_agent_event_sink;
 use crate::agent::runtime::NativeAgentTraceSink;
 use crate::agent::runtime_protocol::AgentEventKind;
-use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
+use crate::config::application::{native_backend_workspace_root, native_runtime_config_snapshot};
 use crate::desktop::{state::lock_runtime, SharedNativeRuntime};
 use crate::desktop_commands::agent::worker_run_agent_with_live_trace_sink_async;
 use crate::native_browser::{BrowserInteractionInput, SharedBrowserRuntime};
@@ -72,7 +72,7 @@ pub(crate) async fn worker_dispatch_tinyos_host_command<R: Runtime + 'static>(
 ) -> Result<serde_json::Value, String> {
     let shared = state.inner().clone();
     let workspace_root = native_backend_workspace_root();
-    let config_snapshot = native_config_snapshot();
+    let config_snapshot = native_runtime_config_snapshot();
     let live_trace_sink = desktop_agent_event_sink(app.clone());
     let host_operation_sink: TinyOsHostOperationSink = Arc::new(move |event| {
         app.emit("tinyos:host-operation", event)

@@ -10,6 +10,7 @@ pub mod desktop_commands;
 mod mcp_capability_catalog;
 mod memory;
 mod native_browser;
+mod plugins;
 mod protocol;
 mod rpc;
 mod runtime;

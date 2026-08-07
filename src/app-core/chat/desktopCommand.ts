@@ -4,7 +4,9 @@ import type { TinyOsCommand, TinyOsCommandSource } from "./tinyOsCommand";
 export type DesktopChatInput = {
   text: string;
   model?: string;
+  provider?: string;
   references?: AgentInputReference[];
+  selectedSkills?: string[];
 };
 
 export type DesktopTurnSubmitCommand = {

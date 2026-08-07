@@ -40,6 +40,9 @@ export type SessionSummary = {
   archived?: boolean;
   status?: "idle" | "running" | "failed";
   workingDirectory?: string;
+  model?: string;
+  modelProvider?: string;
+  pluginMigration?: PluginMigrationSession;
 };
 
 export type ChatInput = DesktopChatInput;
@@ -59,8 +62,16 @@ export type ChatEvent = {
 
 export type SessionStore = {
   list(): Promise<SessionSummary[]>;
-  create(input?: { title?: string; workingDirectory?: string }): Promise<SessionSummary>;
+  create(input?: {
+    title?: string;
+    workingDirectory?: string;
+    model?: string;
+    modelProvider?: string;
+    pluginMigration?: PluginMigrationSession;
+  }): Promise<SessionSummary>;
   rename(id: string, title: string): Promise<void>;
+  setModel?(id: string, model: string, provider?: string): Promise<void>;
+  markPluginMigrationInstalled?(id: string, pluginName: string, enabled: boolean, cleanupWarning?: string): Promise<void>;
   delete(id: string): Promise<void>;
   pin(id: string, pinned: boolean): Promise<void>;
   archive(id: string): Promise<void>;
@@ -91,15 +102,38 @@ export type WorkspaceStore = {
   readFile(request: { cursor?: string; path: string }): Promise<WorkspaceFileChunk>;
 };
 
-export type SkillSummary = {
+export type PluginSummary = {
   name: string;
+  version?: string;
   description?: string;
-  source?: string;
-  enabled?: boolean;
-  available?: boolean;
-  always?: boolean;
-  effective?: boolean;
-  reason?: string;
+  enabled: boolean;
+  valid: boolean;
+  installedAtMs: number;
+  sourcePath: string;
+  installPath: string;
+  skills: Array<{ name: string; qualifiedName: string; description: string }>;
+  mcpServers: Array<{ name: string; qualifiedName: string; transport: string }>;
+  diagnostics: Array<{ level: "warning" | "error"; code: string; message: string }>;
+};
+
+export type PluginMigrationJob = {
+  jobId: string;
+  workingDirectory: string;
+  sourceDirectory: string;
+  outputDirectory: string;
+  detectedArtifacts: string[];
+};
+
+export type PluginMigrationSession = PluginMigrationJob & {
+  status: "pending" | "installed";
+  installedPluginName?: string;
+  installedPluginEnabled?: boolean;
+  cleanupWarning?: string;
+};
+
+export type PluginMigrationInstallResult = {
+  plugin: PluginSummary;
+  cleanupWarning?: string;
 };
 
 export type ToolSummary = {
@@ -130,7 +164,12 @@ export type ToolCatalogSummary = {
 
 export type ToolsStore = {
   loadCatalog(): Promise<ToolCatalogSummary>;
-  listSkills(): Promise<SkillSummary[]>;
+  listPlugins(): Promise<PluginSummary[]>;
+  installPlugin(path: string): Promise<PluginSummary>;
+  preparePluginMigration(path: string): Promise<PluginMigrationJob>;
+  installPluginMigration(jobId: string): Promise<PluginMigrationInstallResult>;
+  setPluginEnabled(name: string, enabled: boolean): Promise<PluginSummary>;
+  uninstallPlugin(name: string): Promise<void>;
 };
 
 export type SettingsStore = {

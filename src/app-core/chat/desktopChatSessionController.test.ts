@@ -84,11 +84,13 @@ describe("desktop native chat session controller", () => {
 
     const result = await controller.submitMessage("hello", {
       model: "model-1",
+      provider: "openai",
       references: [{
         kind: "reference",
         title: "README",
         detail: "selected file",
       }],
+      selectedSkills: ["agent-plugins-example:migrate-agent-plugin"],
     });
     expect(result).toEqual({
       status: "sent",
@@ -118,9 +120,11 @@ describe("desktop native chat session controller", () => {
         sessionId: "thread-1",
         stream: true,
         model: "model-1",
+        provider: "openai",
         metadata: {
           clientEventId: "client-1",
           references: [{ kind: "reference", title: "README", detail: "selected file" }],
+          selectedSkills: ["agent-plugins-example:migrate-agent-plugin"],
         },
       },
     });

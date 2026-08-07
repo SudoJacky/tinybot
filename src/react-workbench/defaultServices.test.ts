@@ -74,6 +74,7 @@ describe("desktop native app services", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.listeners.clear();
+    window.localStorage.clear();
     (globalThis as typeof globalThis & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
     mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };
@@ -103,6 +104,55 @@ describe("desktop native app services", () => {
     expect(commands).toContain("worker_threads_list");
   });
 
+  test("loads models from every enabled provider instead of only the default provider", async () => {
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === "worker_threads_list") return { threads: [thread], total: 1 };
+      if (command === "thread_list_turns") return { turns: [] };
+      if (command === "thread_get_turn_runtime_state") return null;
+      if (command === "get_config_editor_snapshot") {
+        return {
+          effectivePublicConfig: {
+            agents: { defaults: { activeProfile: "deepseek-default", model: "deepseek-chat" } },
+            providers: {
+              profiles: {
+                "deepseek-default": {
+                  provider: "deepseek",
+                  displayName: "DeepSeek",
+                  enabled: true,
+                  models: ["deepseek-chat"],
+                },
+                "openai-default": {
+                  provider: "openai",
+                  displayName: "OpenAI",
+                  enabled: true,
+                  models: ["gpt-5"],
+                },
+              },
+            },
+          },
+        };
+      }
+      if (command === "worker_webui_route") {
+        return {
+          status: 200,
+          body: {
+            providers: [
+              { id: "deepseek", displayName: "DeepSeek", status: "ready" },
+              { id: "openai", displayName: "OpenAI", status: "ready" },
+            ],
+          },
+        };
+      }
+      return {};
+    });
+    const services = createDesktopAppServices();
+
+    await expect(services.settingsStore.loadChatModels?.()).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "deepseek-chat", providerId: "deepseek" }),
+      expect.objectContaining({ id: "gpt-5", providerId: "openai" }),
+    ]));
+  });
+
   test("reloads canonical runtime state whenever an existing session is loaded", async () => {
     const services = createDesktopAppServices();
 
@@ -128,6 +178,7 @@ describe("desktop native app services", () => {
         workingDirectory: "D:\\Code\\py\\tinybot",
       }),
     ]);
+    window.localStorage.setItem("tinybot.ui.chat.composer-model", "model-current");
     await expect(services.sessionStore.create({
       title: "New Thread",
       workingDirectory: "D:\\Code\\py\\tinybot",
@@ -142,6 +193,7 @@ describe("desktop native app services", () => {
           source: "desktop",
           metadata: {
             workingDirectory: "D:\\Code\\py\\tinybot",
+            model: "model-current",
           },
         },
       },
@@ -201,7 +253,12 @@ describe("desktop native app services", () => {
 
     await services.chatStore.dispatch(createDesktopTurnSubmitCommand({
       commandId: "command-turn-1",
-      message: { text: "hello", model: "model-1" },
+      message: {
+        text: "hello",
+        model: "model-1",
+        provider: "openai",
+        selectedSkills: ["agent-plugins-example:migrate-agent-plugin"],
+      },
       sessionId: "thread-1",
       source: { control: "test", surface: "chat" },
     }));
@@ -214,11 +271,63 @@ describe("desktop native app services", () => {
           sessionId: "thread-1",
           stream: true,
           model: "model-1",
-          metadata: expect.objectContaining({ clientEventId: "command-turn-1" }),
+          provider: "openai",
+          metadata: expect.objectContaining({
+            clientEventId: "command-turn-1",
+            selectedSkills: ["agent-plugins-example:migrate-agent-plugin"],
+          }),
         }),
       }),
     });
+    expect(mocks.invoke).toHaveBeenCalledWith("worker_thread_update_metadata", {
+      input: {
+        body: {
+          threadId: "thread-1",
+          metadata: { model: "model-1", extra: { modelProvider: "openai" } },
+        },
+      },
+    });
     expect(events).toContainEqual(expect.objectContaining({ type: "message-sent" }));
+  });
+
+  test("uses the Thread model when an automatic turn omits model", async () => {
+    const modeledThread = {
+      ...thread,
+      metadata: {
+        ...thread.metadata,
+        model: "thread-model",
+      },
+    };
+    mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "worker_threads_list") return { threads: [modeledThread], total: 1 };
+      if (command === "thread_list_turns") return { turns: [] };
+      if (command === "thread_get_turn_runtime_state") return null;
+      if (command === "worker_submit_thread_turn") {
+        const input = args?.input as { spec?: { turnId?: string } } | undefined;
+        return {
+          threadId: "thread-1",
+          sessionId: "thread-1",
+          turnId: input?.spec?.turnId,
+        };
+      }
+      return {};
+    });
+    const services = createDesktopAppServices();
+    await services.sessionStore.list();
+
+    await services.chatStore.dispatch(createDesktopTurnSubmitCommand({
+      commandId: "command-thread-model",
+      message: { text: "continue" },
+      sessionId: "thread-1",
+      source: { control: "automatic", surface: "chat" },
+    }));
+
+    expect(mocks.invoke).toHaveBeenCalledWith("worker_submit_thread_turn", {
+      input: expect.objectContaining({
+        spec: expect.objectContaining({ model: "thread-model" }),
+      }),
+    });
+    expect(mocks.invoke).not.toHaveBeenCalledWith("worker_thread_update_metadata", expect.anything());
   });
 
   test("projects native file references as optimistic attachment metadata", async () => {

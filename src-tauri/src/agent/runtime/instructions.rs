@@ -14,6 +14,7 @@ const WORKSPACE_USER_PRECEDENCE: u32 = 410;
 const WORKSPACE_TOOLS_PRECEDENCE: u32 = 420;
 const PROJECT_INSTRUCTION_PRECEDENCE: u32 = 500;
 const LONG_TERM_MEMORY_PRECEDENCE: u32 = 600;
+const PLUGIN_SKILL_CATALOG_PRECEDENCE: u32 = 650;
 const SELECTED_SKILL_PRECEDENCE: u32 = 700;
 const COLLABORATION_PRECEDENCE: u32 = 800;
 const AGENT_ROLE_PRECEDENCE: u32 = 810;
@@ -36,6 +37,7 @@ pub enum InstructionSourceKind {
     ProjectAgents,
     ProjectOverride,
     LongTermMemory,
+    PluginSkillCatalog,
     SelectedSkill,
     CollaborationMode,
     AgentRole,
@@ -91,12 +93,14 @@ pub struct InstructionDiagnostic {
 #[derive(Clone, Debug)]
 pub struct InstructionComposer {
     project_instruction_max_bytes: usize,
+    plugin_store: crate::plugins::PluginStore,
 }
 
 impl Default for InstructionComposer {
     fn default() -> Self {
         Self {
             project_instruction_max_bytes: PROJECT_INSTRUCTION_MAX_BYTES,
+            plugin_store: crate::plugins::PluginStore::default_global(),
         }
     }
 }
@@ -115,7 +119,7 @@ impl InstructionComposer {
         &self,
         workspace_root: &Path,
         spec: &Value,
-        config_snapshot: &Value,
+        _config_snapshot: &Value,
     ) -> Result<ComposedInstructions, String> {
         let working_directory = instruction_working_directory(spec, workspace_root)?;
         let loaded_at_ms = current_unix_ms();
@@ -264,32 +268,53 @@ impl InstructionComposer {
         }
 
         let selected_skills = selected_skill_names(spec)?;
-        let skill_entries = crate::workspace::discover_skill_entries(
-            workspace_root,
-            &crate::config::application::repo_root(),
-        )
-        .map_err(|error| format!("failed to discover skills: {}", error.message))?;
-        let resolved_skills =
-            crate::skills::resolve_skills(skill_entries, config_snapshot, &selected_skills)?;
-        for (index, skill) in resolved_skills.active.into_iter().enumerate() {
-            let scope_root = if skill.entry.source == "workspace" {
-                workspace_root.to_path_buf()
-            } else {
-                crate::config::application::repo_root()
-            };
-            let path = scope_root.join(&skill.entry.path);
-            let warnings = vec![format!("skill activation: {:?}", skill.activation)];
+        let plugin_skills = self
+            .plugin_store
+            .enabled()
+            .map_err(|error| format!("failed to discover Agent Plugin skills: {error}"))?
+            .into_iter()
+            .flat_map(|plugin| plugin.skills)
+            .collect::<Vec<_>>();
+        if !plugin_skills.is_empty() {
+            push_instruction_source(
+                &mut messages,
+                &mut sources,
+                InstructionSourceKind::PluginSkillCatalog,
+                PathBuf::from("plugins:skill-catalog"),
+                crate::config::application::tinybot_data_root().join("plugins"),
+                PLUGIN_SKILL_CATALOG_PRECEDENCE,
+                loaded_at_ms,
+                render_plugin_skill_catalog(&plugin_skills),
+                false,
+                Vec::new(),
+                false,
+            );
+        }
+        let mut activated = Vec::new();
+        for selected in &selected_skills {
+            let skill = plugin_skills
+                .iter()
+                .find(|skill| skill.qualified_name() == *selected)
+                .ok_or_else(|| {
+                    format!(
+                        "selected Agent Plugin skill `{selected}` does not exist or is disabled"
+                    )
+                })?;
+            activated.push(skill.clone());
+        }
+        for (index, skill) in activated.into_iter().enumerate() {
+            let qualified_name = skill.qualified_name();
             push_instruction_source(
                 &mut messages,
                 &mut sources,
                 InstructionSourceKind::SelectedSkill,
-                path,
-                scope_root,
+                skill.path,
+                skill.root,
                 SELECTED_SKILL_PRECEDENCE.saturating_add(index as u32),
                 loaded_at_ms,
-                skill.entry.content,
+                skill.content,
                 false,
-                warnings,
+                vec![format!("Agent Plugin skill activation: {qualified_name}")],
                 false,
             );
         }
@@ -364,6 +389,31 @@ impl InstructionComposer {
             rendered_prompt,
         })
     }
+
+    #[cfg(test)]
+    pub(crate) fn with_plugin_store_root(mut self, root: PathBuf) -> Self {
+        self.plugin_store = crate::plugins::PluginStore::new(root);
+        self
+    }
+}
+
+fn render_plugin_skill_catalog(skills: &[crate::plugins::PluginSkill]) -> String {
+    let mut content = String::from(
+        "# Available Agent Plugin skills\n\n\
+         The following globally enabled Agent Skills are available in every workspace. \
+         When a skill clearly applies, read its `SKILL.md` from the listed absolute path before \
+         acting, then follow its instructions. Load referenced resources relative to the skill \
+         directory only as needed.\n",
+    );
+    for skill in skills {
+        content.push_str(&format!(
+            "\n- `{}`: {} (file: `{}`)",
+            skill.qualified_name(),
+            skill.description,
+            skill.path.display()
+        ));
+    }
+    content
 }
 
 fn long_term_memory_snapshot(spec: &Value) -> Result<Option<String>, String> {
@@ -408,10 +458,9 @@ fn selected_skill_names(spec: &Value) -> Result<Vec<String>, String> {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .ok_or_else(|| "selected skills must contain non-empty strings".to_string())?;
-        if !name
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
-        {
+        if !name.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.' | ':')
+        }) {
             return Err(format!("selected skill name is invalid: `{name}`"));
         }
         if names.iter().any(|existing| existing == name) {

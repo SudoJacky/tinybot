@@ -78,9 +78,38 @@ are not implemented in Rust return explicit errors.
 3. The Tauri shell initializes and checks the in-process native runtime directly.
 4. The desktop window installs the workbench shell without an HTTP bootstrap probe or a local TCP
    port.
-5. Use the desktop app through native workbench modules for chat, sessions, approvals, settings, providers, tools, skills, workspace files, browser frames, language toggle, and theme toggle where Rust support exists.
+5. Use the desktop app through native workbench modules for chat, sessions, approvals, settings, providers, tools, Agent Plugins, workspace files, browser frames, language toggle, and theme toggle where Rust support exists.
 
 The app owns the native runtime lifecycle. The configured exit policy applies to managed native backend state.
+
+## Agent Plugins
+
+The **Tools & Plugins** page imports local directories that conform to Agent Plugins 1.0.0. Tinybot validates `plugin.json`, discovers immediate child skills from `skills/*/SKILL.md`, and loads MCP definitions from `mcp.json` when present. Successfully imported plugins are enabled immediately; reinstalling a plugin preserves its current enablement state.
+
+Plugins are global rather than workspace-specific:
+
+- managed package copies are stored under `~/.tinybot/plugins/cache/<plugin-name>`;
+- persistent data for local stdio MCP servers is created on demand under `~/.tinybot/plugins/data/<plugin-name>` and exposed as `PLUGIN_DATA`;
+- enablement state is stored in `~/.tinybot/plugins/state.json`;
+- every enabled plugin is available in every Tinybot workspace;
+- uninstalling removes the package cache but retains its persistent data.
+
+Tinybot supports Agent Plugin MCP servers using `stdio` and `streamable-http`. Unsupported or invalid MCP entries are reported or skipped independently so valid skills and sibling servers remain usable. Tinybot does not scan or load legacy workspace skill directories into this plugin store.
+
+The page also offers an explicit Agent-assisted migration for standalone Skills, MCP configurations, and recognized client-plugin layouts. Tinybot copies the selected source into an isolated job under `~/.tinybot/plugins/migrations/<job-id>/source`, gives the Agent an empty `output` directory, and starts a normal chat turn scoped to that job. The original source is not modified and the Agent cannot install the result directly. Migration prefers lossless, order-preserving normalization of portable metadata (for example, converting an `allowed-tools` YAML sequence to the standard space-separated string) and reports fields that cannot be represented without misleading Tinybot. When the turn finishes, the conversation presents an **Install migrated plugin** action. Tinybot resolves the job by ID, validates the generated output, rejects any invalid generated component, installs and enables the plugin, reconciles MCP runtime state, and removes the temporary migration job. Failed validation keeps the migration workspace available for correction; cleanup failures are reported without hiding a successful installation.
+
+## Conversation Models
+
+Model selection belongs to the conversation rather than a separate editable global default. Tinybot stores the recently used model as the starting choice for a new conversation, then persists the selected model in that Thread's metadata. Switching conversations restores each Thread's model, and changing the Composer model updates both the Thread and the recently used choice.
+
+Desktop turn submission resolves models in this order:
+
+1. a model explicitly supplied by the turn;
+2. the target Thread's persisted model;
+3. the recently used model for new conversations;
+4. the native runtime's configured fallback when no user selection exists.
+
+Automatic turns, including Agent-assisted plugin migration, use the same resolution path. Provider profiles keep a provider-specific fallback model for connection setup and native runtime recovery, but that value is not presented as the user's current conversation model.
 
 ## Desktop Adapters
 

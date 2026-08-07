@@ -11,7 +11,7 @@ import {
 import type { DesktopCommand, DesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
 import { createDesktopNativeConfigApi } from "../app-core/native/desktopNativeConfig";
 import { applyNativeConfigPatch } from "../app-core/native/desktopNativeConfigPatch";
-import { createDesktopNativeSkillsApi } from "../app-core/native/desktopNativeSkills";
+import { createDesktopNativePluginsApi } from "../app-core/native/desktopNativePlugins";
 import {
   createDesktopNativeThreadsApi,
   type NativeThreadListResult,
@@ -39,8 +39,8 @@ import type {
   ChatModelOption,
   ChatEvent,
   McpServerSummary,
+  PluginMigrationSession,
   SessionSummary,
-  SkillSummary,
   ToolCatalogSummary,
   ToolSummary,
   WorkspaceDirectoryPage,
@@ -57,6 +57,9 @@ import {
   type TinyOsDirectHostCommand,
   type TinyOsHostCommand,
 } from "../app-core/chat/tinyOsCommand";
+import {
+  readCurrentChatModelPreference,
+} from "../app-core/chat/chatModelPreference";
 import { normalizeTinyOsEffectiveCapabilities } from "../app-core/chat/tinyOsCapabilities";
 
 type Listener = (event: ChatEvent) => void;
@@ -64,7 +67,7 @@ type Listener = (event: ChatEvent) => void;
 export function createDesktopAppServices(): AppServices {
   const nativeMode = hasTauriRuntime();
   const nativeConfig = nativeMode ? createDesktopNativeConfigApi({ invoke }) : undefined;
-  const nativeSkills = nativeMode ? createDesktopNativeSkillsApi({ invoke }) : undefined;
+  const nativePlugins = nativeMode ? createDesktopNativePluginsApi({ invoke }) : undefined;
   const nativeThreads = nativeMode ? createDesktopNativeThreadsApi({ invoke }) : undefined;
   const nativeHostCommands = nativeMode ? createDesktopNativeHostCommandApi({ invoke }) : undefined;
   const nativeBrowser = nativeMode ? createDesktopNativeBrowserApi({ invoke }) : undefined;
@@ -310,9 +313,25 @@ export function createDesktopAppServices(): AppServices {
       await controller.selectSession(thread.threadId);
     }
     const input = command.input;
+    const preference = readCurrentChatModelPreference();
+    const threadExtra = isRecord(thread.metadata?.extra) ? thread.metadata.extra : {};
+    const threadModel = stringValue(thread.metadata?.model);
+    const threadProvider = stringValue(threadExtra.modelProvider);
+    const model = stringValue(input.model) || threadModel || preference?.modelId || "";
+    const provider = stringValue(input.provider)
+      || (model === threadModel ? threadProvider : "")
+      || (model === preference?.modelId ? preference.providerId ?? "" : "");
+    if (model && (model !== threadModel || provider !== threadProvider)) {
+      await controller.patchSession(sessionId, {
+        model,
+        metadata: withModelProvider(threadExtra, provider),
+      });
+    }
     const result = await controller.submitMessage(input.text, {
-      ...(input.model ? { model: input.model } : {}),
+      ...(model ? { model } : {}),
+      ...(provider ? { provider } : {}),
       ...(input.references?.length ? { references: input.references } : {}),
+      ...(input.selectedSkills?.length ? { selectedSkills: input.selectedSkills } : {}),
       clientEventId: command.commandId,
     });
     const optimisticText = result.status === "sent" ? result.content : "";
@@ -438,14 +457,23 @@ export function createDesktopAppServices(): AppServices {
       },
       async create(input) {
         await initialize();
+        const preference = readCurrentChatModelPreference();
+        const model = stringValue(input?.model) || preference?.modelId || "";
+        const modelProvider = stringValue(input?.modelProvider)
+          || (model === preference?.modelId ? preference.providerId ?? "" : "");
+        const extra = {
+          ...(modelProvider ? { modelProvider } : {}),
+          ...(input?.pluginMigration ? { pluginMigration: input.pluginMigration } : {}),
+        };
+        const metadata = {
+          ...(input?.workingDirectory ? { workingDirectory: input.workingDirectory } : {}),
+          ...(model ? { model } : {}),
+          ...(Object.keys(extra).length ? { extra } : {}),
+        };
         const thread = await requireNative(nativeThreads, "Thread").create({
           title: input?.title || "New session",
           source: "desktop",
-          ...(input?.workingDirectory ? {
-            metadata: {
-              workingDirectory: input.workingDirectory,
-            },
-          } : {}),
+          ...(Object.keys(metadata).length ? { metadata } : {}),
         });
         await controller.loadSessions();
         const sessionId = thread.threadId;
@@ -465,6 +493,40 @@ export function createDesktopAppServices(): AppServices {
         await initialize();
         await controller.patchSession(id, { title });
         notifySession(id, { type: "session-renamed" });
+      },
+      async setModel(id, model, provider) {
+        await initialize();
+        const thread = controller.state.threads.find((candidate) => candidate.threadId === id);
+        if (!thread) throw new Error(`Cannot set the model for unknown Thread ${id}`);
+        const extra = isRecord(thread.metadata?.extra) ? thread.metadata.extra : {};
+        const patched = await controller.patchSession(id, {
+          model,
+          metadata: withModelProvider(extra, provider),
+        });
+        if (!patched) throw new Error(`Cannot set the model for unknown Thread ${id}`);
+        notifySession(id, { type: "session-model-changed" });
+      },
+      async markPluginMigrationInstalled(id, pluginName, enabled, cleanupWarning) {
+        await initialize();
+        const thread = controller.state.threads.find((candidate) => candidate.threadId === id);
+        if (!thread) throw new Error(`Cannot update migration state for unknown Thread ${id}`);
+        const extra = isRecord(thread.metadata?.extra) ? thread.metadata.extra : {};
+        const current = normalizePluginMigrationSession(extra.pluginMigration);
+        if (!current) throw new Error(`Thread ${id} is not associated with a plugin migration`);
+        const patched = await controller.patchSession(id, {
+          metadata: {
+            ...extra,
+            pluginMigration: {
+              ...current,
+              status: "installed",
+              installedPluginName: pluginName,
+              installedPluginEnabled: enabled,
+              ...(cleanupWarning ? { cleanupWarning } : {}),
+            },
+          },
+        });
+        if (!patched) throw new Error(`Cannot update migration state for unknown Thread ${id}`);
+        notifySession(id, { type: "plugin-migration-installed" });
       },
       async pin(id, pinned) {
         await initialize();
@@ -596,9 +658,29 @@ export function createDesktopAppServices(): AppServices {
         await initialize();
         return normalizeToolCatalog(await requireNative(nativeWebui, "WebUI").route({ method: "GET", path: "/api/tools" }));
       },
-      async listSkills() {
+      async listPlugins() {
         await initialize();
-        return normalizeSkills(await requireNative(nativeSkills, "Skills").list());
+        return (await requireNative(nativePlugins, "Plugins").list()).plugins;
+      },
+      async installPlugin(path) {
+        await initialize();
+        return requireNative(nativePlugins, "Plugins").install(path);
+      },
+      async preparePluginMigration(path) {
+        await initialize();
+        return requireNative(nativePlugins, "Plugins").prepareMigration(path);
+      },
+      async installPluginMigration(jobId) {
+        await initialize();
+        return requireNative(nativePlugins, "Plugins").installMigration(jobId);
+      },
+      async setPluginEnabled(name, enabled) {
+        await initialize();
+        return requireNative(nativePlugins, "Plugins").setEnabled(name, enabled);
+      },
+      async uninstallPlugin(name) {
+        await initialize();
+        await requireNative(nativePlugins, "Plugins").uninstall(name);
       },
     },
     settingsStore: {
@@ -721,6 +803,7 @@ export function createDesktopAppServices(): AppServices {
 
 function mapSession(thread: NativeThreadRecord, responding: boolean, fallbackPayload?: unknown): SessionSummary {
   const extra = isRecord(thread.metadata?.extra) ? thread.metadata.extra : {};
+  const pluginMigration = normalizePluginMigrationSession(extra.pluginMigration);
   return {
     id: thread.threadId,
     chatId: thread.threadId,
@@ -729,6 +812,9 @@ function mapSession(thread: NativeThreadRecord, responding: boolean, fallbackPay
     ...(extra.pinned === true ? { pinned: true } : {}),
     ...(thread.archivedAt || thread.status === "archived" ? { archived: true } : {}),
     ...(thread.metadata?.workingDirectory ? { workingDirectory: thread.metadata.workingDirectory } : {}),
+    ...(stringValue(thread.metadata?.model) ? { model: stringValue(thread.metadata?.model) } : {}),
+    ...(stringValue(extra.modelProvider) ? { modelProvider: stringValue(extra.modelProvider) } : {}),
+    ...(pluginMigration ? { pluginMigration } : {}),
     status: responding || thread.status === "running" || thread.status === "cancelling"
       ? "running"
       : thread.status === "failed" ? "failed" : "idle",
@@ -882,22 +968,6 @@ function isWorkspaceQueryErrorCode(value: string): value is WorkspaceQueryErrorC
   ].includes(value);
 }
 
-function normalizeSkills(payload: unknown): SkillSummary[] {
-  return payloadItems(payload, ["skills", "items"]).map((item) => {
-    const name = stringValue(item.name ?? item.id ?? item.slug);
-    return {
-      name: name || "Unnamed skill",
-      description: stringValue(item.description ?? item.summary),
-      source: stringValue(item.source) || undefined,
-      enabled: typeof item.enabled === "boolean" ? item.enabled : undefined,
-      available: typeof item.available === "boolean" ? item.available : undefined,
-      always: item.always === true,
-      effective: typeof item.effective === "boolean" ? item.effective : undefined,
-      reason: stringValue(item.reason) || undefined,
-    };
-  });
-}
-
 function normalizeToolCatalog(payload: unknown): ToolCatalogSummary {
   return {
     tools: payloadItems(payload, ["tools", "items"]).map(normalizeToolSummary),
@@ -965,9 +1035,39 @@ function formMatchesSession(form: AgentUiForm, sessionId: string): boolean {
 function nativeThreadMetadataPatch(body: unknown): Record<string, unknown> {
   if (!isRecord(body)) return {};
   const metadata = isRecord(body.metadata) ? body.metadata : {};
+  const model = stringValue(body.model ?? metadata.model);
+  const workingDirectory = stringValue(body.workingDirectory ?? metadata.workingDirectory);
+  const extra = Object.fromEntries(Object.entries(metadata).filter(([key]) => (
+    key !== "model" && key !== "workingDirectory"
+  )));
   return {
     ...(typeof body.title === "string" ? { title: body.title } : {}),
-    ...(Object.keys(metadata).length ? { extra: metadata } : {}),
+    ...(model ? { model } : {}),
+    ...(workingDirectory ? { workingDirectory } : {}),
+    ...(Object.keys(extra).length ? { extra } : {}),
+  };
+}
+
+function normalizePluginMigrationSession(value: unknown): PluginMigrationSession | undefined {
+  if (!isRecord(value)) return undefined;
+  const jobId = stringValue(value.jobId);
+  const workingDirectory = stringValue(value.workingDirectory);
+  const sourceDirectory = stringValue(value.sourceDirectory);
+  const outputDirectory = stringValue(value.outputDirectory);
+  if (!jobId || !workingDirectory || !sourceDirectory || !outputDirectory) return undefined;
+  const status = value.status === "installed" ? "installed" : "pending";
+  return {
+    jobId,
+    workingDirectory,
+    sourceDirectory,
+    outputDirectory,
+    detectedArtifacts: Array.isArray(value.detectedArtifacts)
+      ? value.detectedArtifacts.flatMap((artifact) => typeof artifact === "string" ? [artifact] : [])
+      : [],
+    status,
+    ...(stringValue(value.installedPluginName) ? { installedPluginName: stringValue(value.installedPluginName) } : {}),
+    ...(typeof value.installedPluginEnabled === "boolean" ? { installedPluginEnabled: value.installedPluginEnabled } : {}),
+    ...(stringValue(value.cleanupWarning) ? { cleanupWarning: stringValue(value.cleanupWarning) } : {}),
   };
 }
 
@@ -982,20 +1082,19 @@ function normalizeChatModelOptions(
   const defaultModel = stringValue(pane.defaultRouting?.model);
   const defaultProviderId = stringValue(pane.defaultRouting?.providerId);
   const defaultProvider = pane.providerCatalog.find((provider) => provider.id === defaultProviderId);
-  const providers = defaultProvider
-    ? [defaultProvider]
-    : pane.providerCatalog.filter((provider) => provider.enabled !== false);
+  const providers = pane.providerCatalog.filter((provider) => provider.enabled !== false);
   const options = new Map<string, ChatModelOption>();
   for (const provider of providers) {
     if (provider.enabled === false) {
       continue;
     }
     for (const model of provider.models ?? []) {
-      if (!model || options.has(model)) {
+      const optionKey = chatModelOptionKey(provider.id, model);
+      if (!model || options.has(optionKey)) {
         continue;
       }
-      const isDefault = model === defaultModel;
-      options.set(model, {
+      const isDefault = provider.id === defaultProviderId && model === defaultModel;
+      options.set(optionKey, {
         id: model,
         label: model,
         description: provider.label || provider.id || "Configured provider",
@@ -1005,8 +1104,9 @@ function normalizeChatModelOptions(
       });
     }
   }
-  if (defaultModel && !options.has(defaultModel)) {
-    options.set(defaultModel, {
+  const defaultOptionKey = chatModelOptionKey(defaultProvider?.id || defaultProviderId, defaultModel);
+  if (defaultModel && !options.has(defaultOptionKey)) {
+    options.set(defaultOptionKey, {
       id: defaultModel,
       label: defaultModel,
       description: defaultProvider?.label || pane.defaultRouting?.providerLabel || "Default model",
@@ -1024,6 +1124,19 @@ function normalizeChatModelOptions(
     }
     return left.label.localeCompare(right.label);
   });
+}
+
+function chatModelOptionKey(providerId: string, modelId: string): string {
+  return `${providerId}\u001f${modelId}`;
+}
+
+function withModelProvider(extra: Record<string, unknown>, provider?: string): Record<string, unknown> {
+  const next = { ...extra };
+  delete next.modelProvider;
+  if (provider?.trim()) {
+    next.modelProvider = provider.trim();
+  }
+  return next;
 }
 
 function payloadItems(payload: unknown, keys: string[]): Record<string, unknown>[] {

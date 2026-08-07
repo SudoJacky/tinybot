@@ -2,7 +2,8 @@ use crate::config::application::{
     apply_config_operations_to_path, apply_config_patch_result_to_path,
     config_editor_snapshot_from_path, default_tinybot_config_path, get_settings_snapshot_from_path,
     native_backend_workspace_root, native_config_snapshot, native_config_snapshot_from_path,
-    native_default_config_snapshot, ConfigApplicationError, ConfigApplicationErrorCode,
+    native_default_config_snapshot, native_runtime_config_snapshot, ConfigApplicationError,
+    ConfigApplicationErrorCode,
 };
 use crate::config::registry::{apply_mcp_runtime_statuses, SettingsSnapshot};
 use crate::config::store::{
@@ -115,9 +116,10 @@ fn reconcile_mcp_runtime_if_changed(
         return Ok(());
     }
     let runtime = { lock_runtime(shared).mcp_runtime.clone() };
-    tauri::async_runtime::block_on(
-        runtime.reconcile(&native_backend_workspace_root(), &result.config),
-    )
+    tauri::async_runtime::block_on(runtime.reconcile(
+        &native_backend_workspace_root(),
+        &native_runtime_config_snapshot(),
+    ))
     .map_err(|error| ConfigIpcError {
         code: ConfigIpcErrorCode::ReconcileMcpRuntime,
         message: format!("failed to reconcile MCP runtime: {}", error.message),

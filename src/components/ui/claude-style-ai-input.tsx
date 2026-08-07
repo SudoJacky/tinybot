@@ -41,6 +41,8 @@ export interface PastedContent {
 
 export interface ModelOption {
   id: string;
+  modelId?: string;
+  providerId?: string;
   name: string;
   description: string;
   badge?: string;
@@ -64,6 +66,7 @@ export interface ComposerSlashCommand {
 
 export interface ComposerSendOptions {
   model?: string;
+  provider?: string;
 }
 
 export interface ComposerContextReference {
@@ -200,12 +203,7 @@ export function ClaudeStyleAiInput({
 
   useEffect(() => {
     const nextModelId = defaultModel || models[0]?.id || "";
-    setSelectedModelId((current) => {
-      if (current && models.some((model) => model.id === current)) {
-        return current;
-      }
-      return nextModelId;
-    });
+    setSelectedModelId(nextModelId);
   }, [defaultModel, models]);
 
   useEffect(() => {
@@ -252,7 +250,8 @@ export function ClaudeStyleAiInput({
     try {
       const handler = mode === "interrupt" ? onInterruptMessage : onSendMessage;
       await handler?.(currentMessage.trim(), files, pastedContent, {
-        ...(selectedModel?.id ? { model: selectedModel.id } : {}),
+        ...(selectedModel ? { model: selectedModel.modelId || selectedModel.id } : {}),
+        ...(selectedModel?.providerId ? { provider: selectedModel.providerId } : {}),
       });
       updateMessage("");
       setFiles([]);

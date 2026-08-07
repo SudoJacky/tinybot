@@ -133,6 +133,7 @@ function createStores(options: { sessions?: SessionSummary[] } = {}): { chatStor
       })),
       delete: vi.fn(async () => undefined),
       rename: vi.fn(async () => undefined),
+      setModel: vi.fn(async () => undefined),
       pin: vi.fn(async () => undefined),
       archive: vi.fn(async () => undefined),
     },
@@ -285,6 +286,95 @@ function failedPlanTimeline(sessionId = "s1") {
 }
 
 describe("ChatPage", () => {
+  it("hides the plugin installation prompt while migration is still running", async () => {
+    const migrationDirectory = "C:\\Users\\test\\.tinybot\\plugins\\migrations\\migration-1";
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        title: "Migrate Skill or MCP",
+        updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+        status: "running",
+        workingDirectory: migrationDirectory,
+        pluginMigration: {
+          jobId: "migration-1",
+          workingDirectory: migrationDirectory,
+          sourceDirectory: `${migrationDirectory}\\source`,
+          outputDirectory: `${migrationDirectory}\\output`,
+          detectedArtifacts: ["standalone Skill"],
+          status: "pending",
+        },
+      }],
+    });
+    const runningTimeline = await stores.chatStore.load("s1");
+    runningTimeline.turns[runningTimeline.turns.length - 1].status = "running";
+    vi.mocked(stores.chatStore.load).mockResolvedValue(runningTimeline);
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 2, 0)}
+        sessionStore={stores.sessionStore}
+        toolsStore={{ installPluginMigration: vi.fn() }}
+      />,
+    );
+
+    await waitFor(() => expect(stores.chatStore.load).toHaveBeenCalled());
+    expect(screen.queryByLabelText("Plugin migration result")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Install migrated plugin" })).toBeNull();
+  });
+
+  it("installs a completed plugin migration from the conversation and records the result", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        title: "Migrate Skill or MCP",
+        updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+        status: "idle",
+        workingDirectory: "C:\\Users\\test\\.tinybot\\plugins\\migrations\\migration-1",
+        pluginMigration: {
+          jobId: "migration-1",
+          workingDirectory: "C:\\Users\\test\\.tinybot\\plugins\\migrations\\migration-1",
+          sourceDirectory: "C:\\Users\\test\\.tinybot\\plugins\\migrations\\migration-1\\source",
+          outputDirectory: "C:\\Users\\test\\.tinybot\\plugins\\migrations\\migration-1\\output",
+          detectedArtifacts: ["standalone Skill"],
+          status: "pending",
+        },
+      }],
+    });
+    const markInstalled = vi.fn(async () => undefined);
+    stores.sessionStore.markPluginMigrationInstalled = markInstalled;
+    const installPluginMigration = vi.fn(async () => ({
+      plugin: {
+        name: "legacy-tools",
+        enabled: true,
+        valid: true,
+        installedAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+        sourcePath: "migration:migration-1",
+        installPath: "C:\\Users\\test\\.tinybot\\plugins\\cache\\legacy-tools",
+        skills: [],
+        mcpServers: [],
+        diagnostics: [],
+      },
+    }));
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 2, 0)}
+        sessionStore={stores.sessionStore}
+        toolsStore={{ installPluginMigration }}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Install migrated plugin" }));
+
+    await screen.findByText("legacy-tools installed and enabled");
+    expect(installPluginMigration).toHaveBeenCalledWith("migration-1");
+    expect(markInstalled).toHaveBeenCalledWith("s1", "legacy-tools", true, undefined);
+    expect(screen.queryByRole("button", { name: "Install migrated plugin" })).toBeNull();
+  });
+
   it("uses a denser font scale for the chat surface", async () => {
     mountWorkbenchCss();
     const stores = createStores();
@@ -786,6 +876,37 @@ describe("ChatPage", () => {
     await user.click(within(sidebar).getByRole("button", { name: "New Chat" }));
 
     expect(stores.sessionStore.create).toHaveBeenCalledWith({ workingDirectory });
+  });
+
+  it("does not inherit a cleaned plugin migration directory when creating a session", async () => {
+    const user = userEvent.setup();
+    const migrationDirectory = "C:\\Users\\test\\.tinybot\\plugins\\migrations\\migration-1";
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        title: "Migrate Skill or MCP",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "idle",
+        workingDirectory: migrationDirectory,
+        pluginMigration: {
+          jobId: "migration-1",
+          workingDirectory: migrationDirectory,
+          sourceDirectory: `${migrationDirectory}\\source`,
+          outputDirectory: `${migrationDirectory}\\output`,
+          detectedArtifacts: ["standalone Skill"],
+          status: "installed",
+          installedPluginName: "legacy-tools",
+          installedPluginEnabled: true,
+        },
+      }],
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const sidebar = await screen.findByLabelText("Sessions");
+    await user.click(within(sidebar).getByRole("button", { name: "New Chat" }));
+
+    expect(stores.sessionStore.create).toHaveBeenCalledWith({});
   });
 
   it("creates and opens the first session for a selected workspace folder", async () => {
@@ -3681,6 +3802,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("option", { name: /deepseek-reasoner/i }));
     await waitFor(() => expect(modelTrigger.textContent).toContain("deepseek-reasoner"));
     expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-reasoner");
+    expect(stores.sessionStore.setModel).toHaveBeenCalledWith("s1", "deepseek-reasoner");
     await user.type(screen.getByRole("textbox", { name: /message/i }), "Use a specific model");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
@@ -3690,7 +3812,55 @@ describe("ChatPage", () => {
     });
   });
 
-  it("restores a valid cached composer model and clears a stale one", async () => {
+  it("restores each Thread model when switching conversations", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [
+        {
+          id: "s1",
+          chatId: "chat-1",
+          title: "Reasoning thread",
+          updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+          status: "idle",
+          model: "deepseek-reasoner",
+        },
+        {
+          id: "s2",
+          chatId: "chat-2",
+          title: "Chat thread",
+          updatedAtMs: Date.UTC(2026, 6, 4, 11, 0, 0),
+          status: "idle",
+          model: "deepseek-chat",
+        },
+      ],
+    });
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
+    const settingsStore: SettingsStore = {
+      load: vi.fn(async () => []),
+      loadChatModels: vi.fn(async () => [
+        { id: "deepseek-chat", label: "deepseek-chat" },
+        { id: "deepseek-reasoner", label: "deepseek-reasoner" },
+      ]),
+    };
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
+        sessionStore={stores.sessionStore}
+        settingsStore={settingsStore}
+      />,
+    );
+
+    const modelTrigger = await screen.findByRole("button", { name: "Select model" });
+    await waitFor(() => expect(modelTrigger.textContent).toContain("deepseek-reasoner"));
+
+    await user.click(screen.getByRole("button", { name: "Chat thread" }));
+    await waitFor(() => expect(modelTrigger.textContent).toContain("deepseek-chat"));
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-chat");
+  });
+
+  it("restores a valid current model and replaces a stale one", async () => {
     const stores = createStores();
     const settingsStore: SettingsStore = {
       load: vi.fn(async () => []),
@@ -3733,7 +3903,7 @@ describe("ChatPage", () => {
     );
 
     expect((await screen.findByRole("button", { name: "Select model" })).textContent).toContain("deepseek-chat");
-    expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBeNull();
+    await waitFor(() => expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-chat"));
   });
 
   it("stops the active running session from the composer", async () => {
