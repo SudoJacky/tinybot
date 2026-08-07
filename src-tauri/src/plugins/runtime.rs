@@ -7,7 +7,14 @@ use std::{
 
 pub(crate) fn merge_enabled_mcp_servers(config: &mut Value) -> Result<(), String> {
     let store = PluginStore::default_global();
-    let plugins = store.enabled()?;
+    merge_enabled_mcp_servers_from_store(config, &store)
+}
+
+fn merge_enabled_mcp_servers_from_store(
+    config: &mut Value,
+    store: &PluginStore,
+) -> Result<(), String> {
+    let plugins = store.enabled_with_revisions()?;
     if plugins.is_empty() {
         return Ok(());
     }
@@ -25,12 +32,15 @@ pub(crate) fn merge_enabled_mcp_servers(config: &mut Value) -> Result<(), String
         .as_object_mut()
         .ok_or_else(|| "Tinybot config field `tools.mcpServers` must be an object".to_string())?;
 
-    for plugin in plugins {
+    for enabled_plugin in plugins {
+        let plugin = enabled_plugin.plugin;
         let data_root = store.data_directory(&plugin.manifest.name);
         for server in plugin.mcp_servers {
             let qualified_name = server.qualified_name();
             match normalize_server(&plugin.root, &data_root, &server.config) {
-                Ok(normalized) => {
+                Ok(mut normalized) => {
+                    normalized["plugin_install_revision"] =
+                        Value::from(enabled_plugin.install_revision);
                     servers.insert(qualified_name, normalized);
                 }
                 Err(error) => {

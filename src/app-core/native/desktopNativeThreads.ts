@@ -48,6 +48,7 @@ export type NativeThreadTurnInput = {
     sessionId: string;
     stream: true;
     model?: string;
+    provider?: string;
     metadata: Record<string, unknown>;
   };
 };

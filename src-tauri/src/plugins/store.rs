@@ -71,6 +71,11 @@ pub(crate) struct PluginSummary {
     pub(crate) valid: bool,
 }
 
+pub(crate) struct EnabledPlugin {
+    pub(crate) plugin: LoadedPlugin,
+    pub(crate) install_revision: u64,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PluginMigrationJob {
@@ -210,9 +215,12 @@ impl PluginStore {
             let _ = fs::remove_dir_all(&stage);
             return Err(format!("failed to install plugin `{plugin_name}`: {error}"));
         }
+        let installed_at_ms = previous.as_ref().map_or_else(now_ms, |plugin| {
+            now_ms().max(plugin.installed_at_ms.saturating_add(1))
+        });
         let installed = InstalledPluginState {
             enabled: previous.as_ref().map_or(true, |plugin| plugin.enabled),
-            installed_at_ms: now_ms(),
+            installed_at_ms,
             source_path: source_path.unwrap_or_else(|| source_plugin.root.display().to_string()),
         };
         state.plugins.insert(plugin_name.clone(), installed.clone());
@@ -423,6 +431,14 @@ impl PluginStore {
     }
 
     pub(crate) fn enabled(&self) -> Result<Vec<LoadedPlugin>, String> {
+        Ok(self
+            .enabled_with_revisions()?
+            .into_iter()
+            .map(|enabled| enabled.plugin)
+            .collect())
+    }
+
+    pub(crate) fn enabled_with_revisions(&self) -> Result<Vec<EnabledPlugin>, String> {
         let state = self.read_state()?;
         let mut plugins = Vec::new();
         for (name, installed) in state.plugins {
@@ -430,7 +446,10 @@ impl PluginStore {
                 continue;
             }
             match load_plugin(&self.cache_root().join(&name)) {
-                Ok(plugin) if plugin.manifest.name == name => plugins.push(plugin),
+                Ok(plugin) if plugin.manifest.name == name => plugins.push(EnabledPlugin {
+                    plugin,
+                    install_revision: installed.installed_at_ms,
+                }),
                 Ok(plugin) => eprintln!(
                     "plugin_load_skipped name={name} reason=manifest_name_mismatch actual={}",
                     plugin.manifest.name

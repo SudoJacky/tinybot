@@ -53,7 +53,7 @@ import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, SessionStore, Se
 import { createDesktopCompactCommand, createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import {
   clearCurrentChatModel,
-  readCurrentChatModel,
+  readCurrentChatModelPreference,
   writeCurrentChatModel,
 } from "../../app-core/chat/chatModelPreference";
 import { pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
@@ -232,18 +232,49 @@ function readStoredTinyOsWidth(): number {
   return Number.isFinite(stored) && stored > 0 ? clampTinyOsWidth(stored) : 480;
 }
 
-function resolveComposerModel(models: readonly ModelOption[], sessionModel = ""): string {
-  if (sessionModel && models.some((model) => model.id === sessionModel)) {
-    return sessionModel;
+function resolveComposerModel(
+  models: readonly ModelOption[],
+  sessionModel = "",
+  sessionProvider = "",
+): string {
+  const sessionOption = findComposerModel(models, sessionModel, sessionProvider);
+  if (sessionOption) {
+    return sessionOption.id;
   }
-  const storedModel = readCurrentChatModel();
-  if (storedModel && models.some((model) => model.id === storedModel)) {
-    return storedModel;
+  const stored = readCurrentChatModelPreference();
+  const storedOption = findComposerModel(models, stored?.modelId ?? "", stored?.providerId ?? "");
+  if (storedOption) {
+    return storedOption.id;
   }
-  if (storedModel) {
+  if (stored) {
     clearCurrentChatModel();
   }
   return models[0]?.id || "";
+}
+
+function findComposerModel(
+  models: readonly ModelOption[],
+  modelId: string,
+  providerId = "",
+): ModelOption | undefined {
+  if (!modelId) return undefined;
+  const actualModelId = (model: ModelOption) => model.modelId || model.id;
+  return (providerId
+    ? models.find((model) => actualModelId(model) === modelId && model.providerId === providerId)
+    : undefined)
+    ?? models.find((model) => actualModelId(model) === modelId);
+}
+
+function composerSessionModelInput(
+  models: readonly ModelOption[],
+  selectionId: string,
+): { model?: string; modelProvider?: string } {
+  const selected = models.find((model) => model.id === selectionId);
+  if (!selected) return {};
+  return {
+    model: selected.modelId || selected.id,
+    ...(selected.providerId ? { modelProvider: selected.providerId } : {}),
+  };
 }
 
 const EMPTY_CHAT_PROMPTS = [
@@ -1089,10 +1120,17 @@ export function ChatPage({
 
   useEffect(() => {
     if (!composerModels.length) return;
-    const model = resolveComposerModel(composerModels, activeSession?.model);
+    const model = resolveComposerModel(
+      composerModels,
+      activeSession?.model,
+      activeSession?.modelProvider,
+    );
     setDefaultComposerModel(model);
-    if (model) writeCurrentChatModel(model);
-  }, [activeSession?.id, activeSession?.model, composerModels]);
+    const selected = composerModels.find((option) => option.id === model);
+    if (selected) {
+      writeCurrentChatModel(selected.modelId || selected.id, selected.providerId);
+    }
+  }, [activeSession?.id, activeSession?.model, activeSession?.modelProvider, composerModels]);
 
   useEffect(() => {
     if (!settingsStore?.loadAgentDefaultsSettings) {
@@ -1175,7 +1213,7 @@ export function ChatPage({
     try {
       const created = await sessionStore.create({
         ...(workingDirectory ? { workingDirectory } : {}),
-        ...(defaultComposerModel ? { model: defaultComposerModel } : {}),
+        ...composerSessionModelInput(composerModels, defaultComposerModel),
       });
       activateCreatedSession(created);
       return created;
@@ -1592,7 +1630,12 @@ export function ChatPage({
       if (action === "restart") {
         const created = await sessionStore.create({
           title: deriveSessionTitle(turn.userMessage.text),
-          ...(activeSession.model || defaultComposerModel ? { model: activeSession.model || defaultComposerModel } : {}),
+          ...(activeSession.model
+            ? {
+                model: activeSession.model,
+                ...(activeSession.modelProvider ? { modelProvider: activeSession.modelProvider } : {}),
+              }
+            : composerSessionModelInput(composerModels, defaultComposerModel)),
         });
         activateCreatedSession(created);
         await dispatchTurn(created.id, { text: turn.userMessage.text }, "recovery-restart");
@@ -1696,7 +1739,8 @@ export function ChatPage({
       return null;
     }
     if (!draftSessionCreatePromise.current) {
-      draftSessionCreatePromise.current = sessionStore.create(defaultComposerModel ? { model: defaultComposerModel } : undefined)
+      const modelInput = composerSessionModelInput(composerModels, defaultComposerModel);
+      draftSessionCreatePromise.current = sessionStore.create(Object.keys(modelInput).length ? modelInput : undefined)
         .then((created) => {
           activateCreatedSession(created);
           return created;
@@ -2387,13 +2431,25 @@ export function ChatPage({
           contextUsage={activeContextUsage}
           models={composerModels}
           onModelChange={(modelId) => {
+            const selected = composerModels.find((model) => model.id === modelId);
+            if (!selected) return;
+            const selectedModelId = selected.modelId || selected.id;
             setDefaultComposerModel(modelId);
-            writeCurrentChatModel(modelId);
+            writeCurrentChatModel(selectedModelId, selected.providerId);
             if (activeSession) {
               setSessions((current) => current.map((session) => (
-                session.id === activeSession.id ? { ...session, model: modelId } : session
+                session.id === activeSession.id
+                  ? {
+                      ...session,
+                      model: selectedModelId,
+                      ...(selected.providerId ? { modelProvider: selected.providerId } : {}),
+                    }
+                  : session
               )));
-              void sessionStore.setModel?.(activeSession.id, modelId).catch((error) => {
+              const setModel = selected.providerId
+                ? sessionStore.setModel?.(activeSession.id, selectedModelId, selected.providerId)
+                : sessionStore.setModel?.(activeSession.id, selectedModelId);
+              void setModel?.catch((error) => {
                 setTimelineError(`Model selection could not be saved: ${error instanceof Error ? error.message : String(error)}`);
               });
             }
@@ -2820,6 +2876,7 @@ function createComposerChatInput(
   return {
     text,
     ...(options.model ? { model: options.model } : {}),
+    ...(options.provider ? { provider: options.provider } : {}),
     ...(references.length ? { references } : {}),
   };
 }
@@ -3017,7 +3074,11 @@ function formatComposerMessage(message: string, pastedContent: PastedContent[]):
 
 function toComposerModelOption(model: ChatModelOption): ModelOption {
   return {
-    id: model.id,
+    id: model.providerId
+      ? `provider:${encodeURIComponent(model.providerId)}|model:${encodeURIComponent(model.id)}`
+      : model.id,
+    modelId: model.id,
+    ...(model.providerId ? { providerId: model.providerId } : {}),
     name: model.label || model.id,
     description: model.description || model.providerLabel || "Configured model",
   };

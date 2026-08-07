@@ -41,6 +41,7 @@ export type SessionSummary = {
   status?: "idle" | "running" | "failed";
   workingDirectory?: string;
   model?: string;
+  modelProvider?: string;
   pluginMigration?: PluginMigrationSession;
 };
 
@@ -65,10 +66,11 @@ export type SessionStore = {
     title?: string;
     workingDirectory?: string;
     model?: string;
+    modelProvider?: string;
     pluginMigration?: PluginMigrationSession;
   }): Promise<SessionSummary>;
   rename(id: string, title: string): Promise<void>;
-  setModel?(id: string, model: string): Promise<void>;
+  setModel?(id: string, model: string, provider?: string): Promise<void>;
   markPluginMigrationInstalled?(id: string, pluginName: string, enabled: boolean, cleanupWarning?: string): Promise<void>;
   delete(id: string): Promise<void>;
   pin(id: string, pinned: boolean): Promise<void>;

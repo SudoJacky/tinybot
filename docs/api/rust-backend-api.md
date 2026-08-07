@@ -948,7 +948,7 @@ These commands belong to the legacy skills API. Native agent turns discover acti
 | `worker_plugin_set_enabled` | `{ input: { name, enabled } }` | updated `PluginSummary` |
 | `worker_plugin_uninstall` | `{ input: { name } }` | `null` |
 
-Plugin installs use the Agent Plugins 1.0.0 layout and are global under `~/.tinybot/plugins`. A new plugin is disabled by default. Enabling, disabling, replacing, or uninstalling a plugin reconciles the shared MCP runtime. Skill names exposed to turn-level selection are qualified as `<plugin-name>:<skill-name>`; plugin MCP server IDs are qualified as `plugin:<plugin-name>:<server-name>`.
+Plugin installs use the Agent Plugins 1.0.0 layout and are global under `~/.tinybot/plugins`. A new plugin is disabled by default. Enabling, disabling, replacing, or uninstalling a plugin reconciles the shared MCP runtime. Every replacement receives a new install revision, so reinstalling changed plugin code restarts an existing MCP client even when `mcp.json` is unchanged. Skill names exposed to turn-level selection are qualified as `<plugin-name>:<skill-name>`; plugin MCP server IDs are qualified as `plugin:<plugin-name>:<server-name>`.
 
 Migration preparation accepts a recognized standalone Skill, MCP configuration, or client-plugin directory but does not install it. It rejects already valid Agent Plugins and unrecognized directories, copies the source without following links or reparse points into `~/.tinybot/plugins/migrations/<job-id>/source`, and creates an empty sibling `output` directory for an Agent-assisted conversion turn.
 

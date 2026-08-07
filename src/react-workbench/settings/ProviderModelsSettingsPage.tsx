@@ -11,7 +11,10 @@ import {
   type ProviderModelItem,
   type ProviderModelsSettingsData,
 } from "../../app-core/settings/providerModelsSettings";
-import { readCurrentChatModel, writeCurrentChatModel } from "../../app-core/chat/chatModelPreference";
+import {
+  readCurrentChatModelPreference,
+  writeCurrentChatModel,
+} from "../../app-core/chat/chatModelPreference";
 import type { SettingsStore } from "../services";
 import { SettingsSaveStatus, type SettingsSaveState } from "./SettingsSaveStatus";
 import { SettingsSheet } from "./SettingsSheet";
@@ -163,8 +166,12 @@ function DefaultLlmPanel({
 }: {
   data: ProviderModelsSettingsData;
 }) {
-  const savedCurrentModel = readCurrentChatModel();
+  const savedPreference = readCurrentChatModelPreference();
+  const savedCurrentModel = savedPreference?.modelId ?? "";
   const initialProviderFromCurrentModel = data.providers.find((provider) => (
+    provider.id === savedPreference?.providerId
+    && provider.models.some((model) => model.id === savedCurrentModel)
+  )) ?? data.providers.find((provider) => (
     provider.models.some((model) => model.id === savedCurrentModel)
   ));
   const initialProfileId = initialProviderFromCurrentModel?.profileId ?? data.activeProfileId
@@ -198,7 +205,7 @@ function DefaultLlmPanel({
     }
   }, [data.providers, model, profileId]);
 
-  const dirty = model !== savedCurrentModel;
+  const dirty = model !== savedCurrentModel || profileId !== initialProfileId;
   const canSave = Boolean(profileId && model && dirty && !saving);
   const normalizedModelSearch = modelSearch.trim().toLocaleLowerCase();
   const filteredModelOptions = useMemo(() => normalizedModelSearch
@@ -211,7 +218,7 @@ function DefaultLlmPanel({
     }
     setSaving(true);
     try {
-      writeCurrentChatModel(model);
+      writeCurrentChatModel(model, selectedProvider?.id);
       onSaved();
     } finally {
       setSaving(false);

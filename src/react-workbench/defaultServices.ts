@@ -57,7 +57,9 @@ import {
   type TinyOsDirectHostCommand,
   type TinyOsHostCommand,
 } from "../app-core/chat/tinyOsCommand";
-import { readCurrentChatModel } from "../app-core/chat/chatModelPreference";
+import {
+  readCurrentChatModelPreference,
+} from "../app-core/chat/chatModelPreference";
 import { normalizeTinyOsEffectiveCapabilities } from "../app-core/chat/tinyOsCapabilities";
 
 type Listener = (event: ChatEvent) => void;
@@ -311,13 +313,23 @@ export function createDesktopAppServices(): AppServices {
       await controller.selectSession(thread.threadId);
     }
     const input = command.input;
+    const preference = readCurrentChatModelPreference();
+    const threadExtra = isRecord(thread.metadata?.extra) ? thread.metadata.extra : {};
     const threadModel = stringValue(thread.metadata?.model);
-    const model = stringValue(input.model) || threadModel || readCurrentChatModel();
-    if (model && model !== threadModel) {
-      await controller.patchSession(sessionId, { model });
+    const threadProvider = stringValue(threadExtra.modelProvider);
+    const model = stringValue(input.model) || threadModel || preference?.modelId || "";
+    const provider = stringValue(input.provider)
+      || (model === threadModel ? threadProvider : "")
+      || (model === preference?.modelId ? preference.providerId ?? "" : "");
+    if (model && (model !== threadModel || provider !== threadProvider)) {
+      await controller.patchSession(sessionId, {
+        model,
+        metadata: withModelProvider(threadExtra, provider),
+      });
     }
     const result = await controller.submitMessage(input.text, {
       ...(model ? { model } : {}),
+      ...(provider ? { provider } : {}),
       ...(input.references?.length ? { references: input.references } : {}),
       ...(input.selectedSkills?.length ? { selectedSkills: input.selectedSkills } : {}),
       clientEventId: command.commandId,
@@ -445,11 +457,18 @@ export function createDesktopAppServices(): AppServices {
       },
       async create(input) {
         await initialize();
-        const model = stringValue(input?.model) || readCurrentChatModel();
+        const preference = readCurrentChatModelPreference();
+        const model = stringValue(input?.model) || preference?.modelId || "";
+        const modelProvider = stringValue(input?.modelProvider)
+          || (model === preference?.modelId ? preference.providerId ?? "" : "");
+        const extra = {
+          ...(modelProvider ? { modelProvider } : {}),
+          ...(input?.pluginMigration ? { pluginMigration: input.pluginMigration } : {}),
+        };
         const metadata = {
           ...(input?.workingDirectory ? { workingDirectory: input.workingDirectory } : {}),
           ...(model ? { model } : {}),
-          ...(input?.pluginMigration ? { extra: { pluginMigration: input.pluginMigration } } : {}),
+          ...(Object.keys(extra).length ? { extra } : {}),
         };
         const thread = await requireNative(nativeThreads, "Thread").create({
           title: input?.title || "New session",
@@ -475,9 +494,15 @@ export function createDesktopAppServices(): AppServices {
         await controller.patchSession(id, { title });
         notifySession(id, { type: "session-renamed" });
       },
-      async setModel(id, model) {
+      async setModel(id, model, provider) {
         await initialize();
-        const patched = await controller.patchSession(id, { model });
+        const thread = controller.state.threads.find((candidate) => candidate.threadId === id);
+        if (!thread) throw new Error(`Cannot set the model for unknown Thread ${id}`);
+        const extra = isRecord(thread.metadata?.extra) ? thread.metadata.extra : {};
+        const patched = await controller.patchSession(id, {
+          model,
+          metadata: withModelProvider(extra, provider),
+        });
         if (!patched) throw new Error(`Cannot set the model for unknown Thread ${id}`);
         notifySession(id, { type: "session-model-changed" });
       },
@@ -788,6 +813,7 @@ function mapSession(thread: NativeThreadRecord, responding: boolean, fallbackPay
     ...(thread.archivedAt || thread.status === "archived" ? { archived: true } : {}),
     ...(thread.metadata?.workingDirectory ? { workingDirectory: thread.metadata.workingDirectory } : {}),
     ...(stringValue(thread.metadata?.model) ? { model: stringValue(thread.metadata?.model) } : {}),
+    ...(stringValue(extra.modelProvider) ? { modelProvider: stringValue(extra.modelProvider) } : {}),
     ...(pluginMigration ? { pluginMigration } : {}),
     status: responding || thread.status === "running" || thread.status === "cancelling"
       ? "running"
@@ -1056,20 +1082,19 @@ function normalizeChatModelOptions(
   const defaultModel = stringValue(pane.defaultRouting?.model);
   const defaultProviderId = stringValue(pane.defaultRouting?.providerId);
   const defaultProvider = pane.providerCatalog.find((provider) => provider.id === defaultProviderId);
-  const providers = defaultProvider
-    ? [defaultProvider]
-    : pane.providerCatalog.filter((provider) => provider.enabled !== false);
+  const providers = pane.providerCatalog.filter((provider) => provider.enabled !== false);
   const options = new Map<string, ChatModelOption>();
   for (const provider of providers) {
     if (provider.enabled === false) {
       continue;
     }
     for (const model of provider.models ?? []) {
-      if (!model || options.has(model)) {
+      const optionKey = chatModelOptionKey(provider.id, model);
+      if (!model || options.has(optionKey)) {
         continue;
       }
-      const isDefault = model === defaultModel;
-      options.set(model, {
+      const isDefault = provider.id === defaultProviderId && model === defaultModel;
+      options.set(optionKey, {
         id: model,
         label: model,
         description: provider.label || provider.id || "Configured provider",
@@ -1079,8 +1104,9 @@ function normalizeChatModelOptions(
       });
     }
   }
-  if (defaultModel && !options.has(defaultModel)) {
-    options.set(defaultModel, {
+  const defaultOptionKey = chatModelOptionKey(defaultProvider?.id || defaultProviderId, defaultModel);
+  if (defaultModel && !options.has(defaultOptionKey)) {
+    options.set(defaultOptionKey, {
       id: defaultModel,
       label: defaultModel,
       description: defaultProvider?.label || pane.defaultRouting?.providerLabel || "Default model",
@@ -1098,6 +1124,19 @@ function normalizeChatModelOptions(
     }
     return left.label.localeCompare(right.label);
   });
+}
+
+function chatModelOptionKey(providerId: string, modelId: string): string {
+  return `${providerId}\u001f${modelId}`;
+}
+
+function withModelProvider(extra: Record<string, unknown>, provider?: string): Record<string, unknown> {
+  const next = { ...extra };
+  delete next.modelProvider;
+  if (provider?.trim()) {
+    next.modelProvider = provider.trim();
+  }
+  return next;
 }
 
 function payloadItems(payload: unknown, keys: string[]): Record<string, unknown>[] {
