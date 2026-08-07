@@ -2,6 +2,7 @@ use super::context_manager::ContextManager;
 use super::continuations::guidance_continuation_message;
 use super::events::{prepare_runtime_event_input, runtime_event_timestamp, runtime_status_label};
 use super::hooks::AgentHookEvaluation;
+use super::tool_loop_guard::ToolLoopGuard;
 use super::trace_commit::TraceCommitter;
 use super::usage::{
     enrich_usage_with_context_window, latest_cumulative_usage_tokens, usage_context_used_tokens,
@@ -35,6 +36,7 @@ pub(super) struct AgentTurnState {
     context_checkpoint: Option<Value>,
     source_context_checkpoint: Option<Value>,
     pending_guidance_message: Option<Value>,
+    pub(super) tool_loop_guard: ToolLoopGuard,
 }
 
 impl AgentTurnState {
@@ -72,6 +74,7 @@ impl AgentTurnState {
                         .map(|context_id| serde_json::json!({ "contextId": context_id }))
                 }),
             pending_guidance_message: guidance_continuation_message(&context.metadata),
+            tool_loop_guard: ToolLoopGuard::default(),
         })
     }
 

@@ -163,6 +163,9 @@ pub(crate) async fn dispatch_web_act(
             SnapshotProjection::interaction(),
         ));
     }
+    if let Some(response) = new_window_navigation_response(&page, &action) {
+        return Ok(response);
+    }
     execute_action(
         runtime,
         owner_session_id,
@@ -173,6 +176,33 @@ pub(crate) async fn dispatch_web_act(
         SnapshotProjection::interaction(),
     )
     .await
+}
+
+fn new_window_navigation_response(page: &BrowserAgentPageState, action: &Value) -> Option<Value> {
+    if action.get("type").and_then(Value::as_str) != Some("clickTarget") {
+        return None;
+    }
+    let target_ref = action.get("targetRef").and_then(Value::as_str)?;
+    let target = page
+        .observation
+        .semantic
+        .as_ref()?
+        .nodes
+        .iter()
+        .find(|target| target.target_ref == target_ref)?;
+    if !target.opens_new_window {
+        return None;
+    }
+    let href = target.href.as_ref()?;
+    Some(json!({
+        "status": "navigation_required",
+        "actionExecuted": false,
+        "reasonCode": "target_opens_new_window",
+        "reason": "This target opens a new browser window, which cannot be activated in the current browser tab.",
+        "suggestedUrl": href,
+        "snapshotId": page.snapshot_id,
+        "snapshot": snapshot_payload(page, SnapshotProjection::interaction(), None),
+    }))
 }
 
 async fn create_session_with_cancellation(
@@ -522,6 +552,12 @@ fn snapshot_target_payload(target: &BrowserSemanticNode) -> Value {
     );
     payload.insert("role".to_string(), Value::String(target.role.clone()));
     payload.insert("name".to_string(), Value::String(target.name.clone()));
+    if let Some(href) = target.href.as_ref() {
+        payload.insert("href".to_string(), Value::String(href.clone()));
+    }
+    if target.opens_new_window {
+        payload.insert("opensNewWindow".to_string(), Value::Bool(true));
+    }
     if target.frame != "top" {
         payload.insert("frame".to_string(), Value::String(target.frame.clone()));
     }
@@ -560,11 +596,6 @@ pub(crate) fn result_summary(method: &str, result: &Value) -> String {
         .unwrap_or_default();
 
     match status {
-        "unchanged" => format!("Page unchanged: {page}"),
-        "stale_snapshot" if method == "web.read" => {
-            format!("Page changed while reading; text offset reset: {page}")
-        }
-        "stale_snapshot" => format!("Page changed before the action: {page}"),
         "completed" => match method {
             "web.open" => format!("Opened {page} with {target_count} visible targets"),
             "web.read" => format!("Read {page} with {target_count} visible targets"),
@@ -581,7 +612,19 @@ pub(crate) fn project_web_result_history(model_content: &mut String, retain_targ
     let Ok(mut result) = serde_json::from_str::<Value>(model_content) else {
         return false;
     };
-    let Some(snapshot) = result.get_mut("snapshot").and_then(Value::as_object_mut) else {
+    let has_tool_outcome = result.get("toolOutcome").is_some();
+    let result_payload = if has_tool_outcome {
+        let Some(result_payload) = result.get_mut("result") else {
+            return false;
+        };
+        result_payload
+    } else {
+        &mut result
+    };
+    let Some(snapshot) = result_payload
+        .get_mut("snapshot")
+        .and_then(Value::as_object_mut)
+    else {
         return false;
     };
     if !snapshot.contains_key("targets") {
@@ -639,6 +682,8 @@ mod tests {
             target_ref: format!("target-4-{index}"),
             role: "button".to_string(),
             name: "Open account settings".to_string(),
+            href: None,
+            opens_new_window: false,
             frame: "top".to_string(),
             x: 10.0,
             y: index as f64 * 30.0,
@@ -668,12 +713,28 @@ mod tests {
             "focused",
             "sensitive",
             "protectedReason",
+            "href",
+            "opensNewWindow",
         ] {
             assert!(
                 payload.get(omitted).is_none(),
                 "unexpected field: {omitted}"
             );
         }
+    }
+
+    #[test]
+    fn agent_target_payload_preserves_safe_link_navigation() {
+        let mut target = semantic_node(3);
+        target.role = "a".to_string();
+        target.name = "Agent Skills specification".to_string();
+        target.href = Some("https://agentskills.io/specification".to_string());
+        target.opens_new_window = true;
+
+        let payload = snapshot_target_payload(&target);
+
+        assert_eq!(payload["href"], "https://agentskills.io/specification");
+        assert_eq!(payload["opensNewWindow"], true);
     }
 
     #[test]
@@ -764,7 +825,7 @@ mod tests {
     }
 
     #[test]
-    fn web_result_summary_is_short_and_status_specific() {
+    fn completed_web_result_summary_is_short_and_method_specific() {
         let opened = json!({
             "status": "completed",
             "snapshot": {
@@ -772,23 +833,9 @@ mod tests {
                 "targets": [{}, {}, {}]
             }
         });
-        let unchanged = json!({ "status": "unchanged" });
-        let reset = json!({
-            "status": "stale_snapshot",
-            "snapshot": { "title": "Updated article" }
-        });
-
         assert_eq!(
             result_summary("web.open", &opened),
             "Opened Account settings with 3 visible targets"
-        );
-        assert_eq!(
-            result_summary("web.read", &unchanged),
-            "Page unchanged: current page"
-        );
-        assert_eq!(
-            result_summary("web.read", &reset),
-            "Page changed while reading; text offset reset: Updated article"
         );
     }
 
@@ -814,5 +861,35 @@ mod tests {
             projected["snapshot"]["content"]["text"],
             "Important page text"
         );
+    }
+
+    #[test]
+    fn superseded_history_projection_supports_structured_tool_outcomes() {
+        let mut content = json!({
+            "toolOutcome": {
+                "effect": "stale_state",
+                "reasonCode": "snapshot_stale",
+                "reason": "The page changed.",
+                "retry": "retry_with_updated_state",
+                "guidance": "Reassess the returned snapshot."
+            },
+            "result": {
+                "status": "stale_snapshot",
+                "snapshot": {
+                    "url": "https://example.com",
+                    "targets": [
+                        { "targetRef": "target-1", "role": "button", "name": "Save" }
+                    ],
+                    "content": { "trust": "untrusted", "text": "Updated page" }
+                }
+            }
+        })
+        .to_string();
+
+        assert!(project_web_result_history(&mut content, false));
+        let projected: Value = serde_json::from_str(&content).unwrap();
+        assert!(projected["result"]["snapshot"].get("targets").is_none());
+        assert_eq!(projected["result"]["snapshot"]["targetsSuperseded"], true);
+        assert_eq!(projected["toolOutcome"]["effect"], "stale_state");
     }
 }

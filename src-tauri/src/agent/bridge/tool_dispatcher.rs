@@ -1,11 +1,14 @@
 use crate::agent::runtime::{
     AgentTurnContext, NativeAgentCancellationContext, NativeAgentRuntimeServices,
-    NativeAgentToolDispatcher, NativeAgentToolResult, PreparedToolCall,
+    NativeAgentToolDispatcher, NativeAgentToolResult, NativeToolNextAction, NativeToolOutcome,
+    NativeToolRetry, PreparedToolCall,
 };
 use crate::collaboration::subagents::SubagentThreadManager;
 use crate::protocol::{WorkerRequest, WorkerRequestCancellation};
 use crate::rpc::call_rust_state_service_with_mcp_runtime;
-use crate::runtime::mcp::{configured_mcp_servers, mcp_tool_is_enabled, McpRuntime};
+use crate::runtime::mcp::{
+    configured_mcp_servers, mcp_tool_is_enabled, McpRuntime, McpRuntimeError, McpRuntimeErrorKind,
+};
 use crate::threads::workspace_store::WorkspaceThreadStore;
 use crate::tools::registry::ToolExecutionTarget;
 use crate::tools::shell::WorkerShellRuntime;
@@ -124,6 +127,9 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
             Ok(executor_result) => {
                 native_tool_result_from_executor_response(tool_call, executor_result)
             }
+            Err(error) if is_shell_agent_tool(&tool_call.name) => {
+                Ok(native_shell_dispatch_error_result(tool_call, error))
+            }
             Err(error) => Err(error),
         }
     }
@@ -238,14 +244,7 @@ impl NativeAgentToolExecutorDispatcher {
                 format!("native browser tool result serialization failed: {error}")
             })?;
             web::strip_browser_capture_data(&mut raw);
-            let summary = web::result_summary(&tool_call.name, &raw);
-            let model_content = raw.to_string();
-            Ok(NativeAgentToolResult::generic_success_with_model_content(
-                tool_call,
-                summary,
-                model_content,
-                raw,
-            ))
+            Ok(native_web_tool_result(tool_call, raw))
         }))
     }
 
@@ -271,10 +270,19 @@ impl NativeAgentToolExecutorDispatcher {
                     .map(str::trim)
                     .filter(|value| !value.is_empty())
                     .map(str::to_string);
-                let (Some(server), Some(tool)) = (server, tool) else {
-                    return Some(Err(
-                        "mcp.call_tool requires non-empty server and tool fields".to_string(),
-                    ));
+                let (server, tool) = match (server, tool) {
+                    (Some(server), Some(tool)) => (server, tool),
+                    (server, tool) => {
+                        return Some(Ok(native_mcp_failure_result(
+                            tool_call,
+                            server.as_deref(),
+                            tool.as_deref(),
+                            "invalid_request",
+                            "mcp_request_invalid",
+                            "mcp.call_tool requires non-empty server and tool fields".to_string(),
+                            NativeToolRetry::Replan,
+                        )));
+                    }
                 };
                 let tool_arguments = arguments
                     .get("arguments")
@@ -285,23 +293,53 @@ impl NativeAgentToolExecutorDispatcher {
             _ => return None,
         };
         if !tool_arguments.is_object() {
-            return Some(Err("MCP tool arguments must be a JSON object".to_string()));
+            return Some(Ok(native_mcp_failure_result(
+                tool_call,
+                Some(&server_name),
+                Some(&tool_name),
+                "invalid_request",
+                "mcp_arguments_invalid",
+                "MCP tool arguments must be a JSON object".to_string(),
+                NativeToolRetry::Replan,
+            )));
         }
         let Some(server_config) = configured_mcp_servers(&context.config_snapshot)
             .and_then(|servers| servers.get(&server_name))
         else {
-            return Some(Err(format!("MCP server is not configured: {server_name}")));
+            return Some(Ok(native_mcp_failure_result(
+                tool_call,
+                Some(&server_name),
+                Some(&tool_name),
+                "user_action_required",
+                "mcp_server_not_configured",
+                format!("MCP server is not configured: {server_name}"),
+                NativeToolRetry::AfterUserAction,
+            )));
         };
         if server_config
             .get("enabled")
             .and_then(serde_json::Value::as_bool)
             == Some(false)
         {
-            return Some(Err(format!("MCP server is disabled: {server_name}")));
+            return Some(Ok(native_mcp_failure_result(
+                tool_call,
+                Some(&server_name),
+                Some(&tool_name),
+                "user_action_required",
+                "mcp_server_disabled",
+                format!("MCP server is disabled: {server_name}"),
+                NativeToolRetry::AfterUserAction,
+            )));
         }
         if !mcp_tool_is_enabled(&server_name, &tool_name, server_config) {
-            return Some(Err(format!(
-                "MCP tool is not allowlisted: {server_name}.{tool_name}"
+            return Some(Ok(native_mcp_failure_result(
+                tool_call,
+                Some(&server_name),
+                Some(&tool_name),
+                "user_action_required",
+                "mcp_tool_not_allowlisted",
+                format!("MCP tool is not allowlisted: {server_name}.{tool_name}"),
+                NativeToolRetry::AfterUserAction,
             )));
         }
         let cancellation = context
@@ -318,21 +356,137 @@ impl NativeAgentToolExecutorDispatcher {
                 Some(tool_arguments),
                 cancellation,
             )
-            .await
-            .map_err(|error| error.message);
-        Some(result.map(|result| {
-            let model_content = native_tool_executor_model_content(&result);
-            NativeAgentToolResult::generic_success(
-                tool_call,
-                serde_json::json!({
+            .await;
+        Some(result.map_or_else(
+            |error| {
+                Ok(native_mcp_runtime_error_result(
+                    tool_call, &tool_name, error,
+                ))
+            },
+            |result| {
+                let model_content = native_tool_executor_model_content(&result);
+                let raw = serde_json::json!({
                     "content": model_content,
                     "result": result,
                     "server": server_name,
                     "tool": tool_name,
-                }),
-            )
-        }))
+                });
+                Ok(native_mcp_tool_result(tool_call, raw))
+            },
+        ))
     }
+}
+
+fn native_web_tool_result(
+    tool_call: &PreparedToolCall,
+    raw: serde_json::Value,
+) -> NativeAgentToolResult {
+    if let Some(outcome) = native_web_tool_outcome(&tool_call.name, &raw) {
+        return NativeAgentToolResult::success_with_outcome(tool_call, raw, outcome);
+    }
+    let summary = web::result_summary(&tool_call.name, &raw);
+    let model_content = raw.to_string();
+    NativeAgentToolResult::generic_success_with_model_content(
+        tool_call,
+        summary,
+        model_content,
+        raw,
+    )
+}
+
+fn native_web_tool_outcome(tool_name: &str, raw: &serde_json::Value) -> Option<NativeToolOutcome> {
+    let status = raw.get("status").and_then(serde_json::Value::as_str)?;
+    let action_executed = raw
+        .get("actionExecuted")
+        .and_then(serde_json::Value::as_bool);
+    let result_reason_code = || {
+        raw.get("reasonCode")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+    };
+    let result_reason = || {
+        raw.get("reason")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+    };
+
+    let outcome = match status {
+        "completed" => return None,
+        "unchanged" => NativeToolOutcome {
+            effect: "unchanged".to_string(),
+            action_executed,
+            reason_code: "page_unchanged".to_string(),
+            reason: "The page has not changed since the supplied snapshot.".to_string(),
+            retry: NativeToolRetry::DoNotRetry,
+            next_action: None,
+        },
+        "stale_snapshot" => {
+            let reason = if tool_name == "web.read" {
+                "The page changed while paginated text was being read. The returned content restarted at offset 0 with a new snapshot."
+            } else {
+                "The page changed after the supplied snapshot was captured, so the requested action was not executed."
+            };
+            NativeToolOutcome {
+                effect: "stale_state".to_string(),
+                action_executed: Some(false),
+                reason_code: "snapshot_stale".to_string(),
+                reason: reason.to_string(),
+                retry: NativeToolRetry::RetryWithUpdatedState,
+                next_action: None,
+            }
+        }
+        "navigation_required" => {
+            let next_action = raw
+                .get("suggestedUrl")
+                .and_then(serde_json::Value::as_str)
+                .map(|url| NativeToolNextAction {
+                    tool: "web.open".to_string(),
+                    arguments: serde_json::json!({ "url": url }),
+                });
+            NativeToolOutcome {
+                effect: "alternative_required".to_string(),
+                action_executed: Some(false),
+                reason_code: result_reason_code()
+                    .unwrap_or_else(|| "navigation_required".to_string()),
+                reason: result_reason().unwrap_or_else(|| {
+                    "The requested target cannot be activated in the current browser tab."
+                        .to_string()
+                }),
+                retry: NativeToolRetry::DoNotRetry,
+                next_action,
+            }
+        }
+        "user_required" => NativeToolOutcome {
+            effect: "user_action_required".to_string(),
+            action_executed: Some(false),
+            reason_code: result_reason_code().unwrap_or_else(|| "user_required".to_string()),
+            reason: result_reason().unwrap_or_else(|| {
+                "The browser requires direct user interaction before Agent work can continue."
+                    .to_string()
+            }),
+            retry: NativeToolRetry::AfterUserAction,
+            next_action: None,
+        },
+        "failed" | "cancelled" | "timed_out" => NativeToolOutcome {
+            effect: status.to_string(),
+            action_executed: Some(false),
+            reason_code: result_reason_code().unwrap_or_else(|| status.to_string()),
+            reason: result_reason()
+                .unwrap_or_else(|| format!("The browser action returned {status}.")),
+            retry: NativeToolRetry::Replan,
+            next_action: None,
+        },
+        other => NativeToolOutcome {
+            effect: "unrecognized".to_string(),
+            action_executed,
+            reason_code: result_reason_code().unwrap_or_else(|| other.to_string()),
+            reason: result_reason()
+                .unwrap_or_else(|| format!("The web tool returned the special status `{other}`.")),
+            retry: NativeToolRetry::Replan,
+            next_action: None,
+        },
+    };
+    Some(outcome)
 }
 
 pub(crate) fn native_agent_services_with_tool_executor(
@@ -474,6 +628,11 @@ fn native_tool_result_from_executor_response(
             tool_call, raw_result,
         ));
     }
+    if let Some(outcome) = native_shell_tool_outcome(&tool_call.name, &raw_result) {
+        return Ok(NativeAgentToolResult::success_with_outcome(
+            tool_call, raw_result, outcome,
+        ));
+    }
     let model_content = native_tool_executor_model_content(&raw_result);
     let summary = native_tool_executor_summary(&raw_result, &model_content);
     Ok(NativeAgentToolResult::generic_success_with_model_content(
@@ -482,6 +641,316 @@ fn native_tool_result_from_executor_response(
         model_content,
         raw_result,
     ))
+}
+
+fn is_shell_agent_tool(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        "exec_command" | "write_stdin" | "shell.start" | "shell.execute"
+    )
+}
+
+fn native_shell_tool_outcome(
+    tool_name: &str,
+    raw: &serde_json::Value,
+) -> Option<NativeToolOutcome> {
+    if !is_shell_agent_tool(tool_name) {
+        return None;
+    }
+
+    let cancelled = bool_field(raw, "cancelled", "cancelled").unwrap_or(false)
+        || string_field(raw, "status", "status") == Some("cancelled");
+    if cancelled {
+        return Some(NativeToolOutcome {
+            effect: "cancelled".to_string(),
+            action_executed: None,
+            reason_code: "shell_cancelled".to_string(),
+            reason: "The shell command was cancelled before a complete result was available."
+                .to_string(),
+            retry: NativeToolRetry::DoNotRetry,
+            next_action: None,
+        });
+    }
+
+    let timed_out = bool_field(raw, "timedOut", "timed_out").unwrap_or(false)
+        || string_field(raw, "status", "status") == Some("timed_out");
+    if timed_out {
+        return Some(NativeToolOutcome {
+            effect: "timed_out".to_string(),
+            action_executed: None,
+            reason_code: "shell_timed_out".to_string(),
+            reason:
+                "The shell command exceeded its time limit and did not produce a complete result."
+                    .to_string(),
+            retry: NativeToolRetry::Replan,
+            next_action: None,
+        });
+    }
+
+    let status = string_field(raw, "status", "status");
+    let running = bool_field(raw, "running", "running").unwrap_or(false)
+        || matches!(status, Some("running" | "terminating"));
+    if running {
+        let process_id = string_field(raw, "processId", "process_id");
+        let truncated = bool_field(raw, "truncated", "truncated").unwrap_or(false);
+        let reason = match (process_id, truncated) {
+            (Some(process_id), true) => format!(
+                "Shell process `{process_id}` is still running; earlier output was truncated."
+            ),
+            (Some(process_id), false) => {
+                format!("Shell process `{process_id}` is still running.")
+            }
+            (None, true) => {
+                "The shell command is still running; earlier output was truncated.".to_string()
+            }
+            (None, false) => "The shell command is still running.".to_string(),
+        };
+        let next_action = process_id.map(|process_id| {
+            let mut arguments = serde_json::json!({
+                "processId": process_id,
+                "input": "",
+                "yieldTimeMs": 1000,
+            });
+            if let Some(cursor) = integer_field(raw, "cursor", "cursor") {
+                arguments["cursor"] = serde_json::json!(cursor);
+            }
+            NativeToolNextAction {
+                tool: "write_stdin".to_string(),
+                arguments,
+            }
+        });
+        return Some(NativeToolOutcome {
+            effect: "in_progress".to_string(),
+            action_executed: Some(true),
+            reason_code: if truncated {
+                "shell_running_output_truncated".to_string()
+            } else {
+                "shell_process_running".to_string()
+            },
+            reason,
+            retry: NativeToolRetry::RetryWithUpdatedState,
+            next_action,
+        });
+    }
+
+    if matches!(status, Some("failed" | "terminated"))
+        || raw.get("failure").is_some_and(|failure| !failure.is_null())
+    {
+        let reason = raw
+            .get("failure")
+            .and_then(serde_json::Value::as_str)
+            .filter(|reason| !reason.trim().is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| match status {
+                Some("terminated") => "The shell process was terminated.".to_string(),
+                _ => "The shell process failed before completing.".to_string(),
+            });
+        return Some(NativeToolOutcome {
+            effect: "failed".to_string(),
+            action_executed: None,
+            reason_code: match status {
+                Some("terminated") => "shell_terminated".to_string(),
+                _ => "shell_process_failed".to_string(),
+            },
+            reason,
+            retry: NativeToolRetry::Replan,
+            next_action: None,
+        });
+    }
+
+    if let Some(exit_code) = integer_field(raw, "exitCode", "exit_code") {
+        if exit_code != 0 {
+            return Some(NativeToolOutcome {
+                effect: "failed".to_string(),
+                action_executed: Some(true),
+                reason_code: "shell_nonzero_exit".to_string(),
+                reason: format!("The shell command exited with code {exit_code}."),
+                retry: NativeToolRetry::Replan,
+                next_action: None,
+            });
+        }
+    }
+
+    if bool_field(raw, "truncated", "truncated").unwrap_or(false) {
+        let dropped_bytes = integer_field(raw, "droppedBytes", "dropped_bytes").unwrap_or(0);
+        let reason = if dropped_bytes > 0 {
+            format!("The shell command completed, but {dropped_bytes} output bytes were discarded.")
+        } else {
+            "The shell command completed, but its output was truncated.".to_string()
+        };
+        return Some(NativeToolOutcome {
+            effect: "partial_result".to_string(),
+            action_executed: Some(true),
+            reason_code: "shell_output_truncated".to_string(),
+            reason,
+            retry: NativeToolRetry::DoNotRetry,
+            next_action: None,
+        });
+    }
+
+    None
+}
+
+fn native_shell_dispatch_error_result(
+    tool_call: &PreparedToolCall,
+    error: String,
+) -> NativeAgentToolResult {
+    let raw = serde_json::json!({
+        "status": "failed",
+        "error": {
+            "message": error,
+        },
+    });
+    let outcome = NativeToolOutcome {
+        effect: "failed".to_string(),
+        action_executed: Some(false),
+        reason_code: "shell_dispatch_failed".to_string(),
+        reason: raw["error"]["message"]
+            .as_str()
+            .unwrap_or("Shell dispatch failed")
+            .to_string(),
+        retry: NativeToolRetry::Replan,
+        next_action: None,
+    };
+    NativeAgentToolResult::success_with_outcome(tool_call, raw, outcome)
+}
+
+fn native_mcp_tool_result(
+    tool_call: &PreparedToolCall,
+    raw: serde_json::Value,
+) -> NativeAgentToolResult {
+    let is_error = raw
+        .get("result")
+        .and_then(|result| {
+            bool_field(result, "isError", "is_error")
+                .or_else(|| bool_field(result, "is_error", "isError"))
+        })
+        .unwrap_or(false);
+    if !is_error {
+        return NativeAgentToolResult::generic_success(tool_call, raw);
+    }
+    let server = raw
+        .get("server")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    let tool = raw
+        .get("tool")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    let outcome = NativeToolOutcome {
+        effect: "failed".to_string(),
+        action_executed: Some(true),
+        reason_code: "mcp_tool_error".to_string(),
+        reason: format!("MCP tool `{server}.{tool}` returned an error result."),
+        retry: NativeToolRetry::Replan,
+        next_action: None,
+    };
+    NativeAgentToolResult::success_with_outcome(tool_call, raw, outcome)
+}
+
+fn native_mcp_runtime_error_result(
+    tool_call: &PreparedToolCall,
+    tool_name: &str,
+    error: McpRuntimeError,
+) -> NativeAgentToolResult {
+    let effect = match error.kind {
+        McpRuntimeErrorKind::Configuration => "user_action_required",
+        McpRuntimeErrorKind::Timeout => "timed_out",
+        McpRuntimeErrorKind::Cancelled => "cancelled",
+        McpRuntimeErrorKind::InvalidArguments
+        | McpRuntimeErrorKind::ServerStarting
+        | McpRuntimeErrorKind::Operation
+        | McpRuntimeErrorKind::Shutdown => "failed",
+    };
+    let reason_code = error.kind.reason_code();
+    let retry = match error.kind {
+        McpRuntimeErrorKind::Configuration => NativeToolRetry::AfterUserAction,
+        McpRuntimeErrorKind::Cancelled => NativeToolRetry::DoNotRetry,
+        McpRuntimeErrorKind::InvalidArguments
+        | McpRuntimeErrorKind::ServerStarting
+        | McpRuntimeErrorKind::Timeout
+        | McpRuntimeErrorKind::Operation
+        | McpRuntimeErrorKind::Shutdown => NativeToolRetry::Replan,
+    };
+    let reason = error.message.clone();
+    let raw = serde_json::json!({
+        "status": effect,
+        "server": error.server,
+        "tool": tool_name,
+        "error": {
+            "reasonCode": reason_code,
+            "message": error.message,
+            "transport": error.transport,
+            "retryable": error.retryable,
+            "cancelled": error.cancelled,
+        },
+    });
+    NativeAgentToolResult::success_with_outcome(
+        tool_call,
+        raw,
+        NativeToolOutcome {
+            effect: effect.to_string(),
+            action_executed: None,
+            reason_code: reason_code.to_string(),
+            reason,
+            retry,
+            next_action: None,
+        },
+    )
+}
+
+fn native_mcp_failure_result(
+    tool_call: &PreparedToolCall,
+    server: Option<&str>,
+    tool: Option<&str>,
+    effect: &str,
+    reason_code: &str,
+    reason: String,
+    retry: NativeToolRetry,
+) -> NativeAgentToolResult {
+    let outcome_reason = reason.clone();
+    let raw = serde_json::json!({
+        "status": "failed",
+        "server": server,
+        "tool": tool,
+        "error": {
+            "reasonCode": reason_code,
+            "message": reason,
+        },
+    });
+    NativeAgentToolResult::success_with_outcome(
+        tool_call,
+        raw,
+        NativeToolOutcome {
+            effect: effect.to_string(),
+            action_executed: Some(false),
+            reason_code: reason_code.to_string(),
+            reason: outcome_reason,
+            retry,
+            next_action: None,
+        },
+    )
+}
+
+fn bool_field(value: &serde_json::Value, primary: &str, alias: &str) -> Option<bool> {
+    value
+        .get(primary)
+        .or_else(|| value.get(alias))
+        .and_then(serde_json::Value::as_bool)
+}
+
+fn string_field<'a>(value: &'a serde_json::Value, primary: &str, alias: &str) -> Option<&'a str> {
+    value
+        .get(primary)
+        .or_else(|| value.get(alias))
+        .and_then(serde_json::Value::as_str)
+}
+
+fn integer_field(value: &serde_json::Value, primary: &str, alias: &str) -> Option<i64> {
+    value
+        .get(primary)
+        .or_else(|| value.get(alias))
+        .and_then(serde_json::Value::as_i64)
 }
 
 fn native_tool_executor_summary(value: &serde_json::Value, model_content: &str) -> String {

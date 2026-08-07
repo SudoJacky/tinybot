@@ -1339,6 +1339,8 @@ impl BrowserSessionManager {
                                         target_ref,
                                         role: node.role,
                                         name: node.name,
+                                        href: node.href,
+                                        opens_new_window: node.opens_new_window,
                                         frame: node.frame,
                                         x: node.x,
                                         y: node.y,
@@ -2992,6 +2994,8 @@ fn semantic_content_matches(
         && current.nodes.iter().zip(nodes).all(|(current, node)| {
             current.role == node.role
                 && current.name == node.name
+                && current.href == node.href
+                && current.opens_new_window == node.opens_new_window
                 && current.frame == node.frame
                 && current.x == node.x
                 && current.y == node.y

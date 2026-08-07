@@ -252,6 +252,7 @@ struct McpServerStatusParams {
 }
 
 fn mcp_runtime_error(method: &str, error: McpRuntimeError) -> WorkerProtocolError {
+    let reason_code = error.kind.reason_code();
     WorkerProtocolError::new(
         if error.cancelled {
             WorkerProtocolErrorCode::WorkerError
@@ -263,6 +264,7 @@ fn mcp_runtime_error(method: &str, error: McpRuntimeError) -> WorkerProtocolErro
         error.message,
         serde_json::json!({
             "method": method,
+            "reasonCode": reason_code,
             "server": error.server,
             "transport": error.transport,
             "retryable": error.retryable,

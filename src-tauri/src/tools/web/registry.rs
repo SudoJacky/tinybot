@@ -82,7 +82,7 @@ impl ToolContributor for WebToolContributor {
                 "web.act",
                 "web",
                 "Act on the current web page",
-                "Perform one action against the current page. Put action fields inside the action object; use clickTarget with targetRef for semantic targets. For passwords, verification codes, CAPTCHA, payment details, file pickers, or another protected step, call userHandoff with a clear reason and stop changing the page until the user resumes control. Use web.open, not web.act, for URL navigation. Always pass the latest snapshotId. Stale actions are not executed and return the latest snapshot.",
+                "Perform one action against the current page. Put action fields inside the action object; use clickTarget with targetRef for semantic targets. Link targets may include href and opensNewWindow; open those href values with web.open instead of clicking the target. For passwords, verification codes, CAPTCHA, payment details, file pickers, or another protected step, call userHandoff with a clear reason and stop changing the page until the user resumes control. Use web.open, not web.act, for URL navigation. Always pass the latest snapshotId. Stale actions are not executed and return the latest snapshot.",
                 ToolExposure::Model,
                 false,
                 runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),

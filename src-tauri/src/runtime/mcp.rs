@@ -30,11 +30,37 @@ pub(crate) struct McpRuntime {
 
 #[derive(Clone, Debug)]
 pub(crate) struct McpRuntimeError {
+    pub(crate) kind: McpRuntimeErrorKind,
     pub(crate) server: String,
     pub(crate) transport: String,
     pub(crate) message: String,
     pub(crate) retryable: bool,
     pub(crate) cancelled: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum McpRuntimeErrorKind {
+    Configuration,
+    InvalidArguments,
+    ServerStarting,
+    Timeout,
+    Operation,
+    Cancelled,
+    Shutdown,
+}
+
+impl McpRuntimeErrorKind {
+    pub(crate) fn reason_code(self) -> &'static str {
+        match self {
+            Self::Configuration => "mcp_configuration_invalid",
+            Self::InvalidArguments => "mcp_arguments_invalid",
+            Self::ServerStarting => "mcp_server_starting",
+            Self::Timeout => "mcp_timed_out",
+            Self::Operation => "mcp_operation_failed",
+            Self::Cancelled => "mcp_call_cancelled",
+            Self::Shutdown => "mcp_shutdown_failed",
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -236,6 +262,7 @@ impl McpRuntime {
             Some(Value::Object(arguments)) => Some(arguments),
             Some(_) => {
                 return Err(McpRuntimeError {
+                    kind: McpRuntimeErrorKind::InvalidArguments,
                     server: server_name.to_string(),
                     transport: config.transport().to_string(),
                     message: "MCP tool arguments must be a JSON object".to_string(),
@@ -469,6 +496,7 @@ impl McpRuntime {
                 Some(server) => {
                     let fingerprint =
                         serde_json::to_string(server).map_err(|error| McpRuntimeError {
+                            kind: McpRuntimeErrorKind::Configuration,
                             server: key.server_name.clone(),
                             transport: server
                                 .get("transport")
@@ -508,6 +536,7 @@ impl McpRuntime {
             "stdio" => parse_stdio_server_config(server_name, server_config, workspace_root)
                 .map(McpServerConfig::Stdio)
                 .map_err(|error| McpRuntimeError {
+                    kind: McpRuntimeErrorKind::Configuration,
                     server: server_name.to_string(),
                     transport: error.transport,
                     message: error.message,
@@ -518,6 +547,7 @@ impl McpRuntime {
                 parse_http_server_config(server_name, server_config)
                     .map(McpServerConfig::Http)
                     .map_err(|error| McpRuntimeError {
+                        kind: McpRuntimeErrorKind::Configuration,
                         server: server_name.to_string(),
                         transport: error.transport,
                         message: error.message,
@@ -526,6 +556,7 @@ impl McpRuntime {
                     })
             }
             unsupported => Err(McpRuntimeError {
+                kind: McpRuntimeErrorKind::Configuration,
                 server: server_name.to_string(),
                 transport: unsupported.to_string(),
                 message: format!(
@@ -586,6 +617,7 @@ impl McpRuntime {
                     && server.fingerprint == config.fingerprint()
                 {
                     return Err(McpRuntimeError {
+                        kind: McpRuntimeErrorKind::ServerStarting,
                         server: server_name.to_string(),
                         transport: config.transport().to_string(),
                         message: format!("MCP server `{server_name}` is still starting"),
@@ -723,6 +755,7 @@ impl McpRuntime {
         config: &StdioServerConfig,
     ) -> Result<ClientService, McpRuntimeError> {
         let command = stdio_command(config).map_err(|error| McpRuntimeError {
+            kind: McpRuntimeErrorKind::Operation,
             server: server_name.to_string(),
             transport: "stdio".to_string(),
             message: format!(
@@ -736,6 +769,7 @@ impl McpRuntime {
             .stderr(Stdio::null())
             .spawn()
             .map_err(|error| McpRuntimeError {
+                kind: McpRuntimeErrorKind::Operation,
                 server: server_name.to_string(),
                 transport: "stdio".to_string(),
                 message: sanitize_error(&format!("failed to start MCP stdio server: {error}")),
@@ -901,6 +935,7 @@ impl McpRuntime {
         timeout: Duration,
     ) -> McpRuntimeError {
         McpRuntimeError {
+            kind: McpRuntimeErrorKind::Timeout,
             server: server_name.to_string(),
             transport: transport.to_string(),
             message: format!(
@@ -920,6 +955,7 @@ impl McpRuntime {
         message: String,
     ) -> McpRuntimeError {
         McpRuntimeError {
+            kind: McpRuntimeErrorKind::Operation,
             server: server_name.to_string(),
             transport: transport.to_string(),
             message: sanitize_error(&format!(
@@ -932,6 +968,7 @@ impl McpRuntime {
 
     fn cancelled_error(&self, server_name: &str, transport: &str) -> McpRuntimeError {
         McpRuntimeError {
+            kind: McpRuntimeErrorKind::Cancelled,
             server: server_name.to_string(),
             transport: transport.to_string(),
             message: "MCP tool call cancelled".to_string(),
@@ -947,6 +984,7 @@ impl McpRuntime {
         message: String,
     ) -> McpRuntimeError {
         McpRuntimeError {
+            kind: McpRuntimeErrorKind::Shutdown,
             server: server_name.to_string(),
             transport: transport.to_string(),
             message: sanitize_error(&message),

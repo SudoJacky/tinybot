@@ -36,6 +36,8 @@ mod state;
 mod stores;
 mod subagent_projection;
 mod tool_dispatcher;
+mod tool_loop_guard;
+mod tool_outcome_projection;
 mod tool_projection;
 mod tool_result;
 mod tool_router;
@@ -335,6 +337,35 @@ impl std::ops::Deref for PreparedToolCall {
 pub struct NativeAgentToolResult {
     pub content: Value,
     pub envelope: NativeToolResultEnvelope,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NativeToolOutcome {
+    pub effect: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub action_executed: Option<bool>,
+    pub reason_code: String,
+    pub reason: String,
+    pub retry: NativeToolRetry,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_action: Option<NativeToolNextAction>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct NativeToolNextAction {
+    pub tool: String,
+    pub arguments: Value,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum NativeToolRetry {
+    DoNotRetry,
+    RetryWithUpdatedState,
+    AfterUserAction,
+    Replan,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

@@ -1,5 +1,8 @@
+use super::tool_outcome_projection::project_tool_outcome;
 use super::tool_projection::legacy_tool_content;
-use super::{NativeAgentToolCall, NativeAgentToolResult, NativeToolResultEnvelope};
+use super::{
+    NativeAgentToolCall, NativeAgentToolResult, NativeToolOutcome, NativeToolResultEnvelope,
+};
 use serde_json::Value;
 use std::ops::{Deref, DerefMut};
 
@@ -24,11 +27,30 @@ impl NativeToolResultEnvelope {
             "ok",
             summary,
             model_content,
-            "generic_result",
-            tool_call.name.clone(),
+            generic_ui("generic_result", tool_call.name.clone()),
             serde_json::json!({
                 "kind": "generic_result",
             }),
+            serde_json::json!([]),
+            serde_json::json!([]),
+            serde_json::json!([]),
+            tool_call,
+            raw_content,
+        )
+    }
+
+    fn success_with_outcome(
+        tool_call: &NativeAgentToolCall,
+        raw_content: Value,
+        outcome: NativeToolOutcome,
+    ) -> Self {
+        let projection = project_tool_outcome(tool_call, &raw_content, &outcome);
+        Self::from_parts(
+            "ok",
+            projection.summary,
+            projection.model_content,
+            projection.ui,
+            projection.structured,
             serde_json::json!([]),
             serde_json::json!([]),
             serde_json::json!([]),
@@ -46,8 +68,7 @@ impl NativeToolResultEnvelope {
             "error",
             summary.clone(),
             summary,
-            "generic_error",
-            tool_call.name.clone(),
+            generic_ui("generic_error", tool_call.name.clone()),
             serde_json::json!({
                 "kind": "generic_error",
             }),
@@ -63,8 +84,7 @@ impl NativeToolResultEnvelope {
         status: &str,
         summary: String,
         model_content: String,
-        ui_type: &str,
-        title: String,
+        ui: Value,
         structured: Value,
         references: Value,
         artifacts: Value,
@@ -78,11 +98,7 @@ impl NativeToolResultEnvelope {
                 "summary": summary,
                 "modelContent": model_content,
                 "structured": structured,
-                "ui": {
-                    "type": ui_type,
-                    "title": title,
-                    "actions": [],
-                },
+                "ui": ui,
                 "references": references,
                 "artifacts": artifacts,
                 "sideEffects": side_effects,
@@ -163,6 +179,32 @@ impl NativeAgentToolResult {
             envelope,
         }
     }
+
+    pub(crate) fn success_with_outcome(
+        tool_call: &NativeAgentToolCall,
+        raw_content: Value,
+        outcome: NativeToolOutcome,
+    ) -> Self {
+        let envelope =
+            NativeToolResultEnvelope::success_with_outcome(tool_call, raw_content, outcome);
+        let model_content = envelope
+            .get("modelContent")
+            .and_then(Value::as_str)
+            .expect("native tool outcome must include model content")
+            .to_string();
+        Self {
+            content: Value::String(model_content),
+            envelope,
+        }
+    }
+}
+
+fn generic_ui(ui_type: &str, title: String) -> Value {
+    serde_json::json!({
+        "type": ui_type,
+        "title": title,
+        "actions": [],
+    })
 }
 
 #[cfg(test)]
@@ -185,5 +227,60 @@ mod tests {
         assert_eq!(result.envelope["raw"], raw);
         assert_eq!(result.envelope["structured"]["kind"], "generic_result");
         assert!(result.envelope["structured"].get("value").is_none());
+    }
+
+    #[test]
+    fn outcome_envelope_exposes_guidance_to_the_model_and_keeps_raw_evidence() {
+        let tool_call = NativeAgentToolCall {
+            id: "call-web-navigation".to_string(),
+            name: "web.act".to_string(),
+            arguments_json: r#"{"snapshotId":"snapshot-1"}"#.to_string(),
+            result: Value::Null,
+        };
+        let raw = json!({
+            "status": "navigation_required",
+            "actionExecuted": false,
+            "suggestedUrl": "https://example.com/docs"
+        });
+        let outcome = NativeToolOutcome {
+            effect: "alternative_required".to_string(),
+            action_executed: Some(false),
+            reason_code: "target_opens_new_window".to_string(),
+            reason: "The target opens a new window.".to_string(),
+            retry: super::super::NativeToolRetry::DoNotRetry,
+            next_action: Some(super::super::NativeToolNextAction {
+                tool: "web.open".to_string(),
+                arguments: json!({ "url": "https://example.com/docs" }),
+            }),
+        };
+
+        let result = NativeAgentToolResult::success_with_outcome(&tool_call, raw.clone(), outcome);
+        let model_content: Value = serde_json::from_str(
+            result.envelope["modelContent"]
+                .as_str()
+                .expect("model content should be JSON"),
+        )
+        .expect("model content should parse");
+
+        assert_eq!(result.envelope["status"], "ok");
+        assert_eq!(result.envelope["structured"]["kind"], "tool_outcome");
+        assert_eq!(
+            result.envelope["structured"]["outcome"]["retry"],
+            "do_not_retry"
+        );
+        let guidance = model_content["toolOutcome"]["guidance"]
+            .as_str()
+            .expect("tool outcome guidance should be text");
+        assert!(guidance.contains("Do not repeat the same tool call"));
+        assert!(guidance.contains("Follow nextAction by calling `web.open`"));
+        assert!(guidance.contains("unchanged state may be blocked"));
+        assert_eq!(
+            result.envelope["summary"],
+            "Alternative action required: The target opens a new window."
+        );
+        assert_eq!(result.envelope["ui"]["summary"], result.envelope["summary"]);
+        assert_eq!(result.envelope["ui"]["actions"][0]["tool"], "web.open");
+        assert_eq!(model_content["result"], raw);
+        assert_eq!(result.envelope["raw"], raw);
     }
 }

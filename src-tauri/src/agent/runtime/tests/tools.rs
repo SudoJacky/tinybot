@@ -500,6 +500,128 @@ fn tool_runtime_dispatches_through_async_dispatch_seam() {
 }
 
 #[test]
+fn repeated_no_progress_call_is_returned_to_model_without_redispatch() {
+    struct RepeatingProvider {
+        calls: AtomicUsize,
+    }
+
+    impl NativeAgentProvider for RepeatingProvider {
+        fn complete(
+            &self,
+            context: &AgentTurnContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            let call_index = self.calls.fetch_add(1, Ordering::SeqCst);
+            if call_index < 2 {
+                if call_index == 1 {
+                    assert!(context.messages.iter().any(|message| {
+                        message["role"] == "tool"
+                            && message["tool_call_id"] == "call-no-progress-1"
+                            && message["content"].as_str().is_some_and(|content| {
+                                content.contains("equivalent call against unchanged state")
+                            })
+                    }));
+                }
+                return Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    response_items: Vec::new(),
+                    tool_calls: vec![NativeAgentToolCall {
+                        id: format!("call-no-progress-{}", call_index + 1),
+                        name: "test.lookup".to_string(),
+                        arguments_json: if call_index == 0 {
+                            r#"{"limit":5,"query":"same"}"#.to_string()
+                        } else {
+                            r#"{"query":"same","limit":5}"#.to_string()
+                        },
+                        result: Value::Null,
+                    }],
+                });
+            }
+            assert!(context.messages.iter().any(|message| {
+                message["role"] == "tool"
+                    && message["tool_call_id"] == "call-no-progress-2"
+                    && message["content"]
+                        .as_str()
+                        .is_some_and(|content| content.contains("repeated_no_progress"))
+            }));
+            Ok(NativeAgentProviderResponse {
+                final_content: "used another approach".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                response_items: Vec::new(),
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    struct NoProgressDispatcher {
+        dispatches: AtomicUsize,
+    }
+
+    impl NativeAgentToolDispatcher for NoProgressDispatcher {
+        fn dispatch(
+            &self,
+            _context: &AgentTurnContext,
+            tool_call: &PreparedToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            self.dispatches.fetch_add(1, Ordering::SeqCst);
+            Ok(NativeAgentToolResult::success_with_outcome(
+                tool_call,
+                json!({ "status": "unchanged" }),
+                NativeToolOutcome {
+                    effect: "unchanged".to_string(),
+                    action_executed: Some(true),
+                    reason_code: "lookup_unchanged".to_string(),
+                    reason: "The lookup returned no new evidence.".to_string(),
+                    retry: NativeToolRetry::DoNotRetry,
+                    next_action: None,
+                },
+            ))
+        }
+    }
+
+    let dispatcher = Arc::new(NoProgressDispatcher {
+        dispatches: AtomicUsize::new(0),
+    });
+    let result = run_native_agent_turn_with_services(
+        &NativeAgentRuntimeServices::new(
+            Arc::new(RepeatingProvider {
+                calls: AtomicUsize::new(0),
+            }),
+            dispatcher.clone(),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_test_tool_registry_entries(test_registry_with_model_tools(&["test.lookup"])),
+        json!({
+            "runtime": "rust",
+            "turnId": "turn-no-progress-loop",
+            "sessionId": "session-no-progress-loop",
+            "maxIterations": 3,
+            "messages": [{ "role": "user", "content": "keep looking" }]
+        }),
+    )
+    .expect("loop guard should return the blocked call to the model");
+
+    assert_eq!(dispatcher.dispatches.load(Ordering::SeqCst), 1);
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["finalContent"], "used another approach");
+    assert_eq!(result["toolsUsed"], json!(["test.lookup"]));
+    assert_eq!(
+        result["completedToolResults"][1]["envelope"]["structured"]["outcome"]["reasonCode"],
+        "repeated_no_progress"
+    );
+    assert!(result["runtimeEvents"]
+        .as_array()
+        .expect("runtime events should be present")
+        .iter()
+        .any(|event| event["eventName"] == "agent.tool.start"
+            && event["payload"]["toolCallId"] == "call-no-progress-2"
+            && event["payload"]["status"] == "blocked"));
+}
+
+#[test]
 fn registry_has_no_parallel_safe_builtin_tools() {
     let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
         WorkerCapability::FsWorkspaceRead,
