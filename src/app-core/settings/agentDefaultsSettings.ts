@@ -5,7 +5,6 @@ export type AgentDefaultsFormValues = {
   contextWindowTokens: string;
   contextWindowStrategy: string;
   maxToolIterations: string;
-  reasoningEffort: string;
 };
 
 export type AgentDefaultsSettingsData = {
@@ -24,7 +23,6 @@ const DEFAULT_AGENT_MAX_TOKENS = 8192;
 const DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS = 128000;
 const DEFAULT_AGENT_CONTEXT_WINDOW_STRATEGY = "discard";
 const DEFAULT_AGENT_MAX_TOOL_ITERATIONS = 200;
-const DEFAULT_AGENT_REASONING_EFFORT = "medium";
 
 export function buildAgentDefaultsSettings(config: unknown): AgentDefaultsSettingsData {
   const root = asRecord(config);
@@ -49,7 +47,6 @@ export function buildAgentDefaultsSettings(config: unknown): AgentDefaultsSettin
         pick(defaults, "maxIterations", "max_iterations", "maxToolIterations", "max_tool_iterations"),
         DEFAULT_AGENT_MAX_TOOL_ITERATIONS,
       ),
-      reasoningEffort: stringValue(pick(defaults, "reasoningEffort", "reasoning_effort")) || DEFAULT_AGENT_REASONING_EFFORT,
     },
   };
 }
@@ -95,10 +92,6 @@ export function buildAgentDefaultsPatch(values: AgentDefaultsFormValues): JsonRe
     defaults.contextWindowStrategy = contextWindowStrategy;
   }
   setOptionalInteger(defaults, "maxIterations", values.maxToolIterations);
-  const reasoningEffort = values.reasoningEffort.trim();
-  if (reasoningEffort) {
-    defaults.reasoningEffort = reasoningEffort;
-  }
   return { agents: { defaults } };
 }
 

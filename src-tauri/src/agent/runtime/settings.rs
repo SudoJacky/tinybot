@@ -108,7 +108,7 @@ impl AgentTurnSettings {
             }
         })
         .unwrap_or(ContextWindowStrategy::Discard);
-        let reasoning = reasoning_settings(spec, metadata, defaults, &mut validation_errors);
+        let reasoning = reasoning_settings(spec, metadata, &mut validation_errors);
         let service_tier = optional_string_setting(
             spec,
             metadata,
@@ -211,10 +211,12 @@ fn normalize_permission_profile(
 fn reasoning_settings(
     spec: &Value,
     metadata: &Value,
-    defaults: &Value,
     validation_errors: &mut Vec<String>,
 ) -> Option<AgentReasoningSettings> {
-    if let Some(value) = setting_value(spec, metadata, defaults, &["reasoning"]) {
+    // Reasoning support and accepted effort levels are model-specific, so this
+    // setting must be explicit on the turn rather than inherited globally.
+    let no_defaults = Value::Null;
+    if let Some(value) = setting_value(spec, metadata, &no_defaults, &["reasoning"]) {
         let Some(object) = value.as_object() else {
             validation_errors.push("reasoning must be an object".to_string());
             return None;
@@ -232,7 +234,7 @@ fn reasoning_settings(
     optional_string_setting(
         spec,
         metadata,
-        defaults,
+        &no_defaults,
         &["reasoningEffort", "reasoning_effort"],
         "reasoning_effort",
         validation_errors,

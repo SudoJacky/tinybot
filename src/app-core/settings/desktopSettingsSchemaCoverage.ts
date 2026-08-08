@@ -21,7 +21,7 @@ type DispositionRule = {
 };
 
 const DISPOSITION_RULES: DispositionRule[] = [
-  { pattern: /^agents\.defaults\.(model|provider|activeProfile|temperature|timezone|workspace|maxTokens|contextWindowTokens|contextWindowStrategy|maxIterations|reasoningEffort)$/, disposition: "essential" },
+  { pattern: /^agents\.defaults\.(model|provider|activeProfile|temperature|timezone|workspace|maxTokens|contextWindowTokens|contextWindowStrategy|maxIterations)$/, disposition: "essential" },
   { pattern: /^agents\.defaults\.(contextBlockLimit|maxToolResultChars|embedding\..+)$/, disposition: "advanced" },
   { pattern: /^providers\.[^.]+\.(api_key|api_base|enabled|models)$/, disposition: "essential" },
   { pattern: /^providers\.profiles\.[^.]+\.(provider|api_key|api_base|enabled|models)$/, disposition: "essential" },
@@ -40,7 +40,6 @@ export function canonicalizeDesktopSettingsPersistentPath(path: string): string 
   return path
     .replace(/^agents\.defaults\.active_profile$/, "agents.defaults.activeProfile")
     .replace(/^agents\.defaults\.max_tokens$/, "agents.defaults.maxTokens")
-    .replace(/^agents\.defaults\.reasoning_effort$/, "agents.defaults.reasoningEffort")
     .replace(/^agents\.defaults\.context_block_limit$/, "agents.defaults.contextBlockLimit")
     .replace(/^agents\.defaults\.context_window_tokens$/, "agents.defaults.contextWindowTokens")
     .replace(/^agents\.defaults\.context_window_strategy$/, "agents.defaults.contextWindowStrategy")

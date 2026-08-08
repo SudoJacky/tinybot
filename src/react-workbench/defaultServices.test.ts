@@ -257,6 +257,7 @@ describe("desktop native app services", () => {
         text: "hello",
         model: "model-1",
         provider: "openai",
+        reasoningEffort: "xhigh",
         selectedSkills: ["create-agent-plugin:migrate-agent-plugin"],
       },
       sessionId: "thread-1",
@@ -272,6 +273,7 @@ describe("desktop native app services", () => {
           stream: true,
           model: "model-1",
           provider: "openai",
+          reasoningEffort: "xhigh",
           metadata: expect.objectContaining({
             clientEventId: "command-turn-1",
             selectedSkills: ["create-agent-plugin:migrate-agent-plugin"],

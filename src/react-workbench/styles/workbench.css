@@ -5667,7 +5667,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .claude-ai-input__model-trigger {
   gap: 6px;
-  max-width: 210px;
+  max-width: 260px;
   height: 34px;
   border-radius: 999px;
   padding: 0 10px;
@@ -5675,11 +5675,22 @@ button.tinyos-overlay-backdrop:focus-visible {
   font-size: 13px;
 }
 
-.claude-ai-input__model-trigger span {
+.claude-ai-input__model-trigger-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.claude-ai-input__model-trigger-effort {
+  flex: 0 0 auto;
+  color: var(--color-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.claude-ai-input__model-trigger svg {
+  flex: 0 0 auto;
 }
 
 .claude-ai-input__context-usage {
@@ -5791,6 +5802,105 @@ button.tinyos-overlay-backdrop:focus-visible {
   width: min(300px, calc(100vw - 48px));
 }
 
+.claude-ai-input__model-menu {
+  overflow: hidden;
+}
+
+.claude-ai-input__model-menu-title {
+  min-height: 36px;
+  border-bottom: 1px solid var(--color-hairline);
+  color: var(--color-muted);
+  padding: 8px 10px 7px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.claude-ai-input__model-menu-row {
+  display: grid;
+  grid-template-columns: minmax(72px, auto) minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-ink);
+  padding: 7px 10px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.claude-ai-input__model-menu-row:hover,
+.claude-ai-input__model-menu-row:focus-visible {
+  border-color: var(--color-primary);
+  background: var(--color-surface-soft);
+  outline: none;
+}
+
+.claude-ai-input__model-menu-row strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.claude-ai-input__model-menu-row span {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 13px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-ai-input__model-menu-row svg {
+  color: var(--color-muted);
+}
+
+.claude-ai-input__model-menu-header {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
+  align-items: center;
+  min-height: 44px;
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 0 2px;
+}
+
+.claude-ai-input__model-menu-header strong {
+  grid-column: 2;
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.claude-ai-input__model-menu-back {
+  display: inline-grid;
+  grid-column: 1;
+  grid-row: 1;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.claude-ai-input__model-menu-back:hover,
+.claude-ai-input__model-menu-back:focus-visible {
+  border-color: var(--color-primary);
+  background: var(--color-surface-soft);
+  color: var(--color-body);
+  outline: none;
+}
+
+.claude-ai-input__model-menu-list {
+  max-height: 224px;
+  overflow: auto;
+}
+
 .claude-ai-input__tool-option,
 .claude-ai-input__model-option {
   display: grid;
@@ -5810,6 +5920,10 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .claude-ai-input__model-option {
   grid-template-columns: minmax(0, 1fr) max-content 16px;
+}
+
+.claude-ai-input__effort-option {
+  grid-template-columns: minmax(0, 1fr) 16px;
 }
 
 .claude-ai-input__tool-option:hover,

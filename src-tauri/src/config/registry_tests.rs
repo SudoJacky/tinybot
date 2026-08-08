@@ -226,6 +226,20 @@ fn max_tool_iterations_projects_runtime_key_with_legacy_aliases() {
 }
 
 #[test]
+fn agent_defaults_do_not_expose_legacy_reasoning_effort() {
+    let snapshot = build_settings_snapshot(SettingsSnapshotInput {
+        config: json!({
+            "agents": { "defaults": { "reasoningEffort": "medium" } }
+        }),
+        config_path: PathBuf::from("C:/Users/example/.tinybot/config.json"),
+        revision: "rev-1".to_string(),
+        diagnostics: Vec::new(),
+    });
+
+    assert!(snapshot.field("agents.defaults.reasoningEffort").is_none());
+}
+
+#[test]
 fn expert_config_exposes_redacted_effective_config() {
     let snapshot = build_settings_snapshot(SettingsSnapshotInput {
         config: config_fixture(),

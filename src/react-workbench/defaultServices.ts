@@ -330,6 +330,7 @@ export function createDesktopAppServices(): AppServices {
     const result = await controller.submitMessage(input.text, {
       ...(model ? { model } : {}),
       ...(provider ? { provider } : {}),
+      ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
       ...(input.references?.length ? { references: input.references } : {}),
       ...(input.selectedSkills?.length ? { selectedSkills: input.selectedSkills } : {}),
       clientEventId: command.commandId,

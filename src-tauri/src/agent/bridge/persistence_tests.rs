@@ -1,4 +1,4 @@
-use super::materialized_turn_messages;
+use super::{materialized_turn_messages, native_agent_turn_context};
 
 #[test]
 fn materialized_turn_messages_preserve_frontend_user_content_verbatim() {
@@ -36,4 +36,29 @@ fn manual_compaction_does_not_materialize_historical_user_messages() {
     );
 
     assert!(messages.is_empty());
+}
+
+#[test]
+fn persisted_turn_context_uses_only_explicit_reasoning_settings() {
+    let explicit = native_agent_turn_context(
+        &serde_json::json!({
+            "reasoning": { "effort": "high", "summary": "detailed" }
+        }),
+        &serde_json::json!({
+            "agents": { "defaults": { "reasoningEffort": "low" } }
+        }),
+        "turn-explicit",
+    );
+    assert_eq!(explicit["effort"], "high");
+    assert_eq!(explicit["summary"], "detailed");
+
+    let omitted = native_agent_turn_context(
+        &serde_json::json!({}),
+        &serde_json::json!({
+            "agents": { "defaults": { "reasoningEffort": "low" } }
+        }),
+        "turn-omitted",
+    );
+    assert!(omitted["effort"].is_null());
+    assert_eq!(omitted["summary"], "auto");
 }

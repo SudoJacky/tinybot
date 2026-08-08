@@ -301,6 +301,9 @@ configuration for a separate backend process. Secret fields
 return `value: null` with `secret` metadata and must remain redacted in exported/public config.
 Provider selection is profile-based. New config should use `agents.defaults.activeProfile` and
 `providers.profiles.<profileId>.provider`; `agents.defaults.provider: "auto"` is a legacy value only.
+Reasoning effort is not an Agent Defaults setting. A legacy `agents.defaults.reasoningEffort` value
+may remain in raw config for read compatibility, but the settings registry does not expose it and the
+agent runtime does not apply it to model requests.
 The built-in provider catalog currently exposes only `deepseek`, `dashscope`, and `openai`.
 Profiles are not limited to that catalog: a profile with a custom provider ID, explicit `apiBase`,
 and at least one model is resolved as an OpenAI-compatible provider. Its optional API key remains on
@@ -418,7 +421,8 @@ content.
 Each Turn owns an immutable settings snapshot parsed from the Turn specification, metadata, and
 agent defaults. It includes model, provider, iteration and streaming limits,
 temperature, maximum completion tokens, context-window strategy, reasoning options, service tier, output schema,
-working directory, permission profile, selected tools, and parallel-tool policy.
+working directory, permission profile, selected tools, and parallel-tool policy. Reasoning options are
+request-specific: they are read only from the Turn specification or metadata, never from agent defaults.
 Invalid values fail request construction rather than being reread differently by later stages.
 
 Optional provider features must be declared explicitly on the selected provider profile:
@@ -444,9 +448,10 @@ Optional provider features must be declared explicitly on the selected provider 
 `structured_output` (camel-case spellings are also accepted). A requested undeclared feature fails
 with the resolved provider ID and missing capability. Built-in profile capabilities fall back to the
 provider catalog when the profile omits the field; an explicit profile value overrides that default.
-Declared settings map to Chat Completions fields as
-follows: service tier to `service_tier`, reasoning effort to `reasoning_effort`, reasoning summary
-configuration to `reasoning`, and output schemas to `response_format.type = "json_schema"`.
+Declared settings map to Chat Completions fields as follows: service tier to `service_tier`, reasoning
+effort to `reasoning_effort`, reasoning summary configuration to `reasoning`, and output schemas to
+`response_format.type = "json_schema"`. For Responses requests, effort and summary map to
+`reasoning.effort` and `reasoning.summary`, while output schemas map to `text.format`.
 
 Turn-level runtime controls are also typed and validated before MCP discovery or provider dispatch:
 
@@ -860,6 +865,11 @@ message verbatim and does not copy attachment files. The agent reads a mentioned
   "content": "# Files mentioned by the user:\n\n## notes.md: C:\\work\\notes.md\n\n## My request for Tinybot:\nReview the file."
 }
 ```
+
+The renderer sends the composer's effort choice as `spec.reasoningEffort`. Composer values are `low`,
+`medium`, `high`, `xhigh`, and `max`; a missing or invalid local preference starts at `medium`. Model
+support varies, and an unsupported explicit value remains a provider request error rather than being
+silently downgraded.
 
 `ThreadRecord`:
 

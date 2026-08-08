@@ -2,6 +2,7 @@
 
 import type { ClipboardEvent, FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { DEFAULT_REASONING_EFFORT, type ReasoningEffort } from "../../app-core/chat/reasoningEffort";
 import type { TokenUsage } from "../../app-core/chat/chatTurnModel";
 import {
   AlertCircle,
@@ -9,6 +10,8 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Command,
   Copy,
   FileText,
@@ -67,6 +70,7 @@ export interface ComposerSlashCommand {
 export interface ComposerSendOptions {
   model?: string;
   provider?: string;
+  reasoningEffort?: ReasoningEffort;
 }
 
 export interface ComposerContextReference {
@@ -98,7 +102,9 @@ export interface ClaudeStyleAiInputProps {
   onSelectFiles?: () => Promise<ComposerFileSelection[]>;
   models?: ModelOption[];
   defaultModel?: string;
+  defaultReasoningEffort?: ReasoningEffort;
   onModelChange?: (modelId: string) => void;
+  onReasoningEffortChange?: (effort: ReasoningEffort) => void;
   onClearContextReferences?: () => void;
   onRemoveContextReference?: (id: string) => void;
   contextUsage?: TokenUsage;
@@ -117,6 +123,19 @@ const PASTE_THRESHOLD = 200;
 const EMPTY_MODELS: ModelOption[] = [];
 const EMPTY_TOOLS: ComposerToolOption[] = [];
 const EMPTY_SLASH_COMMANDS: readonly ComposerSlashCommand[] = [];
+const REASONING_EFFORT_OPTIONS: ReadonlyArray<{
+  description: string;
+  label: string;
+  value: ReasoningEffort;
+}> = [
+  { value: "low", label: "Light", description: "Prioritize speed and lower token use." },
+  { value: "medium", label: "Medium", description: "Use balanced reasoning depth." },
+  { value: "high", label: "High", description: "Use deeper reasoning." },
+  { value: "xhigh", label: "Extra High", description: "Use very deep reasoning." },
+  { value: "max", label: "Max", description: "Use the model's maximum reasoning depth." },
+];
+
+type ModelMenuView = "advanced" | "effort" | "models";
 
 let generatedId = 0;
 
@@ -131,11 +150,13 @@ export function ClaudeStyleAiInput({
   contextReferences = [],
   contextUsage,
   defaultModel,
+  defaultReasoningEffort,
   disabled = false,
   disabledReason,
   maxFiles = MAX_FILES,
   models = EMPTY_MODELS,
   onModelChange,
+  onReasoningEffortChange,
   onClearContextReferences,
   onInterruptMessage,
   onRemoveContextReference,
@@ -153,12 +174,17 @@ export function ClaudeStyleAiInput({
   const panelRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
+  const modelTriggerRef = useRef<HTMLButtonElement | null>(null);
   const toolMenuRef = useRef<HTMLDivElement | null>(null);
   const [message, setMessage] = useState("");
   const [files, setFiles] = useState<ComposerFileReference[]>([]);
   const [pastedContent, setPastedContent] = useState<PastedContent[]>([]);
   const [selectedModelId, setSelectedModelId] = useState(defaultModel ?? models[0]?.id ?? "");
+  const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<ReasoningEffort>(
+    defaultReasoningEffort ?? DEFAULT_REASONING_EFFORT,
+  );
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [modelMenuView, setModelMenuView] = useState<ModelMenuView>("advanced");
   const [toolMenuOpen, setToolMenuOpen] = useState(false);
   const [enabledToolIds, setEnabledToolIds] = useState<string[]>(() => tools.filter((tool) => tool.enabled).map((tool) => tool.id));
   const [error, setError] = useState("");
@@ -174,6 +200,7 @@ export function ClaudeStyleAiInput({
       ?? models[0],
     [defaultModel, models, selectedModelId],
   );
+  const selectedReasoningEffortLabel = reasoningEffortLabel(selectedReasoningEffort);
   const contextUsageView = useMemo(() => buildContextUsageView(contextUsage), [contextUsage]);
   const enabledToolIdSet = useMemo(() => new Set(enabledToolIds), [enabledToolIds]);
   const canSend = !disabled && !sending && Boolean(currentMessage.trim() || files.length || pastedContent.length || contextReferences.length);
@@ -207,6 +234,10 @@ export function ClaudeStyleAiInput({
   }, [defaultModel, models]);
 
   useEffect(() => {
+    setSelectedReasoningEffort(defaultReasoningEffort ?? DEFAULT_REASONING_EFFORT);
+  }, [defaultReasoningEffort]);
+
+  useEffect(() => {
     setEnabledToolIds(tools.filter((tool) => tool.enabled).map((tool) => tool.id));
   }, [tools]);
 
@@ -218,6 +249,7 @@ export function ClaudeStyleAiInput({
   useEffect(() => {
     if (!slashMenuOpen) return;
     setModelMenuOpen(false);
+    setModelMenuView("advanced");
     setToolMenuOpen(false);
   }, [slashMenuOpen]);
 
@@ -229,6 +261,7 @@ export function ClaudeStyleAiInput({
       const target = event.target as Node;
       if (!modelMenuRef.current?.contains(target)) {
         setModelMenuOpen(false);
+        setModelMenuView("advanced");
       }
       if (!toolMenuRef.current?.contains(target)) {
         setToolMenuOpen(false);
@@ -241,6 +274,19 @@ export function ClaudeStyleAiInput({
     return () => document.removeEventListener("pointerdown", closeMenus, true);
   }, [modelMenuOpen, slashMenuOpen, toolMenuOpen]);
 
+  useEffect(() => {
+    if (!modelMenuOpen) return;
+    function closeOnEscape(event: globalThis.KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setModelMenuOpen(false);
+      setModelMenuView("advanced");
+      modelTriggerRef.current?.focus();
+    }
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [modelMenuOpen]);
+
   async function sendMessage(mode: "interrupt" | "queue") {
     if (!canSend) {
       return;
@@ -252,6 +298,7 @@ export function ClaudeStyleAiInput({
       await handler?.(currentMessage.trim(), files, pastedContent, {
         ...(selectedModel ? { model: selectedModel.modelId || selectedModel.id } : {}),
         ...(selectedModel?.providerId ? { provider: selectedModel.providerId } : {}),
+        reasoningEffort: selectedReasoningEffort,
       });
       updateMessage("");
       setFiles([]);
@@ -372,7 +419,17 @@ export function ClaudeStyleAiInput({
   function selectModel(modelId: string) {
     setSelectedModelId(modelId);
     setModelMenuOpen(false);
+    setModelMenuView("advanced");
+    modelTriggerRef.current?.focus();
     onModelChange?.(modelId);
+  }
+
+  function selectReasoningEffort(effort: ReasoningEffort) {
+    setSelectedReasoningEffort(effort);
+    setModelMenuOpen(false);
+    setModelMenuView("advanced");
+    modelTriggerRef.current?.focus();
+    onReasoningEffortChange?.(effort);
   }
 
   function toggleTool(tool: ComposerToolOption) {
@@ -576,40 +633,105 @@ export function ClaudeStyleAiInput({
             </div>
             <div ref={modelMenuRef} className="claude-ai-input__model">
               <button
+                ref={modelTriggerRef}
                 aria-expanded={modelMenuOpen}
-                aria-haspopup="listbox"
+                aria-haspopup="dialog"
                 aria-label="Select model"
                 className="claude-ai-input__model-trigger"
                 disabled={disabled || !models.length}
                 type="button"
                 onClick={() => {
                   setSlashMenuDismissed(true);
-                  setModelMenuOpen((open) => !open);
+                  setModelMenuOpen((open) => {
+                    if (!open) setModelMenuView("advanced");
+                    return !open;
+                  });
                   setToolMenuOpen(false);
                 }}
               >
-                <span>{selectedModel?.name ?? "Model"}</span>
+                <span className="claude-ai-input__model-trigger-name">{selectedModel?.name ?? "Model"}</span>
+                <span className="claude-ai-input__model-trigger-effort">{selectedReasoningEffortLabel}</span>
                 <ChevronDown aria-hidden="true" size={16} />
               </button>
               {modelMenuOpen ? (
-                <div className="claude-ai-input__model-menu" role="listbox" aria-label="Models">
-                  {models.map((model) => (
-                    <button
-                      aria-selected={model.id === selectedModelId}
-                      className="claude-ai-input__model-option"
-                      key={model.id}
-                      role="option"
-                      type="button"
-                      onClick={() => selectModel(model.id)}
-                    >
-                      <span>
-                        <strong>{model.name}</strong>
-                        <small>{model.description}</small>
-                      </span>
-                      {model.badge ? <em>{model.badge}</em> : null}
-                      {model.id === selectedModelId ? <Check aria-hidden="true" size={15} /> : null}
-                    </button>
-                  ))}
+                <div className="claude-ai-input__model-menu" role="dialog" aria-label="Model and reasoning effort">
+                  {modelMenuView === "advanced" ? (
+                    <>
+                      <div className="claude-ai-input__model-menu-title">Advanced</div>
+                      <button
+                        className="claude-ai-input__model-menu-row"
+                        type="button"
+                        onClick={() => setModelMenuView("models")}
+                      >
+                        <strong>Model</strong>
+                        <span>{selectedModel?.name ?? "Choose model"}</span>
+                        <ChevronRight aria-hidden="true" size={16} />
+                      </button>
+                      <button
+                        className="claude-ai-input__model-menu-row"
+                        type="button"
+                        onClick={() => setModelMenuView("effort")}
+                      >
+                        <strong>Effort</strong>
+                        <span>{selectedReasoningEffortLabel}</span>
+                        <ChevronRight aria-hidden="true" size={16} />
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="claude-ai-input__model-menu-header">
+                        <button
+                          aria-label="Back to advanced options"
+                          className="claude-ai-input__model-menu-back"
+                          type="button"
+                          onClick={() => setModelMenuView("advanced")}
+                        >
+                          <ChevronLeft aria-hidden="true" size={16} />
+                        </button>
+                        <strong>{modelMenuView === "models" ? "Model" : "Effort"}</strong>
+                      </div>
+                      {modelMenuView === "models" ? (
+                        <div className="claude-ai-input__model-menu-list" role="listbox" aria-label="Models">
+                          {models.map((model) => (
+                            <button
+                              aria-selected={model.id === selectedModelId}
+                              className="claude-ai-input__model-option"
+                              key={model.id}
+                              role="option"
+                              type="button"
+                              onClick={() => selectModel(model.id)}
+                            >
+                              <span>
+                                <strong>{model.name}</strong>
+                                <small>{model.description}</small>
+                              </span>
+                              {model.badge ? <em>{model.badge}</em> : null}
+                              {model.id === selectedModelId ? <Check aria-hidden="true" size={15} /> : null}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="claude-ai-input__model-menu-list" role="listbox" aria-label="Reasoning effort">
+                          {REASONING_EFFORT_OPTIONS.map((option) => (
+                            <button
+                              aria-selected={option.value === selectedReasoningEffort}
+                              className="claude-ai-input__model-option claude-ai-input__effort-option"
+                              key={option.value}
+                              role="option"
+                              type="button"
+                              onClick={() => selectReasoningEffort(option.value)}
+                            >
+                              <span>
+                                <strong>{option.label}</strong>
+                                <small>{option.description}</small>
+                              </span>
+                              {option.value === selectedReasoningEffort ? <Check aria-hidden="true" size={15} /> : null}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               ) : null}
             </div>
@@ -758,6 +880,10 @@ function formatTokenCount(value: number): string {
 
 function trimDecimal(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, "");
+}
+
+function reasoningEffortLabel(effort: ReasoningEffort): string {
+  return REASONING_EFFORT_OPTIONS.find((option) => option.value === effort)?.label ?? "Medium";
 }
 
 function AttachmentChip({

@@ -1,4 +1,5 @@
 import type { AgentInputReference } from "./agentInputReference";
+import type { ReasoningEffort } from "./reasoningEffort";
 import {
   createAgentTimelineModel,
   TimelineRevisionGapError,
@@ -49,6 +50,7 @@ export type ChatDeleteSessionResult =
 export type ChatSubmitOptions = {
   model?: string;
   provider?: string;
+  reasoningEffort?: ReasoningEffort;
   references?: AgentInputReference[];
   selectedSkills?: string[];
   clientEventId?: string;
@@ -288,7 +290,7 @@ export function createDesktopChatSessionController({
       throw new Error("Cannot submit a turn without an active Thread");
     }
     const clientEventId = options.clientEventId || createClientEventId();
-    const { model, provider, references, selectedSkills } = options;
+    const { model, provider, reasoningEffort, references, selectedSkills } = options;
     const turnId = createTurnId();
     const threadId = state.activeThreadId;
     const request: NativeThreadTurnInput = {
@@ -305,6 +307,7 @@ export function createDesktopChatSessionController({
         stream: true,
         ...(model ? { model } : {}),
         ...(provider ? { provider } : {}),
+        ...(reasoningEffort ? { reasoningEffort } : {}),
         metadata: {
           clientEventId,
           ...(references?.length ? { references } : {}),

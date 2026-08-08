@@ -1,10 +1,12 @@
 import type { AgentInputReference } from "./agentInputReference";
+import type { ReasoningEffort } from "./reasoningEffort";
 import type { TinyOsCommand, TinyOsCommandSource } from "./tinyOsCommand";
 
 export type DesktopChatInput = {
   text: string;
   model?: string;
   provider?: string;
+  reasoningEffort?: ReasoningEffort;
   references?: AgentInputReference[];
   selectedSkills?: string[];
 };

@@ -56,6 +56,10 @@ import {
   readCurrentChatModelPreference,
   writeCurrentChatModel,
 } from "../../app-core/chat/chatModelPreference";
+import {
+  readCurrentChatReasoningEffort,
+  writeCurrentChatReasoningEffort,
+} from "../../app-core/chat/reasoningEffort";
 import { pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
 import { pickDesktopWorkspaceDirectory } from "../../app-core/native/desktopNativeWorkspacePicker";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
@@ -362,6 +366,7 @@ export function ChatPage({
   ));
   const [composerModels, setComposerModels] = useState<ModelOption[]>([]);
   const [defaultComposerModel, setDefaultComposerModel] = useState("");
+  const [composerReasoningEffort, setComposerReasoningEffort] = useState(readCurrentChatReasoningEffort);
   const [contextUsageDefaults, setContextUsageDefaults] = useState<ContextUsageDefaults>({});
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
@@ -2428,6 +2433,7 @@ export function ChatPage({
           disabled={!activeSession && !draftNewSession}
           disabledReason={!sessionsLoaded ? "正在加载会话…" : !activeSession && !draftNewSession ? "请先创建或选择一个会话" : undefined}
           defaultModel={defaultComposerModel}
+          defaultReasoningEffort={composerReasoningEffort}
           contextUsage={activeContextUsage}
           models={composerModels}
           onModelChange={(modelId) => {
@@ -2453,6 +2459,10 @@ export function ChatPage({
                 setTimelineError(`Model selection could not be saved: ${error instanceof Error ? error.message : String(error)}`);
               });
             }
+          }}
+          onReasoningEffortChange={(effort) => {
+            setComposerReasoningEffort(effort);
+            writeCurrentChatReasoningEffort(effort);
           }}
           responding={sessionResponding}
           slashCommands={COMPOSER_SLASH_COMMANDS}
@@ -2877,6 +2887,7 @@ function createComposerChatInput(
     text,
     ...(options.model ? { model: options.model } : {}),
     ...(options.provider ? { provider: options.provider } : {}),
+    ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
     ...(references.length ? { references } : {}),
   };
 }

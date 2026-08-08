@@ -42,6 +42,39 @@ describe("ClaudeStyleAiInput slash commands", () => {
     expect(onSendMessage).not.toHaveBeenCalled();
   });
 
+  it("selects reasoning effort from the model menu and sends the API value", async () => {
+    const user = userEvent.setup();
+    const onReasoningEffortChange = vi.fn();
+    const onSendMessage = vi.fn();
+    render(<ClaudeStyleAiInput
+      models={[{ id: "gpt-5.6", name: "GPT-5.6", description: "OpenAI" }]}
+      onReasoningEffortChange={onReasoningEffortChange}
+      onSendMessage={onSendMessage}
+    />);
+
+    await user.click(screen.getByRole("button", { name: "Select model" }));
+    const menu = screen.getByRole("dialog", { name: "Model and reasoning effort" });
+    expect(within(menu).getByRole("button", { name: /Model GPT-5\.6/ })).toBeTruthy();
+    expect(within(menu).queryByText("Speed")).toBeNull();
+
+    await user.click(within(menu).getByRole("button", { name: /Effort Medium/ }));
+    const effortList = screen.getByRole("listbox", { name: "Reasoning effort" });
+    expect(within(effortList).queryByRole("option", { name: /Default/ })).toBeNull();
+    expect(within(effortList).queryByRole("option", { name: /^None/ })).toBeNull();
+    expect(within(effortList).queryByRole("option", { name: /Ultra/ })).toBeNull();
+    await user.click(within(effortList).getByRole("option", { name: /Extra High/ }));
+
+    expect(onReasoningEffortChange).toHaveBeenCalledWith("xhigh");
+    expect(screen.getByRole("button", { name: "Select model" }).textContent).toContain("Extra High");
+
+    await user.type(screen.getByRole("textbox", { name: "Message" }), "Think carefully");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    expect(onSendMessage).toHaveBeenCalledWith("Think carefully", [], [], {
+      model: "gpt-5.6",
+      reasoningEffort: "xhigh",
+    });
+  });
+
   it("offers explicit interrupt and next-turn actions while responding", async () => {
     const user = userEvent.setup();
     const onInterruptMessage = vi.fn();
@@ -55,12 +88,12 @@ describe("ClaudeStyleAiInput slash commands", () => {
     const input = screen.getByRole("textbox", { name: "Message" });
     await user.type(input, "Change direction");
     await user.click(screen.getByRole("button", { name: "插入当前任务" }));
-    expect(onInterruptMessage).toHaveBeenCalledWith("Change direction", [], [], {});
+    expect(onInterruptMessage).toHaveBeenCalledWith("Change direction", [], [], { reasoningEffort: "medium" });
     expect(onSendMessage).not.toHaveBeenCalled();
 
     await user.type(input, "Do this afterward");
     await user.click(screen.getByRole("button", { name: "排队为下一轮" }));
-    expect(onSendMessage).toHaveBeenCalledWith("Do this afterward", [], [], {});
+    expect(onSendMessage).toHaveBeenCalledWith("Do this afterward", [], [], { reasoningEffort: "medium" });
   });
 
   it("dismisses the menu with Escape without changing the draft", async () => {
@@ -98,7 +131,7 @@ describe("ClaudeStyleAiInput slash commands", () => {
       "/compact",
       [],
       [],
-      {},
+      { reasoningEffort: "medium" },
     ));
   });
 });

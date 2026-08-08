@@ -7,7 +7,7 @@ describe("desktop command", () => {
     expect(createDesktopTurnSubmitCommand({
       commandId: "command-1",
       issuedAt: "2026-07-15T00:00:00.000Z",
-      message: { text: "hello", model: "model-1" },
+      message: { text: "hello", model: "model-1", reasoningEffort: "high" },
       sessionId: "thread-1",
       source: { control: "composer-send", surface: "chat" },
     })).toEqual({
@@ -17,7 +17,7 @@ describe("desktop command", () => {
       kind: "turn.submit",
       source: { control: "composer-send", surface: "chat" },
       target: { sessionId: "thread-1" },
-      input: { text: "hello", model: "model-1" },
+      input: { text: "hello", model: "model-1", reasoningEffort: "high" },
     });
   });
 
