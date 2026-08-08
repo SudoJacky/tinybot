@@ -347,6 +347,7 @@ describe("ChatPage", () => {
     const installPluginMigration = vi.fn(async () => ({
       plugin: {
         name: "legacy-tools",
+        builtIn: false,
         enabled: true,
         valid: true,
         installedAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),

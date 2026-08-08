@@ -1,3 +1,4 @@
+use super::bundled::{self, BundledPlugin};
 use super::manifest::{load_plugin, LoadedPlugin, PluginDiagnostic};
 use crate::storage::atomic::{read_json_store, write_json_pretty_atomic, AtomicWriteOptions};
 use serde::{Deserialize, Serialize};
@@ -61,6 +62,7 @@ pub(crate) struct PluginSummary {
     pub(crate) version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) description: Option<String>,
+    pub(crate) built_in: bool,
     pub(crate) enabled: bool,
     pub(crate) installed_at_ms: u64,
     pub(crate) source_path: String,
@@ -108,11 +110,65 @@ impl PluginStore {
         Self::new(crate::config::application::tinybot_data_root().join("plugins"))
     }
 
+    pub(crate) fn ensure_bundled_plugins(&self) -> Result<Vec<PluginSummary>, String> {
+        let mut installed = Vec::new();
+        if let Some(plugin) = self.ensure_bundled_plugin(&bundled::CREATE_AGENT_PLUGIN)? {
+            installed.push(plugin);
+        }
+        Ok(installed)
+    }
+
+    fn ensure_bundled_plugin(
+        &self,
+        bundle: &BundledPlugin,
+    ) -> Result<Option<PluginSummary>, String> {
+        let state = self.read_state()?;
+        if let Some(installed) = state.plugins.get(bundle.name) {
+            if installed.source_path != bundle.source {
+                return Ok(None);
+            }
+            if let Ok(plugin) = load_plugin(&self.cache_root().join(bundle.name)) {
+                if plugin.manifest.name == bundle.name
+                    && plugin.manifest.version.as_deref() == Some(bundle.version)
+                {
+                    return Ok(None);
+                }
+            }
+        }
+
+        fs::create_dir_all(&self.root).map_err(|error| {
+            format!(
+                "failed to create plugin storage {}: {error}",
+                self.root.display()
+            )
+        })?;
+        let source = self
+            .root
+            .join(format!(".bundled-{}-{}", bundle.name, install_nonce()));
+        bundled::materialize(bundle, &source)?;
+        let install_result =
+            self.install_from_directory_with_source(&source, Some(bundle.source.to_string()));
+        let cleanup_result = fs::remove_dir_all(&source);
+        match (install_result, cleanup_result) {
+            (Ok(plugin), Ok(())) => Ok(Some(plugin)),
+            (Ok(_), Err(error)) => Err(format!(
+                "bundled plugin `{}` was installed, but staging cleanup failed: {error}",
+                bundle.name
+            )),
+            (Err(error), Ok(())) => Err(error),
+            (Err(error), Err(cleanup_error)) => Err(format!(
+                "{error}; failed to clean bundled plugin staging directory {}: {cleanup_error}",
+                source.display()
+            )),
+        }
+    }
+
     pub(crate) fn list(&self) -> Result<Vec<PluginSummary>, String> {
         let state = self.read_state()?;
         let mut plugins = Vec::with_capacity(state.plugins.len());
         for (name, installed) in state.plugins {
             let install_root = self.cache_root().join(&name);
+            let built_in = bundled::is_bundled_source(&installed.source_path);
             match load_plugin(&install_root) {
                 Ok(plugin) if plugin.manifest.name == name => {
                     plugins.push(summary_from_loaded(plugin, installed, install_root));
@@ -121,6 +177,7 @@ impl PluginStore {
                     name: name.clone(),
                     version: plugin.manifest.version,
                     description: plugin.manifest.description,
+                    built_in,
                     enabled: installed.enabled,
                     installed_at_ms: installed.installed_at_ms,
                     source_path: installed.source_path,
@@ -141,6 +198,7 @@ impl PluginStore {
                     name,
                     version: None,
                     description: None,
+                    built_in,
                     enabled: installed.enabled,
                     installed_at_ms: installed.installed_at_ms,
                     source_path: installed.source_path,
@@ -383,6 +441,15 @@ impl PluginStore {
 
     pub(crate) fn uninstall(&self, name: &str) -> Result<(), String> {
         let mut state = self.read_state()?;
+        if state
+            .plugins
+            .get(name)
+            .is_some_and(|plugin| bundled::is_bundled_source(&plugin.source_path))
+        {
+            return Err(format!(
+                "bundled plugin `{name}` cannot be uninstalled; disable it instead"
+            ));
+        }
         if state.plugins.remove(name).is_none() {
             return Err(format!("plugin `{name}` is not installed"));
         }
@@ -538,6 +605,7 @@ fn summary_from_loaded(
     installed: InstalledPluginState,
     install_root: PathBuf,
 ) -> PluginSummary {
+    let built_in = bundled::is_bundled_source(&installed.source_path);
     let skills = plugin
         .skills
         .iter()
@@ -565,6 +633,7 @@ fn summary_from_loaded(
         name: plugin.manifest.name,
         version: plugin.manifest.version,
         description: plugin.manifest.description,
+        built_in,
         enabled: installed.enabled,
         installed_at_ms: installed.installed_at_ms,
         source_path: installed.source_path,

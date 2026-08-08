@@ -106,6 +106,7 @@ export type PluginSummary = {
   name: string;
   version?: string;
   description?: string;
+  builtIn: boolean;
   enabled: boolean;
   valid: boolean;
   installedAtMs: number;

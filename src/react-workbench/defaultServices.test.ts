@@ -257,7 +257,7 @@ describe("desktop native app services", () => {
         text: "hello",
         model: "model-1",
         provider: "openai",
-        selectedSkills: ["agent-plugins-example:migrate-agent-plugin"],
+        selectedSkills: ["create-agent-plugin:migrate-agent-plugin"],
       },
       sessionId: "thread-1",
       source: { control: "test", surface: "chat" },
@@ -274,7 +274,7 @@ describe("desktop native app services", () => {
           provider: "openai",
           metadata: expect.objectContaining({
             clientEventId: "command-turn-1",
-            selectedSkills: ["agent-plugins-example:migrate-agent-plugin"],
+            selectedSkills: ["create-agent-plugin:migrate-agent-plugin"],
           }),
         }),
       }),

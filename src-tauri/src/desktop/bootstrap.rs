@@ -138,6 +138,24 @@ pub(crate) fn run() {
                     &format!("failed to initialize tool notes: {error}"),
                 ),
             }
+            match crate::plugins::PluginStore::default_global().ensure_bundled_plugins() {
+                Ok(installed) => {
+                    for plugin in installed {
+                        push_log(
+                            &setup_state,
+                            &format!(
+                                "bundled plugin installed name={} version={}",
+                                plugin.name,
+                                plugin.version.as_deref().unwrap_or("unknown")
+                            ),
+                        );
+                    }
+                }
+                Err(error) => push_log(
+                    &setup_state,
+                    &format!("failed to initialize bundled plugins: {error}"),
+                ),
+            }
             if let Err(error) =
                 start_native_runtime_with_workspace_root(&setup_state, workspace_root.clone())
             {
