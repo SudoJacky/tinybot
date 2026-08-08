@@ -967,6 +967,7 @@ function PluginsSection({
                     <span className="react-plugin-card__name">
                       <strong>{plugin.name}</strong>
                       {plugin.version ? <small>v{plugin.version}</small> : null}
+                      {plugin.builtIn ? <span className="react-status-pill" data-state="built-in">Built-in</span> : null}
                       {!plugin.valid ? <span className="react-status-pill" data-state="invalid">Invalid</span> : null}
                     </span>
                     <small>{plugin.description || "Agent Plugin"}</small>
@@ -1004,15 +1005,17 @@ function PluginsSection({
                   <span aria-hidden="true"><i /></span>
                   {plugin.enabled ? "Enabled" : "Disabled"}
                 </button>
-                <button
-                  aria-label={`Remove ${plugin.name}`}
-                  className="react-plugin-remove"
-                  disabled={busyPlugin === plugin.name}
-                  type="button"
-                  onClick={() => void uninstallPlugin(plugin)}
-                >
-                  Remove
-                </button>
+                {!plugin.builtIn ? (
+                  <button
+                    aria-label={`Remove ${plugin.name}`}
+                    className="react-plugin-remove"
+                    disabled={busyPlugin === plugin.name}
+                    type="button"
+                    onClick={() => void uninstallPlugin(plugin)}
+                  >
+                    Remove
+                  </button>
+                ) : null}
               </footer>
             </article>
           ))}
@@ -1022,7 +1025,7 @@ function PluginsSection({
   );
 }
 
-const OFFICIAL_PLUGIN_MIGRATION_SKILL = "agent-plugins-example:migrate-agent-plugin";
+const OFFICIAL_PLUGIN_MIGRATION_SKILL = "create-agent-plugin:migrate-agent-plugin";
 
 function pluginMigrationPrompt(job: PluginMigrationJob): string {
   return [

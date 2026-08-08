@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "create-agent-plugin",
+  "version": "1.0.0",
+  "description": "Create portable Agent Plugins from existing Skills, MCP configurations, and client-specific plugins.",
+  "license": "MIT",
+  "keywords": ["agent-plugins", "creation", "migration", "skills"]
+}

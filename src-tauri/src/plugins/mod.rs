@@ -1,3 +1,4 @@
+mod bundled;
 mod manifest;
 mod runtime;
 mod store;

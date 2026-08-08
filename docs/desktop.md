@@ -86,13 +86,15 @@ The app owns the native runtime lifecycle. The configured exit policy applies to
 
 The **Tools & Plugins** page imports local directories that conform to Agent Plugins 1.0.0. Tinybot validates `plugin.json`, discovers immediate child skills from `skills/*/SKILL.md`, and loads MCP definitions from `mcp.json` when present. Successfully imported plugins are enabled immediately; reinstalling a plugin preserves its current enablement state.
 
+Tinybot installs and enables the bundled `create-agent-plugin` package during startup. Its `create-agent-plugin:migrate-agent-plugin` skill powers the **Migrate Skill or MCP** flow without requiring a separate download. Users can disable this built-in plugin, but cannot uninstall it. A bundled update preserves the current enablement state, and startup does not overwrite a user-managed replacement with the same plugin name.
+
 Plugins are global rather than workspace-specific:
 
 - managed package copies are stored under `~/.tinybot/plugins/cache/<plugin-name>`;
 - persistent data for local stdio MCP servers is created on demand under `~/.tinybot/plugins/data/<plugin-name>` and exposed as `PLUGIN_DATA`;
 - enablement state is stored in `~/.tinybot/plugins/state.json`;
 - every enabled plugin is available in every Tinybot workspace;
-- uninstalling removes the package cache but retains its persistent data.
+- uninstalling a user-managed plugin removes the package cache but retains its persistent data.
 
 Tinybot supports Agent Plugin MCP servers using `stdio` and `streamable-http`. Unsupported or invalid MCP entries are reported or skipped independently so valid skills and sibling servers remain usable. Tinybot does not scan or load legacy workspace skill directories into this plugin store.
 

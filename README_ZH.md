@@ -28,6 +28,6 @@ Tinybot 是一个由大语言模型和原生工具系统驱动的轻量级个人
 
 ## Agent Plugins
 
-从 v0.2.3 开始，Tinybot 支持 [Agent Plugins 1.0.0 标准](https://agent-plugins.org/)。你可以在 **工具与插件** 页面导入想要使用的插件目录。也可以先下载并导入 [agentplugins/agent-plugins-example](https://github.com/agentplugins/agent-plugins-example)，再让 Agent 帮你把现有 Skill 或 MCP 配置迁移为插件。
+从 v0.2.3 开始，Tinybot 支持 [Agent Plugins 1.0.0 标准](https://agent-plugins.org/)。你可以在 **工具与插件** 页面导入想要使用的插件目录。Tinybot 默认内置并启用 `create-agent-plugin`，因此可以直接通过 **迁移 Skill 或 MCP** 把现有 Skill 或 MCP 配置转换为插件，无需另行下载辅助插件。
 
 <img width="1362" height="889" alt="image" src="https://github.com/user-attachments/assets/efe401da-826b-4203-a158-d3d0c30293b3" />

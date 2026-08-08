@@ -52,12 +52,73 @@ fn imports_enabled_globally_by_default() {
         .install_from_directory(&source)
         .expect("plugin should install");
     assert!(installed.enabled);
+    assert!(!installed.built_in);
     let active = store.enabled().expect("enabled plugin should load");
     assert_eq!(active.len(), 1);
     assert_eq!(
         active[0].skills[0].qualified_name(),
         "review-tools:review-code"
     );
+}
+
+#[test]
+fn installs_and_protects_the_bundled_create_agent_plugin() {
+    let fixture = Fixture::new("bundled-create-agent-plugin");
+    let store = PluginStore::new(fixture.root.join("global-plugins"));
+
+    let changed = store
+        .ensure_bundled_plugins()
+        .expect("bundled plugins should install");
+
+    assert_eq!(changed.len(), 1);
+    assert_eq!(changed[0].name, "create-agent-plugin");
+    assert!(changed[0].built_in);
+    assert!(changed[0].enabled);
+    assert_eq!(
+        changed[0].skills[0].qualified_name,
+        "create-agent-plugin:migrate-agent-plugin"
+    );
+    assert!(store
+        .ensure_bundled_plugins()
+        .expect("current bundled plugin should be unchanged")
+        .is_empty());
+
+    store
+        .set_enabled("create-agent-plugin", false)
+        .expect("bundled plugin should be disableable");
+    let error = store
+        .uninstall("create-agent-plugin")
+        .expect_err("bundled plugin should not be uninstallable");
+    assert!(error.contains("disable it instead"));
+    let installed = store
+        .list()
+        .expect("bundled plugin should remain installed");
+    assert_eq!(installed.len(), 1);
+    assert!(!installed[0].enabled);
+}
+
+#[test]
+fn does_not_replace_a_user_managed_plugin_with_the_bundled_copy() {
+    let fixture = Fixture::new("bundled-user-override");
+    let source = fixture.plugin();
+    fs::write(
+        source.join("plugin.json"),
+        r#"{"$schema":"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json","name":"create-agent-plugin","version":"9.0.0"}"#,
+    )
+    .expect("user plugin manifest should be written");
+    let store = PluginStore::new(fixture.root.join("global-plugins"));
+    let installed = store
+        .install_from_directory(&source)
+        .expect("user plugin should install");
+    assert!(!installed.built_in);
+
+    assert!(store
+        .ensure_bundled_plugins()
+        .expect("bundled initialization should preserve a user plugin")
+        .is_empty());
+    let installed = store.list().expect("user plugin should remain installed");
+    assert_eq!(installed[0].version.as_deref(), Some("9.0.0"));
+    assert!(!installed[0].built_in);
 }
 
 #[test]
