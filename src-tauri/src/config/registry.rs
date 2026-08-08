@@ -249,21 +249,6 @@ pub fn build_settings_snapshot(input: SettingsSnapshotInput) -> SettingsSnapshot
                         ],
                     ),
                 ),
-                config_field(
-                    "reasoning-effort",
-                    "Reasoning effort",
-                    "agents.defaults.reasoningEffort",
-                    SettingScope::RunDefault,
-                    SettingValueType::String,
-                    true,
-                    pick_path(
-                        config,
-                        &[
-                            &["agents", "defaults", "reasoningEffort"],
-                            &["agents", "defaults", "reasoning_effort"],
-                        ],
-                    ),
-                ),
             ],
         ),
         provider_models_group(config),

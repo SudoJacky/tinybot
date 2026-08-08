@@ -85,6 +85,7 @@ describe("desktop native chat session controller", () => {
     const result = await controller.submitMessage("hello", {
       model: "model-1",
       provider: "openai",
+      reasoningEffort: "xhigh",
       references: [{
         kind: "reference",
         title: "README",
@@ -121,6 +122,7 @@ describe("desktop native chat session controller", () => {
         stream: true,
         model: "model-1",
         provider: "openai",
+        reasoningEffort: "xhigh",
         metadata: {
           clientEventId: "client-1",
           references: [{ kind: "reference", title: "README", detail: "selected file" }],

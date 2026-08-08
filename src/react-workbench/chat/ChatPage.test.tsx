@@ -1140,6 +1140,7 @@ describe("ChatPage", () => {
 
     await waitFor(() => expect(stores.sessionStore.create).toHaveBeenCalledTimes(1));
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s-new", {
+      reasoningEffort: "medium",
       text: "Hello from an empty app",
     }));
   });
@@ -1166,6 +1167,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s-new", {
+      reasoningEffort: "medium",
       text: "Hello from an empty app",
     }));
     expect(screen.getByRole("heading", { name: "Hello from an empty app" })).toBeTruthy();
@@ -2987,7 +2989,7 @@ describe("ChatPage", () => {
     await user.type(input, "Hello from React");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
-    expectTurnSubmit(stores.chatStore, "s1", { text: "Hello from React" });
+    expectTurnSubmit(stores.chatStore, "s1", { reasoningEffort: "medium", text: "Hello from React" });
     expect((input as HTMLTextAreaElement).value).toBe("");
   });
 
@@ -3010,6 +3012,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     expectTurnSubmit(stores.chatStore, "s1", {
+      reasoningEffort: "medium",
       references: [{
         detail: "MARKDOWN - 16 Bytes",
         kind: "reference",
@@ -3095,7 +3098,7 @@ describe("ChatPage", () => {
     await user.type(input, "Start another turn");
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
-    expectTurnSubmit(stores.chatStore, "s1", { text: "Start another turn" });
+    expectTurnSubmit(stores.chatStore, "s1", { reasoningEffort: "medium", text: "Start another turn" });
     expect(screen.queryByRole("button", { name: "插入当前任务" })).toBeNull();
     expect(screen.queryByRole("button", { name: "排队为下一轮" })).toBeNull();
   });
@@ -3186,6 +3189,7 @@ describe("ChatPage", () => {
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
       model: "deepseek-v4-flash",
+      reasoningEffort: "medium",
       references: [{
         detail: "MARKDOWN - 32 Bytes",
         kind: "reference",
@@ -3278,6 +3282,7 @@ describe("ChatPage", () => {
     subscribed?.({ type: "agent.event", eventType: "agent.turn.completed" });
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
+      reasoningEffort: "medium",
       text: "first queued",
     }));
     expect(turnSubmitCommands(stores.chatStore)).toHaveLength(1);
@@ -3288,6 +3293,7 @@ describe("ChatPage", () => {
     subscribed?.({ type: "agent.event", eventType: "agent.turn.completed" });
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
+      reasoningEffort: "medium",
       text: "second queued",
     }));
     expect(turnSubmitCommands(stores.chatStore)).toHaveLength(2);
@@ -3330,6 +3336,7 @@ describe("ChatPage", () => {
     subscribed?.({ type: "agent.event", eventType: "agent.turn.completed" });
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
+      reasoningEffort: "medium",
       text: "queued after full turn",
     }));
   });
@@ -3464,6 +3471,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: "Resume queue" }));
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
+      reasoningEffort: "medium",
       text: "resume first",
     }));
     const queuedInputs = screen.getByLabelText("Queued inputs");
@@ -3707,6 +3715,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "pending:1", {
+      reasoningEffort: "medium",
       text: "Summarize docs",
     }));
     expect(screen.queryByRole("heading", { name: "未选择会话" })).toBeNull();
@@ -3796,6 +3805,7 @@ describe("ChatPage", () => {
     const modelTrigger = await screen.findByRole("button", { name: "Select model" });
     expect(modelTrigger.textContent).toContain("deepseek-chat");
     await user.click(modelTrigger);
+    await user.click(screen.getByRole("button", { name: /Model deepseek-chat/ }));
 
     expect(screen.getByRole("option", { name: /deepseek-reasoner/i })).toBeTruthy();
     expect(screen.queryByText("Claude Sonnet 4")).toBeNull();
@@ -3809,7 +3819,44 @@ describe("ChatPage", () => {
 
     expectTurnSubmit(stores.chatStore, "s1", {
       model: "deepseek-reasoner",
+      reasoningEffort: "medium",
       text: "Use a specific model",
+    });
+  });
+
+  it("persists composer effort and submits it as an explicit turn setting", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const settingsStore: SettingsStore = {
+      load: vi.fn(async () => []),
+      loadChatModels: vi.fn(async () => [{
+        id: "gpt-5.6",
+        label: "gpt-5.6",
+        description: "OpenAI",
+        default: true,
+      }]),
+    };
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
+        sessionStore={stores.sessionStore}
+        settingsStore={settingsStore}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Select model" }));
+    await user.click(screen.getByRole("button", { name: /Effort Medium/ }));
+    await user.click(screen.getByRole("option", { name: /Extra High/ }));
+
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-reasoning-effort")).toBe("xhigh");
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "Solve this carefully");
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+
+    expectTurnSubmit(stores.chatStore, "s1", {
+      model: "gpt-5.6",
+      reasoningEffort: "xhigh",
+      text: "Solve this carefully",
     });
   });
 
@@ -4053,6 +4100,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     expectTurnSubmit(stores.chatStore, "s1", {
+      reasoningEffort: "medium",
       text: `Summarize this\n\nPasted content:\n${pastedText}`,
     });
     expect(screen.queryByText("Pasted text")).toBeNull();

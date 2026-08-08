@@ -65,14 +65,14 @@ fn resolves_profile_based_provider_for_reasoning_turns() {
     let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
+            "reasoningEffort": "medium",
             "messages": [{ "role": "user", "content": "hello" }]
         }),
         json!({
             "agents": {
                 "defaults": {
                     "activeProfile": "deepseek-default",
-                    "model": "deepseek-v4-pro",
-                    "reasoningEffort": "medium"
+                    "model": "deepseek-v4-pro"
                 }
             },
             "providers": {
@@ -101,14 +101,14 @@ fn profile_capabilities_override_built_in_provider_defaults() {
     let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
+            "reasoningEffort": "medium",
             "messages": [{ "role": "user", "content": "hello" }]
         }),
         json!({
             "agents": {
                 "defaults": {
                     "activeProfile": "deepseek-default",
-                    "model": "deepseek-v4-pro",
-                    "reasoningEffort": "medium"
+                    "model": "deepseek-v4-pro"
                 }
             },
             "providers": {
@@ -127,6 +127,31 @@ fn profile_capabilities_override_built_in_provider_defaults() {
 
     assert!(error.contains("deepseek"));
     assert!(error.contains("reasoning"));
+}
+
+#[test]
+fn legacy_agent_default_reasoning_effort_is_not_applied_to_requests() {
+    let context = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({
+            "agents": {
+                "defaults": {
+                    "provider": "openai",
+                    "model": "gpt-test",
+                    "reasoningEffort": "high"
+                }
+            }
+        }),
+    );
+
+    let request = agent_chat_completion_request(&context)
+        .expect("legacy reasoning defaults should not require provider capability");
+
+    assert!(context.settings.reasoning.is_none());
+    assert!(request.get("reasoning_effort").is_none());
 }
 
 #[test]
@@ -167,6 +192,7 @@ fn builds_internal_responses_api_request_without_changing_chat_defaults() {
     let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
+            "reasoning": { "effort": "high" },
             "messages": [{ "role": "user", "content": "hello" }]
         }),
         json!({
@@ -180,7 +206,8 @@ fn builds_internal_responses_api_request_without_changing_chat_defaults() {
             "providers": {
                 "openai": {
                     "api_key": "sk-test",
-                    "api_mode": "responses"
+                    "api_mode": "responses",
+                    "capabilities": ["reasoning"]
                 }
             }
         }),
@@ -194,8 +221,10 @@ fn builds_internal_responses_api_request_without_changing_chat_defaults() {
     assert_eq!(responses_request["input"][0]["role"], "user");
     assert_eq!(responses_request["store"], false);
     assert_eq!(responses_request["max_output_tokens"], 512);
+    assert_eq!(responses_request["reasoning"]["effort"], "high");
     assert!(responses_request.get("messages").is_none());
     assert!(chat_request.get("messages").is_some());
+    assert_eq!(chat_request["reasoning_effort"], "high");
     assert!(chat_request.get("input").is_none());
 }
 

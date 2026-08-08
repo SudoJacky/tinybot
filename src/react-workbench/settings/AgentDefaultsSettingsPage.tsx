@@ -168,17 +168,6 @@ export function AgentDefaultsSettingsPage({ onNavigateToProviderModels, settings
               value={values.maxToolIterations}
               onChange={(value) => editValue("maxToolIterations", value)}
             />
-            <SettingsChoiceList
-              label="Reasoning effort"
-              options={[
-                { value: "", label: "Default", description: "Use the model provider default." },
-                { value: "low", label: "Low", description: "Faster, lighter reasoning." },
-                { value: "medium", label: "Medium", description: "Balanced reasoning depth." },
-                { value: "high", label: "High", description: "More deliberate reasoning." },
-              ]}
-              value={values.reasoningEffort}
-              onChange={(value) => editValue("reasoningEffort", value)}
-            />
           </div>
         </section>
         <footer>

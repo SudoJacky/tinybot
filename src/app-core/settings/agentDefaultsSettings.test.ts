@@ -19,7 +19,6 @@ describe("agent defaults settings", () => {
           contextWindowTokens: 128000,
           contextWindowStrategy: "compact",
           maxIterations: 12,
-          reasoningEffort: "medium",
         },
       },
     });
@@ -35,7 +34,6 @@ describe("agent defaults settings", () => {
         contextWindowTokens: "128000",
         contextWindowStrategy: "compact",
         maxToolIterations: "12",
-        reasoningEffort: "medium",
       },
     });
   });
@@ -55,7 +53,6 @@ describe("agent defaults settings", () => {
       contextWindowTokens: "128000",
       contextWindowStrategy: "discard",
       maxToolIterations: "200",
-      reasoningEffort: "medium",
     });
   });
 
@@ -67,7 +64,6 @@ describe("agent defaults settings", () => {
       contextWindowTokens: "64000",
       contextWindowStrategy: "compact",
       maxToolIterations: "8",
-      reasoningEffort: "high",
     })).toEqual({
       agents: {
         defaults: {
@@ -77,7 +73,6 @@ describe("agent defaults settings", () => {
           contextWindowTokens: 64000,
           contextWindowStrategy: "compact",
           maxIterations: 8,
-          reasoningEffort: "high",
         },
       },
     });
@@ -91,7 +86,6 @@ describe("agent defaults settings", () => {
       contextWindowTokens: "64000",
       contextWindowStrategy: "compact",
       maxToolIterations: "8",
-      reasoningEffort: "high",
     })).toEqual({
       temperature: "Temperature must be a number between 0 and 2.",
     });
@@ -102,7 +96,6 @@ describe("agent defaults settings", () => {
       contextWindowTokens: "",
       contextWindowStrategy: "discard",
       maxToolIterations: "",
-      reasoningEffort: "",
     })).toEqual({
       agents: {
         defaults: {
@@ -121,7 +114,6 @@ describe("agent defaults settings", () => {
       contextWindowTokens: "1.5",
       contextWindowStrategy: "invalid",
       maxToolIterations: "-1",
-      reasoningEffort: "medium",
     })).toEqual({
       temperature: "Temperature must be between 0 and 2.",
       maxTokens: "Max output tokens must be a positive integer.",

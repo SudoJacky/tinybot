@@ -727,7 +727,6 @@ describe("DesktopShell", () => {
           contextWindowTokens: 128000,
           contextWindowStrategy: "discard",
           maxToolIterations: 12,
-          reasoningEffort: "medium",
         },
       },
     };
@@ -768,7 +767,7 @@ describe("DesktopShell", () => {
     await user.click(screen.getByRole("button", { name: "Context window strategy: Discard old messages" }));
     const strategyMenu = screen.getByRole("menu", { name: "Context window strategy options" });
     expect(strategyMenu.classList.contains("react-settings-choice-popover")).toBe(true);
-    expect(screen.getByRole("button", { name: "Reasoning effort: Medium" }).classList.contains("react-settings-choice-trigger")).toBe(true);
+    expect(screen.queryByText("Reasoning effort")).toBeNull();
     await user.click(within(strategyMenu).getByRole("menuitemradio", { name: /Compact old messages/ }));
     await user.click(screen.getByRole("button", { name: "Save agent defaults" }));
 
@@ -782,7 +781,6 @@ describe("DesktopShell", () => {
           contextWindowTokens: 128000,
           contextWindowStrategy: "compact",
           maxIterations: 12,
-          reasoningEffort: "medium",
         },
       },
     });

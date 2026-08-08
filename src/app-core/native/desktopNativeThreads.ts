@@ -1,4 +1,5 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import type { ReasoningEffort } from "../chat/reasoningEffort";
 
 type TauriInvoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
 
@@ -49,6 +50,7 @@ export type NativeThreadTurnInput = {
     stream: true;
     model?: string;
     provider?: string;
+    reasoningEffort?: ReasoningEffort;
     metadata: Record<string, unknown>;
   };
 };

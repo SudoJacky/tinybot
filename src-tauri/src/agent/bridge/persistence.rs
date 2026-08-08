@@ -199,6 +199,7 @@ fn native_agent_turn_context(
         .and_then(serde_json::Value::as_str)
         .unwrap_or_default();
     let trace_context = agent_trace_context_from_value(spec);
+    let reasoning = spec.get("reasoning").and_then(serde_json::Value::as_object);
     let api_mode = spec
         .get("apiMode")
         .or_else(|| spec.get("api_mode"))
@@ -258,12 +259,14 @@ fn native_agent_turn_context(
             .unwrap_or(serde_json::Value::Null),
         "effort": spec
             .get("reasoningEffort")
-            .or_else(|| defaults.get("reasoningEffort"))
+            .or_else(|| spec.get("reasoning_effort"))
+            .or_else(|| reasoning.and_then(|value| value.get("effort")))
             .cloned()
             .unwrap_or(serde_json::Value::Null),
         "summary": spec
             .get("reasoningSummary")
-            .or_else(|| defaults.get("reasoningSummary"))
+            .or_else(|| spec.get("reasoning_summary"))
+            .or_else(|| reasoning.and_then(|value| value.get("summary")))
             .cloned()
             .unwrap_or_else(|| serde_json::json!("auto")),
     })

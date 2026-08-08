@@ -637,7 +637,6 @@ describe("desktop settings and provider helpers", () => {
           active_profile: "deepseek",
           temperature: 0.2,
           max_tokens: 4096,
-          reasoning_effort: "medium",
         },
       },
       providers: {
@@ -672,7 +671,7 @@ describe("desktop settings and provider helpers", () => {
     });
     expect(fields["general.temperature"]).toMatchObject({ control: "number", requirement: "optional", configurationMode: "numeric", advanced: true });
     expect(fields["general.contextWindowStrategy"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
-    expect(fields["general.reasoningEffort"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
+    expect(fields["general.reasoningEffort"]).toBeUndefined();
     expect(fields["tools-mcp.mcpServers"]).toMatchObject({ control: "textarea", requirement: "optional", configurationMode: "json", advanced: true });
     expect(fields["tools-mcp.searchProvider"]).toMatchObject({ control: "select", requirement: "optional", configurationMode: "fixed", advanced: true });
   });
