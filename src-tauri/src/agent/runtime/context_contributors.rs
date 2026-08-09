@@ -13,14 +13,26 @@ pub struct AgentContextRequest {
 }
 
 impl AgentContextRequest {
+    #[expect(
+        dead_code,
+        reason = "reserved for production context contributors once registration is enabled"
+    )]
     pub fn workspace_root(&self) -> &std::path::Path {
         &self.workspace_root
     }
 
+    #[expect(
+        dead_code,
+        reason = "reserved for production context contributors once registration is enabled"
+    )]
     pub fn current_message(&self) -> &str {
         &self.current_message
     }
 
+    #[expect(
+        dead_code,
+        reason = "reserved for production context contributors once registration is enabled"
+    )]
     pub fn config_snapshot(&self) -> &Value {
         &self.config_snapshot
     }
@@ -41,6 +53,10 @@ pub struct AgentContextContribution {
 }
 
 impl AgentContextContribution {
+    #[expect(
+        dead_code,
+        reason = "reserved for production context contributors once registration is enabled"
+    )]
     pub fn new(content: impl Into<String>, references: Vec<Value>) -> Self {
         Self {
             content: content.into(),

@@ -857,6 +857,7 @@ impl TurnExecutionRuntime {
             .map(|task| task.cancellation.clone())
     }
 
+    #[cfg(test)]
     pub(crate) fn is_accepting(&self) -> bool {
         self.inner
             .state
@@ -865,6 +866,7 @@ impl TurnExecutionRuntime {
             .accepting
     }
 
+    #[cfg(test)]
     pub(crate) fn active_count(&self) -> usize {
         self.inner
             .state
@@ -874,6 +876,7 @@ impl TurnExecutionRuntime {
             .len()
     }
 
+    #[cfg(test)]
     pub(crate) fn draining_count(&self) -> usize {
         self.inner
             .state

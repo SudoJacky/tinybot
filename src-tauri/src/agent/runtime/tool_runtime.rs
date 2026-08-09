@@ -39,15 +39,6 @@ struct UpdatePlanArgs {
     plan: Vec<super::AgentPlanStep>,
 }
 
-pub(super) enum OwnedToolCallResult {
-    Completed(super::NativeAgentToolResult),
-    Cancelled,
-    CleanupTimedOut {
-        cancellation_mode: ToolCancellationMode,
-        timeout_ms: u64,
-    },
-}
-
 struct ToolDispatchCompleted {
     tool_call: PreparedToolCall,
     result: super::NativeAgentToolResult,
@@ -529,29 +520,6 @@ async fn dispatch_owned_tool(
         tool_call,
         error: format!("owned native tool task failed to join: {error}"),
     })
-}
-
-pub(super) async fn dispatch_owned_tool_call(
-    dispatcher: Arc<dyn NativeAgentToolDispatcher>,
-    context: AgentTurnContext,
-    tool_call: NativeAgentToolCall,
-) -> Result<OwnedToolCallResult, String> {
-    let tool_call = PreparedToolCall::prepare(tool_call)?;
-    match dispatch_owned_tool(dispatcher, context, tool_call).await {
-        ToolDispatchOutcome::Completed(completed) => {
-            Ok(OwnedToolCallResult::Completed(completed.result))
-        }
-        ToolDispatchOutcome::RuntimeFailure { error, .. } => Err(error),
-        ToolDispatchOutcome::Cancelled { .. } => Ok(OwnedToolCallResult::Cancelled),
-        ToolDispatchOutcome::CleanupTimedOut {
-            cancellation_mode,
-            timeout_ms,
-            ..
-        } => Ok(OwnedToolCallResult::CleanupTimedOut {
-            cancellation_mode,
-            timeout_ms,
-        }),
-    }
 }
 
 async fn dispatch_tool_with_cancellation_policy(

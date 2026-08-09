@@ -23,24 +23,6 @@ fn worker_request_response_ids_and_trace_ids_are_correlated() {
 }
 
 #[test]
-fn worker_event_without_id_keeps_protocol_and_trace_metadata() {
-    let event: WorkerEvent = serde_json::from_value(json!({
-        "protocol_version": "1",
-        "trace_id": "trace-abc",
-        "event": "diagnostics.log",
-        "payload": { "stream": "stdout", "line": "ready" }
-    }))
-    .expect("event should parse");
-
-    assert_eq!(event.event, "diagnostics.log");
-    assert_eq!(event.trace_id, "trace-abc");
-    assert_eq!(
-        event.payload,
-        json!({ "stream": "stdout", "line": "ready" })
-    );
-}
-
-#[test]
 fn incompatible_protocol_version_returns_protocol_error() {
     let error = validate_protocol_version("0.9").expect_err("old worker should be rejected");
 

@@ -173,6 +173,11 @@ fn tinybot_home_dir() -> PathBuf {
 }
 
 pub(crate) fn tinybot_data_root() -> PathBuf {
+    #[cfg(test)]
+    if let Some(root) = std::env::var_os("TINYBOT_TEST_DATA_ROOT") {
+        return PathBuf::from(root);
+    }
+
     tinybot_home_dir().join(".tinybot")
 }
 

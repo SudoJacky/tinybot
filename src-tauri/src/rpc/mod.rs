@@ -155,6 +155,7 @@ impl WorkerRpcRouter {
         }
     }
 
+    #[cfg(test)]
     pub fn new_persistent_sessions(
         workspace_root: PathBuf,
         config_snapshot: Value,

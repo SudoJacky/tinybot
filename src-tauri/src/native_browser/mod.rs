@@ -28,15 +28,6 @@ pub(crate) use model::{
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 
-#[cfg(feature = "native-browser-integration")]
-pub(crate) use commands::{
-    browser_activate_tab, browser_back, browser_capabilities, browser_close_session,
-    browser_close_tab, browser_create_session, browser_create_tab, browser_delete_profile,
-    browser_forward, browser_interact, browser_metrics, browser_navigate, browser_observe,
-    browser_reload, browser_resolve_policy_request, browser_restart_tab, browser_snapshot,
-    browser_stop, browser_update_surface,
-};
-
 pub(crate) fn create_runtime(app: &AppHandle) -> Result<SharedBrowserRuntime, String> {
     let profile_root = app
         .path()

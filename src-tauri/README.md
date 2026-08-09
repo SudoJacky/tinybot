@@ -113,8 +113,9 @@ The main layers are:
 6. **Process and transport infrastructure**
    - [`runtime/`](src/runtime/README.md) owns live tasks, shared MCP state,
      startup recovery, shutdown, and operational metrics.
-   - `transport/stdio_worker/` contains the optional stdio worker process,
-     connection, codec, client, status, and diagnostics implementation.
+   - `transport/stdio_worker/` contains the capability-checked diagnostics
+     endpoint retained by the RPC router. The desktop runtime itself is
+     in-process.
    - `storage/` contains shared atomic file-write primitives.
 
 ## Typical agent flow

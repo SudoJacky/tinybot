@@ -42,19 +42,11 @@ pub enum WorkerStorageError {
         path: PathBuf,
         source: serde_json::Error,
     },
-    ParseJsonLine {
-        path: PathBuf,
-        line: usize,
-        source: serde_json::Error,
-    },
 }
 
 impl WorkerStorageError {
     pub fn is_parse_error(&self) -> bool {
-        matches!(
-            self,
-            WorkerStorageError::ParseJson { .. } | WorkerStorageError::ParseJsonLine { .. }
-        )
+        matches!(self, WorkerStorageError::ParseJson { .. })
     }
 }
 
@@ -80,11 +72,6 @@ impl fmt::Display for WorkerStorageError {
                     path.display()
                 )
             }
-            WorkerStorageError::ParseJsonLine { path, line, source } => write!(
-                formatter,
-                "failed to parse JSONL store {} at line {line}: {source}",
-                path.display()
-            ),
         }
     }
 }
@@ -94,8 +81,7 @@ impl Error for WorkerStorageError {
         match self {
             WorkerStorageError::Io { source, .. } => Some(source),
             WorkerStorageError::SerializeJson(source)
-            | WorkerStorageError::ParseJson { source, .. }
-            | WorkerStorageError::ParseJsonLine { source, .. } => Some(source),
+            | WorkerStorageError::ParseJson { source, .. } => Some(source),
         }
     }
 }
@@ -118,43 +104,6 @@ where
     })
 }
 
-pub fn read_jsonl_strict<T>(path: &Path) -> Result<Vec<T>, WorkerStorageError>
-where
-    T: DeserializeOwned,
-{
-    Ok(read_jsonl_strict_with_lines(path)?
-        .into_iter()
-        .map(|(record, _line)| record)
-        .collect())
-}
-
-pub fn read_jsonl_strict_with_lines<T>(path: &Path) -> Result<Vec<(T, usize)>, WorkerStorageError>
-where
-    T: DeserializeOwned,
-{
-    let contents = match fs::read_to_string(path) {
-        Ok(contents) => contents,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(io_error("read", path, error)),
-    };
-    let mut records = Vec::new();
-    for (index, line) in contents.lines().enumerate() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let line_number = index + 1;
-        let record =
-            serde_json::from_str(trimmed).map_err(|source| WorkerStorageError::ParseJsonLine {
-                path: path.to_path_buf(),
-                line: line_number,
-                source,
-            })?;
-        records.push((record, line_number));
-    }
-    Ok(records)
-}
-
 pub fn write_json_pretty_atomic<T>(
     path: &Path,
     value: &T,
@@ -166,23 +115,6 @@ where
     let contents =
         serde_json::to_string_pretty(value).map_err(WorkerStorageError::SerializeJson)?;
     write_text_atomic(path, &format!("{contents}\n"), options)
-}
-
-pub fn write_jsonl_atomic<T>(
-    path: &Path,
-    records: &[T],
-    options: AtomicWriteOptions,
-) -> Result<(), WorkerStorageError>
-where
-    T: Serialize,
-{
-    let mut contents = String::new();
-    for record in records {
-        let line = serde_json::to_string(record).map_err(WorkerStorageError::SerializeJson)?;
-        contents.push_str(&line);
-        contents.push('\n');
-    }
-    write_text_atomic(path, &contents, options)
 }
 
 pub fn write_text_atomic(

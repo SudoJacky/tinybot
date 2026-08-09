@@ -6,13 +6,6 @@ use std::sync::Arc;
 
 pub const WORKER_PROTOCOL_VERSION: &str = "1";
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum WorkerTransportMode {
-    Stdio,
-    LocalPipe,
-}
-
 pub trait WorkerRequestCancellation: Send + Sync {
     fn is_cancelled(&self) -> bool;
 }
@@ -122,15 +115,6 @@ impl WorkerResponse {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct WorkerEvent {
-    pub protocol_version: String,
-    pub trace_id: String,
-    pub event: String,
-    #[serde(default = "empty_json_object")]
-    pub payload: Value,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkerProtocolErrorCode {
     InvalidProtocol,
@@ -232,6 +216,7 @@ impl WorkerDiagnostics {
             .push_back(WorkerDiagnosticLine::new(stream, line));
     }
 
+    #[cfg(test)]
     pub fn lines(&self) -> Vec<WorkerDiagnosticLine> {
         self.lines.iter().cloned().collect()
     }

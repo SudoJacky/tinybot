@@ -1,7 +1,5 @@
-# Standard-I/O Worker Transport
+# Worker Diagnostics
 
-`stdio_worker` manages the lifecycle of a worker connected through standard
-input and output.
-
-It provides message framing, connection handling, diagnostics, process
-management, and status snapshots for the desktop runtime.
+The desktop backend runs in-process. This module retains the capability-checked
+diagnostics endpoint used by the RPC router; the obsolete standard-I/O worker
+codec, connection, process manager, and status model have been removed.
