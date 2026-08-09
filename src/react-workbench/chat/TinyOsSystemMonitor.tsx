@@ -1,5 +1,7 @@
 import { Activity, Eye, GitBranch, Info, List, Pause, Play, RotateCcw, Search, ShieldCheck, StopCircle } from "lucide-react";
+import type { TFunction } from "i18next";
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 import { isTinyOsCommandInFlight, type TinyOsCommandLifecycle } from "../../app-core/chat/tinyOsCommand";
 import type {
@@ -60,6 +62,7 @@ const EMPTY_FILTERS: TinyOsSystemMonitorFilters = {
 const ATTENTION_STATES = new Set<TinyOsProcessState>(["waiting_for_user", "blocked", "failed", "cancelled"]);
 
 export function TinyOsSystemMonitor({ controls, snapshot }: { controls?: TinyOsSystemMonitorControls; snapshot: TinyOsKernelSnapshot }) {
+  const { t } = useTranslation("tinyos");
   const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [view, setView] = useState<"list" | "tree">("tree");
   const rows = useMemo(
@@ -109,38 +112,38 @@ export function TinyOsSystemMonitor({ controls, snapshot }: { controls?: TinyOsS
   return (
     <section className="tinyos-system-monitor">
       <header className="tinyos-system-monitor__summary">
-        <SummaryStat label="Processes" value={snapshot.processes.length} />
-        <SummaryStat label="Active" value={activeCount} />
-        <SummaryStat attention={attentionCount > 0} label="Attention" value={attentionCount} />
-        <SummaryStat label="Evidence sources" value={sourceCount} />
+        <SummaryStat label={t("monitor.summary.processes")} value={snapshot.processes.length} />
+        <SummaryStat label={t("monitor.summary.active")} value={activeCount} />
+        <SummaryStat attention={attentionCount > 0} label={t("monitor.summary.attention")} value={attentionCount} />
+        <SummaryStat label={t("monitor.summary.sources")} value={sourceCount} />
       </header>
 
       <div className="tinyos-system-monitor__toolbar">
         <label className="tinyos-system-monitor__search">
           <Search aria-hidden="true" size={13} />
-          <span className="sr-only">Search processes</span>
+          <span className="sr-only">{t("monitor.search")}</span>
           <input
-            aria-label="Search processes"
-            placeholder="Search process or identity"
+            aria-label={t("monitor.search")}
+            placeholder={t("monitor.searchPlaceholder")}
             type="search"
             value={filters.query}
             onChange={(event) => updateFilter("query", event.currentTarget.value)}
           />
         </label>
-        <div aria-label="Process view" className="tinyos-system-monitor__view" role="group">
-          <button aria-pressed={view === "tree"} title="Process tree" type="button" onClick={() => setView("tree")}><GitBranch aria-hidden="true" size={13} />Tree</button>
-          <button aria-pressed={view === "list"} title="Process list" type="button" onClick={() => setView("list")}><List aria-hidden="true" size={13} />List</button>
+        <div aria-label={t("monitor.processView")} className="tinyos-system-monitor__view" role="group">
+          <button aria-pressed={view === "tree"} title={t("monitor.processTree")} type="button" onClick={() => setView("tree")}><GitBranch aria-hidden="true" size={13} />{t("monitor.tree")}</button>
+          <button aria-pressed={view === "list"} title={t("monitor.processList")} type="button" onClick={() => setView("list")}><List aria-hidden="true" size={13} />{t("monitor.list")}</button>
         </div>
-        <MonitorSelect ariaLabel="Filter by state" value={filters.state} values={options.states} onChange={(value) => updateFilter("state", value)} />
-        <MonitorSelect ariaLabel="Filter by Agent" format={formatAgent} value={filters.agentId} values={options.agents} onChange={(value) => updateFilter("agentId", value)} />
-        <MonitorSelect ariaLabel="Filter by turn" value={filters.turnId} values={options.turns} onChange={(value) => updateFilter("turnId", value)} />
-        <MonitorSelect ariaLabel="Filter by operation" value={filters.operationId} values={options.operations} onChange={(value) => updateFilter("operationId", value)} />
-        <MonitorSelect ariaLabel="Filter by application" format={formatApplication} value={filters.applicationId} values={options.applications} onChange={(value) => updateFilter("applicationId", value)} />
+        <MonitorSelect allLabel={t("monitor.all.state")} ariaLabel={t("monitor.filter.state")} value={filters.state} values={options.states} onChange={(value) => updateFilter("state", value)} />
+        <MonitorSelect allLabel={t("monitor.all.agent")} ariaLabel={t("monitor.filter.agent")} format={(value) => formatAgent(value, t)} value={filters.agentId} values={options.agents} onChange={(value) => updateFilter("agentId", value)} />
+        <MonitorSelect allLabel={t("monitor.all.turn")} ariaLabel={t("monitor.filter.turn")} value={filters.turnId} values={options.turns} onChange={(value) => updateFilter("turnId", value)} />
+        <MonitorSelect allLabel={t("monitor.all.operation")} ariaLabel={t("monitor.filter.operation")} value={filters.operationId} values={options.operations} onChange={(value) => updateFilter("operationId", value)} />
+        <MonitorSelect allLabel={t("monitor.all.application")} ariaLabel={t("monitor.filter.application")} format={(value) => formatApplication(value, t)} value={filters.applicationId} values={options.applications} onChange={(value) => updateFilter("applicationId", value)} />
       </div>
 
       <div className="tinyos-system-monitor__body">
-        <div className="tinyos-process-list" role="region" aria-label="TinyOS processes">
-          <div aria-hidden="true" className="tinyos-process-list__head"><span>Process</span><span>State</span><span>Source</span></div>
+        <div className="tinyos-process-list" role="region" aria-label={t("monitor.processes")}>
+          <div aria-hidden="true" className="tinyos-process-list__head"><span>{t("monitor.process")}</span><span>{t("monitor.state")}</span><span>{t("monitor.source")}</span></div>
           {rows.length ? (
             <ol>
               {rows.map(({ depth, process }) => (
@@ -166,10 +169,10 @@ export function TinyOsSystemMonitor({ controls, snapshot }: { controls?: TinyOsS
                 </li>
               ))}
             </ol>
-          ) : <p className="tinyos-system-monitor__empty">No processes match the current filters.</p>}
+          ) : <p className="tinyos-system-monitor__empty">{t("monitor.noMatches")}</p>}
         </div>
 
-        <aside aria-label="Process details" className="tinyos-process-detail">
+        <aside aria-label={t("monitor.details")} className="tinyos-process-detail">
           {selected ? (
             <>
               <header>
@@ -177,14 +180,14 @@ export function TinyOsSystemMonitor({ controls, snapshot }: { controls?: TinyOsS
                 <span className="tinyos-process-state" data-state={selected.state}>{formatLabel(selected.state)}</span>
               </header>
               <dl>
-                <Detail label="Process ID" value={selected.id} code />
-                <Detail label="Kind" value={formatLabel(selected.kind)} />
-                <Detail label="Agent" value={selected.ownerAgentId || "Unavailable in canonical data"} />
-                <Detail label="Turn" value={selected.correlation.turnId || "Unavailable"} code={Boolean(selected.correlation.turnId)} />
-                <Detail label="Operation" value={selected.correlation.operationId || "Unavailable"} code={Boolean(selected.correlation.operationId)} />
-                <Detail label="Item" value={selected.correlation.itemId || "Unavailable"} code={Boolean(selected.correlation.itemId)} />
-                <Detail label="Tool call" value={selected.correlation.toolCallId || "Unavailable"} code={Boolean(selected.correlation.toolCallId)} />
-                <Detail label="Related window" value={selected.applicationId ? formatApplication(selected.applicationId) : "Unavailable"} />
+                <Detail label={t("monitor.detail.id")} value={selected.id} code />
+                <Detail label={t("monitor.detail.kind")} value={formatLabel(selected.kind)} />
+                <Detail label={t("monitor.detail.agent")} value={selected.ownerAgentId || t("monitor.unavailableCanonical")} />
+                <Detail label={t("monitor.detail.turn")} value={selected.correlation.turnId || t("monitor.unavailable")} code={Boolean(selected.correlation.turnId)} />
+                <Detail label={t("monitor.detail.operation")} value={selected.correlation.operationId || t("monitor.unavailable")} code={Boolean(selected.correlation.operationId)} />
+                <Detail label={t("monitor.detail.item")} value={selected.correlation.itemId || t("monitor.unavailable")} code={Boolean(selected.correlation.itemId)} />
+                <Detail label={t("monitor.detail.toolCall")} value={selected.correlation.toolCallId || t("monitor.unavailable")} code={Boolean(selected.correlation.toolCallId)} />
+                <Detail label={t("monitor.detail.window")} value={selected.applicationId ? formatApplication(selected.applicationId, t) : t("monitor.unavailable")} />
               </dl>
               {controls ? (
                 <ProcessActions
@@ -194,26 +197,26 @@ export function TinyOsSystemMonitor({ controls, snapshot }: { controls?: TinyOsS
                 />
               ) : null}
               {commandTargetsSelected && commandLifecycle && commandLifecycle.stage !== "idle" ? <CommandState lifecycle={commandLifecycle} /> : null}
-              <DetailSection title="Provenance">
+              <DetailSection title={t("monitor.provenance")}>
                 <p><ShieldCheck aria-hidden="true" size={13} /><span><strong>{formatLabel(selected.provenance.kind)}</strong><code>{selected.provenance.sourceId}</code></span></p>
-                <small>Revision {selected.provenance.revision ?? "unavailable"} · Observed {selected.provenance.observedAt || "time unavailable"}</small>
+                <small>{t("monitor.revisionObserved", { revision: selected.provenance.revision ?? t("monitor.unavailableLower"), observed: selected.provenance.observedAt || t("monitor.timeUnavailable") })}</small>
               </DetailSection>
-              <DetailSection title={`Resources · ${relatedResources.length}`}>
+              <DetailSection title={t("monitor.resources", { count: relatedResources.length })}>
                 {relatedResources.length ? relatedResources.map((resource) => <p key={resource.id} onContextMenu={(event) => {
                   if (!controls?.onOpenResourceMenu) return;
                   event.preventDefault();
                   controls.onOpenResourceMenu(resource, event.clientX, event.clientY);
-                }}><span><strong>{resource.title}</strong><small>{formatLabel(resource.kind)} · revision {resource.revision ?? "unavailable"}</small></span></p>) : <small>No related resource observation.</small>}
+                }}><span><strong>{resource.title}</strong><small>{t("monitor.resourceRevision", { kind: formatLabel(resource.kind), revision: resource.revision ?? t("monitor.unavailableLower") })}</small></span></p>) : <small>{t("monitor.noResources")}</small>}
               </DetailSection>
-              <DetailSection title={`Capabilities · ${relatedCapabilities.length}`}>
-                {relatedCapabilities.length ? relatedCapabilities.map((capability) => <p key={capability.id}><span><strong>{capability.id}</strong><small>{capability.available ? "Available" : capability.reason || "Unavailable"}</small></span></p>) : <small>No backend capability observation is correlated to this process.</small>}
+              <DetailSection title={t("monitor.capabilities", { count: relatedCapabilities.length })}>
+                {relatedCapabilities.length ? relatedCapabilities.map((capability) => <p key={capability.id}><span><strong>{capability.id}</strong><small>{capability.available ? t("monitor.available") : capability.reason || t("monitor.unavailable")}</small></span></p>) : <small>{t("monitor.noCapabilities")}</small>}
               </DetailSection>
-              <DetailSection title={`Measurements · ${relatedMetrics.length}`}>
-                {relatedMetrics.length ? relatedMetrics.map((metric) => <p key={metric.id}><span><strong>{metric.label}</strong><small>{metric.value} {metric.unit || ""} · {formatLabel(metric.provenance.kind)}</small></span></p>) : <small>Runtime metrics unavailable. TinyOS does not estimate CPU, memory, disk, or network usage.</small>}
+              <DetailSection title={t("monitor.measurements", { count: relatedMetrics.length })}>
+                {relatedMetrics.length ? relatedMetrics.map((metric) => <p key={metric.id}><span><strong>{metric.label}</strong><small>{metric.value} {metric.unit || ""} · {formatLabel(metric.provenance.kind)}</small></span></p>) : <small>{t("monitor.noMetrics")}</small>}
               </DetailSection>
-              {relatedDiscrepancies.length ? <DetailSection title={`Discrepancies · ${relatedDiscrepancies.length}`}>{relatedDiscrepancies.map((entry) => <p className="tinyos-process-detail__warning" key={entry.id}><span><strong>{formatLabel(entry.kind)}</strong><small>{entry.message}</small></span></p>)}</DetailSection> : null}
+              {relatedDiscrepancies.length ? <DetailSection title={t("monitor.discrepancies", { count: relatedDiscrepancies.length })}>{relatedDiscrepancies.map((entry) => <p className="tinyos-process-detail__warning" key={entry.id}><span><strong>{formatLabel(entry.kind)}</strong><small>{entry.message}</small></span></p>)}</DetailSection> : null}
             </>
-          ) : <p className="tinyos-system-monitor__empty">Select a process to inspect its evidence.</p>}
+          ) : <p className="tinyos-system-monitor__empty">{t("monitor.selectProcess")}</p>}
         </aside>
       </div>
     </section>
@@ -221,41 +224,44 @@ export function TinyOsSystemMonitor({ controls, snapshot }: { controls?: TinyOsS
 }
 
 function ProcessActions({ controls, pending, process }: { controls: TinyOsSystemMonitorControls; pending: boolean; process: TinyOsProcess }) {
+  const { t } = useTranslation("tinyos");
   const targetsActiveTurn = process.correlation.turnId === controls.activeTurnId;
   const targetsRetryTurn = process.correlation.turnId === controls.retryTurnId;
   const inspectable = Boolean(process.correlation.itemId && controls.inspectableItemIds.includes(process.correlation.itemId));
   const revealable = Boolean(process.applicationId && controls.revealableApplicationIds.includes(process.applicationId));
-  const historyReason = controls.history ? "History snapshots are read-only." : undefined;
-  const targetReason = targetsActiveTurn ? undefined : "This process is not part of the backend-selected active turn.";
+  const historyReason = controls.history ? t("monitor.historyReadOnly") : undefined;
+  const targetReason = targetsActiveTurn ? undefined : t("monitor.notActiveTurn");
   const retryTargetReason = targetsRetryTurn
-    ? process.correlation.itemId ? undefined : "Retry requires a correlated canonical item."
-    : "This process is not part of the backend-selected retry turn.";
+    ? process.correlation.itemId ? undefined : t("monitor.retryNeedsItem")
+    : t("monitor.notRetryTurn");
   return (
-    <section aria-label="Process controls" className="tinyos-process-actions">
-      <h4>Controls</h4>
+    <section aria-label={t("monitor.processControls")} className="tinyos-process-actions">
+      <h4>{t("monitor.controls")}</h4>
       <div>
-        <ProcessAction available={!pending && !historyReason && !targetReason && controls.canPauseTurn} icon={<Pause aria-hidden="true" size={12} />} label="Pause turn" reason={pending ? "A command is awaiting runtime confirmation." : historyReason || targetReason || controls.pauseUnavailableReason} onClick={controls.onPauseTurn} />
-        <ProcessAction available={!pending && !historyReason && !targetReason && controls.canResumeTurn} icon={<Play aria-hidden="true" size={12} />} label="Resume turn" reason={pending ? "A command is awaiting runtime confirmation." : historyReason || targetReason || controls.resumeUnavailableReason} onClick={controls.onResumeTurn} />
-        <ProcessAction available={!pending && !historyReason && !targetReason && controls.canCancelTurn} icon={<StopCircle aria-hidden="true" size={12} />} label="Cancel turn" reason={pending ? "A command is awaiting runtime confirmation." : historyReason || targetReason || controls.cancelUnavailableReason} onClick={controls.onCancelTurn} />
-        <ProcessAction available={!pending && !historyReason && !retryTargetReason && inspectable && controls.canRetryTurn} icon={<RotateCcw aria-hidden="true" size={12} />} label="Retry operation" reason={pending ? "A command is awaiting runtime confirmation." : historyReason || retryTargetReason || (!inspectable ? "The canonical operation is unavailable in this view." : controls.retryUnavailableReason)} onClick={() => controls.onRetry(process)} />
-        <ProcessAction available={revealable} icon={<Eye aria-hidden="true" size={12} />} label="Reveal app" reason={revealable ? undefined : "No related TinyOS application is available."} onClick={() => controls.onReveal(process)} />
-        <ProcessAction available={inspectable} icon={<Info aria-hidden="true" size={12} />} label="Inspect evidence" reason={inspectable ? undefined : "No correlated canonical item is available to inspect."} onClick={() => controls.onInspect(process)} />
+        <ProcessAction available={!pending && !historyReason && !targetReason && controls.canPauseTurn} icon={<Pause aria-hidden="true" size={12} />} label={t("monitor.pause")} reason={pending ? t("monitor.pendingCommand") : historyReason || targetReason || controls.pauseUnavailableReason} onClick={controls.onPauseTurn} />
+        <ProcessAction available={!pending && !historyReason && !targetReason && controls.canResumeTurn} icon={<Play aria-hidden="true" size={12} />} label={t("monitor.resume")} reason={pending ? t("monitor.pendingCommand") : historyReason || targetReason || controls.resumeUnavailableReason} onClick={controls.onResumeTurn} />
+        <ProcessAction available={!pending && !historyReason && !targetReason && controls.canCancelTurn} icon={<StopCircle aria-hidden="true" size={12} />} label={t("monitor.cancel")} reason={pending ? t("monitor.pendingCommand") : historyReason || targetReason || controls.cancelUnavailableReason} onClick={controls.onCancelTurn} />
+        <ProcessAction available={!pending && !historyReason && !retryTargetReason && inspectable && controls.canRetryTurn} icon={<RotateCcw aria-hidden="true" size={12} />} label={t("monitor.retry")} reason={pending ? t("monitor.pendingCommand") : historyReason || retryTargetReason || (!inspectable ? t("monitor.operationUnavailable") : controls.retryUnavailableReason)} onClick={() => controls.onRetry(process)} />
+        <ProcessAction available={revealable} icon={<Eye aria-hidden="true" size={12} />} label={t("monitor.reveal")} reason={revealable ? undefined : t("monitor.noApplication")} onClick={() => controls.onReveal(process)} />
+        <ProcessAction available={inspectable} icon={<Info aria-hidden="true" size={12} />} label={t("monitor.inspect")} reason={inspectable ? undefined : t("monitor.noEvidence")} onClick={() => controls.onInspect(process)} />
       </div>
     </section>
   );
 }
 
 function ProcessAction({ available, icon, label, onClick, reason }: { available: boolean; icon: ReactNode; label: string; onClick: () => void; reason?: string }) {
-  return <button disabled={!available} title={available ? label : reason || `${label} is unavailable.`} type="button" onClick={onClick}>{icon}<span>{label}</span></button>;
+  const { t } = useTranslation("tinyos");
+  return <button disabled={!available} title={available ? label : reason || t("monitor.actionUnavailable", { label })} type="button" onClick={onClick}>{icon}<span>{label}</span></button>;
 }
 
 function CommandState({ lifecycle }: { lifecycle: Exclude<TinyOsCommandLifecycle, { stage: "idle" }> }) {
+  const { t } = useTranslation("tinyos");
   const kind = formatLabel(lifecycle.command.kind);
-  if (lifecycle.stage === "timed_out") return <p className="tinyos-process-command-state" data-state="error" role="alert"><strong>Acknowledgement timed out</strong><span>{kind} · {lifecycle.error}</span></p>;
-  if (lifecycle.stage === "rejected") return <p className="tinyos-process-command-state" data-state="error" role="alert"><strong>Command rejected</strong><span>{kind} · {lifecycle.error}</span></p>;
-  if (lifecycle.stage === "completed") return <p className="tinyos-process-command-state" data-state={lifecycle.completion.status === "completed" ? "success" : "error"} role="status"><strong>{formatLabel(lifecycle.completion.status)}</strong><span>{kind} · canonical item {lifecycle.completion.itemId}</span></p>;
-  if (lifecycle.stage === "acknowledged") return <p className="tinyos-process-command-state" role="status"><strong>Command acknowledged</strong><span>{kind} · waiting for completion</span></p>;
-  return <p className="tinyos-process-command-state" role="status"><strong>Awaiting runtime confirmation</strong><span>{kind}</span></p>;
+  if (lifecycle.stage === "timed_out") return <p className="tinyos-process-command-state" data-state="error" role="alert"><strong>{t("monitor.command.timeout")}</strong><span>{kind} · {lifecycle.error}</span></p>;
+  if (lifecycle.stage === "rejected") return <p className="tinyos-process-command-state" data-state="error" role="alert"><strong>{t("monitor.command.rejected")}</strong><span>{kind} · {lifecycle.error}</span></p>;
+  if (lifecycle.stage === "completed") return <p className="tinyos-process-command-state" data-state={lifecycle.completion.status === "completed" ? "success" : "error"} role="status"><strong>{formatLabel(lifecycle.completion.status)}</strong><span>{t("monitor.command.completedItem", { kind, item: lifecycle.completion.itemId })}</span></p>;
+  if (lifecycle.stage === "acknowledged") return <p className="tinyos-process-command-state" role="status"><strong>{t("monitor.command.acknowledged")}</strong><span>{t("monitor.command.waitingCompletion", { kind })}</span></p>;
+  return <p className="tinyos-process-command-state" role="status"><strong>{t("monitor.command.awaiting")}</strong><span>{kind}</span></p>;
 }
 
 export function tinyOsSystemMonitorRows(
@@ -332,8 +338,8 @@ function SummaryStat({ attention = false, label, value }: { attention?: boolean;
   return <span data-attention={attention ? "true" : undefined}><strong>{value}</strong><small>{label}</small></span>;
 }
 
-function MonitorSelect({ ariaLabel, format = formatLabel, onChange, value, values }: { ariaLabel: string; format?: (value: string) => string; onChange: (value: string) => void; value: string; values: string[] }) {
-  return <select aria-label={ariaLabel} value={value} onChange={(event) => onChange(event.currentTarget.value)}><option value="">{ariaLabel.replace("Filter by ", "All ")}</option>{values.map((option) => <option key={option} value={option}>{format(option)}</option>)}</select>;
+function MonitorSelect({ allLabel, ariaLabel, format = formatLabel, onChange, value, values }: { allLabel: string; ariaLabel: string; format?: (value: string) => string; onChange: (value: string) => void; value: string; values: string[] }) {
+  return <select aria-label={ariaLabel} value={value} onChange={(event) => onChange(event.currentTarget.value)}><option value="">{allLabel}</option>{values.map((option) => <option key={option} value={option}>{format(option)}</option>)}</select>;
 }
 
 function Detail({ code = false, label, value }: { code?: boolean; label: string; value: string }) {
@@ -348,12 +354,12 @@ function uniqueValues(values: string[]): string[] {
   return [...new Set(values)].sort((left, right) => left.localeCompare(right));
 }
 
-function formatAgent(value: string): string {
-  return value === "__unattributed__" ? "Unattributed Agent" : value;
+function formatAgent(value: string, t: TFunction<"tinyos">): string {
+  return value === "__unattributed__" ? t("monitor.unattributedAgent") : value;
 }
 
-function formatApplication(value: string): string {
-  return value === "__unattributed__" ? "Unrelated application" : formatLabel(value);
+function formatApplication(value: string, t: TFunction<"tinyos">): string {
+  return value === "__unattributed__" ? t("monitor.unrelatedApplication") : formatLabel(value);
 }
 
 function formatLabel(value: string): string {

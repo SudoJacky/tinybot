@@ -6,7 +6,9 @@ import {
   RefreshCw,
   X,
 } from "lucide-react";
+import type { TFunction } from "i18next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   createDesktopNativeUpdateClient,
   type DesktopUpdateClient,
@@ -36,6 +38,7 @@ export function DesktopUpdateDialogs({
   aboutOpenSignal,
   updateClient,
 }: DesktopUpdateDialogsProps) {
+  const { t } = useTranslation("updates");
   const client = useMemo(
     () => updateClient === undefined ? createDesktopNativeUpdateClient() : updateClient,
     [updateClient],
@@ -129,7 +132,7 @@ export function DesktopUpdateDialogs({
 
   async function checkForUpdate() {
     if (!client) {
-      setActionError("Update checks are only available in the Tinybot desktop app.");
+      setActionError(t("desktopOnly"));
       return;
     }
     setActionError(null);
@@ -146,7 +149,7 @@ export function DesktopUpdateDialogs({
   async function installUpdate() {
     const version = snapshot.availableVersion;
     if (!client || !version) {
-      setActionError("No reviewed update is available to install.");
+      setActionError(t("unavailable"));
       return;
     }
     setActionError(null);
@@ -167,7 +170,7 @@ export function DesktopUpdateDialogs({
   const busy = isUpdateBusy(snapshot.phase, pendingAction);
   const error = actionError ?? snapshot.error;
   const isUpdatePrompt = openDialog === "update" && Boolean(snapshot.availableVersion);
-  const dialogLabel = isUpdatePrompt ? "Tinybot update available" : "About Tinybot";
+  const dialogLabel = isUpdatePrompt ? t("updateAvailableLabel") : t("aboutLabel");
 
   return (
     <div
@@ -189,14 +192,14 @@ export function DesktopUpdateDialogs({
             <Bot size={24} strokeWidth={1.8} />
           </span>
           <div>
-            <p>{isUpdatePrompt ? "Software update" : "Tinybot Desktop"}</p>
-            <h2>{isUpdatePrompt ? `Tinybot ${snapshot.availableVersion} is available` : "About Tinybot"}</h2>
+            <p>{isUpdatePrompt ? t("softwareUpdate") : t("desktopName")}</p>
+            <h2>{isUpdatePrompt ? t("availableTitle", { version: snapshot.availableVersion ?? "" }) : t("aboutLabel")}</h2>
           </div>
           <button
-            aria-label="Close"
+            aria-label={t("close")}
             className="desktop-update-dialog__close"
             disabled={busy}
-            title="Close"
+            title={t("close")}
             type="button"
             onClick={closeDialog}
           >
@@ -225,7 +228,7 @@ export function DesktopUpdateDialogs({
         <footer className="desktop-update-dialog__actions">
           {isUpdatePrompt ? (
             <>
-              <button disabled={busy} type="button" onClick={closeDialog}>Later</button>
+              <button disabled={busy} type="button" onClick={closeDialog}>{t("later")}</button>
               <button
                 className="desktop-update-dialog__primary"
                 disabled={busy}
@@ -238,7 +241,7 @@ export function DesktopUpdateDialogs({
                 ) : (
                   <Download aria-hidden="true" size={15} />
                 )}
-                {installButtonLabel(snapshot)}
+                {installButtonLabel(snapshot, t)}
               </button>
             </>
           ) : (
@@ -254,7 +257,7 @@ export function DesktopUpdateDialogs({
                 className={snapshot.phase === "checking" ? "desktop-update-dialog__spinner" : undefined}
                 size={15}
               />
-              {checkButtonLabel(snapshot, Boolean(client))}
+              {checkButtonLabel(snapshot, Boolean(client), t)}
             </button>
           )}
         </footer>
@@ -270,14 +273,18 @@ function AboutContent({
   snapshot: DesktopUpdateSnapshot;
   onReviewUpdate: () => void;
 }) {
+  const { t } = useTranslation("updates");
+  const version = snapshot.currentVersion === browserPreviewSnapshot.currentVersion
+    ? t("developmentBuild")
+    : snapshot.currentVersion;
   return (
     <div className="desktop-update-dialog__about">
       <div className="desktop-update-dialog__version-row">
-        <span>Current version</span>
-        <strong>v{snapshot.currentVersion}</strong>
+        <span>{t("currentVersion")}</span>
+        <strong>v{version}</strong>
       </div>
       <p>
-        Tinybot is a desktop AI workspace for conversations, tools, and local project work.
+        {t("aboutDescription")}
       </p>
       {snapshot.phase === "available" && snapshot.availableVersion ? (
         <button
@@ -285,7 +292,7 @@ function AboutContent({
           type="button"
           onClick={onReviewUpdate}
         >
-          Version {snapshot.availableVersion} is ready to review
+          {t("readyToReview", { version: snapshot.availableVersion })}
         </button>
       ) : null}
     </div>
@@ -293,27 +300,28 @@ function AboutContent({
 }
 
 function UpdateAvailableContent({ snapshot }: { snapshot: DesktopUpdateSnapshot }) {
+  const { i18n, t } = useTranslation("updates");
   return (
     <div className="desktop-update-dialog__release">
       <div className="desktop-update-dialog__version-row">
-        <span>Version</span>
+        <span>{t("version")}</span>
         <strong>v{snapshot.currentVersion} → v{snapshot.availableVersion}</strong>
-        {snapshot.publishedAt ? <small>{formatPublishedAt(snapshot.publishedAt)}</small> : null}
+        {snapshot.publishedAt ? <small>{formatPublishedAt(snapshot.publishedAt, i18n.language)}</small> : null}
       </div>
       {snapshot.displayNotes ? (
         <aside className="desktop-update-dialog__notice">
-          <strong>Before you update</strong>
+          <strong>{t("beforeUpdate")}</strong>
           <p>{snapshot.displayNotes}</p>
         </aside>
       ) : null}
       <section className="desktop-update-dialog__notes">
-        <h3>What&apos;s new</h3>
-        <p>{snapshot.releaseNotes ?? "No release notes were provided for this update."}</p>
+        <h3>{t("whatsNew")}</h3>
+        <p>{snapshot.releaseNotes ?? t("noNotes")}</p>
       </section>
       {snapshot.phase === "downloading" || snapshot.phase === "installing" ? (
         <div className="desktop-update-dialog__progress">
           <div>
-            <span>{snapshot.phase === "installing" ? "Preparing installer" : "Downloading update"}</span>
+            <span>{snapshot.phase === "installing" ? t("preparingInstaller") : t("downloadingUpdate")}</span>
             <strong>{snapshot.progressPercent ?? 0}%</strong>
           </div>
           <progress max={100} value={snapshot.progressPercent ?? 0} />
@@ -324,13 +332,14 @@ function UpdateAvailableContent({ snapshot }: { snapshot: DesktopUpdateSnapshot 
 }
 
 function UpdateStatus({ snapshot }: { snapshot: DesktopUpdateSnapshot }) {
+  const { t } = useTranslation("updates");
   if (snapshot.phase !== "up_to_date") {
     return null;
   }
   return (
     <p className="desktop-update-dialog__status" role="status">
       <CheckCircle2 aria-hidden="true" size={16} />
-      <span>You&apos;re using the latest version.</span>
+      <span>{t("latest")}</span>
     </p>
   );
 }
@@ -339,32 +348,32 @@ function isUpdateBusy(phase: DesktopUpdateSnapshot["phase"], pendingAction: Pend
   return pendingAction !== null || phase === "checking" || phase === "downloading" || phase === "installing";
 }
 
-function checkButtonLabel(snapshot: DesktopUpdateSnapshot, available: boolean): string {
+function checkButtonLabel(snapshot: DesktopUpdateSnapshot, available: boolean, t: TFunction<"updates">): string {
   if (!available) {
-    return "Unavailable in browser preview";
+    return t("browserUnavailable");
   }
   if (snapshot.phase === "checking") {
-    return "Checking…";
+    return t("checking");
   }
-  return snapshot.phase === "up_to_date" ? "Check again" : "Check for updates";
+  return snapshot.phase === "up_to_date" ? t("checkAgain") : t("check");
 }
 
-function installButtonLabel(snapshot: DesktopUpdateSnapshot): string {
+function installButtonLabel(snapshot: DesktopUpdateSnapshot, t: TFunction<"updates">): string {
   if (snapshot.phase === "downloading") {
-    return `Downloading ${snapshot.progressPercent ?? 0}%`;
+    return t("downloading", { percent: snapshot.progressPercent ?? 0 });
   }
   if (snapshot.phase === "installing") {
-    return "Installing…";
+    return t("installing");
   }
-  return "Download and install";
+  return t("install");
 }
 
-function formatPublishedAt(value: string): string {
+function formatPublishedAt(value: string, language: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return value;
   }
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(language, {
     year: "numeric",
     month: "short",
     day: "numeric",

@@ -25,9 +25,16 @@ fn resolves_explicit_and_autoloaded_skills_with_reasons() {
     )
     .expect("skills should resolve");
 
-    assert_eq!(resolution.active.len(), 2);
-    assert_eq!(resolution.active[0].activation, SkillActivation::Explicit);
-    assert_eq!(resolution.active[1].activation, SkillActivation::Autoload);
+    assert_eq!(
+        resolution.catalog[0].activation,
+        Some(SkillActivation::Explicit)
+    );
+    assert!(resolution.catalog[0].effective);
+    assert_eq!(
+        resolution.catalog[1].activation,
+        Some(SkillActivation::Autoload)
+    );
+    assert!(resolution.catalog[1].effective);
     assert_eq!(
         resolution.catalog[2].reason.as_deref(),
         Some("not selected for this turn")

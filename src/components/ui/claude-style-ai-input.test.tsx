@@ -87,12 +87,12 @@ describe("ClaudeStyleAiInput slash commands", () => {
 
     const input = screen.getByRole("textbox", { name: "Message" });
     await user.type(input, "Change direction");
-    await user.click(screen.getByRole("button", { name: "插入当前任务" }));
+    await user.click(screen.getByRole("button", { name: "Interrupt current task" }));
     expect(onInterruptMessage).toHaveBeenCalledWith("Change direction", [], [], { reasoningEffort: "medium" });
     expect(onSendMessage).not.toHaveBeenCalled();
 
     await user.type(input, "Do this afterward");
-    await user.click(screen.getByRole("button", { name: "排队为下一轮" }));
+    await user.click(screen.getByRole("button", { name: "Queue as next turn" }));
     expect(onSendMessage).toHaveBeenCalledWith("Do this afterward", [], [], { reasoningEffort: "medium" });
   });
 

@@ -15,7 +15,15 @@ export type AgentDefaultsSettingsData = {
   values: AgentDefaultsFormValues;
 };
 
-export type AgentDefaultsValidationErrors = Partial<Record<keyof AgentDefaultsFormValues, string>>;
+export type AgentDefaultsValidationErrorCode =
+  | "context-budget"
+  | "context-strategy"
+  | "max-tokens"
+  | "max-tool-iterations"
+  | "temperature-number"
+  | "temperature-range";
+
+export type AgentDefaultsValidationErrors = Partial<Record<keyof AgentDefaultsFormValues, AgentDefaultsValidationErrorCode>>;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -55,22 +63,22 @@ export function validateAgentDefaultsInput(values: AgentDefaultsFormValues): Age
   const errors: AgentDefaultsValidationErrors = {};
   const temperature = parseOptionalNumber(values.temperature);
   if (temperature !== null && !Number.isFinite(temperature)) {
-    errors.temperature = "Temperature must be a number between 0 and 2.";
+    errors.temperature = "temperature-number";
   }
   if (temperature !== null && (temperature < 0 || temperature > 2)) {
-    errors.temperature = "Temperature must be between 0 and 2.";
+    errors.temperature = "temperature-range";
   }
   if (!isOptionalPositiveInteger(values.maxTokens)) {
-    errors.maxTokens = "Max output tokens must be a positive integer.";
+    errors.maxTokens = "max-tokens";
   }
   if (!isOptionalPositiveInteger(values.contextWindowTokens)) {
-    errors.contextWindowTokens = "Context window budget must be a positive integer.";
+    errors.contextWindowTokens = "context-budget";
   }
   if (!isContextWindowStrategy(values.contextWindowStrategy)) {
-    errors.contextWindowStrategy = "Context window strategy must be discard or compact.";
+    errors.contextWindowStrategy = "context-strategy";
   }
   if (!isOptionalPositiveInteger(values.maxToolIterations)) {
-    errors.maxToolIterations = "Max tool iterations must be a positive integer.";
+    errors.maxToolIterations = "max-tool-iterations";
   }
   return errors;
 }

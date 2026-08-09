@@ -407,6 +407,10 @@ Workspace-backed agent results include:
   record includes `contributorId`, `kind`, `status`, `contentChars`, `contentSha256`,
   `referenceCount`, safe reference identifiers, and `truncated`.
 
+The contributor request surface is reserved for future production contributors. The current desktop
+runtime does not register a production contributor, so normal turns emit no `contextContributions`
+records unless that integration is added explicitly.
+
 The instruction provenance and instruction diagnostics are stored on the durable agent-turn record, so
 `thread_list_turns` and `thread_get_turn_runtime_state` can explain the instruction inputs of
 a historical turn without persisting a second write authority.
@@ -725,8 +729,19 @@ URLs remain inert text/metadata.
 
 ## Long-Term Memory
 
-Long-term memory is backend-owned automation. It has no Tauri command, Worker RPC namespace, WebUI
-route, or agent-callable tool.
+Long-term memory is backend-owned automation. The desktop renderer has one read-only Tauri command,
+`worker_memory_snapshot`; there is no Worker RPC namespace, WebUI route, agent-callable tool, or
+renderer mutation path.
+
+| Tauri command | Params | Result |
+| --- | --- | --- |
+| `worker_memory_snapshot` | none | `{ currentWorkspacePath, userMemories, workspaces }` |
+
+The command reads the canonical active set directly from SQLite and returns user memories plus
+workspace groups. Each workspace group includes `path`, `current`, and `memories`; the current
+workspace is present even when its active set is empty. It does not parse the derived Markdown
+view. Refreshing this snapshot only changes the inspection page: existing Threads continue using
+their immutable creation-time memory snapshot.
 
 | Path | Authority |
 | --- | --- |

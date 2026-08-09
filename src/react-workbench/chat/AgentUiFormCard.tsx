@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import type { AgentUiForm, AgentUiFormField } from "../../app-core/agent-ui/agentUiEvents";
 
 export function AgentUiFormCard({
@@ -12,6 +13,7 @@ export function AgentUiFormCard({
   onSubmit: (values: Record<string, unknown>) => void;
   submitting?: boolean;
 }) {
+  const { t } = useTranslation("chat");
   const [values, setValues] = useState<Record<string, unknown>>(() => initialAgentUiFormValues(form));
 
   useEffect(() => {
@@ -30,7 +32,7 @@ export function AgentUiFormCard({
   return (
     <form aria-label={form.title || form.form_id} className="react-agent-ui-form-card" onSubmit={handleSubmit}>
       <div className="react-agent-ui-form-card__header">
-        <h2>{form.title || "Agent form"}</h2>
+        <h2>{form.title || t("formUi.title")}</h2>
         {form.description ? <p>{form.description}</p> : null}
       </div>
       <div className="react-agent-ui-form-card__fields">
@@ -45,8 +47,8 @@ export function AgentUiFormCard({
         ))}
       </div>
       <div className="react-agent-ui-form-card__actions">
-        <button disabled={submitting} type="submit">{form.submit_label || "Submit"}</button>
-        <button disabled={submitting} type="button" onClick={onCancel}>{form.cancel_label || "Cancel"}</button>
+        <button disabled={submitting} type="submit">{form.submit_label || t("formUi.submit")}</button>
+        <button disabled={submitting} type="button" onClick={onCancel}>{form.cancel_label || t("formUi.cancel")}</button>
       </div>
     </form>
   );
@@ -63,13 +65,14 @@ function AgentUiFormFieldControl({
   onChange: (value: unknown) => void;
   value: unknown;
 }) {
+  const { t } = useTranslation("chat");
   const id = `agent-ui-form-${field.name}`;
   const errorId = `${id}-error`;
   const stringValue = value === undefined || value === null ? "" : String(value);
   return (
     <div className="react-agent-ui-form-field">
       <label htmlFor={id}>{field.label}</label>
-      {renderAgentUiFormInput(field, id, stringValue, value, onChange, error ? errorId : undefined)}
+      {renderAgentUiFormInput(field, id, stringValue, value, onChange, error ? errorId : undefined, t("formUi.select"))}
       {field.help ? <small>{field.help}</small> : null}
       {error ? <small className="react-agent-ui-form-field__error" id={errorId} role="alert">{error}</small> : null}
     </div>
@@ -83,6 +86,7 @@ function renderAgentUiFormInput(
   value: unknown,
   onChange: (value: unknown) => void,
   errorId?: string,
+  selectLabel = "Select…",
 ): ReactNode {
   if (field.type === "textarea") {
     return (
@@ -102,7 +106,7 @@ function renderAgentUiFormInput(
   if (field.type === "select") {
     return (
       <select aria-describedby={errorId} aria-invalid={Boolean(errorId)} id={id} required={field.required} value={stringValue} onChange={(event) => onChange(optionValueFromString(field, event.currentTarget.value))}>
-        <option value="">Select...</option>
+        <option value="">{selectLabel}</option>
         {(field.options ?? []).map((option) => (
           <option key={String(option.value)} value={String(option.value)}>{option.label}</option>
         ))}

@@ -104,6 +104,29 @@ describe("desktop native app services", () => {
     expect(commands).toContain("worker_threads_list");
   });
 
+  test("loads the canonical active memory snapshot", async () => {
+    const snapshot = {
+      currentWorkspacePath: "D:\\Code\\py\\tinybot",
+      userMemories: ["User prefers concise answers."],
+      workspaces: [{
+        current: true,
+        path: "D:\\Code\\py\\tinybot",
+        memories: ["This workspace uses Rust."],
+      }],
+    };
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === "worker_threads_list") return { threads: [thread], total: 1 };
+      if (command === "thread_list_turns") return { turns: [] };
+      if (command === "thread_get_turn_runtime_state") return null;
+      if (command === "worker_memory_snapshot") return snapshot;
+      return {};
+    });
+    const services = createDesktopAppServices();
+
+    await expect(services.memoryStore.load()).resolves.toEqual(snapshot);
+    expect(mocks.invoke).toHaveBeenCalledWith("worker_memory_snapshot");
+  });
+
   test("loads models from every enabled provider instead of only the default provider", async () => {
     mocks.invoke.mockImplementation(async (command: string) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };

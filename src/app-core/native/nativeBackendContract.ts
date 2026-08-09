@@ -33,6 +33,7 @@ export const NATIVE_BACKEND_COMMAND_NAMES = [
   "worker_plugin_install_migration",
   "worker_plugin_set_enabled",
   "worker_plugin_uninstall",
+  "worker_memory_snapshot",
   "worker_workspace_files",
   "worker_workspace_file",
   "worker_workspace_put_file",

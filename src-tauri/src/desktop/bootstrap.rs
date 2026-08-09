@@ -193,6 +193,7 @@ pub(crate) fn run() {
             crate::desktop_commands::plugins::worker_plugin_install_migration,
             crate::desktop_commands::plugins::worker_plugin_set_enabled,
             crate::desktop_commands::plugins::worker_plugin_uninstall,
+            crate::desktop_commands::memory::worker_memory_snapshot,
             crate::desktop_commands::workspace::worker_workspace_files,
             crate::desktop_commands::workspace::worker_workspace_file,
             crate::desktop_commands::workspace::worker_workspace_put_file,

@@ -19,12 +19,6 @@ pub(crate) enum SkillActivation {
     Autoload,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct ResolvedSkill {
-    pub(crate) entry: WorkspaceSkillEntry,
-    pub(crate) activation: SkillActivation,
-}
-
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct SkillCatalogEntry {
@@ -47,7 +41,6 @@ pub(crate) struct SkillCatalogEntry {
 #[derive(Clone, Debug)]
 pub(crate) struct SkillResolution {
     pub(crate) catalog: Vec<SkillCatalogEntry>,
-    pub(crate) active: Vec<ResolvedSkill>,
 }
 
 impl SkillSettings {
@@ -106,7 +99,6 @@ pub(crate) fn resolve_skills(
     let selected = selected_names.iter().cloned().collect::<BTreeSet<_>>();
     let mut found_selected = BTreeSet::new();
     let mut catalog = Vec::with_capacity(entries.len());
-    let mut active = Vec::new();
 
     for entry in entries {
         let explicit = selected.contains(&entry.name);
@@ -164,14 +156,6 @@ pub(crate) fn resolve_skills(
                 availability.missing.join(", ")
             ));
         }
-        if effective {
-            active.push(ResolvedSkill {
-                entry: entry.clone(),
-                activation: activation
-                    .clone()
-                    .expect("effective skills have activation"),
-            });
-        }
         catalog.push(SkillCatalogEntry {
             name: entry.name,
             path: entry.path,
@@ -190,7 +174,7 @@ pub(crate) fn resolve_skills(
     if let Some(missing) = selected.difference(&found_selected).next() {
         return Err(format!("selected skill `{missing}` does not exist"));
     }
-    Ok(SkillResolution { catalog, active })
+    Ok(SkillResolution { catalog })
 }
 
 fn resolution_reason(

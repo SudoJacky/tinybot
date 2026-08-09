@@ -1,5 +1,7 @@
 import { Check, ChevronRight, EllipsisVertical, Loader2, Plus, RefreshCw, Search, Settings, Trash2 } from "lucide-react";
+import type { TFunction } from "i18next";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import {
   buildCustomProviderPatch,
   buildProviderConfigurePatch,
@@ -24,21 +26,15 @@ type ProviderModelsSettingsPageProps = {
 };
 
 export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSettingsPageProps) {
+  const { t } = useTranslation("settings");
   const [data, setData] = useState<ProviderModelsSettingsData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<SettingsSaveState>("idle");
   const [configureProvider, setConfigureProvider] = useState<ProviderCardModel | null>(null);
   const [creatingProvider, setCreatingProvider] = useState(false);
   const [modelsProvider, setModelsProvider] = useState<ProviderCardModel | null>(null);
   const [openProviderMenu, setOpenProviderMenu] = useState<string | null>(null);
-  const saveState: SettingsSaveState = saveStatus === "Saving..."
-    ? "saving"
-    : saveStatus?.startsWith("Save failed:")
-      ? "error"
-      : saveStatus === "Saved"
-        ? "saved"
-        : "idle";
-
   useEffect(() => {
     let cancelled = false;
     settingsStore.loadProviderSettings?.()
@@ -62,13 +58,16 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
     if (!data || !settingsStore.saveProviderSettings) {
       return;
     }
-    setSaveStatus("Saving...");
+    setSaveStatus(t("provider.saving"));
+    setSaveState("saving");
     try {
       const next = await settingsStore.saveProviderSettings(data.currentConfig, patch);
       setData(next.providers.length ? next : buildProviderModelsSettings(next.currentConfig));
-      setSaveStatus("Saved");
+      setSaveStatus(t("provider.saved"));
+      setSaveState("saved");
     } catch (error) {
-      setSaveStatus(`Save failed: ${error instanceof Error ? error.message : String(error)}`);
+      setSaveStatus(t("provider.saveFailed", { message: error instanceof Error ? error.message : String(error) }));
+      setSaveState("error");
       throw error;
     }
   }
@@ -78,16 +77,16 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
     return <p className="react-settings-alert" role="alert">{loadError}</p>;
   }
   if (!data) {
-    return <p className="react-empty-state">Loading provider settings...</p>;
+    return <p className="react-empty-state">{t("provider.loading")}</p>;
   }
 
   return (
     <section className="react-provider-settings" aria-labelledby="provider-models-title">
       <div className="react-provider-settings__header">
         <div>
-          <span className="react-settings-eyebrow">AI connections</span>
-          <h2 id="provider-models-title">Provider & Models</h2>
-          <p>Manage the current model and the provider connections that make models available.</p>
+          <span className="react-settings-eyebrow">{t("provider.eyebrow")}</span>
+          <h2 id="provider-models-title">{t("provider.title")}</h2>
+          <p>{t("provider.description")}</p>
         </div>
       </div>
 
@@ -98,8 +97,8 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
       <section className="react-provider-directory" aria-labelledby="providers-title">
         <header>
           <div>
-            <h3 id="providers-title">Connections</h3>
-            <p>Credentials, endpoints, and models for each provider.</p>
+            <h3 id="providers-title">{t("provider.connections")}</h3>
+            <p>{t("provider.connectionsDescription")}</p>
           </div>
           <button
             className="react-provider-add"
@@ -108,7 +107,7 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
             onClick={() => setCreatingProvider(true)}
           >
             <Plus aria-hidden="true" size={16} />
-            Add provider
+            {t("provider.addProvider")}
           </button>
         </header>
         <div className="react-provider-grid">
@@ -166,6 +165,8 @@ function DefaultLlmPanel({
 }: {
   data: ProviderModelsSettingsData;
 }) {
+  const { t: tCommon } = useTranslation("common");
+  const { t } = useTranslation("settings");
   const savedPreference = readCurrentChatModelPreference();
   const savedCurrentModel = savedPreference?.modelId ?? "";
   const initialProviderFromCurrentModel = data.providers.find((provider) => (
@@ -236,26 +237,26 @@ function DefaultLlmPanel({
     <section className="react-default-llm-panel" aria-labelledby="default-llm-title">
       <header>
         <div>
-          <span className="react-settings-eyebrow">Recently used</span>
-          <h3 id="default-llm-title">Current model</h3>
-          <p>New conversations start with this model. Existing conversations keep their own selection.</p>
+          <span className="react-settings-eyebrow">{t("provider.recentlyUsed")}</span>
+          <h3 id="default-llm-title">{t("provider.currentModel")}</h3>
+          <p>{t("provider.currentModelDescription")}</p>
         </div>
       </header>
       <div className="react-default-llm-summary">
         {selectedProvider ? <ProviderBrandIcon provider={selectedProvider} /> : null}
         <div className="react-default-llm-summary__model">
-          <strong>{model || "No model configured"}</strong>
-          <span>{selectedProvider?.label ?? "No provider"}</span>
+          <strong>{model || t("provider.noModel")}</strong>
+          <span>{selectedProvider?.label ?? t("provider.noProvider")}</span>
         </div>
         <div className="react-default-llm-summary__provider">
           <span className="react-provider-status" data-status={selectedProvider?.status}>
             <span aria-hidden="true" />
-            {selectedProvider ? providerStatusLabel(selectedProvider.status) : "Not configured"}
+            {selectedProvider ? providerStatusLabel(selectedProvider.status, t) : t("provider.notConfigured")}
           </span>
-          <small>{selectedProvider?.useResponsesApi ? "Responses API" : "Chat Completions"}</small>
+          <small>{selectedProvider?.useResponsesApi ? t("provider.responsesApi") : t("provider.chatCompletions")}</small>
         </div>
         <span className="react-default-llm-summary__count">
-          {selectedProvider?.modelCount ? `${selectedProvider.modelCount} models` : "No models"}
+          {selectedProvider?.modelCount ? t("provider.modelCount", { count: selectedProvider.modelCount }) : t("provider.noModels")}
         </span>
         <button
           aria-expanded={editing}
@@ -263,27 +264,27 @@ function DefaultLlmPanel({
           type="button"
           onClick={() => setEditing((current) => !current)}
         >
-          Change model
+          {t("provider.changeModel")}
         </button>
       </div>
       {editing ? (
         <SettingsSheet
-          ariaLabel="Change current model"
-          closeLabel="Close model selection"
-          description="Choose the model new conversations should start with."
+          ariaLabel={t("provider.changeModel")}
+          closeLabel={t("provider.closeModelSelection")}
+          description={t("provider.changeModelDescription")}
           onClose={closeEditor}
-          title="Change current model"
+          title={t("provider.changeModel")}
           wide
         >
           {(requestClose) => (
             <div className="react-settings-sheet__content react-default-llm-editor">
               <div className="react-default-model-picker">
-                <nav className="react-default-model-picker__providers" aria-label="Provider selection">
+                <nav className="react-default-model-picker__providers" aria-label={t("provider.providerSelection")}>
                   {data.providers.map((provider) => {
                     const selected = provider.profileId === profileId;
                     return (
                       <button
-                        aria-label={`Select ${provider.label} provider`}
+                        aria-label={t("provider.selectProvider", { name: provider.label })}
                         aria-pressed={selected}
                         data-press-feedback="true"
                         key={provider.profileId}
@@ -297,40 +298,40 @@ function DefaultLlmPanel({
                         <ProviderBrandIcon provider={provider} />
                         <span>
                           <strong>{provider.label}</strong>
-                          <small>{provider.modelCount ? `${provider.modelCount} models` : providerStatusLabel(provider.status)}</small>
+                          <small>{provider.modelCount ? t("provider.modelCount", { count: provider.modelCount }) : providerStatusLabel(provider.status, t)}</small>
                         </span>
                         <ChevronRight aria-hidden="true" size={16} />
                       </button>
                     );
                   })}
                 </nav>
-                <section className="react-default-model-picker__models" aria-label={`${selectedProvider?.label ?? "Provider"} models`}>
+                <section className="react-default-model-picker__models" aria-label={t("provider.providerModelsLabel", { name: selectedProvider?.label ?? t("provider.noProvider") })}>
                   <header>
-                    <h4>Models from {selectedProvider?.label ?? "provider"}</h4>
+                    <h4>{t("provider.modelsFrom", { name: selectedProvider?.label ?? t("provider.noProvider") })}</h4>
                   </header>
                   <label className="react-default-model-picker__search">
                     <Search aria-hidden="true" size={16} />
-                    <span className="react-sr-only">Search models</span>
+                    <span className="react-sr-only">{t("provider.searchModels")}</span>
                     <input
                       data-settings-sheet-focus
                       type="search"
-                      placeholder="Search models"
+                      placeholder={t("provider.searchModels")}
                       value={modelSearch}
                       onChange={(event) => setModelSearch(event.target.value)}
                     />
                   </label>
                   <p className="react-default-model-picker__count">
                     {normalizedModelSearch
-                      ? `Showing ${filteredModelOptions.length} of ${modelOptions.length}`
-                      : `${modelOptions.length} ${modelOptions.length === 1 ? "model" : "models"}`}
+                      ? t("provider.showingModels", { shown: filteredModelOptions.length, total: modelOptions.length })
+                      : t("provider.modelCount", { count: modelOptions.length })}
                   </p>
-                  <div className="react-default-model-picker__models-list" role="radiogroup" aria-label="Model selection">
+                  <div className="react-default-model-picker__models-list" role="radiogroup" aria-label={t("provider.modelSelection")}>
                     {filteredModelOptions.length ? filteredModelOptions.map((option) => {
                       const selected = option.id === model;
                       return (
                         <button
                           aria-checked={selected}
-                          aria-label={`Select ${option.label} model`}
+                          aria-label={t("provider.selectModel", { name: option.label })}
                           data-press-feedback="true"
                           key={option.id}
                           role="radio"
@@ -338,25 +339,25 @@ function DefaultLlmPanel({
                           onClick={() => setModel(option.id)}
                         >
                           <strong>{option.label}</strong>
-                          <small>{modelSourceLabel(option.source)}</small>
+                          <small>{modelSourceLabel(option.source, t)}</small>
                           {selected ? <Check aria-hidden="true" size={16} /> : <span aria-hidden="true" />}
                         </button>
                       );
                     }) : (
                       <p className="react-default-model-picker__empty">
-                        {modelOptions.length ? "No models match your search." : "No models configured."}
+                        {modelOptions.length ? t("provider.noModelMatches") : t("provider.noModelsConfigured")}
                       </p>
                     )}
                   </div>
                 </section>
               </div>
               <footer>
-                <span>Changes apply to new conversations. Existing conversations keep their model.</span>
+                <span>{t("provider.newConversationNote")}</span>
                 <div>
-                  <button data-press-feedback="true" type="button" onClick={requestClose}>Cancel</button>
+                  <button data-press-feedback="true" type="button" onClick={requestClose}>{tCommon("generic.cancel")}</button>
                   <button
                     type="button"
-                    aria-label="Save current model"
+                    aria-label={t("provider.saveCurrentModel")}
                     data-press-feedback="true"
                     disabled={!canSave}
                     onClick={() => saveCurrentModel(requestClose)}
@@ -364,7 +365,7 @@ function DefaultLlmPanel({
                     {saving
                       ? <Loader2 aria-hidden="true" className="react-settings-spinner" size={15} />
                       : <Check aria-hidden="true" size={15} />}
-                    {saving ? "Saving" : dirty ? "Save" : "Saved"}
+                    {saving ? tCommon("generic.saving") : dirty ? tCommon("generic.save") : t("provider.saved")}
                   </button>
                 </div>
               </footer>
@@ -389,12 +390,13 @@ function ProviderPresetRow({
   onModels: () => void;
   onToggleMenu: () => void;
 }) {
+  const { t } = useTranslation("settings");
   const primaryAction = provider.status === "available" ? "models" : "configure";
 
   return (
     <article
       className="react-provider-card"
-      aria-label={`${provider.label} provider`}
+      aria-label={t("provider.providerLabel", { name: provider.label })}
       data-active={provider.active || undefined}
       data-status={provider.status}
     >
@@ -403,28 +405,28 @@ function ProviderPresetRow({
         <div>
           <span>
             <strong>{provider.label}</strong>
-            {provider.active ? <small>Active</small> : null}
+            {provider.active ? <small>{t("provider.active")}</small> : null}
           </span>
           <span className="react-provider-card__url" title={provider.baseUrl}>{provider.baseUrl}</span>
         </div>
       </div>
       <div className="react-provider-card__model">
-        <small>Provider fallback</small>
-        <strong>{provider.defaultModel ?? "Not selected"}</strong>
-        <span className="react-provider-card__models">{provider.modelCount ? `${provider.modelCount} models` : "No models"}</span>
+        <small>{t("provider.fallback")}</small>
+        <strong>{provider.defaultModel ?? t("provider.notSelected")}</strong>
+        <span className="react-provider-card__models">{provider.modelCount ? t("provider.modelCount", { count: provider.modelCount }) : t("provider.noModels")}</span>
       </div>
       <div className="react-provider-card__state">
         <span className="react-provider-status" data-status={provider.status}>
           <span aria-hidden="true" />
-          {providerStatusLabel(provider.status)}
+          {providerStatusLabel(provider.status, t)}
         </span>
-        <small>{provider.apiKeyConfigured ? (provider.useResponsesApi ? "Responses API" : "Chat Completions") : "API key not set"}</small>
+        <small>{provider.apiKeyConfigured ? (provider.useResponsesApi ? t("provider.responsesApi") : t("provider.chatCompletions")) : t("provider.apiKeyMissing")}</small>
       </div>
       <div className="react-provider-card__actions">
         {primaryAction === "models" ? (
-          <button data-press-feedback="true" type="button" aria-label={`Manage ${provider.label} models`} onClick={onModels}>Manage</button>
+          <button data-press-feedback="true" type="button" aria-label={t("provider.manageModels", { name: provider.label })} onClick={onModels}>{t("provider.manage")}</button>
         ) : (
-          <button data-press-feedback="true" type="button" aria-label={`Configure ${provider.label}`} onClick={onConfigure}>Set up</button>
+          <button data-press-feedback="true" type="button" aria-label={t("provider.configureProvider", { name: provider.label })} onClick={onConfigure}>{t("provider.setUp")}</button>
         )}
         <button
           className="react-provider-card__more"
@@ -432,23 +434,23 @@ function ProviderPresetRow({
           type="button"
           aria-expanded={menuOpen}
           aria-haspopup="menu"
-          aria-label={`More actions for ${provider.label}`}
+          aria-label={t("provider.moreActions", { name: provider.label })}
           onClick={onToggleMenu}
         >
           <EllipsisVertical aria-hidden="true" size={17} />
         </button>
         {menuOpen ? (
-          <div className="react-provider-card__menu" role="menu" aria-label={`${provider.label} provider actions`}>
+          <div className="react-provider-card__menu" role="menu" aria-label={t("provider.providerActions", { name: provider.label })}>
             {primaryAction !== "models" ? (
               <button role="menuitem" type="button" onClick={onModels}>
                 <Search aria-hidden="true" size={15} />
-                Models
+                {t("provider.models")}
               </button>
             ) : null}
             {primaryAction !== "configure" ? (
               <button role="menuitem" type="button" onClick={onConfigure}>
                 <Settings aria-hidden="true" size={15} />
-                Configure
+                {t("provider.configure")}
               </button>
             ) : null}
           </div>
@@ -484,14 +486,14 @@ function providerInitials(label: string): string {
     .join("") || "P";
 }
 
-function providerStatusLabel(status: ProviderCardModel["status"]): string {
+function providerStatusLabel(status: ProviderCardModel["status"], t: TFunction<"settings">): string {
   if (status === "available") {
-    return "Connected";
+    return t("provider.status.connected");
   }
   if (status === "not_ready") {
-    return "Needs attention";
+    return t("provider.status.attention");
   }
-  return "Not configured";
+  return t("provider.status.notConfigured");
 }
 
 function ProviderConfigureDialog({
@@ -503,6 +505,8 @@ function ProviderConfigureDialog({
   onClose: () => void;
   onSave: (patch: unknown) => Promise<void>;
 }) {
+  const { t: tCommon } = useTranslation("common");
+  const { t } = useTranslation("settings");
   const [apiBase, setApiBase] = useState(provider.baseUrl);
   const [apiKey, setApiKey] = useState("");
   const [useResponsesApi, setUseResponsesApi] = useState(provider.useResponsesApi);
@@ -536,21 +540,21 @@ function ProviderConfigureDialog({
 
   return (
     <SettingsSheet
-      ariaLabel={`Configure ${provider.label}`}
-      closeLabel={`Close ${provider.label} configuration`}
+      ariaLabel={t("provider.configureProvider", { name: provider.label })}
+      closeLabel={t("provider.configureDialog.close", { name: provider.label })}
       compact
-      description="Update the connection used by this provider."
+      description={t("provider.configureDialog.description")}
       onClose={onClose}
-      title={`Configure ${provider.label}`}
+      title={t("provider.configureProvider", { name: provider.label })}
     >
       {(requestClose) => (
         <form className="react-settings-sheet__content react-provider-config" onSubmit={(event) => submit(event, requestClose)}>
           <section className="react-provider-config__section" aria-labelledby="provider-connection-title">
-            <h3 id="provider-connection-title">Connection</h3>
+            <h3 id="provider-connection-title">{t("provider.configureDialog.connection")}</h3>
             <label>
-              <span>API base</span>
+              <span>{t("provider.configureDialog.apiBase")}</span>
               <input
-                aria-label="API base"
+                aria-label={t("provider.configureDialog.apiBase")}
                 data-settings-sheet-focus
                 value={apiBase}
                 onChange={(event) => setApiBase(event.currentTarget.value)}
@@ -558,37 +562,37 @@ function ProviderConfigureDialog({
             </label>
             <label>
               <span className="react-provider-config__field-heading">
-                <span>API key</span>
+                <span>{t("provider.configureDialog.apiKey")}</span>
                 <small data-status={provider.apiKeyConfigured ? "configured" : "missing"}>
-                  {provider.apiKeyConfigured ? "Configured" : "Not configured"}
+                  {provider.apiKeyConfigured ? t("provider.configureDialog.configured") : t("provider.configureDialog.notConfigured")}
                 </small>
               </span>
               <input
                 aria-describedby="provider-api-key-help"
-                aria-label="API key"
+                aria-label={t("provider.configureDialog.apiKey")}
                 autoComplete="off"
-                placeholder="Enter a new API key"
+                placeholder={t("provider.configureDialog.newApiKey")}
                 type="password"
                 value={apiKey}
                 onChange={(event) => setApiKey(event.currentTarget.value)}
               />
               <small id="provider-api-key-help" className="react-provider-config__help">
                 {provider.apiKeyConfigured
-                  ? "Entering a new key replaces the current key."
-                  : "Enter a key if this endpoint requires one."}
+                  ? t("provider.configureDialog.replaceKey")
+                  : t("provider.configureDialog.keyIfRequired")}
               </small>
             </label>
           </section>
 
           <section className="react-provider-config__section" aria-labelledby="provider-profile-title">
-            <h3 id="provider-profile-title">Profile</h3>
+            <h3 id="provider-profile-title">{t("provider.configureDialog.profile")}</h3>
             <label className="react-provider-config__switch" data-disabled={provider.active || undefined}>
               <span>
-                <strong>{provider.active ? "Active profile" : "Set as active profile"}</strong>
-                <small>{provider.active ? "This provider is currently used for new turns." : "Use this provider for new agent turns after saving."}</small>
+                <strong>{provider.active ? t("provider.configureDialog.activeProfile") : t("provider.configureDialog.setActiveProfile")}</strong>
+                <small>{provider.active ? t("provider.configureDialog.activeDescription") : t("provider.configureDialog.setActiveDescription")}</small>
               </span>
               <input
-                aria-label="Set as active profile"
+                aria-label={t("provider.configureDialog.setActiveProfile")}
                 checked={activate}
                 disabled={provider.active}
                 type="checkbox"
@@ -599,7 +603,7 @@ function ProviderConfigureDialog({
           </section>
 
           <fieldset className="react-provider-config__section react-provider-config__mode">
-            <legend>API mode</legend>
+            <legend>{t("provider.configureDialog.apiMode")}</legend>
             <div>
               <label data-selected={useResponsesApi || undefined}>
                 <input
@@ -609,7 +613,7 @@ function ProviderConfigureDialog({
                   value="responses"
                   onChange={() => setUseResponsesApi(true)}
                 />
-                <span>Responses API</span>
+                <span>{t("provider.responsesApi")}</span>
               </label>
               <label data-selected={!useResponsesApi || undefined}>
                 <input
@@ -619,18 +623,18 @@ function ProviderConfigureDialog({
                   value="chat_completions"
                   onChange={() => setUseResponsesApi(false)}
                 />
-                <span>Chat Completions</span>
+                <span>{t("provider.chatCompletions")}</span>
               </label>
             </div>
-            <small>Use Responses API only when the endpoint supports <code>/responses</code>.</small>
+            <small>{t("provider.configureDialog.responsesHelp")}</small>
           </fieldset>
           <footer>
-            <button className="react-provider-config__cancel" data-press-feedback="true" type="button" onClick={requestClose}>Cancel</button>
+            <button className="react-provider-config__cancel" data-press-feedback="true" type="button" onClick={requestClose}>{tCommon("generic.cancel")}</button>
             <button className="react-provider-config__save" data-press-feedback="true" type="submit" disabled={!canSave}>
               {saving
                 ? <Loader2 aria-hidden="true" className="react-settings-spinner" size={15} />
                 : <Check aria-hidden="true" size={15} />}
-              {saving ? "Saving…" : "Save changes"}
+              {saving ? tCommon("generic.saving") : t("config.saveChanges")}
             </button>
           </footer>
         </form>
@@ -648,6 +652,8 @@ function CustomProviderDialog({
   onClose: () => void;
   onSave: (patch: unknown) => Promise<void>;
 }) {
+  const { t: tCommon } = useTranslation("common");
+  const { t } = useTranslation("settings");
   const [providerId, setProviderId] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [apiBase, setApiBase] = useState("");
@@ -697,63 +703,63 @@ function CustomProviderDialog({
 
   return (
     <SettingsSheet
-      ariaLabel="Add provider"
-      closeLabel="Close add provider"
-      description="Configure an OpenAI-compatible endpoint."
+      ariaLabel={t("provider.addProvider")}
+      closeLabel={t("provider.addDialog.close")}
+      description={t("provider.addDialog.description")}
       onClose={onClose}
-      title="Add provider"
+      title={t("provider.addProvider")}
     >
       {(requestClose) => (
         <form className="react-settings-sheet__content" onSubmit={(event) => submit(event, requestClose)}>
           <label>
-            <span>Provider ID</span>
+            <span>{t("provider.addDialog.providerId")}</span>
             <input
-              aria-label="Provider ID"
+              aria-label={t("provider.addDialog.providerId")}
               autoComplete="off"
               data-settings-sheet-focus
               placeholder="local-openai"
               value={providerId}
               onChange={(event) => setProviderId(event.currentTarget.value)}
             />
-            {providerId && !idValid ? <small>Use lowercase letters, numbers, hyphens, or underscores.</small> : null}
-            {duplicate ? <small role="alert">This provider ID already exists.</small> : null}
+            {providerId && !idValid ? <small>{t("provider.addDialog.invalidId")}</small> : null}
+            {duplicate ? <small role="alert">{t("provider.addDialog.duplicateId")}</small> : null}
           </label>
           <label>
-            <span>Display name</span>
-            <input aria-label="Display name" placeholder="Local OpenAI" value={displayName} onChange={(event) => setDisplayName(event.currentTarget.value)} />
+            <span>{t("provider.addDialog.displayName")}</span>
+            <input aria-label={t("provider.addDialog.displayName")} placeholder="Local OpenAI" value={displayName} onChange={(event) => setDisplayName(event.currentTarget.value)} />
           </label>
           <label>
-            <span>API base</span>
-            <input aria-label="Custom API base" placeholder="http://127.0.0.1:11434/v1" value={apiBase} onChange={(event) => setApiBase(event.currentTarget.value)} />
-            {apiBase && !apiBaseValid ? <small role="alert">Enter a valid HTTP or HTTPS URL.</small> : null}
+            <span>{t("provider.addDialog.apiBase")}</span>
+            <input aria-label={t("provider.addDialog.customApiBase")} placeholder="http://127.0.0.1:11434/v1" value={apiBase} onChange={(event) => setApiBase(event.currentTarget.value)} />
+            {apiBase && !apiBaseValid ? <small role="alert">{t("provider.addDialog.invalidUrl")}</small> : null}
           </label>
           <label>
-            <span>API key <small>Optional for local endpoints</small></span>
-            <input aria-label="Custom API key" autoComplete="off" type="password" value={apiKey} onChange={(event) => setApiKey(event.currentTarget.value)} />
+            <span>{t("provider.addDialog.apiKey")} <small>{t("provider.addDialog.optionalLocal")}</small></span>
+            <input aria-label={t("provider.addDialog.customApiKey")} autoComplete="off" type="password" value={apiKey} onChange={(event) => setApiKey(event.currentTarget.value)} />
           </label>
           <label>
-            <span>Provider fallback model</span>
-            <input aria-label="Provider fallback model" placeholder="model-id" value={model} onChange={(event) => setModel(event.currentTarget.value)} />
+            <span>{t("provider.addDialog.fallbackModel")}</span>
+            <input aria-label={t("provider.addDialog.fallbackModel")} placeholder="model-id" value={model} onChange={(event) => setModel(event.currentTarget.value)} />
           </label>
           <label className="react-settings-checkbox">
             <input checked={supportsModelDiscovery} type="checkbox" onChange={(event) => setSupportsModelDiscovery(event.currentTarget.checked)} />
-            <span>Discover models from the /models endpoint</span>
+            <span>{t("provider.addDialog.discoverModels")}</span>
           </label>
           <label className="react-settings-checkbox">
             <input checked={useResponsesApi} type="checkbox" onChange={(event) => setUseResponsesApi(event.currentTarget.checked)} />
-            <span>Use Responses API <small>Requires a compatible /responses endpoint</small></span>
+            <span>{t("provider.addDialog.useResponses")} <small>{t("provider.addDialog.responsesRequirement")}</small></span>
           </label>
           <label className="react-settings-checkbox">
             <input checked={activate} type="checkbox" onChange={(event) => setActivate(event.currentTarget.checked)} />
-            <span>Set as active provider and default model</span>
+            <span>{t("provider.addDialog.activate")}</span>
           </label>
           <footer>
-            <button data-press-feedback="true" type="button" onClick={requestClose}>Cancel</button>
+            <button data-press-feedback="true" type="button" onClick={requestClose}>{tCommon("generic.cancel")}</button>
             <button data-press-feedback="true" type="submit" disabled={!canSave}>
               {saving
                 ? <Loader2 aria-hidden="true" className="react-settings-spinner" size={15} />
                 : <Plus aria-hidden="true" size={15} />}
-              {saving ? "Adding" : "Add provider"}
+              {saving ? t("provider.addDialog.adding") : t("provider.addProvider")}
             </button>
           </footer>
         </form>
@@ -782,6 +788,8 @@ function ProviderModelsDialog({
   onRefresh?: (input: ProviderModelFetchInput) => Promise<ProviderModelFetchResult>;
   onSave: (patch: unknown) => Promise<void>;
 }) {
+  const { t: tCommon } = useTranslation("common");
+  const { t } = useTranslation("settings");
   const [query, setQuery] = useState("");
   const [models, setModels] = useState(provider.models);
   const [newModel, setNewModel] = useState("");
@@ -840,7 +848,9 @@ function ProviderModelsDialog({
           setDefaultModel(result.models[0] ?? "");
         }
       }
-      setRefreshMessage(result.error || result.warning || (result.models.length ? `Fetched ${result.models.length} models.` : "No models returned."));
+      setRefreshMessage(result.error || result.warning || (result.models.length
+        ? t("provider.modelsDialog.fetched", { count: result.models.length })
+        : t("provider.modelsDialog.noneReturned")));
     } finally {
       setRefreshing(false);
     }
@@ -860,21 +870,21 @@ function ProviderModelsDialog({
 
   return (
     <SettingsSheet
-      ariaLabel={`${provider.label} models`}
-      closeLabel="Close models"
-      description="Manage the models available from this connection."
+      ariaLabel={t("provider.providerModelsLabel", { name: provider.label })}
+      closeLabel={t("provider.modelsDialog.close")}
+      description={t("provider.modelsDialog.description")}
       onClose={onClose}
-      title={`${provider.label} models`}
+      title={t("provider.providerModelsLabel", { name: provider.label })}
       wide
     >
       {(requestClose) => (
         <div className="react-settings-sheet__content">
           <label>
-            <span>Search models</span>
+            <span>{t("provider.searchModels")}</span>
             <input
-              aria-label="Search models"
+              aria-label={t("provider.searchModels")}
               data-settings-sheet-focus
-              placeholder="Search models"
+              placeholder={t("provider.searchModels")}
               value={query}
               onChange={(event) => setQuery(event.currentTarget.value)}
             />
@@ -886,15 +896,15 @@ function ProviderModelsDialog({
                   <strong>{model.label}</strong>
                   <small>{model.id}</small>
                 </div>
-                <span>{modelSourceLabel(model.source)}</span>
+                <span>{modelSourceLabel(model.source, t)}</span>
                 <button data-press-feedback="true" type="button" onClick={() => setDefaultModel(model.id)}>
                   {defaultModel === model.id ? <Check aria-hidden="true" size={15} /> : null}
-                  Provider fallback
+                  {t("provider.fallback")}
                 </button>
                 <button
                   data-press-feedback="true"
                   type="button"
-                  aria-label={`Remove ${model.id}`}
+                  aria-label={t("provider.modelsDialog.remove", { name: model.id })}
                   disabled={model.source !== "user"}
                   onClick={() => removeModel(model)}
                 >
@@ -902,23 +912,23 @@ function ProviderModelsDialog({
                 </button>
               </div>
             ))}
-            {!filteredModels.length ? <p className="react-empty-state">No models match the search.</p> : null}
+            {!filteredModels.length ? <p className="react-empty-state">{t("provider.modelsDialog.empty")}</p> : null}
           </div>
           <div className="react-provider-model-add">
-            <input aria-label="Add model ID" placeholder="model-id" value={newModel} onChange={(event) => setNewModel(event.currentTarget.value)} />
+            <input aria-label={t("provider.modelsDialog.addId")} placeholder="model-id" value={newModel} onChange={(event) => setNewModel(event.currentTarget.value)} />
             <button data-press-feedback="true" type="button" onClick={addModel}>
               <Plus aria-hidden="true" size={15} />
-              Add model
+              {t("provider.modelsDialog.add")}
             </button>
           </div>
           {refreshMessage ? <p className="react-settings-save-status" role="status">{refreshMessage}</p> : null}
           <footer>
             <button data-press-feedback="true" type="button" disabled={!canRefresh || refreshing} onClick={refreshModels}>
               <RefreshCw aria-hidden="true" size={15} />
-              {provider.modelDiscovery.status === "static" ? "Static list" : refreshing ? "Refreshing" : "Refresh models"}
+              {provider.modelDiscovery.status === "static" ? t("provider.modelsDialog.staticList") : refreshing ? t("provider.modelsDialog.refreshing") : t("provider.modelsDialog.refresh")}
             </button>
-            <button data-press-feedback="true" type="button" onClick={requestClose}>Cancel</button>
-            <button data-press-feedback="true" type="button" onClick={() => saveModels(requestClose)}>Save</button>
+            <button data-press-feedback="true" type="button" onClick={requestClose}>{tCommon("generic.cancel")}</button>
+            <button data-press-feedback="true" type="button" onClick={() => saveModels(requestClose)}>{tCommon("generic.save")}</button>
           </footer>
         </div>
       )}
@@ -940,12 +950,12 @@ function mergeFetchedModels(currentModels: ProviderModelItem[], fetchedModelIds:
   return next;
 }
 
-function modelSourceLabel(source: ProviderModelItem["source"]): string {
+function modelSourceLabel(source: ProviderModelItem["source"], t: TFunction<"settings">): string {
   if (source === "built-in") {
-    return "Built-in";
+    return t("provider.modelsDialog.sourceBuiltIn");
   }
   if (source === "live") {
-    return "Provider fetched";
+    return t("provider.modelsDialog.sourceLive");
   }
-  return "User added";
+  return t("provider.modelsDialog.sourceUser");
 }

@@ -1,5 +1,6 @@
 import { Check, ChevronDown } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 
 export type SettingsChoiceOption = {
   description?: string;
@@ -9,18 +10,23 @@ export type SettingsChoiceOption = {
 };
 
 export function SettingsChoiceList({
+  description,
   error,
   label,
   onChange,
   options,
+  optionsAriaLabel,
   value,
 }: {
+  description?: string;
   error?: string;
   label: string;
   onChange: (value: string) => void;
   options: SettingsChoiceOption[];
+  optionsAriaLabel?: string;
   value: string;
 }) {
+  const { t } = useTranslation("settings");
   const id = useId();
   const rootRef = useRef<HTMLDivElement>(null);
   const errorId = error ? `${id}-error` : undefined;
@@ -56,25 +62,28 @@ export function SettingsChoiceList({
       className="react-settings-choice"
       ref={rootRef}
     >
-      <span className="react-settings-choice__label">{label}</span>
+      <span className="react-settings-choice__label">
+        <strong>{label}</strong>
+        {description ? <small>{description}</small> : null}
+      </span>
       <button
         aria-expanded={open}
         aria-haspopup="menu"
-        aria-label={`${label}: ${selectedOption?.label ?? "Not configured"}`}
+        aria-label={`${label}: ${selectedOption?.label ?? t("choice.notConfigured")}`}
         className="react-settings-choice-trigger"
         data-press-feedback="true"
         type="button"
         onClick={() => setOpen((current) => !current)}
       >
         <span>
-          <strong>{selectedOption?.label ?? "Not configured"}</strong>
+          <strong>{selectedOption?.label ?? t("choice.notConfigured")}</strong>
           {selectedOption?.description ? <small>{selectedOption.description}</small> : null}
         </span>
         <ChevronDown aria-hidden="true" size={16} />
       </button>
       {open ? (
         <div
-          aria-label={`${label} options`}
+          aria-label={optionsAriaLabel ?? t("choice.options", { label })}
           className="react-top-menu__popover react-settings-choice-popover"
           role="menu"
         >

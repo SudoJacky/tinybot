@@ -1,5 +1,7 @@
 import { Check, Loader2, RotateCcw } from "lucide-react";
+import type { TFunction } from "i18next";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import {
   applyDesktopSettingsFieldEdit,
   buildDesktopSettingsPaneModel,
@@ -21,30 +23,6 @@ type ConfigSettingsPageProps = {
   settingsStore: SettingsStore;
 };
 
-const GROUP_COPY: Record<ConfigSettingsGroupId, { title: string; description: string }> = {
-  "tools-mcp": {
-    title: "Tools & MCP",
-    description: "Configure built-in tools, workspace boundaries, and raw MCP server definitions.",
-  },
-  channels: {
-    title: "Channels",
-    description: "Choose which progress signals are emitted and how failed deliveries are retried.",
-  },
-};
-
-const FIELD_COPY: Record<string, string> = {
-  webEnable: "Allow agents to use configured web tools.",
-  execEnable: "Allow agents to execute local commands. Enable only for trusted workspaces.",
-  webProxy: "Optional HTTP proxy for web requests.",
-  searchProvider: "Default search backend used by web search tools.",
-  execTimeout: "Maximum runtime for one command, in seconds.",
-  restrictToWorkspace: "Keep local command and file access inside the active workspace.",
-  mcpServers: "JSON object containing MCP server definitions. Secrets should reference environment variables.",
-  sendProgress: "Send intermediate progress events to connected clients.",
-  sendToolHints: "Include tool activity hints with progress events.",
-  sendMaxRetries: "Maximum delivery retries after a channel send failure.",
-};
-
 const EXPOSED_FIELDS: Record<ConfigSettingsGroupId, readonly string[]> = {
   "tools-mcp": [
     "webEnable",
@@ -59,22 +37,17 @@ const EXPOSED_FIELDS: Record<ConfigSettingsGroupId, readonly string[]> = {
 };
 
 export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPageProps) {
+  const { t: tCommon } = useTranslation("common");
+  const { t } = useTranslation("settings");
   const [data, setData] = useState<DesktopConfigSettingsData | null>(null);
   const [draft, setDraft] = useState<DesktopSettingsFormState | null>(null);
   const [advancedVisible, setAdvancedVisible] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<string | null>(null);
+  const [statusState, setStatusState] = useState<SettingsSaveState>("idle");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const saveState: SettingsSaveState = saving
-    ? "saving"
-    : status?.startsWith("Save failed:")
-      ? "error"
-      : status?.startsWith("Saved")
-        ? "saved"
-        : status
-          ? "notice"
-          : "idle";
+  const saveState: SettingsSaveState = saving ? "saving" : statusState;
 
   useEffect(() => {
     let cancelled = false;
@@ -82,6 +55,7 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
     setDraft(null);
     setErrors({});
     setStatus(null);
+    setStatusState("idle");
     settingsStore.loadDesktopConfigSettings?.()
       .then((snapshot) => {
         if (!cancelled) {
@@ -111,13 +85,15 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
   const visibleFields = fields.filter((field) => advancedVisible || !field.advanced);
   const hasAdvancedFields = fields.some((field) => field.advanced);
   const dirty = pane?.dirty === true;
-  const copy = GROUP_COPY[groupId];
+  const copy = groupId === "tools-mcp"
+    ? { title: t("config.toolsTitle"), description: t("config.toolsDescription") }
+    : { title: t("config.channelsTitle"), description: t("config.channelsDescription") };
 
   function editField(field: DesktopSettingsPaneField, value: string | boolean) {
     if (!draft) {
       return;
     }
-    if (field.confirmation && confirmationApplies(field, value) && !window.confirm(field.confirmation.message)) {
+    if (field.confirmation && confirmationApplies(field, value) && !window.confirm(confirmationMessage(field, t))) {
       return;
     }
     setDraft(applyDesktopSettingsFieldEdit(draft, field.id, value));
@@ -127,6 +103,7 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
       return next;
     });
     setStatus(null);
+    setStatusState("idle");
   }
 
   function resetDraft() {
@@ -136,6 +113,7 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
     setDraft(data.formState);
     setErrors({});
     setStatus(null);
+    setStatusState("idle");
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -143,29 +121,34 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
     if (!data || !draft || !settingsStore.saveDesktopConfigSettings || !group) {
       return;
     }
-    const nextErrors = validateGroup(fields);
+    const nextErrors = validateGroup(fields, t);
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) {
       if (fields.some((field) => field.advanced && nextErrors[field.id])) {
         setAdvancedVisible(true);
       }
-      setStatus("Review the highlighted fields before saving.");
+      setStatus(t("config.reviewFields"));
+      setStatusState("notice");
       return;
     }
     const patch = createDesktopSettingsPatch(draft, data.currentConfig);
     if (!Object.keys(patch).length) {
-      setStatus("No changes to save.");
+      setStatus(t("config.noChanges"));
+      setStatusState("notice");
       return;
     }
     setSaving(true);
-    setStatus("Saving…");
+    setStatus(t("config.saving"));
+    setStatusState("saving");
     try {
       const saved = await settingsStore.saveDesktopConfigSettings(data.currentConfig, patch);
       setData(saved);
       setDraft(saved.formState);
-      setStatus(formatSaveStatus(saved));
+      setStatus(formatSaveStatus(saved, t));
+      setStatusState("saved");
     } catch (error) {
-      setStatus(`Save failed: ${errorMessage(error)}`);
+      setStatus(t("config.saveFailed", { message: errorMessage(error) }));
+      setStatusState("error");
     } finally {
       setSaving(false);
     }
@@ -175,7 +158,7 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
     return <p className="react-settings-alert" role="alert">{loadError}</p>;
   }
   if (!data || !draft || !group) {
-    return <p className="react-empty-state">Loading {copy.title.toLowerCase()} settings…</p>;
+    return <p className="react-empty-state">{t("config.loading", { section: copy.title })}</p>;
   }
 
   return (
@@ -185,7 +168,7 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
           <h2 id={`${groupId}-settings-title`}>{copy.title}</h2>
           <p>{copy.description}</p>
         </div>
-        <span className="react-config-settings__persistence">Saved to Tinybot config</span>
+        <span className="react-config-settings__persistence">{t("config.persisted")}</span>
       </header>
 
       <SettingsSaveStatus message={status} state={saveState} />
@@ -208,25 +191,25 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
             type="button"
             onClick={() => setAdvancedVisible((visible) => !visible)}
           >
-            {advancedVisible ? "Hide advanced settings" : "Show advanced settings"}
+            {advancedVisible ? t("config.hideAdvanced") : t("config.showAdvanced")}
           </button>
         ) : null}
 
         <footer>
           <div>
-            <span>{revisionFromConfig(data.currentConfig)}</span>
-            {dirty ? <small>Unsaved changes</small> : <small>Up to date</small>}
+            <span>{revisionFromConfig(data.currentConfig, t)}</span>
+            {dirty ? <small>{t("config.unsaved")}</small> : <small>{t("config.upToDate")}</small>}
           </div>
           <div>
             <button data-press-feedback="true" type="button" disabled={!dirty || saving} onClick={resetDraft}>
               <RotateCcw aria-hidden="true" size={14} />
-              Reset
+              {t("config.reset")}
             </button>
             <button className="react-config-settings__save" data-press-feedback="true" type="submit" disabled={!dirty || saving}>
               {saving
                 ? <Loader2 aria-hidden="true" className="react-settings-spinner" size={15} />
                 : <Check aria-hidden="true" size={15} />}
-              {saving ? "Saving" : "Save changes"}
+              {saving ? tCommon("generic.saving") : t("config.saveChanges")}
             </button>
           </div>
         </footer>
@@ -244,17 +227,18 @@ function ConfigField({
   field: DesktopSettingsPaneField;
   onChange: (value: string | boolean) => void;
 }) {
-  const description = field.description || FIELD_COPY[field.id];
+  const { t } = useTranslation("settings");
+  const copy = configFieldCopy(field, t);
   if (field.control === "checkbox") {
     return (
       <label className="react-config-settings__toggle" data-disabled={field.disabled || undefined}>
         <span>
-          <strong>{field.label}</strong>
-          {description ? <small>{description}</small> : null}
+          <strong>{copy.label}</strong>
+          {copy.description ? <small>{copy.description}</small> : null}
           {field.notice ? <small className="react-config-settings__notice">{field.notice}</small> : null}
         </span>
         <input
-          aria-label={field.label}
+          aria-label={copy.label}
           checked={field.checked === true}
           disabled={field.disabled}
           type="checkbox"
@@ -269,13 +253,13 @@ function ConfigField({
   return (
     <label className={field.control === "textarea" ? "react-config-settings__field react-config-settings__field--wide" : "react-config-settings__field"}>
       <span>
-        <strong>{field.label}</strong>
-        {field.advanced ? <em>Advanced</em> : null}
+        <strong>{copy.label}</strong>
+        {field.advanced ? <em>{t("config.advanced")}</em> : null}
       </span>
-      {description ? <small>{description}</small> : null}
+      {copy.description ? <small>{copy.description}</small> : null}
       {field.control === "select" ? (
         <select
-          aria-label={field.label}
+          aria-label={copy.label}
           id={controlId}
           disabled={field.disabled}
           value={field.inputValue}
@@ -287,7 +271,7 @@ function ConfigField({
         </select>
       ) : field.control === "textarea" ? (
         <textarea
-          aria-label={field.label}
+          aria-label={copy.label}
           id={controlId}
           aria-invalid={Boolean(error)}
           disabled={field.disabled}
@@ -299,7 +283,7 @@ function ConfigField({
       ) : (
         <div className="react-config-settings__input-wrap">
           <input
-            aria-label={field.label}
+            aria-label={copy.label}
             id={controlId}
             aria-invalid={Boolean(error)}
             disabled={field.disabled}
@@ -319,42 +303,90 @@ function ConfigField({
   );
 }
 
-function validateGroup(fields: DesktopSettingsPaneField[]): Record<string, string> {
+const CONFIG_FIELD_IDS = new Set([
+  "execEnable",
+  "execTimeout",
+  "mcpServers",
+  "restrictToWorkspace",
+  "searchProvider",
+  "sendMaxRetries",
+  "sendProgress",
+  "sendToolHints",
+  "webEnable",
+  "webProxy",
+]);
+
+function configFieldCopy(
+  field: DesktopSettingsPaneField,
+  t: TFunction<"settings">,
+): { description?: string; label: string } {
+  if (!CONFIG_FIELD_IDS.has(field.id)) {
+    return { description: field.description, label: field.label };
+  }
+  const fieldId = field.id as
+    | "execEnable"
+    | "execTimeout"
+    | "mcpServers"
+    | "restrictToWorkspace"
+    | "searchProvider"
+    | "sendMaxRetries"
+    | "sendProgress"
+    | "sendToolHints"
+    | "webEnable"
+    | "webProxy";
+  return {
+    description: t(`config.fields.${fieldId}`),
+    label: t(`config.fieldLabels.${fieldId}`),
+  };
+}
+
+function confirmationMessage(field: DesktopSettingsPaneField, t: TFunction<"settings">): string {
+  if (field.id === "execEnable") {
+    return t("config.confirmation.execEnable");
+  }
+  if (field.id === "restrictToWorkspace") {
+    return t("config.confirmation.restrictToWorkspace");
+  }
+  return field.confirmation?.message ?? "";
+}
+
+function validateGroup(fields: DesktopSettingsPaneField[], t: TFunction<"settings">): Record<string, string> {
   const errors: Record<string, string> = {};
   for (const field of fields) {
     if (field.disabled || field.control === "readonly") {
       continue;
     }
     if (field.state === "invalid") {
-      errors[field.id] = invalidFieldMessage(field);
+      errors[field.id] = invalidFieldMessage(field, t);
       continue;
     }
     if (field.requirement === "required" && !field.inputValue.trim()) {
-      errors[field.id] = `${field.label} is required.`;
+      errors[field.id] = t("config.required", { label: configFieldCopy(field, t).label });
       continue;
     }
     if (field.control === "number" && field.inputValue.trim()) {
       const value = Number(field.inputValue);
       if (!Number.isFinite(value)) {
-        errors[field.id] = `${field.label} must be a number.`;
+        errors[field.id] = t("config.number", { label: configFieldCopy(field, t).label });
       } else if (field.min !== undefined && value < field.min) {
-        errors[field.id] = `${field.label} must be at least ${field.min}.`;
+        errors[field.id] = t("config.minimum", { label: configFieldCopy(field, t).label, min: field.min });
       } else if (field.max !== undefined && value > field.max) {
-        errors[field.id] = `${field.label} must be at most ${field.max}.`;
+        errors[field.id] = t("config.maximum", { label: configFieldCopy(field, t).label, max: field.max });
       }
     }
   }
   return errors;
 }
 
-function invalidFieldMessage(field: DesktopSettingsPaneField): string {
+function invalidFieldMessage(field: DesktopSettingsPaneField, t: TFunction<"settings">): string {
+  const label = configFieldCopy(field, t).label;
   if (field.id === "mcpServers") {
-    return "MCP servers must be a valid JSON object.";
+    return t("config.invalidJson", { label });
   }
   if (field.configurationMode === "url") {
-    return `${field.label} must be a valid URL.`;
+    return t("config.invalidUrl", { label });
   }
-  return `${field.label} is invalid.`;
+  return t("config.invalid", { label });
 }
 
 function confirmationApplies(field: DesktopSettingsPaneField, value: string | boolean): boolean {
@@ -366,23 +398,25 @@ function confirmationApplies(field: DesktopSettingsPaneField, value: string | bo
     || (field.confirmation.when === "disable" && !value);
 }
 
-function formatSaveStatus(saved: DesktopConfigSettingsSaveResult): string {
+function formatSaveStatus(saved: DesktopConfigSettingsSaveResult, t: TFunction<"settings">): string {
   if (saved.saveDetails.restartRequired.length) {
-    return "Saved. Restart Tinybot to apply this change.";
+    return t("config.savedRestart");
   }
   if (saved.saveDetails.reloadRequired.length) {
-    return "Saved. Reload the active workspace to apply this change.";
+    return t("config.savedReload");
   }
-  return "Saved to Tinybot config.";
+  return t("config.saved");
 }
 
-function revisionFromConfig(config: unknown): string {
+function revisionFromConfig(config: unknown, t: TFunction<"settings">): string {
   if (!config || typeof config !== "object" || Array.isArray(config)) {
-    return "Config revision unavailable";
+    return t("config.revisionUnavailable");
   }
   const record = config as Record<string, unknown>;
   const revision = record.revision;
-  return typeof revision === "string" && revision ? `Config revision ${revision}` : "Config revision unavailable";
+  return typeof revision === "string" && revision
+    ? t("config.revision", { revision })
+    : t("config.revisionUnavailable");
 }
 
 function friendlyOptionLabel(value: string): string {

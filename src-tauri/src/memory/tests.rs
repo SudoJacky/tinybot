@@ -127,6 +127,58 @@ fn sqlite_pipeline_records_fragments_and_applies_selection_diff() {
 }
 
 #[test]
+fn active_memories_returns_the_canonical_set_in_stable_scope_order() {
+    let fixture = MemoryFixture::new("active-view");
+    fixture.extract(
+        "thread-1",
+        "turn-1",
+        vec![
+            ExtractedMemory {
+                scope: MemoryScope::Workspace,
+                content: "This workspace uses Rust.".to_string(),
+            },
+            ExtractedMemory {
+                scope: MemoryScope::User,
+                content: "User prefers concise answers.".to_string(),
+            },
+        ],
+    );
+    let input = fixture.store.phase2_input().unwrap().unwrap();
+    fixture
+        .store
+        .apply_selection_diff(
+            &input,
+            &SelectionDiff {
+                add: vec![
+                    SelectionAdd {
+                        scope: MemoryScope::Workspace,
+                        path: Some(fixture.workspace_path.clone()),
+                        content: "This workspace uses Rust.".to_string(),
+                    },
+                    SelectionAdd {
+                        scope: MemoryScope::User,
+                        path: None,
+                        content: "User prefers concise answers.".to_string(),
+                    },
+                ],
+                update: Vec::new(),
+                remove: Vec::new(),
+            },
+        )
+        .unwrap();
+
+    let active = fixture.store.active_memories().unwrap();
+    assert_eq!(active.len(), 2);
+    assert_eq!(active[0].scope, MemoryScope::User);
+    assert_eq!(active[0].content, "User prefers concise answers.");
+    assert_eq!(active[1].scope, MemoryScope::Workspace);
+    assert_eq!(
+        active[1].path.as_deref(),
+        Some(fixture.workspace_path.as_str())
+    );
+}
+
+#[test]
 fn processed_turn_is_idempotent() {
     let fixture = MemoryFixture::new("idempotent");
     let memory = ExtractedMemory {

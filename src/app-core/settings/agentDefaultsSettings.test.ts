@@ -87,7 +87,7 @@ describe("agent defaults settings", () => {
       contextWindowStrategy: "compact",
       maxToolIterations: "8",
     })).toEqual({
-      temperature: "Temperature must be a number between 0 and 2.",
+      temperature: "temperature-number",
     });
     expect(buildAgentDefaultsPatch({
       timezone: "UTC",
@@ -115,11 +115,11 @@ describe("agent defaults settings", () => {
       contextWindowStrategy: "invalid",
       maxToolIterations: "-1",
     })).toEqual({
-      temperature: "Temperature must be between 0 and 2.",
-      maxTokens: "Max output tokens must be a positive integer.",
-      contextWindowTokens: "Context window budget must be a positive integer.",
-      contextWindowStrategy: "Context window strategy must be discard or compact.",
-      maxToolIterations: "Max tool iterations must be a positive integer.",
+      temperature: "temperature-range",
+      maxTokens: "max-tokens",
+      contextWindowTokens: "context-budget",
+      contextWindowStrategy: "context-strategy",
+      maxToolIterations: "max-tool-iterations",
     });
   });
 });

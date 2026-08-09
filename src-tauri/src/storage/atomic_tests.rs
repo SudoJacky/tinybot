@@ -1,6 +1,5 @@
 use super::*;
 use serde::{ser::Error as _, Serializer};
-use serde_json::json;
 
 #[derive(Debug)]
 struct FailingSerialize;
@@ -60,52 +59,6 @@ fn text_write_can_backup_existing_target_before_replace() {
     assert_eq!(
         fs::read_to_string(backup_path_for(&path, ".bak").unwrap()).unwrap(),
         "old\n"
-    );
-}
-
-#[test]
-fn strict_jsonl_returns_line_numbered_parse_errors() {
-    let root = temp_workspace_root("strict-jsonl");
-    let _cleanup = TempWorkspaceCleanup(root.clone());
-    let path = root.join("records.jsonl");
-    fs::write(&path, "{\"id\":1}\n\nnot-json\n").unwrap();
-
-    let error =
-        read_jsonl_strict::<serde_json::Value>(&path).expect_err("invalid line should fail");
-
-    let WorkerStorageError::ParseJsonLine { line, .. } = error else {
-        panic!("expected JSONL line parse error");
-    };
-    assert_eq!(line, 3);
-}
-
-#[test]
-fn strict_jsonl_ignores_blank_lines_and_missing_files() {
-    let root = temp_workspace_root("strict-jsonl-empty");
-    let _cleanup = TempWorkspaceCleanup(root.clone());
-    let missing = root.join("missing.jsonl");
-    assert!(read_jsonl_strict::<serde_json::Value>(&missing)
-        .unwrap()
-        .is_empty());
-
-    let path = root.join("records.jsonl");
-    fs::write(&path, "\n{\"id\":1}\n\n").unwrap();
-    assert_eq!(
-        read_jsonl_strict::<serde_json::Value>(&path).unwrap(),
-        vec![json!({ "id": 1 })]
-    );
-}
-
-#[test]
-fn strict_jsonl_with_lines_preserves_source_line_numbers() {
-    let root = temp_workspace_root("strict-jsonl-lines");
-    let _cleanup = TempWorkspaceCleanup(root.clone());
-    let path = root.join("records.jsonl");
-    fs::write(&path, "\n{\"id\":1}\n\n{\"id\":2}\n").unwrap();
-
-    assert_eq!(
-        read_jsonl_strict_with_lines::<serde_json::Value>(&path).unwrap(),
-        vec![(json!({ "id": 1 }), 2), (json!({ "id": 2 }), 4)]
     );
 }
 

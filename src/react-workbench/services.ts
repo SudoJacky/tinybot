@@ -102,6 +102,22 @@ export type WorkspaceStore = {
   readFile(request: { cursor?: string; path: string }): Promise<WorkspaceFileChunk>;
 };
 
+export type MemoryWorkspace = {
+  path: string;
+  current: boolean;
+  memories: string[];
+};
+
+export type MemorySnapshot = {
+  currentWorkspacePath: string;
+  userMemories: string[];
+  workspaces: MemoryWorkspace[];
+};
+
+export type MemoryStore = {
+  load(): Promise<MemorySnapshot>;
+};
+
 export type PluginSummary = {
   name: string;
   version?: string;
@@ -207,6 +223,7 @@ export type ChatModelOption = {
 export type AppServices = {
   sessionStore: SessionStore;
   chatStore: ChatStore;
+  memoryStore: MemoryStore;
   workspaceStore: WorkspaceStore;
   toolsStore: ToolsStore;
   settingsStore: SettingsStore;

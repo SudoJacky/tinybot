@@ -273,6 +273,16 @@ impl MemoryStore {
         Ok(render_prompt_memories(&memories))
     }
 
+    pub(crate) fn active_memories(&self) -> Result<Vec<MemoryRecord>, String> {
+        let connection = self.open()?;
+        query_memories(
+            &connection,
+            "SELECT id, scope, path, content FROM memories \
+             ORDER BY CASE scope WHEN 'user' THEN 0 ELSE 1 END, path, content, id",
+            [],
+        )
+    }
+
     pub(crate) fn write_latest_markdown(&self) -> Result<bool, String> {
         let connection = self.open()?;
         let memories = query_memories(

@@ -559,7 +559,7 @@ describe("ChatPage", () => {
       tabId: "tab-handoff",
     }));
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
-      text: "我已完成浏览器中的必要操作。请重新读取当前页面，并从转交前的位置继续。",
+      text: "I completed the required action in the browser. Read the current page again and continue from where control was handed off.",
     }));
   });
 
@@ -874,7 +874,7 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const sidebar = await screen.findByLabelText("Sessions");
-    await user.click(within(sidebar).getByRole("button", { name: "New Chat" }));
+    await user.click(within(sidebar).getByRole("button", { name: "New chat" }));
 
     expect(stores.sessionStore.create).toHaveBeenCalledWith({ workingDirectory });
   });
@@ -905,7 +905,7 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const sidebar = await screen.findByLabelText("Sessions");
-    await user.click(within(sidebar).getByRole("button", { name: "New Chat" }));
+    await user.click(within(sidebar).getByRole("button", { name: "New chat" }));
 
     expect(stores.sessionStore.create).toHaveBeenCalledWith({});
   });
@@ -1104,7 +1104,7 @@ describe("ChatPage", () => {
     expect(sessionEmptyState.getAttribute("data-text-type")).toBe("once");
     expect(sessionEmptyState.getAttribute("aria-label")).toBe("No sessions yet.");
     expect(within(sessionEmptyState).getByTestId("text-type-visual")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "新会话" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "New chat" })).toBeTruthy();
     expect(screen.queryByLabelText("Select or create a session.")).toBeNull();
     expect(stores.sessionStore.create).not.toHaveBeenCalled();
     expect(within(start).getByLabelText("Prompt suggestions")).toBeTruthy();
@@ -1132,7 +1132,7 @@ describe("ChatPage", () => {
     const input = screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
 
     expect(input.disabled).toBe(false);
-    expect(screen.getByRole("heading", { name: "新会话" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "New chat" })).toBeTruthy();
     expect(stores.sessionStore.create).not.toHaveBeenCalled();
 
     await user.type(input, "Hello from an empty app");
@@ -1224,9 +1224,9 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: "Search chats" }));
 
     const dialog = screen.getByRole("dialog", { name: "Chat search" });
-    const input = within(dialog).getByRole("textbox", { name: "Search chats or commands" }) as HTMLInputElement;
+    const input = within(dialog).getByRole("textbox", { name: "Search chats or run a command" }) as HTMLInputElement;
 
-    expect(input.placeholder).toBe("搜索聊天或运行命令");
+    expect(input.placeholder).toBe("Search chats or run a command");
     expect(within(dialog).getByRole("button", { name: /Planning notes/ })).toBeTruthy();
 
     await user.type(input, "react");
@@ -1250,11 +1250,11 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: "Search chats" }));
 
     const dialog = screen.getByRole("dialog", { name: "Chat search" });
-    await user.click(within(dialog).getByRole("button", { name: /New Chat/ }));
+    await user.click(within(dialog).getByRole("button", { name: /New chat/ }));
 
     await waitFor(() => expect(stores.sessionStore.create).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole("dialog", { name: "Chat search" })).toBeNull();
-    expect(screen.getByRole("heading", { name: "新会话" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "New chat" })).toBeTruthy();
   });
 
   it("uses a raised start layout for an empty active session", async () => {
@@ -1268,9 +1268,9 @@ describe("ChatPage", () => {
     const input = screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
 
     expect(start.getAttribute("data-empty-session")).toBe("true");
-    expect(screen.getByRole("heading", { name: "想让 Tinybot 做什么？" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "What do you want Tinybot to do?" })).toBeTruthy();
     expect(composer.classList.contains("react-composer--raised")).toBe(true);
-    expect(input.placeholder).toBe("输入任务，或粘贴/拖入文件");
+    expect(input.placeholder).toBe("Enter a task, or paste/drop files");
     expect(screen.queryByLabelText("Select or create a session.")).toBeNull();
   });
 
@@ -1282,10 +1282,10 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const start = await screen.findByLabelText("Start a new chat");
-    const suggestion = within(start).getByRole("button", { name: "规划一个任务并列出执行步骤" });
+    const suggestion = within(start).getByRole("button", { name: "Plan a task and list the implementation steps" });
     await user.click(suggestion);
 
-    expect((screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement).value).toBe("规划一个任务并列出执行步骤");
+    expect((screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement).value).toBe("Plan a task and list the implementation steps");
     expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
   });
 
@@ -1298,7 +1298,7 @@ describe("ChatPage", () => {
 
     expect(screen.queryByLabelText("Start a new chat")).toBeNull();
     expect(composer.classList.contains("react-composer--raised")).toBe(false);
-    expect(screen.getByRole("textbox", { name: /message/i }).getAttribute("placeholder")).toBe("输入消息给 Tinybot");
+    expect(screen.getByRole("textbox", { name: /message/i }).getAttribute("placeholder")).toBe("Message Tinybot");
     expect(message).toBeTruthy();
   });
 
@@ -1312,12 +1312,12 @@ describe("ChatPage", () => {
     await user.type(input, "/rev");
 
     const commands = screen.getByRole("listbox", { name: "Slash commands" });
-    expect(within(commands).getByRole("option", { name: /\/review 审查改动/ })).toBeTruthy();
+    expect(within(commands).getByRole("option", { name: /\/review Review changes/ })).toBeTruthy();
     expect(within(commands).queryByRole("option", { name: /\/plan/ })).toBeNull();
 
     await user.keyboard("{Enter}");
 
-    expect(input.value).toBe("请审查当前工作区的代码改动，优先报告明确的缺陷、回归风险和缺失测试。");
+    expect(input.value).toBe("Review the current workspace changes. Prioritize concrete defects, regression risks, and missing tests.");
     expect(screen.queryByRole("listbox", { name: "Slash commands" })).toBeNull();
     expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
   });
@@ -1341,12 +1341,12 @@ describe("ChatPage", () => {
       target: { sessionId: "s1" },
     })));
     expect(input.value).toBe("");
-    expect(screen.getByRole("status").textContent).toContain("正在压缩上下文");
+    expect(screen.getByRole("status").textContent).toContain("Compacting context");
     expect(screen.queryByText("/compact")).toBeNull();
     expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
 
     act(() => resolveCompact());
-    await waitFor(() => expect(screen.queryByText("正在压缩上下文")).toBeNull());
+    await waitFor(() => expect(screen.queryByText("Compacting context")).toBeNull());
   });
 
   it("surfaces /compact failures and removes the running state", async () => {
@@ -1363,7 +1363,7 @@ describe("ChatPage", () => {
     await user.keyboard("{Enter}");
 
     expect((await screen.findByRole("alert")).textContent).toContain("Compaction failed at the runtime boundary");
-    expect(screen.queryByText("正在压缩上下文")).toBeNull();
+    expect(screen.queryByText("Compacting context")).toBeNull();
     expect(consoleError).toHaveBeenCalledWith("[chat] context.compact.failed", {
       error: "Compaction failed at the runtime boundary",
       sessionId: "s1",
@@ -1384,13 +1384,13 @@ describe("ChatPage", () => {
     });
     fireEvent.scroll(conversation);
 
-    const back = screen.getByRole("button", { name: "回到最新消息" });
+    const back = screen.getByRole("button", { name: "Back to latest" });
     const scrollIntoView = vi.fn();
     Object.defineProperty(conversation.lastElementChild!, "scrollIntoView", { configurable: true, value: scrollIntoView });
     await user.click(back);
 
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "end" });
-    expect(screen.queryByRole("button", { name: "回到最新消息" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Back to latest" })).toBeNull();
   });
 
   it("renders context window usage as an icon-only composer indicator", async () => {
@@ -1670,12 +1670,12 @@ describe("ChatPage", () => {
       await Promise.resolve();
     });
     const start = screen.getByLabelText("Start a new chat");
-    expect(within(start).getByRole("heading", { name: "想让 Tinybot 做什么？" })).toBeTruthy();
+    expect(within(start).getByRole("heading", { name: "What do you want Tinybot to do?" })).toBeTruthy();
     expect(within(start).getAllByRole("button")).toHaveLength(4);
-    expect(within(start).getByRole("button", { name: "检查方案中可能遗漏的问题" })).toBeTruthy();
+    expect(within(start).getByRole("button", { name: "Check the approach for anything that may have been missed" })).toBeTruthy();
     const nextSuggestions = within(start).getByLabelText("Prompt suggestions");
-    expect(nextSuggestions.textContent).toContain("规划一个任务并列出执行步骤");
-    expect(nextSuggestions.textContent).toContain("检查方案中可能遗漏的问题");
+    expect(nextSuggestions.textContent).toContain("Plan a task and list the implementation steps");
+    expect(nextSuggestions.textContent).toContain("Check the approach for anything that may have been missed");
   });
 
   it("uses a two-click delete confirmation in the session list", async () => {
@@ -1759,8 +1759,8 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const message = await screen.findByTestId("message-a-thinking");
-    const reasoning = within(message).getByLabelText("思考过程");
-    const reasoningToggle = within(reasoning).getByRole("button", { name: /^思考/ });
+    const reasoning = within(message).getByLabelText("Reasoning");
+    const reasoningToggle = within(reasoning).getByRole("button", { name: "Reasoning" });
     expect(reasoningToggle.getAttribute("aria-expanded")).toBe("false");
     expect(within(reasoning).queryByText("Checking the current workspace before answering.")).toBeNull();
 
@@ -1798,8 +1798,8 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const message = await screen.findByTestId("message-a-live-thinking");
-    const reasoning = within(message).getByLabelText("思考过程");
-    const reasoningToggle = within(reasoning).getByRole("button", { name: "正在思考" });
+    const reasoning = within(message).getByLabelText("Reasoning");
+    const reasoningToggle = within(reasoning).getByRole("button", { name: "Thinking" });
     expect(reasoningToggle.getAttribute("aria-expanded")).toBe("true");
     expect(within(reasoning).getByText("Inspecting the workspace.")).toBeTruthy();
 
@@ -1936,7 +1936,7 @@ describe("ChatPage", () => {
     expect(currentStep?.getAttribute("data-status")).toBe("active");
     expect(currentStep?.getAttribute("data-step-index")).toBe("0");
     expect(currentStep?.getAttribute("data-step-count")).toBe("3");
-    expect(currentStep?.querySelector(".react-agent-step__status")?.textContent).toBe("执行中");
+    expect(currentStep?.querySelector(".react-agent-step__status")?.textContent).toBe("In progress");
   });
 
   it("opens tool details in an animated right drawer", async () => {
@@ -2257,7 +2257,7 @@ describe("ChatPage", () => {
     expect(screen.getByText("Inspect model").closest("li")?.getAttribute("data-status")).toBe("completed");
     expect(screen.getByText("Render progress")).toBeTruthy();
     expect(screen.getByText("Run tests").closest("li")?.getAttribute("data-status")).toBe("pending");
-    await user.click(screen.getByText("上下文已压缩"));
+    await user.click(screen.getByText("Context compacted"));
     const compaction = screen.getByText("Before: 12,000 tokens").closest("details");
     expect(compaction?.textContent).toContain("After: 4,200 tokens");
     expect(compaction?.textContent).toContain("Dropped items: 12");
@@ -2312,10 +2312,10 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    const plan = await screen.findByRole("region", { name: "执行计划" });
-    const planToggle = within(plan).getByRole("button", { name: /执行计划/ });
+    const plan = await screen.findByRole("region", { name: "Execution plan" });
+    const planToggle = within(plan).getByRole("button", { name: /Execution plan/ });
     const details = screen.getByRole("button", { name: /Agent steps, 1 step/i });
-    const error = screen.getByRole("alert", { name: "任务执行失败" });
+    const error = screen.getByRole("alert", { name: "Task execution failed" });
     expect(plan.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await waitFor(() => expect(document.activeElement).toBe(error));
     expect(planToggle.getAttribute("aria-expanded")).toBe("true");
@@ -2323,14 +2323,14 @@ describe("ChatPage", () => {
     expect(planToggle.getAttribute("aria-expanded")).toBe("false");
     await user.click(planToggle);
     expect(details.getAttribute("aria-expanded")).toBe("false");
-    expect(error.textContent).toContain("执行达到迭代上限");
+    expect(error.textContent).toContain("Execution reached the iteration limit");
     expect(error.textContent).toContain("Read project files");
-    expect(error.textContent).toContain("已完成 1 个步骤");
-    expect(within(error).getByRole("button", { name: "继续执行" })).toBeTruthy();
-    expect(within(error).getByRole("button", { name: "重试当前步骤" })).toBeTruthy();
-    expect(within(error).getByRole("button", { name: "重新开始" })).toBeTruthy();
+    expect(error.textContent).toContain("1 steps completed");
+    expect(within(error).getByRole("button", { name: "Continue" })).toBeTruthy();
+    expect(within(error).getByRole("button", { name: "Retry current step" })).toBeTruthy();
+    expect(within(error).getByRole("button", { name: "Start over" })).toBeTruthy();
 
-    await user.click(within(error).getByRole("button", { name: "查看详情" }));
+    await user.click(within(error).getByRole("button", { name: "View details" }));
     expect(screen.getByLabelText("Details drawer").textContent).toContain("max_iterations");
   });
 
@@ -2630,8 +2630,8 @@ describe("ChatPage", () => {
 
     const toggle = await screen.findByRole("button", { name: /Work performed Failed · 3 actions/ });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    const error = screen.getByRole("alert", { name: "任务执行失败" });
-    expect(within(error).getByRole("button", { name: "继续执行" })).toBeTruthy();
+    const error = screen.getByRole("alert", { name: "Task execution failed" });
+    expect(within(error).getByRole("button", { name: "Continue" })).toBeTruthy();
   });
 
   it("keeps interrupted work visible without rendering a failure recovery card", async () => {
@@ -2645,7 +2645,7 @@ describe("ChatPage", () => {
 
     expect(await screen.findByRole("button", { name: /Work performed Interrupted/ })).toBeTruthy();
     expect(screen.getByText("Read project files")).toBeTruthy();
-    expect(screen.queryByRole("alert", { name: "任务执行失败" })).toBeNull();
+    expect(screen.queryByRole("alert", { name: "Task execution failed" })).toBeNull();
   });
 
   it("sends a contextual recovery prompt for continue", async () => {
@@ -2655,11 +2655,11 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    const error = await screen.findByRole("alert", { name: "任务执行失败" });
-    await user.click(within(error).getByRole("button", { name: "继续执行" }));
+    const error = await screen.findByRole("alert", { name: "Task execution failed" });
+    await user.click(within(error).getByRole("button", { name: "Continue" }));
 
     expectTurnSubmit(stores.chatStore, "s1", {
-      text: "请从刚才中断的位置继续，沿用现有上下文和计划；先确认当前进度，再完成剩余任务。",
+      text: "Continue from where you were interrupted using the existing context and plan. Confirm the current progress first, then finish the remaining work.",
     });
   });
 
@@ -2675,8 +2675,8 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    const error = await screen.findByRole("alert", { name: "任务执行失败" });
-    await user.click(within(error).getByRole("button", { name: "重试当前步骤" }));
+    const error = await screen.findByRole("alert", { name: "Task execution failed" });
+    await user.click(within(error).getByRole("button", { name: "Retry current step" }));
 
     expect(stores.chatStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
       kind: "operation.retry",
@@ -2693,8 +2693,8 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    const error = await screen.findByRole("alert", { name: "任务执行失败" });
-    await user.click(within(error).getByRole("button", { name: "重新开始" }));
+    const error = await screen.findByRole("alert", { name: "Task execution failed" });
+    await user.click(within(error).getByRole("button", { name: "Start over" }));
 
     expect(stores.sessionStore.create).toHaveBeenCalledWith({ title: "Inspect the project and repo…" });
     expectTurnSubmit(stores.chatStore, "s2", { text: "Inspect the project and report findings" });
@@ -2855,7 +2855,7 @@ describe("ChatPage", () => {
     const assistantMessage = await screen.findByTestId("message-a-markdown");
     expect(userMessage.querySelector("strong")).toBeNull();
     expect(within(userMessage).getByText("**keep user syntax literal**")).toBeTruthy();
-    await user.click(within(assistantMessage).getByRole("button", { name: /^思考/ }));
+    await user.click(within(assistantMessage).getByRole("button", { name: "Reasoning" }));
     expect(assistantMessage.querySelector(".react-message-reasoning strong")).toBeNull();
     expect(within(assistantMessage).getByText("**keep reasoning syntax literal**")).toBeTruthy();
     expect(assistantMessage.querySelector(".react-message-markdown strong")?.textContent).toBe("format the answer");
@@ -3099,8 +3099,8 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
     expectTurnSubmit(stores.chatStore, "s1", { reasoningEffort: "medium", text: "Start another turn" });
-    expect(screen.queryByRole("button", { name: "插入当前任务" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "排队为下一轮" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Interrupt current task" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Queue as next turn" })).toBeNull();
   });
 
   it("interrupts the canonical active turn even when the session summary is stale", async () => {
@@ -3163,7 +3163,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: "Attach files" }));
     await waitFor(() => expect(nativeFilePickerMocks.pickDesktopChatFiles).toHaveBeenCalledTimes(1));
     await user.type(input, "Use the new API instead");
-    await user.click(screen.getByRole("button", { name: "插入当前任务" }));
+    await user.click(screen.getByRole("button", { name: "Interrupt current task" }));
 
     const cancelCommand = vi.mocked(stores.chatStore.dispatch).mock.calls
       .map(([command]) => command)
@@ -3172,7 +3172,7 @@ describe("ChatPage", () => {
       target: expect.objectContaining({ sessionId: "s1", turnId: active.id }),
     }));
     expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
-    expect(screen.getByLabelText("Queued inputs").textContent).toContain("正在中断当前回复");
+    expect(screen.getByLabelText("Queued inputs").textContent).toContain("Interrupting the current response");
 
     act(() => subscribed?.({
       eventType: "agent.turn.interrupted",
@@ -3633,7 +3633,7 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     await screen.findByText("No sessions yet.");
-    await user.click(screen.getByRole("button", { name: "New Chat" }));
+    await user.click(screen.getByRole("button", { name: "New chat" }));
     const input = await screen.findByRole("textbox", { name: /message/i });
     await user.type(input, "Summarize this pending chat");
     await user.click(screen.getByRole("button", { name: /send message/i }));
@@ -3667,8 +3667,8 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const message = await screen.findByTestId("message-assistant-live");
-    const reasoning = within(message).getByLabelText("思考过程");
-    expect(within(reasoning).getByRole("button", { name: "正在思考" }).getAttribute("aria-expanded")).toBe("true");
+    const reasoning = within(message).getByLabelText("Reasoning");
+    expect(within(reasoning).getByRole("button", { name: "Thinking" }).getAttribute("aria-expanded")).toBe("true");
     expect(reasoning.textContent).toContain("I am checking the available context.");
     expect(within(message).getByLabelText("Context").textContent).toContain("Project note");
     expect(within(message).getByLabelText("Context").textContent).toContain("Use current backend contracts.");
@@ -3707,8 +3707,8 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     await screen.findByText("No sessions yet.");
-    await user.click(screen.getByRole("button", { name: "New Chat" }));
-    expect(await screen.findByRole("heading", { name: "新会话" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "New chat" }));
+    expect(await screen.findByRole("heading", { name: "New chat" })).toBeTruthy();
 
     const input = screen.getByRole("textbox", { name: /message/i });
     await user.type(input, "Summarize docs");
@@ -3718,7 +3718,7 @@ describe("ChatPage", () => {
       reasoningEffort: "medium",
       text: "Summarize docs",
     }));
-    expect(screen.queryByRole("heading", { name: "未选择会话" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "No conversation selected" })).toBeNull();
     expect(screen.getByRole("button", { name: "Summarize docs" })).toBeTruthy();
 
     subscribed?.({ type: "chat.created" });
