@@ -35,6 +35,7 @@ export default defineConfig(async () => ({
   },
   test: {
     include: ["src/**/*.test.ts", "src/**/*.test.tsx", "workers/**/*.test.ts"],
+    setupFiles: ["src/react-workbench/test/setupI18n.ts"],
   },
 }));
 

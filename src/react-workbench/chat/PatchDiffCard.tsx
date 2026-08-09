@@ -1,5 +1,7 @@
 import { useMemo } from "react";
+import type { TFunction } from "i18next";
 import { Copy, FileDiff } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { ChatStepStatus, ToolCallState } from "../../app-core/chat/chatTurnModel";
 import { ToolActivityFrame } from "./ToolActivityItem";
 
@@ -61,6 +63,7 @@ export function PatchDiffCard({
   status: ChatStepStatus;
   toolCall: ToolCallState;
 }) {
+  const { t } = useTranslation("chat");
   const changes = useMemo(() => patchChangeSetFromToolResult(toolCall.resultJson), [toolCall.resultJson]);
   if (!changes?.files.length) {
     return null;
@@ -72,21 +75,21 @@ export function PatchDiffCard({
     },
     { additions: 0, removals: 0 },
   );
-  const title = patchChangeTitle(changes.files);
+  const title = patchChangeTitle(changes.files, t);
 
   return (
-    <section aria-label="Changes from apply_patch" className="react-patch-change">
+    <section aria-label={t("patch.label")} className="react-patch-change">
       <ToolActivityFrame
-        category="Code edit"
+        category={t("patch.category")}
         durationMs={toolCall.durationMs}
         icon={<FileDiff size={17} />}
         onOpenDetails={onOpenDetails}
         status={status}
         title={title}
       >
-        <div aria-label="Changed files" className="react-patch-change__file-summary">
+        <div aria-label={t("patch.changedFiles")} className="react-patch-change__file-summary">
           <header>
-            <span>{changes.files.length} {changes.files.length === 1 ? "file" : "files"} changed</span>
+            <span>{t("patch.filesChanged", { count: changes.files.length })}</span>
             <PatchStats additions={totals.additions} removals={totals.removals} />
           </header>
           {changes.files.map((file, index) => {
@@ -97,9 +100,9 @@ export function PatchDiffCard({
                 <span className="react-patch-change__file-path" title={path}>{path}</span>
                 <PatchStats additions={stats.additions} removals={stats.removals} />
                 <button
-                  aria-label={`Copy diff for ${path}`}
+                  aria-label={t("patch.copyFor", { path })}
                   className="react-patch-file__copy"
-                  title="Copy diff"
+                  title={t("patch.copy")}
                   type="button"
                   onClick={() => void navigator.clipboard?.writeText(unifiedPatchText(file))}
                 >
@@ -120,9 +123,10 @@ export function PatchDiffCard({
 }
 
 function PatchFileDiff({ file }: { file: PatchFileChange }) {
+  const { t } = useTranslation("chat");
   const path = displayPath(file);
   return (
-    <article aria-label={`Diff for ${path}`} className="react-patch-file">
+    <article aria-label={t("patch.diffFor", { path })} className="react-patch-file">
       <header className="react-patch-file__header">
         <div className="react-patch-file__path" title={path}>
           <strong>{fileName(path)}</strong>
@@ -130,7 +134,7 @@ function PatchFileDiff({ file }: { file: PatchFileChange }) {
         </div>
       </header>
       {file.deltaTruncated ? (
-        <p className="react-patch-file__notice">Preview unavailable because this change is larger than 2 MiB.</p>
+        <p className="react-patch-file__notice">{t("patch.previewUnavailable")}</p>
       ) : (
         <div className="react-patch-file__diff" role="table">
           {file.delta.map((hunk, hunkIndex) => (
@@ -164,8 +168,9 @@ function PatchHunk({ hunk }: { hunk: PatchHunkDelta }) {
 }
 
 function PatchStats({ additions, removals }: { additions: number; removals: number }) {
+  const { t } = useTranslation("chat");
   return (
-    <span aria-label={`${additions} additions, ${removals} removals`} className="react-patch-stats">
+    <span aria-label={t("patch.stats", { additions, removals })} className="react-patch-stats">
       <span>+{additions}</span>
       <span>-{removals}</span>
     </span>
@@ -297,21 +302,21 @@ function patchFileStats(file: PatchFileChange): { additions: number; removals: n
   );
 }
 
-function patchChangeTitle(files: PatchFileChange[]): string {
+function patchChangeTitle(files: PatchFileChange[], t: TFunction<"chat">): string {
   if (files.length !== 1) {
-    return `Edited ${files.length} files`;
+    return t("patch.editedFiles", { count: files.length });
   }
   const target = fileName(files[0].movePath ?? files[0].path);
   if (files[0].movePath) {
-    return `Moved ${target}`;
+    return t("patch.moved", { name: target });
   }
   if (files[0].operation === "add") {
-    return `Created ${target}`;
+    return t("patch.created", { name: target });
   }
   if (files[0].operation === "delete") {
-    return `Deleted ${target}`;
+    return t("patch.deleted", { name: target });
   }
-  return `Edited ${target}`;
+  return t("patch.edited", { name: target });
 }
 
 function displayPath(file: PatchFileChange): string {

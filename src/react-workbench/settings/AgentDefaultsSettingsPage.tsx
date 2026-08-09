@@ -1,11 +1,14 @@
 import { ArrowUpRight, Check, Loader2 } from "lucide-react";
+import type { TFunction } from "i18next";
 import { useEffect, useState, type FormEvent } from "react";
+import { useTranslation } from "react-i18next";
 import {
   buildAgentDefaultsPatch,
   buildAgentDefaultsSettings,
   validateAgentDefaultsInput,
   type AgentDefaultsFormValues,
   type AgentDefaultsSettingsData,
+  type AgentDefaultsValidationErrorCode,
   type AgentDefaultsValidationErrors,
 } from "../../app-core/settings/agentDefaultsSettings";
 import type { SettingsStore } from "../services";
@@ -18,19 +21,16 @@ type AgentDefaultsSettingsPageProps = {
 };
 
 export function AgentDefaultsSettingsPage({ onNavigateToProviderModels, settingsStore }: AgentDefaultsSettingsPageProps) {
+  const { t: tCommon } = useTranslation("common");
+  const { t } = useTranslation("settings");
   const [data, setData] = useState<AgentDefaultsSettingsData | null>(null);
   const [values, setValues] = useState<AgentDefaultsFormValues | null>(null);
   const [errors, setErrors] = useState<AgentDefaultsValidationErrors>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
+  const [saveResultState, setSaveResultState] = useState<SettingsSaveState>("idle");
   const [saving, setSaving] = useState(false);
-  const saveState: SettingsSaveState = saving
-    ? "saving"
-    : saveStatus?.startsWith("Save failed:")
-      ? "error"
-      : saveStatus === "Saved"
-        ? "saved"
-        : "idle";
+  const saveState: SettingsSaveState = saving ? "saving" : saveResultState;
 
   useEffect(() => {
     let cancelled = false;
@@ -56,6 +56,7 @@ export function AgentDefaultsSettingsPage({ onNavigateToProviderModels, settings
     setValues((current) => current ? { ...current, [field]: value } : current);
     setErrors((current) => ({ ...current, [field]: undefined }));
     setSaveStatus(null);
+    setSaveResultState("idle");
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -69,15 +70,18 @@ export function AgentDefaultsSettingsPage({ onNavigateToProviderModels, settings
       return;
     }
     setSaving(true);
-    setSaveStatus("Saving...");
+    setSaveStatus(t("agent.saving"));
+    setSaveResultState("saving");
     try {
       const next = await settingsStore.saveAgentDefaultsSettings(data.currentConfig, buildAgentDefaultsPatch(values));
       const nextData = next.values ? next : buildAgentDefaultsSettings(next.currentConfig);
       setData(nextData);
       setValues(nextData.values);
-      setSaveStatus("Saved");
+      setSaveStatus(t("agent.saved"));
+      setSaveResultState("saved");
     } catch (error) {
-      setSaveStatus(`Save failed: ${error instanceof Error ? error.message : String(error)}`);
+      setSaveStatus(t("agent.saveFailed", { message: error instanceof Error ? error.message : String(error) }));
+      setSaveResultState("error");
       throw error;
     } finally {
       setSaving(false);
@@ -88,36 +92,36 @@ export function AgentDefaultsSettingsPage({ onNavigateToProviderModels, settings
     return <p className="react-settings-alert" role="alert">{loadError}</p>;
   }
   if (!data || !values) {
-    return <p className="react-empty-state">Loading agent defaults...</p>;
+    return <p className="react-empty-state">{t("agent.loading")}</p>;
   }
 
   return (
     <section className="react-agent-defaults-settings" aria-labelledby="agent-defaults-title">
       <div className="react-provider-settings__header">
         <div>
-          <h2 id="agent-defaults-title">Agent Defaults</h2>
-          <p>Runtime fallback and execution limits used when a conversation does not provide an explicit value.</p>
+          <h2 id="agent-defaults-title">{t("agent.title")}</h2>
+          <p>{t("agent.description")}</p>
         </div>
       </div>
 
       <section className="react-settings-linked-summary" aria-labelledby="agent-default-model-title">
         <div>
-          <h3 id="agent-default-model-title">Fallback provider</h3>
-          <p>The model itself is selected per conversation. Change provider connections from Provider & Models.</p>
+          <h3 id="agent-default-model-title">{t("agent.fallbackTitle")}</h3>
+          <p>{t("agent.fallbackDescription")}</p>
         </div>
         <dl>
           <div>
-            <dt>Active profile</dt>
-            <dd>{data.activeProfileId ?? "Not configured"}</dd>
+            <dt>{t("agent.activeProfile")}</dt>
+            <dd>{data.activeProfileId ?? t("agent.notConfigured")}</dd>
           </div>
         </dl>
         <button
           data-press-feedback="true"
           type="button"
-          aria-label="Manage providers and models"
+          aria-label={t("agent.manageProviders")}
           onClick={onNavigateToProviderModels}
         >
-          <span>Provider & Models</span>
+          <span>{t("agent.providerModels")}</span>
           <ArrowUpRight aria-hidden="true" size={15} />
         </button>
       </section>
@@ -126,62 +130,77 @@ export function AgentDefaultsSettingsPage({ onNavigateToProviderModels, settings
 
       <form className="react-agent-defaults-form" onSubmit={submit}>
         <section aria-labelledby="agent-runtime-title">
-          <h3 id="agent-runtime-title">Runtime</h3>
+          <h3 id="agent-runtime-title">{t("agent.runtime")}</h3>
           <div className="react-agent-defaults-grid">
             <AgentDefaultInput
-              error={errors.timezone}
-              label="Timezone"
+              error={validationMessage(t, errors.timezone)}
+              label={t("agent.timezone")}
               value={values.timezone}
               onChange={(value) => editValue("timezone", value)}
             />
             <AgentDefaultInput
-              error={errors.temperature}
-              label="Temperature"
+              error={validationMessage(t, errors.temperature)}
+              label={t("agent.temperature")}
               value={values.temperature}
               onChange={(value) => editValue("temperature", value)}
             />
             <AgentDefaultInput
-              error={errors.maxTokens}
-              label="Max output tokens"
+              error={validationMessage(t, errors.maxTokens)}
+              label={t("agent.maxTokens")}
               value={values.maxTokens}
               onChange={(value) => editValue("maxTokens", value)}
             />
             <AgentDefaultInput
-              error={errors.contextWindowTokens}
-              label="Context window budget"
+              error={validationMessage(t, errors.contextWindowTokens)}
+              label={t("agent.contextBudget")}
               value={values.contextWindowTokens}
               onChange={(value) => editValue("contextWindowTokens", value)}
             />
             <SettingsChoiceList
-              error={errors.contextWindowStrategy}
-              label="Context window strategy"
+              error={validationMessage(t, errors.contextWindowStrategy)}
+              label={t("agent.contextStrategy")}
               options={[
-                { value: "discard", label: "Discard old messages", description: "Keep the active context lean." },
-                { value: "compact", label: "Compact old messages", description: "Summarize older turns before trimming." },
+                { value: "discard", label: t("agent.discard"), description: t("agent.discardDescription") },
+                { value: "compact", label: t("agent.compact"), description: t("agent.compactDescription") },
               ]}
               value={values.contextWindowStrategy}
               onChange={(value) => editValue("contextWindowStrategy", value)}
             />
             <AgentDefaultInput
-              error={errors.maxToolIterations}
-              label="Max tool iterations"
+              error={validationMessage(t, errors.maxToolIterations)}
+              label={t("agent.maxToolIterations")}
               value={values.maxToolIterations}
               onChange={(value) => editValue("maxToolIterations", value)}
             />
           </div>
         </section>
         <footer>
-          {data.revision ? <small>Config revision {data.revision}</small> : <span />}
-          <button type="submit" aria-label="Save agent defaults" data-press-feedback="true" disabled={saving}>
+          {data.revision ? <small>{t("agent.revision", { revision: data.revision })}</small> : <span />}
+          <button type="submit" aria-label={t("agent.saveLabel")} data-press-feedback="true" disabled={saving}>
             {saving
               ? <Loader2 aria-hidden="true" className="react-settings-spinner" size={15} />
               : <Check aria-hidden="true" size={15} />}
-            {saving ? "Saving" : "Save"}
+            {saving ? tCommon("generic.saving") : tCommon("generic.save")}
           </button>
         </footer>
       </form>
     </section>
   );
+}
+
+function validationMessage(
+  t: TFunction<"settings">,
+  code?: AgentDefaultsValidationErrorCode,
+): string | undefined {
+  switch (code) {
+    case "temperature-number": return t("agent.validation.temperatureNumber");
+    case "temperature-range": return t("agent.validation.temperatureRange");
+    case "max-tokens": return t("agent.validation.maxTokens");
+    case "context-budget": return t("agent.validation.contextBudget");
+    case "context-strategy": return t("agent.validation.contextStrategy");
+    case "max-tool-iterations": return t("agent.validation.maxToolIterations");
+    case undefined: return undefined;
+  }
 }
 
 function AgentDefaultInput({

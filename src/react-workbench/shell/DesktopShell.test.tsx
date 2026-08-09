@@ -26,6 +26,9 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 function createServices(options: { messages?: ReactChatMessage[]; sessions?: SessionSummary[] } = {}): AppServices & {
+  memoryStore: {
+    load: ReturnType<typeof vi.fn>;
+  };
   workspaceStore: {
     listFiles: ReturnType<typeof vi.fn>;
     listDirectory: ReturnType<typeof vi.fn>;
@@ -71,6 +74,17 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
       branchFromMessage: vi.fn(async () => ({ id: "s1", chatId: "chat-1", title: "Branch", updatedAtMs: Date.now() })),
       copyMarkdown: vi.fn(async () => ""),
       subscribe: vi.fn(() => () => undefined),
+    },
+    memoryStore: {
+      load: vi.fn(async () => ({
+        currentWorkspacePath: "D:\\Code\\py\\tinybot",
+        userMemories: ["User prefers concise answers."],
+        workspaces: [{
+          current: true,
+          path: "D:\\Code\\py\\tinybot",
+          memories: ["This workspace uses Rust."],
+        }],
+      })),
     },
     workspaceStore: {
       listFiles: vi.fn(async () => [
@@ -290,7 +304,7 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     const resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
-    for (const item of ["Chat", "Workspace Files", "GitHub", "Tools & Plugins"]) {
+    for (const item of ["Chat", "Workspace Files", "Memory", "GitHub", "Tools & Plugins"]) {
       expect(within(resourcesMenu).getByRole("menuitem", { name: item })).toBeTruthy();
     }
     expect(within(resourcesMenu).getByRole("menuitem", { name: "Chat" }).getAttribute("aria-current")).toBe("page");
@@ -410,6 +424,14 @@ describe("DesktopShell", () => {
     expect(await screen.findByRole("heading", { name: "Workspace Files" })).toBeTruthy();
     expect(screen.getByText("src/main.ts")).toBeTruthy();
     expect(services.workspaceStore.listFiles).toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Resources" }));
+    resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
+    await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Memory" }));
+    expect(await screen.findByRole("heading", { name: "Memory" })).toBeTruthy();
+    expect(await screen.findByText("User prefers concise answers.")).toBeTruthy();
+    expect(screen.getByText("Current workspace")).toBeTruthy();
+    expect(services.memoryStore.load).toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
@@ -792,6 +814,39 @@ describe("DesktopShell", () => {
 
     await user.keyboard("{Control>}k{/Control}");
     expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull();
+  });
+
+  it("persists App language and localizes the desktop chrome immediately", async () => {
+    const user = userEvent.setup();
+    const services = createServices();
+    services.settingsStore.loadProviderSettings = vi.fn(async () => buildProviderModelsSettings({
+      revision: "hash:1",
+      agents: { defaults: { activeProfile: "deepseek-default", model: "deepseek-v4-flash" } },
+      providers: { profiles: {} },
+    }));
+    services.settingsStore.saveProviderSettings = vi.fn(async () => buildProviderModelsSettings({
+      revision: "hash:1",
+      agents: { defaults: { activeProfile: "deepseek-default", model: "deepseek-v4-flash" } },
+      providers: { profiles: {} },
+    }));
+    render(<DesktopShell services={services} />);
+
+    await user.click(screen.getByRole("button", { name: "System" }));
+    await user.click(within(screen.getByRole("menu", { name: "System menu" }))
+      .getByRole("menuitem", { name: "Settings (Ctrl+,)" }));
+    const settingsNavigation = await screen.findByRole("navigation", { name: "Settings categories" });
+    await user.click(within(settingsNavigation).getByRole("button", { name: "App" }));
+    await user.click(screen.getByRole("button", { name: "Language: English" }));
+    await user.click(within(screen.getByRole("menu", { name: "Language options" }))
+      .getByRole("menuitemradio", { name: /Simplified Chinese/ }));
+
+    expect(await screen.findByRole("heading", { name: "应用偏好设置" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "设置" })).toBeTruthy();
+    expect(screen.getByRole("navigation", { name: "设置类别" })).toBeTruthy();
+    expect(within(settingsNavigation).getByRole("button", { name: "应用" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("button", { name: "系统" })).toBeTruthy();
+    expect(window.localStorage.getItem("tinybot-lang")).toBe("zh");
+    expect(document.documentElement.lang).toBe("zh-CN");
   });
 
   it("toggles the chat session sidebar from the keyboard and App menu", async () => {

@@ -1,4 +1,5 @@
 import { Component, useEffect, useMemo, type ErrorInfo, type ReactNode } from "react";
+import { Translation } from "react-i18next";
 import {
   buildRendererDiagnostic,
   installRendererDiagnosticHandlers,
@@ -51,12 +52,16 @@ export class TinybotErrorBoundary extends Component<TinybotErrorBoundaryProps, T
       return this.props.children;
     }
     return (
-      <main className="react-fatal-error" role="alert">
-        <h1>Tinybot UI crashed</h1>
-        <p>{this.state.error.message || "An unexpected renderer error occurred."}</p>
-        {this.state.crashId ? <p>Crash ID: {this.state.crashId}</p> : null}
-        <button type="button" onClick={() => window.location.reload()}>Reload</button>
-      </main>
+      <Translation ns="common">
+        {(t) => (
+          <main className="react-fatal-error" role="alert">
+            <h1>{t("fatal.title")}</h1>
+            <p>{this.state.error?.message || t("fatal.unexpected")}</p>
+            {this.state.crashId ? <p>{t("fatal.crashId", { id: this.state.crashId })}</p> : null}
+            <button type="button" onClick={() => window.location.reload()}>{t("fatal.reload")}</button>
+          </main>
+        )}
+      </Translation>
     );
   }
 }

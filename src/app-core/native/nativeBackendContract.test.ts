@@ -34,6 +34,7 @@ describe("native backend contract", () => {
       "worker_plugin_install_migration",
       "worker_plugin_set_enabled",
       "worker_plugin_uninstall",
+      "worker_memory_snapshot",
     ]));
     for (const removedCommand of [
       "worker_run_agent",

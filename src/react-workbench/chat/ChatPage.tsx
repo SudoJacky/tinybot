@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import type { TFunction } from "i18next";
 import {
   Activity,
   AlertTriangle,
@@ -27,6 +28,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import {
   MAX_QUEUED_INPUTS,
   deleteQueuedInput,
@@ -180,8 +182,6 @@ const INITIAL_LIVE_CANVAS_STATE: LiveCanvasState = {
   visibility: "closed",
 };
 
-const BROWSER_HANDOFF_CONTINUE_MESSAGE = "我已完成浏览器中的必要操作。请重新读取当前页面，并从转交前的位置继续。";
-
 function reduceLiveCanvasState(state: LiveCanvasState, action: LiveCanvasAction): LiveCanvasState {
   switch (action.type) {
     case "close":
@@ -281,52 +281,16 @@ function composerSessionModelInput(
   };
 }
 
-const EMPTY_CHAT_PROMPTS = [
-  "规划一个任务并列出执行步骤",
-  "分析当前项目并提出改进建议",
-  "整理资料并形成一份简短摘要",
-  "检查方案中可能遗漏的问题",
-] as const;
-
-const COMPOSER_SLASH_COMMANDS = [
-  {
-    command: "/compact",
-    description: "立即总结较早上下文并释放窗口空间",
-    label: "压缩上下文",
-    prompt: "/compact",
-    submitOnSelect: true,
-  },
-  {
-    command: "/plan",
-    description: "先分析目标、风险和验证方式",
-    label: "规划任务",
-    prompt: "请先分析这个任务，列出实施步骤、风险和验证方式，暂时不要修改代码。",
-  },
-  {
-    command: "/review",
-    description: "检查缺陷、回归风险和缺失测试",
-    label: "审查改动",
-    prompt: "请审查当前工作区的代码改动，优先报告明确的缺陷、回归风险和缺失测试。",
-  },
-  {
-    command: "/fix",
-    description: "定位根因并用回归测试验证修复",
-    label: "修复问题",
-    prompt: "请定位当前问题的根因，补充可复现的回归测试并完成修复。",
-  },
-  {
-    command: "/test",
-    description: "运行相关测试并处理失败项",
-    label: "运行测试",
-    prompt: "请运行与当前改动相关的测试，定位并修复失败项。",
-  },
-  {
-    command: "/explain",
-    description: "梳理代码的数据流和关键风险",
-    label: "解释代码",
-    prompt: "请解释当前代码的工作方式、关键数据流和主要风险。",
-  },
-] as const satisfies readonly ComposerSlashCommand[];
+function composerSlashCommands(t: TFunction<"chat">): readonly ComposerSlashCommand[] {
+  return [
+    { command: "/compact", description: t("commands.compact.description"), label: t("commands.compact.label"), prompt: "/compact", submitOnSelect: true },
+    { command: "/plan", description: t("commands.plan.description"), label: t("commands.plan.label"), prompt: t("commands.plan.prompt") },
+    { command: "/review", description: t("commands.review.description"), label: t("commands.review.label"), prompt: t("commands.review.prompt") },
+    { command: "/fix", description: t("commands.fix.description"), label: t("commands.fix.label"), prompt: t("commands.fix.prompt") },
+    { command: "/test", description: t("commands.test.description"), label: t("commands.test.label"), prompt: t("commands.test.prompt") },
+    { command: "/explain", description: t("commands.explain.description"), label: t("commands.explain.label"), prompt: t("commands.explain.prompt") },
+  ];
+}
 
 const LIVE_CANVAS_CLOSE_MS = 160;
 const SESSION_DELETE_DISSOLVE_MS = 180;
@@ -347,6 +311,8 @@ export function ChatPage({
   toolsStore,
   workspaceStore,
 }: ChatPageProps) {
+  const { t } = useTranslation("chat");
+  const slashCommands = useMemo(() => composerSlashCommands(t), [t]);
   const tinyOsUiScope = useId();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
@@ -362,7 +328,7 @@ export function ChatPage({
   const [browserSnapshot, setBrowserSnapshot] = useState<TinyOsNativeSnapshot<TinyOsNativeBrowserSession>>();
   const [browserRuntimeError, setBrowserRuntimeError] = useState("");
   const [tinyOsCapabilities, setTinyOsCapabilities] = useState<TinyOsEffectiveCapabilities>(() => (
-    unavailableTinyOsEffectiveCapabilities("", "loading", "Loading effective capabilities.")
+    unavailableTinyOsEffectiveCapabilities("", "loading", t("runtime.loadingCapabilities"))
   ));
   const [composerModels, setComposerModels] = useState<ModelOption[]>([]);
   const [defaultComposerModel, setDefaultComposerModel] = useState("");
@@ -436,7 +402,7 @@ export function ChatPage({
       return session ? [{
         id: session.id,
         status: session.status,
-        title: displaySessionTitle(session.title),
+        title: displaySessionTitle(session.title, t),
         unread: sessionTabs.unreadSessionIds.includes(session.id),
       }] : [];
     })
@@ -476,8 +442,8 @@ export function ChatPage({
     && cancelCapability.available
   );
   const cancelUnavailableReason = !capabilityTargetsActiveTurn
-    ? "Effective capabilities are stale for the current Agent turn."
-    : cancelCapability.reason || "Cancellation is unavailable for this Agent turn.";
+    ? t("runtime.staleCapabilities")
+    : cancelCapability.reason || t("runtime.cancelUnavailable");
   const pauseCapability = tinyOsCapabilities.capabilities.agent.pause;
   const resumeCapability = tinyOsCapabilities.capabilities.agent.resume;
   const canPauseTurn = Boolean(
@@ -495,11 +461,11 @@ export function ChatPage({
     && resumeCapability.available
   );
   const pauseUnavailableReason = !capabilityTargetsActiveTurn
-    ? "Effective capabilities are stale for the current Agent turn."
-    : pauseCapability.reason || "Pause is unavailable for this Agent turn.";
+    ? t("runtime.staleCapabilities")
+    : pauseCapability.reason || t("runtime.pauseUnavailable");
   const resumeUnavailableReason = !capabilityTargetsActiveTurn
-    ? "Effective capabilities are stale for the current Agent turn."
-    : resumeCapability.reason || "Resume is unavailable for this Agent turn.";
+    ? t("runtime.staleCapabilities")
+    : resumeCapability.reason || t("runtime.resumeUnavailable");
   const cancelInFlight = isTinyOsCommandInFlight(commandLifecycle);
   const compactingActiveSession = Boolean(activeSession && compactingSessionId === activeSession.id);
   const showCommandLifecycleStatus = commandLifecycle.stage !== "idle"
@@ -512,8 +478,8 @@ export function ChatPage({
     && !cancelInFlight
   );
   const requestChangeUnavailableReason = cancelInFlight
-    ? "Another Agent command is in flight."
-    : requestChangeCapability.reason || "Agent requests are unavailable for this session.";
+    ? t("runtime.agentCommandInFlight")
+    : requestChangeCapability.reason || t("runtime.agentRequestsUnavailable");
   const directEditCapability = tinyOsCapabilities.capabilities.files.directEdit;
   const saveFileCapability = tinyOsCapabilities.capabilities.files.save;
   const terminalExecuteCapability = tinyOsCapabilities.capabilities.terminal.execute;
@@ -522,12 +488,12 @@ export function ChatPage({
   const canSaveFile = Boolean(activeSession && saveFileCapability.available && !cancelInFlight);
   const canExecuteTerminal = Boolean(activeSession && terminalExecuteCapability.available && !cancelInFlight);
   const canInteractBrowser = Boolean(activeSession && browserInteractCapability.available && !cancelInFlight);
-  const directEditUnavailableReason = cancelInFlight ? "Another TinyOS command is in flight." : directEditCapability.reason;
-  const saveFileUnavailableReason = cancelInFlight ? "Another TinyOS command is in flight." : saveFileCapability.reason;
-  const terminalExecuteUnavailableReason = cancelInFlight ? "Another TinyOS command is in flight." : terminalExecuteCapability.reason;
+  const directEditUnavailableReason = cancelInFlight ? t("runtime.tinyOsCommandInFlight") : directEditCapability.reason;
+  const saveFileUnavailableReason = cancelInFlight ? t("runtime.tinyOsCommandInFlight") : saveFileCapability.reason;
+  const terminalExecuteUnavailableReason = cancelInFlight ? t("runtime.tinyOsCommandInFlight") : terminalExecuteCapability.reason;
   const browserInteractUnavailableReason = cancelInFlight
-    ? "Another TinyOS command is in flight."
-    : browserInteractCapability.reason || "Browser interaction is unavailable.";
+    ? t("runtime.tinyOsCommandInFlight")
+    : browserInteractCapability.reason || t("runtime.browserUnavailable");
   const runningTerminalOperationId = commandLifecycle.stage !== "idle"
     && commandLifecycle.stage !== "completed"
     && commandLifecycle.command.kind === "terminal.execute"
@@ -536,7 +502,7 @@ export function ChatPage({
   const canCancelTerminal = Boolean(activeSession && runningTerminalOperationId);
   const terminalCancelUnavailableReason = runningTerminalOperationId
     ? undefined
-    : "There is no running Terminal operation to cancel.";
+    : t("runtime.noRunningTerminal");
   const submittingFormId = commandLifecycle.stage !== "idle"
     && (commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
     && isTinyOsCommandInFlight(commandLifecycle)
@@ -558,7 +524,7 @@ export function ChatPage({
     && tinyOsCapabilities.evaluatedTurnId === latestFailedTurnId
     && retryCapability.available
   );
-  const retryUnavailableReason = retryCapability.reason || "Retry is unavailable for this Agent turn.";
+  const retryUnavailableReason = retryCapability.reason || t("runtime.retryUnavailable");
   const liveCanvasOpen = liveCanvas.visibility === "open";
   const liveCanvasPresent = liveCanvas.visibility !== "closed";
 
@@ -670,9 +636,9 @@ export function ChatPage({
       return;
     }
     const command = createTinyOsAgentRequestChangeCommand({
-      instruction: tinyOsAgentRequestInstruction(reference, intent),
+      instruction: tinyOsAgentRequestInstruction(reference, intent, t),
       observedTurnId: tinyOsCapabilities.evaluatedTurnId,
-      references: [nativeReferenceFromTinyOs(reference)],
+      references: [nativeReferenceFromTinyOs(reference, t)],
       sessionId: activeSession.id,
       source: { control: `${fromHistory ? "history-" : ""}${tinyOsAgentRequestControl(reference, intent)}`, surface: "tinyos" },
     });
@@ -691,12 +657,12 @@ export function ChatPage({
   }
 
   async function dispatchTinyOsHostCommand(command: TinyOsCommand, allowDuringTerminalExecution = false): Promise<void> {
-    if (!activeSession) throw new Error("Select a session before dispatching a TinyOS host operation.");
+    if (!activeSession) throw new Error(t("runtime.selectSessionHostOperation"));
     const terminalExecutionInFlight = commandLifecycle.stage !== "idle"
       && commandLifecycle.command.kind === "terminal.execute"
       && commandLifecycle.stage === "acknowledged";
     if (isTinyOsCommandInFlight(commandLifecycle) && !(allowDuringTerminalExecution && terminalExecutionInFlight)) {
-      throw new Error("Another TinyOS command is already in flight.");
+      throw new Error(t("runtime.tinyOsCommandAlreadyInFlight"));
     }
     setTimelineError("");
     dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
@@ -710,7 +676,7 @@ export function ChatPage({
   }
 
   async function handleSaveTinyOsFile(input: { baseRevision?: string; content: string; createOnly: boolean; path: string }): Promise<void> {
-    if (!activeSession || !saveFileCapability.available) throw new Error(saveFileUnavailableReason || "File saving is unavailable.");
+    if (!activeSession || !saveFileCapability.available) throw new Error(saveFileUnavailableReason || t("runtime.fileSavingUnavailable"));
     await dispatchTinyOsHostCommand(createTinyOsFileSaveCommand({
       ...input,
       sessionId: activeSession.id,
@@ -719,7 +685,7 @@ export function ChatPage({
   }
 
   async function handleMoveTinyOsFile(input: { baseRevision: string; path: string; targetPath: string }): Promise<void> {
-    if (!activeSession || !saveFileCapability.available) throw new Error(saveFileUnavailableReason || "File moving is unavailable.");
+    if (!activeSession || !saveFileCapability.available) throw new Error(saveFileUnavailableReason || t("runtime.fileMovingUnavailable"));
     await dispatchTinyOsHostCommand(createTinyOsFileMoveCommand({
       ...input,
       sessionId: activeSession.id,
@@ -728,7 +694,7 @@ export function ChatPage({
   }
 
   async function handleDeleteTinyOsFile(input: { baseRevision: string; path: string }): Promise<void> {
-    if (!activeSession || !saveFileCapability.available) throw new Error(saveFileUnavailableReason || "File deletion is unavailable.");
+    if (!activeSession || !saveFileCapability.available) throw new Error(saveFileUnavailableReason || t("runtime.fileDeletionUnavailable"));
     await dispatchTinyOsHostCommand(createTinyOsFileDeleteCommand({
       ...input,
       sessionId: activeSession.id,
@@ -737,7 +703,7 @@ export function ChatPage({
   }
 
   async function handleExecuteTinyOsTerminal(input: { command: string; cwd?: string }): Promise<void> {
-    if (!activeSession || !terminalExecuteCapability.available) throw new Error(terminalExecuteUnavailableReason || "Terminal execution is unavailable.");
+    if (!activeSession || !terminalExecuteCapability.available) throw new Error(terminalExecuteUnavailableReason || t("runtime.terminalExecutionUnavailable"));
     await dispatchTinyOsHostCommand(createTinyOsTerminalExecuteCommand({
       ...input,
       sessionId: activeSession.id,
@@ -747,7 +713,7 @@ export function ChatPage({
 
   async function handleCancelTinyOsTerminal(): Promise<void> {
     if (!activeSession || !runningTerminalOperationId) {
-      throw new Error(terminalCancelUnavailableReason || "Terminal cancellation is unavailable.");
+      throw new Error(terminalCancelUnavailableReason || t("runtime.terminalCancellationUnavailable"));
     }
     await dispatchTinyOsHostCommand(createTinyOsTerminalCancelCommand({
       operationId: runningTerminalOperationId,
@@ -790,14 +756,14 @@ export function ChatPage({
 
   useEffect(() => {
     if (!activeSessionId) {
-      setTinyOsCapabilities(unavailableTinyOsEffectiveCapabilities("", "no_session", "No session is selected."));
+      setTinyOsCapabilities(unavailableTinyOsEffectiveCapabilities("", "no_session", t("runtime.noSessionSelected")));
       return;
     }
     let cancelled = false;
     setTinyOsCapabilities(unavailableTinyOsEffectiveCapabilities(
       activeSessionId,
       "loading",
-      "Loading effective capabilities.",
+      t("runtime.loadingCapabilities"),
     ));
     void chatStore.loadTinyOsCapabilities(activeSessionId).then((capabilities) => {
       if (!cancelled) setTinyOsCapabilities(capabilities);
@@ -1017,7 +983,7 @@ export function ChatPage({
         return;
       }
       if (event.commandId && event.type === "error") {
-        dispatchCommandLifecycle({ commandId: event.commandId, error: event.error || "Command rejected", type: "rejected" });
+        dispatchCommandLifecycle({ commandId: event.commandId, error: event.error || t("runtime.commandRejected"), type: "rejected" });
         return;
       }
       if (event.timeline) {
@@ -1109,7 +1075,7 @@ export function ChatPage({
       if (cancelled) {
         return;
       }
-      const nextModels = models.map(toComposerModelOption);
+      const nextModels = models.map((model) => toComposerModelOption(model, t));
       setComposerModels(nextModels);
       setDefaultComposerModel(resolveComposerModel(nextModels));
     }).catch(() => {
@@ -1411,7 +1377,7 @@ export function ChatPage({
   }
 
   async function handleRenameConversation(session: SessionSummary) {
-    const nextTitle = window.prompt("Rename conversation", session.title)?.trim();
+    const nextTitle = window.prompt(t("shell.rename"), session.title)?.trim();
     if (!nextTitle || nextTitle === session.title) {
       setHeaderMenuOpen(false);
       return;
@@ -1460,10 +1426,10 @@ export function ChatPage({
 
   async function handleBrowserHandoffComplete(session: SessionSummary): Promise<void> {
     try {
-      await dispatchTurn(session.id, { text: BROWSER_HANDOFF_CONTINUE_MESSAGE }, "browser-handoff-complete");
+      await dispatchTurn(session.id, { text: t("browserHandoffContinue") }, "browser-handoff-complete");
       await handleSessionStoreRefresh(session);
     } catch (error) {
-      setTimelineError(`Browser handoff could not continue the Agent: ${error instanceof Error ? error.message : String(error)}`);
+      setTimelineError(t("runtime.browserHandoffFailed", { message: error instanceof Error ? error.message : String(error) }));
     }
   }
 
@@ -1476,7 +1442,7 @@ export function ChatPage({
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         setBrowserRuntimeError(message);
-        setTimelineError(`TinyOS browser could not be released: ${message}`);
+        setTimelineError(t("runtime.browserReleaseFailed", { message }));
         console.error("[tinyos] browser.session.close.failed", {
           browserSessionId: browserSession.browserSessionId,
           error: message,
@@ -1501,14 +1467,14 @@ export function ChatPage({
   ) {
     const references = [
       ...files.map(nativeReferenceFromComposerFile),
-      ...tinyOsContextReferences.map(nativeReferenceFromTinyOs),
+      ...tinyOsContextReferences.map((reference) => nativeReferenceFromTinyOs(reference, t)),
     ];
     if (message.trim() === "/compact") {
       if (files.length || pastedContent.length || references.length) {
-        throw new Error("/compact 不能与附件或上下文引用一起使用。");
+        throw new Error(t("errors.compactWithAttachments"));
       }
       if (!activeSession) {
-        throw new Error("请先打开一个已有会话，再使用 /compact。");
+        throw new Error(t("errors.compactNeedsSession"));
       }
       const compactSession = activeSession;
       handleComposerDraftChange("");
@@ -1531,8 +1497,9 @@ export function ChatPage({
       return;
     }
     const visibleText = formatComposerMessage(
-      message || (files.length ? "Review the attached files." : references.length ? "Use the attached TinyOS context." : ""),
+      message || (files.length ? t("composer.attachedFilesPrompt") : references.length ? t("composer.attachedContextPrompt") : ""),
       pastedContent,
+      t,
     );
     const sendSession = activeSession ?? await createSessionForDraft();
     if (!visibleText || !sendSession) {
@@ -1548,7 +1515,7 @@ export function ChatPage({
       runningAction,
     });
     if (queuedResult.kind === "queue_limit_reached") {
-      setQueueMessage("Already have 5 queued messages. Wait for processing or delete one before sending more.");
+      setQueueMessage(t("queue.limit", { count: MAX_QUEUED_INPUTS }));
       return;
     }
     const turnInput = createComposerChatInput(
@@ -1558,12 +1525,12 @@ export function ChatPage({
     );
     if (queuedResult.kind === "interrupt_input") {
       if (!activeTurn || activeTurn.status === "awaiting_user") {
-        throw new Error("当前没有可以中断的 Agent Turn，请改用“排队为下一轮”。");
+        throw new Error(t("errors.noInterruptibleTurn"));
       }
       if (activeQueuedInputs.some((input) => (
         input.mode === "interrupt" && (input.status === "queued" || input.status === "sent")
       ))) {
-        throw new Error("已有一条插入消息正在等待新一轮开始。");
+        throw new Error(t("errors.interruptPending"));
       }
       await handleInterruptComposerResult(sendSession.id, activeTurn.id, {
         ...queuedResult.input,
@@ -1576,7 +1543,7 @@ export function ChatPage({
       return;
     }
     const optimisticSession = isDefaultSessionTitle(sendSession.title)
-      ? { ...sendSession, title: deriveSessionTitle(visibleText) }
+      ? { ...sendSession, title: deriveSessionTitle(visibleText, t) }
       : sendSession;
     if (optimisticSession !== sendSession) {
       optimisticSessionTitlesRef.current.set(sendSession.id, optimisticSession.title);
@@ -1602,14 +1569,14 @@ export function ChatPage({
         if (tinyOsCapabilities.threadId !== activeSession.id
           || tinyOsCapabilities.evaluatedTurnId !== turn.id
           || !tinyOsCapabilities.capabilities.agent.retry.available) {
-          setTimelineError(tinyOsCapabilities.capabilities.agent.retry.reason || "Retry is unavailable for this failed Agent turn.");
+          setTimelineError(tinyOsCapabilities.capabilities.agent.retry.reason || t("runtime.failedTurnRetryUnavailable"));
           return;
         }
         const failedItem = retryItemId
           ? (turn.executionItems ?? turn.steps).find((step) => step.id === retryItemId && step.status === "failed")
           : [...(turn.executionItems ?? turn.steps)].reverse().find((step) => step.status === "failed");
         if (!failedItem) {
-          setTimelineError("Cannot retry: the failed canonical item is not available.");
+          setTimelineError(t("runtime.failedItemUnavailable"));
           return;
         }
         const command = createTinyOsOperationRetryCommand({
@@ -1634,7 +1601,7 @@ export function ChatPage({
       }
       if (action === "restart") {
         const created = await sessionStore.create({
-          title: deriveSessionTitle(turn.userMessage.text),
+          title: deriveSessionTitle(turn.userMessage.text, t),
           ...(activeSession.model
             ? {
                 model: activeSession.model,
@@ -1647,7 +1614,7 @@ export function ChatPage({
         await handleSessionStoreRefresh(created);
         return;
       }
-      const text = "请从刚才中断的位置继续，沿用现有上下文和计划；先确认当前进度，再完成剩余任务。";
+      const text = t("continuePrompt");
       await dispatchTurn(activeSession.id, { text }, "recovery-continue");
       await handleSessionStoreRefresh(activeSession);
     } finally {
@@ -1788,7 +1755,7 @@ export function ChatPage({
       return;
     }
     if (!activeTurn) {
-      setTimelineError("Cannot cancel: canonical active turn is not available.");
+      setTimelineError(t("runtime.cancelActiveTurnUnavailable"));
       return;
     }
     const command = createTinyOsAgentCancelCommand({
@@ -1869,7 +1836,7 @@ export function ChatPage({
       await handleSessionStoreRefresh();
     } catch (error) {
       updateInterruptForSession(sessionId, input.id, "failed");
-      setQueueMessage(`插入消息发送失败：${error instanceof Error ? error.message : String(error)}`);
+      setQueueMessage(t("errors.interruptFailed", { message: error instanceof Error ? error.message : String(error) }));
     } finally {
       interruptCancellationConfirmedInputIdsRef.current.delete(input.id);
       interruptDispatchingInputIdsRef.current.delete(input.id);
@@ -1973,12 +1940,12 @@ export function ChatPage({
       return;
     }
     if (!activeTurn) {
-      setTimelineError("Cannot submit form: canonical active turn is not available.");
+      setTimelineError(t("runtime.submitFormTurnUnavailable"));
       return;
     }
     const formTurnId = agentUiFormCorrelationString(form, "turn_id") || form.turn_id || activeTurn.id;
     if (formTurnId !== activeTurn.id) {
-      setTimelineError(`Cannot submit form: request targets stale turn ${formTurnId}.`);
+      setTimelineError(t("runtime.submitFormStaleTurn", { turnId: formTurnId }));
       return;
     }
     const command = createTinyOsFormSubmitCommand({
@@ -2008,12 +1975,12 @@ export function ChatPage({
       return;
     }
     if (!activeTurn) {
-      setTimelineError("Cannot cancel form: canonical active turn is not available.");
+      setTimelineError(t("runtime.cancelFormTurnUnavailable"));
       return;
     }
     const formTurnId = agentUiFormCorrelationString(form, "turn_id") || form.turn_id || activeTurn.id;
     if (formTurnId !== activeTurn.id) {
-      setTimelineError(`Cannot cancel form: request targets stale turn ${formTurnId}.`);
+      setTimelineError(t("runtime.cancelFormStaleTurn", { turnId: formTurnId }));
       return;
     }
     const command = createTinyOsFormCancelCommand({
@@ -2042,11 +2009,11 @@ export function ChatPage({
     const available = kind === "agent.pause" ? canPauseTurn : canResumeTurn;
     const unavailableReason = kind === "agent.pause" ? pauseUnavailableReason : resumeUnavailableReason;
     if (!available) {
-      setTimelineError(`${kind === "agent.pause" ? "Cannot pause" : "Cannot resume"}: ${unavailableReason}`);
+      setTimelineError(t(kind === "agent.pause" ? "runtime.cannotPause" : "runtime.cannotResume", { reason: unavailableReason }));
       return;
     }
     if (!activeTurn) {
-      setTimelineError(`${kind === "agent.pause" ? "Cannot pause" : "Cannot resume"}: canonical active turn is not available.`);
+      setTimelineError(t(kind === "agent.pause" ? "runtime.pauseTurnUnavailable" : "runtime.resumeTurnUnavailable"));
       return;
     }
     const command = createTinyOsAgentTurnControlCommand({
@@ -2108,46 +2075,46 @@ export function ChatPage({
 
   const visibleAgentUiForms = agentUiForms.filter(isVisibleAgentUiForm);
   const interactiveFormIds = new Set(visibleAgentUiForms.map((form) => form.form_id));
-  const headerTitle = activeSession ? displaySessionTitle(activeSession.title) : draftNewSession ? "新会话" : "未选择会话";
+  const headerTitle = activeSession ? displaySessionTitle(activeSession.title, t) : draftNewSession ? t("shell.newChat") : t("shell.noSelection");
 
   return (
     <section
       className="react-chat-page"
       data-live-canvas-expanded={liveCanvasPresent && liveCanvas.surface === "expanded" ? "true" : undefined}
-      aria-label="Chat"
+      aria-label={t("shell.label")}
       data-live-canvas-open={liveCanvasPresent ? "true" : undefined}
       data-session-sidebar-collapsed={resolvedSessionSidebarCollapsed}
       style={{ "--tinyos-width": `${tinyOsWidth}px` } as CSSProperties}
       onKeyDown={handleChatPageKeyDown}
     >
-      <aside className="react-session-list" aria-label="Sessions" data-collapsed={resolvedSessionSidebarCollapsed}>
+      <aside className="react-session-list" aria-label={t("shell.sessions")} data-collapsed={resolvedSessionSidebarCollapsed}>
         <div className="react-session-list__header">
           <div className="react-session-list__title-row">
             <h2>Tinybot</h2>
             <div className="react-session-list__title-actions">
               <button
-                aria-label="Add workspace folder"
+                aria-label={t("shell.addWorkspace")}
                 className="react-session-list__add-workspace"
                 disabled={workspacePickerPending || sessionCreatePending}
-                title="Add workspace folder"
+                title={t("shell.addWorkspace")}
                 type="button"
                 onClick={() => void handleAddWorkspace()}
               >
                 <FolderPlus aria-hidden="true" size={15} />
               </button>
               <button
-                aria-label="Search chats"
+                aria-label={t("shell.searchChats")}
                 className="react-session-list__search"
-                title="Search chats"
+                title={t("shell.searchChats")}
                 type="button"
                 onClick={() => setSessionSearchOpen(true)}
               >
                 <Search aria-hidden="true" size={15} />
               </button>
               <button
-                aria-label={resolvedSessionSidebarCollapsed ? "Expand session sidebar" : "Collapse session sidebar"}
+                aria-label={resolvedSessionSidebarCollapsed ? t("shell.expandSidebar") : t("shell.collapseSidebar")}
                 className="react-session-list__collapse"
-                title={resolvedSessionSidebarCollapsed ? "Expand session sidebar" : "Collapse session sidebar"}
+                title={resolvedSessionSidebarCollapsed ? t("shell.expandSidebar") : t("shell.collapseSidebar")}
                 type="button"
                 onClick={() => handleSessionSidebarCollapsedChange(!resolvedSessionSidebarCollapsed)}
               >
@@ -2156,23 +2123,23 @@ export function ChatPage({
             </div>
           </div>
           <button
-            aria-label="New Chat"
+            aria-label={t("shell.newChat")}
             className="react-session-list__new"
             disabled={sessionCreatePending}
             type="button"
             onClick={() => void handleCreateSession()}
           >
             {sessionCreatePending ? <Loader2 aria-hidden="true" className="react-session-list__pending" size={15} /> : <Plus aria-hidden="true" size={15} />}
-            <span>新会话</span>
+            <span>{t("shell.newChat")}</span>
           </button>
           {sessionWorkspaceError ? (
             <p className="react-session-list__error" role="alert">{sessionWorkspaceError}</p>
           ) : null}
         </div>
-        <div className="react-session-list__rows" aria-label="Session list rows" data-motion="animated-list">
+        <div className="react-session-list__rows" aria-label={t("shell.sessionRows")} data-motion="animated-list">
           {sessionWorkspaces.length ? sessionWorkspaces.map((workspace) => (
             <details
-              aria-label={`Workspace ${workspace.label}`}
+              aria-label={t("shell.workspace", { name: workspace.label })}
               className="react-session-workspace"
               data-active={workspace.sessions.some((session) => session.id === activeSession?.id) ? "true" : undefined}
               key={workspace.key}
@@ -2191,10 +2158,10 @@ export function ChatPage({
                 </span>
               </summary>
               <button
-                aria-label={`New session in ${workspace.label}`}
+                aria-label={t("shell.newSessionIn", { name: workspace.label })}
                 className="react-session-workspace__new"
                 disabled={sessionCreatePending}
-                title={`New session in ${workspace.label}`}
+                title={t("shell.newSessionIn", { name: workspace.label })}
                 type="button"
                 onClick={() => void handleCreateSession(workspace.workingDirectory)}
               >
@@ -2225,11 +2192,11 @@ export function ChatPage({
                           dispatchSessionTabs({ type: "open", sessionId: session.id });
                         }}
                       >
-                        <span className="react-session-row__title">{displaySessionTitle(session.title)}</span>
+                        <span className="react-session-row__title">{displaySessionTitle(session.title, t)}</span>
                         <small>{formatRelativeUpdatedTime(session.updatedAtMs, now())}</small>
                       </button>
                       <button
-                        aria-label={`${confirming ? "Confirm delete" : "Delete"} ${session.title}`}
+                        aria-label={t(confirming ? "shell.confirmDelete" : "shell.delete", { name: session.title })}
                         className="react-session-row__delete"
                         data-confirming={confirming}
                         type="button"
@@ -2243,7 +2210,7 @@ export function ChatPage({
                 })}
               </div>
             </details>
-          )) : resolvedSessionSidebarCollapsed ? null : <EmptyStateText text="No sessions yet." />}
+          )) : resolvedSessionSidebarCollapsed ? null : <EmptyStateText text={t("shell.noSessions")} />}
         </div>
       </aside>
 
@@ -2263,17 +2230,17 @@ export function ChatPage({
               aria-controls="tinybot-live-canvas"
               aria-expanded={liveCanvasOpen}
               aria-label={liveCanvasOpen
-                ? "Close TinyOS"
+                ? t("shell.closeTinyOs")
                 : latestLiveCanvasAttention
-                  ? "Open TinyOS, attention required"
+                  ? t("shell.openTinyOsAttention")
                   : liveCanvasEntries.length
-                    ? "Open TinyOS, Agent activity available"
-                    : "Open TinyOS"}
+                    ? t("shell.openTinyOsActivity")
+                    : t("shell.openTinyOs")}
               className="react-live-canvas-toggle"
               data-active={liveCanvasOpen ? "true" : undefined}
               data-attention={latestLiveCanvasAttention ? "true" : undefined}
               data-has-activity={liveCanvasEntries.length ? "true" : undefined}
-              title={liveCanvasOpen ? "Close TinyOS" : "Open TinyOS"}
+              title={liveCanvasOpen ? t("shell.closeTinyOs") : t("shell.openTinyOs")}
               type="button"
               onClick={() => dispatchLiveCanvas({ type: "toggle" })}
             >
@@ -2281,8 +2248,8 @@ export function ChatPage({
               {!liveCanvasOpen && liveCanvasEntries.length ? <span aria-hidden="true" className="react-live-canvas-toggle__status" /> : null}
             </button>
             <button
-              aria-label="Open conversation menu"
-              title="Open conversation menu"
+              aria-label={t("shell.conversationMenu")}
+              title={t("shell.conversationMenu")}
               type="button"
               onClick={() => setHeaderMenuOpen((open) => !open)}
             >
@@ -2290,16 +2257,16 @@ export function ChatPage({
             </button>
             {headerMenuOpen ? (
               <div className="react-menu" role="menu">
-                <button aria-label={activeSession?.pinned ? "Unpin conversation" : "Pin conversation"} role="menuitem" type="button" onClick={() => activeSession && void handlePinConversation(activeSession)}>
-                  {activeSession?.pinned ? "取消置顶" : "置顶会话"}
+                <button aria-label={activeSession?.pinned ? t("shell.unpin") : t("shell.pin")} role="menuitem" type="button" onClick={() => activeSession && void handlePinConversation(activeSession)}>
+                  {activeSession?.pinned ? t("shell.unpin") : t("shell.pin")}
                 </button>
-                <button aria-label="Rename conversation" role="menuitem" type="button" onClick={() => activeSession && void handleRenameConversation(activeSession)}>重命名会话</button>
-                <button aria-label="Copy ID" role="menuitem" type="button" onClick={() => activeSession && void handleCopyId(activeSession)}>复制 ID</button>
-                <button aria-label="Copy Markdown" role="menuitem" type="button" onClick={() => activeSession && void handleCopyMarkdown(activeSession)}>复制 Markdown</button>
-                <button aria-label="Archive conversation" role="menuitem" type="button" onClick={() => activeSession && void handleArchiveConversation(activeSession)}>归档会话</button>
-                <button disabled role="menuitem" type="button">Open side chat</button>
-                <button disabled role="menuitem" type="button">Branch <ChevronDown aria-hidden="true" size={14} /></button>
-                <button disabled role="menuitem" type="button">Open in new window</button>
+                <button aria-label={t("shell.rename")} role="menuitem" type="button" onClick={() => activeSession && void handleRenameConversation(activeSession)}>{t("shell.rename")}</button>
+                <button aria-label={t("shell.copyId")} role="menuitem" type="button" onClick={() => activeSession && void handleCopyId(activeSession)}>{t("shell.copyId")}</button>
+                <button aria-label={t("shell.copyMarkdown")} role="menuitem" type="button" onClick={() => activeSession && void handleCopyMarkdown(activeSession)}>{t("shell.copyMarkdown")}</button>
+                <button aria-label={t("shell.archive")} role="menuitem" type="button" onClick={() => activeSession && void handleArchiveConversation(activeSession)}>{t("shell.archive")}</button>
+                <button disabled role="menuitem" type="button">{t("shell.sideChat")}</button>
+                <button disabled role="menuitem" type="button">{t("shell.branch")} <ChevronDown aria-hidden="true" size={14} /></button>
+                <button disabled role="menuitem" type="button">{t("shell.newWindow")}</button>
               </div>
             ) : null}
           </div>
@@ -2307,7 +2274,7 @@ export function ChatPage({
 
         <div
           ref={conversationRef}
-          aria-label="Conversation"
+          aria-label={t("shell.conversation")}
           aria-live="polite"
           className="react-conversation-view"
           id="tinybot-chat-conversation"
@@ -2327,10 +2294,10 @@ export function ChatPage({
               onOpenTool={(toolCall) => setDrawer({ kind: "tool", title: toolCall.name, toolCall })}
               focusError={turn.id === latestFailedTurnId}
               recovering={recoveringTurnId === turn.id}
-              onOpenError={(step) => setDrawer({ kind: "error", title: "错误详情", step, turn })}
+              onOpenError={(step) => setDrawer({ kind: "error", title: t("shell.errorDetails"), step, turn })}
               onRecover={(action) => void handleRecoverTurn(turn, action)}
             />
-          )) : emptyActiveSession ? <EmptyChatStart onSelectPrompt={handleComposerDraftChange} /> : activeSession ? null : <EmptyStateText text="Select or create a session." />}
+          )) : emptyActiveSession ? <EmptyChatStart onSelectPrompt={handleComposerDraftChange} /> : activeSession ? null : <EmptyStateText text={t("shell.selectSession")} />}
           {optimisticMessages.map((message) => (
             <MessageBubble
               key={message.id}
@@ -2343,7 +2310,7 @@ export function ChatPage({
           ))}
           {showPluginMigrationResult && activeSession?.pluginMigration ? (
             <section
-              aria-label="Plugin migration result"
+              aria-label={t("migration.label")}
               className="react-plugin-migration-result"
               data-status={activeSession.pluginMigration.status}
             >
@@ -2356,11 +2323,14 @@ export function ChatPage({
               </span>
               <span className="react-plugin-migration-result__copy">
                 <strong>{activeSession.pluginMigration.status === "installed"
-                  ? `${activeSession.pluginMigration.installedPluginName || "Plugin"} installed${activeSession.pluginMigration.installedPluginEnabled === false ? " (kept disabled)" : " and enabled"}`
-                  : "Migration complete — install the generated plugin"}</strong>
+                  ? t("migration.installed", {
+                      name: activeSession.pluginMigration.installedPluginName || "Plugin",
+                      state: activeSession.pluginMigration.installedPluginEnabled === false ? t("migration.keptDisabled") : t("migration.enabled"),
+                    })
+                  : t("migration.complete")}</strong>
                 <small>{activeSession.pluginMigration.status === "installed"
-                  ? activeSession.pluginMigration.cleanupWarning || "The temporary migration workspace was cleaned up."
-                  : "Tinybot will validate the generated package before installing it globally."}</small>
+                  ? activeSession.pluginMigration.cleanupWarning || t("migration.cleaned")
+                  : t("migration.validate")}</small>
                 {migrationInstallError ? <small className="react-plugin-migration-result__error" role="alert">{migrationInstallError}</small> : null}
               </span>
               {activeSession.pluginMigration.status === "pending" ? (
@@ -2369,13 +2339,13 @@ export function ChatPage({
                   type="button"
                   onClick={() => void handleInstallPluginMigration(activeSession)}
                 >
-                  {installingMigrationJobId === activeSession.pluginMigration.jobId ? "Installing…" : "Install migrated plugin"}
+                  {installingMigrationJobId === activeSession.pluginMigration.jobId ? t("migration.installing") : t("migration.install")}
                 </button>
               ) : null}
             </section>
           ) : null}
           {visibleAgentUiForms.length ? (
-            <div className="react-agent-ui-forms" aria-label="Agent forms">
+            <div className="react-agent-ui-forms" aria-label={t("turn.agentForms")}>
               {visibleAgentUiForms.map((form) => (
                 <AgentUiFormCard
                   form={form}
@@ -2391,7 +2361,7 @@ export function ChatPage({
         </div>
 
         {showBackToLatest ? (
-          <button className="react-back-to-latest" type="button" onClick={handleBackToLatest}>回到最新消息</button>
+          <button className="react-back-to-latest" type="button" onClick={handleBackToLatest}>{t("shell.backToLatest")}</button>
         ) : null}
 
         {activeSession && activeQueuedInputs.length ? (
@@ -2405,7 +2375,7 @@ export function ChatPage({
         {compactingActiveSession ? (
           <p aria-live="polite" className="react-context-compaction-status" role="status">
             <Loader2 aria-hidden="true" />
-            <span>正在压缩上下文</span>
+            <span>{t("shell.compacting")}</span>
           </p>
         ) : null}
         {showCommandLifecycleStatus ? (
@@ -2415,7 +2385,7 @@ export function ChatPage({
             data-stage={commandLifecycle.stage}
             role={commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out" ? "alert" : "status"}
           >
-            {tinyOsCommandLifecycleLabel(commandLifecycle)}
+            {tinyOsCommandLifecycleLabel(commandLifecycle, t)}
           </p>
         ) : null}
         <div
@@ -2429,9 +2399,9 @@ export function ChatPage({
         >
           <ClaudeStyleAiInput
             className={["react-composer", emptyActiveSession ? "react-composer--raised" : ""].filter(Boolean).join(" ")}
-          contextReferences={tinyOsContextReferences.map(composerReferenceFromTinyOs)}
+          contextReferences={tinyOsContextReferences.map((reference) => composerReferenceFromTinyOs(reference, t))}
           disabled={!activeSession && !draftNewSession}
-          disabledReason={!sessionsLoaded ? "正在加载会话…" : !activeSession && !draftNewSession ? "请先创建或选择一个会话" : undefined}
+          disabledReason={!sessionsLoaded ? t("shell.loadingSessions") : !activeSession && !draftNewSession ? t("shell.createOrSelect") : undefined}
           defaultModel={defaultComposerModel}
           defaultReasoningEffort={composerReasoningEffort}
           contextUsage={activeContextUsage}
@@ -2456,7 +2426,7 @@ export function ChatPage({
                 ? sessionStore.setModel?.(activeSession.id, selectedModelId, selected.providerId)
                 : sessionStore.setModel?.(activeSession.id, selectedModelId);
               void setModel?.catch((error) => {
-                setTimelineError(`Model selection could not be saved: ${error instanceof Error ? error.message : String(error)}`);
+                setTimelineError(t("errors.modelSaveFailed", { message: error instanceof Error ? error.message : String(error) }));
               });
             }
           }}
@@ -2465,10 +2435,10 @@ export function ChatPage({
             writeCurrentChatReasoningEffort(effort);
           }}
           responding={sessionResponding}
-          slashCommands={COMPOSER_SLASH_COMMANDS}
+          slashCommands={slashCommands}
           canStopResponding={canCancelTurn}
           stopUnavailableReason={cancelUnavailableReason}
-          placeholder={emptyActiveSession ? "输入任务，或粘贴/拖入文件" : "输入消息给 Tinybot"}
+          placeholder={emptyActiveSession ? t("shell.taskPlaceholder") : t("shell.messagePlaceholder")}
           value={composerDraft}
           onClearContextReferences={() => setTinyOsContextReferences([])}
           onRemoveContextReference={(id) => setTinyOsContextReferences((current) => current.filter((reference) => tinyOsContextReferenceId(reference) !== id))}
@@ -2557,10 +2527,10 @@ export function ChatPage({
       ) : null}
 
       {drawer ? (
-        <aside className="react-right-drawer" aria-label="Details drawer" data-motion="fade-content" data-state="open">
+        <aside className="react-right-drawer" aria-label={t("shell.detailsDrawer")} data-motion="fade-content" data-state="open">
           <div>
             <h2>{drawer.title}</h2>
-            <button aria-label="Close details drawer" type="button" onClick={() => setDrawer(null)}>
+            <button aria-label={t("shell.closeDetails")} type="button" onClick={() => setDrawer(null)}>
               <X aria-hidden="true" size={16} />
             </button>
           </div>
@@ -2611,6 +2581,7 @@ function SessionSearchDialog({
   onSelectSession: (session: SessionSummary) => void;
   sessions: SessionSummary[];
 }) {
+  const { i18n, t } = useTranslation("chat");
   const [query, setQuery] = useState("");
   const normalizedQuery = query.trim().toLowerCase();
   const filteredSessions = normalizedQuery
@@ -2620,14 +2591,14 @@ function SessionSearchDialog({
   const recommendations = [
     {
       id: "new-chat",
-      label: "New Chat",
+      label: t("shell.newChat"),
       shortcut: "Ctrl+N",
       icon: Plus,
       run: onCreateSession,
     },
     ...(onOpenFiles ? [{
       id: "open-files",
-      label: "Open folder",
+      label: t("search.openFolder"),
       shortcut: "Ctrl+O",
       icon: FolderOpen,
       run: () => {
@@ -2637,7 +2608,7 @@ function SessionSearchDialog({
     }] : []),
     ...(onOpenSettings ? [{
       id: "open-settings",
-      label: "Settings",
+      label: t("search.settings"),
       shortcut: "Ctrl+,",
       icon: Settings,
       run: () => {
@@ -2667,19 +2638,19 @@ function SessionSearchDialog({
         }
       }}
     >
-      <section aria-label="Chat search" className="react-command-palette react-session-search-dialog" role="dialog">
+      <section aria-label={t("search.label")} className="react-command-palette react-session-search-dialog" role="dialog">
         <div className="react-session-search__input-row">
           <Search aria-hidden="true" size={18} />
           <input
-            aria-label="Search chats or commands"
+            aria-label={t("search.placeholder")}
             autoFocus
-            placeholder="搜索聊天或运行命令"
+            placeholder={t("search.placeholder")}
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
         </div>
         <div className="react-session-search__section">
-          <p>聊天</p>
+          <p>{t("search.chats")}</p>
           <div className="react-session-search__list">
             {filteredSessions.length ? filteredSessions.map((session, index) => (
               <button
@@ -2692,16 +2663,16 @@ function SessionSearchDialog({
                 <span className="react-session-search__rank">{index + 1}</span>
                 <span className="react-session-search__title">{session.title}</span>
                 <span className="react-session-search__meta">
-                  {session.workingDirectory ? sessionWorkspaceName(session.workingDirectory) : "常规会话"}
+                  {session.workingDirectory ? sessionWorkspaceName(session.workingDirectory) : t("search.regular")}
                 </span>
                 <kbd>{`Ctrl+${index + 1}`}</kbd>
-                <small>{formatRelativeUpdatedTime(session.updatedAtMs, now())}</small>
+                <small>{formatRelativeUpdatedTime(session.updatedAtMs, now(), i18n.language, t("search.noDate"))}</small>
               </button>
-            )) : <span className="react-session-search__empty">No matching chats.</span>}
+            )) : <span className="react-session-search__empty">{t("search.noMatches")}</span>}
           </div>
         </div>
         <div className="react-session-search__section">
-          <p>推荐</p>
+          <p>{t("search.suggested")}</p>
           <div className="react-session-search__list">
             {recommendations.map((recommendation) => {
               const Icon = recommendation.icon;
@@ -2721,12 +2692,14 @@ function SessionSearchDialog({
 }
 
 function EmptyChatStart({ onSelectPrompt }: { onSelectPrompt: (prompt: string) => void }) {
+  const { t } = useTranslation("chat");
+  const prompts = t("prompts", { returnObjects: true }) as readonly string[];
   return (
-    <section aria-label="Start a new chat" className="react-empty-chat-start" data-empty-session="true">
-      <h2>想让 Tinybot 做什么？</h2>
-      <p>选择一个建议，或直接在下方描述你的任务。</p>
-      <div className="react-empty-chat-prompts" aria-label="Prompt suggestions">
-        {EMPTY_CHAT_PROMPTS.map((prompt) => (
+    <section aria-label={t("search.start")} className="react-empty-chat-start" data-empty-session="true">
+      <h2>{t("empty.title")}</h2>
+      <p>{t("empty.description")}</p>
+      <div className="react-empty-chat-prompts" aria-label={t("empty.suggestions")}>
+        {prompts.map((prompt) => (
           <button key={prompt} type="button" onClick={() => onSelectPrompt(prompt)}>{prompt}</button>
         ))}
       </div>
@@ -2908,35 +2881,35 @@ function tinyOsContextReferenceId(reference: TinyOsContextReference): string {
   ].join(":");
 }
 
-function tinyOsCommandLifecycleLabel(lifecycle: TinyOsCommandLifecycle): string {
+function tinyOsCommandLifecycleLabel(lifecycle: TinyOsCommandLifecycle, t: TFunction<"chat">): string {
   const commandKind = lifecycle.stage === "idle" ? "agent.cancel" : lifecycle.command.kind;
   const operation = ({
-    "agent.cancel": "Cancel",
-    "agent.pause": "Pause",
-    "agent.request_change": "Agent request",
-    "agent.resume": "Resume",
-    "browser.interact": "Browser interaction",
-    "file.delete": "File deletion",
-    "file.move": "File move",
-    "file.save": "File save",
-    "form.cancel": "Form cancellation",
-    "form.submit": "Form submission",
-    "operation.retry": "Retry",
-    "terminal.cancel": "Terminal cancellation",
-    "terminal.execute": "Terminal execution",
+    "agent.cancel": t("lifecycle.operation.cancel"),
+    "agent.pause": t("lifecycle.operation.pause"),
+    "agent.request_change": t("lifecycle.operation.agentRequest"),
+    "agent.resume": t("lifecycle.operation.resume"),
+    "browser.interact": t("lifecycle.operation.browserInteraction"),
+    "file.delete": t("lifecycle.operation.fileDeletion"),
+    "file.move": t("lifecycle.operation.fileMove"),
+    "file.save": t("lifecycle.operation.fileSave"),
+    "form.cancel": t("lifecycle.operation.formCancellation"),
+    "form.submit": t("lifecycle.operation.formSubmission"),
+    "operation.retry": t("lifecycle.operation.retry"),
+    "terminal.cancel": t("lifecycle.operation.terminalCancellation"),
+    "terminal.execute": t("lifecycle.operation.terminalExecution"),
   } satisfies Record<TinyOsCommand["kind"], string>)[commandKind];
-  const completionOperation = commandKind === "agent.cancel" ? "Cancellation" : operation;
+  const completionOperation = commandKind === "agent.cancel" ? t("lifecycle.operation.cancellation") : operation;
   switch (lifecycle.stage) {
     case "idle":
       return "";
     case "sending":
-      return `Sending ${operation.toLowerCase()} command…`;
+      return t("lifecycle.sending", { operation: operation.toLocaleLowerCase() });
     case "waiting_for_canonical":
-      return `${operation} delivered. Waiting for runtime confirmation…`;
+      return t("lifecycle.waiting", { operation });
     case "acknowledged":
-      return `${operation} acknowledged by canonical item ${lifecycle.acknowledgement.itemId}. Waiting for completion.`;
+      return t("lifecycle.acknowledged", { itemId: lifecycle.acknowledgement.itemId, operation });
     case "completed":
-      return `${completionOperation} ${lifecycle.completion.status} at canonical item ${lifecycle.completion.itemId}.`;
+      return t("lifecycle.completed", { itemId: lifecycle.completion.itemId, operation: completionOperation, status: lifecycle.completion.status });
     case "rejected":
     case "timed_out":
       return lifecycle.error;
@@ -2948,31 +2921,31 @@ function agentUiFormCorrelationString(form: AgentUiForm, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
-function tinyOsReferenceLabel(reference: TinyOsContextReference): string {
+function tinyOsReferenceLabel(reference: TinyOsContextReference, t: TFunction<"chat">): string {
   const lineRange = reference.startLine
     ? `L${reference.startLine}${reference.endLine && reference.endLine !== reference.startLine ? `–${reference.endLine}` : ""}`
-    : "selection";
+    : t("references.selection");
   return reference.kind === "file" ? `${reference.path} · ${lineRange}` : `${reference.command} · ${lineRange}`;
 }
 
-function composerReferenceFromTinyOs(reference: TinyOsContextReference): ComposerContextReference {
+function composerReferenceFromTinyOs(reference: TinyOsContextReference, t: TFunction<"chat">): ComposerContextReference {
   return {
-    detail: reference.kind === "file" ? "TinyOS file selection" : "TinyOS terminal output",
+    detail: reference.kind === "file" ? t("references.fileSelection") : t("references.terminalOutput"),
     id: tinyOsContextReferenceId(reference),
     kind: reference.kind,
-    label: tinyOsReferenceLabel(reference),
+    label: tinyOsReferenceLabel(reference, t),
   };
 }
 
-function nativeReferenceFromTinyOs(reference: TinyOsAgentRequestReference): AgentInputReference {
+function nativeReferenceFromTinyOs(reference: TinyOsAgentRequestReference, t: TFunction<"chat">): AgentInputReference {
   const canonical = reference.kind === "file"
     ? reference.provenance.kind === "canonical" ? reference.provenance : undefined
     : { sourceItemId: reference.sourceItemId, turnId: reference.turnId };
   const scope = canonical?.turnId ?? (reference.kind === "file" && reference.provenance.kind === "workspace_read" ? reference.provenance.workspaceKey : undefined);
   const detail = reference.kind === "file"
-    ? "TinyOS file selection"
-    : reference.kind === "terminal" ? "TinyOS terminal output selection" : "TinyOS plan snapshot";
-  const title = reference.kind === "plan" ? "Execution plan" : tinyOsReferenceLabel(reference);
+    ? t("references.fileSelection")
+    : reference.kind === "terminal" ? t("references.terminalSelection") : t("references.planSnapshot");
+  const title = reference.kind === "plan" ? t("references.executionPlan") : tinyOsReferenceLabel(reference, t);
   return {
     detail,
     evidenceId: canonical?.sourceItemId,
@@ -3006,20 +2979,20 @@ function tinyOsAgentRequestControl(reference: TinyOsAgentRequestReference, inten
   return `${reference.kind}-${intent.replace(/_/g, "-")}`;
 }
 
-function tinyOsAgentRequestInstruction(reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent): string {
+function tinyOsAgentRequestInstruction(reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent, t: TFunction<"chat">): string {
   if (intent === "explain") {
     return reference.kind === "file"
-      ? "Explain the selected file range. Describe what it does, why it exists, and any important behavior or risks. Do not modify files."
-      : "Explain the selected terminal output using the attached canonical command evidence. Identify the cause, impact, and the next useful diagnostic step. Do not modify files.";
+      ? t("agentRequests.explainFile")
+      : t("agentRequests.explainTerminal");
   }
   if (intent === "modify" && reference.kind === "file") {
-    return "Modify the selected file range to address correctness, maintainability, or clarity problems visible in the selection. Keep the change minimal, inspect surrounding code before editing, and verify the result.";
+    return t("agentRequests.modifyFile");
   }
   if (intent === "follow_up" && reference.kind === "terminal") {
-    return "Continue from the selected terminal output as canonical evidence. Diagnose the root cause, make the minimum necessary code change, and verify the fix. Do not hide the failure with fallback behavior.";
+    return t("agentRequests.followTerminal");
   }
   if (intent === "adjust_plan" && reference.kind === "plan") {
-    return `Adjust the current execution plan according to this user request: ${reference.adjustment}. Preserve completed work, explain material changes, and continue from the updated plan.`;
+    return t("agentRequests.adjustPlan", { adjustment: reference.adjustment });
   }
   throw new Error(`Unsupported TinyOS Agent request: ${reference.kind}/${intent}`);
 }
@@ -3075,15 +3048,15 @@ function moveMapValue<T>(
   map.set(sessionId, value);
 }
 
-function formatComposerMessage(message: string, pastedContent: PastedContent[]): string {
+function formatComposerMessage(message: string, pastedContent: PastedContent[], t: TFunction<"chat">): string {
   const segments = [message.trim()].filter(Boolean);
   for (const pasted of pastedContent) {
-    segments.push(`Pasted content:\n${pasted.content}`);
+    segments.push(`${t("composer.pastedContentLabel")}:\n${pasted.content}`);
   }
   return segments.join("\n\n");
 }
 
-function toComposerModelOption(model: ChatModelOption): ModelOption {
+function toComposerModelOption(model: ChatModelOption, t: TFunction<"chat">): ModelOption {
   return {
     id: model.providerId
       ? `provider:${encodeURIComponent(model.providerId)}|model:${encodeURIComponent(model.id)}`
@@ -3091,7 +3064,7 @@ function toComposerModelOption(model: ChatModelOption): ModelOption {
     modelId: model.id,
     ...(model.providerId ? { providerId: model.providerId } : {}),
     name: model.label || model.id,
-    description: model.description || model.providerLabel || "Configured model",
+    description: model.description || model.providerLabel || t("composer.configuredModel"),
   };
 }
 
@@ -3104,24 +3077,25 @@ function QueuedInputsPanel({
   onDelete: (inputId: string) => void;
   onResume: () => void;
 }) {
+  const { t } = useTranslation("chat");
   const hasPausedInput = inputs.some((input) => input.status === "paused");
   const pendingCount = inputs.filter((input) => input.status === "queued" || input.status === "paused").length;
   return (
-    <section aria-label="Queued inputs" aria-live="polite" className="react-queued-inputs">
+    <section aria-label={t("queue.label")} aria-live="polite" className="react-queued-inputs">
       <div className="react-queued-inputs__header">
-        <h2>运行中输入</h2>
+        <h2>{t("queue.title")}</h2>
         <div>
-          <span>待处理 {pendingCount}/{MAX_QUEUED_INPUTS}</span>
-          {hasPausedInput ? <button type="button" onClick={onResume}>Resume queue</button> : null}
+          <span>{t("queue.pending", { max: MAX_QUEUED_INPUTS, pending: pendingCount })}</span>
+          {hasPausedInput ? <button type="button" onClick={onResume}>{t("queue.resume")}</button> : null}
         </div>
       </div>
       <ol>
         {inputs.map((input) => (
           <li className="react-queued-input" data-status={input.status} key={input.id}>
-            <span>{queuedInputStatusLabel(input)}</span>
+            <span>{queuedInputStatusLabel(input, t)}</span>
             <p>{input.content}</p>
             {(input.mode === "queued" && (input.status === "queued" || input.status === "paused")) || (input.mode === "interrupt" && input.status !== "queued") ? (
-              <button type="button" onClick={() => onDelete(input.id)}>{input.mode === "interrupt" ? "清除插入状态" : "Delete queued input"}</button>
+              <button type="button" onClick={() => onDelete(input.id)}>{input.mode === "interrupt" ? t("queue.clearInterrupt") : t("queue.delete")}</button>
             ) : null}
           </li>
         ))}
@@ -3130,26 +3104,26 @@ function QueuedInputsPanel({
   );
 }
 
-function queuedInputStatusLabel(input: QueuedInput): string {
+function queuedInputStatusLabel(input: QueuedInput, t: TFunction<"chat">): string {
   if (input.mode === "interrupt") {
     switch (input.status) {
       case "sent":
-        return "正在发送为新一轮";
+        return t("queue.sending");
       case "failed":
-        return "插入失败";
+        return t("queue.interruptFailed");
       default:
-        return "正在中断当前回复";
+        return t("queue.interrupting");
     }
   }
   switch (input.status) {
     case "paused":
-      return "Paused";
+      return t("queue.paused");
     case "sent":
-      return "Sent";
+      return t("queue.sent");
     case "failed":
-      return "Failed";
+      return t("queue.failed");
     default:
-      return "Waiting";
+      return t("queue.waiting");
   }
 }
 
@@ -3178,6 +3152,7 @@ function CanonicalChatTurn({
   recovering: boolean;
   turn: ChatTurn;
 }) {
+  const { t } = useTranslation("chat");
   const executionItems = turn.executionItems ?? turn.steps;
   const finalAnswer = turn.finalAnswer ?? turn.finalMessage;
   const reasoningSteps = turn.steps.filter((step) => step.kind === "reasoning");
@@ -3193,7 +3168,7 @@ function CanonicalChatTurn({
   ));
   const hasUserMessage = Boolean(turn.userMessage.text.trim() || turn.userMessage.references?.length);
   return (
-    <section aria-label="Chat turn" className="react-canonical-turn" data-status={turn.status}>
+    <section aria-label={t("turn.label")} className="react-canonical-turn" data-status={turn.status}>
       {hasUserMessage ? (
         <CanonicalMessage
           messageId={turn.userMessage.id}
@@ -3223,7 +3198,7 @@ function CanonicalChatTurn({
           {groupCanonicalSteps(legacyProcessSteps).map((group) => (
             Array.isArray(group) ? (
               <div className="react-canonical-tool-group" key={group.map((step) => step.id).join(":")}>
-                <AgentSteps onOpenTool={onOpenTool} toolCalls={group.map((step) => toolCallSummaryFromStep(step, step.toolCall!))} />
+                <AgentSteps onOpenTool={onOpenTool} toolCalls={group.map((step) => toolCallSummaryFromStep(step, step.toolCall!, t))} />
                 <CanonicalArtifacts artifacts={group.flatMap((step) => step.artifacts ?? [])} onOpen={onOpenArtifact} />
                 <CanonicalScopedErrors errors={group.flatMap((step) => step.scopedErrors ?? [])} />
               </div>
@@ -3311,6 +3286,7 @@ function ExecutionTimeline({
   recovering: boolean;
   turn: ChatTurn;
 }) {
+  const { t } = useTranslation("chat");
   const contentId = useId();
   const timelineRef = useRef<HTMLElement | null>(null);
   const abnormal = executionItems.some((step) => step.status === "failed" || step.status === "cancelled" || step.status === "blocked")
@@ -3353,7 +3329,7 @@ function ExecutionTimeline({
     });
   }, [abnormal, foldIntent, hasFinalAnswer]);
 
-  const summary = executionTimelineSummary(turn, executionItems, abnormal);
+  const summary = executionTimelineSummary(turn, executionItems, abnormal, t);
   return (
     <section className="react-execution-timeline" data-abnormal={abnormal ? "true" : undefined} ref={timelineRef}>
       <button
@@ -3370,7 +3346,7 @@ function ExecutionTimeline({
       >
         <span className="react-execution-timeline__status"><Activity aria-hidden="true" size={17} /></span>
         <span className="react-execution-timeline__heading">
-          <strong>Work performed</strong>
+          <strong>{t("turn.workPerformed")}</strong>
           <small aria-live="polite">{summary}</small>
         </span>
         <ChevronDown aria-hidden="true" className="react-execution-timeline__chevron" size={18} />
@@ -3380,9 +3356,9 @@ function ExecutionTimeline({
           <div className="react-execution-timeline__item" data-kind={step.kind} data-status={step.status} key={step.id}>
             {step.kind === "tool_call" ? null : (
               <button
-                aria-label={`View ${step.title} in TinyOS`}
+                aria-label={t("turn.viewTinyOs", { name: step.title })}
                 className="react-execution-timeline__canvas-button"
-                title="View in TinyOS"
+                title={t("turn.viewInTinyOs")}
                 type="button"
                 onClick={() => onOpenLiveCanvas(step)}
               >
@@ -3414,32 +3390,32 @@ function ExecutionTimeline({
   );
 }
 
-function executionTimelineSummary(turn: ChatTurn, items: ChatStep[], abnormal: boolean): string {
+function executionTimelineSummary(turn: ChatTurn, items: ChatStep[], abnormal: boolean, t: TFunction<"chat">): string {
   const plan = [...items].reverse().find((step) => step.plan)?.plan;
   const durationMs = turn.completedAt
     ? Math.max(0, Date.parse(turn.completedAt) - Date.parse(turn.startedAt))
     : undefined;
-  const parts = [executionStatusLabel(turn.status), `${items.length} ${items.length === 1 ? "action" : "actions"}`];
+  const parts = [executionStatusLabel(turn.status, t), t("execution.actionCount", { count: items.length })];
   if (plan) {
-    parts.push(`plan ${plan.completed}/${plan.total}`);
+    parts.push(t("execution.plan", { completed: plan.completed, total: plan.total }));
   }
   if (durationMs !== undefined && Number.isFinite(durationMs)) {
     parts.push(formatExecutionDuration(durationMs));
   }
   if (abnormal) {
     const blocked = items.find((step) => step.status === "failed" || step.status === "cancelled" || step.status === "blocked");
-    parts.push(blocked?.title || "attention required");
+    parts.push(blocked?.title || t("execution.attention"));
   }
   return parts.join(" · ");
 }
 
-function executionStatusLabel(status: ChatTurn["status"]): string {
+function executionStatusLabel(status: ChatTurn["status"], t: TFunction<"chat">): string {
   switch (status) {
-    case "completed": return "Completed";
-    case "failed": return "Failed";
-    case "interrupted": return "Interrupted";
-    case "awaiting_user": return "Awaiting input";
-    default: return "Running";
+    case "completed": return t("execution.status.completed");
+    case "failed": return t("execution.status.failed");
+    case "interrupted": return t("execution.status.interrupted");
+    case "awaiting_user": return t("execution.status.awaiting");
+    default: return t("execution.status.running");
   }
 }
 
@@ -3474,6 +3450,7 @@ function CanonicalMessage({
   streaming?: boolean;
   text: string;
 }) {
+  const { t } = useTranslation("chat");
   return (
     <article className="react-message" data-actions-placement="bottom" data-role={role} data-testid={`message-${messageId}`}>
       <div className="react-message__body">
@@ -3482,15 +3459,15 @@ function CanonicalMessage({
         ))}
         {role === "assistant" ? <AssistantMarkdown streaming={streaming} text={text} /> : <PlainMessageText text={text} />}
         {references?.length ? <MessageContext references={references.map(canonicalReferenceSummary)} /> : null}
-        {streaming ? <span aria-label="Agent is responding" className="react-message__streaming" /> : null}
+        {streaming ? <span aria-label={t("turn.agentResponding")} className="react-message__streaming" /> : null}
       </div>
       {allowActions && text.trim() ? (
         <div className="react-message__actions" data-align={role === "user" ? "right" : "left"}>
-          <button aria-label="Copy message" type="button" onClick={() => void writeClipboardText(text)}>
+          <button aria-label={t("turn.copyMessage")} type="button" onClick={() => void writeClipboardText(text)}>
             <Copy aria-hidden="true" size={14} />
           </button>
           {onBranch ? (
-            <button aria-label="Branch from here" type="button" onClick={onBranch}>
+            <button aria-label={t("turn.branchHere")} type="button" onClick={onBranch}>
               <GitBranch aria-hidden="true" size={14} />
             </button>
           ) : null}
@@ -3513,6 +3490,7 @@ function CanonicalChatStep({
   onOpenTool: (toolCall: ToolCallSummary) => void;
   step: ChatStep;
 }) {
+  const { i18n, t } = useTranslation("chat");
   if (step.kind === "reasoning") {
     return <MessageReasoning streaming={step.status === "running"} text={step.summary ?? ""} />;
   }
@@ -3533,7 +3511,7 @@ function CanonicalChatStep({
         <PatchDiffCard
           status={step.status}
           toolCall={step.toolCall}
-          onOpenDetails={() => onOpenTool(toolCallSummaryFromStep(step, step.toolCall!))}
+          onOpenDetails={() => onOpenTool(toolCallSummaryFromStep(step, step.toolCall!, t))}
         />
       );
     }
@@ -3544,7 +3522,7 @@ function CanonicalChatStep({
         toolCall={step.toolCall}
         onOpenDetails={onOpenLiveCanvas
           ? () => onOpenLiveCanvas(step)
-          : () => onOpenTool(toolCallSummaryFromStep(step, step.toolCall!))}
+          : () => onOpenTool(toolCallSummaryFromStep(step, step.toolCall!, t))}
       />
     );
   }
@@ -3552,12 +3530,12 @@ function CanonicalChatStep({
     const values = canonicalFormEntries(step.form.values);
     const errors = Object.entries(step.form.errors ?? {});
     const resolution = step.form.action === "submit"
-      ? "Submitted"
+      ? t("form.submitted")
       : step.form.action === "cancel"
-        ? "Cancelled"
+        ? t("form.cancelled")
         : step.status === "completed"
-          ? "Resolved"
-          : "Waiting for input";
+          ? t("form.resolved")
+          : t("form.waiting");
     return (
       <section aria-label={step.title} className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
         <span className="react-canonical-step__icon"><AgentStepIcon status={canonicalStepIconStatus(step)} /></span>
@@ -3572,7 +3550,7 @@ function CanonicalChatStep({
             </dl>
           ) : null}
           {errors.length ? (
-            <ul aria-label="Form errors" role="alert">
+            <ul aria-label={t("turn.formErrors")} role="alert">
               {errors.map(([key, error]) => <li key={key}>{key}: {error}</li>)}
             </ul>
           ) : null}
@@ -3585,7 +3563,7 @@ function CanonicalChatStep({
     return (
       <div className="react-canonical-step-stack">
         <button
-          aria-label={`Open details for ${step.title}`}
+          aria-label={t("turn.openDetails", { name: step.title })}
           className="react-canonical-step react-canonical-step--button"
           data-kind={step.kind}
           data-status={step.status}
@@ -3619,15 +3597,15 @@ function CanonicalChatStep({
       <details className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
         <summary>
           <span className="react-canonical-step__icon"><ListCollapse aria-hidden="true" size={16} /></span>
-          <span>上下文已压缩</span>
+          <span>{t("turn.contextCompacted")}</span>
           <ChevronRight aria-hidden="true" className="react-context-compaction-chevron" size={15} />
         </summary>
         {step.summary ? <p>{step.summary}</p> : null}
         {compaction ? (
-          <ul aria-label="Compaction details">
-            {compaction.estimatedTokensBefore !== undefined ? <li>Before: {compaction.estimatedTokensBefore.toLocaleString("en-US")} tokens</li> : null}
-            {compaction.estimatedTokensAfter !== undefined ? <li>After: {compaction.estimatedTokensAfter.toLocaleString("en-US")} tokens</li> : null}
-            <li>Dropped items: {compaction.droppedItemCount.toLocaleString("en-US")}</li>
+          <ul aria-label={t("turn.compactionDetails")}>
+            {compaction.estimatedTokensBefore !== undefined ? <li>{t("compaction.before", { value: compaction.estimatedTokensBefore.toLocaleString(i18n.resolvedLanguage) })}</li> : null}
+            {compaction.estimatedTokensAfter !== undefined ? <li>{t("compaction.after", { value: compaction.estimatedTokensAfter.toLocaleString(i18n.resolvedLanguage) })}</li> : null}
+            <li>{t("compaction.dropped", { value: compaction.droppedItemCount.toLocaleString(i18n.resolvedLanguage) })}</li>
           </ul>
         ) : null}
       </details>
@@ -3662,8 +3640,9 @@ function ErrorRecoveryCard({
   step: ChatStep;
   turn: ChatTurn;
 }) {
+  const { t } = useTranslation("chat");
   const cardRef = useRef<HTMLElement | null>(null);
-  const error = canonicalErrorInfo(step);
+  const error = canonicalErrorInfo(step, t);
   const failedStep = failedPlanStep(turn);
   const completedSteps = completedPlanStepCount(turn);
 
@@ -3676,7 +3655,7 @@ function ErrorRecoveryCard({
   return (
     <section
       ref={cardRef}
-      aria-label="任务执行失败"
+      aria-label={t("recovery.label")}
       className="react-error-recovery"
       role="alert"
       tabIndex={-1}
@@ -3684,32 +3663,33 @@ function ErrorRecoveryCard({
       <div className="react-error-recovery__heading">
         <AlertTriangle aria-hidden="true" size={18} />
         <div>
-          <strong>{turn.status === "interrupted" ? "任务已取消" : "任务已中断"}</strong>
-          <p>{friendlyErrorMessage(error.code, error.message)}</p>
+          <strong>{turn.status === "interrupted" ? t("recovery.cancelled") : t("recovery.interrupted")}</strong>
+          <p>{friendlyErrorMessage(error.code, error.message, t)}</p>
         </div>
       </div>
       <dl className="react-error-recovery__summary">
-        {failedStep ? <div><dt>中断位置</dt><dd>{failedStep}</dd></div> : null}
-        <div><dt>计划进度</dt><dd>已完成 {completedSteps} 个步骤</dd></div>
+        {failedStep ? <div><dt>{t("recovery.failedAt")}</dt><dd>{failedStep}</dd></div> : null}
+        <div><dt>{t("recovery.progress")}</dt><dd>{t("recovery.completedSteps", { count: completedSteps })}</dd></div>
       </dl>
       {completedPlanSteps(turn).length ? (
         <div className="react-error-recovery__valid-results">
-          <strong>仍然有效的结果</strong>
+          <strong>{t("recovery.validResults")}</strong>
           <ul>{completedPlanSteps(turn).map((item) => <li key={item}>{item}</li>)}</ul>
         </div>
       ) : null}
-      <div className="react-error-recovery__actions" aria-label="错误恢复操作">
-        <button disabled={recovering} type="button" onClick={() => onRecover("continue")}><Play aria-hidden="true" size={15} />继续执行</button>
-        <button disabled={recovering} type="button" onClick={() => onRecover("retry")}><RotateCcw aria-hidden="true" size={15} />重试当前步骤</button>
-        <button disabled={recovering} type="button" onClick={() => onRecover("restart")}><RefreshCw aria-hidden="true" size={15} />重新开始</button>
-        <button type="button" onClick={onOpenDetails}>查看详情</button>
-        <button type="button" onClick={() => void writeClipboardText(formatFailureDetails(step, turn))}><Copy aria-hidden="true" size={15} />复制错误</button>
+      <div className="react-error-recovery__actions" aria-label={t("recovery.actions")}>
+        <button disabled={recovering} type="button" onClick={() => onRecover("continue")}><Play aria-hidden="true" size={15} />{t("recovery.continue")}</button>
+        <button disabled={recovering} type="button" onClick={() => onRecover("retry")}><RotateCcw aria-hidden="true" size={15} />{t("recovery.retry")}</button>
+        <button disabled={recovering} type="button" onClick={() => onRecover("restart")}><RefreshCw aria-hidden="true" size={15} />{t("recovery.restart")}</button>
+        <button type="button" onClick={onOpenDetails}>{t("recovery.details")}</button>
+        <button type="button" onClick={() => void writeClipboardText(formatFailureDetails(step, turn, t))}><Copy aria-hidden="true" size={15} />{t("recovery.copyError")}</button>
       </div>
     </section>
   );
 }
 
 function CanonicalPlanCard({ step }: { step: ChatStep }) {
+  const { t } = useTranslation("chat");
   const contentId = useId();
   const [expanded, setExpanded] = useState(step.status !== "completed");
   const plan = step.plan;
@@ -3728,7 +3708,7 @@ function CanonicalPlanCard({ step }: { step: ChatStep }) {
   }
 
   return (
-    <section aria-label="执行计划" aria-live="polite" className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
+    <section aria-label={t("plan.label")} aria-live="polite" className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
       <span className="react-canonical-step__icon"><AgentStepIcon status={canonicalStepIconStatus(step)} /></span>
       <div className="react-canonical-plan">
         <button
@@ -3738,8 +3718,8 @@ function CanonicalPlanCard({ step }: { step: ChatStep }) {
           type="button"
           onClick={() => setExpanded((open) => !open)}
         >
-          <strong>执行计划</strong>
-          <span>已完成 {completed}/{plan.total}</span>
+          <strong>{t("plan.label")}</strong>
+          <span>{t("plan.completed", { completed, total: plan.total })}</span>
           {expanded ? <ChevronDown aria-hidden="true" size={15} /> : <ChevronRight aria-hidden="true" size={15} />}
         </button>
         <progress
@@ -3758,7 +3738,7 @@ function CanonicalPlanCard({ step }: { step: ChatStep }) {
                 <li data-status={planStep.status} key={`${index}:${planStep.step}`}>
                   <span className="react-canonical-plan__step-icon"><PlanStepIcon status={planStep.status} /></span>
                   <PlanStepLabel text={planStep.step} />
-                  <small>{formatPlanStepStatus(planStep.status)}</small>
+                  <small>{formatPlanStepStatus(planStep.status, t)}</small>
                 </li>
               ))}
             </ol>
@@ -3772,16 +3752,18 @@ function CanonicalPlanCard({ step }: { step: ChatStep }) {
 type PlanStepStatus = NonNullable<ChatStep["plan"]>["steps"][number]["status"];
 
 function PlanStepIcon({ status }: { status: PlanStepStatus }) {
+  const { t } = useTranslation("chat");
   switch (status) {
-    case "completed": return <Check aria-label="已完成" size={14} />;
-    case "in_progress": return <Loader2 aria-label="执行中" size={14} />;
-    case "failed": return <AlertTriangle aria-label="失败" size={14} />;
-    case "cancelled": return <X aria-label="已取消" size={14} />;
-    default: return <Circle aria-label="待执行" size={12} />;
+    case "completed": return <Check aria-label={t("plan.status.completed")} size={14} />;
+    case "in_progress": return <Loader2 aria-label={t("plan.status.inProgress")} size={14} />;
+    case "failed": return <AlertTriangle aria-label={t("plan.status.failed")} size={14} />;
+    case "cancelled": return <X aria-label={t("plan.status.cancelled")} size={14} />;
+    default: return <Circle aria-label={t("plan.status.pending")} size={12} />;
   }
 }
 
 function PlanStepLabel({ text }: { text: string }) {
+  const { t } = useTranslation("chat");
   const [expanded, setExpanded] = useState(false);
   const canExpand = text.length > 72;
   return (
@@ -3789,32 +3771,33 @@ function PlanStepLabel({ text }: { text: string }) {
       <span data-expanded={expanded ? "true" : undefined}>{text}</span>
       {canExpand ? (
         <button aria-expanded={expanded} type="button" onClick={() => setExpanded((open) => !open)}>
-          {expanded ? "收起" : "展开"}
+          {expanded ? t("plan.collapse") : t("plan.expand")}
         </button>
       ) : null}
     </span>
   );
 }
 
-function formatPlanStepStatus(status: PlanStepStatus): string {
+function formatPlanStepStatus(status: PlanStepStatus, t: TFunction<"chat">): string {
   switch (status) {
-    case "completed": return "已完成";
-    case "in_progress": return "执行中";
-    case "failed": return "失败";
-    case "cancelled": return "已取消";
-    default: return "待执行";
+    case "completed": return t("plan.status.completed");
+    case "in_progress": return t("plan.status.inProgress");
+    case "failed": return t("plan.status.failed");
+    case "cancelled": return t("plan.status.cancelled");
+    default: return t("plan.status.pending");
   }
 }
 
 function CanonicalArtifacts({ artifacts, onOpen }: { artifacts: ArtifactRef[]; onOpen: (artifact: ArtifactRef) => void }) {
+  const { t } = useTranslation("chat");
   if (!artifacts.length) {
     return null;
   }
   return (
-    <ul aria-label="Artifacts" className="react-canonical-artifacts">
+    <ul aria-label={t("artifacts.label")} className="react-canonical-artifacts">
       {artifacts.map((artifact) => (
         <li key={artifact.id}>
-          <button aria-label={`Preview ${artifact.title}`} type="button" onClick={() => onOpen(artifact)}>{artifact.title}</button>
+          <button aria-label={t("artifacts.preview", { name: artifact.title })} type="button" onClick={() => onOpen(artifact)}>{artifact.title}</button>
         </li>
       ))}
     </ul>
@@ -3862,10 +3845,10 @@ function canonicalReferenceSummary(reference: AgentInputReference, index: number
   };
 }
 
-function toolCallSummaryFromStep(step: ChatStep, toolCall: ToolCallState): ToolCallSummary {
+function toolCallSummaryFromStep(step: ChatStep, toolCall: ToolCallState, t: TFunction<"chat">): ToolCallSummary {
   return {
     id: toolCall.id,
-    name: displayToolName(toolCall.name),
+    name: displayToolName(toolCall.name, t),
     status: step.status,
     summary: toolCall.resultPreview || step.summary,
     ...(toolCall.argsPreview ? { argsText: toolCall.argsPreview } : {}),
@@ -3894,6 +3877,7 @@ function MessageBubble({
   onOpenTool: (toolCall: ToolCallSummary) => void;
   sessionRunning: boolean;
 }) {
+  const { t } = useTranslation("chat");
   const actionAlignment = message.role === "user" ? "right" : "left";
   const showCopyAction = canCopyMessage(message, { sessionRunning });
   const showBranchAction = canBranchFromMessage(message, { sessionRunning });
@@ -3915,17 +3899,17 @@ function MessageBubble({
         )}
         {message.contextReferences?.length ? <MessageContext references={message.contextReferences} /> : null}
         {message.toolCalls?.length ? <AgentSteps toolCalls={message.toolCalls} onOpenTool={onOpenTool} /> : null}
-        {message.status === "streaming" ? <span className="react-message__streaming" aria-label="Agent is responding" /> : null}
+        {message.status === "streaming" ? <span className="react-message__streaming" aria-label={t("turn.agentResponding")} /> : null}
       </div>
       {showCopyAction || showBranchAction ? (
         <div className="react-message__actions" data-align={actionAlignment}>
           {showCopyAction ? (
-            <button aria-label="Copy message" type="button" onClick={onCopy}>
+            <button aria-label={t("turn.copyMessage")} type="button" onClick={onCopy}>
               <Copy aria-hidden="true" size={14} />
             </button>
           ) : null}
           {showBranchAction ? (
-            <button aria-label="Branch from here" type="button" onClick={onBranch}>
+            <button aria-label={t("turn.branchHere")} type="button" onClick={onBranch}>
               <GitBranch aria-hidden="true" size={14} />
             </button>
           ) : null}
@@ -3936,6 +3920,7 @@ function MessageBubble({
 }
 
 function MessageReasoning({ durationMs, streaming, text }: { durationMs?: number; streaming: boolean; text: string }) {
+  const { t } = useTranslation("chat");
   const [expanded, setExpanded] = useState(streaming);
   const wasStreaming = useRef(streaming);
   const contentId = useId();
@@ -3948,7 +3933,7 @@ function MessageReasoning({ durationMs, streaming, text }: { durationMs?: number
   }, [streaming]);
 
   return (
-    <section className="react-message-reasoning" aria-label="思考过程">
+    <section className="react-message-reasoning" aria-label={t("reasoning.label")}>
       <button
         aria-controls={contentId}
         aria-expanded={expanded}
@@ -3956,7 +3941,7 @@ function MessageReasoning({ durationMs, streaming, text }: { durationMs?: number
         type="button"
         onClick={() => setExpanded((open) => !open)}
       >
-        <span>{streaming ? "正在思考" : formatThinkingLabel(durationMs)}</span>
+        <span>{streaming ? t("reasoning.thinking") : formatThinkingLabel(durationMs, t)}</span>
         {expanded ? <ChevronDown aria-hidden="true" size={14} /> : <ChevronRight aria-hidden="true" size={14} />}
       </button>
       {expanded ? (
@@ -3969,14 +3954,16 @@ function MessageReasoning({ durationMs, streaming, text }: { durationMs?: number
 }
 
 function MessageContext({ references }: { references: ContextReferenceSummary[] }) {
+  const { t } = useTranslation("chat");
   const attachmentsOnly = references.every((reference) => reference.presentation === "attachment");
+  const label = attachmentsOnly ? t("context.attachments") : t("context.context");
   return (
     <section
-      aria-label={attachmentsOnly ? "Attachments" : "Context"}
+      aria-label={label}
       className="react-message-context"
       data-presentation={attachmentsOnly ? "attachment" : "context"}
     >
-      <h3>{attachmentsOnly ? "Attachments" : "Context"}</h3>
+      <h3>{label}</h3>
       <ul>
         {references.map((reference) => (
           <li data-presentation={reference.presentation ?? "context"} key={reference.id}>
@@ -4014,11 +4001,11 @@ function AgentSteps({
   onOpenTool: (toolCall: ToolCallSummary) => void;
   toolCalls: ToolCallSummary[];
 }) {
+  const { t } = useTranslation("chat");
   const [expanded, setExpanded] = useState(false);
   const listId = useId();
   const overallStatus = resolveAgentStepsStatus(toolCalls);
-  const countLabel = `${toolCalls.length} 个步骤`;
-  const accessibleCountLabel = `${toolCalls.length} ${toolCalls.length === 1 ? "step" : "steps"}`;
+  const countLabel = t("steps.count", { count: toolCalls.length });
   const currentStepIndex = resolveCurrentAgentStepIndex(toolCalls);
   return (
     <section className="react-agent-steps" data-flat={flat ? "true" : undefined} data-status={overallStatus} data-stepper="true">
@@ -4026,7 +4013,7 @@ function AgentSteps({
         <button
           aria-controls={listId}
           aria-expanded={expanded}
-          aria-label={`Agent steps, ${accessibleCountLabel}`}
+          aria-label={`${t("steps.label")}, ${countLabel}`}
           className="react-agent-steps__header"
           type="button"
           onClick={() => setExpanded((open) => !open)}
@@ -4034,14 +4021,14 @@ function AgentSteps({
           <span className="react-agent-steps__header-icon" data-status={overallStatus}>
             <AgentStepIcon status={overallStatus} />
           </span>
-          <span className="react-agent-steps__title">执行详情</span>
+          <span className="react-agent-steps__title">{t("steps.title")}</span>
           <small>{countLabel}</small>
           {expanded ? <ChevronDown aria-hidden="true" size={15} /> : <ChevronRight aria-hidden="true" size={15} />}
         </button>
       ) : null}
 
       {flat || expanded ? (
-        <ol aria-label="Agent steps" className="react-agent-steps__list" id={listId}>
+        <ol aria-label={t("steps.label")} className="react-agent-steps__list" id={listId}>
           {toolCalls.map((toolCall, index) => {
             const status = normalizeAgentStepStatus(toolCall.status);
             const isLast = index === toolCalls.length - 1;
@@ -4061,7 +4048,7 @@ function AgentSteps({
                   <AgentStepIcon status={status} />
                 </span>
                 <button
-                  aria-label={`Open details for ${toolCall.name}`}
+                  aria-label={t("steps.openDetails", { name: toolCall.name })}
                   className="react-agent-step"
                   type="button"
                   onClick={() => onOpenTool(toolCall)}
@@ -4070,7 +4057,7 @@ function AgentSteps({
                     <span>{toolCall.name}</span>
                     {toolCall.summary ? <small>{toolCall.summary}</small> : null}
                   </span>
-                  <small className="react-agent-step__status">{formatAgentStepStatus(toolCall.status)}</small>
+                  <small className="react-agent-step__status">{formatAgentStepStatus(toolCall.status, t)}</small>
                   <PanelRightOpen aria-hidden="true" size={15} />
                 </button>
               </li>
@@ -4146,13 +4133,13 @@ function normalizeAgentStepStatus(status: string): AgentStepStatus {
   }
 }
 
-function formatAgentStepStatus(status: string): string {
+function formatAgentStepStatus(status: string, t: TFunction<"chat">): string {
   switch (normalizeAgentStepStatus(status)) {
-    case "active": return "执行中";
-    case "success": return "已完成";
-    case "waiting": return "等待确认";
-    case "error": return status.toLowerCase().includes("cancel") ? "已取消" : "失败";
-    default: return "待执行";
+    case "active": return t("steps.status.active");
+    case "success": return t("steps.status.success");
+    case "waiting": return t("steps.status.waiting");
+    case "error": return status.toLowerCase().includes("cancel") ? t("steps.status.cancelled") : t("steps.status.error");
+    default: return t("steps.status.pending");
   }
 }
 
@@ -4164,14 +4151,14 @@ function reasoningDurationMs(step: ChatStep): number | undefined {
   return Number.isFinite(duration) && duration >= 0 ? duration : undefined;
 }
 
-function formatThinkingLabel(durationMs?: number): string {
+function formatThinkingLabel(durationMs: number | undefined, t: TFunction<"chat">): string {
   if (durationMs === undefined) {
-    return "思考过程";
+    return t("reasoning.label");
   }
   if (durationMs < 1000) {
-    return "思考了不到 1 秒";
+    return t("reasoning.underSecond");
   }
-  return `思考了 ${Math.max(1, Math.round(durationMs / 1000))} 秒`;
+  return t("reasoning.seconds", { count: Math.max(1, Math.round(durationMs / 1000)) });
 }
 
 function PlainMessageText({ text }: { text: string }) {
@@ -4185,13 +4172,13 @@ function PlainMessageText({ text }: { text: string }) {
   );
 }
 
-function displaySessionTitle(title: string): string {
-  return isDefaultSessionTitle(title) ? "新会话" : title;
+function displaySessionTitle(title: string, t: TFunction<"chat">): string {
+  return isDefaultSessionTitle(title) ? t("shell.newChat") : title;
 }
 
-function deriveSessionTitle(prompt: string): string {
+function deriveSessionTitle(prompt: string, t: TFunction<"chat">): string {
   const normalized = prompt.replace(/\s+/g, " ").trim();
-  return normalized.length > 28 ? `${normalized.slice(0, 28)}…` : normalized || "新会话";
+  return normalized.length > 28 ? `${normalized.slice(0, 28)}…` : normalized || t("shell.newChat");
 }
 
 function isDefaultSessionTitle(title: string): boolean {
@@ -4220,52 +4207,53 @@ function completedPlanSteps(turn: ChatTurn): string[] {
   ));
 }
 
-function canonicalErrorInfo(step: ChatStep): { code: string; message: string } {
+function canonicalErrorInfo(step: ChatStep, t: TFunction<"chat">): { code: string; message: string } {
   const error = step.error && typeof step.error === "object" ? step.error as Record<string, unknown> : {};
   return {
     code: typeof error.code === "string" && error.code ? error.code : "runtime_error",
-    message: typeof error.message === "string" && error.message ? error.message : step.summary || "任务执行失败",
+    message: typeof error.message === "string" && error.message ? error.message : step.summary || t("friendlyError.taskFailed"),
   };
 }
 
-function displayToolName(name: string): string {
-  return name === "update_plan" ? "更新执行计划" : name;
+function displayToolName(name: string, t?: TFunction<"chat">): string {
+  return name === "update_plan" ? t?.("tool.updatePlan") ?? name : name;
 }
 
-function friendlyErrorMessage(code: string, message: string): string {
+function friendlyErrorMessage(code: string, message: string, t: TFunction<"chat">): string {
   if (code === "max_iterations" || message.toLowerCase().includes("max iterations")) {
-    return "执行达到迭代上限，已保留当前计划和上下文。";
+    return t("friendlyError.maxIterations");
   }
   if (code.includes("cancel") || message.toLowerCase().includes("cancel")) {
-    return "执行已取消，已完成的内容仍然保留。";
+    return t("friendlyError.cancelled");
   }
   return message;
 }
 
-function formatFailureDetails(step: ChatStep, turn: ChatTurn): string {
-  const error = canonicalErrorInfo(step);
+function formatFailureDetails(step: ChatStep, turn: ChatTurn, t: TFunction<"chat">): string {
+  const error = canonicalErrorInfo(step, t);
   return [
-    `任务：${turn.userMessage.text}`,
-    `状态：${turn.status}`,
-    `错误代码：${error.code}`,
-    `错误信息：${error.message}`,
-    failedPlanStep(turn) ? `中断位置：${failedPlanStep(turn)}` : "",
+    `${t("details.task")}: ${turn.userMessage.text}`,
+    `${t("details.status")}: ${turn.status}`,
+    `${t("details.errorCode")}: ${error.code}`,
+    `${t("details.errorMessage")}: ${error.message}`,
+    failedPlanStep(turn) ? `${t("details.interruptedAt")}: ${failedPlanStep(turn)}` : "",
   ].filter(Boolean).join("\n");
 }
 
 function ErrorDetails({ step, turn }: { step: ChatStep; turn: ChatTurn }) {
-  const error = canonicalErrorInfo(step);
+  const { t } = useTranslation("chat");
+  const error = canonicalErrorInfo(step, t);
   return (
     <div className="react-error-detail">
       <dl>
-        <div><dt>Turn ID</dt><dd><code>{turn.id}</code></dd></div>
-        <div><dt>状态</dt><dd>{turn.status}</dd></div>
-        <div><dt>停止原因</dt><dd><code>{error.code}</code></dd></div>
-        {failedPlanStep(turn) ? <div><dt>中断位置</dt><dd>{failedPlanStep(turn)}</dd></div> : null}
-        <div><dt>原始任务</dt><dd>{turn.userMessage.text}</dd></div>
+        <div><dt>{t("details.turnId")}</dt><dd><code>{turn.id}</code></dd></div>
+        <div><dt>{t("details.status")}</dt><dd>{turn.status}</dd></div>
+        <div><dt>{t("details.stopReason")}</dt><dd><code>{error.code}</code></dd></div>
+        {failedPlanStep(turn) ? <div><dt>{t("details.interruptedAt")}</dt><dd>{failedPlanStep(turn)}</dd></div> : null}
+        <div><dt>{t("details.originalTask")}</dt><dd>{turn.userMessage.text}</dd></div>
       </dl>
       <section>
-        <h3>原始错误信息</h3>
+        <h3>{t("details.originalError")}</h3>
         <pre>{error.message}</pre>
       </section>
     </div>
@@ -4273,9 +4261,10 @@ function ErrorDetails({ step, turn }: { step: ChatStep; turn: ChatTurn }) {
 }
 
 function ToolCallDetails({ toolCall }: { toolCall: ToolCallSummary }) {
-  const sections = toolCallDetailSections(toolCall);
+  const { t } = useTranslation("chat");
+  const sections = toolCallDetailSections(toolCall, t);
   if (!sections.length) {
-    return <p>Details unavailable.</p>;
+    return <p>{t("details.unavailable")}</p>;
   }
   return (
     <div className="react-tool-detail">
@@ -4298,20 +4287,21 @@ function SubagentDetails({
   error?: string;
   loading: boolean;
 }) {
+  const { t } = useTranslation("chat");
   return (
     <div className="react-subagent-detail">
       <dl>
-        <div><dt>ID</dt><dd>{delegate.id}</dd></div>
-        <div><dt>Status</dt><dd>{delegate.status}</dd></div>
-        {delegate.traceRef ? <div><dt>Trace</dt><dd>{delegate.traceRef}</dd></div> : null}
-        {delegate.childTurnId ? <div><dt>Child turn</dt><dd>{delegate.childTurnId}</dd></div> : null}
+        <div><dt>{t("details.id")}</dt><dd>{delegate.id}</dd></div>
+        <div><dt>{t("details.status")}</dt><dd>{delegate.status}</dd></div>
+        {delegate.traceRef ? <div><dt>{t("details.trace")}</dt><dd>{delegate.traceRef}</dd></div> : null}
+        {delegate.childTurnId ? <div><dt>{t("details.childTurn")}</dt><dd>{delegate.childTurnId}</dd></div> : null}
       </dl>
       {delegate.task ? <p>{delegate.task}</p> : null}
       {delegate.latestActivity ? <p>{delegate.latestActivity}</p> : null}
-      {loading ? <p aria-live="polite">Loading trace...</p> : null}
+      {loading ? <p aria-live="polite">{t("details.loadingTrace")}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
       {delegate.trace?.steps.length ? (
-        <ol aria-label="Subagent trace">
+        <ol aria-label={t("details.subagentTrace")}>
           {delegate.trace.steps.map((step) => (
             <li data-status={step.status} key={step.id}>
               <strong>{step.title}</strong>
@@ -4320,7 +4310,7 @@ function SubagentDetails({
           ))}
         </ol>
       ) : null}
-      {delegate.finalOutput ? <section><h3>Final output</h3><p>{delegate.finalOutput}</p></section> : null}
+      {delegate.finalOutput ? <section><h3>{t("details.finalOutput")}</h3><p>{delegate.finalOutput}</p></section> : null}
     </div>
   );
 }
@@ -4336,40 +4326,41 @@ function ArtifactDetails({
   error?: string;
   loading: boolean;
 }) {
+  const { t } = useTranslation("chat");
   return (
     <div className="react-artifact-detail">
       <dl>
-        <div><dt>ID</dt><dd>{artifact.id}</dd></div>
-        {detail?.mimeType || artifact.mimeType ? <div><dt>Type</dt><dd>{detail?.mimeType || artifact.mimeType}</dd></div> : null}
+        <div><dt>{t("details.id")}</dt><dd>{artifact.id}</dd></div>
+        {detail?.mimeType || artifact.mimeType ? <div><dt>{t("details.type")}</dt><dd>{detail?.mimeType || artifact.mimeType}</dd></div> : null}
       </dl>
-      {loading ? <p aria-live="polite">Loading artifact...</p> : null}
+      {loading ? <p aria-live="polite">{t("details.loadingArtifact")}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
       {detail?.imageDataUrl ? <img alt={detail.title} src={detail.imageDataUrl} /> : null}
       {detail?.textContent ? <pre>{detail.textContent}</pre> : null}
-      {!loading && !error && !detail?.imageDataUrl && !detail?.textContent ? <p>No preview content is available.</p> : null}
+      {!loading && !error && !detail?.imageDataUrl && !detail?.textContent ? <p>{t("details.noPreview")}</p> : null}
     </div>
   );
 }
 
-function toolCallDetailSections(toolCall: ToolCallSummary): Array<{ label: string; value: string }> {
+function toolCallDetailSections(toolCall: ToolCallSummary, t: TFunction<"chat">): Array<{ label: string; value: string }> {
   return [
-    { label: "Status", value: toolCall.status },
-    { label: "Summary", value: toolCall.summary ?? "" },
-    { label: "Arguments", value: toolCall.argsText ?? "" },
-    { label: "Response", value: toolCall.responseText ?? "" },
-    { label: "Delegate", value: formatDetailLines([
-      ["Title", toolCall.delegateTitle],
-      ["Type", toolCall.delegateType],
-      ["Task", toolCall.delegateTask],
-      ["ID", toolCall.delegateId],
+    { label: t("details.status"), value: toolCall.status },
+    { label: t("details.summary"), value: toolCall.summary ?? "" },
+    { label: t("details.arguments"), value: toolCall.argsText ?? "" },
+    { label: t("details.response"), value: toolCall.responseText ?? "" },
+    { label: t("details.delegate"), value: formatDetailLines([
+      [t("details.title"), toolCall.delegateTitle],
+      [t("details.type"), toolCall.delegateType],
+      [t("details.task"), toolCall.delegateTask],
+      [t("details.id"), toolCall.delegateId],
     ]) },
-    { label: "Trace", value: formatDetailLines([
-      ["Trace", toolCall.traceRef],
-      ["Child turn", toolCall.childTurnId],
-      ["Parent turn", toolCall.parentTurnId],
-      ["Session", toolCall.sessionKey],
+    { label: t("details.trace"), value: formatDetailLines([
+      [t("details.trace"), toolCall.traceRef],
+      [t("details.childTurn"), toolCall.childTurnId],
+      [t("details.parentTurn"), toolCall.parentTurnId],
+      [t("details.session"), toolCall.sessionKey],
     ]) },
-    { label: "Final output", value: toolCall.finalOutput ?? "" },
+    { label: t("details.finalOutput"), value: toolCall.finalOutput ?? "" },
   ].filter((section) => section.value.trim());
 }
 

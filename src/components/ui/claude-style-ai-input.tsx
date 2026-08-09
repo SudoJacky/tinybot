@@ -1,7 +1,9 @@
 "use client";
 
 import type { ClipboardEvent, FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type { TFunction } from "i18next";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { DEFAULT_REASONING_EFFORT, type ReasoningEffort } from "../../app-core/chat/reasoningEffort";
 import type { TokenUsage } from "../../app-core/chat/chatTurnModel";
 import {
@@ -123,17 +125,11 @@ const PASTE_THRESHOLD = 200;
 const EMPTY_MODELS: ModelOption[] = [];
 const EMPTY_TOOLS: ComposerToolOption[] = [];
 const EMPTY_SLASH_COMMANDS: readonly ComposerSlashCommand[] = [];
-const REASONING_EFFORT_OPTIONS: ReadonlyArray<{
+type ReasoningEffortOption = {
   description: string;
   label: string;
   value: ReasoningEffort;
-}> = [
-  { value: "low", label: "Light", description: "Prioritize speed and lower token use." },
-  { value: "medium", label: "Medium", description: "Use balanced reasoning depth." },
-  { value: "high", label: "High", description: "Use deeper reasoning." },
-  { value: "xhigh", label: "Extra High", description: "Use very deep reasoning." },
-  { value: "max", label: "Max", description: "Use the model's maximum reasoning depth." },
-];
+};
 
 type ModelMenuView = "advanced" | "effort" | "models";
 
@@ -164,13 +160,14 @@ export function ClaudeStyleAiInput({
   onSendMessage,
   onStopResponding,
   onValueChange,
-  placeholder = "Message Tinybot",
+  placeholder,
   responding = false,
   slashCommands = EMPTY_SLASH_COMMANDS,
   stopUnavailableReason,
   tools = EMPTY_TOOLS,
   value,
 }: ClaudeStyleAiInputProps) {
+  const { t } = useTranslation("chat");
   const panelRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
@@ -200,8 +197,10 @@ export function ClaudeStyleAiInput({
       ?? models[0],
     [defaultModel, models, selectedModelId],
   );
-  const selectedReasoningEffortLabel = reasoningEffortLabel(selectedReasoningEffort);
-  const contextUsageView = useMemo(() => buildContextUsageView(contextUsage), [contextUsage]);
+  const effortOptions = useMemo(() => reasoningEffortOptions(t), [t]);
+  const selectedReasoningEffortLabel = reasoningEffortLabel(selectedReasoningEffort, effortOptions);
+  const contextUsageView = useMemo(() => buildContextUsageView(contextUsage, t), [contextUsage, t]);
+  const resolvedPlaceholder = placeholder ?? t("composer.placeholder");
   const enabledToolIdSet = useMemo(() => new Set(enabledToolIds), [enabledToolIds]);
   const canSend = !disabled && !sending && Boolean(currentMessage.trim() || files.length || pastedContent.length || contextReferences.length);
   const slashQuery = useMemo(() => {
@@ -305,7 +304,7 @@ export function ClaudeStyleAiInput({
       setPastedContent([]);
       onClearContextReferences?.();
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Message could not be sent.");
+      setError(error instanceof Error ? error.message : t("composer.sendFailed"));
     } finally {
       setSending(false);
     }
@@ -321,7 +320,7 @@ export function ClaudeStyleAiInput({
     try {
       await onStopResponding?.();
     } catch {
-      setError("Generation could not be stopped.");
+      setError(t("composer.stopFailed"));
     }
   }
 
@@ -391,7 +390,7 @@ export function ClaudeStyleAiInput({
       setFiles((current) => {
         const remainingSlots = Math.max(0, maxFiles - current.length);
         if (selectedFiles.length > remainingSlots) {
-          setError(`Only ${maxFiles} files can be attached.`);
+          setError(t("composer.fileLimit", { count: maxFiles }));
         }
         return [
           ...current,
@@ -402,7 +401,7 @@ export function ClaudeStyleAiInput({
         ];
       });
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Files could not be selected.");
+      setError(error instanceof Error ? error.message : t("composer.filesFailed"));
     } finally {
       setSelectingFiles(false);
     }
@@ -469,7 +468,7 @@ export function ClaudeStyleAiInput({
 
   return (
     <form
-      aria-label="Message composer"
+      aria-label={t("composer.label")}
       className={["claude-ai-input", className].filter(Boolean).join(" ")}
       onSubmit={(event) => void handleSubmit(event)}
     >
@@ -486,7 +485,7 @@ export function ClaudeStyleAiInput({
         </div>
       ) : null}
       {files.length || pastedContent.length || contextReferences.length ? (
-        <div className="claude-ai-input__attachments" aria-label="Composer attachments">
+        <div className="claude-ai-input__attachments" aria-label={t("composer.attachments")}>
           {contextReferences.map((reference) => (
             <AttachmentChip
               detail={reference.detail}
@@ -494,17 +493,17 @@ export function ClaudeStyleAiInput({
               key={reference.id}
               label={reference.label}
               onRemove={() => onRemoveContextReference?.(reference.id)}
-              removeLabel={`Remove ${reference.label}`}
+              removeLabel={t("composer.remove", { name: reference.label })}
             />
           ))}
           {pastedContent.map((item) => (
             <AttachmentChip
-              detail={`${item.wordCount} words`}
+              detail={t("composer.words", { count: item.wordCount })}
               icon={<Copy aria-hidden="true" size={16} />}
               key={item.id}
-              label="Pasted text"
+              label={t("composer.pastedText")}
               onRemove={() => removePastedContent(item.id)}
-              removeLabel="Remove pasted content"
+              removeLabel={t("composer.removePasted")}
             />
           ))}
           {files.map((item) => (
@@ -514,7 +513,7 @@ export function ClaudeStyleAiInput({
               key={item.id}
               label={item.name}
               onRemove={() => removeFile(item.id)}
-              removeLabel={`Remove ${item.name}`}
+              removeLabel={t("composer.remove", { name: item.name })}
             />
           ))}
         </div>
@@ -528,7 +527,7 @@ export function ClaudeStyleAiInput({
       >
         {slashMenuOpen ? (
           <div
-            aria-label="Slash commands"
+            aria-label={t("composer.slash")}
             className="claude-ai-input__slash-menu"
             id={slashListboxId}
             role="listbox"
@@ -560,7 +559,7 @@ export function ClaudeStyleAiInput({
           </div>
         ) : null}
         <textarea
-          aria-label="Message"
+          aria-label={t("composer.message")}
           aria-activedescendant={slashMenuOpen ? `${slashListboxId}-option-${activeSlashOptionIndex}` : undefined}
           aria-autocomplete="list"
           aria-controls={slashMenuOpen ? slashListboxId : undefined}
@@ -568,7 +567,7 @@ export function ClaudeStyleAiInput({
           aria-haspopup="listbox"
           className="claude-ai-input__textarea"
           disabled={disabled || sending}
-          placeholder={placeholder}
+          placeholder={resolvedPlaceholder}
           rows={2}
           value={currentMessage}
           onChange={(event) => updateMessage(event.currentTarget.value)}
@@ -580,10 +579,10 @@ export function ClaudeStyleAiInput({
         <div className="claude-ai-input__toolbar">
           <div className="claude-ai-input__tools">
             <button
-              aria-label="Attach files"
+              aria-label={t("composer.attachFiles")}
               className="claude-ai-input__icon-button"
               disabled={disabled || selectingFiles || files.length >= maxFiles || !onSelectFiles}
-              title="Attach files"
+              title={t("composer.attachFiles")}
               type="button"
               onClick={() => void handleSelectFiles()}
             >
@@ -593,10 +592,10 @@ export function ClaudeStyleAiInput({
               <button
                 aria-expanded={toolMenuOpen}
                 aria-haspopup="menu"
-                aria-label="Tools"
+                aria-label={t("composer.tools")}
                 className="claude-ai-input__icon-button"
                 disabled={disabled || !tools.length}
-                title="Tools"
+                title={t("composer.tools")}
                 type="button"
                 onClick={() => {
                   setSlashMenuDismissed(true);
@@ -607,7 +606,7 @@ export function ClaudeStyleAiInput({
                 <SlidersHorizontal aria-hidden="true" size={18} />
               </button>
               {toolMenuOpen ? (
-                <div className="claude-ai-input__tool-menu" role="menu" aria-label="Tools">
+                <div className="claude-ai-input__tool-menu" role="menu" aria-label={t("composer.tools")}>
                   {tools.map((tool) => {
                     const checked = enabledToolIdSet.has(tool.id);
                     return (
@@ -624,7 +623,7 @@ export function ClaudeStyleAiInput({
                           <strong>{tool.name}</strong>
                           {tool.description ? <small>{tool.description}</small> : null}
                         </span>
-                        <em>{checked ? "On" : "Off"}</em>
+                        <em>{checked ? t("composer.on") : t("composer.off")}</em>
                       </button>
                     );
                   })}
@@ -636,7 +635,7 @@ export function ClaudeStyleAiInput({
                 ref={modelTriggerRef}
                 aria-expanded={modelMenuOpen}
                 aria-haspopup="dialog"
-                aria-label="Select model"
+                aria-label={t("composer.selectModel")}
                 className="claude-ai-input__model-trigger"
                 disabled={disabled || !models.length}
                 type="button"
@@ -649,22 +648,22 @@ export function ClaudeStyleAiInput({
                   setToolMenuOpen(false);
                 }}
               >
-                <span className="claude-ai-input__model-trigger-name">{selectedModel?.name ?? "Model"}</span>
+                <span className="claude-ai-input__model-trigger-name">{selectedModel?.name ?? t("composer.model")}</span>
                 <span className="claude-ai-input__model-trigger-effort">{selectedReasoningEffortLabel}</span>
                 <ChevronDown aria-hidden="true" size={16} />
               </button>
               {modelMenuOpen ? (
-                <div className="claude-ai-input__model-menu" role="dialog" aria-label="Model and reasoning effort">
+                <div className="claude-ai-input__model-menu" role="dialog" aria-label={t("composer.modelEffort")}>
                   {modelMenuView === "advanced" ? (
                     <>
-                      <div className="claude-ai-input__model-menu-title">Advanced</div>
+                      <div className="claude-ai-input__model-menu-title">{t("composer.advanced")}</div>
                       <button
                         className="claude-ai-input__model-menu-row"
                         type="button"
                         onClick={() => setModelMenuView("models")}
                       >
-                        <strong>Model</strong>
-                        <span>{selectedModel?.name ?? "Choose model"}</span>
+                        <strong>{t("composer.model")}</strong>
+                        <span>{selectedModel?.name ?? t("composer.chooseModel")}</span>
                         <ChevronRight aria-hidden="true" size={16} />
                       </button>
                       <button
@@ -672,7 +671,7 @@ export function ClaudeStyleAiInput({
                         type="button"
                         onClick={() => setModelMenuView("effort")}
                       >
-                        <strong>Effort</strong>
+                        <strong>{t("composer.effort")}</strong>
                         <span>{selectedReasoningEffortLabel}</span>
                         <ChevronRight aria-hidden="true" size={16} />
                       </button>
@@ -681,17 +680,17 @@ export function ClaudeStyleAiInput({
                     <>
                       <div className="claude-ai-input__model-menu-header">
                         <button
-                          aria-label="Back to advanced options"
+                          aria-label={t("composer.backAdvanced")}
                           className="claude-ai-input__model-menu-back"
                           type="button"
                           onClick={() => setModelMenuView("advanced")}
                         >
                           <ChevronLeft aria-hidden="true" size={16} />
                         </button>
-                        <strong>{modelMenuView === "models" ? "Model" : "Effort"}</strong>
+                        <strong>{modelMenuView === "models" ? t("composer.model") : t("composer.effort")}</strong>
                       </div>
                       {modelMenuView === "models" ? (
-                        <div className="claude-ai-input__model-menu-list" role="listbox" aria-label="Models">
+                        <div className="claude-ai-input__model-menu-list" role="listbox" aria-label={t("composer.models")}>
                           {models.map((model) => (
                             <button
                               aria-selected={model.id === selectedModelId}
@@ -711,8 +710,8 @@ export function ClaudeStyleAiInput({
                           ))}
                         </div>
                       ) : (
-                        <div className="claude-ai-input__model-menu-list" role="listbox" aria-label="Reasoning effort">
-                          {REASONING_EFFORT_OPTIONS.map((option) => (
+                        <div className="claude-ai-input__model-menu-list" role="listbox" aria-label={t("composer.reasoningEffort")}>
+                          {effortOptions.map((option) => (
                             <button
                               aria-selected={option.value === selectedReasoningEffort}
                               className="claude-ai-input__model-option claude-ai-input__effort-option"
@@ -743,25 +742,25 @@ export function ClaudeStyleAiInput({
               <button
                 className="claude-ai-input__running-action claude-ai-input__running-action--primary"
                 disabled={!canSend || !onInterruptMessage}
-                title={canSend ? "中断当前回复并作为新一轮发送" : "输入内容后插入当前任务"}
+                title={canSend ? t("composer.interruptHelp") : t("composer.interruptDisabled")}
                 type="button"
                 onClick={() => void sendMessage("interrupt")}
               >
-                插入当前任务
+                {t("composer.interrupt")}
               </button>
               <button
                 className="claude-ai-input__running-action"
                 disabled={!canSend}
-                title={canSend ? "当前任务完成后作为下一轮发送" : "输入内容后排队"}
+                title={canSend ? t("composer.queueHelp") : t("composer.queueDisabled")}
                 type="submit"
               >
-                排队为下一轮
+                {t("composer.queue")}
               </button>
               <button
-                aria-label={canStopResponding ? "Stop generation" : `Stop generation unavailable: ${stopUnavailableReason || "unsupported"}`}
+                aria-label={canStopResponding ? t("composer.stop") : t("composer.stopUnavailable", { reason: stopUnavailableReason || t("composer.unsupported") })}
                 className="claude-ai-input__send"
                 disabled={disabled || !canStopResponding}
-                title={canStopResponding ? "Stop generation" : stopUnavailableReason || "Stopping is unavailable"}
+                title={canStopResponding ? t("composer.stop") : stopUnavailableReason || t("composer.stoppingUnavailable")}
                 type="button"
                 onClick={() => void handleStopResponding()}
               >
@@ -770,10 +769,10 @@ export function ClaudeStyleAiInput({
             </div>
           ) : (
             <button
-              aria-label="Send message"
+              aria-label={t("composer.send")}
               className="claude-ai-input__send"
               disabled={!canSend}
-              title={canSend ? "Send message" : disabledReason || "输入内容后发送"}
+              title={canSend ? t("composer.send") : disabledReason || t("composer.sendDisabled")}
               type="submit"
             >
               <ArrowUp aria-hidden="true" size={18} />
@@ -795,6 +794,7 @@ type ContextUsageView = {
 };
 
 function ContextUsageIndicator({ view }: { view: ContextUsageView }) {
+  const { t } = useTranslation("chat");
   return (
     <div
       aria-label={view.ariaLabel}
@@ -815,23 +815,23 @@ function ContextUsageIndicator({ view }: { view: ContextUsageView }) {
         />
       </svg>
       <span className="claude-ai-input__context-usage-tip" role="tooltip">
-        <strong>Context window</strong>
-        <span>{view.percent}% used ({view.leftPercent}% left)</span>
+        <strong>{t("composer.context.title")}</strong>
+        <span>{t("composer.context.used", { percent: view.percent, left: view.leftPercent })}</span>
         <span>{view.tokenLabel}</span>
-        {view.strategy ? <span>Strategy: {view.strategy}</span> : null}
+        {view.strategy ? <span>{t("composer.context.strategy", { strategy: view.strategy })}</span> : null}
       </span>
     </div>
   );
 }
 
-function buildContextUsageView(usage: TokenUsage | undefined): ContextUsageView | undefined {
+function buildContextUsageView(usage: TokenUsage | undefined, t: TFunction<"chat">): ContextUsageView | undefined {
   if (!usage) {
     return {
-      ariaLabel: "Context window 0% used, 100% left",
+      ariaLabel: t("composer.context.aria", { percent: 0, left: 100 }),
       leftPercent: 100,
       percent: 0,
       state: "normal",
-      tokenLabel: "0 tokens used",
+      tokenLabel: t("composer.context.zero"),
     };
   }
   const windowTokens = positiveNumber(usage.contextWindowTokens);
@@ -845,10 +845,10 @@ function buildContextUsageView(usage: TokenUsage | undefined): ContextUsageView 
 
   const leftPercent = Math.max(0, Math.round(100 - percent));
   const tokenLabel = windowTokens !== undefined && usedTokens !== undefined
-    ? `${formatTokenCount(usedTokens)} / ${formatTokenCount(windowTokens)} tokens used`
-    : "Token budget reported by provider";
+    ? t("composer.context.tokens", { used: formatTokenCount(usedTokens), window: formatTokenCount(windowTokens) })
+    : t("composer.context.provider");
   return {
-    ariaLabel: `Context window ${percent}% used, ${leftPercent}% left`,
+    ariaLabel: t("composer.context.aria", { percent, left: leftPercent }),
     leftPercent,
     percent,
     state: percent >= 85 ? "critical" : percent >= 60 ? "warn" : "normal",
@@ -882,8 +882,18 @@ function trimDecimal(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, "");
 }
 
-function reasoningEffortLabel(effort: ReasoningEffort): string {
-  return REASONING_EFFORT_OPTIONS.find((option) => option.value === effort)?.label ?? "Medium";
+function reasoningEffortOptions(t: TFunction<"chat">): readonly ReasoningEffortOption[] {
+  return [
+    { value: "low", label: t("composer.effortOptions.low.label"), description: t("composer.effortOptions.low.description") },
+    { value: "medium", label: t("composer.effortOptions.medium.label"), description: t("composer.effortOptions.medium.description") },
+    { value: "high", label: t("composer.effortOptions.high.label"), description: t("composer.effortOptions.high.description") },
+    { value: "xhigh", label: t("composer.effortOptions.xhigh.label"), description: t("composer.effortOptions.xhigh.description") },
+    { value: "max", label: t("composer.effortOptions.max.label"), description: t("composer.effortOptions.max.description") },
+  ];
+}
+
+function reasoningEffortLabel(effort: ReasoningEffort, options: readonly ReasoningEffortOption[]): string {
+  return options.find((option) => option.value === effort)?.label ?? options[1]?.label ?? "Medium";
 }
 
 function AttachmentChip({

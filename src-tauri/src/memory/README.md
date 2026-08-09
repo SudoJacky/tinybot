@@ -186,6 +186,18 @@ existing Thread must not reread this changing file for every Turn. At Thread
 creation, the snapshot renderer reads SQLite and selects user memory plus
 memory whose absolute path exactly matches that Thread's working directory.
 
+## Read-only desktop view
+
+The desktop Memory page calls `worker_memory_snapshot` to inspect the latest
+active SQLite state. The response groups user memories and workspace memories
+without parsing `raw_memories.md`, and always identifies the current workspace,
+including when that workspace has no active memory. This boundary is read-only:
+the renderer cannot add, update, or remove memory.
+
+Refreshing the page does not alter any Thread. Existing Threads keep their
+creation-time snapshot; a new independent Thread captures the latest active
+memory.
+
 ## Thread memory snapshot
 
 When Tinybot creates a Thread, it renders the current scoped memory view and
@@ -283,7 +295,7 @@ The initial implementation does not include:
 - vector search, embeddings, graph memory, or tree memory;
 - time-based TTL expiration;
 - memory extraction from historical Rollout or trace files;
-- a user-facing memory management page;
+- user-facing memory editing or deletion;
 - a second canonical Markdown memory store;
 - migration of the removed legacy memory implementation.
 

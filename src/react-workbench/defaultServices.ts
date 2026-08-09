@@ -18,6 +18,7 @@ import {
   type NativeThreadRecord,
 } from "../app-core/native/desktopNativeThreads";
 import { createDesktopNativeHostCommandApi } from "../app-core/native/desktopNativeHostCommand";
+import { createDesktopNativeMemoryApi } from "../app-core/native/desktopNativeMemory";
 import { createDesktopNativeBrowserApi, normalizeNativeBrowserSnapshot } from "../app-core/native/desktopNativeBrowser";
 import { toDesktopNativeTauriEventName } from "../app-core/native/desktopNativeTauriEvents";
 import { createDesktopNativeWebuiApi } from "../app-core/native/desktopNativeWebui";
@@ -70,6 +71,7 @@ export function createDesktopAppServices(): AppServices {
   const nativePlugins = nativeMode ? createDesktopNativePluginsApi({ invoke }) : undefined;
   const nativeThreads = nativeMode ? createDesktopNativeThreadsApi({ invoke }) : undefined;
   const nativeHostCommands = nativeMode ? createDesktopNativeHostCommandApi({ invoke }) : undefined;
+  const nativeMemory = nativeMode ? createDesktopNativeMemoryApi({ invoke }) : undefined;
   const nativeBrowser = nativeMode ? createDesktopNativeBrowserApi({ invoke }) : undefined;
   const nativeWebui = nativeMode ? createDesktopNativeWebuiApi({ invoke }) : undefined;
   const nativeWorkspace = nativeMode ? createDesktopNativeWorkspaceApi({ invoke }) : undefined;
@@ -652,6 +654,12 @@ export function createDesktopAppServices(): AppServices {
       async readFile(request) {
         await initialize();
         return normalizeWorkspaceFileChunk(await requireNative(nativeWorkspace, "Workspace").fileChunk(request));
+      },
+    },
+    memoryStore: {
+      async load() {
+        await initialize();
+        return requireNative(nativeMemory, "Memory").snapshot();
       },
     },
     toolsStore: {

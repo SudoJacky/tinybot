@@ -1,5 +1,6 @@
 pub(crate) mod agent;
 pub(crate) mod config;
+pub(crate) mod memory;
 pub(crate) mod plugins;
 pub(crate) mod runtime;
 pub(crate) mod skills;

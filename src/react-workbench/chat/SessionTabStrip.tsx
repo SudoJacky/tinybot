@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { AlertTriangle, Circle, List, Loader2, Plus, X } from "lucide-react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import type { SessionSummary } from "../services";
 
 export type SessionTabItem = Pick<SessionSummary, "id" | "status"> & {
@@ -22,6 +24,7 @@ export function SessionTabStrip({
   onCreate,
   tabs,
 }: SessionTabStripProps) {
+  const { t } = useTranslation("chat");
   const [menuOpen, setMenuOpen] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -95,13 +98,13 @@ export function SessionTabStrip({
     <div className="react-session-tabs">
       <div
         className="react-session-tabs__scroller"
-        aria-label="Open conversations"
+        aria-label={t("tabs.open")}
         ref={scrollerRef}
         role="tablist"
       >
         {tabs.length ? tabs.map((tab) => {
           const active = tab.id === activeSessionId;
-          const statusLabel = sessionTabStatusLabel(tab);
+          const statusLabel = sessionTabStatusLabel(tab, t);
           return (
             <div
               className="react-session-tab"
@@ -134,9 +137,9 @@ export function SessionTabStrip({
                 <span>{tab.title}</span>
               </button>
               <button
-                aria-label={`Close ${tab.title} tab`}
+                aria-label={t("tabs.closeTab", { name: tab.title })}
                 className="react-session-tab__close"
-                title={`Close ${tab.title}`}
+                title={t("tabs.close", { name: tab.title })}
                 type="button"
                 onClick={() => onClose(tab.id)}
               >
@@ -148,20 +151,20 @@ export function SessionTabStrip({
           <div className="react-session-tab react-session-tab--draft" data-active="true">
             <button
               aria-controls="tinybot-chat-conversation"
-              aria-label="新会话"
+              aria-label={t("shell.newChat")}
               aria-selected="true"
               className="react-session-tab__select"
               role="tab"
               tabIndex={0}
               type="button"
             >
-              <span>新会话</span>
+              <span>{t("shell.newChat")}</span>
             </button>
           </div>
         )}
       </div>
       <div className="react-session-tabs__controls">
-        <button aria-label="New conversation tab" title="New conversation" type="button" onClick={onCreate}>
+        <button aria-label={t("tabs.newTab")} title={t("tabs.newConversation")} type="button" onClick={onCreate}>
           <Plus aria-hidden="true" size={16} />
         </button>
         {tabs.length > 1 ? (
@@ -169,8 +172,8 @@ export function SessionTabStrip({
             <button
               aria-expanded={menuOpen}
               aria-haspopup="menu"
-              aria-label="Open tabs menu"
-              title="Open tabs"
+              aria-label={t("tabs.menu")}
+              title={t("tabs.openTabs")}
               type="button"
               onClick={() => setMenuOpen((open) => !open)}
             >
@@ -212,9 +215,9 @@ function SessionTabStatus({ tab }: { tab: SessionTabItem }) {
   return null;
 }
 
-function sessionTabStatusLabel(tab: SessionTabItem): string {
-  if (tab.status === "running") return "running";
-  if (tab.status === "failed") return "failed";
-  if (tab.unread) return "unread activity";
+function sessionTabStatusLabel(tab: SessionTabItem, t: TFunction<"chat">): string {
+  if (tab.status === "running") return t("tabs.status.running");
+  if (tab.status === "failed") return t("tabs.status.failed");
+  if (tab.unread) return t("tabs.status.unread");
   return "";
 }

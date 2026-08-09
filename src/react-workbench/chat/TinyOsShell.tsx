@@ -1,4 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import { gsap } from "gsap";
 import {
   Activity,
@@ -83,17 +85,6 @@ const APP_ICONS = {
   system_monitor: Activity,
   terminal: TerminalSquare,
 } satisfies Record<TinyOsAppId, typeof Folder>;
-
-const APP_LABELS: Record<TinyOsAppId, string> = {
-  artifacts: "Artifacts",
-  browser: "Browser",
-  files: "Files",
-  inspector: "Inspector",
-  plan: "Plan",
-  subagents: "Subagents",
-  system_monitor: "System Monitor",
-  terminal: "Terminal",
-};
 
 const APP_ORDER: TinyOsAppId[] = ["files", "terminal", "browser", "plan", "subagents", "artifacts", "inspector"];
 const tinyOsSessionUiState = new Map<string, ReturnType<typeof createTinyOsUiState>>();
@@ -200,6 +191,7 @@ export function TinyOsShell({
   layoutMode: TinyOsLayoutMode;
   workspaceKey: string;
 }) {
+  const { t } = useTranslation("tinyos");
   const desktopRef = useRef<HTMLElement>(null);
   const launcherRef = useRef<HTMLElement>(null);
   const overlayReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -228,16 +220,16 @@ export function TinyOsShell({
       || snapshot.kernel?.processes.some(({ applicationId }) => applicationId === "terminal")
       || snapshot.kernel?.resources.some(({ kind }) => kind === "terminal_execution" || kind === "terminal_session");
     if (filesController && hasScopedFile && !windows.some(({ appId }) => appId === "files")) {
-      windows.unshift({ appId: "files", entries: [], id: "tinyos-window-files", sourceItemIds: [], title: "Files" });
+      windows.unshift({ appId: "files", entries: [], id: "tinyos-window-files", sourceItemIds: [], title: appLabel("files", t) });
     }
     if (sessionKey && hasScopedTerminal && !windows.some(({ appId }) => appId === "terminal")) {
-      windows.push({ appId: "terminal", entries: [], id: "tinyos-window-terminal", sourceItemIds: [], title: "Terminal" });
+      windows.push({ appId: "terminal", entries: [], id: "tinyos-window-terminal", sourceItemIds: [], title: appLabel("terminal", t) });
     }
     if (snapshot.kernel?.browserSessions.length && !windows.some(({ appId }) => appId === "browser")) {
-      windows.push({ appId: "browser", entries: [], id: "tinyos-window-browser", sourceItemIds: [], title: "Browser" });
+      windows.push({ appId: "browser", entries: [], id: "tinyos-window-browser", sourceItemIds: [], title: appLabel("browser", t) });
     }
     return windows;
-  }, [agentFilterId, filesController, sessionKey, snapshot.kernel, snapshot.windows]);
+  }, [agentFilterId, filesController, sessionKey, snapshot.kernel, snapshot.windows, t]);
   const initialWindowIds = useRef(new Set(appWindows.map((window) => window.id)));
   const initialAppIds = appWindows.map((window) => window.appId);
   const browserSessionAvailable = Boolean(snapshot.kernel?.browserSessions.length);
@@ -451,40 +443,40 @@ export function TinyOsShell({
       })
     : [];
   const shellOverlayAvailability = snapshot.dialog
-    ? { available: false as const, reason: "Finish the active TinyOS system request before opening another shell overlay." }
+    ? { available: false as const, reason: t("shell.availability.finishOverlay") }
     : { available: true as const };
   const retryAvailability = history
-    ? { available: false as const, reason: "History snapshots are read-only.", reasonCode: "history_read_only" }
+    ? { available: false as const, reason: t("shell.availability.historyReadOnly"), reasonCode: "history_read_only" }
     : canRetryTurn
       ? { available: true as const }
-      : { available: false as const, reason: retryUnavailableReason || "The backend reports that retry is unavailable." };
+      : { available: false as const, reason: retryUnavailableReason || t("shell.availability.retryUnavailable") };
   const terminalExecuteAvailability = history
-    ? { available: false as const, reason: "Direct host actions are disabled while viewing History.", reasonCode: "history_read_only" }
+    ? { available: false as const, reason: t("shell.availability.historyHostActions"), reasonCode: "history_read_only" }
     : canExecuteTerminal
       ? { available: true as const }
-      : { available: false as const, reason: terminalExecuteUnavailableReason || "Terminal execution is unavailable." };
+      : { available: false as const, reason: terminalExecuteUnavailableReason || t("shell.availability.terminalUnavailable") };
   const terminalCancelAvailability = history
-    ? { available: false as const, reason: "Direct host actions are disabled while viewing History.", reasonCode: "history_read_only" }
+    ? { available: false as const, reason: t("shell.availability.historyHostActions"), reasonCode: "history_read_only" }
     : canCancelTerminal && runningTerminalOperationId
       ? { available: true as const }
-      : { available: false as const, reason: terminalCancelUnavailableReason || "There is no running Terminal execution to cancel." };
+      : { available: false as const, reason: terminalCancelUnavailableReason || t("shell.availability.noTerminal") };
   const browserSession = snapshot.kernel?.browserSessions[0];
   const browserCommandAvailability = (kind: "click" | "navigate" | "type") => history
-    ? { available: false as const, reason: "Direct host actions are disabled while viewing History.", reasonCode: "history_read_only" }
+    ? { available: false as const, reason: t("shell.availability.historyHostActions"), reasonCode: "history_read_only" }
     : !canInteractBrowser
-      ? { available: false as const, reason: browserInteractUnavailableReason || "Browser interaction is unavailable." }
+      ? { available: false as const, reason: browserInteractUnavailableReason || t("shell.availability.browserUnavailable") }
       : !browserSession
-        ? { available: false as const, reason: "No compatible native browser session snapshot is available." }
+        ? { available: false as const, reason: t("shell.availability.noBrowserSession") }
         : browserSession.interaction[kind]
           ? { available: true as const }
-          : { available: false as const, reason: `The native browser session does not allow ${kind}.` };
+          : { available: false as const, reason: t("shell.availability.browserKind", { kind }) };
   const shellCommandRegistry = createTinyOsShellCommandRegistry([
     ...runtimeCommandRegistry.commands,
     defineTinyOsShellCommand({
       availability: terminalExecuteAvailability,
       category: "process",
       dispatch: (_target, input) => {
-        if (!input || typeof input === "string") throw new Error("Terminal execution requires structured input.");
+        if (!input || typeof input === "string") throw new Error(t("shell.command.terminalInput"));
         return onExecuteTerminal({
           command: input.command,
           ...(input.cwd?.trim() ? { cwd: input.cwd.trim() } : {}),
@@ -493,13 +485,13 @@ export function TinyOsShell({
       id: "terminal.execute",
       input: {
         fields: [
-          { label: "command", name: "command", required: true },
-          { label: "working directory", name: "cwd", required: false },
+          { label: t("shell.command.command"), name: "command", required: true },
+          { label: t("shell.command.workingDirectory"), name: "cwd", required: false },
         ],
         kind: "fields",
       },
       keywords: ["terminal", "run", "command", "shell"],
-      label: "Run Terminal command",
+      label: t("shell.command.runTerminal"),
       scope: "runtime",
       target: { kind: "shell" },
     }),
@@ -510,7 +502,7 @@ export function TinyOsShell({
       id: "terminal.cancel",
       input: { kind: "none" },
       keywords: ["terminal", "cancel", "stop", "interrupt"],
-      label: "Cancel Terminal execution",
+      label: t("shell.command.cancelTerminal"),
       scope: "runtime",
       target: { kind: "process", processId: runningTerminalOperationId ?? "no-active-terminal" },
     }),
@@ -518,15 +510,15 @@ export function TinyOsShell({
       availability: browserCommandAvailability(kind),
       category: "resource",
       dispatch: (_target, input) => {
-        const commandInput = browserInteractionCommandInput(input);
+        const commandInput = browserInteractionCommandInput(input, t);
         const session = snapshot.kernel?.browserSessions.find(({ browserSessionId }) => (
           browserSessionId === commandInput.browserSessionId
         ));
         const validation = validateTinyOsBrowserInteractionTarget(session, commandInput);
         if (validation.status === "rejected") throw new Error(validation.reason);
-        if (!session) throw new Error("Browser session is unavailable");
+        if (!session) throw new Error(t("shell.command.browserSessionUnavailable"));
         return onBrowserInteract({
-          action: browserActionFromCommandInput(kind, commandInput),
+          action: browserActionFromCommandInput(kind, commandInput, t),
           browserSessionId: commandInput.browserSessionId,
           captureId: commandInput.captureId,
           controlEpoch: session.control?.controlEpoch ?? 0,
@@ -537,20 +529,20 @@ export function TinyOsShell({
       id: `browser.${kind}` as const,
       input: {
         fields: [
-          { label: "browser session id", name: "browserSessionId", required: true },
-          { label: "browser tab id", name: "tabId", required: true },
-          { label: "browser capture id", name: "captureId", required: true },
-          ...(kind === "navigate" ? [{ label: "URL", name: "url", required: true }] : []),
-          ...(kind === "type" ? [{ label: "text", name: "text", required: true }] : []),
+          { label: t("shell.command.browserSessionId"), name: "browserSessionId", required: true },
+          { label: t("shell.command.browserTabId"), name: "tabId", required: true },
+          { label: t("shell.command.browserCaptureId"), name: "captureId", required: true },
+          ...(kind === "navigate" ? [{ label: t("shell.command.url"), name: "url", required: true }] : []),
+          ...(kind === "type" ? [{ label: t("shell.command.text"), name: "text", required: true }] : []),
           ...(kind === "click" ? [
-            { label: "x coordinate", name: "x", required: true },
-            { label: "y coordinate", name: "y", required: true },
+            { label: t("shell.command.x"), name: "x", required: true },
+            { label: t("shell.command.y"), name: "y", required: true },
           ] : []),
         ],
         kind: "fields",
       },
       keywords: ["browser", kind, "capture", "session"],
-      label: `${kind[0].toUpperCase()}${kind.slice(1)} in Browser`,
+      label: t("shell.command.browserAction", { action: t(`shell.command.${kind}`) }),
       scope: "runtime",
       target: { kind: "resource", resourceId: browserSession ? `browser-session:${browserSession.browserSessionId}` : "browser-session:unavailable" },
     })),
@@ -561,7 +553,7 @@ export function TinyOsShell({
       id: "shell.reset_layout",
       input: { kind: "none" },
       keywords: ["reset", "layout", "windows"],
-      label: "Reset TinyOS layout",
+      label: t("shell.command.resetLayout"),
       scope: "local_presentation",
       target: { kind: "shell" },
     }),
@@ -570,13 +562,13 @@ export function TinyOsShell({
         ? { available: true }
         : !shellOverlayAvailability.available
           ? shellOverlayAvailability
-        : { available: false, reason: "No TinyOS applications are available." },
+        : { available: false, reason: t("shell.availability.noApps") },
       category: "system",
       dispatch: () => openShellOverlay("overview"),
       id: "shell.overview",
       input: { kind: "none" },
       keywords: ["overview", "windows", "applications"],
-      label: "Open window Overview",
+      label: t("shell.command.openOverview"),
       scope: "local_presentation",
       target: { kind: "shell" },
     }),
@@ -588,9 +580,9 @@ export function TinyOsShell({
         openShellOverlay("palette");
       },
       id: "shell.palette",
-      input: { kind: "text", label: "Search commands", required: false },
+      input: { kind: "text", label: t("shell.command.searchCommands"), required: false },
       keywords: ["command", "palette", "search"],
-      label: "Open command palette",
+      label: t("shell.command.openPalette"),
       scope: "local_presentation",
       target: { kind: "shell" },
     }),
@@ -599,13 +591,13 @@ export function TinyOsShell({
         ? { available: true }
         : !shellOverlayAvailability.available
           ? shellOverlayAvailability
-          : { available: false, reason: "No derived notifications are available." },
+          : { available: false, reason: t("shell.availability.noNotifications") },
       category: "system",
       dispatch: () => openShellOverlay("notifications"),
       id: "shell.notification_center",
       input: { kind: "none" },
       keywords: ["notifications", "history", "alerts"],
-      label: "Open notification center",
+      label: t("shell.command.openNotifications"),
       scope: "local_presentation",
       target: { kind: "shell" },
     }),
@@ -617,7 +609,7 @@ export function TinyOsShell({
         id: `app.open:${window.appId}` as const,
         input: { kind: "none" },
         keywords: [window.title, "open", "application"],
-        label: `Open ${window.title}`,
+        label: t("shell.command.openApp", { title: window.title }),
         scope: "local_presentation",
         target: { appId: window.appId, kind: "application" },
       }),
@@ -628,7 +620,7 @@ export function TinyOsShell({
         id: `window.focus:${window.appId}` as const,
         input: { kind: "none" },
         keywords: [window.title, "focus", "restore"],
-        label: `Focus ${window.title}`,
+        label: t("shell.command.focus", { title: window.title }),
         scope: "local_presentation",
         target: { appId: window.appId, kind: "window" },
       }),
@@ -639,7 +631,7 @@ export function TinyOsShell({
         id: `window.maximize:${window.appId}` as const,
         input: { kind: "none" },
         keywords: [window.title, "maximize", "restore"],
-        label: `Maximize ${window.title}`,
+        label: t("shell.command.maximize", { title: window.title }),
         scope: "local_presentation",
         target: { appId: window.appId, kind: "window" },
       }),
@@ -650,7 +642,7 @@ export function TinyOsShell({
         id: `window.minimize:${window.appId}` as const,
         input: { kind: "none" },
         keywords: [window.title, "minimize"],
-        label: `Minimize ${window.title}`,
+        label: t("shell.command.minimize", { title: window.title }),
         scope: "local_presentation",
         target: { appId: window.appId, kind: "window" },
       }),
@@ -663,7 +655,7 @@ export function TinyOsShell({
         id: `evidence.inspect:${entry.step.id}` as const,
         input: { kind: "none" },
         keywords: [entry.step.title, "inspect", "evidence"],
-        label: `Inspect ${entry.step.title}`,
+        label: t("shell.command.inspect", { title: entry.step.title }),
         scope: "local_presentation",
         target: { itemId: entry.step.id, kind: "evidence", turnId: entry.turnId },
       }),
@@ -678,7 +670,7 @@ export function TinyOsShell({
         id: `history.select:${entry.step.id}` as const,
         input: { kind: "none" },
         keywords: [entry.step.title, "history", "show"],
-        label: `Show ${entry.step.title}`,
+        label: t("shell.command.show", { title: entry.step.title }),
         scope: "local_presentation",
         target: { itemId: entry.step.id, kind: "history", turnId: entry.turnId },
       }),
@@ -690,7 +682,7 @@ export function TinyOsShell({
       id: `operation.retry:${entry.step.id}` as const,
       input: { kind: "none" },
       keywords: [entry.step.title, "retry", "operation"],
-      label: `Retry ${entry.step.title}`,
+      label: t("shell.command.retry", { title: entry.step.title }),
       scope: "runtime",
       target: { itemId: entry.step.id, kind: "operation", turnId: entry.turnId },
     })),
@@ -706,20 +698,20 @@ export function TinyOsShell({
         id: `notification.open:${notification.id}` as const,
         input: { kind: "none" },
         keywords: [notification.title, notification.message, notification.kind, "notification"],
-        label: `Open notification: ${notification.title}`,
+        label: t("shell.command.openNotification", { title: notification.title }),
         scope: "local_presentation",
         target: { itemId: notification.entry.step.id, kind: "evidence", turnId: notification.entry.turnId },
       }),
       defineTinyOsShellCommand({
         availability: readNotificationIds.has(notification.id)
-          ? { available: false, reason: "This notification is already marked read." }
+          ? { available: false, reason: t("shell.availability.alreadyRead") }
           : { available: true },
         category: "operation",
         dispatch: () => setReadNotificationIds((current) => new Set(current).add(notification.id)),
         id: `notification.read:${notification.id}` as const,
         input: { kind: "none" },
         keywords: [notification.title, "read", "notification"],
-        label: `Mark ${notification.title} read`,
+        label: t("shell.command.markRead", { title: notification.title }),
         scope: "local_presentation",
         target: { itemId: notification.entry.step.id, kind: "evidence", turnId: notification.entry.turnId },
       }),
@@ -730,7 +722,7 @@ export function TinyOsShell({
       return defineTinyOsShellCommand({
         availability: revealable
           ? { available: true }
-          : { available: false, reason: "No TinyOS application can reveal this resource." },
+          : { available: false, reason: t("shell.availability.noResourceApp") },
         category: "resource",
         dispatch: () => {
           if (appId) focusApp(appId);
@@ -738,7 +730,7 @@ export function TinyOsShell({
         id: `resource.reveal:${resource.id}` as const,
         input: { kind: "none" },
         keywords: [resource.title, resource.path || "", resource.kind, resource.provenance.kind, "resource"],
-        label: `Reveal ${resource.title}`,
+        label: t("shell.command.reveal", { title: resource.title }),
         scope: "local_presentation",
         target: { kind: "resource", resourceId: resource.id },
       });
@@ -756,7 +748,7 @@ export function TinyOsShell({
           id: `resource.reveal:${resourceId}` as const,
           input: { kind: "none" },
           keywords: [path, fileName(path), document.provenance.kind, "workspace", "file"],
-          label: `Open ${path} in Files`,
+          label: t("shell.command.openInFiles", { path }),
           scope: "local_presentation",
           target: { kind: "resource", resourceId },
         }),
@@ -772,7 +764,7 @@ export function TinyOsShell({
           id: `reference.attach:${resourceId}` as const,
           input: { acceptedKinds: ["file"], kind: "reference" },
           keywords: [path, "attach", "chat", "reference"],
-          label: `Attach ${path} to Chat`,
+          label: t("shell.command.attachToChat", { path }),
           scope: "local_presentation",
           target: { kind: "resource", resourceId },
         }),
@@ -783,7 +775,7 @@ export function TinyOsShell({
       const inspectable = Boolean(process.correlation.itemId && distinctEntries.some((entry) => entry.step.id === process.correlation.itemId));
       return [
         defineTinyOsShellCommand({
-          availability: revealable ? { available: true } : { available: false, reason: "No related TinyOS application is available." },
+          availability: revealable ? { available: true } : { available: false, reason: t("shell.availability.noRelatedApp") },
           category: "process",
           dispatch: () => {
             if (process.applicationId) focusApp(process.applicationId as TinyOsAppId);
@@ -791,12 +783,12 @@ export function TinyOsShell({
           id: `process.reveal:${process.id}` as const,
           input: { kind: "none" },
           keywords: [process.title, "reveal", "application"],
-          label: `Reveal ${process.title}`,
+          label: t("shell.command.reveal", { title: process.title }),
           scope: "local_presentation",
           target: { kind: "process", processId: process.id },
         }),
         defineTinyOsShellCommand({
-          availability: inspectable ? { available: true } : { available: false, reason: "No correlated canonical item is available to inspect." },
+          availability: inspectable ? { available: true } : { available: false, reason: t("shell.availability.noEvidence") },
           category: "process",
           dispatch: () => {
             const entry = distinctEntries.find((candidate) => candidate.step.id === process.correlation.itemId);
@@ -805,7 +797,7 @@ export function TinyOsShell({
           id: `process.inspect:${process.id}` as const,
           input: { kind: "none" },
           keywords: [process.title, "inspect", "evidence"],
-          label: `Inspect ${process.title}`,
+          label: t("shell.command.inspect", { title: process.title }),
           scope: "local_presentation",
           target: { kind: "process", processId: process.id },
         }),
@@ -830,12 +822,12 @@ export function TinyOsShell({
     onInspect: (process) => {
       void shellCommandRegistry.execute(`process.inspect:${process.id}`);
     },
-    onOpenProcessMenu: (process, clientX, clientY) => openContextMenuAt(clientX, clientY, `${process.title} process menu`, [
+    onOpenProcessMenu: (process, clientX, clientY) => openContextMenuAt(clientX, clientY, t("shell.contextMenu.process", { title: process.title }), [
       `process.reveal:${process.id}`,
       `process.inspect:${process.id}`,
       ...(process.correlation.itemId ? [`operation.retry:${process.correlation.itemId}` as const] : []),
     ]),
-    onOpenResourceMenu: (resource, clientX, clientY) => openContextMenuAt(clientX, clientY, `${resource.title} resource menu`, [
+    onOpenResourceMenu: (resource, clientX, clientY) => openContextMenuAt(clientX, clientY, t("shell.contextMenu.resource", { title: resource.title }), [
       `resource.reveal:${resource.id}`,
     ]),
     onPauseTurn: () => void shellCommandRegistry.execute(pauseCommand.id),
@@ -963,45 +955,45 @@ export function TinyOsShell({
   return (
     <div className="tinyos-shell" data-has-dialog={snapshot.dialog ? "true" : undefined} onKeyDown={handleShellKeyDown} onKeyUp={handleShellKeyUp}>
       <section
-        aria-label="TinyOS desktop"
+        aria-label={t("shell.desktop")}
         className="tinyos-desktop"
         data-app-count={availableApps.size}
         data-has-windows={windows.length ? "true" : undefined}
         data-layout-mode={uiState.layoutMode}
         ref={desktopRef}
-        onContextMenu={(event) => openContextMenu(event, "Desktop menu", ["shell.overview", "shell.palette", "shell.reset_layout"])}
+        onContextMenu={(event) => openContextMenu(event, t("shell.contextMenu.desktop"), ["shell.overview", "shell.palette", "shell.reset_layout"])}
       >
         <TinyOsSideRays />
         <div aria-hidden="true" className="tinyos-desktop__environment">
-          <span className="tinyos-desktop__brand"><MonitorDot size={17} /><strong>TinyOS</strong><small>Shared workspace</small></span>
-          <span className="tinyos-desktop__mode">{history ? "History snapshot" : "Live workspace"}</span>
+          <span className="tinyos-desktop__brand"><MonitorDot size={17} /><strong>TinyOS</strong><small>{t("shell.sharedWorkspace")}</small></span>
+          <span className="tinyos-desktop__mode">{history ? t("shell.historySnapshot") : t("shell.liveWorkspace")}</span>
         </div>
-        <div aria-label="TinyOS system tools" className="tinyos-desktop__system-tools" role="toolbar">
+        <div aria-label={t("shell.systemTools")} className="tinyos-desktop__system-tools" role="toolbar">
           {agentGroups.length ? (
             <select
-              aria-label="Filter TinyOS by Agent"
+              aria-label={t("shell.filterAgent")}
               className="tinyos-agent-filter"
-              title="Scope windows, processes, resources, notifications, and operations by Agent"
+              title={t("shell.filterAgentHelp")}
               value={agentFilterId}
               onChange={(event) => setAgentFilterId(event.currentTarget.value)}
             >
-              <option value="">All Agents</option>
+              <option value="">{t("shell.allAgents")}</option>
               {agentGroups.map((group) => <option key={group.id} value={group.agentId}>{group.title}</option>)}
             </select>
           ) : null}
-          <button aria-label="Open window Overview" title="Overview" type="button" onClick={() => void shellCommandRegistry.execute("shell.overview")}><LayoutGrid aria-hidden="true" size={15} /></button>
-          <button aria-label="Open command palette" title="Command palette · Ctrl+K" type="button" onClick={() => void shellCommandRegistry.execute("shell.palette")}><Command aria-hidden="true" size={15} /></button>
+          <button aria-label={t("shell.command.openOverview")} title={t("shell.overview")} type="button" onClick={() => void shellCommandRegistry.execute("shell.overview")}><LayoutGrid aria-hidden="true" size={15} /></button>
+          <button aria-label={t("shell.command.openPalette")} title={t("shell.paletteShortcut")} type="button" onClick={() => void shellCommandRegistry.execute("shell.palette")}><Command aria-hidden="true" size={15} /></button>
           <button
-            aria-label="Open notification center"
+            aria-label={t("shell.command.openNotifications")}
             data-attention={snapshot.notifications.some((notification) => !readNotificationIds.has(notification.id)) ? "true" : undefined}
             disabled={!requiredShellCommand(shellCommandRegistry, "shell.notification_center").availability.available}
-            title={snapshot.notifications.length ? "Notification center" : "No notifications"}
+            title={snapshot.notifications.length ? t("shell.notificationCenter") : t("shell.noNotifications")}
             type="button"
             onClick={() => void shellCommandRegistry.execute("shell.notification_center")}
           ><Bell aria-hidden="true" size={15} /></button>
         </div>
 
-        <nav aria-label="TinyOS applications" className="tinyos-launcher" ref={launcherRef}>
+        <nav aria-label={t("shell.applications")} className="tinyos-launcher" ref={launcherRef}>
           <span aria-hidden="true" className="tinyos-launcher__lens">
             <Suspense fallback={null}>
               <TinyOsGlassSurface />
@@ -1009,13 +1001,14 @@ export function TinyOsShell({
           </span>
           {APP_ORDER.map((appId, index) => {
             const Icon = APP_ICONS[appId];
+            const label = appLabel(appId, t);
             const available = availableApps.has(appId);
             const active = uiState.focusedAppId === appId && !uiState.minimizedAppIds.includes(appId);
             const window = appWindows.find((candidate) => candidate.appId === appId);
             const status = window?.entries[window.entries.length - 1]?.step.status;
             return (
               <button
-                aria-label={`Open ${APP_LABELS[appId]}`}
+                aria-label={t("shell.openApp", { title: label })}
                 aria-pressed={active}
                 className="tinyos-launcher__app"
                 data-active={active ? "true" : undefined}
@@ -1024,25 +1017,25 @@ export function TinyOsShell({
                 data-status={status}
                 disabled={!available}
                 key={appId}
-                title={available ? `${APP_LABELS[appId]} · Alt+${index + 1}` : `${APP_LABELS[appId]} has no activity yet`}
+                title={available ? t("shell.appShortcut", { title: label, number: index + 1 }) : t("shell.noActivity", { title: label })}
                 type="button"
                 onClick={() => void shellCommandRegistry.execute(`app.open:${appId}`)}
-                onContextMenu={(event) => available && openContextMenu(event, `${APP_LABELS[appId]} menu`, [
+                onContextMenu={(event) => available && openContextMenu(event, t("shell.contextMenu.app", { title: label }), [
                   `window.focus:${appId}`,
                   `window.maximize:${appId}`,
                   `window.minimize:${appId}`,
                 ])}
               >
                 <Icon aria-hidden="true" size={19} />
-                <span>{APP_LABELS[appId]}</span>
+                <span>{label}</span>
                 {available ? <Circle aria-hidden="true" className="tinyos-launcher__state" fill="currentColor" size={6} /> : null}
               </button>
             );
           })}
           <span aria-hidden="true" className="tinyos-launcher__divider" />
-          <button aria-label="Reset TinyOS layout" className="tinyos-launcher__app tinyos-launcher__reset" title="Reset layout" type="button" onClick={() => void shellCommandRegistry.execute("shell.reset_layout")}>
+          <button aria-label={t("shell.resetAria")} className="tinyos-launcher__app tinyos-launcher__reset" title={t("shell.reset")} type="button" onClick={() => void shellCommandRegistry.execute("shell.reset_layout")}>
             <RotateCcw aria-hidden="true" size={18} />
-            <span>Reset</span>
+            <span>{t("shell.resetShort")}</span>
           </button>
         </nav>
 
@@ -1071,7 +1064,7 @@ export function TinyOsShell({
             onInspect={(entry) => void shellCommandRegistry.execute(`evidence.inspect:${entry.step.id}`)}
             onMaximize={() => void shellCommandRegistry.execute(`window.maximize:${window.appId}`)}
             onMinimize={() => void shellCommandRegistry.execute(`window.minimize:${window.appId}`)}
-            onOpenContextMenu={(event) => openContextMenu(event, `${window.title} window menu`, [
+            onOpenContextMenu={(event) => openContextMenu(event, t("shell.contextMenu.window", { title: window.title }), [
               `window.focus:${window.appId}`,
               `window.maximize:${window.appId}`,
               `window.minimize:${window.appId}`,
@@ -1087,8 +1080,8 @@ export function TinyOsShell({
             onSnap={(edge) => dispatchUi({ appId: window.appId, edge, type: "snap" })}
             onTabChange={(tabId) => dispatchUi({ appId: window.appId, tabId, type: "set_active_tab" })}
             requestChangeUnavailableReason={requestChangeUnavailableReason}
-            directEditUnavailableReason={history ? "Direct host actions are disabled while viewing History." : directEditUnavailableReason}
-            saveFileUnavailableReason={history ? "Direct host actions are disabled while viewing History." : saveFileUnavailableReason}
+            directEditUnavailableReason={history ? t("shell.directHistory") : directEditUnavailableReason}
+            saveFileUnavailableReason={history ? t("shell.directHistory") : saveFileUnavailableReason}
             runningTerminalOperationId={runningTerminalOperationId}
           />
         ))}
@@ -1146,7 +1139,7 @@ export function TinyOsShell({
                 return;
               }
               void shellCommandRegistry.execute(`evidence.inspect:${accepted.reference.itemId}`);
-              setTransferMessage({ kind: "success", text: `${accepted.reference.title} pinned in Inspector.` });
+              setTransferMessage({ kind: "success", text: t("shell.pinned", { title: accepted.reference.title }) });
             }}
           />
         ) : null}
@@ -1163,6 +1156,7 @@ function TinyOsContextMenu({ commandRegistry, menu, onClose }: {
   menu: TinyOsContextMenuState;
   onClose: () => void;
 }) {
+  const { t } = useTranslation("tinyos");
   const menuRef = useRef<HTMLDivElement>(null);
   useEffect(() => menuRef.current?.querySelector<HTMLElement>("button:not(:disabled)")?.focus(), []);
 
@@ -1173,7 +1167,7 @@ function TinyOsContextMenu({ commandRegistry, menu, onClose }: {
 
   return (
     <div className="tinyos-context-menu-layer">
-      <button aria-label={`Close ${menu.label}`} className="tinyos-context-menu-layer__backdrop" type="button" onClick={onClose} />
+      <button aria-label={t("shell.contextMenu.close", { label: menu.label })} className="tinyos-context-menu-layer__backdrop" type="button" onClick={onClose} />
       <div aria-label={menu.label} className="tinyos-context-menu" ref={menuRef} role="menu" style={{ left: menu.x, top: menu.y }} onKeyDown={(event) => {
         if (event.key !== "Escape") return;
         event.preventDefault();
@@ -1189,7 +1183,7 @@ function TinyOsContextMenu({ commandRegistry, menu, onClose }: {
               title={command.availability.available ? command.label : command.availability.reason}
               type="button"
               onClick={() => void execute(command.id)}
-            ><span>{command.label}</span><small>{command.scope === "runtime" ? "Runtime" : "Local"}</small></button>
+            ><span>{command.label}</span><small>{command.scope === "runtime" ? t("shell.contextMenu.runtime") : t("shell.contextMenu.local")}</small></button>
           );
         })}
       </div>
@@ -1226,6 +1220,7 @@ function TinyOsShellOverlay({
   switcherAppId?: TinyOsAppId;
   zOrder: TinyOsAppId[];
 }) {
+  const { t } = useTranslation("tinyos");
   const overlayRef = useRef<HTMLDivElement>(null);
   const orderedWindows = [...appWindows].sort((left, right) => zOrder.indexOf(right.appId) - zOrder.indexOf(left.appId));
   const normalizedQuery = paletteQuery.trim().toLocaleLowerCase();
@@ -1269,9 +1264,9 @@ function TinyOsShellOverlay({
 
   return (
     <div className="tinyos-shell-overlay" data-overlay={overlay}>
-      <button aria-label={`Close ${overlayLabel(overlay)}`} className="tinyos-shell-overlay__backdrop" type="button" onClick={onClose} />
+      <button aria-label={t("shell.contextMenu.close", { label: overlayLabel(overlay, t) })} className="tinyos-shell-overlay__backdrop" type="button" onClick={onClose} />
       <div
-        aria-label={overlayLabel(overlay)}
+        aria-label={overlayLabel(overlay, t)}
         aria-modal="true"
         className="tinyos-shell-overlay__panel"
         ref={overlayRef}
@@ -1280,8 +1275,8 @@ function TinyOsShellOverlay({
       >
         {overlay === "switcher" ? (
           <>
-            <header><span><Command aria-hidden="true" size={16} /><strong>Switch applications</strong></span><small>Release Alt to continue</small></header>
-            <div aria-label="Available TinyOS applications" className="tinyos-window-switcher" role="listbox">
+            <header><span><Command aria-hidden="true" size={16} /><strong>{t("shell.overlay.switchApps")}</strong></span><small>{t("shell.overlay.releaseAlt")}</small></header>
+            <div aria-label={t("shell.overlay.availableApps")} className="tinyos-window-switcher" role="listbox">
               {orderedWindows.map((window) => {
                 const Icon = APP_ICONS[window.appId];
                 const selected = window.appId === switcherAppId;
@@ -1294,7 +1289,7 @@ function TinyOsShellOverlay({
                     role="option"
                     type="button"
                     onClick={() => void executeAndClose(`window.focus:${window.appId}`)}
-                  ><Icon aria-hidden="true" size={19} /><span><strong>{window.title}</strong><small>{minimizedAppIds.includes(window.appId) ? "Minimized · will restore" : "Available"}</small></span></button>
+                  ><Icon aria-hidden="true" size={19} /><span><strong>{appLabel(window.appId, t)}</strong><small>{minimizedAppIds.includes(window.appId) ? t("shell.overlay.minimizedRestore") : t("shell.overlay.available")}</small></span></button>
                 );
               })}
             </div>
@@ -1303,10 +1298,10 @@ function TinyOsShellOverlay({
 
         {overlay === "overview" ? (
           <>
-            <header><span><LayoutGrid aria-hidden="true" size={16} /><strong>Mission Control</strong></span><button aria-label="Close window Overview" type="button" onClick={onClose}><X aria-hidden="true" size={15} /></button></header>
+            <header><span><LayoutGrid aria-hidden="true" size={16} /><strong>{t("shell.overlay.missionControl")}</strong></span><button aria-label={t("shell.overlay.closeOverview")} type="button" onClick={onClose}><X aria-hidden="true" size={15} /></button></header>
             {agentGroups.length ? (
-              <section aria-label="Agent mission groups" className="tinyos-mission-groups">
-                <h3>Agents</h3>
+              <section aria-label={t("shell.overlay.agentGroups")} className="tinyos-mission-groups">
+                <h3>{t("shell.overlay.agents")}</h3>
                 <div>
                   {agentGroups.map((group) => {
                     const parent = agentGroups.find(({ agentId }) => agentId === group.parentAgentId);
@@ -1318,8 +1313,8 @@ function TinyOsShellOverlay({
                         <header><span><Bot aria-hidden="true" size={14} /><strong>{group.title}</strong></span><small>{group.state.replace(/_/g, " ")}</small></header>
                         {group.assignedWork ? <p>{group.assignedWork}</p> : null}
                         <dl>
-                          <div><dt>Parent</dt><dd>{parent?.title ?? group.parentAgentId ?? "Root"}</dd></div>
-                          <div><dt>Windows</dt><dd>{activeWindows.length ? activeWindows.map(({ title }) => title).join(", ") : "No active windows"}</dd></div>
+                          <div><dt>{t("shell.overlay.parent")}</dt><dd>{parent?.title ?? group.parentAgentId ?? t("shell.overlay.root")}</dd></div>
+                          <div><dt>{t("shell.overlay.windows")}</dt><dd>{activeWindows.length ? activeWindows.map(({ appId }) => appLabel(appId, t)).join(", ") : t("shell.overlay.noActiveWindows")}</dd></div>
                         </dl>
                       </article>
                     );
@@ -1333,8 +1328,8 @@ function TinyOsShellOverlay({
                 const minimized = minimizedAppIds.includes(window.appId);
                 return (
                   <button data-autofocus={index === 0 ? "true" : undefined} key={window.id} type="button" onClick={() => void executeAndClose(`window.focus:${window.appId}`)}>
-                    <span className="tinyos-window-overview__preview"><Icon aria-hidden="true" size={24} /><small>{window.entries.length} canonical item{window.entries.length === 1 ? "" : "s"}</small></span>
-                    <span><strong>{window.title}</strong><small>{minimized ? "Minimized · select to restore" : "Open"}</small></span>
+                    <span className="tinyos-window-overview__preview"><Icon aria-hidden="true" size={24} /><small>{t("shell.overlay.canonicalItems", { count: window.entries.length })}</small></span>
+                    <span><strong>{appLabel(window.appId, t)}</strong><small>{minimized ? t("shell.overlay.minimizedSelect") : t("shell.overlay.open")}</small></span>
                   </button>
                 );
               })}
@@ -1344,8 +1339,8 @@ function TinyOsShellOverlay({
 
         {overlay === "palette" ? (
           <>
-            <header className="tinyos-command-palette__search"><Search aria-hidden="true" size={16} /><input aria-label="Search TinyOS commands" autoComplete="off" data-autofocus="true" placeholder="Search apps, resources, processes, operations…" type="search" value={paletteQuery} onChange={(event) => onPaletteQueryChange(event.currentTarget.value)} /><kbd>Esc</kbd></header>
-            <div aria-label="TinyOS command results" className="tinyos-command-palette__results" role="listbox">
+            <header className="tinyos-command-palette__search"><Search aria-hidden="true" size={16} /><input aria-label={t("shell.overlay.searchAria")} autoComplete="off" data-autofocus="true" placeholder={t("shell.overlay.searchPlaceholder")} type="search" value={paletteQuery} onChange={(event) => onPaletteQueryChange(event.currentTarget.value)} /><kbd>Esc</kbd></header>
+            <div aria-label={t("shell.overlay.results")} className="tinyos-command-palette__results" role="listbox">
               {paletteCommands.length ? paletteCommands.map((command) => (
                 <button
                   aria-disabled={!command.availability.available}
@@ -1356,18 +1351,18 @@ function TinyOsShellOverlay({
                   type="button"
                   onClick={() => void executeAndClose(command.id)}
                 >
-                  <span><strong>{command.label}</strong><small>{command.category} · {command.scope === "runtime" ? "runtime" : "local"}</small></span>
+                  <span><strong>{command.label}</strong><small>{command.category} · {command.scope === "runtime" ? t("shell.overlay.runtime") : t("shell.overlay.local")}</small></span>
                   <small>{command.availability.available ? command.id : command.availability.reason}</small>
                 </button>
-              )) : <p className="tinyos-shell-overlay__empty">No registered command matches “{paletteQuery}”.</p>}
+              )) : <p className="tinyos-shell-overlay__empty">{t("shell.overlay.noCommand", { query: paletteQuery })}</p>}
             </div>
           </>
         ) : null}
 
         {overlay === "notifications" ? (
           <>
-            <header><span><Bell aria-hidden="true" size={16} /><strong>Notification center</strong></span><button aria-label="Close notification center" type="button" onClick={onClose}><X aria-hidden="true" size={15} /></button></header>
-            <div aria-label="Derived notification history" className="tinyos-notification-center">
+            <header><span><Bell aria-hidden="true" size={16} /><strong>{t("shell.notificationCenter")}</strong></span><button aria-label={t("shell.overlay.closeNotifications")} type="button" onClick={onClose}><X aria-hidden="true" size={15} /></button></header>
+            <div aria-label={t("shell.overlay.notificationHistory")} className="tinyos-notification-center">
               {[...notifications].reverse().map((notification, index) => {
                 const read = readNotificationIds.has(notification.id);
                 const readCommand = requiredShellCommand(commandRegistry, `notification.read:${notification.id}`);
@@ -1375,9 +1370,9 @@ function TinyOsShellOverlay({
                   <article data-read={read ? "true" : undefined} key={notification.id}>
                     <button data-autofocus={index === 0 ? "true" : undefined} type="button" onClick={() => void executeAndClose(`notification.open:${notification.id}`)}>
                       {notification.kind === "completed" ? <CheckCircle2 aria-hidden="true" size={16} /> : <AlertTriangle aria-hidden="true" size={16} />}
-                      <span><strong>{notification.title}</strong><small>{notification.message}</small><code>canonical item · {notification.entry.step.id}</code></span>
+                      <span><strong>{notification.title}</strong><small>{notification.message}</small><code>{t("shell.overlay.canonicalItem", { id: notification.entry.step.id })}</code></span>
                     </button>
-                    <button disabled={!readCommand.availability.available} title={readCommand.availability.available ? readCommand.label : readCommand.availability.reason} type="button" onClick={() => void commandRegistry.execute(readCommand.id)}>{read ? "Read" : "Mark read"}</button>
+                    <button disabled={!readCommand.availability.available} title={readCommand.availability.available ? readCommand.label : readCommand.availability.reason} type="button" onClick={() => void commandRegistry.execute(readCommand.id)}>{read ? t("shell.overlay.read") : t("shell.overlay.markRead")}</button>
                   </article>
                 );
               })}
@@ -1390,11 +1385,12 @@ function TinyOsShellOverlay({
 }
 
 function TinyOsDesktopEmpty() {
+  const { t } = useTranslation("tinyos");
   return (
     <div className="tinyos-desktop__empty">
       <FileCode2 aria-hidden="true" size={26} />
-      <strong>Your workspace is ready</strong>
-      <span>Files, terminals, plans, and browser activity will open here as the Agent works.</span>
+      <strong>{t("shell.empty.title")}</strong>
+      <span>{t("shell.empty.description")}</span>
     </div>
   );
 }
@@ -1474,7 +1470,9 @@ function TinyOsAppWindow({
   window: TinyOsWindow;
   zIndex: number;
 }) {
+  const { t } = useTranslation("tinyos");
   const Icon = APP_ICONS[window.appId];
+  const displayTitle = appLabel(window.appId, t);
   const latest = window.entries[window.entries.length - 1];
   const windowRef = useRef<HTMLElement>(null);
   const [pointerActive, setPointerActive] = useState(false);
@@ -1608,7 +1606,7 @@ function TinyOsAppWindow({
 
   return (
     <article
-      aria-label={`${window.title} window`}
+      aria-label={t("shell.window.label", { title: displayTitle })}
       className="tinyos-window"
       data-active={active ? "true" : undefined}
       data-app={window.appId}
@@ -1619,10 +1617,10 @@ function TinyOsAppWindow({
       style={style}
     >
       <header
-        aria-label={`Move ${window.title} window`}
+        aria-label={t("shell.window.move", { title: displayTitle })}
         className="tinyos-window__titlebar"
         tabIndex={0}
-        title="Drag to move. Arrow keys move; Shift+Arrow resizes; Alt+Arrow snaps or maximizes."
+        title={t("shell.window.dragHelp")}
         onDoubleClick={onMaximize}
         onKeyDown={handleWindowKeyDown}
         onPointerDown={(event) => startPointer(event, "move")}
@@ -1630,12 +1628,12 @@ function TinyOsAppWindow({
         onPointerCancel={endPointer}
         onPointerUp={endPointer}
       >
-        <span><Icon aria-hidden="true" size={15} /><strong>{window.title}</strong></span>
-        <span className="tinyos-window__source">{latest?.step.title ?? (window.appId === "system_monitor" ? `${kernel?.processes.length ?? 0} processes` : "Workspace Explorer")}</span>
+        <span><Icon aria-hidden="true" size={15} /><strong>{displayTitle}</strong></span>
+        <span className="tinyos-window__source">{latest?.step.title ?? (window.appId === "system_monitor" ? t("shell.window.processes", { count: kernel?.processes.length ?? 0 }) : t("shell.window.explorer"))}</span>
         {latest ? <TinyOsStatus status={latest.step.status} /> : null}
-        {latest ? <button aria-label={`Inspect ${window.title}`} title={`Inspect ${window.title}`} type="button" onClick={() => onInspect(latest)}><Info aria-hidden="true" size={14} /></button> : null}
-        <button aria-label={`${layout?.maximized ? "Restore" : "Maximize"} ${window.title}`} title={layout?.maximized ? "Restore" : "Maximize"} type="button" onClick={onMaximize}><Maximize2 aria-hidden="true" size={14} /></button>
-        <button aria-label={`Minimize ${window.title}`} title={`Minimize ${window.title}`} type="button" onClick={onMinimize}><Minus aria-hidden="true" size={15} /></button>
+        {latest ? <button aria-label={t("shell.window.inspect", { title: displayTitle })} title={t("shell.window.inspect", { title: displayTitle })} type="button" onClick={() => onInspect(latest)}><Info aria-hidden="true" size={14} /></button> : null}
+        <button aria-label={`${layout?.maximized ? t("shell.window.restore") : t("shell.window.maximize")} ${displayTitle}`} title={layout?.maximized ? t("shell.window.restore") : t("shell.window.maximize")} type="button" onClick={onMaximize}><Maximize2 aria-hidden="true" size={14} /></button>
+        <button aria-label={t("shell.window.minimize", { title: displayTitle })} title={t("shell.window.minimize", { title: displayTitle })} type="button" onClick={onMinimize}><Minus aria-hidden="true" size={15} /></button>
       </header>
       <div className="tinyos-window__content">
         <TinyOsAppContent
@@ -1668,7 +1666,7 @@ function TinyOsAppWindow({
         />
       </div>
       <div
-        aria-label={`Resize ${window.title} window`}
+        aria-label={t("shell.window.resize", { title: displayTitle })}
         className="tinyos-window__resize-handle"
         role="separator"
         tabIndex={-1}
@@ -1741,23 +1739,25 @@ function TinyOsAppContent({ activeTabId, browserRuntime, browserSurfaceLayout, b
   systemMonitorControls: TinyOsSystemMonitorControls;
   window: TinyOsWindow;
 }) {
+  const { t } = useTranslation("tinyos");
   switch (window.appId) {
     case "files": return filesController?.queryAvailable || !window.entries.length
       ? filesController
         ? <TinyOsFilesExplorer canDirectEdit={canDirectEdit} canRequestChange={canRequestChange} canSave={canSaveFile} commandLifecycle={commandLifecycle} commandRegistry={commandRegistry} controller={filesController} directEditUnavailableReason={directEditUnavailableReason} kernel={kernel} layoutMode={layoutMode} onAttachContext={onAttachContext} onDeleteFile={onDeleteFile} onMoveFile={onMoveFile} onRequestExplanation={(reference) => onAgentRequest(reference, "explain")} onRequestModification={(reference) => onAgentRequest(reference, "modify")} onSaveFile={onSaveFile} requestChangeUnavailableReason={requestChangeUnavailableReason} saveUnavailableReason={saveFileUnavailableReason} />
-        : <EmptyCopy text="Workspace Explorer is unavailable." />
+        : <EmptyCopy text={t("shell.emptyCopy.explorerUnavailable")} />
       : <TinyOsFiles activeTabId={activeTabId} canRequestChange={canRequestChange} window={window} onAgentRequest={onAgentRequest} onAttachContext={onAttachContext} onTabChange={onTabChange} requestChangeUnavailableReason={requestChangeUnavailableReason} />;
-    case "terminal": return <div className="tinyos-terminal-host"><TinyOsTerminalHostControls commandLifecycle={commandLifecycle} commandRegistry={commandRegistry} runningOperationId={runningTerminalOperationId} />{window.entries.length ? <TinyOsTerminal activeTabId={activeTabId} canRequestChange={canRequestChange} kernel={kernel} window={window} onAgentRequest={onAgentRequest} onAttachContext={onAttachContext} onTabChange={onTabChange} requestChangeUnavailableReason={requestChangeUnavailableReason} /> : <EmptyCopy text="Run a reviewed command to create a retained canonical execution. TinyOS does not present this as a persistent PTY session." />}</div>;
+    case "terminal": return <div className="tinyos-terminal-host"><TinyOsTerminalHostControls commandLifecycle={commandLifecycle} commandRegistry={commandRegistry} runningOperationId={runningTerminalOperationId} />{window.entries.length ? <TinyOsTerminal activeTabId={activeTabId} canRequestChange={canRequestChange} kernel={kernel} window={window} onAgentRequest={onAgentRequest} onAttachContext={onAttachContext} onTabChange={onTabChange} requestChangeUnavailableReason={requestChangeUnavailableReason} /> : <EmptyCopy text={t("shell.emptyCopy.terminal")} />}</div>;
     case "browser": return <TinyOsBrowser browserRuntime={browserRuntime} kernel={kernel} onHandoffComplete={onBrowserHandoffComplete} surfaceLayout={browserSurfaceLayout} surfaceVisible={browserSurfaceVisible} />;
     case "plan": return <TinyOsPlan canRequestChange={canRequestChange} entry={[...window.entries].reverse().find(({ step }) => Boolean(step.plan)) ?? window.entries[window.entries.length - 1]} onAgentRequest={onAgentRequest} requestChangeUnavailableReason={requestChangeUnavailableReason} />;
     case "subagents": return <TinyOsSubagents window={window} />;
     case "artifacts": return <TinyOsArtifacts window={window} onOpenArtifact={onOpenArtifact} />;
     case "inspector": return <TinyOsStructured entry={window.entries[window.entries.length - 1]} />;
-    case "system_monitor": return kernel ? <TinyOsSystemMonitor controls={systemMonitorControls} snapshot={kernel} /> : <EmptyCopy text="Kernel process data is unavailable." />;
+    case "system_monitor": return kernel ? <TinyOsSystemMonitor controls={systemMonitorControls} snapshot={kernel} /> : <EmptyCopy text={t("shell.emptyCopy.kernel")} />;
   }
 }
 
 function TinyOsFiles({ activeTabId, canRequestChange, onAgentRequest, onAttachContext, onTabChange, requestChangeUnavailableReason, window }: { activeTabId?: string; canRequestChange: boolean; onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void; onAttachContext: (reference: TinyOsContextReference) => void; onTabChange: (tabId: string) => void; requestChangeUnavailableReason?: string; window: TinyOsWindow }) {
+  const { t } = useTranslation("tinyos");
   const files = distinctLatestFiles(window.entries.map((entry) => ({ entry, path: filePath(entry.step) })));
   const active = files.find(({ entry }) => entry.step.id === activeTabId) ?? files[files.length - 1];
   const content = fileContent(active.entry.step);
@@ -1789,14 +1789,14 @@ function TinyOsFiles({ activeTabId, canRequestChange, onAgentRequest, onAttachCo
   return (
     <div className="tinyos-files">
       <aside>
-        <strong><FolderOpen aria-hidden="true" size={12} />Workspace</strong>
+        <strong><FolderOpen aria-hidden="true" size={12} />{t("shell.legacyFiles.workspace")}</strong>
         {directories.map((directory) => <span className="tinyos-files__directory" key={directory}><Folder aria-hidden="true" size={12} />{directory}</span>)}
         {files.slice(-12).map(({ entry, path }) => (
           <button aria-pressed={entry === active.entry} data-active={entry === active.entry ? "true" : undefined} key={`${entry.turnId}:${entry.step.id}`} title={path} type="button" onClick={() => onTabChange(entry.step.id)}><FileText aria-hidden="true" size={13} />{fileName(path)}</button>
         ))}
       </aside>
       <section>
-        <div className="tinyos-app-tabs" role="tablist" aria-label="Open files">
+        <div className="tinyos-app-tabs" role="tablist" aria-label={t("shell.legacyFiles.openFiles")}>
           {files.slice(-6).map(({ entry, path }) => <button aria-selected={entry === active.entry} data-active={entry === active.entry ? "true" : undefined} key={entry.step.id} role="tab" type="button" onClick={() => onTabChange(entry.step.id)}>{fileName(path)}</button>)}
         </div>
         <div className="tinyos-files__path"><FileCode2 aria-hidden="true" size={14} />{active.path}</div>
@@ -1804,8 +1804,8 @@ function TinyOsFiles({ activeTabId, canRequestChange, onAgentRequest, onAttachCo
           const lineNumber = index + 1;
           const selected = selectionStart !== undefined && selectionEnd !== undefined && lineNumber >= selectionStart && lineNumber <= selectionEnd;
           return <li data-selected={selected ? "true" : undefined} key={index}><button type="button" onClick={(event) => selectLine(lineNumber, event.shiftKey)}><code>{line || " "}</code></button></li>;
-        })}</ol> : <EmptyCopy text={active.entry.step.summary || "No file preview was returned."} />}
-        <footer className="tinyos-files__status"><span>{fileLanguage(active.path)}</span><span>UTF-8</span>{selectedReference ? <button draggable="true" title="Attach to Chat or drag this structured file reference" type="button" onClick={() => onAttachContext(selectedReference)} onDragStart={(event) => writeTinyOsReferenceTransfer(event.dataTransfer, { kind: "context", reference: selectedReference })}><Paperclip aria-hidden="true" size={11} />Attach {active.path} · L{selectionStart}{selectionEnd !== selectionStart ? `–${selectionEnd}` : ""}</button> : null}{selectedReference ? <button disabled={!canRequestChange} title={canRequestChange ? "Ask Agent to explain this selection" : requestChangeUnavailableReason} type="button" onClick={() => onAgentRequest(selectedReference, "explain")}><MessageCircleQuestion aria-hidden="true" size={11} />Explain</button> : null}{selectedReference ? <button disabled={!canRequestChange} title={canRequestChange ? "Ask Agent to modify this selection" : requestChangeUnavailableReason} type="button" onClick={() => onAgentRequest(selectedReference, "modify")}><PencilLine aria-hidden="true" size={11} />Modify</button> : null}<span>Canonical item {active.entry.step.sequence + 1}</span></footer>
+        })}</ol> : <EmptyCopy text={active.entry.step.summary || t("shell.legacyFiles.noPreview")} />}
+        <footer className="tinyos-files__status"><span>{fileLanguage(active.path)}</span><span>UTF-8</span>{selectedReference ? <button draggable="true" title={t("files.attachHelp")} type="button" onClick={() => onAttachContext(selectedReference)} onDragStart={(event) => writeTinyOsReferenceTransfer(event.dataTransfer, { kind: "context", reference: selectedReference })}><Paperclip aria-hidden="true" size={11} />{t("shell.legacyFiles.attach", { path: active.path, start: selectionStart ?? 1, range: selectionEnd !== selectionStart ? `–${selectionEnd}` : "" })}</button> : null}{selectedReference ? <button disabled={!canRequestChange} title={canRequestChange ? t("files.explainHelp") : requestChangeUnavailableReason} type="button" onClick={() => onAgentRequest(selectedReference, "explain")}><MessageCircleQuestion aria-hidden="true" size={11} />{t("shell.legacyFiles.explain")}</button> : null}{selectedReference ? <button disabled={!canRequestChange} title={canRequestChange ? t("files.modifyHelp") : requestChangeUnavailableReason} type="button" onClick={() => onAgentRequest(selectedReference, "modify")}><PencilLine aria-hidden="true" size={11} />{t("shell.legacyFiles.modify")}</button> : null}<span>{t("shell.legacyFiles.canonicalItem", { number: active.entry.step.sequence + 1 })}</span></footer>
       </section>
     </div>
   );
@@ -1816,6 +1816,7 @@ function TinyOsTerminalHostControls({ commandLifecycle, commandRegistry, running
   commandRegistry: TinyOsShellCommandRegistry;
   runningOperationId?: string;
 }) {
+  const { t } = useTranslation("tinyos");
   const [command, setCommand] = useState("");
   const [cwd, setCwd] = useState(".");
   const [reviewed, setReviewed] = useState(false);
@@ -1838,20 +1839,20 @@ function TinyOsTerminalHostControls({ commandLifecycle, commandRegistry, running
         setReviewed(false);
       }).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
     }}>
-      <label><span>Command</span><input aria-label="TinyOS terminal command" disabled={!canExecute || Boolean(runningOperationId)} placeholder="Enter a workspace command" value={command} onChange={(event) => { setCommand(event.currentTarget.value); setReviewed(false); }} /></label>
-      <label><span>cwd</span><input aria-label="TinyOS terminal working directory" disabled={!canExecute || Boolean(runningOperationId)} value={cwd} onChange={(event) => { setCwd(event.currentTarget.value); setReviewed(false); }} /></label>
+      <label><span>{t("shell.terminal.command")}</span><input aria-label={t("shell.terminal.commandAria")} disabled={!canExecute || Boolean(runningOperationId)} placeholder={t("shell.terminal.commandPlaceholder")} value={command} onChange={(event) => { setCommand(event.currentTarget.value); setReviewed(false); }} /></label>
+      <label><span>cwd</span><input aria-label={t("shell.terminal.cwdAria")} disabled={!canExecute || Boolean(runningOperationId)} value={cwd} onChange={(event) => { setCwd(event.currentTarget.value); setReviewed(false); }} /></label>
       <div>
-        <button disabled={!canExecute || !command.trim() || Boolean(runningOperationId)} title={canExecute ? "Review the exact command and execution boundary" : executeCommand.availability.reason} type="button" onClick={() => setReviewed(true)}>Review command</button>
-        <button disabled={!canExecute || !reviewed || !command.trim() || Boolean(runningOperationId)} title="Execute read-only with network denied" type="submit"><Play aria-hidden="true" size={12} />Run command</button>
-        <button disabled={!canCancel || !runningOperationId} title={canCancel ? "Interrupt the correlated TinyOS terminal process" : cancelCommand.availability.reason} type="button" onClick={() => {
+        <button disabled={!canExecute || !command.trim() || Boolean(runningOperationId)} title={canExecute ? t("shell.terminal.reviewHelp") : executeCommand.availability.reason} type="button" onClick={() => setReviewed(true)}>{t("shell.terminal.review")}</button>
+        <button disabled={!canExecute || !reviewed || !command.trim() || Boolean(runningOperationId)} title={t("shell.terminal.runHelp")} type="submit"><Play aria-hidden="true" size={12} />{t("shell.terminal.run")}</button>
+        <button disabled={!canCancel || !runningOperationId} title={canCancel ? t("shell.terminal.cancelHelp") : cancelCommand.availability.reason} type="button" onClick={() => {
           setError("");
           void commandRegistry.execute("terminal.cancel").then((execution) => {
             if (execution.status === "rejected") throw new Error(execution.reason);
           }).catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
-        }}><Pause aria-hidden="true" size={12} />Cancel process</button>
+        }}><Pause aria-hidden="true" size={12} />{t("shell.terminal.cancelProcess")}</button>
       </div>
-      {reviewed ? <p role="status"><ShieldCheck aria-hidden="true" size={12} />Read-only sandbox · network denied · cwd {cwd || "."}</p> : null}
-      <p className="tinyos-terminal-command__contract"><ShieldCheck aria-hidden="true" size={12} />Retained execution · non-TTY · no persistent shell state</p>
+      {reviewed ? <p role="status"><ShieldCheck aria-hidden="true" size={12} />{t("shell.terminal.reviewedBoundary", { cwd: cwd || "." })}</p> : null}
+      <p className="tinyos-terminal-command__contract"><ShieldCheck aria-hidden="true" size={12} />{t("shell.terminal.contractCopy")}</p>
       {commandLifecycle.stage !== "idle" && (commandLifecycle.command.kind === "terminal.execute" || commandLifecycle.command.kind === "terminal.cancel") ? <TinyOsTerminalLifecycle lifecycle={commandLifecycle} /> : null}
       {error ? <p role="alert">{error}</p> : null}
     </form>
@@ -1859,15 +1860,17 @@ function TinyOsTerminalHostControls({ commandLifecycle, commandRegistry, running
 }
 
 function TinyOsTerminalLifecycle({ lifecycle }: { lifecycle: Exclude<TinyOsCommandLifecycle, { stage: "idle" }> }) {
-  const label = lifecycle.command.kind === "terminal.cancel" ? "Cancel" : "Execution";
-  if (lifecycle.stage === "sending") return <p className="tinyos-terminal-lifecycle" role="status"><strong>{label} dispatching</strong><span>Native transport has not accepted the command yet.</span></p>;
-  if (lifecycle.stage === "waiting_for_canonical") return <p className="tinyos-terminal-lifecycle" role="status"><strong>{label} awaiting runtime</strong><span>Transport accepted · waiting for canonical acknowledgement.</span></p>;
-  if (lifecycle.stage === "acknowledged") return <p className="tinyos-terminal-lifecycle" role="status"><strong>{label} acknowledged</strong><span>Canonical item {lifecycle.acknowledgement.itemId}</span></p>;
-  if (lifecycle.stage === "completed") return <p className="tinyos-terminal-lifecycle" data-state={lifecycle.completion.status} role="status"><strong>{label} {lifecycle.completion.status}</strong><span>Canonical revision {lifecycle.completion.revision}</span></p>;
-  return <p className="tinyos-terminal-lifecycle" data-state="failed" role="alert"><strong>{label} {lifecycle.stage.replace("_", " ")}</strong><span>{lifecycle.error}</span></p>;
+  const { t } = useTranslation("tinyos");
+  const label = lifecycle.command.kind === "terminal.cancel" ? t("shell.terminal.cancel") : t("shell.terminal.execution");
+  if (lifecycle.stage === "sending") return <p className="tinyos-terminal-lifecycle" role="status"><strong>{t("shell.terminal.dispatching", { label })}</strong><span>{t("shell.terminal.transportPending")}</span></p>;
+  if (lifecycle.stage === "waiting_for_canonical") return <p className="tinyos-terminal-lifecycle" role="status"><strong>{t("shell.terminal.awaiting", { label })}</strong><span>{t("shell.terminal.transportAccepted")}</span></p>;
+  if (lifecycle.stage === "acknowledged") return <p className="tinyos-terminal-lifecycle" role="status"><strong>{t("shell.terminal.acknowledged", { label })}</strong><span>{t("shell.terminal.canonicalItem", { id: lifecycle.acknowledgement.itemId })}</span></p>;
+  if (lifecycle.stage === "completed") return <p className="tinyos-terminal-lifecycle" data-state={lifecycle.completion.status} role="status"><strong>{t("shell.terminal.completed", { label, status: lifecycle.completion.status })}</strong><span>{t("shell.terminal.canonicalRevision", { revision: lifecycle.completion.revision })}</span></p>;
+  return <p className="tinyos-terminal-lifecycle" data-state="failed" role="alert"><strong>{t("shell.terminal.failed", { label, stage: lifecycle.stage.replace("_", " ") })}</strong><span>{lifecycle.error}</span></p>;
 }
 
 function TinyOsTerminal({ activeTabId, canRequestChange, kernel, onAgentRequest, onAttachContext, onTabChange, requestChangeUnavailableReason, window }: { activeTabId?: string; canRequestChange: boolean; kernel?: TinyOsKernelSnapshot; onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void; onAttachContext: (reference: TinyOsContextReference) => void; onTabChange: (tabId: string) => void; requestChangeUnavailableReason?: string; window: TinyOsWindow }) {
+  const { t } = useTranslation("tinyos");
   const active = window.entries.find((entry) => entry.step.id === activeTabId) ?? window.entries[window.entries.length - 1];
   const [follow, setFollow] = useState(true);
   const [query, setQuery] = useState("");
@@ -1875,7 +1878,7 @@ function TinyOsTerminal({ activeTabId, canRequestChange, kernel, onAgentRequest,
   const [selection, setSelection] = useState<{ anchor: number; end: number }>();
   const [activeMatch, setActiveMatch] = useState(0);
   const outputRef = useRef<HTMLDivElement>(null);
-  const stdout = terminalOutput(active.step);
+  const stdout = terminalOutput(active.step, t);
   const stderr = terminalStderr(active.step);
   const output = stream === "stdout" ? stdout : stream === "stderr" ? stderr : [stdout, stderr].filter(Boolean).join("\n");
   const rawOutputLines = output.split("\n");
@@ -1901,7 +1904,7 @@ function TinyOsTerminal({ activeTabId, canRequestChange, kernel, onAgentRequest,
     startLine: selectionStart + 1,
     turnId: active.turnId,
   } : undefined;
-  const metadata = terminalMetadata(active.step);
+  const metadata = terminalMetadata(active.step, t);
 
   useEffect(() => {
     if (!follow) return;
@@ -1928,29 +1931,29 @@ function TinyOsTerminal({ activeTabId, canRequestChange, kernel, onAgentRequest,
 
   return (
     <div className="tinyos-terminal">
-      <div className="tinyos-terminal__tabs" role="tablist" aria-label="Canonical commands">
+      <div className="tinyos-terminal__tabs" role="tablist" aria-label={t("shell.terminal.canonicalCommands")}>
         {window.entries.slice(-6).map((entry) => <button aria-selected={entry === active} data-active={entry === active ? "true" : undefined} key={`${entry.turnId}:${entry.step.id}`} role="tab" title={terminalCommand(entry.step)} type="button" onClick={() => onTabChange(entry.step.id)}>{terminalCommand(entry.step)}</button>)}
         <TinyOsStatus status={active.step.status} />
       </div>
-      <dl aria-label="Terminal execution identity" className="tinyos-terminal__identity" role="group">
-        <div><dt>Contract</dt><dd>retained execution v1</dd></div>
-        <div><dt>Turn / item</dt><dd><code>{active.turnId} / {active.step.id}</code></dd></div>
-        <div><dt>Process</dt><dd><code>{execution.processId || "Unavailable"}</code></dd></div>
-        <div><dt>cwd</dt><dd><code>{metadata.cwd || "Unavailable"}</code></dd></div>
-        <div><dt>Boundary</dt><dd>{execution.sandboxMode} · network {execution.networkMode} · non-TTY</dd></div>
-        <div><dt>Output</dt><dd>{execution.stdoutBytes} B stdout · {execution.stderrBytes} B stderr{execution.droppedBytes ? ` · ${execution.droppedBytes} B dropped` : ""}</dd></div>
-        <div><dt>Exit / timing</dt><dd>{metadata.exit} · {active.step.toolCall?.durationMs !== undefined ? `${active.step.toolCall.durationMs} ms` : "timing unavailable"}</dd></div>
-        <div><dt>Provenance</dt><dd><ShieldCheck aria-hidden="true" size={11} />canonical_event · {active.step.id}</dd></div>
+      <dl aria-label={t("shell.terminal.identity")} className="tinyos-terminal__identity" role="group">
+        <div><dt>{t("shell.terminal.contract")}</dt><dd>{t("shell.terminal.contractValue")}</dd></div>
+        <div><dt>{t("shell.terminal.turnItem")}</dt><dd><code>{active.turnId} / {active.step.id}</code></dd></div>
+        <div><dt>{t("shell.terminal.process")}</dt><dd><code>{execution.processId || t("shell.terminal.unavailable")}</code></dd></div>
+        <div><dt>cwd</dt><dd><code>{metadata.cwd || t("shell.terminal.unavailable")}</code></dd></div>
+        <div><dt>{t("shell.terminal.boundary")}</dt><dd>{t("shell.terminal.boundaryValue", { sandbox: execution.sandboxMode, network: execution.networkMode })}</dd></div>
+        <div><dt>{t("shell.terminal.output")}</dt><dd>{t("shell.terminal.outputValue", { stdout: execution.stdoutBytes, stderr: execution.stderrBytes, dropped: execution.droppedBytes ? t("shell.terminal.dropped", { count: execution.droppedBytes }) : "" })}</dd></div>
+        <div><dt>{t("shell.terminal.exitTiming")}</dt><dd>{metadata.exit} · {active.step.toolCall?.durationMs !== undefined ? `${active.step.toolCall.durationMs} ms` : t("shell.terminal.timingUnavailable")}</dd></div>
+        <div><dt>{t("shell.terminal.provenance")}</dt><dd><ShieldCheck aria-hidden="true" size={11} />canonical_event · {active.step.id}</dd></div>
       </dl>
       <div className="tinyos-terminal__toolbar">
-        <label><Search aria-hidden="true" size={12} /><input aria-label="Search terminal output" placeholder="Search output" value={query} onChange={(event) => { setQuery(event.currentTarget.value); setActiveMatch(0); }} /></label>
+        <label><Search aria-hidden="true" size={12} /><input aria-label={t("shell.terminal.search")} placeholder={t("shell.terminal.searchPlaceholder")} value={query} onChange={(event) => { setQuery(event.currentTarget.value); setActiveMatch(0); }} /></label>
         <span aria-live="polite">{query ? `${matches.length ? Math.min(activeMatch, matches.length - 1) + 1 : 0}/${matches.length}` : ""}</span>
-        <button aria-label="Previous terminal match" disabled={!matches.length} title="Previous match" type="button" onClick={() => moveMatch(-1)}><ChevronLeft aria-hidden="true" size={12} /></button>
-        <button aria-label="Next terminal match" disabled={!matches.length} title="Next match" type="button" onClick={() => moveMatch(1)}><ChevronRight aria-hidden="true" size={12} /></button>
-        <select aria-label="Terminal stream filter" value={stream} onChange={(event) => setStream(event.currentTarget.value as "all" | "stdout" | "stderr")}><option value="all">All streams</option><option value="stdout">stdout</option><option value="stderr">stderr</option></select>
-        <button aria-label="Copy terminal command" title="Copy command" type="button" onClick={() => copyText(terminalCommand(active.step))}><Copy aria-hidden="true" size={12} />Command</button>
-        <button aria-label={selection ? "Copy selected terminal output" : "Copy loaded terminal output"} title={selection ? "Copy selection" : "Copy loaded output"} type="button" onClick={() => copyText(selection ? selectedText : outputLines.join("\n"))}><Copy aria-hidden="true" size={12} />{selection ? "Selection" : "Output"}</button>
-        <button aria-pressed={follow} title={follow ? "Pause output follow" : "Follow output"} type="button" onClick={() => setFollow((current) => !current)}>{follow ? <Pause aria-hidden="true" size={12} /> : <Play aria-hidden="true" size={12} />}{follow ? "Pause" : "Follow"}</button>
+        <button aria-label={t("shell.terminal.previous")} disabled={!matches.length} title={t("shell.terminal.previousShort")} type="button" onClick={() => moveMatch(-1)}><ChevronLeft aria-hidden="true" size={12} /></button>
+        <button aria-label={t("shell.terminal.next")} disabled={!matches.length} title={t("shell.terminal.nextShort")} type="button" onClick={() => moveMatch(1)}><ChevronRight aria-hidden="true" size={12} /></button>
+        <select aria-label={t("shell.terminal.streamFilter")} value={stream} onChange={(event) => setStream(event.currentTarget.value as "all" | "stdout" | "stderr")}><option value="all">{t("shell.terminal.allStreams")}</option><option value="stdout">stdout</option><option value="stderr">stderr</option></select>
+        <button aria-label={t("shell.terminal.copyCommandAria")} title={t("shell.terminal.copyCommand")} type="button" onClick={() => copyText(terminalCommand(active.step))}><Copy aria-hidden="true" size={12} />{t("shell.terminal.commandShort")}</button>
+        <button aria-label={selection ? t("shell.terminal.copySelected") : t("shell.terminal.copyLoaded")} title={selection ? t("shell.terminal.copySelection") : t("shell.terminal.copyOutput")} type="button" onClick={() => copyText(selection ? selectedText : outputLines.join("\n"))}><Copy aria-hidden="true" size={12} />{selection ? t("shell.terminal.selection") : t("shell.terminal.outputShort")}</button>
+        <button aria-pressed={follow} title={follow ? t("shell.terminal.pauseFollow") : t("shell.terminal.followOutput")} type="button" onClick={() => setFollow((current) => !current)}>{follow ? <Pause aria-hidden="true" size={12} /> : <Play aria-hidden="true" size={12} />}{follow ? t("shell.terminal.pause") : t("shell.terminal.follow")}</button>
       </div>
       <div className="tinyos-terminal__output" data-follow={follow ? "true" : undefined} ref={outputRef}>
         <ol>{outputLines.map((line, index) => {
@@ -1959,7 +1962,7 @@ function TinyOsTerminal({ activeTabId, canRequestChange, kernel, onAgentRequest,
           return <li data-current-match={currentMatch === index ? "true" : undefined} data-line={index} data-match={matches ? "true" : undefined} data-selected={selected ? "true" : undefined} key={index}><button type="button" onClick={(event) => selectLine(index, event.shiftKey)}><code>{line || " "}</code></button></li>;
         })}</ol>
       </div>
-      <footer><span>{metadata.cwd ? `cwd ${metadata.cwd}` : `Agent ${active.step.agentContext.title}`}</span><span>{metadata.exit}</span><span>{active.step.toolCall?.durationMs !== undefined ? `${active.step.toolCall.durationMs} ms` : statusLabel(active.step.status)}</span>{selectedReference ? <button draggable="true" title="Attach to Chat or drag this structured terminal reference" type="button" onClick={() => onAttachContext(selectedReference)} onDragStart={(event) => writeTinyOsReferenceTransfer(event.dataTransfer, { kind: "context", reference: selectedReference })}><Paperclip aria-hidden="true" size={11} />Attach L{selectedReference.startLine}{selectedReference.endLine === selectedReference.startLine ? "" : `–${selectedReference.endLine}`}</button> : <span>{follow ? "Following output" : "Follow paused"}</span>}{selectedReference ? <button disabled={!canRequestChange} title={canRequestChange ? "Ask Agent to explain this output" : requestChangeUnavailableReason} type="button" onClick={() => onAgentRequest(selectedReference, "explain")}><MessageCircleQuestion aria-hidden="true" size={11} />Explain</button> : null}{selectedReference ? <button disabled={!canRequestChange} title={canRequestChange ? "Continue with Agent using this output" : requestChangeUnavailableReason} type="button" onClick={() => onAgentRequest(selectedReference, "follow_up")}><Play aria-hidden="true" size={11} />Continue with Agent</button> : null}{outputTruncated || execution.truncated ? <span>Retained boundary · last 499 lines{execution.droppedBytes ? ` · ${execution.droppedBytes} B dropped` : ""}</span> : null}<span>{stream} · Canonical item {active.step.sequence + 1}</span></footer>
+      <footer><span>{metadata.cwd ? `cwd ${metadata.cwd}` : t("shell.terminal.agent", { name: active.step.agentContext.title })}</span><span>{metadata.exit}</span><span>{active.step.toolCall?.durationMs !== undefined ? `${active.step.toolCall.durationMs} ms` : statusLabel(active.step.status, t)}</span>{selectedReference ? <button draggable="true" title={t("shell.terminal.attachHelp")} type="button" onClick={() => onAttachContext(selectedReference)} onDragStart={(event) => writeTinyOsReferenceTransfer(event.dataTransfer, { kind: "context", reference: selectedReference })}><Paperclip aria-hidden="true" size={11} />{t("shell.terminal.attach", { start: selectedReference.startLine ?? 1, range: !selectedReference.endLine || selectedReference.endLine === selectedReference.startLine ? "" : `–${selectedReference.endLine}` })}</button> : <span>{follow ? t("shell.terminal.following") : t("shell.terminal.paused")}</span>}{selectedReference ? <button disabled={!canRequestChange} title={canRequestChange ? t("shell.terminal.explainHelp") : requestChangeUnavailableReason} type="button" onClick={() => onAgentRequest(selectedReference, "explain")}><MessageCircleQuestion aria-hidden="true" size={11} />{t("shell.terminal.explain")}</button> : null}{selectedReference ? <button disabled={!canRequestChange} title={canRequestChange ? t("shell.terminal.continueHelp") : requestChangeUnavailableReason} type="button" onClick={() => onAgentRequest(selectedReference, "follow_up")}><Play aria-hidden="true" size={11} />{t("shell.terminal.continue")}</button> : null}{outputTruncated || execution.truncated ? <span>{t("shell.terminal.retained", { dropped: execution.droppedBytes ? t("shell.terminal.dropped", { count: execution.droppedBytes }) : "" })}</span> : null}<span>{t("shell.terminal.streamItem", { stream, number: active.step.sequence + 1 })}</span></footer>
     </div>
   );
 }
@@ -1971,6 +1974,7 @@ function TinyOsBrowser({ browserRuntime, kernel, onHandoffComplete, surfaceLayou
   surfaceLayout?: TinyOsWindowRect;
   surfaceVisible: boolean;
 }) {
+  const { t } = useTranslation("tinyos");
   const session = kernel?.browserSessions[0];
   const [selectedTabId, setSelectedTabId] = useState(session?.activeTabId);
   const activeTabId = session?.tabs.some(({ tabId }) => tabId === selectedTabId) ? selectedTabId : session?.activeTabId;
@@ -2020,7 +2024,7 @@ function TinyOsBrowser({ browserRuntime, kernel, onHandoffComplete, surfaceLayou
   function navigateToAddress() {
     if (!browserRuntime || !session || !tab) return;
     try {
-      const destination = normalizeBrowserAddress(address);
+      const destination = normalizeBrowserAddress(address, t);
       setAddress(destination);
       void execute(() => browserRuntime.navigate(session.browserSessionId, tab.tabId, destination));
     } catch (reason) {
@@ -2047,7 +2051,7 @@ function TinyOsBrowser({ browserRuntime, kernel, onHandoffComplete, surfaceLayou
     try {
       const latest = await browserRuntime.snapshot(session.browserSessionId);
       if (latest.data.control?.state !== "user_required") {
-        throw new Error("Browser control is no longer waiting for user completion.");
+        throw new Error(t("shell.browser.handoffChanged"));
       }
       await browserRuntime.interact({
         action: { type: "resume" },
@@ -2068,65 +2072,66 @@ function TinyOsBrowser({ browserRuntime, kernel, onHandoffComplete, surfaceLayou
   }
 
   if (!browserRuntime) {
-    return <BrowserUnavailable message="The live browser is unavailable in this desktop build." />;
+    return <BrowserUnavailable message={t("shell.browser.buildUnavailable")} />;
   }
   if (!session) {
-    return <div aria-live="polite" className="tinyos-browser tinyos-browser--starting" role="status"><Globe2 aria-hidden="true" size={24} /><strong>Starting shared browser…</strong><span>Preparing a private browser profile for this chat.</span></div>;
+    return <div aria-live="polite" className="tinyos-browser tinyos-browser--starting" role="status"><Globe2 aria-hidden="true" size={24} /><strong>{t("shell.browser.starting")}</strong><span>{t("shell.browser.preparing")}</span></div>;
   }
   if (!liveRuntimeAvailable || !tab) {
-    return <BrowserUnavailable message="The native WebView2 browser could not be attached. Rebuild TinyBot with the native browser runtime enabled." />;
+    return <BrowserUnavailable message={t("shell.browser.attachFailed")} />;
   }
 
-  const controlCopy = browserControlCopy(session.control?.state);
+  const controlCopy = browserControlCopy(session.control?.state, t);
   const insecureHttp = tab.url.startsWith("http://");
 
   return <div className="tinyos-browser">
-    <div aria-label="Browser tabs" className="tinyos-browser__tabs" role="tablist">
+    <div aria-label={t("shell.browser.tabs")} className="tinyos-browser__tabs" role="tablist">
       {session.tabs.map((candidate) => {
         const selected = candidate.tabId === tab.tabId;
-        const title = browserTabTitle(candidate.title, candidate.url);
+        const title = browserTabTitle(candidate.title, candidate.url, t);
         return <div className="tinyos-browser__tab" data-selected={selected ? "true" : undefined} key={candidate.tabId} role="presentation">
           <button aria-controls="tinyos-browser-page" aria-selected={selected} id={`tinyos-browser-tab-${candidate.tabId}`} role="tab" tabIndex={selected ? 0 : -1} title={candidate.title || candidate.url} type="button" onClick={() => activateTab(candidate.tabId)} onKeyDown={(event) => handleTabKeyDown(event, candidate.tabId)}>
-            {candidate.loading ? <Circle aria-label="Loading" className="tinyos-browser__spinner" size={10} /> : <Globe2 aria-hidden="true" size={11} />}<span>{title}</span>
+            {candidate.loading ? <Circle aria-label={t("shell.browser.loading")} className="tinyos-browser__spinner" size={10} /> : <Globe2 aria-hidden="true" size={11} />}<span>{title}</span>
           </button>
-          <button aria-label={`Close ${title} tab`} disabled={session.tabs.length <= 1} tabIndex={selected ? 0 : -1} type="button" onClick={() => void execute(() => browserRuntime.closeTab(session.browserSessionId, candidate.tabId))}><X aria-hidden="true" size={11} /></button>
+          <button aria-label={t("shell.browser.closeTab", { title })} disabled={session.tabs.length <= 1} tabIndex={selected ? 0 : -1} type="button" onClick={() => void execute(() => browserRuntime.closeTab(session.browserSessionId, candidate.tabId))}><X aria-hidden="true" size={11} /></button>
         </div>;
       })}
-      <button aria-label="New browser tab" className="tinyos-browser__new-tab" title="New tab" type="button" onClick={() => void execute(() => browserRuntime.createTab(session.browserSessionId))}><Plus aria-hidden="true" size={13} /></button>
+      <button aria-label={t("shell.browser.newTabAria")} className="tinyos-browser__new-tab" title={t("shell.browser.newTab")} type="button" onClick={() => void execute(() => browserRuntime.createTab(session.browserSessionId))}><Plus aria-hidden="true" size={13} /></button>
     </div>
     <div className="tinyos-browser__bar">
-      <button aria-label="Browser back" disabled={!(tab.canGoBack ?? Boolean(tab.activeHistoryIndex))} title="Back" type="button" onClick={() => void execute(() => browserRuntime.back(session.browserSessionId, tab.tabId))}><ChevronLeft aria-hidden="true" size={15} /></button>
-      <button aria-label="Browser forward" disabled={!(tab.canGoForward ?? tab.activeHistoryIndex < tab.history.length - 1)} title="Forward" type="button" onClick={() => void execute(() => browserRuntime.forward(session.browserSessionId, tab.tabId))}><ChevronRight aria-hidden="true" size={15} /></button>
-      <button aria-label={tab.loading ? "Stop loading" : "Reload browser"} title={tab.loading ? "Stop" : "Reload"} type="button" onClick={() => void execute(() => tab.loading ? browserRuntime.stop(session.browserSessionId, tab.tabId) : browserRuntime.reload(session.browserSessionId, tab.tabId))}>{tab.loading ? <X aria-hidden="true" size={13} /> : <RotateCcw aria-hidden="true" size={13} />}</button>
-      {insecureHttp ? <AlertTriangle aria-label="Insecure HTTP connection" className="tinyos-browser__insecure" size={13} /> : <Globe2 aria-hidden="true" size={13} />}
+      <button aria-label={t("shell.browser.backAria")} disabled={!(tab.canGoBack ?? Boolean(tab.activeHistoryIndex))} title={t("shell.browser.back")} type="button" onClick={() => void execute(() => browserRuntime.back(session.browserSessionId, tab.tabId))}><ChevronLeft aria-hidden="true" size={15} /></button>
+      <button aria-label={t("shell.browser.forwardAria")} disabled={!(tab.canGoForward ?? tab.activeHistoryIndex < tab.history.length - 1)} title={t("shell.browser.forward")} type="button" onClick={() => void execute(() => browserRuntime.forward(session.browserSessionId, tab.tabId))}><ChevronRight aria-hidden="true" size={15} /></button>
+      <button aria-label={tab.loading ? t("shell.browser.stopLoading") : t("shell.browser.reloadAria")} title={tab.loading ? t("shell.browser.stop") : t("shell.browser.reload")} type="button" onClick={() => void execute(() => tab.loading ? browserRuntime.stop(session.browserSessionId, tab.tabId) : browserRuntime.reload(session.browserSessionId, tab.tabId))}>{tab.loading ? <X aria-hidden="true" size={13} /> : <RotateCcw aria-hidden="true" size={13} />}</button>
+      {insecureHttp ? <AlertTriangle aria-label={t("shell.browser.insecure")} className="tinyos-browser__insecure" size={13} /> : <Globe2 aria-hidden="true" size={13} />}
       <form onSubmit={(event) => { event.preventDefault(); navigateToAddress(); }}>
-        <input aria-label="Browser address" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={address} onChange={(event) => setAddress(event.currentTarget.value)} />
-        <button disabled={!address.trim()} type="submit">Go</button>
+        <input aria-label={t("shell.browser.address")} autoCapitalize="none" autoCorrect="off" spellCheck={false} value={address} onChange={(event) => setAddress(event.currentTarget.value)} />
+        <button disabled={!address.trim()} type="submit">{t("shell.browser.go")}</button>
       </form>
       {controlCopy ? <span aria-live="polite" className="tinyos-browser__control" data-state={session.control?.state}>{controlCopy}</span> : null}
     </div>
-    {session.pendingPolicyRequest ? <section aria-label="Browser policy confirmation" className="tinyos-browser__policy" role="alert">
-      <div><ShieldCheck aria-hidden="true" size={14} /><span><strong>{session.pendingPolicyRequest.kind === "popup" ? "Open popup as a managed tab?" : "Open external application?"}</strong><code>{session.pendingPolicyRequest.safeUrl}</code></span></div>
-      <div><button type="button" onClick={() => void execute(() => browserRuntime.resolvePolicyRequest(session.browserSessionId, session.pendingPolicyRequest!.requestId, false))}>Deny</button><button type="button" onClick={() => void execute(() => browserRuntime.resolvePolicyRequest(session.browserSessionId, session.pendingPolicyRequest!.requestId, true))}>Allow once</button></div>
+    {session.pendingPolicyRequest ? <section aria-label={t("shell.browser.policy")} className="tinyos-browser__policy" role="alert">
+      <div><ShieldCheck aria-hidden="true" size={14} /><span><strong>{session.pendingPolicyRequest.kind === "popup" ? t("shell.browser.popup") : t("shell.browser.external")}</strong><code>{session.pendingPolicyRequest.safeUrl}</code></span></div>
+      <div><button type="button" onClick={() => void execute(() => browserRuntime.resolvePolicyRequest(session.browserSessionId, session.pendingPolicyRequest!.requestId, false))}>{t("shell.browser.deny")}</button><button type="button" onClick={() => void execute(() => browserRuntime.resolvePolicyRequest(session.browserSessionId, session.pendingPolicyRequest!.requestId, true))}>{t("shell.browser.allowOnce")}</button></div>
     </section> : null}
-    {session.control?.state === "user_required" && !session.pendingPolicyRequest ? <section aria-label="Browser user handoff" className="tinyos-browser__handoff" role="alert">
-      <div><ShieldCheck aria-hidden="true" size={14} /><span><strong>You have browser control</strong><span>{session.control.reason || "Continue in the browser until you want the Agent to take over."}</span></span></div>
-      <button disabled={handoffCompleting} type="button" onClick={() => void completeUserHandoff()}>{handoffCompleting ? "Handing back…" : "Hand control back to Agent"}</button>
+    {session.control?.state === "user_required" && !session.pendingPolicyRequest ? <section aria-label={t("shell.browser.handoff")} className="tinyos-browser__handoff" role="alert">
+      <div><ShieldCheck aria-hidden="true" size={14} /><span><strong>{t("shell.browser.youControl")}</strong><span>{session.control.reason || t("shell.browser.continueUntilReturn")}</span></span></div>
+      <button disabled={handoffCompleting} type="button" onClick={() => void completeUserHandoff()}>{handoffCompleting ? t("shell.browser.handingBack") : t("shell.browser.handBack")}</button>
     </section> : null}
     {tab.rendererLifecycle === "failed"
-      ? <div className="tinyos-browser__unavailable" role="alert"><AlertTriangle aria-hidden="true" size={22} /><strong>{session.lifecycle === "failed" ? "Browser failed to start" : "This tab stopped responding"}</strong><span>{session.control?.reason || (session.lifecycle === "failed" ? "Retry the shared browser session." : "Restart it to continue in the same shared browser session.")}</span><button type="button" onClick={() => void (session.lifecycle === "failed" ? retryFailedSession() : execute(() => browserRuntime.restartTab(session.browserSessionId, tab.tabId)))}>{session.lifecycle === "failed" ? "Retry browser" : "Restart tab"}</button></div>
+      ? <div className="tinyos-browser__unavailable" role="alert"><AlertTriangle aria-hidden="true" size={22} /><strong>{session.lifecycle === "failed" ? t("shell.browser.failedStart") : t("shell.browser.tabUnresponsive")}</strong><span>{session.control?.reason || (session.lifecycle === "failed" ? t("shell.browser.retrySession") : t("shell.browser.restartSession"))}</span><button type="button" onClick={() => void (session.lifecycle === "failed" ? retryFailedSession() : execute(() => browserRuntime.restartTab(session.browserSessionId, tab.tabId)))}>{session.lifecycle === "failed" ? t("shell.browser.retryBrowser") : t("shell.browser.restartTab")}</button></div>
       : <BrowserSurfaceHost browserRuntime={browserRuntime} onError={setError} session={session} surfaceLayout={surfaceLayout} tabId={tab.tabId} visible={liveSurfaceVisible} />}
     {error ? <p className="tinyos-browser__error" role="alert">{error}</p> : null}
   </div>;
 }
 
 function BrowserUnavailable({ message }: { message: string }) {
-  return <div className="tinyos-browser tinyos-browser__unavailable" role="alert"><AlertTriangle aria-hidden="true" size={24} /><strong>Live browser unavailable</strong><span>{message}</span></div>;
+  const { t } = useTranslation("tinyos");
+  return <div className="tinyos-browser tinyos-browser__unavailable" role="alert"><AlertTriangle aria-hidden="true" size={24} /><strong>{t("shell.browser.unavailable")}</strong><span>{message}</span></div>;
 }
 
-function browserTabTitle(title: string, url: string): string {
+function browserTabTitle(title: string, url: string, t: TFunction<"tinyos">): string {
   if (title.trim() && title !== "about:blank") return title;
-  if (!url || url === "about:blank") return "New tab";
+  if (!url || url === "about:blank") return t("shell.browser.newTab");
   try {
     return new URL(url).hostname || url;
   } catch {
@@ -2134,22 +2139,22 @@ function browserTabTitle(title: string, url: string): string {
   }
 }
 
-function normalizeBrowserAddress(value: string): string {
+function normalizeBrowserAddress(value: string, t: TFunction<"tinyos">): string {
   const address = value.trim();
-  if (!address) throw new Error("Enter a web address.");
+  if (!address) throw new Error(t("shell.browser.enterAddress"));
   if (/^(?:https?:\/\/|about:blank$)/i.test(address)) return address;
   if (/^(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:[/?#]|$)/i.test(address)) return `http://${address}`;
   if (!address.includes(" ") && address.includes(".")) return `https://${address}`;
-  throw new Error("Enter a valid HTTP or HTTPS web address.");
+  throw new Error(t("shell.browser.invalidAddress"));
 }
 
-function browserControlCopy(state?: "idle" | "agent_active" | "user_required" | "interrupted" | "failed" | "recovering"): string {
+function browserControlCopy(state: "idle" | "agent_active" | "user_required" | "interrupted" | "failed" | "recovering" | undefined, t: TFunction<"tinyos">): string {
   switch (state) {
-    case "agent_active": return "Agent is using this tab";
-    case "user_required": return "Your input is needed";
-    case "interrupted": return "You took control";
-    case "failed": return "Agent action failed";
-    case "recovering": return "Browser recovering";
+    case "agent_active": return t("shell.browser.control.agentActive");
+    case "user_required": return t("shell.browser.control.userRequired");
+    case "interrupted": return t("shell.browser.control.interrupted");
+    case "failed": return t("shell.browser.control.failed");
+    case "recovering": return t("shell.browser.control.recovering");
     default: return "";
   }
 }
@@ -2191,6 +2196,7 @@ function BrowserSurfaceHost({ browserRuntime, onError, session, surfaceLayout, t
   tabId: string;
   visible: boolean;
 }) {
+  const { t } = useTranslation("tinyos");
   const hostRef = useRef<HTMLDivElement>(null);
   const nativeLayoutRevision = session.surface?.layoutRevision ?? 0;
   const layoutRevision = useRef(nativeLayoutRevision);
@@ -2285,17 +2291,18 @@ function BrowserSurfaceHost({ browserRuntime, onError, session, surfaceLayout, t
     schedule(visible);
   }, [schedule, surfaceLayout?.height, surfaceLayout?.width, surfaceLayout?.x, surfaceLayout?.y, visible]);
 
-  return <div aria-label="Browser page" aria-labelledby={`tinyos-browser-tab-${tabId}`} className="tinyos-browser__surface-host" data-live={visible ? "true" : undefined} id="tinyos-browser-page" ref={hostRef} role="tabpanel"><span aria-live="polite">{visible ? "Loading live page…" : "Browser temporarily hidden"}</span></div>;
+  return <div aria-label={t("shell.browser.page")} aria-labelledby={`tinyos-browser-tab-${tabId}`} className="tinyos-browser__surface-host" data-live={visible ? "true" : undefined} id="tinyos-browser-page" ref={hostRef} role="tabpanel"><span aria-live="polite">{visible ? t("shell.browser.loadingPage") : t("shell.browser.temporarilyHidden")}</span></div>;
 }
 
 function TinyOsPlan({ canRequestChange, entry, onAgentRequest, requestChangeUnavailableReason }: { canRequestChange: boolean; entry: TinyOsTimelineEntry; onAgentRequest: (reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent) => void; requestChangeUnavailableReason?: string }) {
+  const { t } = useTranslation("tinyos");
   const plan = entry.step.plan;
   const [adjustment, setAdjustment] = useState("");
-  if (!plan) return <EmptyCopy text="No plan snapshot is available." />;
+  if (!plan) return <EmptyCopy text={t("shell.plan.unavailable")} />;
   const snapshotText = JSON.stringify({ explanation: plan.explanation, steps: plan.steps });
   return (
     <div className="tinyos-plan">
-      <header><h3>Execution plan</h3><span>{plan.completed}/{plan.total}</span></header>
+      <header><h3>{t("shell.plan.title")}</h3><span>{plan.completed}/{plan.total}</span></header>
       {plan.explanation ? <p>{plan.explanation}</p> : null}
       <ol>{plan.steps.map((item, index) => (
         <li data-status={item.status} key={`${index}:${item.step}`}>
@@ -2309,20 +2316,21 @@ function TinyOsPlan({ canRequestChange, entry, onAgentRequest, requestChangeUnav
         if (!canRequestChange || !requestedAdjustment) return;
         onAgentRequest({ adjustment: requestedAdjustment, kind: "plan", snapshotText, sourceItemId: entry.step.id, turnId: entry.turnId }, "adjust_plan");
       }}>
-        <input aria-label="Requested plan adjustment" disabled={!canRequestChange} maxLength={2_048} placeholder="Describe a plan adjustment" value={adjustment} onChange={(event) => setAdjustment(event.currentTarget.value)} />
-        <button disabled={!canRequestChange || !adjustment.trim()} title={canRequestChange ? "Request a new live plan adjustment" : requestChangeUnavailableReason} type="submit"><PencilLine aria-hidden="true" size={11} />Ask Agent to adjust</button>
+        <input aria-label={t("shell.plan.adjustmentAria")} disabled={!canRequestChange} maxLength={2_048} placeholder={t("shell.plan.adjustmentPlaceholder")} value={adjustment} onChange={(event) => setAdjustment(event.currentTarget.value)} />
+        <button disabled={!canRequestChange || !adjustment.trim()} title={canRequestChange ? t("shell.plan.adjustmentHelp") : requestChangeUnavailableReason} type="submit"><PencilLine aria-hidden="true" size={11} />{t("shell.plan.adjust")}</button>
       </form>
     </div>
   );
 }
 
 function TinyOsSubagents({ window }: { window: TinyOsWindow }) {
+  const { t } = useTranslation("tinyos");
   return (
     <div className="tinyos-subagents">
       {window.entries.slice(-8).map((entry) => (
         <article key={`${entry.turnId}:${entry.step.id}`}>
           <Bot aria-hidden="true" size={17} />
-          <div><strong>{entry.step.delegate?.title || entry.step.title}</strong><span>{entry.step.delegate?.task || entry.step.summary || "Delegated task"}</span></div>
+          <div><strong>{entry.step.delegate?.title || entry.step.title}</strong><span>{entry.step.delegate?.task || entry.step.summary || t("shell.subagents.delegatedTask")}</span></div>
           <TinyOsStatus status={entry.step.status} />
         </article>
       ))}
@@ -2331,15 +2339,16 @@ function TinyOsSubagents({ window }: { window: TinyOsWindow }) {
 }
 
 function TinyOsArtifacts({ window, onOpenArtifact }: { window: TinyOsWindow; onOpenArtifact: (artifact: ArtifactRef) => void }) {
+  const { t } = useTranslation("tinyos");
   const artifacts = window.entries.flatMap(({ step }) => step.artifacts ?? []);
-  if (!artifacts.length) return <EmptyCopy text="No artifact preview is available." />;
+  if (!artifacts.length) return <EmptyCopy text={t("shell.artifacts.unavailable")} />;
   return (
     <div className="tinyos-artifacts">
       {artifacts.map((artifact) => (
         <button key={artifact.id} type="button" onClick={() => onOpenArtifact(artifact)}>
           <FileText aria-hidden="true" size={18} />
           <span><strong>{artifact.title}</strong><small>{artifact.kind}</small></span>
-          <span>{artifact.preview || "Open artifact"}</span>
+          <span>{artifact.preview || t("shell.artifacts.open")}</span>
         </button>
       ))}
     </div>
@@ -2347,10 +2356,11 @@ function TinyOsArtifacts({ window, onOpenArtifact }: { window: TinyOsWindow; onO
 }
 
 function TinyOsStructured({ entry }: { entry: TinyOsTimelineEntry }) {
+  const { t } = useTranslation("tinyos");
   return (
     <div className="tinyos-structured">
       <strong>{entry.step.title}</strong>
-      <p>{entry.step.summary || "Structured operation details"}</p>
+      <p>{entry.step.summary || t("shell.structured.details")}</p>
       {entry.step.toolCall?.argsJson !== undefined ? <pre>{jsonPreview(entry.step.toolCall.argsJson)}</pre> : null}
       {entry.step.toolCall?.resultJson !== undefined ? <pre>{jsonPreview(entry.step.toolCall.resultJson)}</pre> : null}
     </div>
@@ -2364,9 +2374,10 @@ function TinyOsNotifications({
   notifications: TinyOsDesktopSnapshot["notifications"];
   onSelect: (notificationId: string) => void;
 }) {
+  const { t } = useTranslation("tinyos");
   if (!notifications.length) return null;
   return (
-    <aside aria-label="TinyOS notifications" className="tinyos-notifications">
+    <aside aria-label={t("shell.notifications")} className="tinyos-notifications">
       {notifications.slice(-2).map((notification) => (
         <button data-kind={notification.kind} key={notification.id} type="button" onClick={() => onSelect(notification.id)}>
           {notification.kind === "completed" ? <CheckCircle2 aria-hidden="true" size={15} /> : <AlertTriangle aria-hidden="true" size={15} />}
@@ -2390,20 +2401,22 @@ function TinyOsSystemDialog({
   onSubmitForm: (form: AgentUiForm, values: Record<string, unknown>) => void;
   submittingFormId?: string;
 }) {
+  const { t } = useTranslation("tinyos");
   const { step } = dialog.entry;
   const form = agentUiForms.find((candidate) => candidate.form_id === step.form?.formId);
   return (
-    <div aria-label="TinyOS input request" aria-modal="true" className="tinyos-system-dialog" role="dialog">
-      <div className="tinyos-system-dialog__heading"><ShieldCheck aria-hidden="true" size={20} /><div><small>TinyOS input request</small><strong>{step.title}</strong></div></div>
-      {form ? <AgentUiFormCard form={form} submitting={submittingFormId === form.form_id} onCancel={() => onCancelForm(form)} onSubmit={(values) => onSubmitForm(form, values)} /> : <EmptyCopy text="The form schema is still loading. The canonical request remains pending." />}
+    <div aria-label={t("shell.dialog.input")} aria-modal="true" className="tinyos-system-dialog" role="dialog">
+      <div className="tinyos-system-dialog__heading"><ShieldCheck aria-hidden="true" size={20} /><div><small>{t("shell.dialog.input")}</small><strong>{step.title}</strong></div></div>
+      {form ? <AgentUiFormCard form={form} submitting={submittingFormId === form.form_id} onCancel={() => onCancelForm(form)} onSubmit={(values) => onSubmitForm(form, values)} /> : <EmptyCopy text={t("shell.dialog.loading")} />}
     </div>
   );
 }
 
 function TinyOsInspector({ evidence, onClose, onOpenArtifact, onReferenceDrop }: { evidence: TinyOsPinnedEvidence[]; onClose: (pin: TinyOsPinnedEvidence) => void; onOpenArtifact: (artifact: ArtifactRef) => void; onReferenceDrop: (event: DragEvent<HTMLElement>) => void }) {
+  const { t } = useTranslation("tinyos");
   return (
     <aside
-      aria-label="TinyOS Inspector"
+      aria-label={t("shell.inspector.label")}
       className="tinyos-inspector"
       data-split={evidence.length > 1 ? "true" : undefined}
       onDragOver={(event) => {
@@ -2421,21 +2434,21 @@ function TinyOsInspector({ evidence, onClose, onOpenArtifact, onReferenceDrop }:
         const artifacts = entry.step.artifacts ?? entry.step.delegate?.artifacts ?? [];
         return (
           <article key={pin.id}>
-            <header><div><small>Canonical evidence · Event {pin.cursor.eventIndex + 1}</small><strong>{entry.step.title}</strong></div><button aria-label={`Close ${entry.step.title} evidence at event ${pin.cursor.eventIndex + 1}`} type="button" onClick={() => onClose(pin)}><X aria-hidden="true" size={15} /></button></header>
+            <header><div><small>{t("shell.inspector.evidence", { event: pin.cursor.eventIndex + 1 })}</small><strong>{entry.step.title}</strong></div><button aria-label={t("shell.inspector.close", { title: entry.step.title, event: pin.cursor.eventIndex + 1 })} type="button" onClick={() => onClose(pin)}><X aria-hidden="true" size={15} /></button></header>
             <TinyOsStatus status={entry.step.status} />
             <dl className="tinyos-inspector__correlation">
-              <div><dt>Boundary</dt><dd>Event {pin.cursor.eventIndex + 1} of {pin.cursor.eventCount}</dd></div>
-              <div><dt>Observed</dt><dd>{pin.cursor.wallClockTime ?? "Unavailable"}</dd></div>
+              <div><dt>{t("shell.inspector.boundary")}</dt><dd>{t("shell.inspector.eventOf", { event: pin.cursor.eventIndex + 1, count: pin.cursor.eventCount })}</dd></div>
+              <div><dt>{t("shell.inspector.observed")}</dt><dd>{pin.cursor.wallClockTime ?? t("shell.inspector.unavailable")}</dd></div>
             </dl>
             {entry.step.summary ? <p>{entry.step.summary}</p> : null}
-            {entry.step.toolCall ? <dl className="tinyos-inspector__correlation"><div><dt>Tool call</dt><dd>{entry.step.toolCall.id}</dd></div>{entry.step.toolCall.resultRef ? <div><dt>Result ref</dt><dd>{entry.step.toolCall.resultRef}</dd></div> : null}<div><dt>Turn</dt><dd>{entry.turnId}</dd></div><div><dt>Agent</dt><dd>{entry.step.agentContext.title}</dd></div></dl> : null}
-            {entry.step.toolCall?.argsJson !== undefined ? <section><strong>Arguments</strong><pre>{sanitizedJsonPreview(entry.step.toolCall.argsJson)}</pre></section> : null}
-            {entry.step.toolCall?.resultJson !== undefined ? <section><strong>Result</strong><pre>{sanitizedJsonPreview(entry.step.toolCall.resultJson)}</pre></section> : null}
-            {entry.step.toolCall?.resultPreview ? <section><strong>Result preview</strong><pre>{entry.step.toolCall.resultPreview}</pre></section> : null}
-            {entry.step.toolCall?.stderrPreview ? <section><strong>Stderr</strong><pre>{entry.step.toolCall.stderrPreview}</pre></section> : null}
-            {pin.resources.length ? <section><strong>Resources at this boundary</strong>{pin.resources.map((resource) => <dl className="tinyos-inspector__resource" key={resource.id}><div><dt>Identity</dt><dd>{resource.id}</dd></div><div><dt>Revision</dt><dd>{resource.revision ?? resource.provenance.revision ?? "Unavailable"}</dd></div><div><dt>Provenance</dt><dd>{resource.provenance.kind} · {resource.provenance.sourceId}</dd></div></dl>)}</section> : null}
-            {artifacts.length ? <section><strong>Artifacts</strong>{artifacts.map((artifact) => <button key={artifact.id} type="button" onClick={() => onOpenArtifact(artifact)}>{artifact.title}</button>)}</section> : null}
-            <footer>Event {pin.cursor.eventIndex + 1} · Canonical timeline item {entry.step.sequence + 1} · Agent {entry.step.agentContext.title}</footer>
+            {entry.step.toolCall ? <dl className="tinyos-inspector__correlation"><div><dt>{t("shell.inspector.toolCall")}</dt><dd>{entry.step.toolCall.id}</dd></div>{entry.step.toolCall.resultRef ? <div><dt>{t("shell.inspector.resultRef")}</dt><dd>{entry.step.toolCall.resultRef}</dd></div> : null}<div><dt>{t("shell.inspector.turn")}</dt><dd>{entry.turnId}</dd></div><div><dt>{t("shell.inspector.agent")}</dt><dd>{entry.step.agentContext.title}</dd></div></dl> : null}
+            {entry.step.toolCall?.argsJson !== undefined ? <section><strong>{t("shell.inspector.arguments")}</strong><pre>{sanitizedJsonPreview(entry.step.toolCall.argsJson)}</pre></section> : null}
+            {entry.step.toolCall?.resultJson !== undefined ? <section><strong>{t("shell.inspector.result")}</strong><pre>{sanitizedJsonPreview(entry.step.toolCall.resultJson)}</pre></section> : null}
+            {entry.step.toolCall?.resultPreview ? <section><strong>{t("shell.inspector.resultPreview")}</strong><pre>{entry.step.toolCall.resultPreview}</pre></section> : null}
+            {entry.step.toolCall?.stderrPreview ? <section><strong>{t("shell.terminal.stderr")}</strong><pre>{entry.step.toolCall.stderrPreview}</pre></section> : null}
+            {pin.resources.length ? <section><strong>{t("shell.inspector.resources")}</strong>{pin.resources.map((resource) => <dl className="tinyos-inspector__resource" key={resource.id}><div><dt>{t("shell.inspector.identity")}</dt><dd>{resource.id}</dd></div><div><dt>{t("shell.inspector.revision")}</dt><dd>{resource.revision ?? resource.provenance.revision ?? t("shell.inspector.unavailable")}</dd></div><div><dt>{t("shell.inspector.provenance")}</dt><dd>{resource.provenance.kind} · {resource.provenance.sourceId}</dd></div></dl>)}</section> : null}
+            {artifacts.length ? <section><strong>{t("shell.inspector.artifacts")}</strong>{artifacts.map((artifact) => <button key={artifact.id} type="button" onClick={() => onOpenArtifact(artifact)}>{artifact.title}</button>)}</section> : null}
+            <footer>{t("shell.inspector.footer", { event: pin.cursor.eventIndex + 1, item: entry.step.sequence + 1, agent: entry.step.agentContext.title })}</footer>
           </article>
         );
       })}
@@ -2450,6 +2463,7 @@ function TinyOsOperationShelf({
   commandRegistry: TinyOsShellCommandRegistry;
   operations: TinyOsDesktopSnapshot["operations"];
 }) {
+  const { t } = useTranslation("tinyos");
   const operation = operations[operations.length - 1];
   const Icon = operation ? APP_ICONS[operation.appId] : undefined;
   const selectCommand = operation
@@ -2459,14 +2473,14 @@ function TinyOsOperationShelf({
     ? requiredShellCommand(commandRegistry, `operation.retry:${operation.entry.step.id}`)
     : undefined;
   return (
-    <nav aria-label="TinyOS recent operations" className="tinyos-operation-shelf">
+    <nav aria-label={t("shell.shelf.label")} className="tinyos-operation-shelf">
       {operation && Icon && selectCommand && retryCommand ? (
         <>
           <button
             className="tinyos-operation-shelf__select"
             data-status={operation.status}
             draggable="true"
-            title="Open operation or drag its canonical evidence"
+            title={t("shell.shelf.openHelp")}
             type="button"
             onClick={() => void commandRegistry.execute(selectCommand.id)}
             onDragStart={(event) => writeTinyOsReferenceTransfer(event.dataTransfer, {
@@ -2477,30 +2491,31 @@ function TinyOsOperationShelf({
             })}
           >
             <span className="tinyos-operation-shelf__state"><Icon aria-hidden="true" size={15} /></span>
-            <span><small>Latest canonical operation</small><strong>{operation.title}</strong></span>
-            <span><small>Status</small><strong>{statusLabel(operation.status)}</strong></span>
-            <span><small>Agent</small><strong>{operation.entry.step.agentContext.title}</strong></span>
-            <span><small>Source</small><strong>Canonical events</strong></span>
+            <span><small>{t("shell.shelf.latest")}</small><strong>{operation.title}</strong></span>
+            <span><small>{t("shell.shelf.status")}</small><strong>{statusLabel(operation.status, t)}</strong></span>
+            <span><small>{t("shell.shelf.agent")}</small><strong>{operation.entry.step.agentContext.title}</strong></span>
+            <span><small>{t("shell.shelf.source")}</small><strong>{t("shell.shelf.canonicalEvents")}</strong></span>
           </button>
           {operation.status === "failed" ? (
             <button
               className="tinyos-operation-shelf__retry"
               disabled={!retryCommand.availability.available}
-              title={retryCommand.availability.available ? "Retry operation" : retryCommand.availability.reason}
+              title={retryCommand.availability.available ? t("shell.shelf.retry") : retryCommand.availability.reason}
               type="button"
               onClick={() => void commandRegistry.execute(retryCommand.id)}
             >
-              <RotateCcw aria-hidden="true" size={14} />Retry
+              <RotateCcw aria-hidden="true" size={14} />{t("shell.shelf.retryShort")}
             </button>
           ) : null}
         </>
-      ) : <span className="tinyos-operation-shelf__empty">Shared workspace ready</span>}
+      ) : <span className="tinyos-operation-shelf__empty">{t("shell.shelf.ready")}</span>}
     </nav>
   );
 }
 
 function TinyOsStatus({ status }: { status: ChatStepStatus }) {
-  return <span className="tinyos-status" data-status={status}>{status === "completed" ? <Check aria-hidden="true" size={11} /> : <Circle aria-hidden="true" size={9} />}{statusLabel(status)}</span>;
+  const { t } = useTranslation("tinyos");
+  return <span className="tinyos-status" data-status={status}>{status === "completed" ? <Check aria-hidden="true" size={11} /> : <Circle aria-hidden="true" size={9} />}{statusLabel(status, t)}</span>;
 }
 
 function EmptyCopy({ text }: { text: string }) {
@@ -2521,15 +2536,16 @@ function fileRevision(step: ChatStep): string {
 }
 
 function TinyOsHistoricalDialog({ dialog }: { dialog: NonNullable<TinyOsDesktopSnapshot["dialog"]> }) {
+  const { t } = useTranslation("tinyos");
   const { step } = dialog.entry;
   return (
-    <aside aria-label="Historical TinyOS request" className="tinyos-system-dialog tinyos-system-dialog--history">
-      <div className="tinyos-system-dialog__heading"><ShieldCheck aria-hidden="true" size={20} /><div><small>Historical evidence · read-only</small><strong>{step.title}</strong></div></div>
-      <p>This request is part of canonical History. Return to Live to act on the current request.</p>
+    <aside aria-label={t("shell.dialog.historical")} className="tinyos-system-dialog tinyos-system-dialog--history">
+      <div className="tinyos-system-dialog__heading"><ShieldCheck aria-hidden="true" size={20} /><div><small>{t("shell.dialog.historyLabel")}</small><strong>{step.title}</strong></div></div>
+      <p>{t("shell.dialog.historyDescription")}</p>
       <dl>
-        <div><dt>Type</dt><dd>{dialog.kind}</dd></div>
-        <div><dt>Status</dt><dd>{statusLabel(step.status)}</dd></div>
-        <div><dt>Agent</dt><dd>{step.agentContext.title}</dd></div>
+        <div><dt>{t("shell.dialog.type")}</dt><dd>{dialog.kind}</dd></div>
+        <div><dt>{t("shell.dialog.status")}</dt><dd>{statusLabel(step.status, t)}</dd></div>
+        <div><dt>{t("shell.dialog.agent")}</dt><dd>{step.agentContext.title}</dd></div>
       </dl>
     </aside>
   );
@@ -2578,12 +2594,25 @@ function requiredShellCommand(
   return command;
 }
 
-function overlayLabel(overlay: TinyOsShellOverlay): string {
+function overlayLabel(overlay: TinyOsShellOverlay, t: TFunction<"tinyos">): string {
   switch (overlay) {
-    case "notifications": return "notification center";
-    case "overview": return "window Overview";
-    case "palette": return "command palette";
-    case "switcher": return "application switcher";
+    case "notifications": return t("shell.overlay.notification");
+    case "overview": return t("shell.overlay.overview");
+    case "palette": return t("shell.overlay.palette");
+    case "switcher": return t("shell.overlay.switcher");
+  }
+}
+
+function appLabel(appId: TinyOsAppId, t: TFunction<"tinyos">): string {
+  switch (appId) {
+    case "artifacts": return t("shell.apps.artifacts");
+    case "browser": return t("shell.apps.browser");
+    case "files": return t("shell.apps.files");
+    case "inspector": return t("shell.apps.inspector");
+    case "plan": return t("shell.apps.plan");
+    case "subagents": return t("shell.apps.subagents");
+    case "system_monitor": return t("shell.apps.systemMonitor");
+    case "terminal": return t("shell.apps.terminal");
   }
 }
 
@@ -2612,11 +2641,11 @@ function terminalCommand(step: ChatStep): string {
   return firstString(args.cmd, args.command, args.script, step.toolCall?.argsPreview) || step.title;
 }
 
-function terminalOutput(step: ChatStep): string {
+function terminalOutput(step: ChatStep, t: TFunction<"tinyos">): string {
   const result = recordValue(step.toolCall?.resultJson);
   return firstString(result.stdout, result.output, step.toolCall?.resultPreview)
     || (Object.keys(result).length ? jsonPreview(result) : "")
-    || (step.status === "running" ? "Running..." : "No output returned.");
+    || (step.status === "running" ? t("shell.terminal.running") : t("shell.terminal.noOutput"));
 }
 
 function terminalStderr(step: ChatStep): string {
@@ -2663,14 +2692,14 @@ function utf8ByteLength(value: string): number {
   return new TextEncoder().encode(value).byteLength;
 }
 
-function terminalMetadata(step: ChatStep): { cwd: string; exit: string } {
+function terminalMetadata(step: ChatStep, t: TFunction<"tinyos">): { cwd: string; exit: string } {
   const args = recordValue(step.toolCall?.argsJson);
   const result = recordValue(step.toolCall?.resultJson);
   const cwd = firstString(args.cwd, args.directory, args.workdir, args.workingDirectory, args.working_directory);
   const exitCode = [result.exitCode, result.exit_code, result.code].find((value) => typeof value === "number" || typeof value === "string");
   return {
     cwd,
-    exit: exitCode !== undefined ? `exit ${String(exitCode)}` : statusLabel(step.status),
+    exit: exitCode !== undefined ? t("shell.terminal.exit", { code: String(exitCode) }) : statusLabel(step.status, t),
   };
 }
 
@@ -2690,8 +2719,8 @@ type BrowserInteractionCommandInput = {
   y?: string;
 };
 
-function browserInteractionCommandInput(input?: TinyOsShellCommandInput): BrowserInteractionCommandInput {
-  if (!input || typeof input === "string") throw new Error("Browser interaction requires structured input.");
+function browserInteractionCommandInput(input: TinyOsShellCommandInput | undefined, t: TFunction<"tinyos">): BrowserInteractionCommandInput {
+  if (!input || typeof input === "string") throw new Error(t("shell.command.browserInput"));
   return {
     browserSessionId: input.browserSessionId?.trim() || "",
     captureId: input.captureId?.trim() || "",
@@ -2706,19 +2735,28 @@ function browserInteractionCommandInput(input?: TinyOsShellCommandInput): Browse
 function browserActionFromCommandInput(
   kind: "click" | "navigate" | "type",
   input: BrowserInteractionCommandInput,
+  t: TFunction<"tinyos">,
 ): TinyOsBrowserAction {
   if (kind === "navigate") return { type: "navigate", url: input.url?.trim() || "" };
   if (kind === "type") return { text: input.text || "", type: "type" };
   const x = Number(input.x);
   const y = Number(input.y);
   if (!Number.isFinite(x) || x < 0 || !Number.isFinite(y) || y < 0) {
-    throw new Error("Browser click coordinates must be non-negative finite numbers.");
+    throw new Error(t("shell.command.browserCoordinates"));
   }
   return { type: "click", x, y };
 }
 
-function statusLabel(status: ChatStepStatus): string {
-  return status.replace(/_/g, " ");
+function statusLabel(status: ChatStepStatus, t?: TFunction<"tinyos">): string {
+  if (!t) return status.replace(/_/g, " ");
+  switch (status) {
+    case "completed": return t("shell.status.completed");
+    case "running": return t("shell.status.running");
+    case "blocked": return t("shell.status.blocked");
+    case "failed": return t("shell.status.failed");
+    case "cancelled": return t("shell.status.cancelled");
+    default: return t("shell.status.pending");
+  }
 }
 
 function recordValue(value: unknown): Record<string, unknown> {
