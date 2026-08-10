@@ -105,7 +105,9 @@ pub(super) fn default_tool_contributors() -> Vec<Arc<dyn ToolContributor>> {
     let mut runtime_tools = Vec::new();
     for entry in core_tool_entries() {
         match entry.namespace.as_str() {
-            "tool_registry" | "interaction" | "planning" => control_tools.push(entry),
+            "tool_registry" | "interaction" | "planning" | "presentation" => {
+                control_tools.push(entry)
+            }
             "shell" | "subagent" => runtime_tools.push(entry),
             namespace => panic!(
                 "core tool `{}` has no contributor for namespace `{namespace}`",

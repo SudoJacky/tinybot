@@ -61,6 +61,32 @@ fn request_user_input_requires_form_capability() {
 }
 
 #[test]
+fn publish_data_view_is_model_visible_and_requires_session_write() {
+    let denied = WorkerToolRegistryRpc::new(CapabilityPolicy::default())
+        .get_tool(PUBLISH_DATA_VIEW_METHOD)
+        .expect("publish_data_view should be registered");
+    let available =
+        WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::SessionWrite]))
+            .get_tool(PUBLISH_DATA_VIEW_METHOD)
+            .expect("publish_data_view should be registered");
+
+    assert_eq!(available.exposure, ToolExposure::Model);
+    assert!(!denied.available);
+    assert!(available.available);
+    assert!(available.runtime_policy.mutates_session);
+    assert!(!available.runtime_policy.mutates_workspace);
+    assert!(!available.supports_parallel_tool_calls);
+    assert_eq!(
+        available.execution_target,
+        ToolExecutionTarget::RuntimeControl(ToolRuntimeControl::PublishDataView)
+    );
+    assert_eq!(
+        available.input_schema["properties"]["schemaVersion"]["const"],
+        "tinybot.data_view.v1"
+    );
+}
+
+#[test]
 fn canonical_apply_patch_is_model_visible_and_legacy_name_is_hidden() {
     let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
         WorkerCapability::FsWorkspaceRead,

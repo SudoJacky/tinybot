@@ -71,6 +71,7 @@ import { AgentUiFormCard } from "./AgentUiFormCard";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import { isApplyPatchToolCall, PatchDiffCard, patchChangeSetFromToolResult } from "./PatchDiffCard";
 import { ToolActivityItem } from "./ToolActivityItem";
+import { DataViewCard } from "./DataViewCard";
 import { clampTinyOsWidth, LiveCanvas, type LiveCanvasEntry, type LiveCanvasMode } from "./LiveCanvas";
 import { SessionTabStrip, type SessionTabItem } from "./SessionTabStrip";
 import {
@@ -1910,6 +1911,17 @@ export function ChatPage({
     if (!activeSession) {
       return;
     }
+    if (artifact.kind === "data_view") {
+      setDrawer({
+        kind: "artifact",
+        title: artifact.title,
+        artifact,
+        ...(artifact.dataView ? { detail: { id: artifact.id, title: artifact.title, mimeType: artifact.mimeType, dataView: artifact.dataView } } : {}),
+        loading: false,
+        ...(artifact.dataViewError ? { error: artifact.dataViewError } : {}),
+      });
+      return;
+    }
     setDrawer({ kind: "artifact", title: artifact.title, artifact, loading: Boolean(chatStore.loadArtifact) });
     if (!chatStore.loadArtifact) {
       return;
@@ -2528,21 +2540,23 @@ export function ChatPage({
 
       {drawer ? (
         <aside className="react-right-drawer" aria-label={t("shell.detailsDrawer")} data-motion="fade-content" data-state="open">
-          <div>
+          <div className="react-right-drawer__header">
             <h2>{drawer.title}</h2>
             <button aria-label={t("shell.closeDetails")} type="button" onClick={() => setDrawer(null)}>
               <X aria-hidden="true" size={16} />
             </button>
           </div>
-          {drawer.kind === "tool" ? (
-            <ToolCallDetails toolCall={drawer.toolCall} />
-          ) : drawer.kind === "subagent" ? (
-            <SubagentDetails delegate={drawer.delegate} error={drawer.error} loading={drawer.loading} />
-          ) : drawer.kind === "artifact" ? (
-            <ArtifactDetails artifact={drawer.artifact} detail={drawer.detail} error={drawer.error} loading={drawer.loading} />
-          ) : (
-            <ErrorDetails step={drawer.step} turn={drawer.turn} />
-          )}
+          <div className="react-right-drawer__content">
+            {drawer.kind === "tool" ? (
+              <ToolCallDetails toolCall={drawer.toolCall} />
+            ) : drawer.kind === "subagent" ? (
+              <SubagentDetails delegate={drawer.delegate} error={drawer.error} loading={drawer.loading} />
+            ) : drawer.kind === "artifact" ? (
+              <ArtifactDetails artifact={drawer.artifact} detail={drawer.detail} error={drawer.error} loading={drawer.loading} />
+            ) : (
+              <ErrorDetails step={drawer.step} turn={drawer.turn} />
+            )}
+          </div>
         </aside>
       ) : null}
 
@@ -3166,6 +3180,8 @@ function CanonicalChatTurn({
     && step.kind !== "error"
     && !(step.kind === "form" && step.form && interactiveFormIds.has(step.form.formId))
   ));
+  const dataViewArtifacts = uniqueArtifacts(executionItems.flatMap((step) => step.artifacts ?? []))
+    .filter((artifact) => artifact.kind === "data_view");
   const hasUserMessage = Boolean(turn.userMessage.text.trim() || turn.userMessage.references?.length);
   return (
     <section aria-label={t("turn.label")} className="react-canonical-turn" data-status={turn.status}>
@@ -3240,6 +3256,9 @@ function CanonicalChatTurn({
           text=""
         />
       ) : null}
+      {dataViewArtifacts.map((artifact) => (
+        <DataViewCard artifact={artifact} key={artifact.id} onOpen={onOpenArtifact} />
+      ))}
     </section>
   );
 }
@@ -3790,18 +3809,23 @@ function formatPlanStepStatus(status: PlanStepStatus, t: TFunction<"chat">): str
 
 function CanonicalArtifacts({ artifacts, onOpen }: { artifacts: ArtifactRef[]; onOpen: (artifact: ArtifactRef) => void }) {
   const { t } = useTranslation("chat");
-  if (!artifacts.length) {
+  const visibleArtifacts = artifacts.filter((artifact) => artifact.kind !== "data_view");
+  if (!visibleArtifacts.length) {
     return null;
   }
   return (
     <ul aria-label={t("artifacts.label")} className="react-canonical-artifacts">
-      {artifacts.map((artifact) => (
+      {visibleArtifacts.map((artifact) => (
         <li key={artifact.id}>
           <button aria-label={t("artifacts.preview", { name: artifact.title })} type="button" onClick={() => onOpen(artifact)}>{artifact.title}</button>
         </li>
       ))}
     </ul>
   );
+}
+
+function uniqueArtifacts(artifacts: ArtifactRef[]): ArtifactRef[] {
+  return [...new Map(artifacts.map((artifact) => [artifact.id, artifact])).values()];
 }
 
 function CanonicalScopedErrors({ errors }: { errors: NonNullable<ChatStep["scopedErrors"]> }) {
@@ -4336,8 +4360,9 @@ function ArtifactDetails({
       {loading ? <p aria-live="polite">{t("details.loadingArtifact")}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
       {detail?.imageDataUrl ? <img alt={detail.title} src={detail.imageDataUrl} /> : null}
+      {detail?.dataView ? <DataViewCard artifact={{ ...artifact, dataView: detail.dataView }} expanded /> : null}
       {detail?.textContent ? <pre>{detail.textContent}</pre> : null}
-      {!loading && !error && !detail?.imageDataUrl && !detail?.textContent ? <p>{t("details.noPreview")}</p> : null}
+      {!loading && !error && !detail?.dataView && !detail?.imageDataUrl && !detail?.textContent ? <p>{t("details.noPreview")}</p> : null}
     </div>
   );
 }

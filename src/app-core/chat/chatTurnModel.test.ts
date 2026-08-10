@@ -103,6 +103,79 @@ describe("chat turn model", () => {
     });
   });
 
+  test("projects a persisted data view artifact from a canonical tool result", () => {
+    const content = {
+      schemaVersion: "tinybot.data_view.v1",
+      title: "Quarterly revenue",
+      insight: "Revenue increased in Q2.",
+      dataset: {
+        columns: [
+          { key: "quarter", label: "Quarter", type: "category" },
+          { key: "revenue", label: "Revenue", type: "number" },
+        ],
+        rows: [
+          { id: "q1", values: { quarter: "Q1", revenue: 100 } },
+          { id: "q2", values: { quarter: "Q2", revenue: 120 } },
+        ],
+      },
+      view: { kind: "cartesian", x: "quarter", series: [{ field: "revenue", mark: "bar" }] },
+      provenance: { status: "user_provided", sources: [], caveats: [] },
+    };
+    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("turn-chart", [{
+      itemId: "call-chart",
+      kind: "tool_call",
+      status: "completed",
+      title: "publish_data_view",
+      data: {
+        type: "tool_call",
+        toolCallId: "call-chart",
+        name: "publish_data_view",
+        status: "completed",
+        args: {},
+        result: {
+          status: "ok",
+          artifacts: [{ id: "dv_1", kind: "data_view", title: content.title, content }],
+        },
+        timing: {},
+      },
+    }]));
+
+    const [turn] = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
+
+    expect(turn.steps[0].artifacts?.[0]).toMatchObject({
+      id: "dv_1",
+      kind: "data_view",
+      dataView: { title: "Quarterly revenue", view: { kind: "cartesian" } },
+    });
+  });
+
+  test("projects a failed data view result as a failed tool step", () => {
+    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("turn-chart-error", [{
+      itemId: "call-chart-error",
+      kind: "tool_call",
+      status: "completed",
+      title: "publish_data_view",
+      data: {
+        type: "tool_call",
+        toolCallId: "call-chart-error",
+        name: "publish_data_view",
+        status: "completed",
+        resultStatus: "error",
+        args: {},
+        result: "publish_data_view cannot be mixed with other tools",
+        timing: {},
+      },
+    }]));
+
+    const [turn] = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
+
+    expect(turn.steps[0]).toMatchObject({
+      kind: "tool_call",
+      status: "failed",
+      toolCall: { name: "publish_data_view" },
+    });
+  });
+
   test("restores completed assistant messages from the canonical timeline", () => {
     const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("turn-completed", [
       {

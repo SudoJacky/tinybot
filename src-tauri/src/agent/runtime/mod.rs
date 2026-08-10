@@ -20,6 +20,7 @@ mod context;
 mod context_contributors;
 mod context_manager;
 mod continuations;
+mod data_view;
 mod events;
 mod hooks;
 mod instructions;

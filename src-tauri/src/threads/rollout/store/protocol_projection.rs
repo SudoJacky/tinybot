@@ -231,6 +231,14 @@ fn project_responses_items(event: &Value) -> ProtocolEventProjection {
 }
 
 fn structured_tool_result(payload: &Value) -> Option<Value> {
+    if let Some(envelope) = payload.get("envelope").filter(|envelope| {
+        envelope
+            .get("artifacts")
+            .and_then(Value::as_array)
+            .is_some_and(|artifacts| !artifacts.is_empty())
+    }) {
+        return Some(envelope.clone());
+    }
     let result = payload
         .get("result")
         .or_else(|| {

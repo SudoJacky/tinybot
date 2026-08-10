@@ -17,7 +17,9 @@ use crate::agent::runtime_protocol::{
     AgentEventKind, AgentRuntimePhase, PendingAgentEvent, TerminalEvent, ToolLifecycleEvent,
 };
 use crate::tools::registry::ToolCancellationMode;
-use crate::tools::registry::{REQUEST_USER_INPUT_METHOD, TOOL_SEARCH_METHOD, UPDATE_PLAN_METHOD};
+use crate::tools::registry::{
+    PUBLISH_DATA_VIEW_METHOD, REQUEST_USER_INPUT_METHOD, TOOL_SEARCH_METHOD, UPDATE_PLAN_METHOD,
+};
 use futures_util::{future::join_all, FutureExt};
 use serde::Deserialize;
 use serde_json::Value;
@@ -298,7 +300,169 @@ pub(super) async fn execute_tool_calls_for_iteration(
         };
     }
 
+    if tool_calls
+        .iter()
+        .any(|tool_call| tool_call.name == PUBLISH_DATA_VIEW_METHOD)
+    {
+        if tool_calls
+            .iter()
+            .any(|tool_call| tool_call.name != PUBLISH_DATA_VIEW_METHOD)
+        {
+            let tool_call = tool_calls
+                .iter()
+                .find(|tool_call| tool_call.name == PUBLISH_DATA_VIEW_METHOD)
+                .expect("publish_data_view presence was checked");
+            return tool_error_result(
+                services,
+                context,
+                state,
+                iteration,
+                tool_call,
+                "publish_data_view cannot be mixed with other tools in its provider response"
+                    .to_string(),
+            );
+        }
+        return execute_publish_data_views(services, context, state, iteration, tool_calls);
+    }
+
     execute_tool_batch(services, context, state, iteration, tool_calls).await
+}
+
+fn execute_publish_data_views(
+    services: &NativeAgentRuntimeServices,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
+    iteration: i64,
+    tool_calls: Vec<PreparedToolCall>,
+) -> Result<NativeAgentToolExecutionOutcome, String> {
+    let is_multi_call = tool_calls.len() > 1;
+    let planned_calls = tool_calls
+        .into_iter()
+        .enumerate()
+        .map(|(index, tool_call)| PlannedToolCall {
+            index,
+            mode: ToolExecutionMode::Exclusive,
+            tool_call,
+        })
+        .collect::<Vec<_>>();
+    if is_multi_call {
+        queue_tool_batch(services, context, state, iteration, &planned_calls)?;
+    }
+
+    for (wave_index, planned_call) in planned_calls.into_iter().enumerate() {
+        if context_is_cancelled(context) {
+            state.clear_pending_tool_calls();
+            return cancelled_result(services, context, state, iteration);
+        }
+        let tool_call = if is_multi_call {
+            let wave = ToolWave::Exclusive(planned_call);
+            mark_tool_wave_running(services, context, state, iteration, wave_index, &wave)?;
+            match wave {
+                ToolWave::Exclusive(call) => call.tool_call,
+                ToolWave::Parallel(_) => {
+                    unreachable!("data views are always published sequentially")
+                }
+            }
+        } else {
+            start_tool_call(services, context, state, iteration, &planned_call.tool_call)?;
+            planned_call.tool_call
+        };
+
+        let result = publish_data_view_result(context, state, &tool_call);
+        commit_tool_observation(context, state, iteration, tool_call.into_original(), result)?;
+    }
+
+    state.clear_pending_tool_calls();
+    state.transition_phase(
+        AgentRuntimePhase::Planning,
+        iteration,
+        AgentEventKind::ToolResult.wire_name(),
+    )?;
+    save_phase_checkpoint(
+        services,
+        context,
+        state.phase.as_str(),
+        state.active_checkpoint_payload("data_views_published"),
+    );
+    Ok(NativeAgentToolExecutionOutcome::Continue)
+}
+
+fn publish_data_view_result(
+    context: &AgentTurnContext,
+    state: &AgentTurnState,
+    tool_call: &PreparedToolCall,
+) -> super::NativeAgentToolResult {
+    context.metrics().increment("tool.started");
+    let tool_started_at = std::time::Instant::now();
+    let published_count = state
+        .completed_tool_results
+        .iter()
+        .filter(|result| {
+            result
+                .pointer("/envelope/structured/kind")
+                .and_then(Value::as_str)
+                == Some("data_view_published")
+        })
+        .count();
+    if published_count >= 3 {
+        context
+            .metrics()
+            .record_duration("tool.durationMs", tool_started_at.elapsed());
+        context.metrics().increment("tool.failed");
+        return super::NativeAgentToolResult::generic_error(
+            tool_call,
+            "data_view_turn_limit: at most three data views may be published in one turn"
+                .to_string(),
+        );
+    }
+
+    let published = match super::data_view::publish_data_view(
+        tool_call.arguments(),
+        &context.turn_id,
+        &tool_call.id,
+    ) {
+        Ok(published) => published,
+        Err(error) => {
+            context
+                .metrics()
+                .record_duration("tool.durationMs", tool_started_at.elapsed());
+            context.metrics().increment("tool.failed");
+            eprintln!(
+                "data view rejected: {}",
+                serde_json::json!({
+                    "turnId": context.turn_id,
+                    "toolCallId": tool_call.id,
+                    "errorCode": error.split(':').next().unwrap_or("data_view_invalid_shape"),
+                })
+            );
+            return super::NativeAgentToolResult::generic_error(tool_call, error);
+        }
+    };
+    let result = super::NativeAgentToolResult::data_view_success(
+        &tool_call,
+        &published.artifact_id,
+        &published.title,
+        &published.warnings,
+        published.artifact,
+    );
+    context
+        .metrics()
+        .record_duration("tool.durationMs", tool_started_at.elapsed());
+    context.metrics().increment("tool.completed");
+    eprintln!(
+        "data view published: {}",
+        serde_json::json!({
+            "turnId": context.turn_id,
+            "toolCallId": tool_call.id,
+            "artifactId": published.artifact_id,
+            "schemaVersion": "tinybot.data_view.v1",
+            "columns": published.column_count,
+            "rows": published.row_count,
+            "byteSize": published.byte_size,
+            "warningCount": published.warnings.len(),
+        })
+    );
+    result
 }
 
 fn execute_tool_search(

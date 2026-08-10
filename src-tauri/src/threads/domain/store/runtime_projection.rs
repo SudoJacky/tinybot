@@ -43,6 +43,9 @@ fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(AgentEventKind,
                 "toolCallId": semantic_item_id(item),
                 "result": result,
             });
+            if let Some(result_status) = persisted_tool_result_status(value, &result) {
+                payload["resultStatus"] = Value::String(result_status);
+            }
             if let Some(summary) = summary {
                 payload["summary"] = Value::String(summary);
             }
@@ -77,6 +80,19 @@ fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(AgentEventKind,
         | ThreadItemKind::TurnCompleted(_)
         | ThreadItemKind::CheckpointCreated(_)
         | ThreadItemKind::SettingsChanged(_) => None,
+    }
+}
+
+fn persisted_tool_result_status(value: &Value, result: &Value) -> Option<String> {
+    let status = result
+        .get("status")
+        .or_else(|| value.get("status"))
+        .and_then(Value::as_str)?;
+    match status {
+        "ok" | "completed" | "success" => Some("ok".to_string()),
+        "error" | "failed" => Some("error".to_string()),
+        "denied" => Some("denied".to_string()),
+        _ => None,
     }
 }
 

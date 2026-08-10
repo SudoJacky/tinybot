@@ -1950,6 +1950,7 @@ describe("ChatPage", () => {
     const drawer = screen.getByLabelText("Details drawer");
     expect(drawer.getAttribute("data-motion")).toBe("fade-content");
     expect(drawer.getAttribute("data-state")).toBe("open");
+    expect(drawer.firstElementChild?.classList.contains("react-right-drawer__header")).toBe(true);
     expect(drawer.textContent).toContain("Done");
   });
 

@@ -57,6 +57,7 @@ fn turn_item_serializes_stable_shape() {
             tool_call_id: "tool-1".to_string(),
             name: "read_file".to_string(),
             status: "running".to_string(),
+            result_status: None,
             args: Value::Null,
             result: Value::Null,
             detail_id: None,

@@ -80,6 +80,44 @@ impl NativeToolResultEnvelope {
         )
     }
 
+    fn data_view_success(
+        tool_call: &NativeAgentToolCall,
+        artifact_id: &str,
+        title: &str,
+        warnings: &[String],
+        artifact: Value,
+    ) -> Self {
+        let summary = format!("Published data view: {title}");
+        let model_content =
+            format!("Published data view {artifact_id} as an immutable inline chat artifact.");
+        Self::from_parts(
+            "ok",
+            summary,
+            model_content,
+            serde_json::json!({
+                "type": "data_view",
+                "artifactId": artifact_id,
+                "title": title,
+                "actions": [],
+            }),
+            serde_json::json!({
+                "kind": "data_view_published",
+                "schemaVersion": "tinybot.data_view.v1",
+                "artifactId": artifact_id,
+                "warnings": warnings,
+            }),
+            serde_json::json!([]),
+            serde_json::json!([artifact]),
+            serde_json::json!([{ "type": "session_artifact_appended", "artifactId": artifact_id }]),
+            tool_call,
+            serde_json::json!({
+                "artifactId": artifact_id,
+                "schemaVersion": "tinybot.data_view.v1",
+                "warnings": warnings,
+            }),
+        )
+    }
+
     fn from_parts(
         status: &str,
         summary: String,
@@ -197,6 +235,31 @@ impl NativeAgentToolResult {
             envelope,
         }
     }
+
+    pub(crate) fn data_view_success(
+        tool_call: &NativeAgentToolCall,
+        artifact_id: &str,
+        title: &str,
+        warnings: &[String],
+        artifact: Value,
+    ) -> Self {
+        let envelope = NativeToolResultEnvelope::data_view_success(
+            tool_call,
+            artifact_id,
+            title,
+            warnings,
+            artifact,
+        );
+        let model_content = envelope
+            .get("modelContent")
+            .and_then(Value::as_str)
+            .expect("data view result must include model content")
+            .to_string();
+        Self {
+            content: Value::String(model_content),
+            envelope,
+        }
+    }
 }
 
 fn generic_ui(ui_type: &str, title: String) -> Value {
@@ -282,5 +345,37 @@ mod tests {
         assert_eq!(result.envelope["ui"]["actions"][0]["tool"], "web.open");
         assert_eq!(model_content["result"], raw);
         assert_eq!(result.envelope["raw"], raw);
+    }
+
+    #[test]
+    fn data_view_envelope_keeps_content_in_a_first_class_artifact() {
+        let tool_call = NativeAgentToolCall {
+            id: "call-data-view".to_string(),
+            name: "publish_data_view".to_string(),
+            arguments_json: "{}".to_string(),
+            result: Value::Null,
+        };
+        let artifact = json!({
+            "id": "dv_1234",
+            "kind": "data_view",
+            "content": { "schemaVersion": "tinybot.data_view.v1" }
+        });
+
+        let result = NativeAgentToolResult::data_view_success(
+            &tool_call,
+            "dv_1234",
+            "Revenue",
+            &["unsourced_data".to_string()],
+            artifact,
+        );
+
+        assert_eq!(result.envelope["structured"]["kind"], "data_view_published");
+        assert_eq!(result.envelope["artifacts"][0]["id"], "dv_1234");
+        assert_eq!(result.envelope["artifacts"][0]["kind"], "data_view");
+        assert_eq!(result.envelope["raw"]["artifactId"], "dv_1234");
+        assert!(!result.envelope["modelContent"]
+            .as_str()
+            .unwrap()
+            .contains("schemaVersion"));
     }
 }

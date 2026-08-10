@@ -230,6 +230,22 @@ function toolActivityDescriptor(toolCall: ToolCallState, status: ChatStepStatus,
   if (name === "update_plan") {
     return genericDescriptor(t("toolActivity.updatedPlan"), t("toolActivity.category.planning"), "plan", toolCall, fallbackSummary);
   }
+  if (name === "publish_data_view") {
+    const output = structuredResultPreview(toolCall) || fallbackSummary;
+    const title = status === "failed"
+      ? t("toolActivity.dataViewFailed")
+      : status === "cancelled"
+        ? t("toolActivity.dataViewCancelled")
+        : status === "running" || status === "pending" || status === "blocked"
+          ? t("toolActivity.preparingDataView")
+          : t("toolActivity.publishedDataView");
+    return {
+      category: t("toolActivity.category.presentation"),
+      kind: "generic",
+      ...(output ? { output: { content: output, kind: "prose" } } : {}),
+      title,
+    };
+  }
   if (name.startsWith("subagent.")) {
     const task = firstString(args.task, args.content);
     const title = name.endsWith("spawn") ? t("toolActivity.delegated") : name.endsWith("wait") ? t("toolActivity.waitedSubagents") : t("toolActivity.updatedSubagent");

@@ -1510,6 +1510,7 @@ button:disabled {
 
 .react-conversation-view {
   display: grid;
+  grid-auto-rows: max-content;
   align-content: start;
   gap: 16px;
   min-height: 0;
@@ -6077,7 +6078,10 @@ button.tinyos-overlay-backdrop:focus-visible {
   right: 0;
   bottom: 0;
   z-index: 20;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   width: min(380px, 92vw);
+  overflow: hidden;
   border-left: 1px solid var(--color-hairline);
   background: #fff;
   padding: 16px;
@@ -6100,7 +6104,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   }
 }
 
-.react-right-drawer > div,
+.react-right-drawer__header,
 .react-command-palette > div {
   display: flex;
   align-items: center;
@@ -6108,10 +6112,17 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 12px;
 }
 
+.react-right-drawer__content {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding-top: 14px;
+}
+
 .react-tool-detail {
   display: grid;
   gap: 12px;
-  margin-top: 14px;
+  margin-top: 0;
 }
 
 .react-tool-detail section {
@@ -7073,8 +7084,276 @@ button.tinyos-overlay-backdrop:focus-visible {
   font: inherit;
 }
 
+.react-data-view {
+  align-self: start;
+  width: min(100%, 760px);
+  min-width: 0;
+  height: max-content;
+  margin: 6px 0 14px;
+  overflow: hidden;
+  border: 1px solid var(--color-hairline);
+  border-radius: 14px;
+  background: color-mix(in srgb, #fff 78%, var(--color-canvas));
+  box-shadow: 0 9px 28px color-mix(in srgb, var(--color-ink) 6%, transparent);
+}
+
+.react-data-view[data-expanded="true"] {
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.react-data-view[data-state="invalid"] {
+  border-color: color-mix(in srgb, var(--color-error) 45%, var(--color-hairline));
+}
+
+.react-data-view__header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+  padding: 16px 16px 10px;
+}
+
+.react-data-view__icon {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--color-primary) 13%, transparent);
+  color: var(--color-primary-active);
+}
+
+.react-data-view__header h3,
+.react-data-view__provenance h4 {
+  margin: 0;
+  color: var(--color-ink);
+}
+
+.react-data-view__header h3 {
+  font-size: 14px;
+  font-weight: 720;
+  line-height: 1.35;
+}
+
+.react-data-view__header p {
+  margin: 4px 0 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.react-data-view__actions {
+  display: flex;
+  gap: 2px;
+}
+
+.react-data-view__actions button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--color-muted);
+}
+
+.react-data-view__actions button:hover,
+.react-data-view__actions button:focus-visible {
+  color: var(--color-ink);
+}
+
+.react-data-view__tabs {
+  display: flex;
+  gap: 3px;
+  width: fit-content;
+  margin: 2px 16px 0 56px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--color-surface-soft);
+}
+
+.react-data-view__tabs button {
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 7px;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.react-data-view__tabs button[aria-selected="true"] {
+  background: color-mix(in srgb, #fff 88%, var(--color-canvas));
+  color: var(--color-ink);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--color-ink) 10%, transparent);
+}
+
+.react-data-view__body {
+  min-width: 0;
+  padding: 8px 12px 2px;
+}
+
+.react-data-view__chart {
+  width: 100%;
+  height: 280px;
+  min-height: 220px;
+}
+
+.react-data-view[data-expanded="true"] .react-data-view__chart {
+  height: min(52vh, 480px);
+  min-height: 340px;
+}
+
+.react-data-view__table-wrap {
+  max-height: 340px;
+  overflow: auto;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+}
+
+.react-data-view[data-expanded="true"] .react-data-view__table-wrap {
+  max-height: min(58vh, 620px);
+}
+
+.react-data-view__table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.react-data-view__table th,
+.react-data-view__table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-hairline);
+  text-align: left;
+}
+
+.react-data-view__table th {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  background: var(--color-surface-soft);
+  color: var(--color-muted);
+  font-weight: 680;
+}
+
+.react-data-view__table tr:last-child td {
+  border-bottom: 0;
+}
+
+.react-data-view__table tbody tr:hover td {
+  background: color-mix(in srgb, var(--color-primary) 5%, transparent);
+}
+
+.react-data-view__metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.react-data-view__metrics > div {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-surface-soft) 46%, transparent);
+}
+
+.react-data-view__metrics dt,
+.react-data-view__metrics small {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.react-data-view__metrics dd {
+  margin: 5px 0 2px;
+  overflow-wrap: anywhere;
+  color: var(--color-ink);
+  font-size: 20px;
+  font-weight: 740;
+  font-variant-numeric: tabular-nums;
+}
+
+.react-data-view__footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  padding: 10px 16px 13px;
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.react-data-view__footer span[data-status]::before {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 999px;
+  background: var(--color-success);
+  content: "";
+}
+
+.react-data-view__footer span[data-status="user_provided"]::before {
+  background: var(--color-primary);
+}
+
+.react-data-view__footer span[data-status="unsourced"] {
+  color: var(--color-warning);
+  font-weight: 680;
+}
+
+.react-data-view__footer span[data-status="unsourced"]::before {
+  background: var(--color-warning);
+}
+
+.react-data-view__provenance {
+  margin: 4px 16px 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-hairline);
+  color: var(--color-body);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.react-data-view__provenance h4 {
+  font-size: 11px;
+}
+
+.react-data-view__provenance p,
+.react-data-view__provenance ul {
+  margin: 6px 0 12px;
+}
+
+.react-data-view__provenance li + li {
+  margin-top: 5px;
+}
+
+.react-data-view__provenance li small {
+  display: block;
+  color: var(--color-muted);
+}
+
+.react-data-view__provenance a {
+  color: var(--color-primary-active);
+}
+
+.react-data-view__error {
+  margin: 0 16px 14px 56px;
+  color: var(--color-error);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
 .react-artifact-detail {
   display: grid;
+  align-content: start;
+  min-width: 0;
   gap: 12px;
 }
 
