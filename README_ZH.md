@@ -24,10 +24,16 @@ Tinybot 是一个由大语言模型和原生工具系统驱动的轻量级个人
 
 安装 Tinybot 时，请前往 [GitHub Tags](https://github.com/SudoJacky/tinybot/tags)，选择最新版本并下载适合当前平台的安装包。
 
-<img width="2389" height="1393" alt="Tinybot 应用截图" src="https://github.com/user-attachments/assets/e78f6ddd-3d7b-43eb-beb5-d3628d846e82" />
+<img width="1195" height="696" alt="应用截图" src="https://github.com/user-attachments/assets/e78f6ddd-3d7b-43eb-beb5-d3628d846e82" />
 
 ## Agent Plugins
 
 从 v0.2.3 开始，Tinybot 支持 [Agent Plugins 1.0.0 标准](https://agent-plugins.org/)。你可以在 **工具与插件** 页面导入想要使用的插件目录。Tinybot 默认内置并启用 `create-agent-plugin`，因此可以直接通过 **迁移 Skill 或 MCP** 把现有 Skill 或 MCP 配置转换为插件，无需另行下载辅助插件。
 
-<img width="1362" height="889" alt="image" src="https://github.com/user-attachments/assets/efe401da-826b-4203-a158-d3d0c30293b3" />
+<img width="681" height="445" alt="image" src="https://github.com/user-attachments/assets/efe401da-826b-4203-a158-d3d0c30293b3" />
+
+## 自定义图表
+
+Tinybot 可以提供自定义的图表。
+
+<img width="960" height="747" alt="image" src="https://github.com/user-attachments/assets/3345c7f4-65c4-4464-aebf-b5ca491edea7" />
