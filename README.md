@@ -24,12 +24,19 @@ Some design documents (in Chinese): [Tinybot Design Docs](https://sudojacky.gith
 
 To install Tinybot, open [GitHub Tags](https://github.com/SudoJacky/tinybot/tags), select the latest version, and download the installer for your platform.
 
-<img width="2389" height="1393" alt="image" src="https://github.com/user-attachments/assets/e78f6ddd-3d7b-43eb-beb5-d3628d846e82" />
+<img width="1195" height="696" alt="image" src="https://github.com/user-attachments/assets/e78f6ddd-3d7b-43eb-beb5-d3628d846e82" />
 
 ## Agent Plugins
 
 Starting with v0.2.3, Tinybot supports the [Agent Plugins 1.0.0 standard](https://agent-plugins.org/). Open **Tools & Plugins** to import a plugin directory you want to use. Tinybot includes and enables the `create-agent-plugin` helper by default, so **Migrate Skill or MCP** can convert an existing Skill or MCP configuration without requiring a separate download.
 
-<img width="1362" height="889" alt="image" src="https://github.com/user-attachments/assets/efe401da-826b-4203-a158-d3d0c30293b3" />
+<img width="681" height="445" alt="image" src="https://github.com/user-attachments/assets/efe401da-826b-4203-a158-d3d0c30293b3" />
+
+## AI gen Charts
+
+Tinybot can provide custom charts.
+
+<img width="960" height="747" alt="image" src="https://github.com/user-attachments/assets/3345c7f4-65c4-4464-aebf-b5ca491edea7" />
+
 
 
