@@ -63,6 +63,43 @@ fn runtime_tool_events_materialize_a_complete_model_visible_pair() {
 }
 
 #[test]
+fn artifact_tool_results_keep_the_envelope_in_the_native_replay_sidecar() {
+    let result = response_item_from_runtime_event(&json!({
+        "eventId": "event-data-view",
+        "eventName": "agent.tool.result",
+        "payload": {
+            "toolCallId": "call-data-view",
+            "toolName": "publish_data_view",
+            "resultStatus": "ok",
+            "content": "Published data view dv_1 as an immutable inline chat artifact.",
+            "envelope": {
+                "status": "ok",
+                "summary": "Published data view: Revenue",
+                "modelContent": "Published data view dv_1 as an immutable inline chat artifact.",
+                "structured": { "kind": "data_view_published", "artifactId": "dv_1" },
+                "artifacts": [{
+                    "id": "dv_1",
+                    "kind": "data_view",
+                    "content": { "schemaVersion": "tinybot.data_view.v1" }
+                }],
+                "raw": { "artifactId": "dv_1" }
+            }
+        }
+    }))
+    .expect("artifact tool result should project");
+
+    assert_eq!(result["tinybot_result"]["status"], "ok");
+    assert_eq!(
+        result["tinybot_result"]["artifacts"][0]["content"]["schemaVersion"],
+        "tinybot.data_view.v1"
+    );
+    assert_eq!(
+        result["output"],
+        "Published data view dv_1 as an immutable inline chat artifact."
+    );
+}
+
+#[test]
 fn responses_events_keep_native_output_and_encode_function_results() {
     let output = response_items_from_runtime_event(
         &json!({

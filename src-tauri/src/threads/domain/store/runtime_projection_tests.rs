@@ -99,6 +99,103 @@ fn slim_tool_output_replays_through_the_tool_call_item() {
 }
 
 #[test]
+fn failed_tool_output_preserves_its_result_status() {
+    let item = |item_id: &str, sequence: u64, kind: ThreadItemKind| ThreadItem {
+        item_id: item_id.to_string(),
+        thread_id: "thread-1".to_string(),
+        turn_id: "turn-1".to_string(),
+        parent_item_id: None,
+        sequence,
+        created_at: sequence.to_string(),
+        kind,
+    };
+    let items = vec![
+        item(
+            "call-data-view",
+            1,
+            ThreadItemKind::ToolCallStarted(json!({
+                "type": "function_call",
+                "call_id": "call-data-view",
+                "name": "publish_data_view",
+                "arguments": "{}",
+            })),
+        ),
+        item(
+            "tool-output:call-data-view",
+            2,
+            ThreadItemKind::ToolCallOutput(json!({
+                "type": "function_call_output",
+                "call_id": "call-data-view",
+                "status": "error",
+                "output": "publish_data_view cannot be mixed with other tools",
+            })),
+        ),
+    ];
+
+    let events = runtime_events_from_thread_items(&items, "thread-1", "turn-1");
+    assert_eq!(events[1].payload["resultStatus"], "error");
+
+    let projected = turn_items_from_thread_items(&items, "thread-1", "turn-1");
+    assert!(matches!(
+        &projected[0].data,
+        AgentTurnItemData::ToolCall { result_status, .. }
+            if result_status.as_deref() == Some("error")
+    ));
+}
+
+#[test]
+fn artifact_tool_output_replays_the_persisted_envelope() {
+    let item = |item_id: &str, sequence: u64, kind: ThreadItemKind| ThreadItem {
+        item_id: item_id.to_string(),
+        thread_id: "thread-1".to_string(),
+        turn_id: "turn-1".to_string(),
+        parent_item_id: None,
+        sequence,
+        created_at: sequence.to_string(),
+        kind,
+    };
+    let items = vec![
+        item(
+            "call-data-view",
+            1,
+            ThreadItemKind::ToolCallStarted(json!({
+                "type": "custom_tool_call",
+                "call_id": "call-data-view",
+                "name": "publish_data_view",
+                "input": "{}",
+            })),
+        ),
+        item(
+            "tool-output:call-data-view",
+            2,
+            ThreadItemKind::ToolCallOutput(json!({
+                "type": "custom_tool_call_output",
+                "call_id": "call-data-view",
+                "output": "Published data view dv_1.",
+                "tinybot_result": {
+                    "status": "ok",
+                    "summary": "Published data view: Revenue",
+                    "artifacts": [{
+                        "id": "dv_1",
+                        "kind": "data_view",
+                        "content": { "schemaVersion": "tinybot.data_view.v1" }
+                    }]
+                }
+            })),
+        ),
+    ];
+
+    let projected = turn_items_from_thread_items(&items, "thread-1", "turn-1");
+
+    assert!(matches!(
+        &projected[0].data,
+        AgentTurnItemData::ToolCall { result, .. }
+            if result["artifacts"][0]["id"] == "dv_1"
+                && result["artifacts"][0]["content"]["schemaVersion"] == "tinybot.data_view.v1"
+    ));
+}
+
+#[test]
 fn responses_raw_reasoning_stays_hidden_and_tool_output_gets_a_display_summary() {
     let item = |item_id: &str, sequence: u64, kind: ThreadItemKind| ThreadItem {
         item_id: item_id.to_string(),

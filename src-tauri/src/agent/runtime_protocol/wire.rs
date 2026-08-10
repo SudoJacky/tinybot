@@ -200,6 +200,8 @@ pub enum AgentTurnItemData {
         tool_call_id: String,
         name: String,
         status: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        result_status: Option<String>,
         args: Value,
         result: Value,
         detail_id: Option<String>,

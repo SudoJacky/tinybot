@@ -22,4 +22,17 @@ describe("workbench CSS interaction contracts", () => {
     expect(stylesheet).toContain("transition-duration: 140ms");
     expect(stylesheet).not.toContain("transition-duration: 0ms !important");
   });
+
+  test("keeps conversation rows intrinsic and scopes drawer header layout", () => {
+    const conversationRule = stylesheet.match(/\.react-conversation-view\s*\{([^}]+)\}/);
+    const drawerHeaderRule = stylesheet.match(
+      /\.react-right-drawer__header,\s*\.react-command-palette > div\s*\{([^}]+)\}/,
+    );
+    const artifactDetailRule = stylesheet.match(/\.react-artifact-detail\s*\{([^}]+)\}/);
+
+    expect(conversationRule?.[1]).toContain("grid-auto-rows: max-content");
+    expect(drawerHeaderRule?.[1]).toContain("display: flex");
+    expect(artifactDetailRule?.[1]).toContain("min-width: 0");
+    expect(stylesheet).not.toContain(".react-right-drawer > div");
+  });
 });

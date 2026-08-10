@@ -584,6 +584,7 @@ fn chat_completion_request_exposes_only_foundational_model_tools() {
     assert!(request.get("parallel_tool_calls").is_none());
     assert!(names.contains(&"update_plan"));
     assert!(names.contains(&"tool_search"));
+    assert!(names.contains(&"publish_data_view"));
     assert!(names.contains(&"request_user_input"));
     assert!(!names.contains(&"workspace_read_file"));
     assert!(!names.contains(&"subagent_spawn"));

@@ -1997,6 +1997,227 @@ fn emits_tool_result_envelope_with_legacy_content_projection() {
 }
 
 #[test]
+fn publish_data_view_emits_a_persistable_artifact_and_continues_the_turn() {
+    let arguments = json!({
+        "schemaVersion": "tinybot.data_view.v1",
+        "title": "Quarterly revenue",
+        "insight": "Revenue increased in Q2.",
+        "dataset": {
+            "columns": [
+                { "key": "quarter", "label": "Quarter", "type": "category" },
+                { "key": "revenue", "label": "Revenue", "type": "number", "unit": "million" }
+            ],
+            "rows": [
+                { "id": "q1", "values": { "quarter": "Q1", "revenue": 100 } },
+                { "id": "q2", "values": { "quarter": "Q2", "revenue": 120 } }
+            ]
+        },
+        "view": {
+            "kind": "cartesian",
+            "x": "quarter",
+            "series": [{ "field": "revenue", "mark": "bar" }]
+        },
+        "provenance": {
+            "status": "user_provided",
+            "sources": [],
+            "caveats": []
+        }
+    })
+    .to_string();
+    let services = NativeAgentRuntimeServices::default();
+    let result = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runtime": "rust",
+            "turnId": "turn-data-view",
+            "sessionId": "websocket:chat-data-view",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "chart revenue" }]
+        }),
+        json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+            "providers": {
+                "fixture": {
+                    "responses": [
+                        {
+                            "content": "",
+                            "toolCalls": [{
+                                "id": "call-data-view",
+                                "name": "publish_data_view",
+                                "argumentsJson": arguments
+                            }]
+                        },
+                        { "content": "Revenue increased in Q2." }
+                    ]
+                }
+            }
+        }),
+    )
+    .expect("data view tool run should succeed");
+
+    assert_eq!(result["stopReason"], "final_response");
+    let tool_result = result["runtimeEvents"]
+        .as_array()
+        .expect("events should be an array")
+        .iter()
+        .find(|event| event["eventName"] == "agent.tool.result")
+        .expect("data view tool result should be emitted");
+    let envelope = &tool_result["payload"]["envelope"];
+    assert_eq!(envelope["status"], "ok");
+    assert_eq!(envelope["structured"]["kind"], "data_view_published");
+    assert_eq!(envelope["artifacts"][0]["kind"], "data_view");
+    assert_eq!(
+        envelope["artifacts"][0]["content"]["schemaVersion"],
+        "tinybot.data_view.v1"
+    );
+    assert_eq!(
+        result["completedToolResults"][0]["envelope"]["artifacts"][0]["id"],
+        envelope["artifacts"][0]["id"]
+    );
+}
+
+#[test]
+fn publish_data_view_handles_multiple_calls_from_one_provider_response() {
+    let tool_calls = [
+        ("call-data-view-1", "Revenue", "bar"),
+        ("call-data-view-2", "Profit", "line"),
+        ("call-data-view-3", "Cash flow", "bar"),
+    ]
+    .into_iter()
+    .map(|(id, title, mark)| {
+        json!({
+            "id": id,
+            "name": "publish_data_view",
+            "argumentsJson": json!({
+                "schemaVersion": "tinybot.data_view.v1",
+                "title": title,
+                "insight": format!("{title} increased in Q2."),
+                "dataset": {
+                    "columns": [
+                        { "key": "quarter", "label": "Quarter", "type": "category" },
+                        { "key": "value", "label": title, "type": "number" }
+                    ],
+                    "rows": [
+                        { "id": "q1", "values": { "quarter": "Q1", "value": 100 } },
+                        { "id": "q2", "values": { "quarter": "Q2", "value": 120 } }
+                    ]
+                },
+                "view": {
+                    "kind": "cartesian",
+                    "x": "quarter",
+                    "series": [{ "field": "value", "mark": mark }]
+                },
+                "provenance": {
+                    "status": "user_provided",
+                    "sources": [],
+                    "caveats": []
+                }
+            })
+            .to_string()
+        })
+    })
+    .collect::<Vec<_>>();
+    let services = NativeAgentRuntimeServices::default();
+    let result = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runtime": "rust",
+            "turnId": "turn-multiple-data-views",
+            "sessionId": "websocket:chat-multiple-data-views",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "show several charts" }]
+        }),
+        json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+            "providers": {
+                "fixture": {
+                    "responses": [
+                        { "content": "", "toolCalls": tool_calls },
+                        { "content": "Published three data views." }
+                    ]
+                }
+            }
+        }),
+    )
+    .expect("multiple data view tool calls should succeed");
+
+    assert_eq!(result["stopReason"], "final_response");
+    let completed = result["completedToolResults"]
+        .as_array()
+        .expect("completed tool results should be present");
+    assert_eq!(completed.len(), 3);
+    assert!(completed.iter().all(|result| {
+        result["envelope"]["status"] == "ok"
+            && result["envelope"]["artifacts"][0]["kind"] == "data_view"
+    }));
+    let result_call_ids = result["runtimeEvents"]
+        .as_array()
+        .expect("events should be an array")
+        .iter()
+        .filter(|event| event["eventName"] == "agent.tool.result")
+        .map(|event| event["payload"]["toolCallId"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        result_call_ids,
+        vec!["call-data-view-1", "call-data-view-2", "call-data-view-3"]
+    );
+}
+
+#[test]
+fn mixed_data_view_error_and_other_tool_success_are_both_returned_to_the_model() {
+    let services = NativeAgentRuntimeServices::default()
+        .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]));
+    let result = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runtime": "rust",
+            "turnId": "turn-mixed-data-view",
+            "sessionId": "websocket:chat-mixed-data-view",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "chart the workspace data" }]
+        }),
+        json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+            "providers": {
+                "fixture": {
+                    "responses": [
+                        {
+                            "content": "",
+                            "toolCalls": [
+                                {
+                                    "id": "call-data-view-mixed",
+                                    "name": "publish_data_view",
+                                    "argumentsJson": "{}"
+                                },
+                                {
+                                    "id": "call-read-mixed",
+                                    "name": "workspace.read_file",
+                                    "argumentsJson": "{\"path\":\"README.md\"}",
+                                    "result": { "content": "README body" }
+                                }
+                            ]
+                        },
+                        { "content": "handled mixed data view results" }
+                    ]
+                }
+            }
+        }),
+    )
+    .expect("mixed data view rejection and tool success should both reach the model");
+
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["finalContent"], "handled mixed data view results");
+    let completed = result["completedToolResults"]
+        .as_array()
+        .expect("completed tool results should be present");
+    assert_eq!(completed.len(), 2);
+    assert_eq!(completed[0]["toolCallId"], "call-data-view-mixed");
+    assert_eq!(completed[0]["status"], "error");
+    assert_eq!(completed[1]["toolCallId"], "call-read-mixed");
+    assert_eq!(completed[1]["status"], "ok");
+}
+
+#[test]
 fn subagent_tools_share_manager_state_without_copying_child_transcript_to_parent() {
     let services = NativeAgentRuntimeServices::default().with_test_tool_registry_entries(
         test_registry_with_model_tools(&[

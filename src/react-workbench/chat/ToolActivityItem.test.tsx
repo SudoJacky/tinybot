@@ -115,4 +115,19 @@ describe("ToolActivityItem", () => {
     expect(screen.getByText("error[E0308]: mismatched types")).toBeTruthy();
     expect(screen.queryByText(/\{\"stderr\"/)).toBeNull();
   });
+
+  it("labels a failed data view publication as failed", () => {
+    render(<ToolActivityItem
+      status="failed"
+      toolCall={{
+        argsJson: {},
+        id: "data-view-failed",
+        name: "publish_data_view",
+        resultPreview: "data_view_invalid_shape: missing field insight",
+      }}
+    />);
+
+    expect(screen.getByText("Data view publication failed")).toBeTruthy();
+    expect(screen.getByText("Failed")).toBeTruthy();
+  });
 });

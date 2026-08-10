@@ -726,6 +726,7 @@ fn legacy_item_data(
             ),
             name: item_string(payload, &["toolName", "tool_name", "name"]).unwrap_or_default(),
             status: item_string(payload, &["status"]).unwrap_or_else(|| "running".to_string()),
+            result_status: item_string(payload, &["resultStatus", "result_status"]),
             args: payload
                 .get("arguments")
                 .or_else(|| payload.get("args"))

@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 pub const TOOL_SEARCH_METHOD: &str = "tool_search";
 pub const REQUEST_USER_INPUT_METHOD: &str = "request_user_input";
+pub const PUBLISH_DATA_VIEW_METHOD: &str = "publish_data_view";
 pub const UPDATE_PLAN_METHOD: &str = "update_plan";
 pub const DEFAULT_TOOL_SEARCH_LIMIT: usize = 5;
 pub const MAX_TOOL_SEARCH_LIMIT: usize = 20;
@@ -88,6 +89,7 @@ pub enum ToolExecutionTarget {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ToolRuntimeControl {
     ToolSearch,
+    PublishDataView,
     RequestUserInput,
     UpdatePlan,
 }
@@ -371,6 +373,90 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
                         "minimum": 1,
                         "maximum": MAX_TOOL_SEARCH_LIMIT,
                         "default": DEFAULT_TOOL_SEARCH_LIMIT
+                    }
+                },
+                "additionalProperties": false
+            }),
+        ),
+        runtime_control_tool(
+            PUBLISH_DATA_VIEW_METHOD,
+            "presentation",
+            "Publish data view",
+            "Publish a validated chart, KPI summary, waterfall, or exact data table as an inline chat artifact when a visual makes the analysis materially easier to understand. Submit typed rows, semantic encodings, reporting units, and provenance. Use the smallest useful view and do not publish decorative or redundant charts. The runtime owns rendering; never include HTML, JavaScript, SVG, callbacks, or renderer-specific options.",
+            ToolRuntimeControl::PublishDataView,
+            runtime_policy(false, ToolCancellationMode::Cooperative, false, true),
+            vec![WorkerCapability::SessionWrite],
+            json!({
+                "type": "object",
+                "required": ["schemaVersion", "title", "insight", "dataset", "view", "provenance"],
+                "properties": {
+                    "schemaVersion": { "type": "string", "const": "tinybot.data_view.v1" },
+                    "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+                    "insight": { "type": "string", "minLength": 1, "maxLength": 500 },
+                    "dataset": {
+                        "type": "object",
+                        "required": ["columns", "rows"],
+                        "properties": {
+                            "columns": {
+                                "type": "array", "minItems": 1, "maxItems": 20,
+                                "items": {
+                                    "type": "object", "required": ["key", "label", "type"],
+                                    "properties": {
+                                        "key": { "type": "string" },
+                                        "label": { "type": "string" },
+                                        "type": { "type": "string", "enum": ["category", "string", "number", "date", "datetime", "boolean"] },
+                                        "format": { "type": "string", "enum": ["number", "integer", "compact", "percent", "currency"] },
+                                        "currency": { "type": "string", "description": "Three-letter ISO 4217 code, for example USD." },
+                                        "unit": { "type": "string", "description": "Display unit only; values must already use this unit." },
+                                        "fractionDigits": { "type": "integer", "minimum": 0, "maximum": 4 }
+                                    },
+                                    "additionalProperties": false
+                                }
+                            },
+                            "rows": {
+                                "type": "array", "minItems": 1, "maxItems": 1000,
+                                "items": {
+                                    "type": "object", "required": ["id", "values"],
+                                    "properties": {
+                                        "id": { "type": "string" },
+                                        "values": { "type": "object", "description": "Keys must match declared columns; values must match column types. Null is allowed for missing data." },
+                                        "sourceIds": { "type": "array", "items": { "type": "string" } }
+                                    },
+                                    "additionalProperties": false
+                                }
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "view": {
+                        "type": "object",
+                        "required": ["kind"],
+                        "description": "metrics: items[{field,comparisonField?,direction?}]; table: fields? and defaultSort?; cartesian: x, series[{field,mark:line|bar|area,axis:left|right?}], stack:none|normal?; waterfall: category, value, totalField?. At most six metrics or series."
+                    },
+                    "provenance": {
+                        "type": "object", "required": ["status"],
+                        "properties": {
+                            "status": { "type": "string", "enum": ["sourced", "user_provided", "unsourced"] },
+                            "asOf": { "type": "string" },
+                            "sources": {
+                                "type": "array", "maxItems": 64,
+                                "items": {
+                                    "type": "object", "required": ["id", "kind", "title"],
+                                    "properties": {
+                                        "id": { "type": "string" },
+                                        "kind": { "type": "string", "enum": ["url", "file", "user_input"] },
+                                        "title": { "type": "string" },
+                                        "uri": { "type": "string" },
+                                        "locator": { "type": "string" },
+                                        "publishedAt": { "type": "string" }
+                                    },
+                                    "additionalProperties": false
+                                }
+                            },
+                            "methodology": { "type": "string" },
+                            "caveats": { "type": "array", "items": { "type": "string" } }
+                        },
+                        "additionalProperties": false
                     }
                 },
                 "additionalProperties": false

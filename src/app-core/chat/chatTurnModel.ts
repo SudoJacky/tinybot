@@ -1,10 +1,12 @@
 import type { AgentInputReference } from "./agentInputReference";
+import { parseDataViewDocument, type DataViewDocument } from "./dataView";
 
 export type ChatTurnStatus = "pending" | "running" | "awaiting_user" | "completed" | "failed" | "interrupted";
 export type ChatStepStatus = "pending" | "running" | "blocked" | "completed" | "failed" | "cancelled";
 export type AssistantMessagePhase = "unknown" | "commentary" | "final_answer";
 export type AgentContextType = "main" | "spawn" | "subagent" | "team";
 export type ArtifactKind =
+  | "data_view"
   | "terminal_output"
   | "file_diff"
   | "browser_snapshot"
@@ -21,6 +23,8 @@ export type AgentContext = {
 };
 
 export type ArtifactRef = {
+  dataView?: DataViewDocument;
+  dataViewError?: string;
   fetchPath?: string;
   id: string;
   kind: ArtifactKind | string;
@@ -29,6 +33,7 @@ export type ArtifactRef = {
   sizeBytes?: number;
   status?: string;
   title: string;
+  warnings?: string[];
 };
 
 export type TokenUsage = {
@@ -106,6 +111,7 @@ export type DelegatedAgentTraceState = {
 };
 
 export type LoadedArtifactDetail = {
+  dataView?: DataViewDocument;
   id: string;
   imageDataUrl?: string;
   mimeType?: string;
@@ -128,8 +134,12 @@ export function projectLoadedArtifactDetail(
   }
   const content = stringValue(artifact.content ?? artifact.preview);
   const mimeType = stringValue(artifact.mimeType ?? artifact.mime_type) || reference.mimeType;
+  const dataView = reference.kind === "data_view"
+    ? parseDataViewDocument(artifact.content ?? reference.dataView)
+    : undefined;
   const imageDataUrl = safeRasterImageDataUrl(content);
   return {
+    ...(dataView ? { dataView } : {}),
     id,
     ...(imageDataUrl ? { imageDataUrl } : {}),
     ...(mimeType ? { mimeType } : {}),
@@ -623,9 +633,13 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem): void {
   }
   if (item.kind === "tool_call") {
     const toolCall = toolCallFromRuntimeItem(item);
+    const envelope = recordValue(item.data.result);
+    const resultStatus = stringValue(item.data.resultStatus ?? envelope.status);
+    const toolStatus = resultStatus === "error" || resultStatus === "denied" ? "failed" : status;
     turn.steps.push(runtimeStep(item, sequence, {
+      artifacts: artifactArray(envelope.artifacts),
       kind: "tool_call",
-      status,
+      status: toolStatus,
       title: item.title || toolCall.name,
       toolCall,
     }));
@@ -993,15 +1007,30 @@ export function sanitizeTextPreview(value: string): string {
 function artifactFromPayload(value: unknown): ArtifactRef {
   const payload = recordValue(value);
   const fetchPath = stringValue(payload.fetch_path ?? payload.fetchPath);
+  const kind = stringValue(payload.kind) || "text";
+  let dataView: DataViewDocument | undefined;
+  let dataViewError: string | undefined;
+  if (kind === "data_view") {
+    try {
+      dataView = parseDataViewDocument(payload.content);
+    } catch (error) {
+      dataViewError = error instanceof Error ? error.message : String(error);
+    }
+  }
   return {
+    ...(dataView ? { dataView } : {}),
+    ...(dataViewError ? { dataViewError } : {}),
     ...(fetchPath ? { fetchPath } : {}),
     id: stringValue(payload.id ?? payload.artifact_id) || "artifact",
-    kind: stringValue(payload.kind) || "text",
+    kind,
     mimeType: stringValue(payload.mime_type ?? payload.mimeType),
     preview: safeArtifactText(stringValue(payload.preview)),
     sizeBytes: numberValue(payload.size_bytes ?? payload.sizeBytes),
     status: stringValue(payload.status) || "available",
     title: stringValue(payload.title) || stringValue(payload.id ?? payload.artifact_id) || "Artifact",
+    warnings: Array.isArray(payload.warnings)
+      ? payload.warnings.map(stringValue).filter(Boolean)
+      : undefined,
   };
 }
 
