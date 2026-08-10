@@ -2164,6 +2164,60 @@ fn publish_data_view_handles_multiple_calls_from_one_provider_response() {
 }
 
 #[test]
+fn mixed_data_view_error_and_other_tool_success_are_both_returned_to_the_model() {
+    let services = NativeAgentRuntimeServices::default()
+        .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]));
+    let result = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runtime": "rust",
+            "turnId": "turn-mixed-data-view",
+            "sessionId": "websocket:chat-mixed-data-view",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "chart the workspace data" }]
+        }),
+        json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+            "providers": {
+                "fixture": {
+                    "responses": [
+                        {
+                            "content": "",
+                            "toolCalls": [
+                                {
+                                    "id": "call-data-view-mixed",
+                                    "name": "publish_data_view",
+                                    "argumentsJson": "{}"
+                                },
+                                {
+                                    "id": "call-read-mixed",
+                                    "name": "workspace.read_file",
+                                    "argumentsJson": "{\"path\":\"README.md\"}",
+                                    "result": { "content": "README body" }
+                                }
+                            ]
+                        },
+                        { "content": "handled mixed data view results" }
+                    ]
+                }
+            }
+        }),
+    )
+    .expect("mixed data view rejection and tool success should both reach the model");
+
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["finalContent"], "handled mixed data view results");
+    let completed = result["completedToolResults"]
+        .as_array()
+        .expect("completed tool results should be present");
+    assert_eq!(completed.len(), 2);
+    assert_eq!(completed[0]["toolCallId"], "call-data-view-mixed");
+    assert_eq!(completed[0]["status"], "error");
+    assert_eq!(completed[1]["toolCallId"], "call-read-mixed");
+    assert_eq!(completed[1]["status"], "ok");
+}
+
+#[test]
 fn subagent_tools_share_manager_state_without_copying_child_transcript_to_parent() {
     let services = NativeAgentRuntimeServices::default().with_test_tool_registry_entries(
         test_registry_with_model_tools(&[

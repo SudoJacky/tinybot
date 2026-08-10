@@ -308,19 +308,19 @@ pub(super) async fn execute_tool_calls_for_iteration(
             .iter()
             .any(|tool_call| tool_call.name != PUBLISH_DATA_VIEW_METHOD)
         {
-            let tool_call = tool_calls
-                .iter()
-                .find(|tool_call| tool_call.name == PUBLISH_DATA_VIEW_METHOD)
-                .expect("publish_data_view presence was checked");
-            return tool_error_result(
-                services,
-                context,
-                state,
-                iteration,
-                tool_call,
-                "publish_data_view cannot be mixed with other tools in its provider response"
-                    .to_string(),
-            );
+            let (data_view_calls, other_tool_calls): (Vec<_>, Vec<_>) = tool_calls
+                .into_iter()
+                .partition(|tool_call| tool_call.name == PUBLISH_DATA_VIEW_METHOD);
+            for tool_call in data_view_calls {
+                record_tool_failure(
+                    context,
+                    state,
+                    iteration,
+                    &tool_call,
+                    "publish_data_view cannot be mixed with other tools in its provider response",
+                )?;
+            }
+            return execute_tool_batch(services, context, state, iteration, other_tool_calls).await;
         }
         return execute_publish_data_views(services, context, state, iteration, tool_calls);
     }

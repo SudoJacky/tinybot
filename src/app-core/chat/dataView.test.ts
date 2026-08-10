@@ -47,6 +47,27 @@ describe("data view contract", () => {
     expect(formatDataViewCell(document.dataset.columns[2], 3.1, "en-US")).toBe("3.1%");
   });
 
+  test("neutralizes spreadsheet formulas in CSV text while preserving negative numbers", () => {
+    const input = validView();
+    input.dataset.columns[0].label = "=Formula";
+    input.dataset.rows = ["=1+1", "+SUM(A1:A2)", "-42", "@cmd", "\t=cmd", "\r=cmd"].map((period, index) => ({
+      id: `row${index}`,
+      values: { period, revenue: -100 - index, growth: 0 },
+      sourceIds: ["filing"],
+    }));
+
+    const csv = dataViewToCsv(parseDataViewDocument(input));
+
+    expect(csv).toContain("\uFEFF'=Formula,Revenue,Growth\r\n");
+    expect(csv).toContain("'=1+1,-100,0");
+    expect(csv).toContain("'+SUM(A1:A2),-101,0");
+    expect(csv).toContain("'-42,-102,0");
+    expect(csv).toContain("'@cmd,-103,0");
+    expect(csv).toContain("'\t=cmd,-104,0");
+    expect(csv).toContain("\"'\r=cmd\",-105,0");
+    expect(csv).not.toContain("'-100");
+  });
+
   test("parses persisted artifacts whose absent optional fields were serialized as null", () => {
     const document = parseDataViewDocument({
       schemaVersion: "tinybot.data_view.v1",

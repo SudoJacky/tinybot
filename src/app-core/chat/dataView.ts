@@ -308,7 +308,10 @@ export function formatDataViewCell(column: DataViewColumn, value: DataViewCell |
 }
 
 function csvCell(value: DataViewCell | undefined): string {
-  const text = value === null || value === undefined ? "" : String(value);
+  let text = value === null || value === undefined ? "" : String(value);
+  if (typeof value === "string" && /^[=+\-@\t\r]/.test(text)) {
+    text = `'${text}`;
+  }
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
