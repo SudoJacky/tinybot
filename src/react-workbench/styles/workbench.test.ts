@@ -35,4 +35,19 @@ describe("workbench CSS interaction contracts", () => {
     expect(artifactDetailRule?.[1]).toContain("min-width: 0");
     expect(stylesheet).not.toContain(".react-right-drawer > div");
   });
+
+  test("centers a bounded conversation track on wide windows", () => {
+    const conversationRule = stylesheet.match(/\.react-conversation-view\s*\{([^}]+)\}/);
+
+    expect(conversationRule?.[1]).toContain("grid-template-columns: minmax(0, min(920px, 100%))");
+    expect(conversationRule?.[1]).toContain("justify-content: center");
+  });
+
+  test("routes appearance controls through shared theme tokens", () => {
+    expect(stylesheet).toContain("--color-panel:");
+    expect(stylesheet).toContain("--color-accent: var(--color-primary)");
+    expect(stylesheet).toContain("font-family: var(--font-ui)");
+    expect(stylesheet).toContain("background: var(--sidebar-background)");
+    expect(stylesheet).toContain(".react-theme-mode-grid");
+  });
 });

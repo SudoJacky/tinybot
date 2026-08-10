@@ -29,6 +29,7 @@ import {
   Search,
   Settings,
   Square,
+  SunMoon,
   WandSparkles,
   X,
   type LucideIcon,
@@ -39,8 +40,10 @@ import { readCurrentChatModel } from "../../app-core/chat/chatModelPreference";
 import { ChatPage } from "../chat/ChatPage";
 import { MemoryPage } from "../memory/MemoryPage";
 import { AgentDefaultsSettingsPage } from "../settings/AgentDefaultsSettingsPage";
+import { AppAppearanceProvider, useAppAppearance } from "../settings/AppAppearanceContext";
 import { AppLanguageProvider } from "../settings/AppLanguageContext";
 import { AppSettingsPage } from "../settings/AppSettingsPage";
+import { AppearanceSettingsPage } from "../settings/AppearanceSettingsPage";
 import { ConfigSettingsPage, type ConfigSettingsGroupId } from "../settings/ConfigSettingsPage";
 import { ProviderModelsSettingsPage } from "../settings/ProviderModelsSettingsPage";
 import type { AppServices, PluginMigrationJob, PluginSummary, ToolCatalogSummary, WorkspaceFileSummary } from "../services";
@@ -199,13 +202,16 @@ function createTopMenuItems(
 export function DesktopShell(props: DesktopShellProps) {
   return (
     <AppLanguageProvider>
-      <DesktopShellContent {...props} />
+      <AppAppearanceProvider>
+        <DesktopShellContent {...props} />
+      </AppAppearanceProvider>
     </AppLanguageProvider>
   );
 }
 
 function DesktopShellContent({ now, services, updateClient, windowControls }: DesktopShellProps) {
   const { t } = useTranslation("common");
+  const { toggleTheme } = useAppAppearance();
   const routeLabels = createRouteLabels(t);
   const topMenuItems = createTopMenuItems(t, routeLabels);
   const [routeHistory, setRouteHistory] = useState<RouteHistory>({
@@ -354,7 +360,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
         stopActiveGeneration();
         return;
       case "toggle-theme":
-        document.documentElement.dataset.theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+        toggleTheme();
         return;
       case "toggle-sidebar":
         setSidebarMotionSource(source);
@@ -1124,6 +1130,8 @@ function SettingsPage({ services }: { services: AppServices }) {
         >
           {activeModuleId === "app" ? (
             <AppSettingsPage />
+          ) : activeModuleId === "appearance" ? (
+            <AppearanceSettingsPage />
           ) : activeModuleId === "agent-defaults" ? (
             <AgentDefaultsSettingsPage
               onNavigateToProviderModels={() => setActiveSettingsModuleId("provider-models")}
@@ -1157,7 +1165,7 @@ function SettingsPage({ services }: { services: AppServices }) {
   );
 }
 
-type SettingsModuleId = "app" | "provider-models" | "agent-defaults" | ConfigSettingsGroupId;
+type SettingsModuleId = "app" | "appearance" | "provider-models" | "agent-defaults" | ConfigSettingsGroupId;
 
 type SettingsModule = {
   id: SettingsModuleId;
@@ -1170,6 +1178,7 @@ type SettingsModule = {
 function createSettingsModules(t: TFunction<"settings">): SettingsModule[] {
   return [
     { id: "app", label: t("modules.app.label"), description: t("modules.app.description"), icon: AppWindow },
+    { id: "appearance", label: t("modules.appearance.label"), description: t("modules.appearance.description"), icon: SunMoon },
     { id: "provider-models", label: t("modules.providers.label"), description: t("modules.providers.description"), icon: Cloud },
     { id: "agent-defaults", label: t("modules.agent.label"), description: t("modules.agent.description"), icon: Bot },
     { id: "tools-mcp", label: t("modules.tools.label"), description: t("modules.tools.description"), icon: Cable, groupId: "tools-mcp" },

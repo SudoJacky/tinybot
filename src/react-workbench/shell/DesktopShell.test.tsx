@@ -13,6 +13,7 @@ import { timelineFromReactMessages } from "../chat/testTimelineFixtures";
 import { unavailableTinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
 import type { DesktopUpdateClient, DesktopUpdateSnapshot } from "../../app-core/native/desktopNativeUpdate";
 import { pickDesktopPluginMigrationDirectory } from "../../app-core/native/desktopNativePluginPicker";
+import { APPEARANCE_STORAGE_KEY } from "../../app-core/settings/appAppearance";
 
 vi.mock("../../app-core/native/desktopNativePluginPicker", () => ({
   pickDesktopPluginDirectory: vi.fn(),
@@ -328,6 +329,19 @@ describe("DesktopShell", () => {
     for (const item of ["Shortcut Help", "Page Help", "Backend Logs", "Open native workbench", "Tinybot repo"]) {
       expect(within(moreHelpMenu).getByRole("menuitem", { name: new RegExp(item) })).toBeTruthy();
     }
+  });
+
+  it("persists the App menu theme command through the shared appearance preference", async () => {
+    const user = userEvent.setup();
+    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={createServices()} />);
+
+    expect(document.documentElement.dataset.theme).toBe("light");
+    await user.click(screen.getByRole("button", { name: "App" }));
+    await user.click(within(screen.getByRole("menu", { name: "Application menu" }))
+      .getByRole("menuitem", { name: /Toggle Theme/ }));
+
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(JSON.parse(window.localStorage.getItem(APPEARANCE_STORAGE_KEY) ?? "{}").mode).toBe("dark");
   });
 
   it("opens About Tinybot from the App menu and checks for updates on demand", async () => {

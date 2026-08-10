@@ -2787,12 +2787,13 @@ describe("ChatPage", () => {
     expect(css).not.toMatch(/\.react-canonical-scoped-errors\s*{[^}]*border-left:/s);
   });
 
-  it("uses sans-serif assistant prose and modern monospace code", () => {
+  it("uses configurable sans-serif assistant prose and modern monospace code", () => {
     const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
 
     expect(css).toMatch(
-      /\.react-message-markdown\s*{[^}]*font-family:\s*Inter, "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", Arial, sans-serif;/s,
+      /\.react-message-markdown\s*{[^}]*font-family:\s*var\(--font-ui\);/s,
     );
+    expect(css).toContain('Inter, "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC"');
     expect(css).toMatch(
       /--font-code:\s*"JetBrains Mono", "Cascadia Code", "Cascadia Mono", Consolas, "Liberation Mono", monospace;/,
     );

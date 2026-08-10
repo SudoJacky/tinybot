@@ -1,5 +1,7 @@
 :root {
   --color-canvas: #faf9f5;
+  --color-panel: #fff;
+  --color-panel-warm: #fffdfa;
   --color-surface-soft: #f5f0e8;
   --color-surface-card: #efe9de;
   --color-cream-strong: #e8e0d2;
@@ -9,17 +11,23 @@
   --color-muted-soft: #8e8b82;
   --color-primary: #cc785c;
   --color-primary-active: #a9583e;
+  --color-on-primary: #fff;
+  --color-accent: var(--color-primary);
+  --color-surface: var(--color-panel);
   --color-hairline: #e6dfd8;
   --color-success: #5db872;
   --color-warning: #d4a017;
   --color-error: #c64545;
+  --font-ui: Inter, "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Arial, sans-serif;
   --font-code: "JetBrains Mono", "Cascadia Code", "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+  --sidebar-background: var(--color-surface-soft);
+  --sidebar-backdrop-filter: none;
   --motion-duration-fast: 160ms;
   --motion-duration-medium: 220ms;
   --motion-duration-text: 720ms;
   --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --motion-ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
-  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-ui);
   color: var(--color-ink);
   background: var(--color-canvas);
 }
@@ -73,7 +81,7 @@ button:disabled {
   min-height: 100vh;
   gap: 12px;
   padding: 40px;
-  background: #fff;
+  background: var(--color-panel);
   color: var(--color-ink);
 }
 
@@ -98,7 +106,7 @@ button:disabled {
   border-radius: 8px;
   background: var(--color-ink);
   padding: 0 12px;
-  color: #fff;
+  color: var(--color-canvas);
   font-size: 12px;
   font-weight: 650;
 }
@@ -288,7 +296,7 @@ button:disabled {
   width: 238px;
   border: 1px solid var(--color-hairline);
   border-radius: 9px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 6px;
   box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
   opacity: 1;
@@ -362,7 +370,7 @@ button:disabled {
   width: 238px;
   border: 1px solid var(--color-hairline);
   border-radius: 9px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 6px;
   box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
   opacity: 1;
@@ -413,7 +421,7 @@ button:disabled {
   min-height: 20px;
   border: 1px solid var(--color-hairline);
   border-radius: 5px;
-  background: #fbfaf8;
+  background: var(--color-panel);
   color: var(--color-muted);
   padding: 0 5px;
   font-size: 11px;
@@ -438,7 +446,7 @@ button:disabled {
   overflow: auto;
   border: 1px solid color-mix(in srgb, var(--color-hairline) 88%, var(--color-primary));
   border-radius: 16px;
-  background: #fff;
+  background: var(--color-panel);
   box-shadow: 0 28px 80px rgb(38 31 25 / 22%);
   animation: desktop-update-dialog-enter var(--motion-duration-medium) var(--motion-ease-standard) both;
 }
@@ -458,7 +466,7 @@ button:disabled {
   height: 44px;
   place-items: center;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--color-primary) 11%, white);
+  background: color-mix(in srgb, var(--color-primary) 11%, var(--color-panel));
   color: var(--color-primary-active);
 }
 
@@ -553,7 +561,7 @@ button:disabled {
 
 .desktop-update-dialog__notice {
   border-left: 3px solid var(--color-warning);
-  background: color-mix(in srgb, var(--color-warning) 8%, white);
+  background: color-mix(in srgb, var(--color-warning) 8%, var(--color-panel));
   padding: 11px 13px;
 }
 
@@ -660,7 +668,7 @@ button:disabled {
 .desktop-update-dialog__actions .desktop-update-dialog__primary {
   border-color: var(--color-primary-active);
   background: var(--color-primary-active);
-  color: #fff;
+  color: var(--color-on-primary);
 }
 
 .desktop-update-dialog__actions .desktop-update-dialog__primary:hover,
@@ -728,7 +736,8 @@ button:disabled {
   min-height: 0;
   overflow: hidden;
   border-right: 1px solid var(--color-hairline);
-  background: var(--color-surface-soft);
+  background: var(--sidebar-background);
+  backdrop-filter: var(--sidebar-backdrop-filter);
   transition: width var(--motion-duration-medium) var(--motion-ease-standard);
 }
 
@@ -793,7 +802,7 @@ button:disabled {
   gap: 6px;
   min-height: 34px;
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
   padding: 0 10px;
   font-size: 12px;
 }
@@ -913,7 +922,7 @@ button:disabled {
   margin: 0;
   border: 1px solid color-mix(in srgb, var(--color-error) 28%, transparent);
   border-radius: 7px;
-  background: color-mix(in srgb, var(--color-error) 7%, #fff);
+  background: color-mix(in srgb, var(--color-error) 7%, var(--color-panel));
   padding: 7px 8px;
   color: var(--color-error);
   font-size: 10px;
@@ -1031,7 +1040,7 @@ button:disabled {
 
 .react-session-workspace__new:hover,
 .react-session-workspace__new:focus-visible {
-  background: color-mix(in srgb, #fff 72%, transparent);
+  background: color-mix(in srgb, var(--color-panel) 72%, transparent);
   color: var(--color-ink);
   opacity: 1;
 }
@@ -1137,7 +1146,7 @@ button:disabled {
 
 .react-session-row__delete:hover,
 .react-session-row__delete:focus-visible {
-  background: #fff;
+  background: var(--color-panel);
 }
 
 .react-session-row:hover .react-session-row__delete,
@@ -1148,7 +1157,7 @@ button:disabled {
 }
 
 .react-session-row__delete[data-confirming="true"] {
-  background: #f8dede;
+  background: color-mix(in srgb, var(--color-error) 12%, var(--color-panel));
   color: var(--color-error);
 }
 
@@ -1189,7 +1198,7 @@ button:disabled {
   gap: 0;
   padding: 0 8px 0 0;
   border-bottom: 1px solid var(--color-hairline);
-  background: color-mix(in srgb, var(--color-canvas) 92%, #fff);
+  background: color-mix(in srgb, var(--color-canvas) 92%, var(--color-panel));
 }
 
 .react-chat-surface[data-empty-session="true"] .react-chat-header {
@@ -1388,7 +1397,7 @@ button:disabled {
   padding: 6px;
   border: 1px solid var(--color-hairline);
   border-radius: 10px;
-  background: color-mix(in srgb, #fff 94%, var(--color-canvas));
+  background: color-mix(in srgb, var(--color-panel) 94%, var(--color-canvas));
   box-shadow: 0 18px 44px rgb(61 50 39 / 13%);
 }
 
@@ -1489,7 +1498,7 @@ button:disabled {
   padding: 6px;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-panel);
   box-shadow: 0 18px 44px rgb(20 20 19 / 12%);
   opacity: 1;
   transform: translateY(0) scale(1);
@@ -1510,8 +1519,10 @@ button:disabled {
 
 .react-conversation-view {
   display: grid;
+  grid-template-columns: minmax(0, min(920px, 100%));
   grid-auto-rows: max-content;
   align-content: start;
+  justify-content: center;
   gap: 16px;
   min-height: 0;
   overflow: auto;
@@ -1572,7 +1583,7 @@ button:disabled {
 .react-empty-chat-prompts button:hover,
 .react-empty-chat-prompts button:focus-visible {
   border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-hairline));
-  background: color-mix(in srgb, var(--color-primary) 6%, #fff);
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-panel));
 }
 
 .react-back-to-latest {
@@ -1583,7 +1594,7 @@ button:disabled {
   min-height: 36px;
   border: 1px solid var(--color-hairline);
   border-radius: 999px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 0 14px;
   box-shadow: 0 6px 20px rgb(20 20 19 / 12%);
   color: var(--color-body);
@@ -1841,14 +1852,14 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .react-live-canvas__status[data-status="completed"] {
-  background: #eaf8ef;
-  color: #237a43;
+  background: color-mix(in srgb, var(--color-success) 10%, var(--color-panel));
+  color: var(--color-success);
 }
 
 .react-live-canvas__status[data-status="failed"],
 .react-live-canvas__status[data-status="blocked"],
 .react-live-canvas__status[data-status="cancelled"] {
-  background: #fff0ed;
+  background: color-mix(in srgb, var(--color-error) 10%, var(--color-panel));
   color: #a13b2b;
 }
 
@@ -2170,7 +2181,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-hairline));
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-primary) 6%, rgb(255 255 255 / 72%));
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-panel));
   padding: 4px 8px;
   color: color-mix(in srgb, var(--color-primary) 82%, var(--color-body)) !important;
   text-overflow: ellipsis;
@@ -2694,7 +2705,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-window__content {
   min-height: 0;
   overflow: auto;
-  background: rgb(255 255 255 / 72%);
+  background: color-mix(in srgb, var(--color-panel) 72%, transparent);
 }
 
 .tinyos-window__resize-handle {
@@ -2724,7 +2735,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   align-items: center;
   gap: 4px;
   border-radius: 999px;
-  background: #f1eee8;
+  background: var(--color-surface-card);
   padding: 3px 6px;
   color: #6f6a61;
   font-size: 8px;
@@ -2732,10 +2743,10 @@ button.tinyos-overlay-backdrop:focus-visible {
   white-space: nowrap;
 }
 
-.tinyos-status[data-status="completed"] { background: #e7f6eb; color: #267b46; }
+.tinyos-status[data-status="completed"] { background: color-mix(in srgb, var(--color-success) 10%, var(--color-panel)); color: var(--color-success); }
 .tinyos-status[data-status="failed"],
 .tinyos-status[data-status="cancelled"],
-.tinyos-status[data-status="blocked"] { background: #fff0ed; color: #a13b2b; }
+.tinyos-status[data-status="blocked"] { background: color-mix(in srgb, var(--color-error) 10%, var(--color-panel)); color: var(--color-error); }
 
 .tinyos-files {
   display: grid;
@@ -2751,7 +2762,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 3px;
   overflow: auto;
   border-right: 1px solid rgb(75 67 57 / 10%);
-  background: #f3f0e9;
+  background: var(--color-surface-soft);
   padding: 10px 7px;
 }
 
@@ -2789,7 +2800,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-files > aside > button:hover,
 .tinyos-files > aside > button:focus-visible,
 .tinyos-files > aside > button[data-active="true"] {
-  background: color-mix(in srgb, var(--color-primary) 10%, #fff);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-panel));
   color: var(--color-primary);
 }
 
@@ -2808,7 +2819,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  background: #fffdfa;
+  background: var(--color-panel-warm);
 }
 
 .tinyos-app-tabs {
@@ -2819,7 +2830,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 2px;
   overflow-x: auto;
   border-bottom: 1px solid rgb(75 67 57 / 10%);
-  background: #f7f4ee;
+  background: var(--color-surface-soft);
   padding: 4px 6px 0;
 }
 
@@ -2837,7 +2848,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .tinyos-app-tabs > button[data-active="true"] {
-  background: #fffdfa;
+  background: var(--color-panel-warm);
   color: var(--color-ink);
 }
 
@@ -2972,7 +2983,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   grid-template-columns: minmax(150px, 30%) minmax(0, 1fr);
   height: 100%;
   min-height: 0;
-  background: #fffdfa;
+  background: var(--color-panel-warm);
 }
 
 .tinyos-workspace-explorer[data-layout="compact"] {
@@ -2985,7 +2996,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-width: 0;
   min-height: 0;
   border-right: 1px solid rgb(75 67 57 / 10%);
-  background: #f3f0e9;
+  background: var(--color-surface-soft);
 }
 
 .tinyos-workspace-explorer__tree > header,
@@ -3010,7 +3021,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .tinyos-workspace-explorer__tree > header > button[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--color-primary) 10%, white);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-panel));
   color: var(--color-primary);
 }
 
@@ -3042,7 +3053,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   margin: 6px;
   border: 1px solid rgb(75 67 57 / 12%);
   border-radius: 6px;
-  background: #fffdfa;
+  background: var(--color-panel-warm);
   padding: 0 7px;
   color: var(--color-muted);
 }
@@ -3080,7 +3091,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .tinyos-workspace-local-view > button:hover,
 .tinyos-workspace-local-view > button:focus-visible {
-  background: color-mix(in srgb, var(--color-primary) 9%, white);
+  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-panel));
 }
 
 .tinyos-workspace-local-view > button > span,
@@ -3117,7 +3128,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-workspace-tree__entry:hover,
 .tinyos-workspace-tree__entry:focus-visible,
 .tinyos-workspace-tree__entry[data-active="true"] {
-  background: color-mix(in srgb, var(--color-primary) 9%, #fff);
+  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-panel));
   color: var(--color-primary);
 }
 
@@ -3163,7 +3174,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .tinyos-workspace-explorer__message button {
   border-radius: 5px;
-  background: color-mix(in srgb, var(--color-primary) 10%, #fff);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-panel));
   padding: 4px 7px;
   color: var(--color-primary);
 }
@@ -3178,7 +3189,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 2px;
   border: 1px solid var(--color-hairline);
   border-radius: 9px;
-  background: #fffdfa;
+  background: var(--color-panel-warm);
   padding: 5px;
   box-shadow: 0 14px 36px rgb(45 36 28 / 18%);
 }
@@ -3191,7 +3202,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .tinyos-file-open-with > button:hover,
-.tinyos-file-open-with > button:focus-visible { background: color-mix(in srgb, var(--color-primary) 8%, white); }
+.tinyos-file-open-with > button:focus-visible { background: color-mix(in srgb, var(--color-primary) 8%, var(--color-panel)); }
 
 .tinyos-file-resource-meta {
   display: grid;
@@ -3204,7 +3215,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .tinyos-file-resource-meta > div {
   min-width: 0;
-  background: #faf7f1;
+  background: var(--color-panel-warm);
   padding: 5px 7px;
 }
 
@@ -3240,7 +3251,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-file-operation-queue > header { border-bottom: 1px solid var(--color-hairline); font-size: 9px; }
 .tinyos-file-operation-queue > article { border-radius: 6px; font-size: 8px; }
 .tinyos-file-operation-queue > article[data-state="conflict"],
-.tinyos-file-operation-queue > article[data-state="failed"] { background: color-mix(in srgb, var(--color-error) 7%, white); color: var(--color-error); }
+.tinyos-file-operation-queue > article[data-state="failed"] { background: color-mix(in srgb, var(--color-error) 7%, var(--color-panel)); color: var(--color-error); }
 .tinyos-file-operation-queue strong,
 .tinyos-file-operation-queue small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tinyos-file-operation-queue small { color: var(--color-muted); font-size: 7px; }
@@ -3250,7 +3261,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   margin: 7px;
   border: 1px solid color-mix(in srgb, var(--color-error) 30%, var(--color-hairline));
   border-radius: 9px;
-  background: color-mix(in srgb, var(--color-error) 5%, white);
+  background: color-mix(in srgb, var(--color-error) 5%, var(--color-panel));
   padding: 9px;
 }
 
@@ -3260,7 +3271,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-file-conflict dl > div { min-width: 0; border: 1px solid var(--color-hairline); border-radius: 6px; padding: 5px; }
 .tinyos-file-conflict dt { color: var(--color-muted); font-size: 7px; }
 .tinyos-file-conflict dd { margin: 2px 0 0; overflow: hidden; font-size: 8px; text-overflow: ellipsis; }
-.tinyos-file-conflict > button { margin-top: 6px; border-radius: 6px; background: color-mix(in srgb, var(--color-primary) 9%, white); padding: 5px 7px; color: var(--color-primary); font-size: 8px; }
+.tinyos-file-conflict > button { margin-top: 6px; border-radius: 6px; background: color-mix(in srgb, var(--color-primary) 9%, var(--color-panel)); padding: 5px 7px; color: var(--color-primary); font-size: 8px; }
 
 .tinyos-workspace-document {
   display: grid;
@@ -3268,7 +3279,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: #fffdfa;
+  background: var(--color-panel-warm);
 }
 
 .tinyos-workspace-document__tabs {
@@ -3279,7 +3290,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 3px;
   overflow-x: auto;
   border-bottom: 1px solid rgb(75 67 57 / 10%);
-  background: #f7f4ee;
+  background: var(--color-surface-soft);
   padding: 4px 6px 0;
 }
 
@@ -3293,7 +3304,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .tinyos-workspace-document__tabs > span[data-active="true"] {
-  background: #fffdfa;
+  background: var(--color-panel-warm);
   color: var(--color-ink);
 }
 
@@ -3366,7 +3377,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .tinyos-workspace-document__search button:hover:not(:disabled) {
-  background: #f0ece4;
+  background: var(--color-surface-card);
 }
 
 .tinyos-workspace-document__code {
@@ -3438,7 +3449,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-inspector__correlation > div {
   min-width: 0;
   border-radius: 6px;
-  background: #f3f0e9;
+  background: var(--color-surface-soft);
   padding: 6px;
 }
 
@@ -3591,7 +3602,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
-  background: #fff;
+  background: var(--color-panel);
   color: var(--color-ink);
 }
 
@@ -3626,7 +3637,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   margin-top: 4px;
   border: 1px solid var(--color-hairline);
   border-radius: 7px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 6px 10px;
   color: var(--color-ink);
 }
@@ -3639,7 +3650,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 3px;
   overflow-x: auto;
   border-bottom: 1px solid var(--color-hairline);
-  background: #f1f0ed;
+  background: var(--color-surface-soft);
   padding: 5px 6px 0;
 }
 
@@ -3656,7 +3667,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .tinyos-browser__tab[data-selected="true"] {
   border-color: var(--color-hairline);
-  background: #fff;
+  background: var(--color-panel);
   color: var(--color-ink);
 }
 
@@ -3726,7 +3737,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .tinyos-browser__bar > button:hover:not(:disabled) {
-  background: #f1f0ed;
+  background: var(--color-surface-soft);
 }
 
 .tinyos-browser__bar form {
@@ -3741,7 +3752,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   flex: 1;
   border: 1px solid var(--color-hairline);
   border-radius: 9px;
-  background: #f7f6f3;
+  background: var(--color-panel-warm);
   padding: 6px 9px;
   color: var(--color-ink);
   font-size: 10px;
@@ -3749,7 +3760,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .tinyos-browser__bar input:focus {
   border-color: color-mix(in srgb, var(--color-primary) 50%, var(--color-hairline));
-  background: #fff;
+  background: var(--color-panel);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 12%, transparent);
   outline: 0;
 }
@@ -3758,14 +3769,14 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-height: 28px;
   border: 1px solid var(--color-hairline);
   border-radius: 7px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 0 8px;
 }
 
 .tinyos-browser__control {
   flex: none;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-primary) 9%, white);
+  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-panel));
   padding: 4px 7px;
   color: var(--color-primary);
   font-size: 8px;
@@ -3775,7 +3786,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .tinyos-browser__control[data-state="user_required"],
 .tinyos-browser__control[data-state="failed"] {
-  background: #fff1ef;
+  background: color-mix(in srgb, var(--color-error) 9%, var(--color-panel));
   color: var(--color-error);
 }
 
@@ -3786,7 +3797,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   justify-content: space-between;
   gap: 10px;
   border-bottom: 1px solid #e6c675;
-  background: #fff7e5;
+  background: color-mix(in srgb, var(--color-warning) 10%, var(--color-panel));
   padding: 7px 9px;
   color: #6f4b0d;
   font-size: 9px;
@@ -3798,7 +3809,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-browser__handoff span { display: grid; gap: 2px; min-width: 0; }
 .tinyos-browser__policy code { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
 .tinyos-browser__policy button,
-.tinyos-browser__handoff button { border-radius: 6px; background: #fff; padding: 4px 7px; }
+.tinyos-browser__handoff button { border-radius: 6px; background: var(--color-panel); padding: 4px 7px; }
 
 .tinyos-browser__error {
   display: flex;
@@ -3806,7 +3817,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 7px;
   margin: 0;
   border-top: 1px solid var(--color-hairline);
-  background: #fff1ef;
+  background: color-mix(in srgb, var(--color-error) 9%, var(--color-panel));
   padding: 7px 9px;
   color: var(--color-error);
   font-size: 9px;
@@ -3857,7 +3868,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-artifacts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
 .tinyos-artifacts > button { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 6px; min-width: 0; border: 1px solid var(--color-hairline); border-radius: 9px; padding: 9px; text-align: left; cursor: pointer; }
 .tinyos-artifacts > button:hover,
-.tinyos-artifacts > button:focus-visible { border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-hairline)); background: color-mix(in srgb, var(--color-primary) 5%, #fff); }
+.tinyos-artifacts > button:focus-visible { border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-hairline)); background: color-mix(in srgb, var(--color-primary) 5%, var(--color-panel)); }
 .tinyos-artifacts > button > span { min-width: 0; }
 .tinyos-artifacts strong,
 .tinyos-artifacts small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -3866,7 +3877,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-artifacts > button > span:last-child { grid-column: 1 / -1; overflow: hidden; color: var(--color-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 
 .tinyos-structured > strong { color: var(--color-ink); font-size: 11px; }
-.tinyos-structured pre { margin-top: 7px; border-radius: 8px; background: #f5f2ec; }
+.tinyos-structured pre { margin-top: 7px; border-radius: 8px; background: var(--color-surface-soft); }
 .tinyos-empty-copy { margin: 0; padding: 14px; color: var(--color-muted); font-size: 10px; font-style: italic; line-height: 1.55; }
 
 .tinyos-notifications {
@@ -4020,7 +4031,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .tinyos-window-switcher > button[data-selected="true"] {
   border-color: color-mix(in srgb, var(--color-primary) 48%, var(--color-hairline));
-  background: color-mix(in srgb, var(--color-primary) 8%, white);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-panel));
   color: var(--color-primary);
 }
 
@@ -4052,7 +4063,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-height: 0;
   flex: 1;
   overflow: hidden;
-  background: #fff;
+  background: var(--color-panel);
 }
 
 .tinyos-browser__surface-host > span {
@@ -4192,7 +4203,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .tinyos-command-palette__results > button:hover:not(:disabled),
 .tinyos-command-palette__results > button:focus-visible {
-  background: color-mix(in srgb, var(--color-primary) 8%, white);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-panel));
 }
 
 .tinyos-command-palette__results > button:disabled { opacity: .58; }
@@ -4296,7 +4307,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .tinyos-context-menu > button:hover:not(:disabled),
 .tinyos-context-menu > button:focus-visible {
-  background: color-mix(in srgb, var(--color-primary) 9%, white);
+  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-panel));
 }
 
 .tinyos-context-menu > button:focus-visible {
@@ -4318,7 +4329,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   overflow: auto;
   border: 1px solid rgb(75 67 57 / 17%);
   border-radius: 14px;
-  background: #fffdfa;
+  background: var(--color-panel-warm);
   padding: 16px;
   box-shadow: 0 26px 70px rgb(45 36 28 / 26%);
   transform: translate(-50%, -50%);
@@ -4346,14 +4357,14 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-system-dialog__heading small { color: var(--color-muted); font-size: 8px; letter-spacing: .05em; text-transform: uppercase; }
 .tinyos-system-dialog__heading strong { margin-top: 2px; color: var(--color-ink); font-size: 12px; }
 .tinyos-system-dialog > p { margin: 0 0 10px; color: var(--color-body); font-size: 10px; line-height: 1.55; }
-.tinyos-system-dialog__request { display: block; margin: 0 0 11px; overflow: auto; border: 1px solid var(--color-hairline); border-radius: 8px; background: #f6f2eb; padding: 9px; color: var(--color-ink); font: 9px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; }
+.tinyos-system-dialog__request { display: block; margin: 0 0 11px; overflow: auto; border: 1px solid var(--color-hairline); border-radius: 8px; background: var(--color-surface-soft); padding: 9px; color: var(--color-ink); font: 9px/1.5 var(--font-code); white-space: pre-wrap; }
 .tinyos-system-dialog dl { display: grid; gap: 5px; margin: 0 0 12px; }
 .tinyos-system-dialog dl > div { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 8px; font-size: 9px; }
 .tinyos-system-dialog dt { color: var(--color-muted); }
 .tinyos-system-dialog dd { margin: 0; overflow-wrap: anywhere; }
 .tinyos-system-dialog__actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
 .tinyos-system-dialog__actions button { min-height: 36px; border: 1px solid var(--color-hairline); border-radius: 8px; padding: 0 8px; color: var(--color-body); font-size: 9px; cursor: pointer; }
-.tinyos-system-dialog__actions button:first-child { border-color: var(--color-primary); background: var(--color-primary); color: #fff; }
+.tinyos-system-dialog__actions button:first-child { border-color: var(--color-primary); background: var(--color-primary); color: var(--color-on-primary); }
 .tinyos-system-dialog__actions button:last-child { color: var(--color-error); }
 .tinyos-system-dialog__actions button:disabled { cursor: wait; opacity: .55; }
 .tinyos-system-dialog .react-agent-ui-form-card { border: 0; padding: 0; box-shadow: none; }
@@ -4369,7 +4380,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   overflow: auto;
   border: 1px solid rgb(75 67 57 / 16%);
   border-radius: 12px;
-  background: #fffdfa;
+  background: var(--color-panel-warm);
   padding: 11px;
   box-shadow: 0 18px 44px rgb(45 36 28 / 22%);
   animation: tinyos-inspector-enter var(--motion-duration-medium) var(--motion-ease-standard) both;
@@ -4401,9 +4412,9 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-inspector article > p { color: var(--color-body); font-size: 10px; line-height: 1.55; }
 .tinyos-inspector article > section { margin-top: 10px; }
 .tinyos-inspector article > section > strong { color: var(--color-muted); font-size: 8px; text-transform: uppercase; }
-.tinyos-inspector article > section > pre { margin-top: 5px; border-radius: 8px; background: #f4f1eb; }
+.tinyos-inspector article > section > pre { margin-top: 5px; border-radius: 8px; background: var(--color-surface-soft); }
 .tinyos-inspector article > section > button { display: block; margin-top: 5px; color: var(--color-primary); font-size: 9px; cursor: pointer; }
-.tinyos-inspector__resource { display: grid; gap: 4px; margin: 6px 0 0; border: 1px solid var(--color-hairline); border-radius: 8px; background: #f8f5ef; padding: 7px; }
+.tinyos-inspector__resource { display: grid; gap: 4px; margin: 6px 0 0; border: 1px solid var(--color-hairline); border-radius: 8px; background: var(--color-panel-warm); padding: 7px; }
 .tinyos-inspector__resource > div { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 6px; }
 .tinyos-inspector__resource dt { color: var(--color-muted); font-size: 8px; text-transform: uppercase; }
 .tinyos-inspector__resource dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--color-body); font-size: 9px; }
@@ -4442,13 +4453,13 @@ button.tinyos-overlay-backdrop:focus-visible {
 .tinyos-operation-shelf__select[data-status="running"],
 .tinyos-operation-shelf__select[data-status="blocked"] {
   border-color: color-mix(in srgb, var(--color-primary) 24%, var(--color-hairline));
-  background: color-mix(in srgb, var(--color-primary) 6%, #fff);
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-panel));
 }
 
 .tinyos-operation-shelf__select:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
-.tinyos-operation-shelf__state { display: inline-grid; width: 26px; height: 26px; place-items: center; border-radius: 50%; background: #e7f6eb; color: #267b46; }
+.tinyos-operation-shelf__state { display: inline-grid; width: 26px; height: 26px; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--color-success) 10%, var(--color-panel)); color: var(--color-success); }
 .tinyos-operation-shelf__select > span { min-width: 0; }
-.tinyos-operation-shelf__retry { display: inline-flex; align-items: center; align-self: center; gap: 5px; border: 1px solid var(--color-hairline); border-radius: 8px; background: #fffdfa; padding: 8px; color: var(--color-primary); font-size: 9px; cursor: pointer; }
+.tinyos-operation-shelf__retry { display: inline-flex; align-items: center; align-self: center; gap: 5px; border: 1px solid var(--color-hairline); border-radius: 8px; background: var(--color-panel-warm); padding: 8px; color: var(--color-primary); font-size: 9px; cursor: pointer; }
 .tinyos-operation-shelf__retry:disabled { color: var(--color-muted); cursor: not-allowed; opacity: .65; }
 .tinyos-operation-shelf strong,
 .tinyos-operation-shelf small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -4464,7 +4475,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   align-content: center;
   justify-items: center;
   gap: 8px;
-  background: #efe9de;
+  background: var(--color-surface-card);
   color: var(--color-muted);
   animation: tinyos-boot-exit 450ms var(--motion-ease-standard) both;
 }
@@ -4476,7 +4487,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--color-primary) 28%, var(--color-hairline));
   border-radius: 16px;
-  background: color-mix(in srgb, var(--color-primary) 8%, #fff);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-panel));
   color: var(--color-primary);
   box-shadow: 0 14px 34px rgb(77 58 43 / 14%);
   animation: tinyos-boot-mark 220ms var(--motion-ease-standard) both;
@@ -4788,7 +4799,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 10px;
   min-width: 0;
   color: var(--color-body);
-  font-family: Inter, "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", Arial, sans-serif;
+  font-family: var(--font-ui);
   line-height: 1.7;
   overflow-wrap: anywhere;
 }
@@ -5116,7 +5127,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   margin-top: 12px;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--color-surface-soft) 62%, #fff);
+  background: color-mix(in srgb, var(--color-surface-soft) 62%, var(--color-panel));
   overflow: hidden;
 }
 
@@ -5137,7 +5148,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-agent-steps__header:hover,
 .react-agent-steps__header:focus-visible {
-  background: #fff;
+  background: var(--color-panel);
 }
 
 .react-agent-steps__header-icon,
@@ -5185,7 +5196,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-agent-step-item[aria-current="step"] .react-agent-step {
   border-color: color-mix(in srgb, var(--color-primary) 32%, var(--color-hairline));
-  background: #fff;
+  background: var(--color-panel);
 }
 
 .react-agent-step-item[aria-current="step"] .react-agent-step-item__marker {
@@ -5207,7 +5218,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   width: 24px;
   height: 24px;
   margin-top: 7px;
-  border: 3px solid #fff;
+  border: 3px solid var(--color-panel);
   background: var(--color-surface-card);
   color: var(--color-muted);
 }
@@ -5228,7 +5239,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-agent-step:hover,
 .react-agent-step:focus-visible {
   border-color: var(--color-hairline);
-  background: #fff;
+  background: var(--color-panel);
 }
 
 .react-agent-step__content {
@@ -5259,20 +5270,20 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-agent-step__status {
   border-radius: 999px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 2px 7px;
   white-space: nowrap;
 }
 
 .react-agent-steps__header-icon[data-status="success"],
 .react-agent-step-item__marker[data-status="success"] {
-  background: color-mix(in srgb, var(--color-success) 14%, #fff);
+  background: color-mix(in srgb, var(--color-success) 14%, var(--color-panel));
   color: var(--color-success);
 }
 
 .react-agent-steps__header-icon[data-status="active"],
 .react-agent-step-item__marker[data-status="active"] {
-  background: color-mix(in srgb, #4c8bf5 13%, #fff);
+  background: color-mix(in srgb, #4c8bf5 13%, var(--color-panel));
   color: #3b75d9;
 }
 
@@ -5283,13 +5294,13 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-agent-steps__header-icon[data-status="waiting"],
 .react-agent-step-item__marker[data-status="waiting"] {
-  background: color-mix(in srgb, var(--color-warning) 16%, #fff);
+  background: color-mix(in srgb, var(--color-warning) 16%, var(--color-panel));
   color: var(--color-warning);
 }
 
 .react-agent-steps__header-icon[data-status="error"],
 .react-agent-step-item__marker[data-status="error"] {
-  background: color-mix(in srgb, var(--color-error) 14%, #fff);
+  background: color-mix(in srgb, var(--color-error) 14%, var(--color-panel));
   color: var(--color-error);
 }
 
@@ -5332,7 +5343,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   margin: 0;
   border: 1px solid color-mix(in srgb, var(--color-error) 30%, var(--color-hairline));
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 6px 8px;
   color: var(--color-error);
   font-size: 10px;
@@ -5344,7 +5355,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .react-composer--raised .claude-ai-input__panel {
-  --claude-ai-panel-bg: color-mix(in srgb, #fff 92%, var(--color-surface-soft));
+  --claude-ai-panel-bg: color-mix(in srgb, var(--color-panel) 92%, var(--color-surface-soft));
   --claude-ai-panel-radius: 18px;
   min-height: 150px;
   box-shadow:
@@ -5362,7 +5373,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .claude-ai-input__panel {
-  --claude-ai-panel-bg: #fff;
+  --claude-ai-panel-bg: var(--color-panel);
   --claude-ai-panel-glow-opacity: 0;
   --claude-ai-panel-glow-x: 50%;
   --claude-ai-panel-glow-y: 100%;
@@ -5485,7 +5496,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 2px;
   border: 1px solid var(--color-hairline);
   border-radius: 12px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 6px;
   box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
 }
@@ -5645,7 +5656,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .claude-ai-input__send {
   border-color: var(--color-primary);
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
 }
 
 .claude-ai-input__send:hover,
@@ -5752,7 +5763,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 4px;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-panel);
   box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
   color: var(--color-body);
   font-size: 12px;
@@ -5794,7 +5805,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   overflow: auto;
   border: 1px solid var(--color-hairline);
   border-radius: 9px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 6px;
   box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
 }
@@ -5982,7 +5993,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-height: 20px;
   border: 1px solid var(--color-hairline);
   border-radius: 5px;
-  background: #fbfaf8;
+  background: var(--color-panel);
   color: var(--color-muted);
   padding: 1px 6px;
   font-size: 11px;
@@ -6017,7 +6028,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   width: 28px;
   height: 28px;
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-panel);
   color: var(--color-muted);
 }
 
@@ -6062,7 +6073,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 6px;
   border: 1px solid color-mix(in srgb, var(--color-error) 35%, var(--color-hairline));
   border-radius: 8px;
-  background: color-mix(in srgb, var(--color-error) 8%, #fff);
+  background: color-mix(in srgb, var(--color-error) 8%, var(--color-panel));
   color: var(--color-error);
   padding: 8px 10px;
   font-size: 13px;
@@ -6083,7 +6094,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   width: min(380px, 92vw);
   overflow: hidden;
   border-left: 1px solid var(--color-hairline);
-  background: #fff;
+  background: var(--color-panel);
   padding: 16px;
   box-shadow: -18px 0 44px rgb(20 20 19 / 10%);
 }
@@ -6497,7 +6508,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   overflow: hidden;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: color-mix(in srgb, var(--color-canvas) 90%, white);
+  background: color-mix(in srgb, var(--color-canvas) 90%, var(--color-panel));
 }
 
 .react-tool-activity__preview {
@@ -6948,7 +6959,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   margin: 4px auto;
   border: 1px solid color-mix(in srgb, var(--color-error) 34%, var(--color-hairline));
   border-radius: 10px;
-  background: color-mix(in srgb, var(--color-error) 5%, #fff);
+  background: color-mix(in srgb, var(--color-error) 5%, var(--color-panel));
   padding: 14px 16px;
   color: var(--color-body);
 }
@@ -7000,7 +7011,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   display: grid;
   gap: 5px;
   border-radius: 8px;
-  background: rgb(255 255 255 / 68%);
+  background: color-mix(in srgb, var(--color-panel) 68%, transparent);
   padding: 9px 10px;
 }
 
@@ -7022,7 +7033,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 6px;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 0 10px;
   color: var(--color-body);
   cursor: pointer;
@@ -7031,7 +7042,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-error-recovery__actions button:first-child {
   border-color: var(--color-primary);
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
 }
 
 .react-error-recovery__actions button:disabled {
@@ -7093,7 +7104,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   overflow: hidden;
   border: 1px solid var(--color-hairline);
   border-radius: 14px;
-  background: color-mix(in srgb, #fff 78%, var(--color-canvas));
+  background: color-mix(in srgb, var(--color-panel) 78%, var(--color-canvas));
   box-shadow: 0 9px 28px color-mix(in srgb, var(--color-ink) 6%, transparent);
 }
 
@@ -7185,7 +7196,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .react-data-view__tabs button[aria-selected="true"] {
-  background: color-mix(in srgb, #fff 88%, var(--color-canvas));
+  background: color-mix(in srgb, var(--color-panel) 88%, var(--color-canvas));
   color: var(--color-ink);
   box-shadow: 0 1px 3px color-mix(in srgb, var(--color-ink) 10%, transparent);
 }
@@ -7388,7 +7399,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-canonical-step[data-kind="error"] {
   border-color: #e5b7ad;
-  background: #fff6f3;
+  background: color-mix(in srgb, var(--color-error) 7%, var(--color-panel));
   color: #8f2f21;
 }
 
@@ -7443,7 +7454,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-timeline-error {
   padding: 12px;
   border-color: #e5b7ad;
-  background: #fff6f3;
+  background: color-mix(in srgb, var(--color-error) 7%, var(--color-panel));
   color: #8f2f21;
 }
 
@@ -7459,7 +7470,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 12px;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 14px;
 }
 
@@ -7545,7 +7556,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-height: 34px;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 0 12px;
   color: var(--color-ink);
   font-size: 12px;
@@ -7554,7 +7565,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-agent-ui-form-card__actions button[type="submit"] {
   background: var(--color-ink);
-  color: #fff;
+  color: var(--color-canvas);
 }
 
 .react-queued-inputs {
@@ -7564,7 +7575,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   margin: 8px auto 0;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 10px;
 }
 
@@ -7644,7 +7655,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-height: 26px;
   border: 1px solid var(--color-hairline);
   border-radius: 6px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 0 8px;
   color: var(--color-ink);
   font-size: 11px;
@@ -7655,7 +7666,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-height: 26px;
   border: 1px solid var(--color-hairline);
   border-radius: 6px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 0 8px;
   color: var(--color-ink);
   font-size: 11px;
@@ -7714,7 +7725,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   padding: 10px 12px;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-panel);
 }
 
 .react-stat strong {
@@ -7768,7 +7779,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   border: 1px solid var(--color-hairline);
   border-radius: 10px;
   padding: 0 13px;
-  background: color-mix(in srgb, #fff 92%, var(--color-canvas));
+  background: color-mix(in srgb, var(--color-panel) 92%, var(--color-canvas));
   box-shadow: 0 1px 2px rgb(52 43 35 / 5%);
   color: var(--color-body);
   font-size: 12px;
@@ -7784,7 +7795,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-memory-overview button:hover:not(:disabled),
 .react-memory-error button:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--color-primary) 34%, var(--color-hairline));
-  background: #fff;
+  background: var(--color-panel);
   color: var(--color-ink);
 }
 
@@ -7817,7 +7828,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   padding: 12px 13px;
   border: 1px solid color-mix(in srgb, var(--color-hairline) 88%, transparent);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--color-surface-soft) 58%, #fff);
+  background: color-mix(in srgb, var(--color-surface-soft) 58%, var(--color-panel));
 }
 
 .react-memory-note > svg {
@@ -7885,7 +7896,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   padding: 12px 14px;
   border: 1px solid color-mix(in srgb, var(--color-error) 28%, var(--color-hairline));
   border-radius: 12px;
-  background: color-mix(in srgb, var(--color-error) 6%, #fff);
+  background: color-mix(in srgb, var(--color-error) 6%, var(--color-panel));
   color: var(--color-error);
 }
 
@@ -7910,7 +7921,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   padding: 24px;
   border: 1px solid var(--color-hairline);
   border-radius: 12px;
-  background: color-mix(in srgb, #fff 84%, var(--color-canvas));
+  background: color-mix(in srgb, var(--color-panel) 84%, var(--color-canvas));
 }
 
 .react-memory-empty strong {
@@ -7952,7 +7963,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   overflow: hidden;
   border: 1px solid var(--color-hairline);
   border-radius: 12px;
-  background: color-mix(in srgb, #fff 88%, var(--color-canvas));
+  background: color-mix(in srgb, var(--color-panel) 88%, var(--color-canvas));
   list-style: none;
 }
 
@@ -7989,12 +8000,12 @@ button.tinyos-overlay-backdrop:focus-visible {
   overflow: hidden;
   border: 1px solid var(--color-hairline);
   border-radius: 12px;
-  background: color-mix(in srgb, #fff 88%, var(--color-canvas));
+  background: color-mix(in srgb, var(--color-panel) 88%, var(--color-canvas));
 }
 
 .react-memory-workspace[data-current="true"] {
   border-color: color-mix(in srgb, var(--color-primary) 25%, var(--color-hairline));
-  background: color-mix(in srgb, var(--color-primary) 3%, #fff);
+  background: color-mix(in srgb, var(--color-primary) 3%, var(--color-panel));
 }
 
 .react-memory-workspace > header {
@@ -8028,7 +8039,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   flex: none;
   padding: 3px 7px 2px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-primary) 10%, #fff);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-panel));
   color: var(--color-primary-active);
   font-size: 10px;
   font-weight: 700;
@@ -8113,7 +8124,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-plugin-migration-result[data-status="installed"] {
   border-color: color-mix(in srgb, var(--color-success) 38%, var(--color-hairline));
-  background: color-mix(in srgb, var(--color-success) 7%, #fff);
+  background: color-mix(in srgb, var(--color-success) 7%, var(--color-panel));
 }
 
 .react-plugin-migration-result__icon {
@@ -8123,7 +8134,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-panel);
   color: var(--color-muted);
 }
 
@@ -8155,7 +8166,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   border: 1px solid color-mix(in srgb, var(--color-accent) 45%, var(--color-hairline));
   border-radius: 8px;
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-primary);
   padding: 0 12px;
   font: inherit;
   font-size: 12px;
@@ -8184,7 +8195,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   justify-self: start;
   gap: 2px;
   padding: 3px;
-  border: 1px solid color-mix(in srgb, var(--color-hairline) 84%, #fff);
+  border: 1px solid color-mix(in srgb, var(--color-hairline) 84%, var(--color-panel));
   border-radius: 11px;
   background: color-mix(in srgb, var(--color-surface-soft) 78%, transparent);
   box-shadow: inset 0 1px 1px rgb(20 20 19 / 4%);
@@ -8210,12 +8221,12 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .react-resource-switcher button:hover {
-  background: rgb(255 255 255 / 54%);
+  background: color-mix(in srgb, var(--color-panel) 54%, transparent);
   color: var(--color-ink);
 }
 
 .react-resource-switcher button[aria-pressed="true"] {
-  background: rgb(255 255 255 / 94%);
+  background: color-mix(in srgb, var(--color-panel) 94%, transparent);
   color: var(--color-ink);
   box-shadow:
     0 1px 2px rgb(20 20 19 / 9%),
@@ -8246,7 +8257,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   align-items: center;
   min-height: 18px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-cream-strong) 68%, #fff);
+  background: color-mix(in srgb, var(--color-cream-strong) 68%, var(--color-panel));
   padding: 1px 7px;
   color: var(--color-muted);
   font-size: 10px;
@@ -8335,7 +8346,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   border-radius: 9px;
   background: var(--color-primary);
   padding: 0 13px;
-  color: #fff;
+  color: var(--color-on-primary);
   font-size: 12px;
   font-weight: 680;
   box-shadow: 0 2px 7px color-mix(in srgb, var(--color-primary) 22%, transparent);
@@ -8347,7 +8358,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-plugin-migrate {
   border-color: color-mix(in srgb, var(--color-primary) 34%, var(--color-hairline));
-  background: color-mix(in srgb, var(--color-primary) 6%, #fff);
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-panel));
   color: var(--color-primary-active);
   box-shadow: none;
 }
@@ -8361,14 +8372,14 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-plugin-migrate:hover,
 .react-plugin-migrate:focus-visible {
   border-color: color-mix(in srgb, var(--color-primary) 52%, var(--color-hairline));
-  background: color-mix(in srgb, var(--color-primary) 11%, #fff);
+  background: color-mix(in srgb, var(--color-primary) 11%, var(--color-panel));
 }
 
 .react-plugin-section__error {
   margin: 0;
   border: 1px solid color-mix(in srgb, var(--color-error) 30%, var(--color-hairline));
   border-radius: 9px;
-  background: color-mix(in srgb, var(--color-error) 7%, #fff);
+  background: color-mix(in srgb, var(--color-error) 7%, var(--color-panel));
   padding: 9px 11px;
   color: var(--color-error);
   font-size: 12px;
@@ -8387,7 +8398,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-height: 220px;
   border: 1px dashed color-mix(in srgb, var(--color-hairline) 82%, var(--color-muted));
   border-radius: 14px;
-  background: color-mix(in srgb, #fff 64%, transparent);
+  background: color-mix(in srgb, var(--color-panel) 64%, transparent);
   padding: 28px;
   text-align: center;
   white-space: normal;
@@ -8400,7 +8411,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   height: 44px;
   margin-bottom: 3px;
   border-radius: 13px;
-  background: color-mix(in srgb, var(--color-primary) 10%, #fff);
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-panel));
   color: var(--color-primary-active);
 }
 
@@ -8436,9 +8447,9 @@ button.tinyos-overlay-backdrop:focus-visible {
   grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--color-hairline) 90%, #fff);
+  border: 1px solid color-mix(in srgb, var(--color-hairline) 90%, var(--color-panel));
   border-radius: 13px;
-  background: rgb(255 255 255 / 88%);
+  background: color-mix(in srgb, var(--color-panel) 88%, transparent);
   box-shadow: 0 1px 2px rgb(20 20 19 / 3%);
 }
 
@@ -8481,7 +8492,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   width: 34px;
   height: 34px;
   border-radius: 10px;
-  background: color-mix(in srgb, var(--color-primary) 9%, #fff);
+  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-panel));
   color: var(--color-primary-active);
 }
 
@@ -8519,7 +8530,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-plugin-components > span {
   border: 1px solid var(--color-hairline);
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-surface-soft) 54%, #fff);
+  background: color-mix(in srgb, var(--color-surface-soft) 54%, var(--color-panel));
   padding: 3px 7px;
   color: var(--color-muted);
   font-size: 10px;
@@ -8592,7 +8603,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   width: 32px;
   height: 19px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-muted-soft) 42%, #fff);
+  background: color-mix(in srgb, var(--color-muted-soft) 42%, var(--color-panel));
   box-shadow: inset 0 0 0 1px rgb(20 20 19 / 8%);
   transition: background var(--motion-duration-fast) var(--motion-ease-standard);
 }
@@ -8604,7 +8615,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   width: 15px;
   height: 15px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--color-panel);
   box-shadow: 0 1px 3px rgb(20 20 19 / 22%);
   transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
 }
@@ -8629,7 +8640,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-plugin-remove:hover,
 .react-plugin-remove:focus-visible {
-  background: color-mix(in srgb, var(--color-error) 7%, #fff);
+  background: color-mix(in srgb, var(--color-error) 7%, var(--color-panel));
   color: var(--color-error);
 }
 
@@ -8650,7 +8661,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-height: 34px;
   border: 1px solid var(--color-hairline);
   border-radius: 9px;
-  background: rgb(255 255 255 / 82%);
+  background: color-mix(in srgb, var(--color-panel) 82%, transparent);
   padding: 0 9px;
   color: var(--color-muted);
 }
@@ -8688,7 +8699,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-width: 0;
   border: 1px solid var(--color-hairline);
   border-radius: 10px;
-  background: rgb(255 255 255 / 84%);
+  background: color-mix(in srgb, var(--color-panel) 84%, transparent);
   padding: 10px 11px;
 }
 
@@ -8718,7 +8729,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-tool-row {
   min-height: 54px;
   border-radius: 10px;
-  background: rgb(255 255 255 / 84%);
+  background: color-mix(in srgb, var(--color-panel) 84%, transparent);
 }
 
 .react-tool-row__meta {
@@ -8747,7 +8758,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-status-pill[data-state="connected"],
 .react-status-pill[data-state="ready"],
 .react-status-pill[data-state="running"] {
-  background: color-mix(in srgb, var(--color-success) 11%, #fff);
+  background: color-mix(in srgb, var(--color-success) 11%, var(--color-panel));
   color: color-mix(in srgb, var(--color-success) 72%, #24412c);
 }
 
@@ -8755,7 +8766,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-status-pill[data-state="unavailable"],
 .react-status-pill[data-state="failed"],
 .react-status-pill[data-state="error"] {
-  background: color-mix(in srgb, var(--color-error) 9%, #fff);
+  background: color-mix(in srgb, var(--color-error) 9%, var(--color-panel));
   color: var(--color-error);
 }
 
@@ -8805,6 +8816,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 @media (prefers-reduced-transparency: reduce) {
+  .react-session-list,
   .react-resource-switcher,
   .react-resource-switcher button[aria-pressed="true"],
   .react-plugin-empty,
@@ -8812,7 +8824,8 @@ button.tinyos-overlay-backdrop:focus-visible {
   .react-tool-search,
   .react-mcp-card,
   .react-tool-row {
-    background: #fff;
+    background: var(--color-panel);
+    backdrop-filter: none;
   }
 }
 
@@ -8834,7 +8847,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   padding: 11px 12px;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-panel);
 }
 
 .react-data-row strong,
@@ -8867,7 +8880,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   grid-template-rows: auto minmax(0, 1fr);
   gap: 0;
   padding: 0;
-  background: color-mix(in srgb, var(--color-canvas) 86%, #fff);
+  background: color-mix(in srgb, var(--color-canvas) 86%, var(--color-panel));
 }
 
 .react-workbench-page--settings > header {
@@ -8982,6 +8995,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-provider-settings,
 .react-app-settings,
+.react-appearance-settings,
 .react-agent-defaults-settings,
 .react-config-settings {
   display: grid;
@@ -9014,6 +9028,340 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-app-settings__persistence {
   color: var(--color-muted);
   font-size: 11px;
+}
+
+.react-appearance-settings {
+  display: grid;
+  gap: 26px;
+}
+
+.react-appearance-settings__modes {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.react-appearance-settings__modes > legend {
+  padding: 0;
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.react-appearance-settings__modes > p {
+  margin: 0 0 7px;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.react-theme-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.react-theme-mode-card {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+  background: var(--color-panel);
+  padding: 9px;
+  cursor: pointer;
+  transition:
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-theme-mode-card:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 46%, var(--color-hairline));
+}
+
+.react-theme-mode-card:has(input:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 62%, transparent);
+  outline-offset: 2px;
+}
+
+.react-theme-mode-card[data-selected="true"] {
+  border-color: var(--color-primary-active);
+  box-shadow: 0 0 0 1px var(--color-primary-active);
+}
+
+.react-theme-mode-card > input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.react-theme-mode-card > strong,
+.react-theme-mode-card > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-theme-mode-card > strong {
+  color: var(--color-ink);
+  font-size: 12px;
+}
+
+.react-theme-mode-card > small {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.react-theme-mode-card__preview {
+  position: relative;
+  display: grid;
+  grid-template-rows: 30px minmax(0, 1fr);
+  height: 112px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-ink) 14%, transparent);
+  border-radius: 8px;
+  background: #f5f5f4;
+  color: #686865;
+}
+
+.react-theme-mode-card__preview[data-preview="dark"] {
+  background: #2a2a28;
+  color: #e8e6e0;
+}
+
+.react-theme-mode-card__preview[data-preview="system"] {
+  background: linear-gradient(90deg, #f5f5f4 0 50%, #2a2a28 50% 100%);
+  color: #77736d;
+}
+
+.react-theme-mode-card__chrome {
+  display: flex;
+  align-items: center;
+  padding: 0 9px;
+  border-bottom: 1px solid rgb(128 128 124 / 24%);
+}
+
+.react-theme-mode-card__window {
+  display: grid;
+  align-content: center;
+  gap: 7px;
+  margin: 11px 12px 0;
+  border-radius: 8px 8px 0 0;
+  background: color-mix(in srgb, var(--color-panel) 88%, transparent);
+  padding: 13px;
+}
+
+.react-theme-mode-card__preview[data-preview="dark"] .react-theme-mode-card__window {
+  background: #3a3a38;
+}
+
+.react-theme-mode-card__preview[data-preview="system"] .react-theme-mode-card__window {
+  background: linear-gradient(90deg, rgb(255 255 255 / 90%) 0 50%, #3a3a38 50% 100%);
+}
+
+.react-theme-mode-card__window i {
+  display: block;
+  width: 74%;
+  height: 5px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: .2;
+}
+
+.react-theme-mode-card__window i:first-child {
+  width: 42%;
+}
+
+.react-appearance-settings__themes {
+  display: grid;
+  gap: 16px;
+}
+
+.react-appearance-theme {
+  overflow: hidden;
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+  background: var(--color-panel);
+}
+
+.react-appearance-theme[data-active="true"] {
+  border-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-hairline));
+}
+
+.react-appearance-theme > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  gap: 16px;
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 0 14px;
+}
+
+.react-appearance-theme > header > div,
+.react-appearance-theme > header > button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.react-appearance-theme > header h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-appearance-theme > header span {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  padding: 3px 7px;
+  color: var(--color-primary-active);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.react-appearance-theme > header button {
+  min-height: 32px;
+  padding: 0 8px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-appearance-theme__rows {
+  display: grid;
+  padding: 0 14px;
+}
+
+.react-appearance-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
+  align-items: center;
+  min-height: 54px;
+  gap: 24px;
+  border-bottom: 1px solid var(--color-hairline);
+  color: var(--color-body);
+  font-size: 12px;
+}
+
+.react-appearance-row:last-child {
+  border-bottom: 0;
+}
+
+.react-appearance-row > span:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.react-appearance-row strong {
+  color: var(--color-body);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-appearance-row small {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.react-appearance-row select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 0 9px;
+  color: var(--color-ink);
+}
+
+.react-appearance-row select:focus-visible,
+.react-appearance-row input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 52%, transparent);
+  outline-offset: 2px;
+}
+
+.react-appearance-color {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  min-height: 36px;
+  gap: 8px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 4px 8px 4px 4px;
+}
+
+.react-appearance-color input {
+  width: 34px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.react-appearance-color code {
+  color: var(--color-muted);
+  font-family: var(--font-code);
+  font-size: 11px;
+  text-align: right;
+}
+
+.react-appearance-row--toggle > input {
+  justify-self: end;
+  width: 38px;
+  height: 22px;
+  appearance: none;
+  border-radius: 999px;
+  background: var(--color-surface-card);
+  cursor: pointer;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-appearance-row--toggle > input::after {
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin: 3px;
+  border-radius: 50%;
+  background: var(--color-panel);
+  box-shadow: 0 1px 3px rgb(20 20 19 / 22%);
+  content: "";
+  transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-appearance-row--toggle > input:checked {
+  background: var(--color-primary);
+}
+
+.react-appearance-row--toggle > input:checked::after {
+  transform: translateX(16px);
+}
+
+.react-appearance-range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 10px;
+}
+
+.react-appearance-range input {
+  width: 100%;
+  accent-color: var(--color-primary);
+}
+
+.react-appearance-range output {
+  color: var(--color-muted);
+  font-size: 11px;
+  text-align: right;
 }
 
 .react-config-settings__persistence {
@@ -9118,7 +9466,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
   outline: 0;
-  background: #fff;
+  background: var(--color-panel);
   color: var(--color-ink);
   font: inherit;
   font-size: 13px;
@@ -9134,7 +9482,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   resize: vertical;
   min-height: 156px;
   padding: 10px 11px;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-family: var(--font-code);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -9197,7 +9545,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   width: 36px;
   height: 20px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-muted) 28%, #fff);
+  background: color-mix(in srgb, var(--color-muted) 28%, var(--color-panel));
   transition: background-color var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
@@ -9208,7 +9556,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--color-panel);
   box-shadow: 0 1px 3px rgb(20 20 19 / 22%);
   content: "";
   transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
@@ -9278,7 +9626,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 6px;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 0 12px;
   color: var(--color-ink);
   font-size: 12px;
@@ -9288,7 +9636,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-config-settings__form > footer .react-config-settings__save {
   border-color: var(--color-primary);
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
 }
 
 .react-provider-settings__header {
@@ -9347,7 +9695,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-provider-settings__summary span {
   border: 1px solid var(--color-hairline);
   border-radius: 999px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 4px 8px;
 }
 
@@ -9579,7 +9927,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .react-default-model-picker__providers button[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--color-surface-soft) 82%, #fff);
+  background: color-mix(in srgb, var(--color-surface-soft) 82%, var(--color-panel));
 }
 
 .react-default-model-picker__providers button > span:not(.react-provider-brand-icon) {
@@ -9631,7 +9979,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 9px;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 0 11px;
   color: var(--color-muted);
 }
@@ -9692,7 +10040,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-default-model-picker__models-list > button[aria-checked="true"] {
   border-bottom-color: transparent;
   border-radius: 7px;
-  background: color-mix(in srgb, var(--color-surface-soft) 82%, #fff);
+  background: color-mix(in srgb, var(--color-surface-soft) 82%, var(--color-panel));
 }
 
 .react-default-model-picker__models-list strong {
@@ -9732,7 +10080,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-width: 0;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 0 10px;
   color: var(--color-ink);
   font-size: 13px;
@@ -9774,7 +10122,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 12px;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 8px 10px;
   cursor: pointer;
   text-align: left;
@@ -9900,7 +10248,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 6px;
   border: 1px solid var(--color-hairline);
   border-radius: 6px;
-  background: #fff;
+  background: var(--color-panel);
   color: var(--color-ink);
   font-size: 12px;
   font-weight: 650;
@@ -10003,7 +10351,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-height: 34px;
   border: 1px solid var(--color-hairline);
   border-radius: 6px;
-  background: #fff;
+  background: var(--color-panel);
   color: var(--color-ink);
   font-size: 12px;
   font-weight: 650;
@@ -10073,7 +10421,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-width: 0;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 0 10px;
   color: var(--color-ink);
   font-size: 13px;
@@ -10193,7 +10541,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   height: 40px;
   border: 1px solid var(--color-hairline);
   border-radius: 9px;
-  background: #fff;
+  background: var(--color-panel);
   color: var(--color-ink);
 }
 
@@ -10337,7 +10685,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 6px;
   border: 1px solid var(--color-hairline);
   border-radius: 6px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 0 10px;
   color: var(--color-ink);
   font-size: 12px;
@@ -10368,7 +10716,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-width: 140px;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 5px;
   box-shadow: 0 14px 36px rgb(20 20 19 / 12%);
 }
@@ -10423,7 +10771,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   border: 1px solid var(--color-hairline);
   border-width: 0 0 0 1px;
   border-radius: 18px 0 0 18px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 24px;
   box-shadow: -24px 0 80px rgb(20 20 19 / 15%);
   transform: translateX(0);
@@ -10513,7 +10861,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-width: 0;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 0 10px;
   color: var(--color-ink);
   font-size: 13px;
@@ -10651,7 +10999,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   width: 36px;
   height: 20px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--color-muted) 28%, #fff);
+  background: color-mix(in srgb, var(--color-muted) 28%, var(--color-panel));
   transition: background-color var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
@@ -10662,7 +11010,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: #fff;
+  background: var(--color-panel);
   box-shadow: 0 1px 3px rgb(20 20 19 / 22%);
   content: "";
   transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
@@ -10711,7 +11059,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .react-provider-config__mode label[data-selected="true"] {
-  background: #fff;
+  background: var(--color-panel);
   color: var(--color-ink);
   box-shadow: 0 1px 4px rgb(20 20 19 / 11%);
 }
@@ -10728,14 +11076,14 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-provider-config__save {
   border-color: var(--color-primary);
   background: var(--color-primary);
-  color: #fff;
+  color: var(--color-on-primary);
 }
 
 .react-provider-config__save:hover,
 .react-provider-config__save:focus-visible {
   border-color: var(--color-primary-active);
   background: var(--color-primary-active);
-  color: #fff;
+  color: var(--color-on-primary);
 }
 
 .react-provider-model-list {
@@ -10820,7 +11168,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   width: min(560px, calc(100vw - 32px));
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
-  background: #fff;
+  background: var(--color-panel);
   padding: 14px;
   box-shadow: 0 18px 54px rgb(20 20 19 / 18%);
 }
@@ -11009,7 +11357,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   bottom: -24px;
   margin-top: auto;
   border-top: 1px solid var(--color-hairline);
-  background: #fff;
+  background: var(--color-panel);
   padding: 16px 0 2px;
 }
 
@@ -11151,6 +11499,14 @@ button.tinyos-overlay-backdrop:focus-visible {
   .react-settings-dialog--wide {
     width: 100%;
     border-radius: 0;
+  }
+
+  .react-theme-mode-card__preview {
+    height: 96px;
+  }
+
+  .react-appearance-row {
+    grid-template-columns: minmax(0, 1fr) minmax(190px, 250px);
   }
 }
 
@@ -11658,7 +12014,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .tinyos-process-list li > button:hover,
 .tinyos-process-list li > button[data-selected="true"] {
-  background: color-mix(in srgb, var(--color-primary) 8%, rgb(255 255 255 / 76%));
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-panel));
 }
 
 .tinyos-process-list__identity {
@@ -11702,7 +12058,7 @@ button.tinyos-overlay-backdrop:focus-visible {
   width: fit-content;
   align-items: center;
   border-radius: 999px;
-  background: #f0eee9;
+  background: var(--color-surface-card);
   padding: 3px 6px;
   color: #625d55;
   font-size: 8px;
@@ -11710,13 +12066,13 @@ button.tinyos-overlay-backdrop:focus-visible {
   white-space: nowrap;
 }
 
-.tinyos-process-state[data-state="running"] { background: #e8f4ff; color: #21638c; }
-.tinyos-process-state[data-state="completed"] { background: #e7f6eb; color: #267b46; }
+.tinyos-process-state[data-state="running"] { background: color-mix(in srgb, var(--color-primary) 10%, var(--color-panel)); color: var(--color-primary-active); }
+.tinyos-process-state[data-state="completed"] { background: color-mix(in srgb, var(--color-success) 10%, var(--color-panel)); color: var(--color-success); }
 .tinyos-process-state[data-state="waiting_for_user"],
 .tinyos-process-state[data-state="blocked"],
 .tinyos-process-state[data-state="failed"],
-.tinyos-process-state[data-state="cancelled"] { background: #fff0ed; color: #9a3d2e; }
-.tinyos-process-state[data-state="paused"] { background: #fff5db; color: #815e13; }
+.tinyos-process-state[data-state="cancelled"] { background: color-mix(in srgb, var(--color-error) 10%, var(--color-panel)); color: var(--color-error); }
+.tinyos-process-state[data-state="paused"] { background: color-mix(in srgb, var(--color-warning) 10%, var(--color-panel)); color: #815e13; }
 
 .tinyos-process-detail {
   min-width: 0;

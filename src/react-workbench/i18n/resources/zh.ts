@@ -43,6 +43,7 @@ export const zh = {
     sidebar: { label: "设置类别", title: "偏好设置", description: "根据你的工作方式配置 Tinybot。" },
     modules: {
       app: { label: "应用", description: "语言和当前设备的偏好设置" },
+      appearance: { label: "外观", description: "主题、颜色、字体与对比度" },
       providers: { label: "Provider 与模型", description: "Provider、API Key 和默认模型" },
       agent: { label: "Agent 默认设置", description: "新 Agent 任务的运行时行为" },
       tools: { label: "工具与 MCP", description: "工具访问与 MCP Server 配置" },
@@ -55,6 +56,19 @@ export const zh = {
         englishDescription: "Use the English interface.", chinese: "简体中文", chineseDescription: "使用简体中文界面。",
       },
       persistence: "更改会立即生效，并仅保存在这台设备上。",
+    },
+    appearance: {
+      eyebrow: "个性化", title: "外观", description: "选择 Tinybot 在这台设备上的显示方式，并调整全局界面样式。",
+      modeTitle: "主题", modeDescription: "跟随操作系统，或固定使用浅色或深色主题。", modeOptionsLabel: "主题模式",
+      modes: { system: "跟随系统", light: "浅色", dark: "深色" },
+      modeDescriptions: { system: "自动匹配操作系统。", light: "始终使用浅色配色。", dark: "始终使用深色配色。" },
+      themeTitle: "{{theme}}主题", active: "当前生效", reset: "重置", accent: "主题色", background: "背景色", foreground: "前景色",
+      uiFont: "界面字体", codeFont: "代码字体", uiFonts: { inter: "Inter", system: "系统字体", segoe: "Segoe UI" },
+      codeFonts: { jetbrains: "JetBrains Mono", cascadia: "Cascadia Code", consolas: "Consolas" },
+      translucentSidebar: "半透明侧栏", translucentSidebarDescription: "让会话侧栏与窗口背景自然融合。",
+      contrast: "对比度", contrastDescription: "调整背景、卡片和分割线之间的层次。",
+      colorAria: "{{theme}}主题{{token}}", selectAria: "{{theme}}主题{{setting}}", toggleAria: "{{theme}}主题半透明侧栏",
+      contrastAria: "{{theme}}主题对比度", persistence: "外观更改会立即生效，并仅保存在这台设备上。",
     },
     agent: {
       loading: "正在加载 Agent 默认设置…", title: "Agent 默认设置", description: "会话未指定值时使用的运行时兜底配置和执行上限。",
