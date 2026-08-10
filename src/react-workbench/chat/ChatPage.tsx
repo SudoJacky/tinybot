@@ -408,7 +408,10 @@ export function ChatPage({
       }] : [];
     })
   ), [sessionTabs.openSessionIds, sessionTabs.unreadSessionIds, sessions]);
-  const sessionWorkspaces = useMemo(() => groupSessionsByWorkspace(sessions), [sessions]);
+  const sessionWorkspaces = useMemo(() => groupSessionsByWorkspace(sessions).map((workspace) => ({
+    ...workspace,
+    label: workspace.label ?? t("shell.generalSessions"),
+  })), [sessions, t]);
   const tinyOsFiles = useTinyOsFilesController(activeSession?.id ?? "draft", workspaceStore, liveCanvas.visibility === "open");
   const draftNewSession = sessionsLoaded && !activeSession;
   const timelineLoaded = Boolean(activeSession) && timeline?.sessionId === activeSession?.id;

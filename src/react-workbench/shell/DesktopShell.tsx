@@ -1,6 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { TFunction } from "i18next";
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -22,6 +23,7 @@ import {
   Cloud,
   Command,
   Folder,
+  Keyboard,
   Minus,
   PackagePlus,
   Puzzle,
@@ -29,6 +31,7 @@ import {
   Search,
   Settings,
   Square,
+  SunMoon,
   WandSparkles,
   X,
   type LucideIcon,
@@ -36,12 +39,23 @@ import {
 import { useTranslation } from "react-i18next";
 import { createDesktopStopCommand, createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import { readCurrentChatModel } from "../../app-core/chat/chatModelPreference";
+import {
+  findShortcutCommand,
+  isShortcutCommandId,
+  type ShortcutCommandId,
+  type ShortcutPreferences,
+} from "../../app-core/settings/appShortcuts";
+import { createDesktopNativeShortcutClient } from "../../app-core/native/desktopNativeShortcuts";
 import { ChatPage } from "../chat/ChatPage";
 import { MemoryPage } from "../memory/MemoryPage";
 import { AgentDefaultsSettingsPage } from "../settings/AgentDefaultsSettingsPage";
+import { AppAppearanceProvider, useAppAppearance } from "../settings/AppAppearanceContext";
 import { AppLanguageProvider } from "../settings/AppLanguageContext";
+import { AppShortcutProvider, useAppShortcuts } from "../settings/AppShortcutContext";
 import { AppSettingsPage } from "../settings/AppSettingsPage";
+import { AppearanceSettingsPage } from "../settings/AppearanceSettingsPage";
 import { ConfigSettingsPage, type ConfigSettingsGroupId } from "../settings/ConfigSettingsPage";
+import { KeyboardShortcutsSettingsPage } from "../settings/KeyboardShortcutsSettingsPage";
 import { ProviderModelsSettingsPage } from "../settings/ProviderModelsSettingsPage";
 import type { AppServices, PluginMigrationJob, PluginSummary, ToolCatalogSummary, WorkspaceFileSummary } from "../services";
 import type { DesktopUpdateClient } from "../../app-core/native/desktopNativeUpdate";
@@ -133,6 +147,7 @@ function createRouteLabels(t: TFunction<"common">): Record<AppRoute, string> {
 function createTopMenuItems(
   t: TFunction<"common">,
   routeLabels: Record<AppRoute, string>,
+  shortcuts: ShortcutPreferences,
 ): TopMenuItem[] {
   return [
   {
@@ -140,13 +155,13 @@ function createTopMenuItems(
     menuLabel: t("menu.applicationLabel"),
     icon: Command,
     entries: [
-      menuCommand({ id: "new-chat", label: t("menu.newChat"), shortcut: "Ctrl+N" }),
+      menuCommand({ id: "new-chat", label: t("menu.newChat"), shortcut: shortcuts["new-chat"] ?? undefined }),
       menuCommand({ id: "search-sessions", label: t("menu.searchSessions"), shortcut: "Ctrl+F", enabled: false }),
       menuSeparator("app-primary-separator"),
-      menuCommand({ id: "stop-generation", label: t("menu.stopGeneration"), shortcut: "Ctrl+.", enabled: false }),
+      menuCommand({ id: "stop-generation", label: t("menu.stopGeneration"), shortcut: shortcuts["stop-generation"] ?? undefined, enabled: false }),
       menuSeparator("app-view-separator"),
-      menuCommand({ id: "toggle-theme", label: t("menu.toggleTheme"), shortcut: "Ctrl+Shift+T" }),
-      menuCommand({ id: "toggle-sidebar", label: t("menu.toggleSidebar"), shortcut: "Ctrl+B" }),
+      menuCommand({ id: "toggle-theme", label: t("menu.toggleTheme"), shortcut: shortcuts["toggle-theme"] ?? undefined }),
+      menuCommand({ id: "toggle-sidebar", label: t("menu.toggleSidebar"), shortcut: shortcuts["toggle-sidebar"] ?? undefined }),
       menuSeparator("app-about-separator"),
       menuCommand({ id: "open-about", label: t("menu.about") }),
     ],
@@ -168,7 +183,7 @@ function createTopMenuItems(
     menuLabel: t("menu.systemLabel"),
     icon: Settings,
     entries: [
-      menuCommand({ id: "open-settings", label: routeLabels.settings, route: "settings", shortcut: "Ctrl+," }),
+      menuCommand({ id: "open-settings", label: routeLabels.settings, route: "settings", shortcut: shortcuts["open-settings"] ?? undefined }),
     ],
   },
   {
@@ -176,7 +191,7 @@ function createTopMenuItems(
     menuLabel: t("menu.helpLabel"),
     icon: BookOpen,
     entries: [
-      menuCommand({ id: "open-docs", label: t("menu.documentation"), route: "docs", shortcut: "F1" }),
+      menuCommand({ id: "open-docs", label: t("menu.documentation"), route: "docs", shortcut: shortcuts["open-docs"] ?? undefined }),
       menuSeparator("help-more-separator"),
       {
         kind: "submenu",
@@ -199,15 +214,21 @@ function createTopMenuItems(
 export function DesktopShell(props: DesktopShellProps) {
   return (
     <AppLanguageProvider>
-      <DesktopShellContent {...props} />
+      <AppAppearanceProvider>
+        <AppShortcutProvider>
+          <DesktopShellContent {...props} />
+        </AppShortcutProvider>
+      </AppAppearanceProvider>
     </AppLanguageProvider>
   );
 }
 
 function DesktopShellContent({ now, services, updateClient, windowControls }: DesktopShellProps) {
   const { t } = useTranslation("common");
+  const { toggleTheme } = useAppAppearance();
+  const { preferences: shortcuts } = useAppShortcuts();
   const routeLabels = createRouteLabels(t);
-  const topMenuItems = createTopMenuItems(t, routeLabels);
+  const topMenuItems = createTopMenuItems(t, routeLabels, shortcuts);
   const [routeHistory, setRouteHistory] = useState<RouteHistory>({
     back: [],
     current: "chat",
@@ -230,7 +251,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
     setStopGenerationSessionId(sessionId);
   }
 
-  function stopActiveGeneration() {
+  const stopActiveGeneration = useCallback(() => {
     const sessionId = stopGenerationSessionIdRef.current;
     if (sessionId) {
       void services.chatStore.dispatch(createDesktopStopCommand({
@@ -238,18 +259,57 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
         source: { control: "keyboard-shortcut", surface: "chat" },
       }));
     }
-  }
+  }, [services.chatStore]);
+
+  const navigateToRoute = useCallback((nextRoute: AppRoute) => {
+    setRouteHistory((current) => {
+      if (nextRoute === current.current) {
+        return current;
+      }
+      return {
+        back: [...current.back, current.current],
+        current: nextRoute,
+        forward: [],
+      };
+    });
+  }, []);
+
+  const executeShortcutCommand = useCallback((commandId: ShortcutCommandId, source: MotionSource) => {
+    switch (commandId) {
+      case "new-chat":
+        navigateToRoute("chat");
+        setCreateChatSignal((current) => current + 1);
+        break;
+      case "stop-generation":
+        stopActiveGeneration();
+        break;
+      case "toggle-theme":
+        toggleTheme();
+        break;
+      case "toggle-sidebar":
+        setSidebarMotionSource(source);
+        setSessionSidebarCollapsed((collapsed) => !collapsed);
+        break;
+      case "open-settings":
+        navigateToRoute("settings");
+        break;
+      case "open-docs":
+        navigateToRoute("docs");
+        break;
+    }
+  }, [navigateToRoute, stopActiveGeneration, toggleTheme]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
-        event.preventDefault();
-        setSidebarMotionSource("keyboard");
-        setSessionSidebarCollapsed((collapsed) => !collapsed);
+      if (event.defaultPrevented || event.repeat || (
+        event.target instanceof Element && event.target.closest("[data-shortcut-recorder]")
+      )) {
+        return;
       }
-      if ((event.ctrlKey || event.metaKey) && event.key === ".") {
+      const commandId = findShortcutCommand(shortcuts, event);
+      if (commandId) {
         event.preventDefault();
-        stopActiveGeneration();
+        executeShortcutCommand(commandId, "keyboard");
       }
       if (event.key === "Escape") {
         setActiveTopMenu(null);
@@ -258,7 +318,33 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [services.chatStore]);
+  }, [executeShortcutCommand, shortcuts]);
+
+  useEffect(() => {
+    const nativeClient = createDesktopNativeShortcutClient();
+    if (!nativeClient) {
+      return;
+    }
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void nativeClient.listen((commandId) => {
+      if (isShortcutCommandId(commandId)) {
+        executeShortcutCommand(commandId, "keyboard");
+      }
+    }).then((stopListening) => {
+      if (disposed) {
+        stopListening();
+      } else {
+        unlisten = stopListening;
+      }
+    }).catch((error) => {
+      console.error("[tinybot-shortcuts] Failed to listen for native menu commands.", error);
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [executeShortcutCommand]);
 
   useEffect(() => {
     function onWindowPointerDown(event: PointerEvent) {
@@ -292,19 +378,6 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
     setMenuMotionSource(event.detail === 0 ? "keyboard" : "pointer");
     setActiveTopSubmenu(null);
     setActiveTopMenu((current) => current === label ? null : label);
-  }
-
-  function navigateToRoute(nextRoute: AppRoute) {
-    setRouteHistory((current) => {
-      if (nextRoute === current.current) {
-        return current;
-      }
-      return {
-        back: [...current.back, current.current],
-        current: nextRoute,
-        forward: [],
-      };
-    });
   }
 
   function goBack() {
@@ -345,21 +418,11 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
       navigateToRoute(command.route);
       return;
     }
+    if (isShortcutCommandId(command.id)) {
+      executeShortcutCommand(command.id, source);
+      return;
+    }
     switch (command.id) {
-      case "new-chat":
-        navigateToRoute("chat");
-        setCreateChatSignal((current) => current + 1);
-        return;
-      case "stop-generation":
-        stopActiveGeneration();
-        return;
-      case "toggle-theme":
-        document.documentElement.dataset.theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-        return;
-      case "toggle-sidebar":
-        setSidebarMotionSource(source);
-        setSessionSidebarCollapsed((collapsed) => !collapsed);
-        return;
       case "open-about":
         setAboutOpenSignal((current) => current + 1);
         return;
@@ -1124,6 +1187,10 @@ function SettingsPage({ services }: { services: AppServices }) {
         >
           {activeModuleId === "app" ? (
             <AppSettingsPage />
+          ) : activeModuleId === "appearance" ? (
+            <AppearanceSettingsPage />
+          ) : activeModuleId === "keyboard-shortcuts" ? (
+            <KeyboardShortcutsSettingsPage />
           ) : activeModuleId === "agent-defaults" ? (
             <AgentDefaultsSettingsPage
               onNavigateToProviderModels={() => setActiveSettingsModuleId("provider-models")}
@@ -1157,7 +1224,7 @@ function SettingsPage({ services }: { services: AppServices }) {
   );
 }
 
-type SettingsModuleId = "app" | "provider-models" | "agent-defaults" | ConfigSettingsGroupId;
+type SettingsModuleId = "app" | "appearance" | "keyboard-shortcuts" | "provider-models" | "agent-defaults" | ConfigSettingsGroupId;
 
 type SettingsModule = {
   id: SettingsModuleId;
@@ -1170,6 +1237,8 @@ type SettingsModule = {
 function createSettingsModules(t: TFunction<"settings">): SettingsModule[] {
   return [
     { id: "app", label: t("modules.app.label"), description: t("modules.app.description"), icon: AppWindow },
+    { id: "appearance", label: t("modules.appearance.label"), description: t("modules.appearance.description"), icon: SunMoon },
+    { id: "keyboard-shortcuts", label: t("modules.shortcuts.label"), description: t("modules.shortcuts.description"), icon: Keyboard },
     { id: "provider-models", label: t("modules.providers.label"), description: t("modules.providers.description"), icon: Cloud },
     { id: "agent-defaults", label: t("modules.agent.label"), description: t("modules.agent.description"), icon: Bot },
     { id: "tools-mcp", label: t("modules.tools.label"), description: t("modules.tools.description"), icon: Cable, groupId: "tools-mcp" },
