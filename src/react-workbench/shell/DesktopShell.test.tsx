@@ -14,6 +14,7 @@ import { unavailableTinyOsEffectiveCapabilities } from "../../app-core/chat/tiny
 import type { DesktopUpdateClient, DesktopUpdateSnapshot } from "../../app-core/native/desktopNativeUpdate";
 import { pickDesktopPluginMigrationDirectory } from "../../app-core/native/desktopNativePluginPicker";
 import { APPEARANCE_STORAGE_KEY } from "../../app-core/settings/appAppearance";
+import { SHORTCUTS_STORAGE_KEY } from "../../app-core/settings/appShortcuts";
 
 vi.mock("../../app-core/native/desktopNativePluginPicker", () => ({
   pickDesktopPluginDirectory: vi.fn(),
@@ -342,6 +343,21 @@ describe("DesktopShell", () => {
 
     expect(document.documentElement.dataset.theme).toBe("dark");
     expect(JSON.parse(window.localStorage.getItem(APPEARANCE_STORAGE_KEY) ?? "{}").mode).toBe("dark");
+  });
+
+  it("uses a persisted custom shortcut for menu labels and command execution", async () => {
+    window.localStorage.setItem(SHORTCUTS_STORAGE_KEY, JSON.stringify({ "toggle-theme": "Ctrl+Alt+T" }));
+    const user = userEvent.setup();
+    render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={createServices()} />);
+
+    await user.click(screen.getByRole("button", { name: "App" }));
+    expect(within(screen.getByRole("menu", { name: "Application menu" })).getByText("Ctrl+Alt+T")).toBeTruthy();
+    await user.keyboard("{Escape}");
+
+    fireEvent.keyDown(window, { code: "KeyT", ctrlKey: true, key: "T", shiftKey: true });
+    expect(document.documentElement.dataset.theme).toBe("light");
+    fireEvent.keyDown(window, { altKey: true, code: "KeyT", ctrlKey: true, key: "t" });
+    expect(document.documentElement.dataset.theme).toBe("dark");
   });
 
   it("opens About Tinybot from the App menu and checks for updates on demand", async () => {

@@ -15,6 +15,7 @@ import { createTinyOsBrowserSessionSnapshot } from "../../app-core/chat/tinyOsNa
 import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefaultsSettings";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
 import { timelineFromReactMessages } from "./testTimelineFixtures";
+import { i18n } from "../i18n";
 
 const nativeFilePickerMocks = vi.hoisted(() => ({
   pickDesktopChatFiles: vi.fn(),
@@ -844,7 +845,7 @@ describe("ChatPage", () => {
     expect(getComputedStyle(expandedFolder as Element).display).not.toBe("none");
     expect(within(workspace).getByRole("button", { name: "Planning notes" })).toBeTruthy();
     expect(within(workspace).getByRole("button", { name: "Knowledge review" })).toBeTruthy();
-    expect(within(sidebar).getByRole("group", { name: "Workspace 常规会话" })).toBeTruthy();
+    expect(within(sidebar).getByRole("group", { name: "Workspace General chats" })).toBeTruthy();
 
     await user.click(workspaceSummary as HTMLElement);
     expect(workspace.hasAttribute("open")).toBe(false);
@@ -855,6 +856,33 @@ describe("ChatPage", () => {
     await user.click(within(workspace).getByRole("button", { name: "New session in tinybot" }));
 
     expect(stores.sessionStore.create).toHaveBeenCalledWith({ workingDirectory });
+  });
+
+  it("localizes the group for sessions without a working directory", async () => {
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "General question",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 40, 0),
+        status: "idle",
+      }],
+    });
+
+    await act(async () => {
+      await i18n.changeLanguage("zh");
+    });
+    try {
+      render(<ChatPage chatStore={stores.chatStore} sessionStore={stores.sessionStore} />);
+
+      const sidebar = await screen.findByRole("complementary", { name: "会话" });
+      expect(within(sidebar).getByRole("group", { name: "工作区 常规会话" })).toBeTruthy();
+    } finally {
+      cleanup();
+      await act(async () => {
+        await i18n.changeLanguage("en");
+      });
+    }
   });
 
   it("inherits the active workspace when creating a session from the global action", async () => {

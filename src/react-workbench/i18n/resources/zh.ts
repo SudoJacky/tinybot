@@ -44,6 +44,7 @@ export const zh = {
     modules: {
       app: { label: "应用", description: "语言和当前设备的偏好设置" },
       appearance: { label: "外观", description: "主题、颜色、字体与对比度" },
+      shortcuts: { label: "快捷键", description: "查找并自定义应用命令" },
       providers: { label: "Provider 与模型", description: "Provider、API Key 和默认模型" },
       agent: { label: "Agent 默认设置", description: "新 Agent 任务的运行时行为" },
       tools: { label: "工具与 MCP", description: "工具访问与 MCP Server 配置" },
@@ -69,6 +70,25 @@ export const zh = {
       contrast: "对比度", contrastDescription: "调整背景、卡片和分割线之间的层次。",
       colorAria: "{{theme}}主题{{token}}", selectAria: "{{theme}}主题{{setting}}", toggleAria: "{{theme}}主题半透明侧栏",
       contrastAria: "{{theme}}主题对比度", persistence: "外观更改会立即生效，并仅保存在这台设备上。",
+    },
+    shortcuts: {
+      eyebrow: "效率", title: "快捷键", description: "自定义 Tinybot 桌面工作台支持的全局命令。",
+      searchLabel: "搜索快捷键", searchPlaceholder: "搜索快捷键", resetAll: "全部恢复默认",
+      edit: "修改快捷键", clear: "清除快捷键", reset: "恢复默认",
+      editAria: "修改{{command}}快捷键", clearAria: "清除{{command}}快捷键", resetAria: "恢复{{command}}的默认快捷键",
+      recordingAria: "录制{{command}}快捷键", recording: "请按下快捷键 · Esc 取消", unassigned: "未分配",
+      modifierRequired: "请组合 Ctrl 或 Alt 与其他按键，或者使用功能键。",
+      conflict: "{{shortcut}} 已分配给{{command}}。",
+      noResults: "没有匹配的快捷键", noResultsDescription: "可以尝试搜索命令名称、说明或按键组合。",
+      persistence: "快捷键更改会立即生效，并仅保存在这台设备上。",
+      commands: {
+        "new-chat": { label: "新建对话", description: "开始一个新对话。" },
+        "stop-generation": { label: "停止生成", description: "停止当前正在生成的回复。" },
+        "toggle-theme": { label: "切换主题", description: "在浅色与深色主题之间切换。" },
+        "toggle-sidebar": { label: "切换侧栏", description: "显示或隐藏会话侧栏。" },
+        "open-settings": { label: "打开设置", description: "打开 Tinybot 设置。" },
+        "open-docs": { label: "文档", description: "打开文档页面。" },
+      },
     },
     agent: {
       loading: "正在加载 Agent 默认设置…", title: "Agent 默认设置", description: "会话未指定值时使用的运行时兜底配置和执行上限。",
@@ -196,7 +216,7 @@ export const zh = {
     },
     shell: {
       label: "聊天", sessions: "会话", addWorkspace: "添加工作区文件夹", searchChats: "搜索会话", expandSidebar: "展开会话侧栏", collapseSidebar: "收起会话侧栏",
-      newChat: "新会话", sessionRows: "会话列表", workspace: "工作区 {{name}}", newSessionIn: "在 {{name}} 中新建会话", confirmDelete: "确认删除 {{name}}",
+      newChat: "新会话", sessionRows: "会话列表", workspace: "工作区 {{name}}", generalSessions: "常规会话", newSessionIn: "在 {{name}} 中新建会话", confirmDelete: "确认删除 {{name}}",
       delete: "删除 {{name}}", noSessions: "还没有会话。", noSelection: "未选择会话", closeTinyOs: "关闭 TinyOS", openTinyOs: "打开 TinyOS",
       openTinyOsAttention: "打开 TinyOS，需要处理", openTinyOsActivity: "打开 TinyOS，有 Agent 活动", conversationMenu: "打开会话菜单",
       unpin: "取消置顶", pin: "置顶会话", rename: "重命名会话", copyId: "复制 ID", copyMarkdown: "复制 Markdown", archive: "归档会话",

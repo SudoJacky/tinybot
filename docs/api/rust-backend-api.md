@@ -173,6 +173,17 @@ The command serializes the supplied JSON value, records it in the process-local 
 and appends it to the persistent native backend log. A single serialized renderer entry is bounded
 to 16 KiB with UTF-8-safe truncation. Log write failures reject the command.
 
+## Desktop Menu Shortcut Command
+
+| Command | Args | Response |
+| --- | --- | --- |
+| `desktop_set_menu_shortcuts` | `{ bindings: Array<{ id: string, accelerator: string \| null }> }` | `void` |
+
+The renderer sends the complete binding set for the six configurable desktop commands. The backend
+rejects missing, duplicate, unknown, conflicting, or unsupported bindings before updating the
+native application menu. A `null` accelerator clears that command's native shortcut. Menu clicks
+and native accelerator activations are emitted through `desktop-menu-command` with `{ id: string }`.
+
 ## Desktop Update Commands
 
 | Command | Args | Response |
@@ -1580,7 +1591,7 @@ The desktop shell also emits:
 
 | Tauri event | Payload |
 | --- | --- |
-| `desktop-menu-command` | Native application-menu command |
+| `desktop-menu-command` | `{ id: string }` for a native application-menu command |
 | `desktop-update-status` | `DesktopUpdateSnapshot` after each update phase or download-progress change |
 | `tinyos:host-operation` | Asynchronous TinyOS host-operation status |
 | `tinyos:browser-snapshot` | `BrowserNativeSnapshot` |

@@ -4,7 +4,7 @@ export const GENERAL_SESSION_WORKSPACE_KEY = "session-workspace:general";
 
 export type SessionWorkspaceGroup = {
   key: string;
-  label: string;
+  label?: string;
   sessions: SessionSummary[];
   updatedAtMs: number;
   workingDirectory?: string;
@@ -26,7 +26,7 @@ export function groupSessionsByWorkspace(sessions: SessionSummary[]): SessionWor
     }
     groups.set(key, {
       key,
-      label: workingDirectory ? sessionWorkspaceName(workingDirectory) : "常规会话",
+      ...(workingDirectory ? { label: sessionWorkspaceName(workingDirectory) } : {}),
       sessions: [session],
       updatedAtMs: session.updatedAtMs,
       ...(workingDirectory ? { workingDirectory } : {}),
@@ -38,7 +38,7 @@ export function groupSessionsByWorkspace(sessions: SessionSummary[]): SessionWor
 export function sessionWorkspaceName(workingDirectory: string): string {
   const path = normalizedDisplayPath(workingDirectory);
   if (!path) {
-    return "常规会话";
+    return "";
   }
   const parts = path.split(/[\\/]+/).filter(Boolean);
   return parts[parts.length - 1] ?? path;

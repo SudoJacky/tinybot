@@ -8996,6 +8996,7 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-provider-settings,
 .react-app-settings,
 .react-appearance-settings,
+.react-shortcuts-settings,
 .react-agent-defaults-settings,
 .react-config-settings {
   display: grid;
@@ -9362,6 +9363,203 @@ button.tinyos-overlay-backdrop:focus-visible {
   color: var(--color-muted);
   font-size: 11px;
   text-align: right;
+}
+
+.react-shortcuts-settings {
+  display: grid;
+  gap: 22px;
+}
+
+.react-shortcuts-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.react-shortcuts-search {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  min-height: 42px;
+  gap: 9px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: var(--color-panel);
+  padding: 0 12px;
+  color: var(--color-muted);
+}
+
+.react-shortcuts-search:focus-within {
+  border-color: color-mix(in srgb, var(--color-primary) 58%, var(--color-hairline));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.react-shortcuts-search input {
+  min-width: 0;
+  height: 40px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 12px;
+}
+
+.react-shortcuts-reset-all {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--color-hairline);
+  background: var(--color-panel);
+  padding: 0 12px;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.react-shortcuts-list {
+  overflow: hidden;
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+  background: var(--color-panel);
+}
+
+.react-shortcut-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 220px) auto;
+  align-items: center;
+  min-height: 76px;
+  gap: 18px;
+  padding: 12px 14px 12px 16px;
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.react-shortcut-row:last-child {
+  border-bottom: 0;
+}
+
+.react-shortcut-row[data-recording="true"] {
+  background: color-mix(in srgb, var(--color-primary) 4%, var(--color-panel));
+}
+
+.react-shortcut-row__copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.react-shortcut-row__copy strong {
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 680;
+}
+
+.react-shortcut-row__copy small {
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.react-shortcut-row__error {
+  margin-top: 3px;
+  color: var(--color-error);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.react-shortcut-row__binding {
+  display: flex;
+  min-width: 0;
+  justify-content: flex-end;
+  color: var(--color-muted-soft);
+  font-size: 11px;
+}
+
+.react-shortcut-row__binding kbd {
+  display: inline-flex;
+  min-height: 26px;
+  align-items: center;
+  border: 1px solid var(--color-hairline);
+  border-radius: 7px;
+  background: var(--color-surface-soft);
+  padding: 0 9px;
+  color: var(--color-body);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--color-ink) 10%, transparent);
+  font: 600 10px/1 var(--font-code);
+  white-space: nowrap;
+}
+
+.react-shortcut-recorder {
+  display: inline-flex;
+  min-width: 190px;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-panel));
+  padding: 0 10px;
+  color: var(--color-primary-active);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.react-shortcut-recorder:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.react-shortcut-row__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.react-shortcut-row__actions button {
+  display: inline-grid;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  place-items: center;
+  padding: 0;
+  color: var(--color-muted);
+}
+
+.react-shortcut-row__actions button:hover:not(:disabled),
+.react-shortcut-row__actions button:focus-visible {
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+}
+
+.react-shortcut-row__actions button:focus-visible,
+.react-shortcuts-reset-all:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.react-shortcuts-empty {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  border: 1px dashed var(--color-hairline);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-panel) 72%, transparent);
+  padding: 24px;
+  color: var(--color-muted);
+  text-align: center;
+}
+
+.react-shortcuts-empty strong {
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-shortcuts-empty span {
+  font-size: 11px;
 }
 
 .react-config-settings__persistence {
@@ -11507,6 +11705,27 @@ button.tinyos-overlay-backdrop:focus-visible {
 
   .react-appearance-row {
     grid-template-columns: minmax(0, 1fr) minmax(190px, 250px);
+  }
+
+  .react-shortcut-row {
+    grid-template-areas:
+      "copy copy"
+      "binding actions";
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px 12px;
+  }
+
+  .react-shortcut-row__copy {
+    grid-area: copy;
+  }
+
+  .react-shortcut-row__binding {
+    grid-area: binding;
+    justify-content: flex-start;
+  }
+
+  .react-shortcut-row__actions {
+    grid-area: actions;
   }
 }
 

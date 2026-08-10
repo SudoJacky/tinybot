@@ -4,7 +4,10 @@ use crate::desktop::files::mime_type_for_path;
 use crate::desktop::files::upload_file_from_path;
 use crate::desktop::files::write_export_file;
 use crate::desktop::logging::append_native_backend_log_line;
-use crate::desktop::menu::desktop_menu_item_descriptors;
+use crate::desktop::menu::{
+    desktop_menu_item_descriptors, validate_desktop_menu_shortcut_bindings,
+    DesktopMenuShortcutBinding,
+};
 use crate::desktop::state::NativeRuntimeState;
 use crate::desktop::{record_renderer_diagnostic_with_options, truncate_utf8_with_ellipsis};
 use std::path::Path;
@@ -175,4 +178,52 @@ fn desktop_application_menu_describes_core_workbench_commands() {
             Some("Ctrl+Shift+P"),
         ]
     );
+}
+
+#[test]
+fn desktop_menu_shortcut_bindings_require_the_complete_unique_command_set() {
+    let bindings = configurable_desktop_menu_shortcuts();
+
+    assert!(validate_desktop_menu_shortcut_bindings(&bindings).is_ok());
+
+    let mut duplicate_command = bindings.clone();
+    duplicate_command[1].id = duplicate_command[0].id.clone();
+    assert!(validate_desktop_menu_shortcut_bindings(&duplicate_command)
+        .expect_err("duplicate commands should fail")
+        .contains("appears more than once"));
+
+    let mut duplicate_accelerator = bindings.clone();
+    duplicate_accelerator[1].accelerator = duplicate_accelerator[0].accelerator.clone();
+    assert!(
+        validate_desktop_menu_shortcut_bindings(&duplicate_accelerator)
+            .expect_err("duplicate accelerators should fail")
+            .contains("assigned more than once")
+    );
+}
+
+#[test]
+fn desktop_menu_shortcut_bindings_reject_unsupported_accelerators() {
+    let mut bindings = configurable_desktop_menu_shortcuts();
+    bindings[0].accelerator = Some("N".to_string());
+
+    assert!(validate_desktop_menu_shortcut_bindings(&bindings)
+        .expect_err("plain keys should fail")
+        .contains("is not supported"));
+}
+
+fn configurable_desktop_menu_shortcuts() -> Vec<DesktopMenuShortcutBinding> {
+    vec![
+        ("new-chat", Some("Ctrl+N")),
+        ("stop-generation", Some("Ctrl+.")),
+        ("toggle-theme", Some("Ctrl+Shift+T")),
+        ("toggle-sidebar", Some("Ctrl+B")),
+        ("open-settings", Some("Ctrl+,")),
+        ("open-docs", None),
+    ]
+    .into_iter()
+    .map(|(id, accelerator)| DesktopMenuShortcutBinding {
+        id: id.to_string(),
+        accelerator: accelerator.map(str::to_string),
+    })
+    .collect()
 }

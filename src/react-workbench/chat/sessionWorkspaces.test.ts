@@ -39,7 +39,6 @@ describe("session workspace projection", () => {
       }),
       expect.objectContaining({
         key: GENERAL_SESSION_WORKSPACE_KEY,
-        label: "常规会话",
         sessions: [expect.objectContaining({ id: "general" })],
       }),
       expect.objectContaining({
@@ -53,6 +52,7 @@ describe("session workspace projection", () => {
     expect(sessionWorkspaceName("D:\\Code\\py\\tinybot\\")).toBe("tinybot");
     expect(sessionWorkspaceName("/work/projects/tinybot/")).toBe("tinybot");
     expect(sessionWorkspaceName("D:\\")).toBe("D:");
+    expect(sessionWorkspaceName("  ")).toBe("");
   });
 
   it("does not expose temporary plugin migration directories as reusable workspaces", () => {
@@ -71,8 +71,8 @@ describe("session workspace projection", () => {
 
     expect(groups).toEqual([expect.objectContaining({
       key: GENERAL_SESSION_WORKSPACE_KEY,
-      label: "常规会话",
     })]);
+    expect(groups[0]).not.toHaveProperty("label");
     expect(groups[0]).not.toHaveProperty("workingDirectory");
   });
 });
