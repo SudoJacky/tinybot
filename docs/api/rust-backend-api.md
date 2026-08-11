@@ -668,6 +668,14 @@ block; the stored and user-visible message content remains unchanged. Provider i
 most 16 TinyOS references and 64 KiB of serialized reference data per message. Exceeding either
 limit fails the provider request visibly rather than dropping context.
 
+Composer `@` mentions use the same reference contract with `type: "tinyos.thread"`. The desktop
+limits suggestions to persisted Threads in the active Thread's normalized workspace, excludes the
+active Thread, and resolves the selected Thread's latest persisted user/assistant transcript when
+the message is sent. `scope` carries the referenced Thread ID, `revision` records its observed
+`updatedAt` value, and `sourceText` contains a bounded transcript snapshot with an explicit omission
+marker when middle content is truncated. The snapshot is provider evidence rather than an
+instruction source; selecting a conversation does not merge or mutate either Thread.
+
 Desktop chat controls call `worker_thread_interrupt` and `worker_submit_thread_form` directly. Their
 canonical Thread timeline updates are delivered directly through typed Tauri events; no secondary
 transport-frame projection is part of the desktop contract.

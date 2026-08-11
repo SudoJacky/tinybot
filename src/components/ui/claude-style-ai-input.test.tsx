@@ -42,6 +42,43 @@ describe("ClaudeStyleAiInput slash commands", () => {
     expect(onSendMessage).not.toHaveBeenCalled();
   });
 
+  it("selects workspace conversations with @ and exposes a removable reference chip", async () => {
+    const user = userEvent.setup();
+    const onAddSessionMention = vi.fn();
+    const onRemoveSessionMention = vi.fn();
+    const options = [
+      { id: "thread-1", label: "Planning notes", detail: "Workspace conversation · 5 minutes ago" },
+      { id: "thread-2", label: "Architecture review", detail: "Workspace conversation · 1 minute ago" },
+    ];
+    const view = render(<ClaudeStyleAiInput
+      onAddSessionMention={onAddSessionMention}
+      onRemoveSessionMention={onRemoveSessionMention}
+      sessionMentionOptions={options}
+    />);
+
+    const input = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    await user.type(input, "Compare with @arch");
+
+    const listbox = screen.getByRole("listbox", { name: "Workspace conversations" });
+    expect(within(listbox).getByRole("option", { name: /Architecture review/ }).getAttribute("aria-selected")).toBe("true");
+
+    await user.keyboard("{Enter}");
+    expect(onAddSessionMention).toHaveBeenCalledWith("thread-2");
+    expect(input.value).toBe("Compare with ");
+
+    view.rerender(<ClaudeStyleAiInput
+      onAddSessionMention={onAddSessionMention}
+      onRemoveSessionMention={onRemoveSessionMention}
+      selectedSessionMentionIds={["thread-2"]}
+      sessionMentionOptions={options}
+    />);
+    const attachments = screen.getByLabelText("Composer attachments");
+    expect(within(attachments).getByText("Architecture review")).toBeTruthy();
+
+    await user.click(within(attachments).getByRole("button", { name: "Remove Architecture review" }));
+    expect(onRemoveSessionMention).toHaveBeenCalledWith("thread-2");
+  });
+
   it("selects reasoning effort from the model menu and sends the API value", async () => {
     const user = userEvent.setup();
     const onReasoningEffortChange = vi.fn();
