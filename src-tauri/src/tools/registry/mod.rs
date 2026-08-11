@@ -598,7 +598,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent",
             "Spawn subagent",
             "Create a child agent thread for delegated work.",
-            ToolExposure::Deferred,
+            ToolExposure::Model,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![
@@ -627,7 +627,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent",
             "Send subagent input",
             "Send input to an active child agent thread.",
-            ToolExposure::Deferred,
+            ToolExposure::Model,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![
@@ -652,7 +652,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent",
             "Wait for subagent",
             "Wait until a selected child agent reaches a result or input boundary.",
-            ToolExposure::Deferred,
+            ToolExposure::Model,
             false,
             runtime_policy(false, ToolCancellationMode::Cooperative, false, false),
             vec![
@@ -677,7 +677,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent",
             "Close subagent",
             "Explicitly close a retained child agent. Closed children cannot be resumed.",
-            ToolExposure::Deferred,
+            ToolExposure::Model,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![
@@ -700,7 +700,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "subagent",
             "Resume subagent",
             "Resume one interrupted child agent after runtime restart.",
-            ToolExposure::Deferred,
+            ToolExposure::Model,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true),
             vec![

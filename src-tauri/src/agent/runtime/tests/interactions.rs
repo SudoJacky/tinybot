@@ -723,18 +723,25 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
         }),
         json!({}),
     );
+    context.tool_router = NativeToolRouter::new(vec![test_read_only_tool(
+        "test.deferred_wait",
+        ToolExposure::Deferred,
+    )]);
     context
         .tool_router
         .search_and_activate(
-            json!({"query":"wait for subagent","limit":1})
+            json!({"query":"deferred wait","limit":1})
                 .as_object()
                 .expect("tool_search test arguments should be an object"),
         )
-        .expect("subagent wait should activate for the current turn");
+        .expect("test deferred wait should activate for the current turn");
     let checkpoint =
         super::checkpoint::checkpoint_value(&context, "awaiting_form", json!({ "iteration": 1 }));
 
-    assert_eq!(checkpoint["activatedToolIds"], json!(["subagent.wait"]));
+    assert_eq!(
+        checkpoint["activatedToolIds"],
+        json!(["test.deferred_wait"])
+    );
     let cancelled_checkpoint = super::checkpoint::checkpoint_value(
         &context,
         "cancelled",
@@ -750,6 +757,10 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
         }),
         json!({}),
     );
+    restored.tool_router = NativeToolRouter::new(vec![test_read_only_tool(
+        "test.deferred_wait",
+        ToolExposure::Deferred,
+    )]);
     restored
         .tool_router
         .restore_from_checkpoint(&checkpoint)
@@ -762,7 +773,7 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
         .iter()
         .map(|tool| tool["function"]["name"].as_str().unwrap_or_default())
         .collect::<Vec<_>>();
-    assert!(names.contains(&"subagent_wait"));
+    assert!(names.contains(&"test_deferred_wait"));
 
     let stale_checkpoint = json!({ "activatedToolIds": ["missing.tool"] });
     let error = AgentTurnContext::from_spec(
@@ -787,10 +798,17 @@ fn duplicate_deferred_tool_activation_fails_without_partial_state() {
         }),
         json!({}),
     );
+    context.tool_router = NativeToolRouter::new(vec![test_read_only_tool(
+        "test.deferred_wait",
+        ToolExposure::Deferred,
+    )]);
 
     let error = context
         .tool_router
-        .activate_for_turn(&["subagent.wait".to_string(), "subagent.wait".to_string()])
+        .activate_for_turn(&[
+            "test.deferred_wait".to_string(),
+            "test.deferred_wait".to_string(),
+        ])
         .expect_err("duplicate activation IDs must fail explicitly");
 
     assert!(error.contains("duplicate ID"));
@@ -1164,11 +1182,6 @@ fn chat_completion_request_enables_parallel_tool_calls_only_when_explicitly_requ
     wait_tool.supports_parallel_tool_calls = true;
     wait_tool.runtime_policy.supports_parallel_tool_calls = true;
     context.tool_router = NativeToolRouter::new(tools);
-    context
-        .tool_router
-        .activate_for_turn(&["subagent.wait".to_string()])
-        .expect("parallel subagent wait tool should activate");
-
     let enabled_request = agent_chat_completion_request(&context)
         .expect("explicit parallel tool request should build");
     assert_eq!(enabled_request["parallel_tool_calls"], true);
@@ -1293,10 +1306,6 @@ fn provider_tool_call_names_restore_internal_registry_methods() {
         .list_tools()
         .tools,
     );
-    context
-        .tool_router
-        .activate_for_turn(&["subagent.wait".to_string()])
-        .expect("subagent wait tool should activate");
     let completion = json!({
         "choices": [{
             "message": {
@@ -1536,7 +1545,7 @@ fn selected_turn_tools_limit_the_production_provider_registry() {
     assert_eq!(captured[0][0], "update_plan");
     assert_eq!(captured[0][1], "subagent_wait");
     assert!(captured[1].iter().any(|name| name == "update_plan"));
-    assert_eq!(activated[0], vec!["subagent.wait"]);
+    assert!(activated[0].is_empty());
     assert!(captured[1].iter().any(|name| name == "apply_patch"));
     assert!(activated[1].is_empty());
 }

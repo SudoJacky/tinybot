@@ -536,7 +536,7 @@ fn context_contributor_ids_must_be_unique() {
 }
 
 #[test]
-fn chat_completion_request_exposes_only_foundational_model_tools() {
+fn chat_completion_request_exposes_foundational_and_subagent_model_tools() {
     let mut context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
@@ -564,7 +564,7 @@ fn chat_completion_request_exposes_only_foundational_model_tools() {
     ] {
         assert_eq!(
             registry.get_tool(method).unwrap().exposure,
-            ToolExposure::Deferred
+            ToolExposure::Model
         );
     }
     assert!(registry.get_tool("workspace.read_file").is_none());
@@ -587,8 +587,11 @@ fn chat_completion_request_exposes_only_foundational_model_tools() {
     assert!(names.contains(&"publish_data_view"));
     assert!(names.contains(&"request_user_input"));
     assert!(!names.contains(&"workspace_read_file"));
-    assert!(!names.contains(&"subagent_spawn"));
-    assert!(!names.contains(&"subagent_send_input"));
+    assert!(names.contains(&"subagent_spawn"));
+    assert!(names.contains(&"subagent_send_input"));
+    assert!(names.contains(&"subagent_wait"));
+    assert!(names.contains(&"subagent_close"));
+    assert!(names.contains(&"subagent_resume"));
     assert!(!names.contains(&"workspace_write_file"));
     assert!(!names.contains(&"workspace_delete_file"));
     assert!(!names.contains(&"mcp_call_tool"));
