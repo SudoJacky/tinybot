@@ -37,3 +37,7 @@ Tinybot 是一个由大语言模型和原生工具系统驱动的轻量级个人
 Tinybot 可以提供自定义的图表。
 
 <img width="960" height="747" alt="image" src="https://github.com/user-attachments/assets/3345c7f4-65c4-4464-aebf-b5ca491edea7" />
+
+## Continue in another conversation
+
+<img width="683" height="415" alt="image" src="https://github.com/user-attachments/assets/0af9df84-b254-469a-9ebd-2f7e866c66eb" />
