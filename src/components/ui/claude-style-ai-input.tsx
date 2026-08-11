@@ -18,6 +18,7 @@ import {
   Copy,
   FileText,
   ImageIcon,
+  MessageCircle,
   Music,
   Plus,
   SlidersHorizontal,
@@ -82,6 +83,12 @@ export interface ComposerContextReference {
   label: string;
 }
 
+export interface ComposerSessionMentionOption {
+  detail: string;
+  id: string;
+  label: string;
+}
+
 export interface ClaudeStyleAiInputProps {
   className?: string;
   contextReferences?: ComposerContextReference[];
@@ -109,7 +116,12 @@ export interface ClaudeStyleAiInputProps {
   onReasoningEffortChange?: (effort: ReasoningEffort) => void;
   onClearContextReferences?: () => void;
   onRemoveContextReference?: (id: string) => void;
+  onAddSessionMention?: (id: string) => void;
+  onClearSessionMentions?: () => void;
+  onRemoveSessionMention?: (id: string) => void;
   contextUsage?: TokenUsage;
+  selectedSessionMentionIds?: readonly string[];
+  sessionMentionOptions?: readonly ComposerSessionMentionOption[];
   tools?: ComposerToolOption[];
   responding?: boolean;
   canStopResponding?: boolean;
@@ -125,6 +137,8 @@ const PASTE_THRESHOLD = 200;
 const EMPTY_MODELS: ModelOption[] = [];
 const EMPTY_TOOLS: ComposerToolOption[] = [];
 const EMPTY_SLASH_COMMANDS: readonly ComposerSlashCommand[] = [];
+const EMPTY_SESSION_MENTIONS: readonly ComposerSessionMentionOption[] = [];
+const MAX_SESSION_MENTIONS = 4;
 type ReasoningEffortOption = {
   description: string;
   label: string;
@@ -153,15 +167,20 @@ export function ClaudeStyleAiInput({
   models = EMPTY_MODELS,
   onModelChange,
   onReasoningEffortChange,
+  onAddSessionMention,
   onClearContextReferences,
+  onClearSessionMentions,
   onInterruptMessage,
   onRemoveContextReference,
+  onRemoveSessionMention,
   onSelectFiles,
   onSendMessage,
   onStopResponding,
   onValueChange,
   placeholder,
   responding = false,
+  selectedSessionMentionIds = [],
+  sessionMentionOptions = EMPTY_SESSION_MENTIONS,
   slashCommands = EMPTY_SLASH_COMMANDS,
   stopUnavailableReason,
   tools = EMPTY_TOOLS,
@@ -189,7 +208,10 @@ export function ClaudeStyleAiInput({
   const [selectingFiles, setSelectingFiles] = useState(false);
   const [activeSlashCommandIndex, setActiveSlashCommandIndex] = useState(0);
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
+  const [activeSessionMentionIndex, setActiveSessionMentionIndex] = useState(0);
+  const [sessionMentionMenuDismissed, setSessionMentionMenuDismissed] = useState(false);
   const slashListboxId = useId();
+  const sessionMentionListboxId = useId();
   const currentMessage = value ?? message;
   const selectedModel = useMemo(
     () => models.find((model) => model.id === selectedModelId)
@@ -202,7 +224,21 @@ export function ClaudeStyleAiInput({
   const contextUsageView = useMemo(() => buildContextUsageView(contextUsage, t), [contextUsage, t]);
   const resolvedPlaceholder = placeholder ?? t("composer.placeholder");
   const enabledToolIdSet = useMemo(() => new Set(enabledToolIds), [enabledToolIds]);
-  const canSend = !disabled && !sending && Boolean(currentMessage.trim() || files.length || pastedContent.length || contextReferences.length);
+  const selectedSessionMentionIdSet = useMemo(
+    () => new Set(selectedSessionMentionIds),
+    [selectedSessionMentionIds],
+  );
+  const selectedSessionMentions = useMemo(
+    () => sessionMentionOptions.filter((option) => selectedSessionMentionIdSet.has(option.id)),
+    [selectedSessionMentionIdSet, sessionMentionOptions],
+  );
+  const canSend = !disabled && !sending && Boolean(
+    currentMessage.trim()
+      || files.length
+      || pastedContent.length
+      || contextReferences.length
+      || selectedSessionMentions.length,
+  );
   const slashQuery = useMemo(() => {
     const match = /^\/([^\s]*)$/.exec(currentMessage);
     return match?.[1].toLocaleLowerCase();
@@ -221,6 +257,24 @@ export function ClaudeStyleAiInput({
     && slashQuery !== undefined
     && filteredSlashCommands.length > 0;
   const activeSlashOptionIndex = Math.min(activeSlashCommandIndex, Math.max(0, filteredSlashCommands.length - 1));
+  const mentionMatch = useMemo(() => sessionMentionMatch(currentMessage), [currentMessage]);
+  const filteredSessionMentions = useMemo(() => {
+    if (!mentionMatch || selectedSessionMentions.length >= MAX_SESSION_MENTIONS) return [];
+    const query = mentionMatch.query.toLocaleLowerCase();
+    return sessionMentionOptions
+      .filter((option) => !selectedSessionMentionIdSet.has(option.id))
+      .filter((option) => `${option.label} ${option.detail}`.toLocaleLowerCase().includes(query))
+      .slice(0, 8);
+  }, [mentionMatch, selectedSessionMentionIdSet, selectedSessionMentions.length, sessionMentionOptions]);
+  const sessionMentionMenuOpen = !disabled
+    && !sending
+    && !sessionMentionMenuDismissed
+    && Boolean(mentionMatch)
+    && filteredSessionMentions.length > 0;
+  const activeSessionMentionOptionIndex = Math.min(
+    activeSessionMentionIndex,
+    Math.max(0, filteredSessionMentions.length - 1),
+  );
 
   function updateMessage(nextMessage: string): void {
     setMessage(nextMessage);
@@ -243,17 +297,19 @@ export function ClaudeStyleAiInput({
   useEffect(() => {
     setActiveSlashCommandIndex(0);
     setSlashMenuDismissed(false);
+    setActiveSessionMentionIndex(0);
+    setSessionMentionMenuDismissed(false);
   }, [currentMessage]);
 
   useEffect(() => {
-    if (!slashMenuOpen) return;
+    if (!slashMenuOpen && !sessionMentionMenuOpen) return;
     setModelMenuOpen(false);
     setModelMenuView("advanced");
     setToolMenuOpen(false);
-  }, [slashMenuOpen]);
+  }, [sessionMentionMenuOpen, slashMenuOpen]);
 
   useEffect(() => {
-    if (!modelMenuOpen && !toolMenuOpen && !slashMenuOpen) {
+    if (!modelMenuOpen && !toolMenuOpen && !slashMenuOpen && !sessionMentionMenuOpen) {
       return;
     }
     function closeMenus(event: PointerEvent) {
@@ -268,10 +324,13 @@ export function ClaudeStyleAiInput({
       if (slashMenuOpen && !panelRef.current?.contains(target)) {
         setSlashMenuDismissed(true);
       }
+      if (sessionMentionMenuOpen && !panelRef.current?.contains(target)) {
+        setSessionMentionMenuDismissed(true);
+      }
     }
     document.addEventListener("pointerdown", closeMenus, true);
     return () => document.removeEventListener("pointerdown", closeMenus, true);
-  }, [modelMenuOpen, slashMenuOpen, toolMenuOpen]);
+  }, [modelMenuOpen, sessionMentionMenuOpen, slashMenuOpen, toolMenuOpen]);
 
   useEffect(() => {
     if (!modelMenuOpen) return;
@@ -303,6 +362,7 @@ export function ClaudeStyleAiInput({
       setFiles([]);
       setPastedContent([]);
       onClearContextReferences?.();
+      onClearSessionMentions?.();
     } catch (error) {
       setError(error instanceof Error ? error.message : t("composer.sendFailed"));
     } finally {
@@ -325,6 +385,26 @@ export function ClaudeStyleAiInput({
   }
 
   function handleTextareaKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (sessionMentionMenuOpen) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const direction = event.key === "ArrowDown" ? 1 : -1;
+        setActiveSessionMentionIndex((current) => (
+          (current + direction + filteredSessionMentions.length) % filteredSessionMentions.length
+        ));
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        selectSessionMention(filteredSessionMentions[activeSessionMentionOptionIndex] ?? filteredSessionMentions[0]);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setSessionMentionMenuDismissed(true);
+        return;
+      }
+    }
     if (slashMenuOpen) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
@@ -360,6 +440,15 @@ export function ClaudeStyleAiInput({
       return;
     }
     textareaRef.current?.focus();
+  }
+
+  function selectSessionMention(option: ComposerSessionMentionOption | undefined) {
+    const match = sessionMentionMatch(currentMessage);
+    if (!option || !match) return;
+    setSessionMentionMenuDismissed(true);
+    updateMessage(currentMessage.slice(0, match.start));
+    onAddSessionMention?.(option.id);
+    window.requestAnimationFrame(() => textareaRef.current?.focus());
   }
 
   function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
@@ -484,8 +573,18 @@ export function ClaudeStyleAiInput({
           <span>{disabledReason}</span>
         </div>
       ) : null}
-      {files.length || pastedContent.length || contextReferences.length ? (
+      {files.length || pastedContent.length || contextReferences.length || selectedSessionMentions.length ? (
         <div className="claude-ai-input__attachments" aria-label={t("composer.attachments")}>
+          {selectedSessionMentions.map((reference) => (
+            <AttachmentChip
+              detail={reference.detail}
+              icon={<MessageCircle aria-hidden="true" size={16} />}
+              key={reference.id}
+              label={reference.label}
+              onRemove={() => onRemoveSessionMention?.(reference.id)}
+              removeLabel={t("composer.remove", { name: reference.label })}
+            />
+          ))}
           {contextReferences.map((reference) => (
             <AttachmentChip
               detail={reference.detail}
@@ -525,7 +624,40 @@ export function ClaudeStyleAiInput({
         onPointerLeave={handlePanelPointerLeave}
         onPointerMove={handlePanelPointerMove}
       >
-        {slashMenuOpen ? (
+        {sessionMentionMenuOpen ? (
+          <div
+            aria-label={t("composer.sessionMention.menu")}
+            className="claude-ai-input__slash-menu claude-ai-input__mention-menu"
+            id={sessionMentionListboxId}
+            role="listbox"
+          >
+            <div className="claude-ai-input__mention-heading">{t("composer.sessionMention.heading")}</div>
+            {filteredSessionMentions.map((option, index) => {
+              const selected = index === activeSessionMentionOptionIndex;
+              const optionId = `${sessionMentionListboxId}-option-${index}`;
+              return (
+                <button
+                  aria-label={`${option.label}: ${option.detail}`}
+                  aria-selected={selected}
+                  className="claude-ai-input__slash-option"
+                  id={optionId}
+                  key={option.id}
+                  role="option"
+                  type="button"
+                  onClick={() => selectSessionMention(option)}
+                  onMouseDown={(event) => event.preventDefault()}
+                >
+                  <MessageCircle aria-hidden="true" size={16} />
+                  <span>
+                    <strong>{option.label}</strong>
+                    <small>{option.detail}</small>
+                  </span>
+                  {selected ? <kbd>Enter</kbd> : null}
+                </button>
+              );
+            })}
+          </div>
+        ) : slashMenuOpen ? (
           <div
             aria-label={t("composer.slash")}
             className="claude-ai-input__slash-menu"
@@ -560,10 +692,12 @@ export function ClaudeStyleAiInput({
         ) : null}
         <textarea
           aria-label={t("composer.message")}
-          aria-activedescendant={slashMenuOpen ? `${slashListboxId}-option-${activeSlashOptionIndex}` : undefined}
+          aria-activedescendant={sessionMentionMenuOpen
+            ? `${sessionMentionListboxId}-option-${activeSessionMentionOptionIndex}`
+            : slashMenuOpen ? `${slashListboxId}-option-${activeSlashOptionIndex}` : undefined}
           aria-autocomplete="list"
-          aria-controls={slashMenuOpen ? slashListboxId : undefined}
-          aria-expanded={slashMenuOpen}
+          aria-controls={sessionMentionMenuOpen ? sessionMentionListboxId : slashMenuOpen ? slashListboxId : undefined}
+          aria-expanded={sessionMentionMenuOpen || slashMenuOpen}
           aria-haspopup="listbox"
           className="claude-ai-input__textarea"
           disabled={disabled || sending}
@@ -894,6 +1028,16 @@ function reasoningEffortOptions(t: TFunction<"chat">): readonly ReasoningEffortO
 
 function reasoningEffortLabel(effort: ReasoningEffort, options: readonly ReasoningEffortOption[]): string {
   return options.find((option) => option.value === effort)?.label ?? options[1]?.label ?? "Medium";
+}
+
+function sessionMentionMatch(message: string): { query: string; start: number } | undefined {
+  const match = /(?:^|\s)@([^\s@]*)$/u.exec(message);
+  if (!match) return undefined;
+  const atOffset = match[0].lastIndexOf("@");
+  return {
+    query: match[1] ?? "",
+    start: match.index + atOffset,
+  };
 }
 
 function AttachmentChip({

@@ -1330,6 +1330,63 @@ describe("ChatPage", () => {
     expect(message).toBeTruthy();
   });
 
+  it("mentions another conversation from the active workspace and sends its transcript as evidence", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [
+        {
+          id: "s1",
+          title: "Current implementation",
+          updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+          status: "idle",
+          workingDirectory: "D:\\Code\\py\\tinybot",
+        },
+        {
+          id: "s2",
+          title: "Architecture review",
+          updatedAtMs: Date.UTC(2026, 6, 4, 11, 59, 0),
+          status: "idle",
+          workingDirectory: "d:/code/py/tinybot/",
+        },
+        {
+          id: "s3",
+          title: "Other workspace",
+          updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+          status: "idle",
+          workingDirectory: "D:\\Code\\other",
+        },
+      ],
+    });
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const input = await screen.findByRole("textbox", { name: /message/i });
+    await user.type(input, "Compare with @arch");
+
+    const listbox = screen.getByRole("listbox", { name: "Workspace conversations" });
+    expect(within(listbox).queryByRole("option", { name: /Current implementation/ })).toBeNull();
+    expect(within(listbox).queryByRole("option", { name: /Other workspace/ })).toBeNull();
+    await user.click(within(listbox).getByRole("option", { name: /Architecture review/ }));
+
+    expect(within(screen.getByLabelText("Composer attachments")).getByText("Architecture review")).toBeTruthy();
+    await user.type(input, "for regressions");
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+
+    await waitFor(() => expect(stores.chatStore.copyMarkdown).toHaveBeenCalledWith("s2"));
+    expectTurnSubmit(stores.chatStore, "s1", {
+      reasoningEffort: "medium",
+      references: [{
+        detail: "TinyOS conversation snapshot",
+        kind: "reference",
+        revision: String(Date.UTC(2026, 6, 4, 11, 59, 0)),
+        scope: "s2",
+        sourceText: "# Planning notes",
+        title: "Architecture review",
+        type: "tinyos.thread",
+      }],
+      text: "Compare with for regressions",
+    });
+  });
+
   it("expands a filtered slash command without sending it immediately", async () => {
     const user = userEvent.setup();
     const stores = createStores();

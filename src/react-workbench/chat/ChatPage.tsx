@@ -45,6 +45,7 @@ import {
   type ComposerFileReference,
   type ComposerContextReference,
   type ComposerSendOptions,
+  type ComposerSessionMentionOption,
   type ComposerSlashCommand,
   type ModelOption,
   type PastedContent,
@@ -297,6 +298,9 @@ const LIVE_CANVAS_CLOSE_MS = 160;
 const SESSION_DELETE_DISSOLVE_MS = 180;
 const TINYOS_WIDTH_STORAGE_KEY = "tinybot.ui.tinyos.width";
 const EMPTY_OPTIMISTIC_MESSAGES: ReactChatMessage[] = [];
+const MAX_COMPOSER_SESSION_REFERENCES = 4;
+const MAX_COMPOSER_SESSION_CONTEXT_BYTES = 48 * 1024;
+const SESSION_TRANSCRIPT_OMISSION = "\n\n[... middle conversation content omitted to fit the context limit ...]\n\n";
 
 export function ChatPage({
   chatStore,
@@ -312,7 +316,7 @@ export function ChatPage({
   toolsStore,
   workspaceStore,
 }: ChatPageProps) {
-  const { t } = useTranslation("chat");
+  const { i18n, t } = useTranslation("chat");
   const slashCommands = useMemo(() => composerSlashCommands(t), [t]);
   const tinyOsUiScope = useId();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -353,6 +357,7 @@ export function ChatPage({
   const [queuedInputsBySession, setQueuedInputsBySession] = useState<Map<string, QueuedComposerInput[]>>(() => new Map());
   const [queueMessage, setQueueMessage] = useState("");
   const [tinyOsContextReferences, setTinyOsContextReferences] = useState<TinyOsContextReference[]>([]);
+  const [composerSessionMentionIds, setComposerSessionMentionIds] = useState<string[]>([]);
   const [tinyOsDropError, setTinyOsDropError] = useState("");
   const [recoveringTurnId, setRecoveringTurnId] = useState("");
   const [installingMigrationJobId, setInstallingMigrationJobId] = useState("");
@@ -412,6 +417,20 @@ export function ChatPage({
     ...workspace,
     label: workspace.label ?? t("shell.generalSessions"),
   })), [sessions, t]);
+  const composerSessionMentionOptions = useMemo<ComposerSessionMentionOption[]>(() => {
+    if (!activeSession || activeSession.pluginMigration) return [];
+    const currentWorkspace = sessionWorkspaces.find((workspace) => (
+      workspace.sessions.some((session) => session.id === activeSession.id)
+    ));
+    return (currentWorkspace?.sessions ?? [])
+      .filter((session) => session.id !== activeSession.id && !session.pluginMigration)
+      .sort((left, right) => right.updatedAtMs - left.updatedAtMs)
+      .map((session) => ({
+        detail: `${t("composer.sessionMention.conversation")} · ${formatRelativeUpdatedTime(session.updatedAtMs, now(), i18n.language, t("search.noDate"))}`,
+        id: session.id,
+        label: displaySessionTitle(session.title, t),
+      }));
+  }, [activeSession, i18n.language, now, sessionWorkspaces, t]);
   const tinyOsFiles = useTinyOsFilesController(activeSession?.id ?? "draft", workspaceStore, liveCanvas.visibility === "open");
   const draftNewSession = sessionsLoaded && !activeSession;
   const timelineLoaded = Boolean(activeSession) && timeline?.sessionId === activeSession?.id;
@@ -787,6 +806,7 @@ export function ChatPage({
 
   useEffect(() => {
     setTinyOsContextReferences([]);
+    setComposerSessionMentionIds([]);
     dispatchCommandLifecycle({ type: "reset" });
   }, [activeSession?.id]);
 
@@ -1469,12 +1489,8 @@ export function ChatPage({
     options: ComposerSendOptions,
     runningAction: "interrupt" | "queue" = "queue",
   ) {
-    const references = [
-      ...files.map(nativeReferenceFromComposerFile),
-      ...tinyOsContextReferences.map((reference) => nativeReferenceFromTinyOs(reference, t)),
-    ];
     if (message.trim() === "/compact") {
-      if (files.length || pastedContent.length || references.length) {
+      if (files.length || pastedContent.length || tinyOsContextReferences.length || composerSessionMentionIds.length) {
         throw new Error(t("errors.compactWithAttachments"));
       }
       if (!activeSession) {
@@ -1500,8 +1516,24 @@ export function ChatPage({
       }
       return;
     }
+    const availableMentionIds = new Set(composerSessionMentionOptions.map((option) => option.id));
+    const mentionedSessions = composerSessionMentionIds.map((sessionId) => {
+      const session = sessionsRef.current.find((candidate) => candidate.id === sessionId);
+      if (!session || !availableMentionIds.has(sessionId)) {
+        throw new Error(t("composer.sessionMention.unavailable"));
+      }
+      return session;
+    });
+    const references = [
+      ...files.map(nativeReferenceFromComposerFile),
+      ...tinyOsContextReferences.map((reference) => nativeReferenceFromTinyOs(reference, t)),
+      ...await nativeReferencesFromComposerSessions(mentionedSessions, chatStore.copyMarkdown, t),
+    ];
     const visibleText = formatComposerMessage(
-      message || (files.length ? t("composer.attachedFilesPrompt") : references.length ? t("composer.attachedContextPrompt") : ""),
+      message || (files.length
+        ? t("composer.attachedFilesPrompt")
+        : mentionedSessions.length ? t("composer.sessionMention.attachedPrompt")
+          : references.length ? t("composer.attachedContextPrompt") : ""),
       pastedContent,
       t,
     );
@@ -2449,7 +2481,14 @@ export function ChatPage({
             setComposerReasoningEffort(effort);
             writeCurrentChatReasoningEffort(effort);
           }}
+          onAddSessionMention={(id) => setComposerSessionMentionIds((current) => (
+            current.includes(id) || current.length >= MAX_COMPOSER_SESSION_REFERENCES ? current : [...current, id]
+          ))}
+          onClearSessionMentions={() => setComposerSessionMentionIds([])}
+          onRemoveSessionMention={(id) => setComposerSessionMentionIds((current) => current.filter((sessionId) => sessionId !== id))}
           responding={sessionResponding}
+          selectedSessionMentionIds={composerSessionMentionIds}
+          sessionMentionOptions={composerSessionMentionOptions}
           slashCommands={slashCommands}
           canStopResponding={canCancelTurn}
           stopUnavailableReason={cancelUnavailableReason}
@@ -2990,6 +3029,74 @@ function nativeReferenceFromComposerFile(file: ComposerFileReference): AgentInpu
     title: file.name,
     type: "tinyos.file",
   };
+}
+
+async function nativeReferencesFromComposerSessions(
+  sessions: SessionSummary[],
+  loadTranscript: (sessionId: string) => Promise<string>,
+  t: TFunction<"chat">,
+): Promise<AgentInputReference[]> {
+  const selected = sessions.slice(0, MAX_COMPOSER_SESSION_REFERENCES);
+  if (!selected.length) return [];
+  const transcriptBudget = Math.floor(MAX_COMPOSER_SESSION_CONTEXT_BYTES / selected.length);
+  return Promise.all(selected.map(async (session) => {
+    let transcript: string;
+    try {
+      transcript = await loadTranscript(session.id);
+    } catch (error) {
+      console.error("[chat] composer.session_reference.load_failed", {
+        error: error instanceof Error ? error.message : String(error),
+        sessionId: session.id,
+      });
+      throw error;
+    }
+    return {
+      detail: t("composer.sessionMention.referenceDetail"),
+      kind: "reference" as const,
+      revision: String(session.updatedAtMs),
+      scope: session.id,
+      sourceText: truncateUtf8Middle(
+        transcript || t("composer.sessionMention.emptyTranscript"),
+        transcriptBudget,
+      ),
+      title: displaySessionTitle(session.title, t),
+      type: "tinyos.thread",
+    };
+  }));
+}
+
+function truncateUtf8Middle(value: string, maxBytes: number): string {
+  const encoder = new TextEncoder();
+  if (encoder.encode(value).byteLength <= maxBytes) return value;
+  const markerBytes = encoder.encode(SESSION_TRANSCRIPT_OMISSION).byteLength;
+  const contentBudget = Math.max(0, maxBytes - markerBytes);
+  const prefixBudget = Math.floor(contentBudget / 3);
+  const suffixBudget = contentBudget - prefixBudget;
+  return `${utf8Prefix(value, prefixBudget, encoder)}${SESSION_TRANSCRIPT_OMISSION}${utf8Suffix(value, suffixBudget, encoder)}`;
+}
+
+function utf8Prefix(value: string, maxBytes: number, encoder: TextEncoder): string {
+  let output = "";
+  let bytes = 0;
+  for (const character of value) {
+    const nextBytes = encoder.encode(character).byteLength;
+    if (bytes + nextBytes > maxBytes) break;
+    output += character;
+    bytes += nextBytes;
+  }
+  return output;
+}
+
+function utf8Suffix(value: string, maxBytes: number, encoder: TextEncoder): string {
+  const output: string[] = [];
+  let bytes = 0;
+  for (const character of Array.from(value).reverse()) {
+    const nextBytes = encoder.encode(character).byteLength;
+    if (bytes + nextBytes > maxBytes) break;
+    output.push(character);
+    bytes += nextBytes;
+  }
+  return output.reverse().join("");
 }
 
 function tinyOsAgentRequestControl(reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent): string {

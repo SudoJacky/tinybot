@@ -594,6 +594,15 @@ export const en = {
       clicked: "Clicked {{page}}", enteredText: "Entered text on {{page}}", used: "Used {{page}}", line: "Line {{start}}", lines: "Lines {{start}}–{{end}}",
     },
     composer: {
+      sessionMention: {
+        menu: "Workspace conversations",
+        heading: "Conversations in this workspace",
+        conversation: "Workspace conversation",
+        attachedPrompt: "Review the attached workspace conversation.",
+        emptyTranscript: "This conversation has no persisted messages.",
+        referenceDetail: "TinyOS conversation snapshot",
+        unavailable: "The referenced conversation is no longer available in this workspace.",
+      },
       placeholder: "Message Tinybot", sendFailed: "Message could not be sent.", stopFailed: "Generation could not be stopped.", fileLimit: "Only {{count}} files can be attached.", filesFailed: "Files could not be selected.",
       label: "Message composer", attachments: "Composer attachments", remove: "Remove {{name}}", words: "{{count}} words", pastedText: "Pasted text", removePasted: "Remove pasted content", pastedContentLabel: "Pasted content", attachedFilesPrompt: "Review the attached files.", attachedContextPrompt: "Use the attached TinyOS context.", configuredModel: "Configured model",
       slash: "Slash commands", message: "Message", attachFiles: "Attach files", tools: "Tools", on: "On", off: "Off", selectModel: "Select model", model: "Model", advanced: "Advanced",

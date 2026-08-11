@@ -546,8 +546,9 @@ runtime uses `200`. Explicit turn or settings values still take precedence.
 
 ### Deferred tool discovery and checkpoints
 
-Browser, subagent, and MCP tools may remain deferred until selected explicitly or activated through
-`tool_search` for the current Turn. Calls to inactive deferred tools fail with
+MCP and other extension tools may remain deferred until selected explicitly or activated through
+`tool_search` for the current Turn. Core browser and subagent lifecycle tools are model-visible
+without discovery. Calls to inactive deferred tools fail with
 `stopReason: "policy_denied"`. Form continuations revalidate the persisted activation set against
 the current registry and capability policy.
 
@@ -667,6 +668,14 @@ reference chips. Immediately before a provider request, references whose `type` 
 block; the stored and user-visible message content remains unchanged. Provider injection accepts at
 most 16 TinyOS references and 64 KiB of serialized reference data per message. Exceeding either
 limit fails the provider request visibly rather than dropping context.
+
+Composer `@` mentions use the same reference contract with `type: "tinyos.thread"`. The desktop
+limits suggestions to persisted Threads in the active Thread's normalized workspace, excludes the
+active Thread, and resolves the selected Thread's latest persisted user/assistant transcript when
+the message is sent. `scope` carries the referenced Thread ID, `revision` records its observed
+`updatedAt` value, and `sourceText` contains a bounded transcript snapshot with an explicit omission
+marker when middle content is truncated. The snapshot is provider evidence rather than an
+instruction source; selecting a conversation does not merge or mutate either Thread.
 
 Desktop chat controls call `worker_thread_interrupt` and `worker_submit_thread_form` directly. Their
 canonical Thread timeline updates are delivered directly through typed Tauri events; no secondary
@@ -1291,11 +1300,10 @@ and shutdown terminate descendant processes as well as the root process.
 
 ### Subagent lifecycle
 
-The desktop commands and deferred Agent tools share the same manager and canonical thread store.
-The deferred lifecycle tools are `subagent.spawn`, `subagent.send_input`, `subagent.wait`,
-`subagent.close`, and `subagent.resume`; they become model-visible only after selection or
-`tool_search`. `subagent.list`, `subagent.query`, and `subagent.cancel` remain Worker RPC and
-desktop-control operations.
+The desktop commands and Agent tools share the same manager and canonical thread store. The core
+lifecycle tools `subagent.spawn`, `subagent.send_input`, `subagent.wait`, `subagent.close`, and
+`subagent.resume` are model-visible without `tool_search`. `subagent.list`, `subagent.query`, and
+`subagent.cancel` remain Worker RPC and desktop-control operations.
 
 The default limits are eight active children per session, 32 active children process-wide, and a
 maximum delegation depth of four. Nested spawns must name their direct `parentSubagentId` and exact
