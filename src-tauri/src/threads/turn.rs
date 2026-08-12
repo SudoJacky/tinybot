@@ -130,18 +130,21 @@ pub struct AgentTurnCheckpoint {
 #[serde(rename_all = "camelCase")]
 pub struct AgentTurnRuntimeState {
     pub runtime_events: Vec<crate::agent::runtime_protocol::AgentRuntimeEventEnvelope>,
+    pub status: AgentTurnStatus,
+    pub completed_at: Option<String>,
+    pub stop_reason: Option<String>,
     pub timeline: crate::agent::runtime_protocol::AgentTimelineSnapshot,
 }
 
 impl AgentTurnRuntimeState {
-    pub fn from_runtime_events(
+    pub fn from_turn_record(
         session_id: &str,
-        turn_id: &str,
+        record: &AgentTurnRecord,
         runtime_events: Vec<crate::agent::runtime_protocol::AgentRuntimeEventEnvelope>,
     ) -> Result<Self, WorkerProtocolError> {
         let timeline = crate::agent::runtime_protocol::project_timeline_snapshot(
             session_id,
-            turn_id,
+            &record.turn_id,
             &runtime_events,
         )
         .map_err(|reason| {
@@ -150,7 +153,7 @@ impl AgentTurnRuntimeState {
                 "failed to project canonical agent timeline",
                 serde_json::json!({
                     "sessionId": session_id,
-                    "turnId": turn_id,
+                    "turnId": record.turn_id,
                     "reason": reason,
                 }),
                 false,
@@ -159,6 +162,9 @@ impl AgentTurnRuntimeState {
         })?;
         Ok(Self {
             runtime_events,
+            status: record.status.clone(),
+            completed_at: record.completed_at.clone(),
+            stop_reason: record.stop_reason.clone(),
             timeline,
         })
     }

@@ -4,7 +4,6 @@ export const MAX_QUEUED_INPUTS = 5;
 
 export type SubmitComposerTextInput = {
   isRunning: boolean;
-  runningAction?: "interrupt" | "queue";
   content: string;
   queuedInputs: QueuedInput[];
   now: string;
@@ -13,10 +12,6 @@ export type SubmitComposerTextInput = {
 export type SubmitComposerTextResult =
   | {
       kind: "queue_input";
-      input: QueuedInput;
-    }
-  | {
-      kind: "interrupt_input";
       input: QueuedInput;
     }
   | {
@@ -40,18 +35,6 @@ export function submitComposerText(input: SubmitComposerTextInput): SubmitCompos
         kind: "queue_limit_reached",
         maxQueuedInputs: MAX_QUEUED_INPUTS,
         message: "已有 5 条排队消息，请等待处理或删除一条后再发送。",
-      };
-    }
-    if (input.runningAction === "interrupt") {
-      return {
-        kind: "interrupt_input",
-        input: {
-          id: `interrupt-${input.now}`,
-          mode: "interrupt",
-          content,
-          createdAt: input.now,
-          status: "queued",
-        },
       };
     }
     return {

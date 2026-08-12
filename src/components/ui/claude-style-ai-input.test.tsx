@@ -112,25 +112,20 @@ describe("ClaudeStyleAiInput slash commands", () => {
     });
   });
 
-  it("offers explicit interrupt and next-turn actions while responding", async () => {
+  it("queues the next turn without showing text actions while responding", async () => {
     const user = userEvent.setup();
-    const onInterruptMessage = vi.fn();
     const onSendMessage = vi.fn();
     render(<ClaudeStyleAiInput
-      onInterruptMessage={onInterruptMessage}
       onSendMessage={onSendMessage}
       responding
     />);
 
     const input = screen.getByRole("textbox", { name: "Message" });
-    await user.type(input, "Change direction");
-    await user.click(screen.getByRole("button", { name: "Interrupt current task" }));
-    expect(onInterruptMessage).toHaveBeenCalledWith("Change direction", [], [], { reasoningEffort: "medium" });
-    expect(onSendMessage).not.toHaveBeenCalled();
-
     await user.type(input, "Do this afterward");
     await user.click(screen.getByRole("button", { name: "Queue as next turn" }));
     expect(onSendMessage).toHaveBeenCalledWith("Do this afterward", [], [], { reasoningEffort: "medium" });
+    expect(screen.queryByText("Interrupt current task")).toBeNull();
+    expect(screen.queryByText("Queue as next turn")).toBeNull();
   });
 
   it("dismisses the menu with Escape without changing the draft", async () => {

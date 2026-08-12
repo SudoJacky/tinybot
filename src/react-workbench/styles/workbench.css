@@ -572,14 +572,33 @@ button:disabled {
   font-weight: 700;
 }
 
-.desktop-update-dialog__notice p,
-.desktop-update-dialog__notes p {
+.desktop-update-dialog__notice > .react-message-markdown,
+.desktop-update-dialog__notes > .react-message-markdown,
+.desktop-update-dialog__notes > p {
   margin-top: 6px;
   color: var(--color-body);
   font-size: 12px;
   line-height: 1.6;
   overflow-wrap: anywhere;
-  white-space: pre-wrap;
+}
+
+.desktop-update-dialog__notice > .react-message-markdown,
+.desktop-update-dialog__notes > .react-message-markdown {
+  gap: 6px;
+}
+
+.desktop-update-dialog__notice > .react-message-markdown [data-streamdown^="heading-"],
+.desktop-update-dialog__notes > .react-message-markdown [data-streamdown^="heading-"] {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.desktop-update-dialog__notice > .react-message-markdown ul,
+.desktop-update-dialog__notice > .react-message-markdown ol,
+.desktop-update-dialog__notes > .react-message-markdown ul,
+.desktop-update-dialog__notes > .react-message-markdown ol {
+  gap: 3px;
+  padding-left: 18px;
 }
 
 .desktop-update-dialog__notes {
@@ -5609,36 +5628,6 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 6px;
 }
 
-.claude-ai-input__running-action {
-  min-height: 34px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 999px;
-  background: var(--color-surface-card);
-  padding: 0 12px;
-  color: var(--color-body);
-  font-size: 12px;
-  font-weight: 650;
-  white-space: nowrap;
-}
-
-.claude-ai-input__running-action:hover,
-.claude-ai-input__running-action:focus-visible {
-  border-color: var(--color-primary);
-  outline: none;
-}
-
-.claude-ai-input__running-action--primary {
-  border-color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-surface-card));
-  color: var(--color-primary-active);
-}
-
-.claude-ai-input__running-action:disabled {
-  border-color: var(--color-hairline);
-  background: var(--color-surface-card);
-  color: var(--color-muted-soft);
-}
-
 .claude-ai-input__icon-button,
 .claude-ai-input__send {
   display: inline-grid;
@@ -6375,12 +6364,12 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-tool-activity__header {
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto 30px 24px;
+  grid-template-columns: 20px minmax(0, 1fr) auto 30px 30px;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
-  min-height: 56px;
-  padding: 10px 0;
+  min-height: 44px;
+  padding: 6px 0;
   transition: background-color var(--motion-duration-fast) ease;
 }
 
@@ -6394,10 +6383,15 @@ button.tinyos-overlay-backdrop:focus-visible {
   color: var(--color-body);
 }
 
+.react-tool-activity__icon svg {
+  width: 16px;
+  height: 16px;
+}
+
 .react-tool-activity__copy {
   display: flex;
   align-items: baseline;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
 }
 
@@ -6423,11 +6417,16 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-tool-activity__status {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   color: var(--color-muted);
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.react-tool-activity__status svg {
+  width: 15px;
+  height: 15px;
 }
 
 .react-tool-activity__status[data-status="success"] {
@@ -6500,8 +6499,8 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-tool-activity__details {
   display: grid;
-  gap: 10px;
-  padding: 0 0 16px 32px;
+  gap: 8px;
+  padding: 0 0 12px 26px;
 }
 
 .react-tool-activity__details[hidden] {
@@ -7577,27 +7576,35 @@ button.tinyos-overlay-backdrop:focus-visible {
 }
 
 .react-queued-inputs {
+  position: absolute;
+  right: max(24px, calc((100% - 860px) / 2));
+  bottom: calc(100% - 8px);
+  left: max(24px, calc((100% - 860px) / 2));
+  z-index: 5;
   display: grid;
-  gap: 8px;
-  width: min(720px, 100%);
-  margin: 8px auto 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 4px;
+  max-height: min(160px, 32vh);
+  overflow: hidden;
+  margin: 0;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
   background: var(--color-panel);
-  padding: 10px;
+  padding: 6px 8px;
+  box-shadow: 0 8px 24px rgb(20 20 19 / 12%);
 }
 
 .react-queued-inputs__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
 }
 
 .react-queued-inputs__header > div {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .react-queued-inputs h2 {
@@ -7627,7 +7634,10 @@ button.tinyos-overlay-backdrop:focus-visible {
 
 .react-queued-inputs ol {
   display: grid;
-  gap: 6px;
+  min-height: 0;
+  gap: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -7637,10 +7647,10 @@ button.tinyos-overlay-backdrop:focus-visible {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   border-radius: 6px;
   background: var(--color-surface-soft);
-  padding: 7px 8px;
+  padding: 4px 6px;
 }
 
 .react-queued-input > span {
@@ -7668,6 +7678,23 @@ button.tinyos-overlay-backdrop:focus-visible {
   color: var(--color-ink);
   font-size: 11px;
   font-weight: 650;
+}
+
+.react-queued-input__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.react-queued-input button:hover,
+.react-queued-input button:focus-visible {
+  border-color: var(--color-primary);
+  outline: none;
+}
+
+.react-queued-input .react-queued-input__interrupt {
+  border-color: color-mix(in srgb, var(--color-primary) 45%, var(--color-hairline));
+  color: var(--color-primary-active);
 }
 
 .react-queued-inputs__header button {
@@ -11742,15 +11769,6 @@ button.tinyos-overlay-backdrop:focus-visible {
     align-items: flex-end;
   }
 
-  .claude-ai-input__running-actions {
-    flex-wrap: wrap;
-  }
-
-  .claude-ai-input__running-action {
-    padding: 0 9px;
-    font-size: 11px;
-  }
-
   .react-chat-surface[data-empty-session="true"] .react-conversation-view {
     padding: 24px 18px;
   }
@@ -11782,12 +11800,12 @@ button.tinyos-overlay-backdrop:focus-visible {
   }
 
   .react-tool-activity__header {
-    grid-template-columns: 22px minmax(0, 1fr) auto 26px 22px;
+    grid-template-columns: 20px minmax(0, 1fr) auto 30px 30px;
     gap: 6px;
   }
 
   .react-tool-activity__details {
-    padding-left: 30px;
+    padding-left: 26px;
   }
 
   .react-tool-activity__status > span {

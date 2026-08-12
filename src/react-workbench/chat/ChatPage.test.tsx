@@ -1410,6 +1410,43 @@ describe("ChatPage", () => {
   it("runs /compact as a control command without creating a user message", async () => {
     const user = userEvent.setup();
     const stores = createStores();
+    let subscribed: ((event: ChatEvent) => void) | undefined;
+    const initialTimeline = await stores.chatStore.load("s1");
+    const compactingTimeline = structuredClone(initialTimeline);
+    compactingTimeline.turns.push({
+      id: "turn-manual-compact",
+      sessionKey: "s1",
+      userMessageId: "user:turn-manual-compact",
+      userMessage: {
+        id: "user:turn-manual-compact",
+        role: "user",
+        text: "",
+        timestamp: "2026-07-04T12:00:00.000Z",
+      },
+      status: "running",
+      steps: [{
+        agentContext: { id: "main", title: "Tinybot", type: "main" },
+        compaction: { droppedItemCount: 3, estimatedTokensAfter: 4200, estimatedTokensBefore: 12000 },
+        id: "context-manual-compact",
+        kind: "compaction",
+        sequence: 1,
+        status: "completed",
+        title: "Context compacted",
+      }],
+      startedAt: "2026-07-04T12:00:00.000Z",
+      updatedAt: "2026-07-04T12:00:00.000Z",
+    });
+    compactingTimeline.turnRevisions["turn-manual-compact"] = 1;
+    const completedTimeline = structuredClone(compactingTimeline);
+    completedTimeline.turns[completedTimeline.turns.length - 1].status = "completed";
+    completedTimeline.turns[completedTimeline.turns.length - 1].completedAt = "2026-07-04T12:00:01.000Z";
+    completedTimeline.turnRevisions["turn-manual-compact"] = 2;
+    let timelineToLoad = initialTimeline;
+    stores.chatStore.load = vi.fn(async () => structuredClone(timelineToLoad));
+    stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
+      subscribed = listener;
+      return () => undefined;
+    });
     let resolveCompact!: () => void;
     stores.chatStore.dispatch = vi.fn(() => new Promise<void>((resolve) => {
       resolveCompact = resolve;
@@ -1430,8 +1467,14 @@ describe("ChatPage", () => {
     expect(screen.queryByText("/compact")).toBeNull();
     expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
 
+    act(() => subscribed?.({ type: "timeline.patch", timeline: compactingTimeline }));
+    expect(await screen.findByRole("button", { name: "Stop generation" })).toBeTruthy();
+    timelineToLoad = completedTimeline;
     act(() => resolveCompact());
     await waitFor(() => expect(screen.queryByText("Compacting context")).toBeNull());
+    await waitFor(() => expect(stores.chatStore.load).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop generation" })).toBeNull());
+    expect(screen.getByRole("button", { name: "Send message" })).toBeTruthy();
   });
 
   it("surfaces /compact failures and removes the running state", async () => {
@@ -3161,8 +3204,12 @@ describe("ChatPage", () => {
 
     expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
     const queuedInputs = screen.getByLabelText("Queued inputs");
+    expect(queuedInputs.parentElement?.classList.contains("tinyos-composer-drop-target")).toBe(true);
     expect(queuedInputs.textContent).toContain("Summarize after this run");
     expect(queuedInputs.textContent).toContain("Waiting");
+    expect(within(queuedInputs).getByRole("button", { name: "Interrupt" })).toBeTruthy();
+    expect(screen.queryByText("Interrupt current task")).toBeNull();
+    expect(screen.queryByText("Queue as next turn")).toBeNull();
     expect((input as HTMLTextAreaElement).value).toBe("");
   });
 
@@ -3247,10 +3294,13 @@ describe("ChatPage", () => {
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Select model" }).textContent).toContain("deepseek-v4-flash"));
     const input = await screen.findByRole("textbox", { name: /message/i });
+    await user.type(input, "Keep this queued for later{enter}");
     await user.click(screen.getByRole("button", { name: "Attach files" }));
     await waitFor(() => expect(nativeFilePickerMocks.pickDesktopChatFiles).toHaveBeenCalledTimes(1));
-    await user.type(input, "Use the new API instead");
-    await user.click(screen.getByRole("button", { name: "Interrupt current task" }));
+    await user.type(input, "Use the new API instead{enter}");
+    const interruptRow = screen.getByText("Use the new API instead").closest(".react-queued-input");
+    expect(interruptRow).not.toBeNull();
+    await user.click(within(interruptRow as HTMLElement).getByRole("button", { name: "Interrupt" }));
 
     const cancelCommand = vi.mocked(stores.chatStore.dispatch).mock.calls
       .map(([command]) => command)
@@ -3287,7 +3337,8 @@ describe("ChatPage", () => {
       text: "Use the new API instead",
     }));
     expect(turnSubmitCommands(stores.chatStore)).toHaveLength(1);
-    await waitFor(() => expect(screen.queryByLabelText("Queued inputs")).toBeNull());
+    await waitFor(() => expect(screen.getByLabelText("Queued inputs").textContent).not.toContain("Use the new API instead"));
+    expect(screen.getByLabelText("Queued inputs").textContent).toContain("Keep this queued for later");
   });
 
   it("deletes queued composer text before it is sent", async () => {

@@ -23,9 +23,11 @@ function item(overrides: Record<string, unknown> = {}) {
 function runtimeState(
   snapshotRevision = 1,
   items: Array<Record<string, unknown>> = [item()],
+  lifecycle: Record<string, unknown> = {},
 ) {
   return {
     runtimeEvents: [],
+    ...lifecycle,
     timeline: {
       schemaVersion: "tinybot.timeline.v2",
       sessionId,
@@ -47,6 +49,35 @@ function patch(snapshotRevision: number, itemOverrides: Record<string, unknown> 
 }
 
 describe("canonical agent timeline model", () => {
+  test("preserves a completed standalone compaction boundary across model snapshots", () => {
+    const model = createAgentTimelineModel();
+    model.load(sessionId, [runtimeState(1, [item({
+      itemId: "compaction-standalone",
+      sequence: 1,
+      kind: "context_compaction",
+      status: "running",
+      data: {
+        type: "context_compaction",
+        id: "compaction-standalone",
+        summary: "compact",
+        droppedItemCount: 1,
+        estimatedTokensBefore: 2889,
+        estimatedTokensAfter: 2627,
+      },
+    })], {
+      status: "completed",
+      completedAt: "2026-08-10T13:06:04Z",
+      stopReason: "context_compacted",
+    })]);
+
+    expect(model.snapshot(sessionId).turns[0]).toMatchObject({
+      id: turnId,
+      status: "completed",
+      completedAt: "2026-08-10T13:06:04Z",
+      steps: [expect.objectContaining({ kind: "compaction", status: "completed" })],
+    });
+  });
+
   test("loads snapshots and applies the next canonical item revision", () => {
     const model = createAgentTimelineModel();
     model.load(sessionId, [runtimeState()]);

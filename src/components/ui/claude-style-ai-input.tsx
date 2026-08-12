@@ -98,12 +98,6 @@ export interface ClaudeStyleAiInputProps {
     pastedContent: PastedContent[],
     options: ComposerSendOptions,
   ) => void | Promise<void>;
-  onInterruptMessage?: (
-    message: string,
-    files: ComposerFileReference[],
-    pastedContent: PastedContent[],
-    options: ComposerSendOptions,
-  ) => void | Promise<void>;
   disabled?: boolean;
   disabledReason?: string;
   placeholder?: string;
@@ -170,7 +164,6 @@ export function ClaudeStyleAiInput({
   onAddSessionMention,
   onClearContextReferences,
   onClearSessionMentions,
-  onInterruptMessage,
   onRemoveContextReference,
   onRemoveSessionMention,
   onSelectFiles,
@@ -345,15 +338,14 @@ export function ClaudeStyleAiInput({
     return () => document.removeEventListener("keydown", closeOnEscape);
   }, [modelMenuOpen]);
 
-  async function sendMessage(mode: "interrupt" | "queue") {
+  async function sendMessage() {
     if (!canSend) {
       return;
     }
     setSending(true);
     setError("");
     try {
-      const handler = mode === "interrupt" ? onInterruptMessage : onSendMessage;
-      await handler?.(currentMessage.trim(), files, pastedContent, {
+      await onSendMessage?.(currentMessage.trim(), files, pastedContent, {
         ...(selectedModel ? { model: selectedModel.modelId || selectedModel.id } : {}),
         ...(selectedModel?.providerId ? { provider: selectedModel.providerId } : {}),
         reasoningEffort: selectedReasoningEffort,
@@ -372,7 +364,7 @@ export function ClaudeStyleAiInput({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await sendMessage("queue");
+    await sendMessage();
   }
 
   async function handleStopResponding() {
@@ -874,21 +866,13 @@ export function ClaudeStyleAiInput({
           {responding ? (
             <div className="claude-ai-input__running-actions">
               <button
-                className="claude-ai-input__running-action claude-ai-input__running-action--primary"
-                disabled={!canSend || !onInterruptMessage}
-                title={canSend ? t("composer.interruptHelp") : t("composer.interruptDisabled")}
-                type="button"
-                onClick={() => void sendMessage("interrupt")}
-              >
-                {t("composer.interrupt")}
-              </button>
-              <button
-                className="claude-ai-input__running-action"
+                aria-label={t("composer.queue")}
+                className="claude-ai-input__send"
                 disabled={!canSend}
                 title={canSend ? t("composer.queueHelp") : t("composer.queueDisabled")}
                 type="submit"
               >
-                {t("composer.queue")}
+                <ArrowUp aria-hidden="true" size={18} />
               </button>
               <button
                 aria-label={canStopResponding ? t("composer.stop") : t("composer.stopUnavailable", { reason: stopUnavailableReason || t("composer.unsupported") })}
