@@ -320,6 +320,102 @@ fn user_interruption_persists_an_interrupted_turn_aborted_boundary() {
 }
 
 #[test]
+fn completed_standalone_compaction_runtime_state_keeps_the_turn_boundary() {
+    let root = std::env::temp_dir().join(format!(
+        "tinybot-completed-compaction-runtime-state-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let rpc = WorkerThreadLogRpc::new(
+        root.clone(),
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    );
+    let session_id = "standalone-compaction-session";
+    let turn_id = "standalone-compaction-turn";
+    let timestamp = "2026-08-10T13:06:03Z";
+    rpc.start_turn(
+        AgentTurnRecord {
+            session_id: session_id.to_string(),
+            turn_id: turn_id.to_string(),
+            thread_id: None,
+            parent_thread_id: None,
+            child_thread_ids: Vec::new(),
+            status: AgentTurnStatus::Running,
+            phase: "planning".to_string(),
+            started_at: timestamp.to_string(),
+            updated_at: timestamp.to_string(),
+            completed_at: None,
+            stop_reason: None,
+            model: "gpt-test".to_string(),
+            provider: Some("openai".to_string()),
+            max_iterations: 1,
+            current_iteration: 0,
+            conversation_message_ids: Vec::new(),
+            trace_messages: Vec::new(),
+            completed_tool_results: Vec::new(),
+            pending_tool_calls: Vec::new(),
+            checkpoint: None,
+            artifacts: Vec::new(),
+            usage: Vec::new(),
+            token_usage_info: None,
+            instruction_provenance: None,
+            instruction_diagnostics: Vec::new(),
+            trace_context: None,
+            error: None,
+        },
+        None,
+        Vec::new(),
+    )
+    .unwrap();
+    rpc.append_turn_semantic_event(
+        session_id,
+        turn_id,
+        json!({
+            "eventId": "compact-1",
+            "eventName": "agent.context.compacted",
+            "itemId": "context-1",
+            "sequence": 1,
+            "timestamp": timestamp,
+            "payload": {
+                "agentItem": {
+                    "type": "context_compaction",
+                    "id": "context-1",
+                    "summary": "compact",
+                    "droppedItemCount": 1,
+                    "estimatedTokensBefore": 2889,
+                    "estimatedTokensAfter": 2627
+                }
+            }
+        }),
+    )
+    .unwrap();
+    rpc.mark_turn_completed(session_id, turn_id, "context_compacted", None, None)
+        .unwrap();
+
+    let runtime_state = rpc
+        .get_turn_runtime_state(session_id, turn_id)
+        .unwrap()
+        .expect("completed standalone compaction should reload");
+    let serialized = serde_json::to_value(&runtime_state).unwrap();
+
+    assert_eq!(serialized["status"], "completed");
+    assert!(serialized["completedAt"].as_str().is_some());
+    assert_eq!(serialized["stopReason"], "context_compacted");
+    assert_eq!(runtime_state.timeline.items.len(), 1);
+    assert_eq!(serialized["timeline"]["items"][0]["status"], "running");
+
+    drop(rpc);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn responses_tool_call_delta_after_native_function_call_does_not_fail_persistence() {
     let root = std::env::temp_dir().join(format!(
         "tinybot-responses-tool-call-delta-{}-{}",

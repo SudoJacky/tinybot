@@ -14,6 +14,7 @@ import {
   type DesktopUpdateClient,
   type DesktopUpdateSnapshot,
 } from "../../app-core/native/desktopNativeUpdate";
+import { AssistantMarkdown } from "../chat/AssistantMarkdown";
 
 type DesktopUpdateDialogsProps = {
   aboutOpenSignal: number;
@@ -311,12 +312,16 @@ function UpdateAvailableContent({ snapshot }: { snapshot: DesktopUpdateSnapshot 
       {snapshot.displayNotes ? (
         <aside className="desktop-update-dialog__notice">
           <strong>{t("beforeUpdate")}</strong>
-          <p>{snapshot.displayNotes}</p>
+          <AssistantMarkdown streaming={false} text={snapshot.displayNotes} />
         </aside>
       ) : null}
       <section className="desktop-update-dialog__notes">
         <h3>{t("whatsNew")}</h3>
-        <p>{snapshot.releaseNotes ?? t("noNotes")}</p>
+        {snapshot.releaseNotes ? (
+          <AssistantMarkdown streaming={false} text={snapshot.releaseNotes} />
+        ) : (
+          <p>{t("noNotes")}</p>
+        )}
       </section>
       {snapshot.phase === "downloading" || snapshot.phase === "installing" ? (
         <div className="desktop-update-dialog__progress">

@@ -532,6 +532,14 @@ export function ChatPage({
     ? commandLifecycle.command.form.formId
     : "";
   const activeQueuedInputs = activeSession ? queuedInputsBySession.get(activeSession.id) ?? [] : [];
+  const canInterruptQueuedInput = Boolean(
+    activeTurn
+    && activeTurn.status !== "awaiting_user"
+    && !cancelInFlight
+    && !activeQueuedInputs.some((input) => (
+      input.mode === "interrupt" && (input.status === "queued" || input.status === "sent")
+    )),
+  );
   const activeContextUsage = useMemo(
     () => latestTimelineUsage(timeline?.turns ?? [], contextUsageDefaults),
     [contextUsageDefaults, timeline],
@@ -1487,7 +1495,6 @@ export function ChatPage({
     files: ComposerFileReference[],
     pastedContent: PastedContent[],
     options: ComposerSendOptions,
-    runningAction: "interrupt" | "queue" = "queue",
   ) {
     if (message.trim() === "/compact") {
       if (files.length || pastedContent.length || tinyOsContextReferences.length || composerSessionMentionIds.length) {
@@ -1504,6 +1511,10 @@ export function ChatPage({
           sessionId: compactSession.id,
           source: { control: "slash-compact", surface: "chat" },
         }));
+        const compactedTimeline = await chatStore.load(compactSession.id);
+        setTimeline((current) => (
+          current?.sessionId === compactSession.id ? compactedTimeline : current
+        ));
         await handleSessionStoreRefresh(compactSession);
       } catch (error) {
         console.error("[chat] context.compact.failed", {
@@ -1548,7 +1559,6 @@ export function ChatPage({
         : isQueueableRunningSession(sendSession, emptyActiveSession),
       now: nextQueuedInputTimestamp(),
       queuedInputs: activeQueuedInputs,
-      runningAction,
     });
     if (queuedResult.kind === "queue_limit_reached") {
       setQueueMessage(t("queue.limit", { count: MAX_QUEUED_INPUTS }));
@@ -1559,21 +1569,6 @@ export function ChatPage({
       options,
       references,
     );
-    if (queuedResult.kind === "interrupt_input") {
-      if (!activeTurn || activeTurn.status === "awaiting_user") {
-        throw new Error(t("errors.noInterruptibleTurn"));
-      }
-      if (activeQueuedInputs.some((input) => (
-        input.mode === "interrupt" && (input.status === "queued" || input.status === "sent")
-      ))) {
-        throw new Error(t("errors.interruptPending"));
-      }
-      await handleInterruptComposerResult(sendSession.id, activeTurn.id, {
-        ...queuedResult.input,
-        turnInput,
-      });
-      return;
-    }
     if (queuedResult.kind === "queue_input") {
       handleQueuedComposerResult(sendSession.id, queuedResult.input, turnInput);
       return;
@@ -1708,7 +1703,9 @@ export function ChatPage({
     setQueueMessage("");
     updateQueuedInputsBySession((current) => {
       const next = new Map(current);
-      next.set(sessionId, [...(next.get(sessionId) ?? []), input]);
+      next.set(sessionId, (next.get(sessionId) ?? []).map((candidate) => (
+        candidate.id === input.id ? input : candidate
+      )));
       return next;
     });
     const command = createTinyOsAgentCancelCommand({
@@ -1769,6 +1766,44 @@ export function ChatPage({
   function handleDeleteQueuedInput(sessionId: string, inputId: string) {
     setQueueMessage("");
     removeQueuedInputForSession(sessionId, inputId);
+  }
+
+  async function handleInterruptQueuedInput(sessionId: string, inputId: string) {
+    setQueueMessage("");
+    if (!activeTurn || activeTurn.status === "awaiting_user") {
+      setQueueMessage(t("errors.noInterruptibleTurn"));
+      return;
+    }
+    const inputs = queuedInputsRef.current.get(sessionId) ?? [];
+    if (inputs.some((input) => (
+      input.mode === "interrupt" && (input.status === "queued" || input.status === "sent")
+    ))) {
+      setQueueMessage(t("errors.interruptPending"));
+      return;
+    }
+    const queuedInput = inputs.find((input) => (
+      input.id === inputId
+      && input.mode === "queued"
+      && (input.status === "queued" || input.status === "paused")
+    ));
+    try {
+      if (!queuedInput) {
+        throw new Error(`Queued input ${inputId} is no longer available`);
+      }
+      await handleInterruptComposerResult(sessionId, activeTurn.id, {
+        ...queuedInput,
+        mode: "interrupt",
+        status: "queued",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("[chat] queued-input.interrupt.failed", {
+        error: message,
+        inputId,
+        sessionId,
+      });
+      setQueueMessage(t("errors.interruptFailed", { message }));
+    }
   }
 
   function removeQueuedInputForSession(sessionId: string, inputId: string) {
@@ -2411,13 +2446,6 @@ export function ChatPage({
           <button className="react-back-to-latest" type="button" onClick={handleBackToLatest}>{t("shell.backToLatest")}</button>
         ) : null}
 
-        {activeSession && activeQueuedInputs.length ? (
-          <QueuedInputsPanel
-            inputs={activeQueuedInputs}
-            onDelete={(inputId) => handleDeleteQueuedInput(activeSession.id, inputId)}
-            onResume={() => void handleResumeQueuedInputs(activeSession.id)}
-          />
-        ) : null}
         {queueMessage ? <p className="react-queued-inputs__message">{queueMessage}</p> : null}
         {compactingActiveSession ? (
           <p aria-live="polite" className="react-context-compaction-status" role="status">
@@ -2444,6 +2472,15 @@ export function ChatPage({
           }}
           onDrop={handleTinyOsComposerDrop}
         >
+          {activeSession && activeQueuedInputs.length ? (
+            <QueuedInputsPanel
+              canInterrupt={canInterruptQueuedInput}
+              inputs={activeQueuedInputs}
+              onDelete={(inputId) => handleDeleteQueuedInput(activeSession.id, inputId)}
+              onInterrupt={(inputId) => void handleInterruptQueuedInput(activeSession.id, inputId)}
+              onResume={() => void handleResumeQueuedInputs(activeSession.id)}
+            />
+          ) : null}
           <ClaudeStyleAiInput
             className={["react-composer", emptyActiveSession ? "react-composer--raised" : ""].filter(Boolean).join(" ")}
           contextReferences={tinyOsContextReferences.map((reference) => composerReferenceFromTinyOs(reference, t))}
@@ -2499,7 +2536,6 @@ export function ChatPage({
           onSelectFiles={pickDesktopChatFiles}
           onValueChange={handleComposerDraftChange}
           onSendMessage={(message, files, pastedContent, options) => handleComposerSend(message, files, pastedContent, options)}
-          onInterruptMessage={(message, files, pastedContent, options) => handleComposerSend(message, files, pastedContent, options, "interrupt")}
           onStopResponding={() => activeSession && handleStopGeneration(activeSession, "chat")}
           />
           {tinyOsDropError ? <p className="tinyos-composer-drop-error" role="alert">{tinyOsDropError}</p> : null}
@@ -3193,12 +3229,16 @@ function toComposerModelOption(model: ChatModelOption, t: TFunction<"chat">): Mo
 }
 
 function QueuedInputsPanel({
+  canInterrupt,
   inputs,
   onDelete,
+  onInterrupt,
   onResume,
 }: {
+  canInterrupt: boolean;
   inputs: QueuedInput[];
   onDelete: (inputId: string) => void;
+  onInterrupt: (inputId: string) => void;
   onResume: () => void;
 }) {
   const { t } = useTranslation("chat");
@@ -3219,7 +3259,19 @@ function QueuedInputsPanel({
             <span>{queuedInputStatusLabel(input, t)}</span>
             <p>{input.content}</p>
             {(input.mode === "queued" && (input.status === "queued" || input.status === "paused")) || (input.mode === "interrupt" && input.status !== "queued") ? (
-              <button type="button" onClick={() => onDelete(input.id)}>{input.mode === "interrupt" ? t("queue.clearInterrupt") : t("queue.delete")}</button>
+              <div className="react-queued-input__actions">
+                {input.mode === "queued" && canInterrupt ? (
+                  <button
+                    className="react-queued-input__interrupt"
+                    title={t("queue.interruptHelp")}
+                    type="button"
+                    onClick={() => onInterrupt(input.id)}
+                  >
+                    {t("queue.interrupt")}
+                  </button>
+                ) : null}
+                <button type="button" onClick={() => onDelete(input.id)}>{input.mode === "interrupt" ? t("queue.clearInterrupt") : t("queue.delete")}</button>
+              </div>
             ) : null}
           </li>
         ))}

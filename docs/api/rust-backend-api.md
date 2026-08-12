@@ -874,6 +874,8 @@ Thread Tauri commands all use `{ input: { body } }`, except the continuation hel
 | `thread_get_turn_runtime_state` | `thread.turn.runtime_state` | `{ threadId, turnId }` |
 | `thread_get_effective_capabilities` | composite Thread capability query | `{ threadId }` |
 
+`thread.turn.runtime_state` returns the canonical turn lifecycle (`status`, `completedAt`, and `stopReason`) together with `runtimeEvents` and `timeline`. Consumers must use the turn lifecycle as the terminal-state authority; a completed standalone operation such as manual context compaction does not need to synthesize an assistant final-answer item.
+
 Thread continuation helper commands:
 
 | Command | Args |

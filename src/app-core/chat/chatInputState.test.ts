@@ -29,25 +29,6 @@ describe("chat input state", () => {
     });
   });
 
-  test("creates an interrupt-and-new-turn input explicitly", () => {
-    expect(submitComposerText({
-      content: "Use the new API instead.",
-      isRunning: true,
-      runningAction: "interrupt",
-      queuedInputs: [],
-      now: "2026-07-01T10:11:00Z",
-    })).toEqual({
-      kind: "interrupt_input",
-      input: {
-        id: "interrupt-2026-07-01T10:11:00Z",
-        mode: "interrupt",
-        content: "Use the new API instead.",
-        createdAt: "2026-07-01T10:11:00Z",
-        status: "queued",
-      },
-    });
-  });
-
   test("enforces five pending inputs", () => {
     const queuedInputs = Array.from({ length: MAX_QUEUED_INPUTS }, (_, index): QueuedInput => ({
       id: `queued-${index}`,

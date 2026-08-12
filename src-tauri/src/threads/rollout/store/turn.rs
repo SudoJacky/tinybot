@@ -477,7 +477,7 @@ impl WorkerThreadLogRpc {
                 selected = Some((record, reconstructed.thread_items));
             }
         }
-        let Some((_, thread_items)) = selected else {
+        let Some((record, thread_items)) = selected else {
             return Ok(None);
         };
         let runtime_events = crate::threads::domain::runtime_events_from_thread_items(
@@ -486,7 +486,7 @@ impl WorkerThreadLogRpc {
             turn_id,
         );
         let runtime_state =
-            AgentTurnRuntimeState::from_runtime_events(session_id, turn_id, runtime_events.clone())
+            AgentTurnRuntimeState::from_turn_record(session_id, &record, runtime_events.clone())
                 .map_err(|error| {
                     let diagnostics = runtime_events
                         .iter()

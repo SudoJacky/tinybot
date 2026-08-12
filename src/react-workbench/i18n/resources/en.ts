@@ -535,7 +535,7 @@ export const en = {
     formUi: { title: "Agent form", submit: "Submit", cancel: "Cancel", select: "Select…" },
     queue: {
       label: "Queued inputs", title: "Inputs while running", pending: "Pending {{pending}}/{{max}}", resume: "Resume queue", clearInterrupt: "Clear interrupt state",
-      delete: "Delete queued input", sending: "Sending as a new turn", interruptFailed: "Interrupt failed", interrupting: "Interrupting the current response",
+      delete: "Delete queued input", interrupt: "Interrupt", interruptHelp: "Interrupt the current response and send this message now", sending: "Sending as a new turn", interruptFailed: "Interrupt failed", interrupting: "Interrupting the current response",
       paused: "Paused", sent: "Sent", failed: "Failed", waiting: "Waiting", limit: "Already have {{count}} queued messages. Wait for processing or delete one before sending more.",
     },
     turn: {
@@ -611,7 +611,6 @@ export const en = {
         low: { label: "Light", description: "Prioritize speed and lower token use." }, medium: { label: "Medium", description: "Use balanced reasoning depth." },
         high: { label: "High", description: "Use deeper reasoning." }, xhigh: { label: "Extra High", description: "Use very deep reasoning." }, max: { label: "Max", description: "Use the model's maximum reasoning depth." },
       },
-      interruptHelp: "Interrupt the current response and send as a new turn", interruptDisabled: "Enter content to interrupt the current task", interrupt: "Interrupt current task",
       queueHelp: "Send as the next turn after the current task finishes", queueDisabled: "Enter content to queue", queue: "Queue as next turn", stop: "Stop generation", stopUnavailable: "Stop generation unavailable: {{reason}}",
       unsupported: "unsupported", stoppingUnavailable: "Stopping is unavailable", send: "Send message", sendDisabled: "Enter content to send",
       context: { title: "Context window", used: "{{percent}}% used ({{left}}% left)", strategy: "Strategy: {{strategy}}", aria: "Context window {{percent}}% used, {{left}}% left", tokens: "{{used}} / {{window}} tokens used", zero: "0 tokens used", provider: "Token budget reported by provider" },

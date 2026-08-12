@@ -45,6 +45,21 @@ describe("DesktopUpdateDialogs", () => {
     expect(client.install).not.toHaveBeenCalled();
   });
 
+  it("renders custom update and display notes as Markdown", async () => {
+    const client = createClient({
+      ...availableUpdate,
+      releaseNotes: "## Highlights\n\n- Reference another workspace conversation\n- Manage **subagents** directly",
+      displayNotes: "Save **active work** before installing.",
+    });
+    render(<DesktopUpdateDialogs aboutOpenSignal={0} updateClient={client} />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Tinybot update available" });
+    expect(within(dialog).getByRole("heading", { name: "Highlights" })).toBeTruthy();
+    expect(within(dialog).getByRole("list")).toBeTruthy();
+    expect(within(dialog).getByText("subagents", { selector: "strong" })).toBeTruthy();
+    expect(within(dialog).getByText("active work", { selector: "strong" })).toBeTruthy();
+  });
+
   it("downloads and installs only after explicit confirmation", async () => {
     const user = userEvent.setup();
     const client = createClient(availableUpdate);

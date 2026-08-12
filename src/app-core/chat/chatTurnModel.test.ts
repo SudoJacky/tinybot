@@ -11,9 +11,11 @@ function canonicalRuntimeState(
   turnId: string,
   items: Array<Record<string, unknown>>,
   sessionId = "WebSocket:chat-1",
+  lifecycle: Record<string, unknown> = {},
 ): unknown {
   return {
     runtimeEvents: [],
+    ...lifecycle,
     timeline: {
       schemaVersion: "tinybot.timeline.v2",
       sessionId,
@@ -241,6 +243,42 @@ describe("chat turn model", () => {
       estimatedTokensBefore: 48428,
       strategy: "compact",
     });
+  });
+
+  test("uses the completed turn boundary for a restored standalone compaction", () => {
+    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState(
+      "turn-compact-completed",
+      [{
+        itemId: "turn-compact-completed:context",
+        kind: "context_compaction",
+        status: "running",
+        data: {
+          type: "context_compaction",
+          id: "context-1",
+          summary: "compact",
+          droppedItemCount: 1,
+          estimatedTokensBefore: 2889,
+          estimatedTokensAfter: 2627,
+        },
+      }],
+      "WebSocket:chat-1",
+      {
+        status: "completed",
+        completedAt: "2026-08-10T13:06:04Z",
+        stopReason: "context_compacted",
+      },
+    ));
+
+    const [turn] = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
+
+    expect(turn).toMatchObject({
+      id: "turn-compact-completed",
+      status: "completed",
+      completedAt: "2026-08-10T13:06:04Z",
+    });
+    expect(turn.steps).toEqual([
+      expect.objectContaining({ kind: "compaction", status: "completed" }),
+    ]);
   });
 
   test("reconciles stale running steps when a canonical turn fails", () => {

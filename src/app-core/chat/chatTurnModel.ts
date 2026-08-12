@@ -308,8 +308,13 @@ export type BackendAgentTimelineSnapshot = {
   items: BackendAgentTurnItem[];
 };
 
+export type BackendAgentTurnStatus = "running" | "waiting" | "completed" | "failed" | "cancelled" | "interrupted";
+
 export type BackendAgentTurnRuntimeState = {
   runtimeEvents?: unknown[];
+  status?: BackendAgentTurnStatus;
+  completedAt?: string;
+  stopReason?: string;
   timeline: BackendAgentTimelineSnapshot;
 };
 
@@ -327,10 +332,36 @@ const UNSAFE_KEYS = new Set(["html", "script", "style", "component", "handler", 
 export function normalizeAgentTurnRuntimeStatePayload(payload: unknown): BackendAgentTurnRuntimeState {
   const value = recordValue(payload);
   const timeline = normalizeAgentTimelineSnapshotPayload(value.timeline);
+  const status = normalizeBackendAgentTurnStatus(value.status);
+  const completedAt = stringValue(value.completedAt ?? value.completed_at) || undefined;
+  const stopReason = stringValue(value.stopReason ?? value.stop_reason) || undefined;
   return {
     runtimeEvents: Array.isArray(value.runtimeEvents) ? value.runtimeEvents : Array.isArray(value.runtime_events) ? value.runtime_events : [],
+    ...(status ? { status } : {}),
+    ...(completedAt ? { completedAt } : {}),
+    ...(stopReason ? { stopReason } : {}),
     timeline,
   };
+}
+
+function normalizeBackendAgentTurnStatus(value: unknown): BackendAgentTurnStatus | undefined {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    throw new Error("Canonical turn runtime status must be a string");
+  }
+  switch (value) {
+    case "running":
+    case "waiting":
+    case "completed":
+    case "failed":
+    case "cancelled":
+    case "interrupted":
+      return value;
+    default:
+      throw new Error(`Unsupported canonical turn runtime status: ${value}`);
+  }
 }
 
 export function normalizeAgentTimelineSnapshotPayload(payload: unknown): BackendAgentTimelineSnapshot {
@@ -519,6 +550,7 @@ function runtimeStateToTurn(
   const startedAt = runtimeStateStart(runtimeState) || new Date().toISOString();
   const updatedAt = runtimeState.timeline.items
     .map((item) => item.updatedAt || item.createdAt)
+    .concat(runtimeState.completedAt ? [runtimeState.completedAt] : [])
     .filter(Boolean)
     .sort(compareRuntimeTimestamps);
   const lastUpdatedAt = updatedAt[updatedAt.length - 1] || startedAt;
@@ -545,10 +577,13 @@ function runtimeStateToTurn(
   attachScopedErrors(turn, runtimeState.timeline.items);
   attachFileReferences(turn, runtimeState.timeline.items);
   turn.executionItems = turn.steps;
-  turn.status = statusForTurnItems(runtimeState.timeline.items, turn.status);
+  turn.status = statusForRuntimeBoundary(
+    runtimeState.status,
+    statusForTurnItems(runtimeState.timeline.items, turn.status),
+  );
   reconcileTerminalStepStatuses(turn);
   if (turn.status === "completed" || turn.status === "failed" || turn.status === "interrupted") {
-    turn.completedAt = turn.completedAt ?? lastUpdatedAt;
+    turn.completedAt = runtimeState.completedAt ?? turn.completedAt ?? lastUpdatedAt;
   }
   return turn;
 }
@@ -946,6 +981,25 @@ function statusForTurnItems(items: BackendAgentTurnItem[], fallback: ChatTurnSta
     return "running";
   }
   return fallback;
+}
+
+function statusForRuntimeBoundary(
+  status: BackendAgentTurnStatus | undefined,
+  fallback: ChatTurnStatus,
+): ChatTurnStatus {
+  switch (status) {
+    case "completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "cancelled":
+    case "interrupted":
+      return "interrupted";
+    case "waiting":
+    case "running":
+    case undefined:
+      return fallback;
+  }
 }
 
 function reconcileTerminalStepStatuses(turn: ChatTurn): void {
