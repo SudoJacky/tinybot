@@ -215,7 +215,7 @@ export const zh = {
       adjustPlan: "根据这项用户请求调整当前执行计划：{{adjustment}}。保留已完成的工作，说明实质性变更，并从更新后的计划继续。",
     },
     shell: {
-      label: "聊天", sessions: "会话", addWorkspace: "添加工作区文件夹", searchChats: "搜索会话", expandSidebar: "展开会话侧栏", collapseSidebar: "收起会话侧栏",
+      label: "聊天", sessions: "会话", addWorkspace: "添加工作区文件夹", workspaceActions: "工作区和项目操作", searchChats: "搜索会话", expandSidebar: "展开会话侧栏", collapseSidebar: "收起会话侧栏",
       newChat: "新会话", sessionRows: "会话列表", workspace: "工作区 {{name}}", generalSessions: "常规会话", newSessionIn: "在 {{name}} 中新建会话", confirmDelete: "确认删除 {{name}}",
       delete: "删除 {{name}}", noSessions: "还没有会话。", noSelection: "未选择会话", closeTinyOs: "关闭 TinyOS", openTinyOs: "打开 TinyOS",
       openTinyOsAttention: "打开 TinyOS，需要处理", openTinyOsActivity: "打开 TinyOS，有 Agent 活动", conversationMenu: "打开会话菜单",
@@ -224,6 +224,12 @@ export const zh = {
       selectSession: "请选择或新建一个会话。", backToLatest: "回到最新消息", compacting: "正在压缩上下文", loadingSessions: "正在加载会话…",
       createOrSelect: "请先创建或选择一个会话", taskPlaceholder: "输入任务，或粘贴/拖入文件", messagePlaceholder: "输入消息给 Tinybot",
       detailsDrawer: "详情抽屉", closeDetails: "关闭详情抽屉",
+    },
+    projectGroups: {
+      create: "创建项目组", createTitle: "创建项目组", editTitle: "编辑项目组", description: "组合任意位置的工作区文件夹，不移动文件，也不改变 Git 仓库。",
+      name: "项目名称", namePlaceholder: "电商平台", workspaces: "成员工作区", workspacesHelp: "选择已有工作区，或从其他位置添加文件夹。", noWorkspaces: "目前还没有可用的工作区文件夹。", chooseFolder: "选择其他文件夹…",
+      save: "保存项目", cancel: "取消", close: "关闭项目对话框", delete: "删除项目", confirmDelete: "确认删除", unavailable: "当前运行时不支持项目组。",
+      groupLabel: "项目 {{name}}", edit: "编辑 {{name}}", coordination: "协调会话", newCoordinator: "在 {{name}} 中新建协调会话", newCoordinatorTitle: "协调 {{name}}", newWorkspaceSession: "在 {{name}} 中新建会话",
     },
     migration: {
       label: "插件迁移结果", installed: "{{name}} 已安装{{state}}", keptDisabled: "（保持停用）", enabled: "并已启用", complete: "迁移完成——安装生成的插件",

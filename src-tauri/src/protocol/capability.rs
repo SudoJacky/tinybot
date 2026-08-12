@@ -109,6 +109,22 @@ pub fn default_desktop_capability_policy() -> CapabilityPolicy {
     CapabilityPolicy::new(capabilities)
 }
 
+pub fn project_coordinator_capability_policy() -> CapabilityPolicy {
+    CapabilityPolicy::new(
+        default_desktop_capability_policy()
+            .granted_capabilities()
+            .into_iter()
+            .filter(|capability| {
+                !matches!(
+                    capability,
+                    WorkerCapability::FsWorkspaceRead
+                        | WorkerCapability::FsWorkspaceWrite
+                        | WorkerCapability::ShellExecute
+                )
+            }),
+    )
+}
+
 #[cfg(test)]
 #[path = "capability_tests.rs"]
 mod tests;

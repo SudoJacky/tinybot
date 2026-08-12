@@ -18,7 +18,8 @@ use crate::agent::runtime_protocol::{
 };
 use crate::tools::registry::ToolCancellationMode;
 use crate::tools::registry::{
-    PUBLISH_DATA_VIEW_METHOD, REQUEST_USER_INPUT_METHOD, TOOL_SEARCH_METHOD, UPDATE_PLAN_METHOD,
+    PUBLISH_DATA_VIEW_METHOD, REQUEST_USER_INPUT_METHOD, SEND_THREAD_MESSAGE_METHOD,
+    SPAWN_WORKSPACE_THREAD_METHOD, TOOL_SEARCH_METHOD, UPDATE_PLAN_METHOD,
 };
 use futures_util::{future::join_all, FutureExt};
 use serde::Deserialize;
@@ -325,7 +326,96 @@ pub(super) async fn execute_tool_calls_for_iteration(
         return execute_publish_data_views(services, context, state, iteration, tool_calls);
     }
 
+    if tool_calls.iter().any(|tool_call| {
+        matches!(
+            tool_call.name.as_str(),
+            SPAWN_WORKSPACE_THREAD_METHOD | SEND_THREAD_MESSAGE_METHOD
+        )
+    }) {
+        if tool_calls.len() != 1 {
+            let tool_call = tool_calls
+                .iter()
+                .find(|tool_call| {
+                    matches!(
+                        tool_call.name.as_str(),
+                        SPAWN_WORKSPACE_THREAD_METHOD | SEND_THREAD_MESSAGE_METHOD
+                    )
+                })
+                .expect("workspace thread tool presence was checked");
+            return tool_error_result(
+                services,
+                context,
+                state,
+                iteration,
+                tool_call,
+                format!(
+                    "{} must be the only tool call in its provider response",
+                    tool_call.name
+                ),
+            );
+        }
+        let tool_call = tool_calls
+            .into_iter()
+            .next()
+            .expect("single workspace thread tool call should exist");
+        return execute_workspace_thread_tool(services, context, state, iteration, tool_call).await;
+    }
+
     execute_tool_batch(services, context, state, iteration, tool_calls).await
+}
+
+async fn execute_workspace_thread_tool(
+    services: &NativeAgentRuntimeServices,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
+    iteration: i64,
+    tool_call: PreparedToolCall,
+) -> Result<NativeAgentToolExecutionOutcome, String> {
+    start_tool_call(services, context, state, iteration, &tool_call)?;
+    context.metrics().increment("tool.started");
+    let started_at = std::time::Instant::now();
+    let raw_result = match tool_call.name.as_str() {
+        SPAWN_WORKSPACE_THREAD_METHOD => {
+            super::workspace_threads::spawn_workspace_thread(
+                services,
+                context,
+                tool_call.arguments(),
+            )
+            .await
+        }
+        SEND_THREAD_MESSAGE_METHOD => {
+            super::workspace_threads::send_thread_message(services, context, tool_call.arguments())
+                .await
+        }
+        _ => unreachable!("workspace thread tool name was checked before execution"),
+    };
+    context
+        .metrics()
+        .record_duration("tool.durationMs", started_at.elapsed());
+    let result = match raw_result {
+        Ok(value) => {
+            context.metrics().increment("tool.completed");
+            super::NativeAgentToolResult::generic_success(&tool_call, value)
+        }
+        Err(error) => {
+            context.metrics().increment("tool.failed");
+            super::NativeAgentToolResult::generic_error(&tool_call, error)
+        }
+    };
+    commit_tool_observation(context, state, iteration, tool_call.into_original(), result)?;
+    state.clear_pending_tool_calls();
+    state.transition_phase(
+        AgentRuntimePhase::Planning,
+        iteration,
+        AgentEventKind::ToolResult.wire_name(),
+    )?;
+    save_phase_checkpoint(
+        services,
+        context,
+        state.phase.as_str(),
+        state.active_checkpoint_payload("workspace_thread_tool_completed"),
+    );
+    Ok(NativeAgentToolExecutionOutcome::Continue)
 }
 
 fn execute_publish_data_views(

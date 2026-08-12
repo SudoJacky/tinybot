@@ -27,9 +27,9 @@ pub(crate) use result_projection::{
     native_agent_turn_phase_from_stop_reason, native_agent_turn_status, native_agent_usage,
 };
 pub(crate) use thread_flow::{
-    compact_thread_with_services, submit_thread_form_with_services,
-    submit_thread_turn_with_services, CompactThreadInput, SubmitThreadFormInput,
-    SubmitThreadTurnInput,
+    compact_thread_with_services, execute_thread_turn_with_services,
+    submit_thread_form_with_services, submit_thread_turn_with_services, CompactThreadInput,
+    SubmitThreadFormInput, SubmitThreadTurnInput,
 };
 pub(crate) use tool_dispatcher::native_agent_services_with_tool_executor;
 #[cfg(test)]

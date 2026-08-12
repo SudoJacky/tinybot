@@ -42,7 +42,25 @@ export type SessionSummary = {
   workingDirectory?: string;
   model?: string;
   modelProvider?: string;
+  projectCoordinator?: boolean;
+  projectGroupId?: string;
   pluginMigration?: PluginMigrationSession;
+};
+
+export type ProjectGroup = {
+  projectGroupId: string;
+  name: string;
+  workspaceIds: string[];
+};
+
+export type ProjectGroupStore = {
+  list(): Promise<ProjectGroup[]>;
+  save(input: {
+    projectGroupId?: string;
+    name: string;
+    workspaceIds: string[];
+  }): Promise<ProjectGroup>;
+  delete(projectGroupId: string): Promise<void>;
 };
 
 export type ChatInput = DesktopChatInput;
@@ -67,6 +85,8 @@ export type SessionStore = {
     workingDirectory?: string;
     model?: string;
     modelProvider?: string;
+    projectCoordinator?: boolean;
+    projectGroupId?: string;
     pluginMigration?: PluginMigrationSession;
   }): Promise<SessionSummary>;
   rename(id: string, title: string): Promise<void>;
@@ -224,6 +244,7 @@ export type AppServices = {
   sessionStore: SessionStore;
   chatStore: ChatStore;
   memoryStore: MemoryStore;
+  projectGroupStore: ProjectGroupStore;
   workspaceStore: WorkspaceStore;
   toolsStore: ToolsStore;
   settingsStore: SettingsStore;

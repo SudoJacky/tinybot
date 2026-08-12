@@ -2,6 +2,7 @@ pub(crate) mod agent;
 pub(crate) mod config;
 pub(crate) mod memory;
 pub(crate) mod plugins;
+pub(crate) mod project_groups;
 pub(crate) mod runtime;
 pub(crate) mod skills;
 pub(crate) mod thread;

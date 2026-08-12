@@ -19,6 +19,7 @@ import {
 } from "../app-core/native/desktopNativeThreads";
 import { createDesktopNativeHostCommandApi } from "../app-core/native/desktopNativeHostCommand";
 import { createDesktopNativeMemoryApi } from "../app-core/native/desktopNativeMemory";
+import { createDesktopNativeProjectGroupsApi } from "../app-core/native/desktopNativeProjectGroups";
 import { createDesktopNativeBrowserApi, normalizeNativeBrowserSnapshot } from "../app-core/native/desktopNativeBrowser";
 import { toDesktopNativeTauriEventName } from "../app-core/native/desktopNativeTauriEvents";
 import { createDesktopNativeWebuiApi } from "../app-core/native/desktopNativeWebui";
@@ -72,6 +73,7 @@ export function createDesktopAppServices(): AppServices {
   const nativeThreads = nativeMode ? createDesktopNativeThreadsApi({ invoke }) : undefined;
   const nativeHostCommands = nativeMode ? createDesktopNativeHostCommandApi({ invoke }) : undefined;
   const nativeMemory = nativeMode ? createDesktopNativeMemoryApi({ invoke }) : undefined;
+  const nativeProjectGroups = nativeMode ? createDesktopNativeProjectGroupsApi({ invoke }) : undefined;
   const nativeBrowser = nativeMode ? createDesktopNativeBrowserApi({ invoke }) : undefined;
   const nativeWebui = nativeMode ? createDesktopNativeWebuiApi({ invoke }) : undefined;
   const nativeWorkspace = nativeMode ? createDesktopNativeWorkspaceApi({ invoke }) : undefined;
@@ -108,7 +110,8 @@ export function createDesktopAppServices(): AppServices {
       });
       threads.push(...result.threads.filter((thread) => {
         const parentThreadId = stringValue(thread.parentThreadId ?? thread.parent_thread_id);
-        return !parentThreadId || stringValue(thread.source) === "fork";
+        const source = stringValue(thread.source);
+        return !parentThreadId || source === "fork" || source === "workspace_thread";
       }));
       const nextOffset = numberValue(result.nextOffset);
       if (nextOffset === undefined) {
@@ -148,6 +151,12 @@ export function createDesktopAppServices(): AppServices {
           return;
         }
         try {
+          if (!controller.state.threads.some((thread) => thread.threadId === sessionId)) {
+            await controller.loadSessions();
+            if (controller.state.threads.some((thread) => thread.threadId === sessionId)) {
+              notifyAll({ type: "chat.created" });
+            }
+          }
           const timeline = await controller.applyTimelinePatch(sessionId, payload);
           if (timeline) {
             notifySession(sessionId, { type: "timeline.patch", timeline });
@@ -466,6 +475,7 @@ export function createDesktopAppServices(): AppServices {
           || (model === preference?.modelId ? preference.providerId ?? "" : "");
         const extra = {
           ...(modelProvider ? { modelProvider } : {}),
+          ...(input?.projectGroupId ? { projectGroupId: input.projectGroupId } : {}),
           ...(input?.pluginMigration ? { pluginMigration: input.pluginMigration } : {}),
         };
         const metadata = {
@@ -475,7 +485,7 @@ export function createDesktopAppServices(): AppServices {
         };
         const thread = await requireNative(nativeThreads, "Thread").create({
           title: input?.title || "New session",
-          source: "desktop",
+          source: input?.projectCoordinator ? "project_coordinator" : "desktop",
           ...(Object.keys(metadata).length ? { metadata } : {}),
         });
         await controller.loadSessions();
@@ -662,6 +672,20 @@ export function createDesktopAppServices(): AppServices {
         return requireNative(nativeMemory, "Memory").snapshot();
       },
     },
+    projectGroupStore: {
+      async list() {
+        await initialize();
+        return (await requireNative(nativeProjectGroups, "Project group").list()).groups;
+      },
+      async save(input) {
+        await initialize();
+        return requireNative(nativeProjectGroups, "Project group").save(input);
+      },
+      async delete(projectGroupId) {
+        await initialize();
+        await requireNative(nativeProjectGroups, "Project group").delete(projectGroupId);
+      },
+    },
     toolsStore: {
       async loadCatalog() {
         await initialize();
@@ -823,6 +847,8 @@ function mapSession(thread: NativeThreadRecord, responding: boolean, fallbackPay
     ...(thread.metadata?.workingDirectory ? { workingDirectory: thread.metadata.workingDirectory } : {}),
     ...(stringValue(thread.metadata?.model) ? { model: stringValue(thread.metadata?.model) } : {}),
     ...(stringValue(extra.modelProvider) ? { modelProvider: stringValue(extra.modelProvider) } : {}),
+    ...(stringValue(extra.projectGroupId) ? { projectGroupId: stringValue(extra.projectGroupId) } : {}),
+    ...(stringValue(thread.source) === "project_coordinator" ? { projectCoordinator: true } : {}),
     ...(pluginMigration ? { pluginMigration } : {}),
     status: responding || thread.status === "running" || thread.status === "cancelling"
       ? "running"

@@ -4,7 +4,7 @@ mod contributors;
 use contributors::default_tool_contributors;
 #[cfg(test)]
 use contributors::workspace_tool_entries;
-pub use contributors::{McpToolContributor, ToolContributor};
+pub use contributors::{McpToolContributor, ToolContributor, WorkspaceThreadToolContributor};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -13,6 +13,8 @@ pub const TOOL_SEARCH_METHOD: &str = "tool_search";
 pub const REQUEST_USER_INPUT_METHOD: &str = "request_user_input";
 pub const PUBLISH_DATA_VIEW_METHOD: &str = "publish_data_view";
 pub const UPDATE_PLAN_METHOD: &str = "update_plan";
+pub const SPAWN_WORKSPACE_THREAD_METHOD: &str = "spawn_workspace_thread";
+pub const SEND_THREAD_MESSAGE_METHOD: &str = "send_thread_message";
 pub const DEFAULT_TOOL_SEARCH_LIMIT: usize = 5;
 pub const MAX_TOOL_SEARCH_LIMIT: usize = 20;
 
@@ -91,7 +93,15 @@ pub enum ToolRuntimeControl {
     ToolSearch,
     PublishDataView,
     RequestUserInput,
+    SpawnWorkspaceThread,
+    SendThreadMessage,
     UpdatePlan,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WorkspaceThreadTarget {
+    pub workspace_id: String,
+    pub label: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

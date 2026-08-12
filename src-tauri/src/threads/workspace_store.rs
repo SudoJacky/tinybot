@@ -1,5 +1,6 @@
 use super::domain::WorkerThreadRpc;
 use super::rollout::store::WorkerThreadLogRpc;
+use crate::project_groups::ProjectGroupStore;
 use crate::protocol::capability::CapabilityPolicy;
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
 use std::path::{Path, PathBuf};
@@ -18,6 +19,7 @@ struct WorkspaceThreadStoreInner {
     data_root: PathBuf,
     thread: WorkerThreadRpc,
     thread_log: WorkerThreadLogRpc,
+    project_groups: ProjectGroupStore,
     lifecycle: Mutex<WorkspaceThreadStoreLifecycle>,
 }
 
@@ -46,6 +48,7 @@ impl WorkspaceThreadStore {
     ) -> Self {
         Self {
             inner: Arc::new(WorkspaceThreadStoreInner {
+                project_groups: ProjectGroupStore::new(&data_root),
                 thread: WorkerThreadRpc::new(workspace_root.clone(), policy.clone()),
                 thread_log: WorkerThreadLogRpc::new_with_data_root(
                     workspace_root.clone(),
@@ -68,6 +71,10 @@ impl WorkspaceThreadStore {
 
     pub(crate) fn data_root(&self) -> &Path {
         &self.inner.data_root
+    }
+
+    pub(crate) fn project_groups(&self) -> ProjectGroupStore {
+        self.inner.project_groups.clone()
     }
 
     pub(crate) fn begin_operation(

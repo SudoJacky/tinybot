@@ -46,6 +46,7 @@ mod tool_runtime;
 mod trace_commit;
 mod usage;
 mod user_input;
+mod workspace_threads;
 
 pub(crate) use self::context::{agent_trace_context_from_value, ensure_agent_trace_context};
 pub(crate) use self::events::standalone_runtime_event;
@@ -746,6 +747,12 @@ impl NativeAgentRuntimeServices {
         self.thread_store
             .clone()
             .ok_or_else(|| "native agent workspace thread store is unavailable".to_string())
+    }
+
+    pub(crate) fn optional_thread_store(
+        &self,
+    ) -> Option<crate::threads::workspace_store::WorkspaceThreadStore> {
+        self.thread_store.clone()
     }
 
     pub(crate) fn mcp_runtime(&self) -> McpRuntime {

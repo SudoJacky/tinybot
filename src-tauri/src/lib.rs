@@ -11,6 +11,7 @@ mod mcp_capability_catalog;
 mod memory;
 mod native_browser;
 mod plugins;
+mod project_groups;
 mod protocol;
 mod rpc;
 mod runtime;

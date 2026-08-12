@@ -52,7 +52,7 @@ import {
 } from "../../components/ui/claude-style-ai-input";
 import { TextType } from "../../components/ui/TextType";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
-import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore, ToolsStore, WorkspaceStore } from "../services";
+import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, ProjectGroup, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, ToolsStore, WorkspaceStore } from "../services";
 import { createDesktopCompactCommand, createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import {
   clearCurrentChatModel,
@@ -86,6 +86,8 @@ import {
   groupSessionsByWorkspace,
   sessionWorkspaceName,
 } from "./sessionWorkspaces";
+import { projectSessionGroups } from "./projectSessionGroups";
+import { ProjectGroupDialog } from "./ProjectGroupDialog";
 import {
   applyLoadedDelegatedAgentTrace,
   projectLoadedArtifactDetail,
@@ -134,6 +136,7 @@ import {
 export type ChatPageProps = {
   chatStore: ChatStore;
   sessionStore: SessionStore;
+  projectGroupStore?: ProjectGroupStore;
   settingsStore?: SettingsStore;
   toolsStore?: Pick<ToolsStore, "installPluginMigration">;
   workspaceStore?: Pick<WorkspaceStore, "listDirectory" | "readFile">;
@@ -302,6 +305,12 @@ const MAX_COMPOSER_SESSION_REFERENCES = 4;
 const MAX_COMPOSER_SESSION_CONTEXT_BYTES = 48 * 1024;
 const SESSION_TRANSCRIPT_OMISSION = "\n\n[... middle conversation content omitted to fit the context limit ...]\n\n";
 
+type ProjectSessionContext = {
+  projectCoordinator?: boolean;
+  projectGroupId: string;
+  title?: string;
+};
+
 export function ChatPage({
   chatStore,
   createSessionSignal = 0,
@@ -312,6 +321,7 @@ export function ChatPage({
   onStopGenerationTargetChange,
   sessionSidebarCollapsed,
   sessionStore,
+  projectGroupStore,
   settingsStore,
   toolsStore,
   workspaceStore,
@@ -321,6 +331,9 @@ export function ChatPage({
   const tinyOsUiScope = useId();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
+  const [projectGroups, setProjectGroups] = useState<ProjectGroup[]>([]);
+  const [projectDialogGroupId, setProjectDialogGroupId] = useState<string | "new">();
+  const [workspaceActionMenuOpen, setWorkspaceActionMenuOpen] = useState(false);
   const [sessionTabs, dispatchSessionTabs] = useReducer(
     reduceSessionTabWorkspace,
     INITIAL_SESSION_TAB_WORKSPACE,
@@ -384,6 +397,7 @@ export function ChatPage({
   const liveCanvasToggleRef = useRef<HTMLButtonElement | null>(null);
   const liveCanvasPreviousVisibilityRef = useRef(liveCanvas.visibility);
   const stickToLatestRef = useRef(true);
+  const workspaceActionMenuRef = useRef<HTMLDivElement | null>(null);
   const activeSessionId = sessionTabs.activeSessionId;
   const composerDraft = sessionTabDraft(sessionTabs, activeSessionId);
   const optimisticMessages = optimisticMessagesBySession.get(activeSessionId) ?? EMPTY_OPTIMISTIC_MESSAGES;
@@ -413,13 +427,25 @@ export function ChatPage({
       }] : [];
     })
   ), [sessionTabs.openSessionIds, sessionTabs.unreadSessionIds, sessions]);
-  const sessionWorkspaces = useMemo(() => groupSessionsByWorkspace(sessions).map((workspace) => ({
+  const projectProjection = useMemo(
+    () => projectSessionGroups(projectGroups, sessions),
+    [projectGroups, sessions],
+  );
+  const allSessionWorkspaces = useMemo(() => groupSessionsByWorkspace(sessions).map((workspace) => ({
     ...workspace,
     label: workspace.label ?? t("shell.generalSessions"),
   })), [sessions, t]);
+  const sessionWorkspaces = useMemo(() => groupSessionsByWorkspace(projectProjection.ungroupedSessions).map((workspace) => ({
+    ...workspace,
+    label: workspace.label ?? t("shell.generalSessions"),
+  })), [projectProjection.ungroupedSessions, t]);
+  const availableProjectWorkspaceIds = useMemo(() => Array.from(new Set([
+    ...sessions.flatMap((session) => session.workingDirectory ? [session.workingDirectory] : []),
+    ...projectGroups.flatMap((group) => group.workspaceIds),
+  ])), [projectGroups, sessions]);
   const composerSessionMentionOptions = useMemo<ComposerSessionMentionOption[]>(() => {
     if (!activeSession || activeSession.pluginMigration) return [];
-    const currentWorkspace = sessionWorkspaces.find((workspace) => (
+    const currentWorkspace = allSessionWorkspaces.find((workspace) => (
       workspace.sessions.some((session) => session.id === activeSession.id)
     ));
     return (currentWorkspace?.sessions ?? [])
@@ -430,7 +456,7 @@ export function ChatPage({
         id: session.id,
         label: displaySessionTitle(session.title, t),
       }));
-  }, [activeSession, i18n.language, now, sessionWorkspaces, t]);
+  }, [activeSession, allSessionWorkspaces, i18n.language, now, t]);
   const tinyOsFiles = useTinyOsFilesController(activeSession?.id ?? "draft", workspaceStore, liveCanvas.visibility === "open");
   const draftNewSession = sessionsLoaded && !activeSession;
   const timelineLoaded = Boolean(activeSession) && timeline?.sessionId === activeSession?.id;
@@ -912,6 +938,30 @@ export function ChatPage({
   }, [sessionStore]);
 
   useEffect(() => {
+    if (!projectGroupStore) return;
+    let cancelled = false;
+    void projectGroupStore.list().then((groups) => {
+      if (!cancelled) setProjectGroups(groups);
+    }).catch((error) => {
+      if (!cancelled) setSessionWorkspaceError(error instanceof Error ? error.message : String(error));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectGroupStore]);
+
+  useEffect(() => {
+    if (!workspaceActionMenuOpen) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!workspaceActionMenuRef.current?.contains(event.target as Node)) {
+        setWorkspaceActionMenuOpen(false);
+      }
+    };
+    window.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => window.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [workspaceActionMenuOpen]);
+
+  useEffect(() => {
     if (!sessionsLoaded) {
       return;
     }
@@ -1206,16 +1256,30 @@ export function ChatPage({
   }, [activeSessionId, timeline, optimisticMessages, agentUiForms.length]);
 
   async function handleCreateSession(
-    workingDirectory = activeSession?.pluginMigration ? undefined : activeSession?.workingDirectory,
+    workingDirectory?: string,
+    projectContext?: ProjectSessionContext,
   ): Promise<SessionSummary | null> {
     if (sessionCreatePending) {
       return null;
     }
     setSessionCreatePending(true);
     setSessionWorkspaceError("");
+    const inheritedProjectContext: ProjectSessionContext | undefined = workingDirectory === undefined && activeSession?.projectGroupId
+      ? {
+          projectCoordinator: activeSession.projectCoordinator,
+          projectGroupId: activeSession.projectGroupId,
+        }
+      : undefined;
+    const resolvedProjectContext = projectContext ?? inheritedProjectContext;
+    const resolvedWorkingDirectory = resolvedProjectContext?.projectCoordinator
+      ? undefined
+      : workingDirectory ?? (activeSession?.pluginMigration ? undefined : activeSession?.workingDirectory);
     try {
       const created = await sessionStore.create({
-        ...(workingDirectory ? { workingDirectory } : {}),
+        ...(resolvedWorkingDirectory ? { workingDirectory: resolvedWorkingDirectory } : {}),
+        ...(resolvedProjectContext?.projectGroupId ? { projectGroupId: resolvedProjectContext.projectGroupId } : {}),
+        ...(resolvedProjectContext?.projectCoordinator ? { projectCoordinator: true } : {}),
+        ...(resolvedProjectContext?.title ? { title: resolvedProjectContext.title } : {}),
         ...composerSessionModelInput(composerModels, defaultComposerModel),
       });
       activateCreatedSession(created);
@@ -1225,7 +1289,8 @@ export function ChatPage({
       setSessionWorkspaceError(message);
       console.error("[session-workspaces] session.create.failed", {
         error: message,
-        workingDirectory: workingDirectory ?? "",
+        workingDirectory: resolvedWorkingDirectory ?? "",
+        projectGroupId: resolvedProjectContext?.projectGroupId ?? "",
       });
       return null;
     } finally {
@@ -1294,6 +1359,46 @@ export function ChatPage({
     } finally {
       setWorkspacePickerPending(false);
     }
+  }
+
+  async function handleSaveProjectGroup(input: {
+    projectGroupId?: string;
+    name: string;
+    workspaceIds: string[];
+  }) {
+    if (!projectGroupStore) throw new Error(t("projectGroups.unavailable"));
+    const saved = await projectGroupStore.save(input);
+    setProjectGroups((current) => {
+      const existing = current.findIndex((group) => group.projectGroupId === saved.projectGroupId);
+      if (existing < 0) return [...current, saved];
+      const next = [...current];
+      next[existing] = saved;
+      return next;
+    });
+  }
+
+  async function handleDeleteProjectGroup(projectGroupId: string) {
+    if (!projectGroupStore) throw new Error(t("projectGroups.unavailable"));
+    await projectGroupStore.delete(projectGroupId);
+    setProjectGroups((current) => current.filter((group) => group.projectGroupId !== projectGroupId));
+  }
+
+  async function handleChooseProjectWorkspace(): Promise<string | undefined> {
+    if (workspacePickerPending) return undefined;
+    setWorkspacePickerPending(true);
+    try {
+      return await pickDesktopWorkspaceDirectory() || undefined;
+    } finally {
+      setWorkspacePickerPending(false);
+    }
+  }
+
+  function handleCreateCoordinatorSession(project: ProjectGroup) {
+    void handleCreateSession(undefined, {
+      projectCoordinator: true,
+      projectGroupId: project.projectGroupId,
+      title: t("projectGroups.newCoordinatorTitle", { name: project.name }),
+    });
   }
 
   async function handleDeleteSession(session: SessionSummary) {
@@ -2155,9 +2260,53 @@ export function ChatPage({
     void handleStopGeneration(activeSession, "chat");
   }
 
+  function renderSidebarSessionRow(session: SessionSummary, index: number) {
+    const confirming = deleteState.confirmingSessionId === session.id;
+    const dissolving = dissolvingSessionIds.has(session.id);
+    return (
+      <div
+        className="react-session-row"
+        data-active={session.id === activeSession?.id}
+        data-confirming={confirming}
+        data-dissolving={dissolving ? "true" : undefined}
+        data-motion-role="item"
+        key={session.id}
+        onMouseLeave={() => dispatchDelete({ type: "row-left", sessionId: session.id })}
+        style={{ "--react-session-row-index": String(index) } as CSSProperties}
+      >
+        <button
+          aria-label={session.title}
+          className="react-session-row__select"
+          type="button"
+          disabled={dissolving}
+          onClick={() => {
+            dispatchDelete({ type: "session-selected", sessionId: session.id });
+            dispatchSessionTabs({ type: "open", sessionId: session.id });
+          }}
+        >
+          <span className="react-session-row__title">{displaySessionTitle(session.title, t)}</span>
+          <small>{formatRelativeUpdatedTime(session.updatedAtMs, now())}</small>
+        </button>
+        <button
+          aria-label={t(confirming ? "shell.confirmDelete" : "shell.delete", { name: session.title })}
+          className="react-session-row__delete"
+          data-confirming={confirming}
+          type="button"
+          disabled={dissolving}
+          onClick={() => void handleDeleteSession(session)}
+        >
+          <Trash2 aria-hidden="true" size={15} />
+        </button>
+      </div>
+    );
+  }
+
   const visibleAgentUiForms = agentUiForms.filter(isVisibleAgentUiForm);
   const interactiveFormIds = new Set(visibleAgentUiForms.map((form) => form.form_id));
   const headerTitle = activeSession ? displaySessionTitle(activeSession.title, t) : draftNewSession ? t("shell.newChat") : t("shell.noSelection");
+  const projectDialogGroup = projectDialogGroupId && projectDialogGroupId !== "new"
+    ? projectGroups.find((group) => group.projectGroupId === projectDialogGroupId)
+    : undefined;
 
   return (
     <section
@@ -2174,16 +2323,47 @@ export function ChatPage({
           <div className="react-session-list__title-row">
             <h2>Tinybot</h2>
             <div className="react-session-list__title-actions">
-              <button
-                aria-label={t("shell.addWorkspace")}
-                className="react-session-list__add-workspace"
-                disabled={workspacePickerPending || sessionCreatePending}
-                title={t("shell.addWorkspace")}
-                type="button"
-                onClick={() => void handleAddWorkspace()}
-              >
-                <FolderPlus aria-hidden="true" size={15} />
-              </button>
+              <div className="react-session-list__workspace-actions" ref={workspaceActionMenuRef}>
+                <button
+                  aria-expanded={workspaceActionMenuOpen}
+                  aria-haspopup="menu"
+                  aria-label={t("shell.workspaceActions")}
+                  className="react-session-list__add-workspace"
+                  disabled={workspacePickerPending || sessionCreatePending}
+                  title={t("shell.workspaceActions")}
+                  type="button"
+                  onClick={() => setWorkspaceActionMenuOpen((open) => !open)}
+                >
+                  <FolderPlus aria-hidden="true" size={15} />
+                </button>
+                {workspaceActionMenuOpen ? (
+                  <div aria-label={t("shell.workspaceActions")} className="react-session-list__workspace-menu" role="menu">
+                    <button
+                      role="menuitem"
+                      type="button"
+                      onClick={() => {
+                        setWorkspaceActionMenuOpen(false);
+                        void handleAddWorkspace();
+                      }}
+                    >
+                      <FolderPlus aria-hidden="true" size={14} />
+                      {t("shell.addWorkspace")}
+                    </button>
+                    <button
+                      disabled={!projectGroupStore}
+                      role="menuitem"
+                      type="button"
+                      onClick={() => {
+                        setWorkspaceActionMenuOpen(false);
+                        setProjectDialogGroupId("new");
+                      }}
+                    >
+                      <GitBranch aria-hidden="true" size={14} />
+                      {t("projectGroups.create")}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
               <button
                 aria-label={t("shell.searchChats")}
                 className="react-session-list__search"
@@ -2219,6 +2399,83 @@ export function ChatPage({
           ) : null}
         </div>
         <div className="react-session-list__rows" aria-label={t("shell.sessionRows")} data-motion="animated-list">
+          {projectProjection.groups.map((projectGroup) => {
+            const projectSessions = [
+              ...projectGroup.coordinatorSessions,
+              ...projectGroup.workspaces.flatMap((workspace) => workspace.sessions),
+            ];
+            return (
+              <details
+                aria-label={t("projectGroups.groupLabel", { name: projectGroup.project.name })}
+                className="react-project-group"
+                data-active={projectSessions.some((session) => session.id === activeSession?.id) ? "true" : undefined}
+                key={projectGroup.project.projectGroupId}
+                open
+                role="group"
+              >
+                <summary title={projectGroup.project.name}>
+                  <ChevronRight aria-hidden="true" className="react-project-group__chevron" size={14} />
+                  <GitBranch aria-hidden="true" className="react-project-group__icon" size={15} />
+                  <strong>{projectGroup.project.name}</strong>
+                </summary>
+                <div className="react-project-group__actions">
+                  <button
+                    aria-label={t("projectGroups.newCoordinator", { name: projectGroup.project.name })}
+                    disabled={sessionCreatePending}
+                    onClick={() => handleCreateCoordinatorSession(projectGroup.project)}
+                    title={t("projectGroups.newCoordinator", { name: projectGroup.project.name })}
+                    type="button"
+                  >
+                    <Plus aria-hidden="true" size={14} />
+                  </button>
+                  <button
+                    aria-label={t("projectGroups.edit", { name: projectGroup.project.name })}
+                    onClick={() => setProjectDialogGroupId(projectGroup.project.projectGroupId)}
+                    title={t("projectGroups.edit", { name: projectGroup.project.name })}
+                    type="button"
+                  >
+                    <MoreHorizontal aria-hidden="true" size={15} />
+                  </button>
+                </div>
+                <div className="react-project-group__content">
+                  {projectGroup.coordinatorSessions.length ? (
+                    <section className="react-project-group__coordinators">
+                      <div className="react-project-group__member-title">
+                        <GitBranch aria-hidden="true" size={13} />
+                        <span>{t("projectGroups.coordination")}</span>
+                      </div>
+                      {projectGroup.coordinatorSessions.map(renderSidebarSessionRow)}
+                    </section>
+                  ) : null}
+                  {projectGroup.workspaces.map((workspace) => (
+                    <section className="react-project-workspace" key={workspace.workspaceId}>
+                      <div className="react-project-group__member-title" title={workspace.workspaceId}>
+                        <Folder aria-hidden="true" size={13} />
+                        <span>
+                          <strong>{workspace.label}</strong>
+                          <small>{workspace.workspaceId}</small>
+                        </span>
+                        <button
+                          aria-label={t("projectGroups.newWorkspaceSession", { name: workspace.label })}
+                          disabled={sessionCreatePending}
+                          onClick={() => void handleCreateSession(workspace.workspaceId, {
+                            projectGroupId: projectGroup.project.projectGroupId,
+                          })}
+                          title={t("projectGroups.newWorkspaceSession", { name: workspace.label })}
+                          type="button"
+                        >
+                          <Plus aria-hidden="true" size={13} />
+                        </button>
+                      </div>
+                      <div className="react-project-workspace__sessions">
+                        {workspace.sessions.map(renderSidebarSessionRow)}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              </details>
+            );
+          })}
           {sessionWorkspaces.length ? sessionWorkspaces.map((workspace) => (
             <details
               aria-label={t("shell.workspace", { name: workspace.label })}
@@ -2250,49 +2507,13 @@ export function ChatPage({
                 <Plus aria-hidden="true" size={15} />
               </button>
               <div className="react-session-workspace__sessions">
-                {workspace.sessions.map((session, index) => {
-                  const confirming = deleteState.confirmingSessionId === session.id;
-                  const dissolving = dissolvingSessionIds.has(session.id);
-                  return (
-                    <div
-                      className="react-session-row"
-                      data-active={session.id === activeSession?.id}
-                      data-confirming={confirming}
-                      data-dissolving={dissolving ? "true" : undefined}
-                      data-motion-role="item"
-                      key={session.id}
-                      onMouseLeave={() => dispatchDelete({ type: "row-left", sessionId: session.id })}
-                      style={{ "--react-session-row-index": String(index) } as CSSProperties}
-                    >
-                      <button
-                        aria-label={session.title}
-                        className="react-session-row__select"
-                        type="button"
-                        disabled={dissolving}
-                        onClick={() => {
-                          dispatchDelete({ type: "session-selected", sessionId: session.id });
-                          dispatchSessionTabs({ type: "open", sessionId: session.id });
-                        }}
-                      >
-                        <span className="react-session-row__title">{displaySessionTitle(session.title, t)}</span>
-                        <small>{formatRelativeUpdatedTime(session.updatedAtMs, now())}</small>
-                      </button>
-                      <button
-                        aria-label={t(confirming ? "shell.confirmDelete" : "shell.delete", { name: session.title })}
-                        className="react-session-row__delete"
-                        data-confirming={confirming}
-                        type="button"
-                        disabled={dissolving}
-                        onClick={() => void handleDeleteSession(session)}
-                      >
-                        <Trash2 aria-hidden="true" size={15} />
-                      </button>
-                    </div>
-                  );
-                })}
+                {workspace.sessions.map(renderSidebarSessionRow)}
               </div>
             </details>
-          )) : resolvedSessionSidebarCollapsed ? null : <EmptyStateText text={t("shell.noSessions")} />}
+          )) : null}
+          {!projectProjection.groups.length && !sessionWorkspaces.length && !resolvedSessionSidebarCollapsed
+            ? <EmptyStateText text={t("shell.noSessions")} />
+            : null}
         </div>
       </aside>
 
@@ -2648,6 +2869,16 @@ export function ChatPage({
           onOpenFiles={onOpenFiles}
           onOpenSettings={onOpenSettings}
           onSelectSession={handleSessionSearchSelect}
+        />
+      ) : null}
+      {projectDialogGroupId ? (
+        <ProjectGroupDialog
+          availableWorkspaceIds={availableProjectWorkspaceIds}
+          group={projectDialogGroup}
+          onChooseWorkspace={handleChooseProjectWorkspace}
+          onClose={() => setProjectDialogGroupId(undefined)}
+          onDelete={projectDialogGroup ? handleDeleteProjectGroup : undefined}
+          onSave={handleSaveProjectGroup}
         />
       ) : null}
     </section>

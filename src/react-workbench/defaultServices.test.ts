@@ -252,6 +252,72 @@ describe("desktop native app services", () => {
     });
   });
 
+  test("keeps user-visible workspace child threads in the session list", async () => {
+    const workspaceThread = {
+      ...thread,
+      parentThreadId: "thread-1",
+      source: "workspace_thread",
+      threadId: "thread-workspace-child",
+      sessionKey: "thread-workspace-child",
+    };
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === "worker_threads_list") {
+        return { threads: [workspaceThread, thread], total: 2 };
+      }
+      return null;
+    });
+    const services = createDesktopAppServices();
+
+    await expect(services.sessionStore.list()).resolves.toEqual([
+      expect.objectContaining({ id: "thread-workspace-child" }),
+      expect.objectContaining({ id: "thread-1" }),
+    ]);
+  });
+
+  test("discovers a workspace child thread from its first live timeline patch", async () => {
+    const workspaceThread = {
+      ...thread,
+      parentThreadId: "thread-1",
+      source: "workspace_thread",
+      threadId: "thread-workspace-live",
+      sessionKey: "thread-workspace-live",
+    };
+    let childCreated = false;
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === "worker_threads_list") {
+        return {
+          threads: childCreated ? [workspaceThread, thread] : [thread],
+          total: childCreated ? 2 : 1,
+        };
+      }
+      if (command === "thread_list_turns") return { turns: [] };
+      if (command === "thread_get_turn_runtime_state") return null;
+      return {};
+    });
+    const services = createDesktopAppServices();
+    await services.sessionStore.list();
+    const events: ChatEvent[] = [];
+    services.chatStore.subscribe("thread-1", (event) => events.push(event));
+    childCreated = true;
+
+    mocks.listeners.get("agent:timeline:patch")?.({
+      payload: {
+        schemaVersion: "tinybot.timeline_patch.v2",
+        sessionId: "thread-workspace-live",
+        turnId: "turn-workspace-live",
+        snapshotRevision: 1,
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await expect(services.sessionStore.list()).resolves.toEqual([
+      expect.objectContaining({ id: "thread-workspace-live" }),
+      expect.objectContaining({ id: "thread-1" }),
+    ]);
+    expect(events).toContainEqual({ type: "chat.created" });
+  });
+
   test("persists session renames through Thread metadata", async () => {
     const services = createDesktopAppServices();
 

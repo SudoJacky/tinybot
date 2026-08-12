@@ -1,4 +1,5 @@
 use super::*;
+use crate::protocol::capability::default_desktop_capability_policy;
 
 #[test]
 fn update_plan_is_an_always_available_runtime_control_tool() {
@@ -281,6 +282,49 @@ fn registry_exposes_complete_subagent_lifecycle_controls_to_the_model() {
             .input_schema["required"],
         json!(["subagentId", "content"])
     );
+}
+
+#[test]
+fn workspace_thread_contributor_exposes_exact_result_contract() {
+    let registry = WorkerToolRegistryRpc::new(default_desktop_capability_policy())
+        .with_contributor(Arc::new(
+            WorkspaceThreadToolContributor::new(vec![WorkspaceThreadTarget {
+                workspace_id: "C:\\repo\\service-a".to_string(),
+                label: "service-a".to_string(),
+            }])
+            .expect("child workspace should create a contributor"),
+        ))
+        .expect("workspace thread contributor should register");
+    let tools = registry.list_tools().tools;
+    let spawn = tools
+        .iter()
+        .find(|tool| tool.method == SPAWN_WORKSPACE_THREAD_METHOD)
+        .expect("spawn workspace thread should be exposed");
+    let send = tools
+        .iter()
+        .find(|tool| tool.method == SEND_THREAD_MESSAGE_METHOD)
+        .expect("send thread message should be exposed");
+
+    assert_eq!(
+        spawn.execution_target,
+        ToolExecutionTarget::RuntimeControl(ToolRuntimeControl::SpawnWorkspaceThread)
+    );
+    assert_eq!(
+        send.execution_target,
+        ToolExecutionTarget::RuntimeControl(ToolRuntimeControl::SendThreadMessage)
+    );
+    assert_eq!(
+        spawn.input_schema["properties"]["workspaceId"]["enum"],
+        json!(["C:\\repo\\service-a"])
+    );
+    assert_eq!(
+        spawn.output_schema["required"],
+        json!(["threadId", "status", "finalMessage"])
+    );
+    assert!(spawn.output_schema["properties"]
+        .get("finalMessageId")
+        .is_none());
+    assert_eq!(spawn.output_schema["additionalProperties"], false);
 }
 
 #[derive(Debug)]

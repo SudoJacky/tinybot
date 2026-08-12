@@ -533,6 +533,11 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 context.settings.capability_policy()?,
                 config_snapshot,
             );
+            if let Some(contributor) =
+                super::workspace_threads::tool_contributor(dependencies, &context)?
+            {
+                tool_registry = tool_registry.with_contributor(Arc::new(contributor))?;
+            }
             for server in discovered {
                 tool_registry = tool_registry.with_contributor(Arc::new(
                     McpToolContributor::from_discovery(

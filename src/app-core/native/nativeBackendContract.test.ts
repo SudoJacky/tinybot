@@ -35,6 +35,9 @@ describe("native backend contract", () => {
       "worker_plugin_set_enabled",
       "worker_plugin_uninstall",
       "worker_memory_snapshot",
+      "worker_project_groups_list",
+      "worker_project_group_save",
+      "worker_project_group_delete",
     ]));
     for (const removedCommand of [
       "worker_run_agent",

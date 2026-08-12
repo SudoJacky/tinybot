@@ -783,6 +783,45 @@ button:disabled {
   gap: 4px;
 }
 
+.react-session-list__workspace-actions {
+  position: relative;
+  display: inline-grid;
+}
+
+.react-session-list__workspace-menu {
+  position: absolute;
+  z-index: 30;
+  top: 36px;
+  right: 0;
+  display: grid;
+  width: 196px;
+  padding: 5px;
+  border: 1px solid var(--color-line);
+  border-radius: 9px;
+  background: var(--color-panel);
+  box-shadow: 0 10px 24px rgb(66 53 40 / 13%);
+}
+
+.react-session-list__workspace-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 9px;
+  color: var(--color-ink);
+  font-size: 11px;
+  text-align: left;
+}
+
+.react-session-list__workspace-menu button:hover,
+.react-session-list__workspace-menu button:focus-visible {
+  background: var(--color-cream-strong);
+}
+
+.react-session-list__workspace-menu button:disabled {
+  color: var(--color-muted-soft);
+}
+
 .react-session-list__header h2,
 .react-chat-header h1,
 .react-placeholder-page h1,
@@ -1070,6 +1109,349 @@ button:disabled {
 
 .react-session-workspace__sessions {
   padding-left: 13px;
+}
+
+.react-project-group {
+  position: relative;
+  margin-top: 5px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 16%, var(--color-line));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--color-panel) 86%, transparent);
+}
+
+.react-project-group > summary {
+  display: grid;
+  grid-template-columns: 14px 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 5px 68px 5px 6px;
+  border-radius: 8px;
+  color: var(--color-muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+.react-project-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.react-project-group > summary:hover,
+.react-project-group > summary:focus-visible,
+.react-project-group[data-active="true"] > summary {
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-panel));
+  color: var(--color-ink);
+}
+
+.react-project-group > summary:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 74%, transparent);
+  outline-offset: -2px;
+}
+
+.react-project-group > summary strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-project-group__chevron {
+  transition: transform var(--motion-duration-fast) ease;
+}
+
+.react-project-group[open] > summary .react-project-group__chevron {
+  transform: rotate(90deg);
+}
+
+.react-project-group__icon {
+  color: var(--color-primary);
+}
+
+.react-project-group__actions {
+  position: absolute;
+  z-index: 1;
+  top: 6px;
+  right: 3px;
+  display: flex;
+}
+
+.react-project-group__actions button,
+.react-project-group__member-title > button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  color: var(--color-muted);
+}
+
+.react-project-group__actions button:hover,
+.react-project-group__actions button:focus-visible,
+.react-project-group__member-title > button:hover,
+.react-project-group__member-title > button:focus-visible {
+  background: var(--color-cream-strong);
+  color: var(--color-ink);
+}
+
+.react-project-group:not([open]) > .react-project-group__content {
+  display: none;
+}
+
+.react-project-group__content {
+  padding: 0 5px 6px 11px;
+}
+
+.react-project-group__coordinators,
+.react-project-workspace {
+  min-width: 0;
+}
+
+.react-project-group__member-title {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-project-group__coordinators .react-project-group__member-title {
+  grid-template-columns: 14px minmax(0, 1fr);
+  padding-right: 5px;
+}
+
+.react-project-group__member-title > span {
+  display: grid;
+  min-width: 0;
+}
+
+.react-project-group__member-title strong,
+.react-project-group__member-title small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-project-group__member-title strong {
+  color: var(--color-ink);
+  font-size: 11px;
+}
+
+.react-project-group__member-title small {
+  color: var(--color-muted-soft);
+  font-size: 10px;
+}
+
+.react-project-group__coordinators > .react-session-row,
+.react-project-workspace__sessions > .react-session-row {
+  margin-left: 9px;
+}
+
+.react-project-dialog-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: color-mix(in srgb, var(--color-ink) 28%, transparent);
+}
+
+.react-project-dialog {
+  width: min(480px, 100%);
+  max-height: min(680px, calc(100vh - 48px));
+  overflow: auto;
+  border: 1px solid var(--color-line);
+  border-radius: 14px;
+  background: var(--color-panel);
+  box-shadow: 0 28px 80px rgb(45 36 28 / 28%);
+}
+
+.react-project-dialog > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 18px 12px;
+}
+
+.react-project-dialog h2,
+.react-project-dialog p {
+  margin: 0;
+}
+
+.react-project-dialog h2 {
+  color: var(--color-ink);
+  font-size: 15px;
+}
+
+.react-project-dialog header p,
+.react-project-dialog fieldset > p {
+  margin-top: 4px;
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.react-project-dialog header > button {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+}
+
+.react-project-dialog form {
+  display: grid;
+  gap: 14px;
+  padding: 0 18px 18px;
+}
+
+.react-project-dialog__name {
+  display: grid;
+  gap: 6px;
+  color: var(--color-ink);
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.react-project-dialog input[type="text"],
+.react-project-dialog__name input {
+  min-height: 38px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 0 10px;
+  color: var(--color-ink);
+  font: inherit;
+  font-weight: 450;
+}
+
+.react-project-dialog fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.react-project-dialog legend {
+  color: var(--color-ink);
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.react-project-dialog__workspace-list {
+  display: grid;
+  gap: 4px;
+  max-height: 250px;
+  margin-top: 8px;
+  overflow: auto;
+}
+
+.react-project-dialog__workspace-list > label {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.react-project-dialog__workspace-list > label:hover,
+.react-project-dialog__workspace-list > label:focus-within {
+  background: var(--color-cream-strong);
+}
+
+.react-project-dialog__workspace-list > label span {
+  display: grid;
+  min-width: 0;
+}
+
+.react-project-dialog__workspace-list strong,
+.react-project-dialog__workspace-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-project-dialog__workspace-list strong {
+  color: var(--color-ink);
+  font-size: 11px;
+}
+
+.react-project-dialog__workspace-list small {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.react-project-dialog__choose {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  margin-top: 8px;
+  padding: 0 10px;
+  color: var(--color-primary-active);
+  font-size: 10px;
+}
+
+.react-project-dialog__empty,
+.react-project-dialog__error {
+  padding: 8px;
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.react-project-dialog__error {
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-error) 8%, var(--color-panel));
+  color: var(--color-error);
+}
+
+.react-project-dialog footer,
+.react-project-dialog footer > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.react-project-dialog footer button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 12px;
+  font-size: 10px;
+}
+
+.react-project-dialog footer button[type="submit"] {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.react-project-dialog__delete {
+  color: var(--color-error);
+}
+
+@media (max-width: 520px) {
+  .react-project-dialog-backdrop {
+    align-items: end;
+    padding: 12px;
+  }
+
+  .react-project-dialog {
+    max-height: calc(100vh - 24px);
+  }
 }
 
 .react-session-row {

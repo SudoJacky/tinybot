@@ -74,6 +74,130 @@ pub struct McpToolContributor {
     entries: Vec<ToolRegistryEntry>,
 }
 
+#[derive(Clone, Debug)]
+pub struct WorkspaceThreadToolContributor {
+    targets: Vec<WorkspaceThreadTarget>,
+}
+
+impl WorkspaceThreadToolContributor {
+    pub fn new(targets: Vec<WorkspaceThreadTarget>) -> Result<Self, String> {
+        if targets.is_empty() {
+            return Err(
+                "workspace thread tools require at least one project workspace".to_string(),
+            );
+        }
+        if targets
+            .iter()
+            .any(|target| target.workspace_id.trim().is_empty() || target.label.trim().is_empty())
+        {
+            return Err(
+                "workspace thread tool targets require non-empty IDs and labels".to_string(),
+            );
+        }
+        Ok(Self { targets })
+    }
+}
+
+impl ToolContributor for WorkspaceThreadToolContributor {
+    fn id(&self) -> &str {
+        "runtime.workspace_threads"
+    }
+
+    fn contribute(&self) -> Vec<ToolRegistryEntry> {
+        let workspace_ids = self
+            .targets
+            .iter()
+            .map(|target| Value::String(target.workspace_id.clone()))
+            .collect::<Vec<_>>();
+        let workspace_description = self
+            .targets
+            .iter()
+            .map(|target| format!("{} ({})", target.label, target.workspace_id))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let result_schema = json!({
+            "type": "object",
+            "required": ["threadId", "status", "finalMessage"],
+            "properties": {
+                "threadId": { "type": "string" },
+                "status": {
+                    "type": "string",
+                    "enum": ["completed", "awaiting_user", "failed", "interrupted"]
+                },
+                "finalMessage": { "type": "string" }
+            },
+            "additionalProperties": false
+        });
+        let policy = runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true);
+        vec![
+            ToolRegistryEntry {
+                tool_id: SPAWN_WORKSPACE_THREAD_METHOD.to_string(),
+                method: SPAWN_WORKSPACE_THREAD_METHOD.to_string(),
+                namespace: "workspace_threads".to_string(),
+                title: "Spawn workspace thread".to_string(),
+                description: format!(
+                    "Create a persistent, user-visible thread in an eligible project workspace, send its initial user message, and wait for that turn to stop. Eligible workspaces: {workspace_description}."
+                ),
+                exposure: ToolExposure::Model,
+                dynamic: true,
+                supports_parallel_tool_calls: policy.supports_parallel_tool_calls,
+                runtime_policy: policy,
+                required_capabilities: vec![
+                    WorkerCapability::SessionMetadataRead,
+                    WorkerCapability::SessionWrite,
+                ],
+                available: false,
+                input_schema: json!({
+                    "type": "object",
+                    "required": ["workspaceId", "message"],
+                    "properties": {
+                        "workspaceId": {
+                            "type": "string",
+                            "enum": workspace_ids,
+                            "description": "Canonical ID of an eligible project workspace."
+                        },
+                        "message": { "type": "string", "minLength": 1 }
+                    },
+                    "additionalProperties": false
+                }),
+                output_schema: result_schema.clone(),
+                execution_target: ToolExecutionTarget::RuntimeControl(
+                    ToolRuntimeControl::SpawnWorkspaceThread,
+                ),
+            },
+            ToolRegistryEntry {
+                tool_id: SEND_THREAD_MESSAGE_METHOD.to_string(),
+                method: SEND_THREAD_MESSAGE_METHOD.to_string(),
+                namespace: "workspace_threads".to_string(),
+                title: "Send workspace thread message".to_string(),
+                description: "Send another normal user message to a workspace thread created by the current thread, and wait for that turn to stop.".to_string(),
+                exposure: ToolExposure::Model,
+                dynamic: true,
+                supports_parallel_tool_calls: policy.supports_parallel_tool_calls,
+                runtime_policy: policy,
+                required_capabilities: vec![
+                    WorkerCapability::SessionMetadataRead,
+                    WorkerCapability::SessionWrite,
+                ],
+                available: false,
+                input_schema: json!({
+                    "type": "object",
+                    "required": ["threadId", "message"],
+                    "properties": {
+                        "threadId": { "type": "string", "minLength": 1 },
+                        "message": { "type": "string", "minLength": 1 }
+                    },
+                    "additionalProperties": false
+                }),
+                output_schema: result_schema,
+                execution_target: ToolExecutionTarget::RuntimeControl(
+                    ToolRuntimeControl::SendThreadMessage,
+                ),
+            },
+        ]
+    }
+}
+
 impl McpToolContributor {
     pub fn from_discovery(
         server_name: &str,

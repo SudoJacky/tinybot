@@ -61,6 +61,31 @@ fn normalizes_desktop_turn_spec_inputs_for_rust_turns() {
 }
 
 #[test]
+fn project_coordinator_profile_has_no_workspace_or_shell_authority() {
+    let context = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "model": "fixture-model",
+            "metadata": { "permissionProfile": "project-coordinator" },
+            "messages": [{ "role": "user", "content": "coordinate the project" }]
+        }),
+        json!({
+            "agents": { "defaults": { "workingDirectory": "D:\\Repos\\default" } }
+        }),
+    );
+    let policy = context
+        .settings
+        .capability_policy()
+        .expect("project coordinator profile should be valid");
+
+    assert_eq!(context.settings.working_directory, None);
+    assert!(!policy.allows(&WorkerCapability::FsWorkspaceRead));
+    assert!(!policy.allows(&WorkerCapability::FsWorkspaceWrite));
+    assert!(!policy.allows(&WorkerCapability::ShellExecute));
+    assert!(policy.allows(&WorkerCapability::SessionWrite));
+}
+
+#[test]
 fn resolves_profile_based_provider_for_reasoning_turns() {
     let context = AgentTurnContext::from_spec(
         json!({

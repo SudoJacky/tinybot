@@ -552,6 +552,30 @@ without discovery. Calls to inactive deferred tools fail with
 `stopReason: "policy_denied"`. Form continuations revalidate the persisted activation set against
 the current registry and capability policy.
 
+### Project-coordinator Thread tools
+
+Project groups explicitly list canonical workspace directories and may combine repositories from
+unrelated parent directories. A persisted Thread with `source: "project_coordinator"` and
+`metadata.extra.projectGroupId` receives two model-visible tools without `tool_search`:
+
+- `spawn_workspace_thread({ workspaceId, message })` creates a normal persisted child Thread in
+  that eligible workspace, records `parentThreadId` and `source: "workspace_thread"`, submits the
+  initial content as a normal user message, waits for the Turn to stop, and returns
+  `{ threadId, status, finalMessage }`.
+- `send_thread_message({ threadId, message })` accepts only a `workspace_thread` created directly
+  by the current Thread, submits another normal user message, waits for the Turn to stop, and
+  returns the same shape.
+
+`status` is one of `completed`, `awaiting_user`, `failed`, or `interrupted`. The result deliberately
+does not expose a final-message item ID. Membership is reread from the project-group store for every
+Turn and revalidated at execution time; an arbitrary path or unrelated Thread ID is rejected.
+Ordinary workspace Threads do not receive these tools. Coordinator Threads also use the
+`project-coordinator` permission profile, which removes direct workspace read, workspace write, and
+shell capabilities; work in a member repository must pass through a child Thread. Deleting a group
+does not delete its Threads, but immediately removes their cross-workspace tool authorization.
+Child Threads remain user-visible desktop sessions, unlike the session-internal `subagent.*`
+lifecycle.
+
 ### Model-requested user input
 
 `request_user_input` creates an `awaiting_form` checkpoint and returns
@@ -844,6 +868,24 @@ backend error instead of being silently ignored.
 
 `thread.resolve` accepts `{ identity }` and resolves an exact Thread ID or UI session key through
 the process-local Thread index. It does not scan or mutate Rollouts after startup reconstruction.
+
+## Project Group Commands
+
+Project groups are stored independently from Thread Rollouts and only contain a display name and
+canonical workspace membership. Saving validates that every workspace currently exists and is a
+directory. Deleting a group removes only the membership record and never deletes workspace files,
+Git repositories, or retained Threads.
+
+| Command | Args | Result |
+| --- | --- | --- |
+| `worker_project_groups_list` | none | `{ groups: ProjectGroup[] }` |
+| `worker_project_group_save` | `{ input: { projectGroupId?, name, workspaceIds } }` | `ProjectGroup` |
+| `worker_project_group_delete` | `{ input: { projectGroupId } }` | deleted `ProjectGroup` |
+
+`ProjectGroup` is `{ projectGroupId, name, workspaceIds }`. A workspace can belong to more than one
+project group. Project-scoped workspace sessions and coordinator sessions persist
+`metadata.extra.projectGroupId`; existing sessions without that field remain standalone and are not
+implicitly duplicated into every group that references their directory.
 
 ## Thread Commands
 
