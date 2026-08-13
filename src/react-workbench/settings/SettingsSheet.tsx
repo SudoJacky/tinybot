@@ -2,6 +2,7 @@ import { X } from "lucide-react";
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -77,7 +78,7 @@ export function SettingsSheet({
     closeTimerRef.current = window.setTimeout(finishClose, closeFallback);
   }, [finishClose]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     restoreFocusRef.current = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
