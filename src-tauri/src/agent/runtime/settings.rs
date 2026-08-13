@@ -1,7 +1,9 @@
 use serde_json::Value;
 use std::path::PathBuf;
 
-use crate::protocol::capability::{default_desktop_capability_policy, CapabilityPolicy};
+use crate::protocol::capability::{
+    default_desktop_capability_policy, project_coordinator_capability_policy, CapabilityPolicy,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContextWindowStrategy {
@@ -118,15 +120,6 @@ impl AgentTurnSettings {
             &mut validation_errors,
         );
         let output_schema = output_schema_setting(spec, metadata, defaults, &mut validation_errors);
-        let working_directory = optional_string_setting(
-            spec,
-            metadata,
-            defaults,
-            &["cwd", "workingDirectory", "working_directory", "workspace"],
-            "working_directory",
-            &mut validation_errors,
-        )
-        .map(PathBuf::from);
         let permission_profile = optional_string_setting(
             spec,
             metadata,
@@ -136,6 +129,19 @@ impl AgentTurnSettings {
             &mut validation_errors,
         )
         .and_then(|profile| normalize_permission_profile(profile, &mut validation_errors));
+        let working_directory = if permission_profile.as_deref() == Some("project-coordinator") {
+            None
+        } else {
+            optional_string_setting(
+                spec,
+                metadata,
+                defaults,
+                &["cwd", "workingDirectory", "working_directory", "workspace"],
+                "working_directory",
+                &mut validation_errors,
+            )
+            .map(PathBuf::from)
+        };
         let selected_tools = optional_string_array_setting(
             spec,
             metadata,
@@ -188,6 +194,7 @@ impl AgentTurnSettings {
         self.validate()?;
         match self.permission_profile.as_deref().unwrap_or("local-worker") {
             "local-worker" => Ok(default_desktop_capability_policy()),
+            "project-coordinator" => Ok(project_coordinator_capability_policy()),
             profile => Err(format!("unsupported permission profile `{profile}`")),
         }
     }
@@ -198,11 +205,11 @@ fn normalize_permission_profile(
     validation_errors: &mut Vec<String>,
 ) -> Option<String> {
     let normalized = profile.to_ascii_lowercase().replace('_', "-");
-    if normalized == "local-worker" {
+    if matches!(normalized.as_str(), "local-worker" | "project-coordinator") {
         Some(normalized)
     } else {
         validation_errors.push(format!(
-            "permission_profile must be `local-worker`, got `{profile}`"
+            "permission_profile must be `local-worker` or `project-coordinator`, got `{profile}`"
         ));
         None
     }

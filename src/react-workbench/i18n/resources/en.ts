@@ -514,7 +514,7 @@ export const en = {
       adjustPlan: "Adjust the current execution plan according to this user request: {{adjustment}}. Preserve completed work, explain material changes, and continue from the updated plan.",
     },
     shell: {
-      label: "Chat", sessions: "Sessions", addWorkspace: "Add workspace folder", searchChats: "Search chats", expandSidebar: "Expand session sidebar",
+      label: "Chat", sessions: "Sessions", addWorkspace: "Add workspace folder", workspaceActions: "Workspace and project actions", searchChats: "Search chats", expandSidebar: "Expand session sidebar",
       collapseSidebar: "Collapse session sidebar", newChat: "New chat", sessionRows: "Session list rows", workspace: "Workspace {{name}}", generalSessions: "General chats",
       newSessionIn: "New session in {{name}}", confirmDelete: "Confirm delete {{name}}", delete: "Delete {{name}}", noSessions: "No sessions yet.",
       noSelection: "No conversation selected", closeTinyOs: "Close TinyOS", openTinyOs: "Open TinyOS", openTinyOsAttention: "Open TinyOS, attention required",
@@ -523,6 +523,12 @@ export const en = {
       branch: "Branch", newWindow: "Open in new window", conversation: "Conversation", errorDetails: "Error details", selectSession: "Select or create a conversation.",
       backToLatest: "Back to latest", compacting: "Compacting context", loadingSessions: "Loading conversations…", createOrSelect: "Create or select a conversation first",
       taskPlaceholder: "Enter a task, or paste/drop files", messagePlaceholder: "Message Tinybot", detailsDrawer: "Details drawer", closeDetails: "Close details drawer",
+    },
+    projectGroups: {
+      create: "Create project group", createTitle: "Create project group", editTitle: "Edit project group", description: "Group workspace folders from any location without changing their files or Git repositories.",
+      name: "Project name", namePlaceholder: "Commerce platform", workspaces: "Member workspaces", workspacesHelp: "Select existing workspaces or choose folders from another location.", noWorkspaces: "No workspace folders are available yet.", chooseFolder: "Choose another folder…",
+      save: "Save project", cancel: "Cancel", close: "Close project dialog", delete: "Delete project", confirmDelete: "Confirm delete", unavailable: "Project groups are unavailable in this runtime.",
+      groupLabel: "Project {{name}}", edit: "Edit {{name}}", coordination: "Coordination chats", newCoordinator: "New coordination chat in {{name}}", newCoordinatorTitle: "Coordinate {{name}}", newWorkspaceSession: "New session in {{name}}",
     },
     migration: {
       label: "Plugin migration result", installed: "{{name}} installed{{state}}", keptDisabled: " (kept disabled)", enabled: " and enabled",

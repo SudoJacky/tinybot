@@ -60,11 +60,16 @@ pub(crate) async fn run_agent_with_services(
         thread_store.clone(),
         config_snapshot.clone(),
     ));
-    let services = services.with_trace_sink(native_agent_trace_sink(
-        thread_store.clone(),
-        config_snapshot.clone(),
-        live_trace_sink,
-    ));
+    let services = match live_trace_sink {
+        Some(live_trace_sink) => services.with_trace_sink(native_agent_trace_sink(
+            thread_store.clone(),
+            config_snapshot.clone(),
+            Some(live_trace_sink),
+        )),
+        None => services.with_trace_sink_if_missing(|| {
+            native_agent_trace_sink(thread_store.clone(), config_snapshot.clone(), None)
+        }),
+    };
     let turn_result = run_native_agent_turn_with_workspace_and_instructions_async(
         &services,
         runtime_spec,

@@ -1,4 +1,5 @@
 use super::*;
+use crate::protocol::capability::default_desktop_capability_policy;
 
 #[test]
 fn update_plan_is_an_always_available_runtime_control_tool() {
@@ -22,19 +23,10 @@ fn update_plan_is_an_always_available_runtime_control_tool() {
 }
 
 #[test]
-fn tool_search_is_a_registered_runtime_control_tool() {
+fn tool_search_is_not_registered_for_model_driven_activation() {
     let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::default());
-    let tool = registry
-        .get_tool(TOOL_SEARCH_METHOD)
-        .expect("tool_search should be registered");
 
-    assert_eq!(tool.exposure, ToolExposure::Model);
-    assert!(tool.available);
-    assert_eq!(
-        tool.execution_target,
-        ToolExecutionTarget::RuntimeControl(ToolRuntimeControl::ToolSearch)
-    );
-    assert_eq!(tool.input_schema["properties"]["limit"]["maximum"], 20);
+    assert!(registry.get_tool("tool_search").is_none());
 }
 
 #[test]
@@ -283,6 +275,59 @@ fn registry_exposes_complete_subagent_lifecycle_controls_to_the_model() {
     );
 }
 
+#[test]
+fn workspace_thread_contributor_exposes_exact_result_contract() {
+    let base_registry = WorkerToolRegistryRpc::new(default_desktop_capability_policy());
+    assert!(base_registry
+        .get_tool(SPAWN_WORKSPACE_THREAD_METHOD)
+        .is_none());
+    assert!(base_registry.get_tool(SEND_THREAD_MESSAGE_METHOD).is_none());
+
+    let registry = base_registry
+        .with_contributor(Arc::new(
+            WorkspaceThreadToolContributor::new(vec![WorkspaceThreadTarget {
+                workspace_id: "C:\\repo\\service-a".to_string(),
+                label: "service-a".to_string(),
+            }])
+            .expect("child workspace should create a contributor"),
+        ))
+        .expect("workspace thread contributor should register");
+    let tools = registry.list_tools().tools;
+    let spawn = tools
+        .iter()
+        .find(|tool| tool.method == SPAWN_WORKSPACE_THREAD_METHOD)
+        .expect("spawn workspace thread should be exposed");
+    let send = tools
+        .iter()
+        .find(|tool| tool.method == SEND_THREAD_MESSAGE_METHOD)
+        .expect("send thread message should be exposed");
+
+    assert_eq!(
+        spawn.execution_target,
+        ToolExecutionTarget::RuntimeControl(ToolRuntimeControl::SpawnWorkspaceThread)
+    );
+    assert_eq!(
+        send.execution_target,
+        ToolExecutionTarget::RuntimeControl(ToolRuntimeControl::SendThreadMessage)
+    );
+    assert_eq!(
+        spawn.input_schema["properties"]["workspaceId"]["enum"],
+        json!(["C:\\repo\\service-a"])
+    );
+    assert_eq!(
+        spawn.output_schema["required"],
+        json!(["threadId", "status", "finalMessage"])
+    );
+    assert!(spawn.output_schema["properties"]
+        .get("finalMessageId")
+        .is_none());
+    assert_eq!(spawn.output_schema["additionalProperties"], false);
+    assert!(spawn.supports_parallel_tool_calls);
+    assert!(spawn.runtime_policy.supports_parallel_tool_calls);
+    assert!(!send.supports_parallel_tool_calls);
+    assert!(!send.runtime_policy.supports_parallel_tool_calls);
+}
+
 #[derive(Debug)]
 struct DuplicateWorkspaceContributor;
 
@@ -339,7 +384,7 @@ fn workspace_internal_and_mcp_tools_are_owned_by_named_contributors() {
 }
 
 #[test]
-fn discovered_mcp_tool_becomes_deferred_registry_entry() {
+fn discovered_allowlisted_mcp_tool_becomes_model_registry_entry() {
     let entries = McpToolContributor::from_discovery(
         "docs",
         &json!({}),
@@ -357,7 +402,7 @@ fn discovered_mcp_tool_becomes_deferred_registry_entry() {
     .contribute();
 
     assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0].exposure, ToolExposure::Deferred);
+    assert_eq!(entries[0].exposure, ToolExposure::Model);
     assert!(entries[0].dynamic);
     assert!(entries[0].supports_parallel_tool_calls);
     assert_eq!(entries[0].input_schema["type"], "object");

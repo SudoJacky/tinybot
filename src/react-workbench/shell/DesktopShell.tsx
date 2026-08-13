@@ -707,6 +707,7 @@ function RouteSurface({
           chatStore={services.chatStore}
           createSessionSignal={createChatSignal}
           now={now}
+          projectGroupStore={services.projectGroupStore}
           sessionStore={services.sessionStore}
           settingsStore={services.settingsStore}
           toolsStore={services.toolsStore}

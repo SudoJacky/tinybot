@@ -88,6 +88,15 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
         }],
       })),
     },
+    projectGroupStore: {
+      list: vi.fn(async () => []),
+      save: vi.fn(async (input) => ({
+        projectGroupId: input.projectGroupId ?? "project-group-1",
+        name: input.name,
+        workspaceIds: input.workspaceIds,
+      })),
+      delete: vi.fn(async () => undefined),
+    },
     workspaceStore: {
       listFiles: vi.fn(async () => [
         { path: "src/main.ts", size: 512 },

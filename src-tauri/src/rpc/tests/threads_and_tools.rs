@@ -1509,7 +1509,7 @@ fn dispatches_tool_registry_search_with_filters() {
         json!({
             "namespace": "subagent",
             "availableOnly": true,
-            "exposure": "deferred"
+            "exposure": "model"
         }),
     ));
     assert_eq!(subagents.error, None);

@@ -53,8 +53,9 @@ function normalizedDisplayPath(value: string | undefined): string {
   return withoutTrailingSeparators || path;
 }
 
-function normalizedWorkspacePathKey(path: string): string {
-  const slashPath = path.replace(/\\/g, "/");
+export function normalizedWorkspacePathKey(path: string): string {
+  const displayPath = normalizedDisplayPath(path);
+  const slashPath = displayPath.replace(/\\/g, "/");
   const windowsPath = /^[a-zA-Z]:\//.test(slashPath) || slashPath.startsWith("//");
   return windowsPath ? slashPath.toLocaleLowerCase("en-US") : slashPath;
 }

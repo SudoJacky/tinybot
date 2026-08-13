@@ -334,6 +334,151 @@ fn feeds_tool_observation_back_into_second_provider_call() {
 }
 
 #[test]
+fn rejected_tool_batch_records_a_result_for_every_provider_call() {
+    struct MixedPolicyProvider {
+        calls: AtomicUsize,
+    }
+
+    impl NativeAgentProvider for MixedPolicyProvider {
+        fn complete(
+            &self,
+            _context: &AgentTurnContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    response_items: Vec::new(),
+                    tool_calls: vec![
+                        NativeAgentToolCall {
+                            id: "call-denied".to_string(),
+                            name: "test.denied".to_string(),
+                            arguments_json: "{}".to_string(),
+                            result: json!({}),
+                        },
+                        NativeAgentToolCall {
+                            id: "call-allowed".to_string(),
+                            name: "test.allowed".to_string(),
+                            arguments_json: "{}".to_string(),
+                            result: json!({}),
+                        },
+                    ],
+                });
+            }
+            Ok(NativeAgentProviderResponse {
+                final_content: "replanned after rejected batch".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                response_items: Vec::new(),
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    let result = run_native_agent_turn_with_services(
+        &NativeAgentRuntimeServices::new(
+            Arc::new(MixedPolicyProvider {
+                calls: AtomicUsize::new(0),
+            }),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_test_tool_registry_entries(test_registry_with_model_tools(&["test.allowed"])),
+        json!({
+            "runtime": "rust",
+            "turnId": "turn-rejected-tool-batch",
+            "sessionId": "session-rejected-tool-batch",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "run both tools" }]
+        }),
+    )
+    .expect("a rejected batch should return every result before replanning");
+
+    assert_eq!(result["stopReason"], "final_response");
+    let completed = result["completedToolResults"].as_array().unwrap();
+    assert_eq!(completed.len(), 2);
+    assert_eq!(completed[0]["toolCallId"], "call-denied");
+    assert_eq!(completed[1]["toolCallId"], "call-allowed");
+    assert!(completed.iter().all(|result| result["status"] == "error"));
+}
+
+#[test]
+fn exclusive_runtime_control_rejects_every_call_in_a_mixed_batch() {
+    struct MixedControlProvider {
+        calls: AtomicUsize,
+    }
+
+    impl NativeAgentProvider for MixedControlProvider {
+        fn complete(
+            &self,
+            _context: &AgentTurnContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Ok(NativeAgentProviderResponse {
+                    final_content: String::new(),
+                    reasoning_delta: None,
+                    usage: None,
+                    response_items: Vec::new(),
+                    tool_calls: vec![
+                        NativeAgentToolCall {
+                            id: "call-plan".to_string(),
+                            name: "update_plan".to_string(),
+                            arguments_json: json!({
+                                "plan": [{ "step": "Inspect", "status": "in_progress" }]
+                            })
+                            .to_string(),
+                            result: json!({}),
+                        },
+                        NativeAgentToolCall {
+                            id: "call-sibling".to_string(),
+                            name: "test.allowed".to_string(),
+                            arguments_json: "{}".to_string(),
+                            result: json!({}),
+                        },
+                    ],
+                });
+            }
+            Ok(NativeAgentProviderResponse {
+                final_content: "replanned after mixed control batch".to_string(),
+                reasoning_delta: None,
+                usage: None,
+                response_items: Vec::new(),
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    let result = run_native_agent_turn_with_services(
+        &NativeAgentRuntimeServices::new(
+            Arc::new(MixedControlProvider {
+                calls: AtomicUsize::new(0),
+            }),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_test_tool_registry_entries(test_registry_with_model_tools(&["test.allowed"])),
+        json!({
+            "runtime": "rust",
+            "turnId": "turn-mixed-control-batch",
+            "sessionId": "session-mixed-control-batch",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "update and inspect" }]
+        }),
+    )
+    .expect("a mixed control batch should return every result before replanning");
+
+    assert_eq!(result["stopReason"], "final_response");
+    let completed = result["completedToolResults"].as_array().unwrap();
+    assert_eq!(completed.len(), 2);
+    assert_eq!(completed[0]["toolCallId"], "call-plan");
+    assert_eq!(completed[1]["toolCallId"], "call-sibling");
+    assert!(completed.iter().all(|result| result["status"] == "error"));
+}
+
+#[test]
 fn selected_deferred_tool_calls_are_permitted_by_runtime_dispatch() {
     struct DeferredLookupProvider {
         calls: Mutex<usize>,

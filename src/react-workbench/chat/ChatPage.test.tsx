@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatPage } from "./ChatPage";
-import type { ChatEvent, ChatStore, SessionStore, SessionSummary, SettingsStore } from "../services";
+import type { ChatEvent, ChatStore, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore } from "../services";
 import type { DesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import type { ReactChatMessage } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
@@ -953,7 +953,8 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const sidebar = await screen.findByLabelText("Sessions");
-    await user.click(within(sidebar).getByRole("button", { name: "Add workspace folder" }));
+    await user.click(within(sidebar).getByRole("button", { name: "Workspace and project actions" }));
+    await user.click(within(sidebar).getByRole("menuitem", { name: "Add workspace folder" }));
 
     expect(await within(sidebar).findByRole("group", { name: "Workspace VirtualHome" })).toBeTruthy();
     expect(stores.sessionStore.create).toHaveBeenCalledWith({ workingDirectory });
@@ -972,7 +973,8 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const sidebar = await screen.findByLabelText("Sessions");
-    await user.click(within(sidebar).getByRole("button", { name: "Add workspace folder" }));
+    await user.click(within(sidebar).getByRole("button", { name: "Workspace and project actions" }));
+    await user.click(within(sidebar).getByRole("menuitem", { name: "Add workspace folder" }));
 
     expect(nativeWorkspacePickerMocks.pickDesktopWorkspaceDirectory).toHaveBeenCalledTimes(1);
     expect(stores.sessionStore.create).toHaveBeenCalledWith({ workingDirectory: "Z:\\missing" });
@@ -987,6 +989,60 @@ describe("ChatPage", () => {
       }),
     );
     consoleError.mockRestore();
+  });
+
+  it("creates an explicit multi-root project and starts its coordinator session", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Payments workspace",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "idle",
+        workingDirectory: "D:\\Services\\payments",
+      }],
+    });
+    const projectGroupStore: ProjectGroupStore = {
+      list: vi.fn(async () => []),
+      save: vi.fn(async (input) => ({
+        projectGroupId: "commerce",
+        name: input.name,
+        workspaceIds: input.workspaceIds,
+      })),
+      delete: vi.fn(async () => undefined),
+    };
+    nativeWorkspacePickerMocks.pickDesktopWorkspaceDirectory.mockResolvedValueOnce("E:\\Services\\payments");
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
+        projectGroupStore={projectGroupStore}
+        sessionStore={stores.sessionStore}
+      />,
+    );
+
+    const sidebar = await screen.findByLabelText("Sessions");
+    await user.click(within(sidebar).getByRole("button", { name: "Workspace and project actions" }));
+    await user.click(within(sidebar).getByRole("menuitem", { name: "Create project group" }));
+    const dialog = await screen.findByRole("dialog", { name: "Create project group" });
+    await user.type(within(dialog).getByRole("textbox", { name: "Project name" }), "Commerce");
+    await user.click(within(dialog).getByRole("checkbox"));
+    await user.click(within(dialog).getByRole("button", { name: "Choose another folder…" }));
+    await user.click(within(dialog).getByRole("button", { name: "Save project" }));
+
+    expect(projectGroupStore.save).toHaveBeenCalledWith({
+      name: "Commerce",
+      workspaceIds: ["D:\\Services\\payments", "E:\\Services\\payments"],
+    });
+    const project = await within(sidebar).findByRole("group", { name: "Project Commerce" });
+    await user.click(within(project).getByRole("button", { name: "New coordination chat in Commerce" }));
+    expect(stores.sessionStore.create).toHaveBeenLastCalledWith({
+      projectCoordinator: true,
+      projectGroupId: "commerce",
+      title: "Coordinate Commerce",
+    });
   });
 
   it("opens sidebar sessions as an accessible multi-session tab set", async () => {

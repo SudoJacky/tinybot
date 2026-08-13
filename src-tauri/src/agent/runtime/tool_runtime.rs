@@ -10,21 +10,21 @@ use super::tool_dispatcher::{
 use super::tool_loop_guard::ToolLoopBlock;
 use super::tool_projection::{assistant_tool_calls_message, commit_tool_observation};
 use super::{
-    AgentTurnContext, NativeAgentRuntimeServices, NativeAgentToolCall, NativeAgentToolDispatcher,
-    NativeToolOutcome, NativeToolRetry, PreparedToolCall,
+    AgentTurnContext, NativeAgentRuntimeServices, NativeAgentToolCall, NativeToolOutcome,
+    NativeToolRetry, PreparedToolCall,
 };
 use crate::agent::runtime_protocol::{
     AgentEventKind, AgentRuntimePhase, PendingAgentEvent, TerminalEvent, ToolLifecycleEvent,
 };
 use crate::tools::registry::ToolCancellationMode;
 use crate::tools::registry::{
-    PUBLISH_DATA_VIEW_METHOD, REQUEST_USER_INPUT_METHOD, TOOL_SEARCH_METHOD, UPDATE_PLAN_METHOD,
+    PUBLISH_DATA_VIEW_METHOD, REQUEST_USER_INPUT_METHOD, SEND_THREAD_MESSAGE_METHOD,
+    SPAWN_WORKSPACE_THREAD_METHOD, UPDATE_PLAN_METHOD,
 };
 use futures_util::{future::join_all, FutureExt};
 use serde::Deserialize;
 use serde_json::Value;
 use std::panic::AssertUnwindSafe;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
@@ -201,9 +201,29 @@ pub(super) async fn execute_tool_calls_for_iteration(
             "name": tool_call.name,
             "argumentsDelta": tool_call.arguments_json,
         })))?;
-        if !native_tool_is_permitted(context, &tool_call.name) {
-            return policy_denied_tool_result(services, context, state, iteration, tool_call);
-        }
+    }
+    let denied_tool_names = tool_calls
+        .iter()
+        .filter(|tool_call| !native_tool_is_permitted(context, &tool_call.name))
+        .map(|tool_call| tool_call.name.clone())
+        .collect::<Vec<_>>();
+    if !denied_tool_names.is_empty() {
+        let batch_error = format!(
+            "tool batch was not executed because it contains disallowed tool calls: {}",
+            denied_tool_names.join(", ")
+        );
+        let failures = tool_calls
+            .iter()
+            .map(|tool_call| {
+                let error = if native_tool_is_permitted(context, &tool_call.name) {
+                    batch_error.clone()
+                } else {
+                    native_tool_rejection_reason(context, &tool_call.name)
+                };
+                (tool_call, error)
+            })
+            .collect();
+        return tool_batch_error_result(services, context, state, iteration, failures);
     }
 
     if context_is_cancelled(context) {
@@ -217,46 +237,17 @@ pub(super) async fn execute_tool_calls_for_iteration(
 
     if tool_calls
         .iter()
-        .any(|tool_call| tool_call.name == TOOL_SEARCH_METHOD)
-    {
-        if tool_calls.len() != 1 {
-            let tool_call = tool_calls
-                .iter()
-                .find(|tool_call| tool_call.name == TOOL_SEARCH_METHOD)
-                .expect("tool_search presence was checked");
-            return tool_error_result(
-                services,
-                context,
-                state,
-                iteration,
-                tool_call,
-                "tool_search must be the only tool call in its provider response".to_string(),
-            );
-        }
-        let tool_call = tool_calls
-            .into_iter()
-            .next()
-            .expect("single tool_search call should exist");
-        return execute_tool_search(services, context, state, iteration, tool_call);
-    }
-
-    if tool_calls
-        .iter()
         .any(|tool_call| tool_call.name == UPDATE_PLAN_METHOD)
     {
         if tool_calls.len() != 1 {
-            let tool_call = tool_calls
+            let error =
+                "update_plan must be the only tool call in its provider response; no tool calls in this batch were executed"
+                    .to_string();
+            let failures = tool_calls
                 .iter()
-                .find(|tool_call| tool_call.name == UPDATE_PLAN_METHOD)
-                .expect("update_plan presence was checked");
-            return tool_error_result(
-                services,
-                context,
-                state,
-                iteration,
-                tool_call,
-                "update_plan must be the only tool call in its provider response".to_string(),
-            );
+                .map(|tool_call| (&**tool_call, error.clone()))
+                .collect();
+            return tool_batch_error_result(services, context, state, iteration, failures);
         }
         let tool_call = tool_calls
             .into_iter()
@@ -270,19 +261,14 @@ pub(super) async fn execute_tool_calls_for_iteration(
         .any(|tool_call| tool_call.name == REQUEST_USER_INPUT_METHOD)
     {
         if tool_calls.len() != 1 {
-            let tool_call = tool_calls
+            let error =
+                "request_user_input must be the only tool call in its provider response; no tool calls in this batch were executed"
+                    .to_string();
+            let failures = tool_calls
                 .iter()
-                .find(|tool_call| tool_call.name == REQUEST_USER_INPUT_METHOD)
-                .expect("request_user_input presence was checked");
-            return tool_error_result(
-                services,
-                context,
-                state,
-                iteration,
-                tool_call,
-                "request_user_input must be the only tool call in its provider response"
-                    .to_string(),
-            );
+                .map(|tool_call| (&**tool_call, error.clone()))
+                .collect();
+            return tool_batch_error_result(services, context, state, iteration, failures);
         }
         let tool_call = tool_calls
             .into_iter()
@@ -465,61 +451,6 @@ fn publish_data_view_result(
     result
 }
 
-fn execute_tool_search(
-    services: &NativeAgentRuntimeServices,
-    context: &mut AgentTurnContext,
-    state: &mut AgentTurnState,
-    iteration: i64,
-    tool_call: PreparedToolCall,
-) -> Result<NativeAgentToolExecutionOutcome, String> {
-    start_tool_call(services, context, state, iteration, &tool_call)?;
-    context.metrics().increment("tool.started");
-    let tool_started_at = std::time::Instant::now();
-    let raw_result = match context
-        .tool_router
-        .search_and_activate(tool_call.arguments())
-    {
-        Ok(result) => result,
-        Err(error) => {
-            context
-                .metrics()
-                .record_duration("tool.durationMs", tool_started_at.elapsed());
-            context.metrics().increment("tool.failed");
-            return tool_error_result(services, &*context, state, iteration, &tool_call, error);
-        }
-    };
-    context
-        .metrics()
-        .record_duration("tool.durationMs", tool_started_at.elapsed());
-    context.metrics().increment("tool.completed");
-    let result = super::NativeAgentToolResult::generic_success(&tool_call, raw_result);
-    commit_tool_observation(
-        &*context,
-        state,
-        iteration,
-        tool_call.into_original(),
-        result,
-    )?;
-    state.clear_pending_tool_calls();
-    state.transition_phase(
-        AgentRuntimePhase::Planning,
-        iteration,
-        AgentEventKind::ToolResult.wire_name(),
-    )?;
-    save_phase_checkpoint(
-        services,
-        &*context,
-        state.phase.as_str(),
-        serde_json::json!({
-            "iteration": iteration,
-            "pendingToolCalls": state.pending_tool_calls.clone(),
-            "completedToolResults": state.completed_tool_results.clone(),
-            "activatedToolIds": context.tool_router.activated_tool_ids(),
-        }),
-    );
-    Ok(NativeAgentToolExecutionOutcome::Continue)
-}
-
 fn execute_update_plan(
     services: &NativeAgentRuntimeServices,
     context: &AgentTurnContext,
@@ -648,7 +579,7 @@ fn parse_update_plan_args(
 }
 
 async fn dispatch_owned_tool(
-    dispatcher: Arc<dyn NativeAgentToolDispatcher>,
+    services: NativeAgentRuntimeServices,
     context: AgentTurnContext,
     tool_call: PreparedToolCall,
 ) -> ToolDispatchOutcome {
@@ -657,7 +588,7 @@ async fn dispatch_owned_tool(
     let panic_tool_call = tool_call.clone();
     let task_tool_call = tool_call.clone();
     let task = async move {
-        dispatch_tool_with_cancellation_policy(dispatcher, child_context, task_tool_call).await
+        dispatch_tool_with_cancellation_policy(services, child_context, task_tool_call).await
     };
     let mut handle = tauri::async_runtime::spawn(async move {
         match AssertUnwindSafe(task).catch_unwind().await {
@@ -687,7 +618,7 @@ async fn dispatch_owned_tool(
 }
 
 async fn dispatch_tool_with_cancellation_policy(
-    dispatcher: Arc<dyn NativeAgentToolDispatcher>,
+    services: NativeAgentRuntimeServices,
     context: AgentTurnContext,
     tool_call: PreparedToolCall,
 ) -> ToolDispatchOutcome {
@@ -696,7 +627,7 @@ async fn dispatch_tool_with_cancellation_policy(
     let dispatch_call = tool_call.clone();
     context.metrics().increment("tool.started");
     let tool_started_at = std::time::Instant::now();
-    let operation = dispatcher.dispatch_async(context.clone(), dispatch_call);
+    let operation = dispatch_tool_call(&services, context.clone(), dispatch_call);
     tokio::pin!(operation);
     let outcome = tokio::select! {
         biased;
@@ -755,13 +686,52 @@ async fn dispatch_tool_with_cancellation_policy(
     outcome
 }
 
+async fn dispatch_tool_call(
+    services: &NativeAgentRuntimeServices,
+    context: AgentTurnContext,
+    tool_call: PreparedToolCall,
+) -> Result<super::NativeAgentToolResult, String> {
+    let raw_result = match tool_call.name.as_str() {
+        SPAWN_WORKSPACE_THREAD_METHOD => Some(
+            super::workspace_threads::spawn_workspace_thread(
+                services,
+                &context,
+                tool_call.arguments(),
+            )
+            .await,
+        ),
+        SEND_THREAD_MESSAGE_METHOD => Some(
+            super::workspace_threads::send_thread_message(
+                services,
+                &context,
+                tool_call.arguments(),
+            )
+            .await,
+        ),
+        _ => None,
+    };
+    match raw_result {
+        Some(Ok(value)) => Ok(super::NativeAgentToolResult::generic_success(
+            &tool_call, value,
+        )),
+        Some(Err(error)) => Err(error),
+        None => {
+            services
+                .tools
+                .clone()
+                .dispatch_async(context, tool_call)
+                .await
+        }
+    }
+}
+
 async fn execute_planned_tool_call(
-    dispatcher: Arc<dyn NativeAgentToolDispatcher>,
+    services: NativeAgentRuntimeServices,
     context: AgentTurnContext,
     planned: PlannedToolCall,
 ) -> IndexedToolDispatchOutcome {
     let index = planned.index;
-    let outcome = dispatch_owned_tool(dispatcher, context, planned.tool_call).await;
+    let outcome = dispatch_owned_tool(services, context, planned.tool_call).await;
     IndexedToolDispatchOutcome { index, outcome }
 }
 
@@ -772,12 +742,14 @@ async fn execute_tool_wave(
 ) -> Vec<IndexedToolDispatchOutcome> {
     match wave {
         ToolWave::Exclusive(call) => {
-            vec![execute_planned_tool_call(services.tools.clone(), context.clone(), call).await]
+            vec![execute_planned_tool_call(services.clone(), context.clone(), call).await]
         }
         ToolWave::Parallel(calls) => {
-            join_all(calls.into_iter().map(|call| {
-                execute_planned_tool_call(services.tools.clone(), context.clone(), call)
-            }))
+            join_all(
+                calls
+                    .into_iter()
+                    .map(|call| execute_planned_tool_call(services.clone(), context.clone(), call)),
+            )
             .await
         }
     }
@@ -1195,15 +1167,17 @@ fn record_tool_failure(
     commit_tool_observation(context, state, iteration, tool_call.clone(), result)
 }
 
-fn policy_denied_tool_result(
+fn tool_batch_error_result(
     services: &NativeAgentRuntimeServices,
     context: &AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
-    tool_call: &NativeAgentToolCall,
+    failures: Vec<(&NativeAgentToolCall, String)>,
 ) -> Result<NativeAgentToolExecutionOutcome, String> {
-    let error = native_tool_rejection_reason(context, &tool_call.name);
-    tool_error_result(services, context, state, iteration, tool_call, error)
+    for (tool_call, error) in failures {
+        record_tool_failure(context, state, iteration, tool_call, &error)?;
+    }
+    finish_recoverable_tool_errors(services, context, state, iteration)
 }
 
 fn tool_error_result(
@@ -1215,6 +1189,15 @@ fn tool_error_result(
     error: String,
 ) -> Result<NativeAgentToolExecutionOutcome, String> {
     record_tool_failure(context, state, iteration, tool_call, &error)?;
+    finish_recoverable_tool_errors(services, context, state, iteration)
+}
+
+fn finish_recoverable_tool_errors(
+    services: &NativeAgentRuntimeServices,
+    context: &AgentTurnContext,
+    state: &mut AgentTurnState,
+    iteration: i64,
+) -> Result<NativeAgentToolExecutionOutcome, String> {
     state.clear_pending_tool_calls();
     state.transition_phase(
         AgentRuntimePhase::Planning,
