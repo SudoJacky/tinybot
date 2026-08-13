@@ -667,6 +667,16 @@ impl NativeAgentRuntimeServices {
         self
     }
 
+    pub(crate) fn with_trace_sink_if_missing(
+        mut self,
+        trace_sink: impl FnOnce() -> Arc<dyn NativeAgentTraceSink>,
+    ) -> Self {
+        if self.trace_sink.is_none() {
+            self.trace_sink = Some(trace_sink());
+        }
+        self
+    }
+
     pub fn with_context_checkpoint_committer(
         mut self,
         committer: Arc<dyn NativeAgentContextCheckpointCommitter>,

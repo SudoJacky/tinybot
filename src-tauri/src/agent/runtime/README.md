@@ -46,6 +46,10 @@ decide which durable conversation store a caller uses.
 7. Usage and runtime events are emitted through the injected trace sink, and
    `result.rs` builds the terminal response.
 
+Nested workspace Turns inherit an already-installed trace sink. This preserves
+both durable semantic projection and live desktop timeline patches, allowing
+backend-created child Threads to appear in the session list without polling.
+
 ## Public extension points
 
 The main injected boundaries are:
@@ -240,9 +244,12 @@ Provider failures do not retry automatically. Their terminal reasons distinguish
 request timeout, stream-idle timeout, transport failure, provider failure, and
 cancellation.
 
-Each tool call runs under an owned task and child cancellation token. Read-only
-work may run in parallel, workspace-mutating work is exclusive, and results are
-projected in model order. Tool cleanup comes from the registry policy:
+Each tool call runs under an owned task and child cancellation token. Calls
+marked parallel-safe by registry policy share a wave; exclusive calls split the
+batch into sequential waves. Every wave is awaited and results are projected in
+model order before the next provider call. Rejected batches also project one
+terminal result per provider call ID. Tool cleanup comes from the registry
+policy:
 
 - `cooperative`: notify and wait through the cleanup bound;
 - `terminate_process`: terminate the owned process after cancellation;
@@ -256,15 +263,16 @@ complete cooperative cleanup within five seconds produces
 `cancellation_cleanup_timeout` and `agent.cleanup_timeout`. Side effects that
 finish during cleanup are recorded before the Turn becomes cancelled.
 
-## Deferred tools, plans, and forms
+## Backend-selected tools, plans, and forms
 
 The foundational model-visible tool set contains available instances of
 `exec_command`, `write_stdin`, `apply_patch`, `request_user_input`,
-`update_plan`, `tool_search`, `web.open`, `web.read`, `web.act`, and the
+`update_plan`, `web.open`, `web.read`, `web.act`, and the
 `subagent.spawn`, `subagent.send_input`, `subagent.wait`, `subagent.close`, and
-`subagent.resume` lifecycle controls. MCP and other extension tools remain
-deferred until selected or activated through `tool_search`. Activation lasts
-only for the current Turn; inactive calls fail before dispatch.
+`subagent.resume` lifecycle controls. MCP tools explicitly allowlisted by backend
+workspace configuration are injected after discovery. Other deferred extension
+tools remain hidden unless selected by backend Turn policy. Selection lasts only
+for the current Turn; inactive calls fail before dispatch.
 
 `update_plan` replaces the complete Turn plan. States are `pending`,
 `in_progress`, and `completed`; an incomplete plan has exactly one active step.

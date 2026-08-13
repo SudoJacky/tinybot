@@ -128,7 +128,8 @@ impl ToolContributor for WorkspaceThreadToolContributor {
             },
             "additionalProperties": false
         });
-        let policy = runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true);
+        let spawn_policy = runtime_policy(true, ToolCancellationMode::DetachForbidden, false, true);
+        let send_policy = runtime_policy(false, ToolCancellationMode::DetachForbidden, false, true);
         vec![
             ToolRegistryEntry {
                 tool_id: SPAWN_WORKSPACE_THREAD_METHOD.to_string(),
@@ -140,8 +141,8 @@ impl ToolContributor for WorkspaceThreadToolContributor {
                 ),
                 exposure: ToolExposure::Model,
                 dynamic: true,
-                supports_parallel_tool_calls: policy.supports_parallel_tool_calls,
-                runtime_policy: policy,
+                supports_parallel_tool_calls: spawn_policy.supports_parallel_tool_calls,
+                runtime_policy: spawn_policy,
                 required_capabilities: vec![
                     WorkerCapability::SessionMetadataRead,
                     WorkerCapability::SessionWrite,
@@ -173,8 +174,8 @@ impl ToolContributor for WorkspaceThreadToolContributor {
                 description: "Send another normal user message to a workspace thread created by the current thread, and wait for that turn to stop.".to_string(),
                 exposure: ToolExposure::Model,
                 dynamic: true,
-                supports_parallel_tool_calls: policy.supports_parallel_tool_calls,
-                runtime_policy: policy,
+                supports_parallel_tool_calls: send_policy.supports_parallel_tool_calls,
+                runtime_policy: send_policy,
                 required_capabilities: vec![
                     WorkerCapability::SessionMetadataRead,
                     WorkerCapability::SessionWrite,
@@ -430,7 +431,7 @@ pub(super) fn build_discovered_mcp_tool_entries(
             namespace: "mcp".to_string(),
             title,
             description,
-            exposure: ToolExposure::Deferred,
+            exposure: ToolExposure::Model,
             dynamic: true,
             supports_parallel_tool_calls: runtime_policy.supports_parallel_tool_calls,
             runtime_policy,

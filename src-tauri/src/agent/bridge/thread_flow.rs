@@ -149,9 +149,16 @@ pub(crate) async fn execute_thread_turn_with_services(
         ensure_thread_turn_target(input.thread_id, &thread_store, config_snapshot.clone())?;
     let thread_id = thread_thread_id(&thread)?;
     let thread_working_directory = thread_working_directory(&thread);
-    let coordinator_project_group_id = thread_project_group_id(&thread).filter(|_| {
-        thread.get("source").and_then(serde_json::Value::as_str) == Some("project_coordinator")
-    });
+    let is_project_coordinator =
+        thread.get("source").and_then(serde_json::Value::as_str) == Some("project_coordinator");
+    let coordinator_project_group_id = is_project_coordinator
+        .then(|| thread_project_group_id(&thread))
+        .flatten();
+    let permission_profile = if is_project_coordinator {
+        "project-coordinator"
+    } else {
+        "local-worker"
+    };
     let session_id = thread_id.clone();
     let turn_id = native_agent_turn_id(&input.spec).unwrap_or_else(generate_thread_turn_id);
     let spec_has_working_directory = native_agent_string_field(&input.spec, "cwd")
@@ -199,6 +206,7 @@ pub(crate) async fn execute_thread_turn_with_services(
         "turnId".to_string(),
         serde_json::Value::String(turn_id.clone()),
     );
+    bind_thread_turn_role(spec_object, &thread_id, permission_profile);
     if !spec_object.contains_key("messages") {
         spec_object.insert(
             "messages".to_string(),
@@ -214,18 +222,11 @@ pub(crate) async fn execute_thread_turn_with_services(
         .entry("metadata".to_string())
         .or_insert_with(|| serde_json::json!({}));
     if let Some(metadata_object) = metadata.as_object_mut() {
-        metadata_object.insert(
-            "threadId".to_string(),
-            serde_json::Value::String(thread_id.clone()),
-        );
+        bind_thread_turn_role(metadata_object, &thread_id, permission_profile);
         if let Some(project_group_id) = coordinator_project_group_id {
             metadata_object.insert(
                 "projectGroupId".to_string(),
                 serde_json::Value::String(project_group_id),
-            );
-            metadata_object.insert(
-                "permissionProfile".to_string(),
-                serde_json::Value::String("project-coordinator".to_string()),
             );
         }
         if !spec_has_working_directory {
@@ -272,6 +273,43 @@ pub(crate) async fn execute_thread_turn_with_services(
         turn_id,
         result,
     })
+}
+
+fn bind_thread_turn_role(
+    fields: &mut serde_json::Map<String, serde_json::Value>,
+    thread_id: &str,
+    permission_profile: &str,
+) {
+    fields.insert(
+        "threadId".to_string(),
+        serde_json::Value::String(thread_id.to_string()),
+    );
+    fields.insert(
+        "permissionProfile".to_string(),
+        serde_json::Value::String(permission_profile.to_string()),
+    );
+}
+
+#[cfg(test)]
+mod role_binding_tests {
+    use super::bind_thread_turn_role;
+    use serde_json::json;
+
+    #[test]
+    fn persisted_thread_identity_overrides_caller_role_fields() {
+        let mut fields = json!({
+            "threadId": "spoofed-coordinator",
+            "permissionProfile": "project-coordinator"
+        })
+        .as_object()
+        .expect("test fields should be an object")
+        .clone();
+
+        bind_thread_turn_role(&mut fields, "ordinary-thread", "local-worker");
+
+        assert_eq!(fields["threadId"], "ordinary-thread");
+        assert_eq!(fields["permissionProfile"], "local-worker");
+    }
 }
 
 pub(crate) async fn submit_thread_form_with_services(

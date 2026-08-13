@@ -8,7 +8,7 @@
 - `web.read`：读取当前页面；携带上一次的 `snapshotId` 时，可返回精简的 `unchanged`。
 - `web.act`：在当前页面执行一个动作，必须携带 `snapshotId`。
 
-这三个工具始终提供给 agent，不需要先通过 `tool_search` 激活。浏览器操作通常会跨越多个用户回合，保持常驻可以避免新回合丢失工具 schema 和名称映射。
+这三个工具由后端默认注入给具备浏览器能力的 agent。浏览器操作通常会跨越多个用户回合，保持常驻可以避免新回合丢失工具 schema 和名称映射。
 
 agent 不需要处理 browser session、tab、control epoch、capture ID 或 observation revision。这些底层参数由本目录中的适配层自动补齐。
 

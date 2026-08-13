@@ -365,7 +365,7 @@ fn request_user_input_rejects_invalid_forms_without_waiting() {
 }
 
 #[test]
-fn discovered_mcp_tool_searches_activates_and_calls_real_server() {
+fn discovered_allowlisted_mcp_tool_is_injected_and_calls_real_server() {
     struct McpDiscoveryProvider {
         calls: AtomicUsize,
     }
@@ -377,19 +377,6 @@ fn discovered_mcp_tool_searches_activates_and_calls_real_server() {
         ) -> Result<NativeAgentProviderResponse, String> {
             match self.calls.fetch_add(1, Ordering::SeqCst) {
                 0 => Ok(NativeAgentProviderResponse {
-                    final_content: String::new(),
-                    reasoning_delta: None,
-                    usage: None,
-                    response_items: Vec::new(),
-                    tool_calls: vec![NativeAgentToolCall {
-                        id: "search-real-mcp".to_string(),
-                        name: "tool_search".to_string(),
-                        arguments_json: r#"{"query":"echo from documentation server","limit":1}"#
-                            .to_string(),
-                        result: Value::Null,
-                    }],
-                }),
-                1 => Ok(NativeAgentProviderResponse {
                     final_content: String::new(),
                     reasoning_delta: None,
                     usage: None,
@@ -506,7 +493,7 @@ lines.on("line", (line) => {
             json!({
                 "turnId": "turn-real-mcp-router",
                 "sessionId": "session-real-mcp-router",
-                "maxIterations": 3,
+                "maxIterations": 2,
                 "messages": [{ "role": "user", "content": "echo through docs" }]
             }),
             run_config,
@@ -520,10 +507,7 @@ lines.on("line", (line) => {
 
     assert_eq!(completed["stopReason"], "final_response");
     assert_eq!(completed["finalContent"], "real MCP complete");
-    assert_eq!(
-        completed["toolsUsed"],
-        json!(["tool_search", "mcp.4:docs.4:echo"])
-    );
+    assert_eq!(completed["toolsUsed"], json!(["mcp.4:docs.4:echo"]));
     tauri::async_runtime::block_on(services.mcp_runtime().shutdown())
         .expect("agent MCP fixture should shut down");
     let global_after = crate::runtime::observability::global_agent_runtime_metrics().snapshot();
@@ -548,173 +532,7 @@ lines.on("line", (line) => {
 }
 
 #[test]
-fn max_iterations_clears_deferred_tool_activation_checkpoint() {
-    struct SearchOnlyProvider;
-
-    impl NativeAgentProvider for SearchOnlyProvider {
-        fn complete(
-            &self,
-            _context: &AgentTurnContext,
-        ) -> Result<NativeAgentProviderResponse, String> {
-            Ok(NativeAgentProviderResponse {
-                final_content: String::new(),
-                reasoning_delta: None,
-                usage: None,
-                response_items: Vec::new(),
-                tool_calls: vec![NativeAgentToolCall {
-                    id: "search-before-max-iterations".to_string(),
-                    name: "tool_search".to_string(),
-                    arguments_json: r#"{"query":"shell","limit":1}"#.to_string(),
-                    result: Value::Null,
-                }],
-            })
-        }
-    }
-
-    let services = NativeAgentRuntimeServices::new(
-        Arc::new(SearchOnlyProvider),
-        Arc::new(FakeNativeAgentToolDispatcher),
-        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
-        Arc::new(InMemoryNativeAgentCancellation::default()),
-    );
-    let result = run_native_agent_turn_with_config(
-        &services,
-        json!({
-            "turnId": "turn-search-max-iterations",
-            "sessionId": "session-search-max-iterations",
-            "maxIterations": 1,
-            "messages": [{ "role": "user", "content": "find shell" }]
-        }),
-        json!({}),
-    )
-    .expect("max-iteration run should return a structured result");
-
-    assert_eq!(result["stopReason"], "max_iterations");
-    assert!(services.restore_turn_checkpoint(
-        "session-search-max-iterations",
-        "turn-search-max-iterations"
-    )["checkpoint"]
-        .is_null());
-}
-
-#[test]
-fn provider_error_clears_deferred_tool_activation_checkpoint() {
-    struct SearchThenErrorProvider {
-        calls: AtomicUsize,
-    }
-
-    impl NativeAgentProvider for SearchThenErrorProvider {
-        fn complete(
-            &self,
-            _context: &AgentTurnContext,
-        ) -> Result<NativeAgentProviderResponse, String> {
-            if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
-                return Ok(NativeAgentProviderResponse {
-                    final_content: String::new(),
-                    reasoning_delta: None,
-                    usage: None,
-                    response_items: Vec::new(),
-                    tool_calls: vec![NativeAgentToolCall {
-                        id: "search-before-provider-error".to_string(),
-                        name: "tool_search".to_string(),
-                        arguments_json: r#"{"query":"shell","limit":1}"#.to_string(),
-                        result: Value::Null,
-                    }],
-                });
-            }
-            Err("provider failed after activation".to_string())
-        }
-    }
-
-    let services = NativeAgentRuntimeServices::new(
-        Arc::new(SearchThenErrorProvider {
-            calls: AtomicUsize::new(0),
-        }),
-        Arc::new(FakeNativeAgentToolDispatcher),
-        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
-        Arc::new(InMemoryNativeAgentCancellation::default()),
-    );
-    let result = run_native_agent_turn_with_config(
-        &services,
-        json!({
-            "turnId": "turn-search-provider-error",
-            "sessionId": "session-search-provider-error",
-            "maxIterations": 2,
-            "messages": [{ "role": "user", "content": "find shell" }]
-        }),
-        json!({}),
-    )
-    .expect("provider-error run should return a structured result");
-
-    assert_eq!(result["stopReason"], "provider_error");
-    assert!(services.restore_turn_checkpoint(
-        "session-search-provider-error",
-        "turn-search-provider-error"
-    )["checkpoint"]
-        .is_null());
-}
-
-#[test]
-fn tool_search_excludes_deferred_tools_denied_by_capability_policy() {
-    let mut context = AgentTurnContext::from_spec(
-        json!({
-            "turnId": "turn-tool-search-capabilities",
-            "sessionId": "session-tool-search-capabilities",
-            "messages": [{ "role": "user", "content": "find file tools" }]
-        }),
-        json!({}),
-    );
-    context.tool_router = NativeToolRouter::new(
-        WorkerToolRegistryRpc::new(CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]))
-            .list_tools()
-            .tools,
-    );
-
-    let result = context
-        .tool_router
-        .search_and_activate(
-            json!({"query":"file","limit":5})
-                .as_object()
-                .expect("tool_search test arguments should be an object"),
-        )
-        .expect("search should succeed even when no deferred tool is available");
-
-    assert_eq!(result, json!({ "tools": [] }));
-    assert!(context.tool_router.activated_tool_ids().is_empty());
-}
-
-#[test]
-fn tool_search_does_not_reexpose_hidden_legacy_file_or_shell_tools() {
-    let mut context = AgentTurnContext::from_spec(
-        json!({
-            "turnId": "turn-tool-search-words",
-            "sessionId": "session-tool-search-words",
-            "messages": [{ "role": "user", "content": "find editing tools" }]
-        }),
-        json!({}),
-    );
-
-    let result = context
-        .tool_router
-        .search_and_activate(
-            json!({"query":"shell or file editing capability","limit":5})
-                .as_object()
-                .expect("tool_search test arguments should be an object"),
-        )
-        .expect("descriptive deferred tool search should succeed");
-    let tool_ids = result["tools"]
-        .as_array()
-        .expect("search result tools should be an array")
-        .iter()
-        .filter_map(|tool| tool["toolId"].as_str())
-        .collect::<Vec<_>>();
-
-    assert!(!tool_ids.contains(&"shell.execute"));
-    assert!(!tool_ids.contains(&"workspace.write_file"));
-}
-
-#[test]
-fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
+fn backend_selected_deferred_tool_round_trips_through_checkpoint_validation() {
     let mut context = AgentTurnContext::from_spec(
         json!({
             "turnId": "turn-tool-search-checkpoint",
@@ -729,12 +547,8 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
     )]);
     context
         .tool_router
-        .search_and_activate(
-            json!({"query":"deferred wait","limit":1})
-                .as_object()
-                .expect("tool_search test arguments should be an object"),
-        )
-        .expect("test deferred wait should activate for the current turn");
+        .activate_for_turn(&["test.deferred_wait".to_string()])
+        .expect("backend-selected deferred wait should activate for the current turn");
     let checkpoint =
         super::checkpoint::checkpoint_value(&context, "awaiting_form", json!({ "iteration": 1 }));
 
@@ -789,6 +603,22 @@ fn deferred_tool_activation_round_trips_through_checkpoint_validation() {
 }
 
 #[test]
+fn legacy_checkpoint_accepts_a_tool_now_injected_by_backend_policy() {
+    let mut tool = test_read_only_tool("test.backend_selected", ToolExposure::Model);
+    tool.available = true;
+    let mut router = NativeToolRouter::new(vec![tool]);
+
+    router
+        .restore_from_checkpoint(&json!({
+            "activatedToolIds": ["test.backend_selected"]
+        }))
+        .expect("a now-model-visible tool should not invalidate a legacy checkpoint");
+
+    assert!(router.is_permitted("test.backend_selected"));
+    assert!(router.activated_tool_ids().is_empty());
+}
+
+#[test]
 fn duplicate_deferred_tool_activation_fails_without_partial_state() {
     let mut context = AgentTurnContext::from_spec(
         json!({
@@ -818,32 +648,28 @@ fn duplicate_deferred_tool_activation_fails_without_partial_state() {
 #[test]
 fn provider_tool_name_collisions_fail_before_request_dispatch() {
     let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::default());
-    for (method, expected_error) in [
-        ("tool.search", "provider tool name collision"),
-        ("tool_search", "duplicate tool method"),
-    ] {
-        let mut duplicate = registry
-            .get_tool("update_plan")
-            .expect("update_plan should be registered");
-        duplicate.tool_id = method.to_string();
-        duplicate.method = method.to_string();
-        let mut context = AgentTurnContext::from_spec(
-            json!({
-                "messages": [{ "role": "user", "content": "test collision" }]
-            }),
-            json!({}),
-        );
-        let mut entries = registry.list_tools().tools;
-        entries.retain(|entry| entry.method != "update_plan");
-        entries.push(duplicate);
-        context.tool_router = NativeToolRouter::new(entries);
+    let mut dotted = registry
+        .get_tool("update_plan")
+        .expect("update_plan should be registered");
+    dotted.tool_id = "test.lookup".to_string();
+    dotted.method = "test.lookup".to_string();
+    let mut underscored = dotted.clone();
+    underscored.tool_id = "test_lookup".to_string();
+    underscored.method = "test_lookup".to_string();
+    let mut context = AgentTurnContext::from_spec(
+        json!({
+            "messages": [{ "role": "user", "content": "test collision" }]
+        }),
+        json!({}),
+    );
+    context.tool_router = NativeToolRouter::new(vec![dotted, underscored]);
 
-        let error = agent_chat_completion_request(&context)
-            .expect_err("provider name collision should fail before dispatch");
+    let error = agent_chat_completion_request(&context)
+        .expect_err("provider name collision should fail before dispatch");
 
-        assert!(error.contains(expected_error));
-        assert!(error.contains("tool_search"));
-    }
+    assert!(error.contains("provider tool name collision"));
+    assert!(error.contains("test.lookup"));
+    assert!(error.contains("test_lookup"));
 }
 
 #[test]
@@ -863,7 +689,7 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
                         && message["tool_call_id"] == "unactivated-deferred"
                         && message["content"].as_str().is_some_and(|content| {
                             content.contains("not active for this turn")
-                                && content.contains("tool_search")
+                                && content.contains("backend tool policy")
                         })
                 }));
                 return Ok(NativeAgentProviderResponse {
@@ -950,7 +776,7 @@ fn inactive_deferred_provider_names_still_resolve_to_the_registered_method() {
     assert!(!router.is_permitted("test.deferred_echo"));
     assert!(router
         .rejection_reason("test.deferred_echo")
-        .contains("tool_search"));
+        .contains("backend tool policy"));
 }
 
 #[test]
@@ -1224,9 +1050,8 @@ fn chat_completion_request_exposes_core_controls_when_no_capability_tools_are_av
     let request = agent_chat_completion_request(&context)
         .expect("request without available model tools should still be built");
 
-    assert_eq!(request["tools"].as_array().map(Vec::len), Some(2));
+    assert_eq!(request["tools"].as_array().map(Vec::len), Some(1));
     assert_eq!(request["tools"][0]["function"]["name"], "update_plan");
-    assert_eq!(request["tools"][1]["function"]["name"], "tool_search");
     assert_eq!(request["tool_choice"], "auto");
 }
 

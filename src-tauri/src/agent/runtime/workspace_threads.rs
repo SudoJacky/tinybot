@@ -439,11 +439,14 @@ fn generate_workspace_turn_id() -> String {
 mod tests {
     use super::*;
     use crate::agent::runtime::{
-        FakeNativeAgentToolDispatcher, InMemoryNativeAgentCancellation,
-        InMemoryNativeAgentCheckpointStore, NativeAgentProvider, NativeAgentProviderResponse,
+        run_native_agent_turn_with_workspace_async, FakeNativeAgentToolDispatcher,
+        InMemoryNativeAgentCancellation, InMemoryNativeAgentCheckpointStore, NativeAgentProvider,
+        NativeAgentProviderResponse, NativeAgentToolCall, NativeAgentTraceSink,
     };
+    use crate::agent::runtime_protocol::{AgentRuntimeEventEnvelope, AgentTimelinePatch};
     use crate::protocol::capability::default_desktop_capability_policy;
-    use std::sync::Arc;
+    use crate::tools::registry::SPAWN_WORKSPACE_THREAD_METHOD;
+    use std::sync::{Arc, Mutex};
 
     struct TestWorkspace {
         root: PathBuf,
@@ -461,6 +464,35 @@ mod tests {
     impl Drop for TestWorkspace {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+
+    #[derive(Default)]
+    struct SessionRecordingTraceSink {
+        timeline_patch_session_ids: Mutex<Vec<String>>,
+    }
+
+    impl NativeAgentTraceSink for SessionRecordingTraceSink {
+        fn append_trace_event(
+            &self,
+            _session_id: &str,
+            _turn_id: &str,
+            _event: &AgentRuntimeEventEnvelope,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn append_timeline_patch(
+            &self,
+            session_id: &str,
+            _turn_id: &str,
+            _patch: &AgentTimelinePatch,
+        ) -> Result<(), String> {
+            self.timeline_patch_session_ids
+                .lock()
+                .expect("timeline patch session lock should not be poisoned")
+                .push(session_id.to_string());
+            Ok(())
         }
     }
 
@@ -532,6 +564,149 @@ mod tests {
         );
         assert_eq!(workspace_thread_status(Some("cancelled")), "interrupted");
         assert_eq!(workspace_thread_status(Some("provider_error")), "failed");
+    }
+
+    #[test]
+    fn coordinator_waits_for_every_spawn_in_a_parallel_tool_batch() {
+        struct ParallelSpawnProvider {
+            parent_calls: AtomicU64,
+            workspace_ids: Vec<String>,
+        }
+
+        impl NativeAgentProvider for ParallelSpawnProvider {
+            fn complete(
+                &self,
+                context: &AgentTurnContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                if context.thread_id.as_deref() != Some("parallel-parent-thread") {
+                    return Ok(NativeAgentProviderResponse {
+                        final_content: format!(
+                            "child result from {}",
+                            context.thread_id.as_ref().cloned().unwrap_or_default()
+                        ),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: Vec::new(),
+                        response_items: Vec::new(),
+                    });
+                }
+
+                if self.parent_calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                    return Ok(NativeAgentProviderResponse {
+                        final_content: String::new(),
+                        reasoning_delta: None,
+                        usage: None,
+                        tool_calls: self
+                            .workspace_ids
+                            .iter()
+                            .take(2)
+                            .enumerate()
+                            .map(|(index, workspace_id)| NativeAgentToolCall {
+                                id: format!("call-spawn-{index}"),
+                                name: SPAWN_WORKSPACE_THREAD_METHOD.to_string(),
+                                arguments_json: json!({
+                                    "workspaceId": workspace_id,
+                                    "message": format!("Inspect workspace {index}"),
+                                })
+                                .to_string(),
+                                result: json!({}),
+                            })
+                            .collect(),
+                        response_items: Vec::new(),
+                    });
+                }
+
+                Ok(NativeAgentProviderResponse {
+                    final_content: "all workspace threads completed".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    tool_calls: Vec::new(),
+                    response_items: Vec::new(),
+                })
+            }
+        }
+
+        let workspace = TestWorkspace::new();
+        let service_a = workspace.root.join("service-a");
+        let service_b = workspace.root.join("service-b");
+        std::fs::create_dir_all(&service_b).expect("second child workspace should create");
+        let store = WorkspaceThreadStore::new_with_data_root(
+            workspace.root.clone(),
+            workspace.root.join("thread-data"),
+            default_desktop_capability_policy(),
+        );
+        let project_group = store
+            .project_groups()
+            .save(SaveProjectGroupInput {
+                project_group_id: None,
+                name: "Parallel services".to_string(),
+                workspace_ids: vec![
+                    service_a.display().to_string(),
+                    service_b.display().to_string(),
+                ],
+            })
+            .expect("project group should save");
+        create_thread(
+            &store,
+            None,
+            "parallel-parent-thread",
+            None,
+            "project_coordinator",
+            Some(&project_group.project_group_id),
+        );
+        let trace_sink = Arc::new(SessionRecordingTraceSink::default());
+        let services = NativeAgentRuntimeServices::new(
+            Arc::new(ParallelSpawnProvider {
+                parent_calls: AtomicU64::new(0),
+                workspace_ids: vec![
+                    workspace_id(&service_a.canonicalize().unwrap()),
+                    workspace_id(&service_b.canonicalize().unwrap()),
+                ],
+            }),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_trace_sink(trace_sink.clone())
+        .with_thread_store(store);
+
+        let result = tauri::async_runtime::block_on(run_native_agent_turn_with_workspace_async(
+            &services,
+            json!({
+                "runtime": "rust",
+                "threadId": "parallel-parent-thread",
+                "sessionId": "parallel-parent-thread",
+                "turnId": "parallel-parent-turn",
+                "model": "fixture-model",
+                "maxIterations": 3,
+                "messages": [{ "role": "user", "content": "inspect both workspaces" }],
+            }),
+            json!({}),
+            &workspace.root,
+        ))
+        .expect("parallel workspace spawns should complete");
+
+        assert_eq!(result["stopReason"], "final_response");
+        assert_eq!(result["finalContent"], "all workspace threads completed");
+        let completed = result["completedToolResults"]
+            .as_array()
+            .expect("completed tool results should be an array");
+        assert_eq!(completed.len(), 2);
+        assert_eq!(completed[0]["toolCallId"], "call-spawn-0");
+        assert_eq!(completed[1]["toolCallId"], "call-spawn-1");
+        let child_patch_session_ids = trace_sink
+            .timeline_patch_session_ids
+            .lock()
+            .expect("timeline patch session lock should not be poisoned")
+            .iter()
+            .filter(|session_id| session_id.as_str() != "parallel-parent-thread")
+            .cloned()
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(
+            child_patch_session_ids.len(),
+            2,
+            "each spawned workspace Thread must publish live timeline patches"
+        );
     }
 
     #[test]

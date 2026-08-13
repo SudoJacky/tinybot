@@ -1,9 +1,7 @@
 use crate::tools::registry::UPDATE_PLAN_METHOD;
 use crate::tools::registry::{
     ToolCancellationMode, ToolExecutionTarget, ToolExposure, ToolRegistryEntry, ToolRuntimePolicy,
-    DEFAULT_TOOL_SEARCH_LIMIT, MAX_TOOL_SEARCH_LIMIT,
 };
-use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -18,14 +16,6 @@ pub(super) struct AgentToolDefinition {
 pub(super) struct NativeToolRouter {
     entries: Vec<ToolRegistryEntry>,
     activated_tool_ids: BTreeSet<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ToolSearchRequest {
-    query: String,
-    #[serde(default = "default_tool_search_limit")]
-    limit: usize,
 }
 
 impl NativeToolRouter {
@@ -125,68 +115,6 @@ impl NativeToolRouter {
         Ok(first.method.clone())
     }
 
-    pub(super) fn search_and_activate(
-        &mut self,
-        arguments: &serde_json::Map<String, Value>,
-    ) -> Result<Value, String> {
-        let request = serde_json::from_value::<ToolSearchRequest>(Value::Object(arguments.clone()))
-            .map_err(|error| format!("invalid tool_search arguments: {error}"))?;
-        let query = request.query.trim();
-        if query.is_empty() {
-            return Err("invalid tool_search arguments: query must not be empty".to_string());
-        }
-        if request.limit == 0 || request.limit > MAX_TOOL_SEARCH_LIMIT {
-            return Err(format!(
-                "invalid tool_search arguments: limit must be between 1 and {MAX_TOOL_SEARCH_LIMIT}"
-            ));
-        }
-
-        let normalized_query = query.to_lowercase();
-        let mut matches = self
-            .entries
-            .iter()
-            .filter_map(|entry| {
-                if !entry.available
-                    || entry.exposure != ToolExposure::Deferred
-                    || self.activated_tool_ids.contains(entry.tool_id.as_str())
-                {
-                    return None;
-                }
-                let score = entry_match_score(entry, &normalized_query);
-                (score > 0).then(|| (score, entry.clone()))
-            })
-            .collect::<Vec<_>>();
-        matches.sort_by(|(left_score, left), (right_score, right)| {
-            right_score.cmp(left_score).then_with(|| {
-                left.namespace
-                    .cmp(&right.namespace)
-                    .then_with(|| left.method.cmp(&right.method))
-            })
-        });
-        matches.truncate(request.limit);
-        let matches = matches
-            .into_iter()
-            .map(|(_, entry)| entry)
-            .collect::<Vec<_>>();
-
-        let tool_ids = matches
-            .iter()
-            .map(|entry| entry.tool_id.to_string())
-            .collect::<Vec<_>>();
-        self.activate_for_turn(&tool_ids)?;
-
-        Ok(json!({
-            "tools": matches
-                .iter()
-                .map(|entry| json!({
-                    "toolId": entry.tool_id,
-                    "title": entry.title,
-                    "description": entry.description,
-                }))
-                .collect::<Vec<_>>()
-        }))
-    }
-
     pub(super) fn activate_for_turn(&mut self, tool_ids: &[String]) -> Result<(), String> {
         let mut requested = HashSet::new();
         let mut next_activated = self.activated_tool_ids.clone();
@@ -253,7 +181,33 @@ impl NativeToolRouter {
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        self.activate_for_turn(&activated_tool_ids)
+        let mut deferred_tool_ids = Vec::new();
+        for tool_id in activated_tool_ids {
+            let entry = self
+                .entries
+                .iter()
+                .find(|entry| entry.tool_id == tool_id || entry.method == tool_id)
+                .ok_or_else(|| {
+                    format!("unknown deferred tool ID cannot be activated: {tool_id}")
+                })?;
+            if !entry.available {
+                return Err(format!(
+                    "unavailable deferred tool cannot be activated: {}",
+                    entry.tool_id
+                ));
+            }
+            match entry.exposure {
+                ToolExposure::Deferred => deferred_tool_ids.push(entry.tool_id.clone()),
+                ToolExposure::Model => {}
+                ToolExposure::Direct | ToolExposure::Hidden => {
+                    return Err(format!(
+                        "tool is not deferred and cannot be activated: {}",
+                        entry.tool_id
+                    ));
+                }
+            }
+        }
+        self.activate_for_turn(&deferred_tool_ids)
     }
 
     pub(super) fn is_permitted(&self, method: &str) -> bool {
@@ -274,7 +228,7 @@ impl NativeToolRouter {
             && !self.activated_tool_ids.contains(entry.tool_id.as_str())
         {
             return format!(
-                "native tool `{method}` is not active for this turn; call `tool_search` to activate it before retrying"
+                "native tool `{method}` is not active for this turn; it must be selected by the backend tool policy"
             );
         }
         format!("native tool `{method}` is not exposed to the model")
@@ -403,10 +357,6 @@ pub(super) fn provider_tool_name(method: &str) -> String {
         .collect()
 }
 
-fn default_tool_search_limit() -> usize {
-    DEFAULT_TOOL_SEARCH_LIMIT
-}
-
 fn registry_entry_to_tool_definition(
     entry: &ToolRegistryEntry,
     provider_name: &str,
@@ -416,34 +366,4 @@ fn registry_entry_to_tool_definition(
         description: entry.description.clone(),
         input_schema: entry.input_schema.clone(),
     }
-}
-
-fn entry_match_score(entry: &ToolRegistryEntry, query: &str) -> usize {
-    let tool_id = entry.tool_id.to_lowercase();
-    let method = entry.method.to_lowercase();
-    let namespace = entry.namespace.to_lowercase();
-    let title = entry.title.to_lowercase();
-    let description = entry.description.to_lowercase();
-    let searchable = format!("{tool_id} {method} {namespace} {title} {description}");
-    if searchable.contains(query) {
-        return 1_000;
-    }
-    query
-        .split(|character: char| !character.is_alphanumeric())
-        .filter(|word| word.len() >= 3 && !is_search_stop_word(word))
-        .map(|word| {
-            usize::from(tool_id.contains(word)) * 16
-                + usize::from(method.contains(word)) * 16
-                + usize::from(title.contains(word)) * 8
-                + usize::from(description.contains(word)) * 4
-                + usize::from(namespace.contains(word)) * 2
-        })
-        .sum()
-}
-
-fn is_search_stop_word(word: &str) -> bool {
-    matches!(
-        word,
-        "and" | "for" | "the" | "tool" | "tools" | "capability" | "capabilities"
-    )
 }

@@ -474,8 +474,9 @@ Turn-level runtime controls are also typed and validated before MCP discovery or
   workspace are accepted; relative paths are resolved from the workspace root. The composed
   instruction provenance and provider context use that directory, and shell tools inherit it when
   their call does not provide `workingDir`.
-- `permissionProfile` currently accepts only `local-worker`, which selects the native desktop
-  capability policy. Unknown profiles fail explicitly.
+- `permissionProfile` accepts `local-worker` or `project-coordinator`. Thread-bound turns derive
+  this value from the persisted Thread role; the coordinator profile removes direct workspace read,
+  workspace write, and shell capabilities. Unknown profiles fail explicitly.
 - `selectedTools` is an optional exact allowlist of tool IDs or methods. Deferred selections activate
   for that turn; unknown, unavailable, or duplicate selections fail. An omitted or empty list keeps
   the normal registry.
@@ -544,11 +545,11 @@ runtime uses `200`. Explicit turn or settings values still take precedence.
 }
 ```
 
-### Deferred tool discovery and checkpoints
+### Backend tool selection and checkpoints
 
-MCP and other extension tools may remain deferred until selected explicitly or activated through
-`tool_search` for the current Turn. Core browser and subagent lifecycle tools are model-visible
-without discovery. Calls to inactive deferred tools fail with
+MCP tools explicitly allowlisted by workspace configuration are injected after backend discovery.
+Other extension tools may remain deferred until selected explicitly for the current Turn. Core
+browser and subagent lifecycle tools are model-visible by default. Calls to inactive deferred tools fail with
 `stopReason: "policy_denied"`. Form continuations revalidate the persisted activation set against
 the current registry and capability policy.
 
@@ -556,7 +557,7 @@ the current registry and capability policy.
 
 Project groups explicitly list canonical workspace directories and may combine repositories from
 unrelated parent directories. A persisted Thread with `source: "project_coordinator"` and
-`metadata.extra.projectGroupId` receives two model-visible tools without `tool_search`:
+`metadata.extra.projectGroupId` receives two additional model-visible tools:
 
 - `spawn_workspace_thread({ workspaceId, message })` creates a normal persisted child Thread in
   that eligible workspace, records `parentThreadId` and `source: "workspace_thread"`, submits the
@@ -566,6 +567,11 @@ unrelated parent directories. A persisted Thread with `source: "project_coordina
   by the current Thread, submits another normal user message, waits for the Turn to stop, and
   returns the same shape.
 
+Multiple `spawn_workspace_thread` calls from one provider response run concurrently and the
+coordinator waits for all of them before its next model call. `send_thread_message` remains
+exclusive and is serialized with other waves so messages to an existing child Thread retain a
+defined order.
+
 `status` is one of `completed`, `awaiting_user`, `failed`, or `interrupted`. The result deliberately
 does not expose a final-message item ID. Membership is reread from the project-group store for every
 Turn and revalidated at execution time; an arbitrary path or unrelated Thread ID is rejected.
@@ -574,7 +580,9 @@ Ordinary workspace Threads do not receive these tools. Coordinator Threads also 
 shell capabilities; work in a member repository must pass through a child Thread. Deleting a group
 does not delete its Threads, but immediately removes their cross-workspace tool authorization.
 Child Threads remain user-visible desktop sessions, unlike the session-internal `subagent.*`
-lifecycle.
+lifecycle. Their Turns inherit the coordinator's live timeline sink, so a newly spawned child is
+added to the workspace session list while it is running. Users may open the child timeline and,
+after its active Turn stops, continue the conversation through the normal composer.
 
 ### Model-requested user input
 
@@ -1346,7 +1354,7 @@ and shutdown terminate descendant processes as well as the root process.
 
 The desktop commands and Agent tools share the same manager and canonical thread store. The core
 lifecycle tools `subagent.spawn`, `subagent.send_input`, `subagent.wait`, `subagent.close`, and
-`subagent.resume` are model-visible without `tool_search`. `subagent.list`, `subagent.query`, and
+`subagent.resume` are model-visible by default. `subagent.list`, `subagent.query`, and
 `subagent.cancel` remain Worker RPC and desktop-control operations.
 
 The default limits are eight active children per session, 32 active children process-wide, and a
