@@ -24,7 +24,9 @@ Tinybot 是一个由大语言模型和原生工具系统驱动的轻量级个人
 
 安装 Tinybot 时，请前往 [GitHub Tags](https://github.com/SudoJacky/tinybot/tags)，选择最新版本并下载适合当前平台的安装包。
 
-<img width="1195" height="696" alt="应用截图" src="https://github.com/user-attachments/assets/e78f6ddd-3d7b-43eb-beb5-d3628d846e82" />
+<img width="558" height="314" alt="image" src="https://github.com/user-attachments/assets/59ffe250-d52a-4c8f-ad11-ab7ae6e86551" />
+
+<img width="597" height="348" alt="应用截图" src="https://github.com/user-attachments/assets/e78f6ddd-3d7b-43eb-beb5-d3628d846e82" />
 
 ## Agent Plugins
 
