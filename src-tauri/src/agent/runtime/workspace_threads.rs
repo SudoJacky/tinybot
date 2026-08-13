@@ -180,20 +180,22 @@ fn run_workspace_thread_turn(
     let thread_id = thread_id.to_string();
     let message = message.to_string();
     Box::pin(async move {
+        let parent_thread_id = current_thread_id(&context)?;
+        let child_turn_id = generate_workspace_turn_id();
         let mut spec = json!({
-        "runtime": "rust",
-        "turnId": generate_workspace_turn_id(),
-        "model": context.model,
+            "runtime": "rust",
+            "turnId": child_turn_id,
+            "model": context.model,
             "messages": [{ "role": "user", "content": &message }],
             "metadata": {
-                "parentThreadId": current_thread_id(&context)?,
+                "parentThreadId": parent_thread_id,
                 "parentTurnId": context.turn_id,
             }
         });
         if let Some(provider) = context.provider.as_ref() {
             spec["provider"] = Value::String(provider.clone());
         }
-        let executed = execute_thread_turn_with_services(
+        let execution = execute_thread_turn_with_services(
             services.clone(),
             SubmitThreadTurnInput {
                 thread_id: Some(thread_id.clone()),
@@ -203,8 +205,29 @@ fn run_workspace_thread_turn(
             PathBuf::from(thread_id_workspace(&services, &context, &thread_id)?),
             context.config_snapshot.clone(),
             None,
-        )
-        .await?;
+        );
+        tokio::pin!(execution);
+        let executed = if let Some(parent_cancellation) = context.cancellation.clone() {
+            tokio::select! {
+                biased;
+                result = &mut execution => result?,
+                _ = parent_cancellation.cancelled() => {
+                    eprintln!(
+                        "workspace_thread_turn_cancel_requested {}",
+                        json!({
+                            "parentThreadId": parent_thread_id,
+                            "parentTurnId": context.turn_id,
+                            "threadId": thread_id,
+                            "turnId": child_turn_id,
+                        })
+                    );
+                    services.cancel(&child_turn_id);
+                    (&mut execution).await?
+                }
+            }
+        } else {
+            execution.await?
+        };
         let stop_reason = executed
             .result
             .get("stopReason")
@@ -220,7 +243,7 @@ fn run_workspace_thread_turn(
         eprintln!(
             "workspace_thread_turn_stopped {}",
             json!({
-                "parentThreadId": current_thread_id(&context)?,
+                "parentThreadId": parent_thread_id,
                 "parentTurnId": context.turn_id,
                 "threadId": executed.thread_id,
                 "turnId": executed.turn_id,
@@ -441,7 +464,8 @@ mod tests {
     use crate::agent::runtime::{
         run_native_agent_turn_with_workspace_async, FakeNativeAgentToolDispatcher,
         InMemoryNativeAgentCancellation, InMemoryNativeAgentCheckpointStore, NativeAgentProvider,
-        NativeAgentProviderResponse, NativeAgentToolCall, NativeAgentTraceSink,
+        NativeAgentProviderFailure, NativeAgentProviderResponse, NativeAgentProviderStreamEvent,
+        NativeAgentToolCall, NativeAgentTraceSink,
     };
     use crate::agent::runtime_protocol::{AgentRuntimeEventEnvelope, AgentTimelinePatch};
     use crate::protocol::capability::default_desktop_capability_policy;
@@ -707,6 +731,199 @@ mod tests {
             2,
             "each spawned workspace Thread must publish live timeline patches"
         );
+    }
+
+    #[test]
+    fn cancelling_coordinator_interrupts_the_active_workspace_turn() {
+        struct PendingWorkspaceTurnProvider {
+            parent_calls: AtomicU64,
+            workspace_id: String,
+            child_started: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+        }
+
+        impl NativeAgentProvider for PendingWorkspaceTurnProvider {
+            fn complete(
+                &self,
+                _context: &AgentTurnContext,
+            ) -> Result<NativeAgentProviderResponse, String> {
+                panic!("workspace cancellation test must use async provider dispatch");
+            }
+
+            fn complete_streaming_async<'a>(
+                self: Arc<Self>,
+                context: &'a AgentTurnContext,
+                _observer: &'a mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
+            ) -> std::pin::Pin<
+                Box<
+                    dyn std::future::Future<
+                            Output = Result<
+                                NativeAgentProviderResponse,
+                                NativeAgentProviderFailure,
+                            >,
+                        > + Send
+                        + 'a,
+                >,
+            > {
+                if context.thread_id.as_deref() == Some("cancelling-parent-thread") {
+                    let call = self.parent_calls.fetch_add(1, Ordering::SeqCst);
+                    let workspace_id = self.workspace_id.clone();
+                    return Box::pin(async move {
+                        Ok(NativeAgentProviderResponse {
+                            final_content: if call == 0 {
+                                String::new()
+                            } else {
+                                "parent should not continue after cancellation".to_string()
+                            },
+                            reasoning_delta: None,
+                            usage: None,
+                            tool_calls: if call == 0 {
+                                vec![NativeAgentToolCall {
+                                    id: "call-cancel-workspace-turn".to_string(),
+                                    name: SPAWN_WORKSPACE_THREAD_METHOD.to_string(),
+                                    arguments_json: json!({
+                                        "workspaceId": workspace_id,
+                                        "message": "Wait for parent cancellation",
+                                    })
+                                    .to_string(),
+                                    result: json!({}),
+                                }]
+                            } else {
+                                Vec::new()
+                            },
+                            response_items: Vec::new(),
+                        })
+                    });
+                }
+
+                let child_started = self
+                    .child_started
+                    .lock()
+                    .expect("child provider start lock should not be poisoned")
+                    .take();
+                Box::pin(async move {
+                    if let Some(child_started) = child_started {
+                        child_started
+                            .send(())
+                            .expect("child provider start signal should send");
+                    }
+                    std::future::pending::<
+                        Result<NativeAgentProviderResponse, NativeAgentProviderFailure>,
+                    >()
+                    .await
+                })
+            }
+        }
+
+        tauri::async_runtime::block_on(async {
+            let workspace = TestWorkspace::new();
+            let child_workspace = workspace.root.join("service-a");
+            let store = WorkspaceThreadStore::new_with_data_root(
+                workspace.root.clone(),
+                workspace.root.join("thread-data"),
+                default_desktop_capability_policy(),
+            );
+            let project_group = store
+                .project_groups()
+                .save(SaveProjectGroupInput {
+                    project_group_id: None,
+                    name: "Cancellation services".to_string(),
+                    workspace_ids: vec![child_workspace.display().to_string()],
+                })
+                .expect("project group should save");
+            create_thread(
+                &store,
+                None,
+                "cancelling-parent-thread",
+                None,
+                "project_coordinator",
+                Some(&project_group.project_group_id),
+            );
+            let (child_started_sender, child_started_receiver) = tokio::sync::oneshot::channel();
+            let services = NativeAgentRuntimeServices::new(
+                Arc::new(PendingWorkspaceTurnProvider {
+                    parent_calls: AtomicU64::new(0),
+                    workspace_id: workspace_id(&child_workspace.canonicalize().unwrap()),
+                    child_started: Mutex::new(Some(child_started_sender)),
+                }),
+                Arc::new(FakeNativeAgentToolDispatcher),
+                Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+                Arc::new(InMemoryNativeAgentCancellation::default()),
+            )
+            .with_thread_store(store.clone());
+            let run_services = services.clone();
+            let workspace_root = workspace.root.clone();
+            let run_task = tauri::async_runtime::spawn(async move {
+                run_native_agent_turn_with_workspace_async(
+                    &run_services,
+                    json!({
+                        "runtime": "rust",
+                        "threadId": "cancelling-parent-thread",
+                        "sessionId": "cancelling-parent-thread",
+                        "turnId": "cancelling-parent-turn",
+                        "model": "fixture-model",
+                        "maxIterations": 3,
+                        "messages": [{ "role": "user", "content": "delegate then stop" }],
+                    }),
+                    json!({}),
+                    &workspace_root,
+                )
+                .await
+            });
+
+            tokio::time::timeout(std::time::Duration::from_secs(2), child_started_receiver)
+                .await
+                .expect("child provider should start before timeout")
+                .expect("child provider start signal should arrive");
+            services.cancel("cancelling-parent-turn");
+            let result = tokio::time::timeout(std::time::Duration::from_secs(4), run_task)
+                .await
+                .expect("cancelled coordinator should stop before timeout")
+                .expect("cancelled coordinator task should join")
+                .expect("cancelled coordinator should return a structured result");
+
+            assert_eq!(result["stopReason"], "interrupted");
+            let request_id = next_worker_request_correlation();
+            let listed = call_rust_state_service(
+                &store,
+                json!({}),
+                WorkerRequest::new(
+                    request_id.id("workspace-thread-cancellation-list"),
+                    request_id.trace_id("workspace-thread-cancellation-list"),
+                    "thread.list",
+                    json!({ "includeArchived": true, "includeChildThreads": true }),
+                ),
+                "workspace thread cancellation list",
+            )
+            .expect("workspace thread list should load");
+            let child_thread_id = listed["threads"]
+                .as_array()
+                .expect("workspace thread list should be an array")
+                .iter()
+                .find(|thread| thread["source"] == WORKSPACE_THREAD_SOURCE)
+                .and_then(|thread| thread["threadId"].as_str())
+                .expect("spawned workspace thread should exist");
+            let request_id = next_worker_request_correlation();
+            let child = call_rust_state_service(
+                &store,
+                json!({}),
+                WorkerRequest::new(
+                    request_id.id("workspace-thread-cancellation-read"),
+                    request_id.trace_id("workspace-thread-cancellation-read"),
+                    "thread.read",
+                    json!({ "threadId": child_thread_id }),
+                ),
+                "cancelled workspace thread read",
+            )
+            .expect("cancelled workspace thread should load");
+            assert_eq!(child["activeTurn"], Value::Null);
+            assert_eq!(child["thread"]["status"], "idle");
+            assert!(child["items"]
+                .as_array()
+                .expect("cancelled workspace thread items should be an array")
+                .iter()
+                .any(|item| item["kind"]["type"] == "cancelled"
+                    && item["kind"]["payload"]["stopReason"] == "interrupted"));
+        });
     }
 
     #[test]

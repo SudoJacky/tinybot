@@ -570,7 +570,9 @@ unrelated parent directories. A persisted Thread with `source: "project_coordina
 Multiple `spawn_workspace_thread` calls from one provider response run concurrently and the
 coordinator waits for all of them before its next model call. `send_thread_message` remains
 exclusive and is serialized with other waves so messages to an existing child Thread retain a
-defined order.
+defined order. Interrupting the coordinator Turn cancels each workspace Turn owned by its active
+tool calls, waits for those child Turns to persist an `interrupted` terminal boundary, and leaves
+the child Threads available for later user messages.
 
 `status` is one of `completed`, `awaiting_user`, `failed`, or `interrupted`. The result deliberately
 does not expose a final-message item ID. Membership is reread from the project-group store for every
