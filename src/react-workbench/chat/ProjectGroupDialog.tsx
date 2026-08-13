@@ -167,9 +167,10 @@ export function ProjectGroupDialog({
                   <input
                     checked={selectedIds.has(workspaceId)}
                     onChange={(event) => {
+                      const checked = event.currentTarget.checked;
                       setSelectedIds((current) => {
                         const next = new Set(current);
-                        if (event.currentTarget.checked) next.add(workspaceId);
+                        if (checked) next.add(workspaceId);
                         else next.delete(workspaceId);
                         return next;
                       });

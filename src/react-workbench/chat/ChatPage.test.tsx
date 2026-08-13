@@ -993,7 +993,16 @@ describe("ChatPage", () => {
 
   it("creates an explicit multi-root project and starts its coordinator session", async () => {
     const user = userEvent.setup();
-    const stores = createStores();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Payments workspace",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "idle",
+        workingDirectory: "D:\\Services\\payments",
+      }],
+    });
     const projectGroupStore: ProjectGroupStore = {
       list: vi.fn(async () => []),
       save: vi.fn(async (input) => ({
@@ -1019,12 +1028,13 @@ describe("ChatPage", () => {
     await user.click(within(sidebar).getByRole("menuitem", { name: "Create project group" }));
     const dialog = await screen.findByRole("dialog", { name: "Create project group" });
     await user.type(within(dialog).getByRole("textbox", { name: "Project name" }), "Commerce");
+    await user.click(within(dialog).getByRole("checkbox"));
     await user.click(within(dialog).getByRole("button", { name: "Choose another folder…" }));
     await user.click(within(dialog).getByRole("button", { name: "Save project" }));
 
     expect(projectGroupStore.save).toHaveBeenCalledWith({
       name: "Commerce",
-      workspaceIds: ["E:\\Services\\payments"],
+      workspaceIds: ["D:\\Services\\payments", "E:\\Services\\payments"],
     });
     const project = await within(sidebar).findByRole("group", { name: "Project Commerce" });
     await user.click(within(project).getByRole("button", { name: "New coordination chat in Commerce" }));
