@@ -1,6 +1,6 @@
 use super::{runtime_events_from_thread_items, turn_items_from_thread_items};
 use crate::agent::runtime_protocol::{
-    AgentRuntimeEventVisibility, AgentTurnItemData, AgentTurnItemKind,
+    AgentRuntimeEventVisibility, AgentTurnItemData, AgentTurnItemKind, AgentTurnItemStatus,
 };
 use crate::threads::domain::types::{ThreadItem, ThreadItemKind};
 use serde_json::json;
@@ -30,6 +30,66 @@ fn typed_record_uses_rollout_identity_sequence_and_timestamp() {
     assert_eq!(events[0].session_id, "canonical-session");
     assert_eq!(events[0].thread_id.as_deref(), Some("canonical-thread"));
     assert_eq!(events[0].turn_id, "canonical-turn");
+}
+
+#[test]
+fn persisted_runtime_events_replay_in_canonical_sequence_order() {
+    let item = |item_id: &str, sequence: u64, kind: ThreadItemKind| ThreadItem {
+        item_id: item_id.to_string(),
+        thread_id: "thread-1".to_string(),
+        turn_id: "turn-1".to_string(),
+        parent_item_id: None,
+        sequence,
+        created_at: sequence.to_string(),
+        kind,
+    };
+    let items = vec![
+        item(
+            "tool-output:call-1",
+            1,
+            ThreadItemKind::ToolCallOutput(json!({
+                "type": "function_call_output",
+                "call_id": "call-1",
+                "status": "error",
+                "output": "invalid arguments",
+                "sequence": 9,
+                "timestamp": "2026-08-14T10:00:00.009Z",
+            })),
+        ),
+        item(
+            "event:call-1",
+            2,
+            ThreadItemKind::Event(json!({
+                "eventName": "agent.tool_call.delta",
+                "itemId": "call-1",
+                "sequence": 8,
+                "timestamp": "2026-08-14T10:00:00.008Z",
+                "payload": {
+                    "toolCallId": "call-1",
+                    "toolName": "workspace.write_file",
+                    "argumentsDelta": "{not json",
+                },
+            })),
+        ),
+    ];
+
+    let events = runtime_events_from_thread_items(&items, "thread-1", "turn-1");
+
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| (event.event_name.as_str(), event.sequence))
+            .collect::<Vec<_>>(),
+        vec![("agent.tool_call.delta", 8), ("agent.tool.result", 9)],
+    );
+    let projected = turn_items_from_thread_items(&items, "thread-1", "turn-1");
+    assert_eq!(projected.len(), 1);
+    assert_eq!(projected[0].status, AgentTurnItemStatus::Completed);
+    assert!(matches!(
+        &projected[0].data,
+        AgentTurnItemData::ToolCall { result_status, .. }
+            if result_status.as_deref() == Some("error")
+    ));
 }
 
 #[test]
@@ -433,13 +493,13 @@ fn persisted_usage_restores_context_window_after_session_reload() {
         thread_id: "thread-1".to_string(),
         turn_id: "turn-1".to_string(),
         parent_item_id: None,
-        sequence: 8,
+        sequence: 2,
         created_at: "2026-08-03T12:00:01Z".to_string(),
         kind: ThreadItemKind::Event(json!({
             "itemId": "usage-1",
             "eventId": "usage-event-1",
-            "sequence": 8,
-            "timestamp": "2026-08-03T12:00:01Z",
+            "sequence": 23,
+            "timestamp": "1786673534920",
             "eventName": "agent.usage",
             "turnId": "turn-1",
             "source": "provider",
@@ -459,10 +519,14 @@ fn persisted_usage_restores_context_window_after_session_reload() {
     let events = runtime_events_from_thread_items(&items, "thread-1", "turn-1");
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].event_name, "agent.usage");
+    assert_eq!(events[0].sequence, 23);
+    assert_eq!(events[0].timestamp, "1786673534920");
 
     let projected = turn_items_from_thread_items(&items, "thread-1", "turn-1");
     assert_eq!(projected.len(), 1);
     assert_eq!(projected[0].kind, AgentTurnItemKind::Usage);
+    assert_eq!(projected[0].sequence, 23);
+    assert_eq!(projected[0].created_at, "1786673534920");
     assert!(matches!(
         &projected[0].data,
         AgentTurnItemData::Usage { provider_payload, .. }

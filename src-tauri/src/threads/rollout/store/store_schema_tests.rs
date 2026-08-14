@@ -154,6 +154,112 @@ fn rollout_reconstruction_skips_historical_approval_items_without_losing_other_h
 }
 
 #[test]
+fn legacy_responses_history_uses_replay_order_across_mixed_source_sequences() {
+    let turn_id = "turn-mixed-sequence";
+    let thread_id = "thread-mixed-sequence";
+    let lines = vec![
+        ThreadLogLine {
+            timestamp: "2026-08-14T07:20:01Z".to_string(),
+            ordinal: Some(39),
+            item: value_event(
+                EventKind::ThreadItem,
+                serde_json::json!({
+                    "item": {
+                        "itemId": "semantic-tool-call",
+                        "threadId": thread_id,
+                        "turnId": turn_id,
+                        "sequence": 0,
+                        "createdAt": "2026-08-14T07:20:01Z",
+                        "kind": {
+                            "type": "event",
+                            "payload": {
+                                "schemaVersion": "tinybot.agent_event.v1",
+                                "eventId": "tool-call-event",
+                                "sequence": 56,
+                                "sessionId": thread_id,
+                                "threadId": thread_id,
+                                "turnId": turn_id,
+                                "itemId": "call-1",
+                                "eventName": "agent.tool_call.delta",
+                                "phase": "tool_calling",
+                                "timestamp": "1786692001743",
+                                "source": "tool",
+                                "visibility": "user",
+                                "payload": {
+                                    "toolCallId": "call-1",
+                                    "toolName": "exec_command",
+                                    "argumentsDelta": "{}"
+                                }
+                            }
+                        }
+                    }
+                }),
+            ),
+        },
+        ThreadLogLine {
+            timestamp: "2026-08-14T07:20:02Z".to_string(),
+            ordinal: Some(42),
+            item: ThreadLogItem::ResponseItem(
+                typed_response_item(
+                    serde_json::json!({
+                        "type": "function_call_output",
+                        "call_id": "call-1",
+                        "turnId": turn_id,
+                        "threadItemSequence": 67,
+                        "timestamp": "1786692002260",
+                        "status": "ok",
+                        "output": "done"
+                    }),
+                    "legacy mixed-sequence test output",
+                )
+                .unwrap(),
+            ),
+        },
+        ThreadLogLine {
+            timestamp: "2026-08-14T07:20:03Z".to_string(),
+            ordinal: Some(55),
+            item: ThreadLogItem::ResponseItem(
+                typed_response_item(
+                    serde_json::json!({
+                        "type": "message",
+                        "id": "final-1",
+                        "role": "assistant",
+                        "turnId": turn_id,
+                        "content": [{ "type": "output_text", "text": "Done." }]
+                    }),
+                    "legacy mixed-sequence test final answer",
+                )
+                .unwrap(),
+            ),
+        },
+    ];
+
+    let thread_items = thread_items_from_effective_rollout(&lines, &[0, 1, 2], thread_id)
+        .expect("legacy Rollout should reconstruct");
+    let events =
+        crate::threads::domain::runtime_events_from_thread_items(&thread_items, thread_id, turn_id);
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| event.sequence)
+            .collect::<Vec<_>>(),
+        vec![56, 67, 55]
+    );
+
+    let snapshot =
+        crate::agent::runtime_protocol::project_timeline_snapshot(thread_id, turn_id, &events)
+            .expect("replay order should keep historical tools before the final answer");
+    assert_eq!(
+        snapshot
+            .items
+            .iter()
+            .map(|item| item.item_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["call-1", "final-1"]
+    );
+}
+
+#[test]
 fn repeated_identical_thread_record_does_not_append_metadata_snapshot() {
     let root = std::env::temp_dir().join(format!(
         "tinybot-thread-metadata-noop-{}-{}",

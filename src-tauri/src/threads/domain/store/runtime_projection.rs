@@ -5,6 +5,7 @@ use crate::agent::runtime_protocol::{
 };
 use crate::threads::domain::types::{ThreadItem, ThreadItemKind};
 use serde_json::Value;
+use std::collections::HashSet;
 
 fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(AgentEventKind, Value)> {
     match &item.kind {
@@ -18,6 +19,7 @@ fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(AgentEventKind,
                 "content": response_item_text(value),
                 "messageId": value.get("messageId").or_else(|| value.get("id")).cloned().unwrap_or_else(|| Value::String(item.item_id.clone())),
                 "messagePhase": value.get("phase").cloned().unwrap_or_else(|| Value::String("final_answer".to_string())),
+                "modelCallId": value.get("modelCallId").or_else(|| value.get("model_call_id")).cloned().unwrap_or(Value::Null),
             }),
         )),
         ThreadItemKind::Reasoning(value) => Some((
@@ -63,17 +65,15 @@ fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(AgentEventKind,
         }
         ThreadItemKind::Error(value) => Some((AgentEventKind::Error, value.clone())),
         ThreadItemKind::Cancelled(value) => Some((AgentEventKind::Cancelled, value.clone())),
-        ThreadItemKind::ContextCompaction(value) => {
-            persisted_context_state_event(value).or_else(|| {
-                Some((
-                    AgentEventKind::ContextCompacted,
-                    context_checkpoint(value).clone(),
-                ))
-            })
-        }
-        ThreadItemKind::ContextTrimmed(value) => persisted_context_state_event(value)
+        ThreadItemKind::ContextCompaction(value) => persisted_semantic_event(value).or_else(|| {
+            Some((
+                AgentEventKind::ContextCompacted,
+                context_checkpoint(value).clone(),
+            ))
+        }),
+        ThreadItemKind::ContextTrimmed(value) => persisted_semantic_event(value)
             .or_else(|| Some((AgentEventKind::ContextTrimmed, value.clone()))),
-        ThreadItemKind::Event(value) => persisted_context_state_event(value),
+        ThreadItemKind::Event(value) => persisted_semantic_event(value),
         ThreadItemKind::AssistantMessageDelta(_)
         | ThreadItemKind::TurnStarted(_)
         | ThreadItemKind::TurnStep(_)
@@ -96,7 +96,7 @@ fn persisted_tool_result_status(value: &Value, result: &Value) -> Option<String>
     }
 }
 
-fn persisted_context_state_event(value: &Value) -> Option<(AgentEventKind, Value)> {
+fn persisted_semantic_event(value: &Value) -> Option<(AgentEventKind, Value)> {
     let event = if value.get("eventName").is_some() {
         value
     } else {
@@ -109,7 +109,8 @@ fn persisted_context_state_event(value: &Value) -> Option<(AgentEventKind, Value
         EventNameResolution::Canonical(
             kind @ (AgentEventKind::ContextCompacted
             | AgentEventKind::ContextTrimmed
-            | AgentEventKind::Usage),
+            | AgentEventKind::Usage
+            | AgentEventKind::ToolCallDelta),
         ) => kind,
         EventNameResolution::Canonical(_)
         | EventNameResolution::DeprecatedIgnored(_)
@@ -197,6 +198,7 @@ fn runtime_event_from_thread_item(
 ) -> Option<AgentRuntimeEventEnvelope> {
     let (event_kind, payload) = semantic_event_from_thread_item(item)?;
     let item_id = semantic_item_id(item);
+    let (sequence, timestamp) = persisted_runtime_event_identity(item);
     let phase = event_kind
         .definition()
         .resolve_phase(&AgentRuntimePhase::Planning, &payload)
@@ -210,12 +212,37 @@ fn runtime_event_from_thread_item(
             item_id: Some(item_id),
             event_kind,
             phase,
-            sequence: item.sequence,
-            timestamp: item.created_at.clone(),
+            sequence,
+            timestamp,
             trace_context: None,
             payload,
         },
     ))
+}
+
+fn persisted_runtime_event_identity(item: &ThreadItem) -> (u64, String) {
+    let value = match &item.kind {
+        ThreadItemKind::Event(value)
+        | ThreadItemKind::AssistantMessageCompleted(value)
+        | ThreadItemKind::Reasoning(value)
+        | ThreadItemKind::ToolCallStarted(value)
+        | ThreadItemKind::ToolCallOutput(value) => value,
+        _ => return (item.sequence, item.created_at.clone()),
+    };
+    let sequence = value
+        .get("sequence")
+        .or_else(|| value.get("threadItemSequence"))
+        .or_else(|| value.get("thread_item_sequence"))
+        .and_then(Value::as_u64)
+        .unwrap_or(item.sequence);
+    let timestamp = value
+        .get("timestamp")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|timestamp| !timestamp.is_empty())
+        .unwrap_or(&item.created_at)
+        .to_string();
+    (sequence, timestamp)
 }
 
 fn semantic_item_id(item: &ThreadItem) -> String {
@@ -302,20 +329,43 @@ pub(crate) fn runtime_events_from_thread_items(
     session_id: &str,
     turn_id: &str,
 ) -> Vec<AgentRuntimeEventEnvelope> {
+    let persisted_tool_call_ids = items
+        .iter()
+        .filter(|item| item.turn_id == turn_id)
+        .filter_map(|item| match &item.kind {
+            ThreadItemKind::Event(value) => persisted_semantic_event(value),
+            _ => None,
+        })
+        .filter_map(|(kind, payload)| {
+            (kind == AgentEventKind::ToolCallDelta)
+                .then(|| {
+                    payload
+                        .get("toolCallId")
+                        .or_else(|| payload.get("tool_call_id"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+                .flatten()
+        })
+        .collect::<HashSet<_>>();
     let has_persisted_context_event = items.iter().any(|item| {
         item.turn_id == turn_id
             && matches!(
                 &item.kind,
                 ThreadItemKind::Event(value)
-                    if persisted_context_state_event(value).is_some_and(|(kind, _)| matches!(
+                    if persisted_semantic_event(value).is_some_and(|(kind, _)| matches!(
                         kind,
                         AgentEventKind::ContextCompacted | AgentEventKind::ContextTrimmed
                     ))
             )
     });
-    items
+    let mut events = items
         .iter()
         .filter(|item| item.turn_id == turn_id)
+        .filter(|item| {
+            !matches!(&item.kind, ThreadItemKind::ToolCallStarted(_))
+                || !persisted_tool_call_ids.contains(&semantic_item_id(item))
+        })
         .filter(|item| {
             !has_persisted_context_event
                 || !matches!(
@@ -324,7 +374,29 @@ pub(crate) fn runtime_events_from_thread_items(
                 )
         })
         .filter_map(|item| runtime_event_from_thread_item(item, session_id))
-        .collect()
+        .collect::<Vec<_>>();
+    let event_item_ids = events
+        .iter()
+        .filter_map(|event| event.item_id.clone())
+        .collect::<HashSet<_>>();
+    for item_id in event_item_ids {
+        let positions = events
+            .iter()
+            .enumerate()
+            .filter_map(|(index, event)| {
+                (event.item_id.as_deref() == Some(&item_id)).then_some(index)
+            })
+            .collect::<Vec<_>>();
+        let mut item_events = positions
+            .iter()
+            .map(|index| events[*index].clone())
+            .collect::<Vec<_>>();
+        item_events.sort_by_key(|event| event.sequence);
+        for (position, event) in positions.into_iter().zip(item_events) {
+            events[position] = event;
+        }
+    }
+    events
 }
 
 pub(super) fn turn_items_from_thread_items(

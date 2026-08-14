@@ -15,8 +15,9 @@ pub struct AgentTimelineProjector {
     turn_id: String,
     order: Vec<String>,
     items: HashMap<String, AgentTurnItem>,
+    assistant_phases: HashMap<String, AgentAssistantMessagePhase>,
     snapshot_revision: u64,
-    final_answer: Option<(u64, String)>,
+    final_answer: Option<String>,
 }
 
 pub fn project_turn_items_from_trace_events(
@@ -24,11 +25,19 @@ pub fn project_turn_items_from_trace_events(
 ) -> Vec<AgentTurnItem> {
     let mut order = Vec::new();
     let mut items = HashMap::<String, AgentTurnItem>::new();
+    let mut assistant_phases = HashMap::<String, AgentAssistantMessagePhase>::new();
 
     for event in events {
         match canonical_event_kind(event) {
             Ok(Some(kind)) => {
-                apply_trace_event_to_items(&mut order, &mut items, event, kind);
+                apply_trace_event_to_items(
+                    &mut order,
+                    &mut items,
+                    &mut assistant_phases,
+                    event,
+                    kind,
+                )
+                .unwrap_or_else(|error| panic!("{error}"));
             }
             Ok(None) => {}
             Err(error) => panic!("{error}"),
@@ -44,14 +53,39 @@ pub fn project_turn_items_from_trace_events(
 fn apply_trace_event_to_items(
     order: &mut Vec<String>,
     items: &mut HashMap<String, AgentTurnItem>,
+    assistant_phases: &mut HashMap<String, AgentAssistantMessagePhase>,
     event: &AgentRuntimeEventEnvelope,
     event_kind: AgentEventKind,
-) -> Option<String> {
-    let kind = projected_item_kind(event, event_kind)?;
+) -> Result<Option<String>, String> {
+    let Some(kind) = projected_item_kind(event, event_kind) else {
+        return Ok(None);
+    };
     let item_id = event
         .item_id
         .clone()
         .unwrap_or_else(|| projected_item_id(event, &kind));
+    if kind == AgentTurnItemKind::AssistantMessage
+        && matches!(
+            event_kind,
+            AgentEventKind::MessageClassified | AgentEventKind::MessageCompleted
+        )
+    {
+        validate_and_record_assistant_phase(
+            assistant_phases,
+            &item_id,
+            assistant_message_phase(&event.payload, event_kind),
+        )?;
+    }
+    if kind == AgentTurnItemKind::AssistantMessage
+        && !items.contains_key(&item_id)
+        && matches!(
+            event_kind,
+            AgentEventKind::MessageClassified | AgentEventKind::MessageCompleted
+        )
+        && !assistant_event_has_content(event)
+    {
+        return Ok(None);
+    }
     let status = projected_item_status(event, event_kind);
     let payload = projected_item_payload(
         items.get(&item_id).map(|item| &item.payload),
@@ -64,10 +98,10 @@ fn apply_trace_event_to_items(
 
     if let Some(item) = items.get_mut(&item_id) {
         if item.kind != kind {
-            panic!(
+            return Err(format!(
                 "canonical timeline item `{item_id}` changed kind from {:?} to {:?}",
                 item.kind, kind
-            );
+            ));
         }
         if matches!(
             item.status,
@@ -76,12 +110,12 @@ fn apply_trace_event_to_items(
                 | AgentTurnItemStatus::Cancelled
         ) && item.status != status
         {
-            panic!(
+            return Err(format!(
                 "canonical timeline item `{item_id}` cannot transition from {:?} to {:?}",
                 item.status, status
-            );
+            ));
         }
-        validate_assistant_phase_transition(&item.data, &data, &item_id);
+        validate_assistant_phase_transition(&item.data, &data, &item_id)?;
         item.status = status;
         item.updated_at = Some(event.timestamp.clone());
         item.revision += 1;
@@ -121,7 +155,7 @@ fn apply_trace_event_to_items(
             },
         );
     }
-    Some(item_id)
+    Ok(Some(item_id))
 }
 
 impl AgentTimelineProjector {
@@ -131,6 +165,7 @@ impl AgentTimelineProjector {
             turn_id: turn_id.into(),
             order: Vec::new(),
             items: HashMap::new(),
+            assistant_phases: HashMap::new(),
             snapshot_revision: 0,
             final_answer: None,
         }
@@ -160,8 +195,13 @@ impl AgentTimelineProjector {
         let Some(event_kind) = canonical_event_kind(event)? else {
             return Ok(None);
         };
-        let Some(item_id) =
-            apply_trace_event_to_items(&mut self.order, &mut self.items, event, event_kind)
+        let Some(item_id) = apply_trace_event_to_items(
+            &mut self.order,
+            &mut self.items,
+            &mut self.assistant_phases,
+            event,
+            event_kind,
+        )?
         else {
             return Ok(None);
         };
@@ -184,17 +224,11 @@ impl AgentTimelineProjector {
     }
 
     pub fn snapshot(&self) -> Result<AgentTimelineSnapshot, String> {
-        let mut items = self
+        let items = self
             .order
             .iter()
             .filter_map(|item_id| self.items.get(item_id).cloned())
             .collect::<Vec<_>>();
-        items.sort_by(|left, right| {
-            left.sequence
-                .cmp(&right.sequence)
-                .then_with(|| left.item_id.cmp(&right.item_id))
-        });
-        validate_final_answer_boundary(&items)?;
         Ok(AgentTimelineSnapshot {
             schema_version: AGENT_TIMELINE_SCHEMA_VERSION.to_string(),
             session_id: self.session_id.clone(),
@@ -209,8 +243,8 @@ impl AgentTimelineProjector {
             .items
             .get(item_id)
             .ok_or_else(|| format!("projected timeline item `{item_id}` is missing"))?;
-        if let Some((final_sequence, final_item_id)) = self.final_answer.as_ref() {
-            if item.sequence > *final_sequence && item_is_disallowed_after_final(item) {
+        if let Some(final_item_id) = self.final_answer.as_ref() {
+            if item.item_id != *final_item_id && item_is_disallowed_after_final(item) {
                 return Err(format!(
                     "canonical timeline item `{}` appears after final answer `{}`",
                     item.item_id, final_item_id
@@ -220,15 +254,7 @@ impl AgentTimelineProjector {
         if !item_is_final_answer(item) || self.final_answer.is_some() {
             return Ok(());
         }
-        if let Some(invalid) = self.items.values().find(|candidate| {
-            candidate.sequence > item.sequence && item_is_disallowed_after_final(candidate)
-        }) {
-            return Err(format!(
-                "canonical timeline item `{}` appears after final answer `{}`",
-                invalid.item_id, item.item_id
-            ));
-        }
-        self.final_answer = Some((item.sequence, item.item_id.clone()));
+        self.final_answer = Some(item.item_id.clone());
         Ok(())
     }
 }
@@ -483,7 +509,7 @@ fn validate_assistant_phase_transition(
     previous: &AgentTurnItemData,
     next: &AgentTurnItemData,
     item_id: &str,
-) {
+) -> Result<(), String> {
     let (
         AgentTurnItemData::AssistantMessage {
             phase: previous_phase,
@@ -494,30 +520,38 @@ fn validate_assistant_phase_transition(
         },
     ) = (previous, next)
     else {
-        return;
-    };
-    if previous_phase == next_phase || *previous_phase == AgentAssistantMessagePhase::Unknown {
-        return;
-    }
-    panic!(
-        "canonical assistant item `{item_id}` cannot transition phase from {previous_phase:?} to {next_phase:?}"
-    );
-}
-
-fn validate_final_answer_boundary(items: &[AgentTurnItem]) -> Result<(), String> {
-    let Some(final_item) = items.iter().find(|item| item_is_final_answer(item)) else {
         return Ok(());
     };
-    if let Some(invalid) = items
-        .iter()
-        .find(|item| item.sequence > final_item.sequence && item_is_disallowed_after_final(item))
-    {
-        return Err(format!(
-            "canonical timeline item `{}` appears after final answer `{}`",
-            invalid.item_id, final_item.item_id
-        ));
+    validate_assistant_phase_change(*previous_phase, *next_phase, item_id)
+}
+
+fn validate_and_record_assistant_phase(
+    phases: &mut HashMap<String, AgentAssistantMessagePhase>,
+    item_id: &str,
+    next_phase: AgentAssistantMessagePhase,
+) -> Result<(), String> {
+    let previous_phase = phases
+        .get(item_id)
+        .copied()
+        .unwrap_or(AgentAssistantMessagePhase::Unknown);
+    validate_assistant_phase_change(previous_phase, next_phase, item_id)?;
+    if previous_phase == AgentAssistantMessagePhase::Unknown {
+        phases.insert(item_id.to_string(), next_phase);
     }
     Ok(())
+}
+
+fn validate_assistant_phase_change(
+    previous_phase: AgentAssistantMessagePhase,
+    next_phase: AgentAssistantMessagePhase,
+    item_id: &str,
+) -> Result<(), String> {
+    if previous_phase == next_phase || previous_phase == AgentAssistantMessagePhase::Unknown {
+        return Ok(());
+    }
+    Err(format!(
+        "canonical assistant item `{item_id}` cannot transition phase from {previous_phase:?} to {next_phase:?}"
+    ))
 }
 
 fn item_is_final_answer(item: &AgentTurnItem) -> bool {
@@ -1304,6 +1338,11 @@ fn payload_text_fragment(payload: &Value) -> Option<&str> {
     ["delta", "finalContent", "content", "text", "message"]
         .into_iter()
         .find_map(|key| payload.get(key).and_then(Value::as_str))
+}
+
+fn assistant_event_has_content(event: &AgentRuntimeEventEnvelope) -> bool {
+    let payload = event.payload.get("agentItem").unwrap_or(&event.payload);
+    payload_text_fragment(payload).is_some_and(|content| !content.trim().is_empty())
 }
 
 fn done_event_has_final_content(payload: &Value) -> bool {

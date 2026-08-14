@@ -2996,6 +2996,15 @@ fn thread_items_from_effective_rollout(
                     .or_else(|| item.as_value().get("thread_item_sequence"))
                     .and_then(Value::as_u64)
                     .unwrap_or(sequence);
+                let kind = response_item_thread_kind(item.as_value());
+                // Tool output mutates an existing call, so its source sequence is identity
+                // metadata rather than replay order. Keep the Rollout position to ensure the
+                // persisted call identity is always reconstructed before its completion.
+                let replay_sequence = if matches!(&kind, ThreadItemKind::ToolCallOutput(_)) {
+                    sequence
+                } else {
+                    item_sequence
+                };
                 Some(ThreadItem {
                     item_id: rollout_thread_item_id(item.as_value(), thread_id, item_sequence),
                     thread_id: thread_id.to_string(),
@@ -3009,9 +3018,9 @@ fn thread_items_from_effective_rollout(
                     )?,
                     parent_item_id: string_value(item.as_value(), "parentItemId")
                         .or_else(|| string_value(item.as_value(), "parent_item_id")),
-                    sequence: item_sequence,
+                    sequence: replay_sequence,
                     created_at: line.timestamp.clone(),
-                    kind: response_item_thread_kind(item.as_value()),
+                    kind,
                 })
             }
             ThreadLogItem::EventMsg(event) if event.kind() == &EventKind::ThreadItem => {

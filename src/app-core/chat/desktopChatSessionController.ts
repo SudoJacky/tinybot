@@ -2,9 +2,11 @@ import type { AgentInputReference } from "./agentInputReference";
 import type { ReasoningEffort } from "./reasoningEffort";
 import {
   createAgentTimelineModel,
+  TimelineItemIdentityConflictError,
   TimelineRevisionGapError,
   type ChatTimelineSnapshot,
 } from "./agentTimelineModel";
+import { normalizeAgentTimelinePatchPayload } from "./chatTurnModel";
 import { logDesktopNativeDebug, summarizeDebugText } from "../native/desktopNativeChatDebug";
 import type {
   NativeThreadListResult,
@@ -90,7 +92,7 @@ export function createDesktopChatSessionController({
   };
   const timelineModel = createAgentTimelineModel();
   const loadedTimelineSessions = new Set<string>();
-  const loadingTimelineSessions = new Set<string>();
+  const timelineLoads = new Map<string, Promise<ChatTimelineSnapshot>>();
   const bufferedTimelinePatches = new Map<string, unknown[]>();
 
   async function loadSessions(): Promise<number> {
@@ -178,6 +180,21 @@ export function createDesktopChatSessionController({
     if (loadedTimelineSessions.has(sessionKey)) {
       return timelineModel.snapshot(sessionKey);
     }
+    const existingLoad = timelineLoads.get(sessionKey);
+    if (existingLoad) {
+      return existingLoad;
+    }
+    let load: Promise<ChatTimelineSnapshot>;
+    load = loadTimelineFromRuntime(sessionKey).finally(() => {
+      if (timelineLoads.get(sessionKey) === load) {
+        timelineLoads.delete(sessionKey);
+      }
+    });
+    timelineLoads.set(sessionKey, load);
+    return load;
+  }
+
+  async function loadTimelineFromRuntime(sessionKey: string): Promise<ChatTimelineSnapshot> {
     if (!api.listTurns || !api.getAgentTurnRuntimeState) {
       throw new Error("Canonical agent timeline API is unavailable");
     }
@@ -185,13 +202,23 @@ export function createDesktopChatSessionController({
       ...summarizeSessionState(),
       sessionKey,
     });
-    loadingTimelineSessions.add(sessionKey);
     try {
       const turnsPayload = await api.listTurns(sessionKey);
       const turnIds = normalizeTurnIdsPayload(turnsPayload);
       const payloads = await Promise.all(turnIds.map((turnId) => api.getAgentTurnRuntimeState?.(sessionKey, turnId)));
       let snapshot = timelineModel.load(sessionKey, payloads.filter((payload) => payload !== null && payload !== undefined));
-      for (const patch of bufferedTimelinePatches.get(sessionKey) ?? []) {
+      for (const patchPayload of bufferedTimelinePatches.get(sessionKey) ?? []) {
+        const patch = normalizeAgentTimelinePatchPayload(patchPayload);
+        const loadedRevision = snapshot.turnRevisions[patch.turnId];
+        if (loadedRevision !== undefined && patch.snapshotRevision <= loadedRevision) {
+          logDesktopNativeDebug("session.agentTurnRuntime.patch.subsumed", {
+            loadedRevision,
+            patchRevision: patch.snapshotRevision,
+            turnId: patch.turnId,
+            sessionKey,
+          });
+          continue;
+        }
         snapshot = timelineModel.applyPatch(sessionKey, patch);
       }
       bufferedTimelinePatches.delete(sessionKey);
@@ -211,13 +238,11 @@ export function createDesktopChatSessionController({
         sessionKey,
       });
       throw error;
-    } finally {
-      loadingTimelineSessions.delete(sessionKey);
     }
   }
 
   async function applyTimelinePatch(sessionKey: string, payload: unknown): Promise<ChatTimelineSnapshot | null> {
-    if (loadingTimelineSessions.has(sessionKey) || !loadedTimelineSessions.has(sessionKey)) {
+    if (timelineLoads.has(sessionKey) || !loadedTimelineSessions.has(sessionKey)) {
       const patches = bufferedTimelinePatches.get(sessionKey) ?? [];
       patches.push(payload);
       bufferedTimelinePatches.set(sessionKey, patches);
@@ -228,6 +253,25 @@ export function createDesktopChatSessionController({
       syncRespondingState(sessionKey, snapshot);
       return snapshot;
     } catch (error) {
+      if (error instanceof TimelineItemIdentityConflictError) {
+        logDesktopNativeDebug("session.agentTurnRuntime.patch.identityConflict", {
+          currentSequence: error.currentSequence,
+          itemId: error.itemId,
+          receivedSequence: error.receivedSequence,
+          snapshotRevision: error.snapshotRevision,
+          turnId: error.turnId,
+          sessionKey,
+        });
+        loadedTimelineSessions.delete(sessionKey);
+        const snapshot = await loadTimeline(sessionKey);
+        const durableRevision = snapshot.turnRevisions[error.turnId];
+        if (durableRevision === undefined || durableRevision < error.snapshotRevision) {
+          throw new Error(
+            `Canonical timeline identity recovery for item ${error.itemId} loaded revision ${durableRevision ?? "missing"}, expected at least ${error.snapshotRevision}`,
+          );
+        }
+        return snapshot;
+      }
       if (!(error instanceof TimelineRevisionGapError)) {
         throw error;
       }
@@ -255,6 +299,20 @@ export function createDesktopChatSessionController({
       state.respondingThreadIds.add(threadId);
     } else {
       state.respondingThreadIds.delete(threadId);
+    }
+
+    const latestTurnStatus = snapshot.turns[snapshot.turns.length - 1]?.status;
+    const projectedThreadStatus = responding
+      ? "running"
+      : latestTurnStatus === "failed" || latestTurnStatus === "interrupted"
+        ? "failed"
+        : latestTurnStatus === "completed" ? "idle" : undefined;
+    if (projectedThreadStatus) {
+      state.threads = state.threads.map((thread) => (
+        thread.threadId === threadId && thread.status !== "archived"
+          ? { ...thread, status: projectedThreadStatus }
+          : thread
+      ));
     }
   }
 

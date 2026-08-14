@@ -118,17 +118,34 @@ successful append.
 
 ## Timeline projection and replay
 
-Rollout ordinals define runtime-event order. A projected timeline item keeps the
-source event position as `sequence`; updates advance `revision` without changing
-that sequence. `snapshotRevision` advances only for canonical timeline
-mutations, so live patches are contiguous even when diagnostic events occur
-between them.
+Rollout line order defines runtime-event replay order. A persisted canonical
+runtime event retains its source `sequence` and timestamp so live patches and
+reloaded snapshots project the same item identity; the Rollout ordinal and
+timestamp are fallbacks for older events that do not carry those fields. Updates
+advance `revision` without changing the source sequence. `snapshotRevision`
+advances only for canonical timeline mutations, so live patches are contiguous
+even when diagnostic events occur between them.
+
+In Responses mode, the provider-native `function_call` remains the model replay
+record. Its later `agent.tool_call.delta` is also persisted as a lightweight
+timeline-identity event so reconstruction uses the live Tool call's sequence
+and timestamp without duplicating the provider call in model history. Older
+Rollouts without that identity event continue to use their response-item
+ordinal.
+
+Tool outputs retain their source sequence and timestamp as runtime identity
+metadata, but their Rollout ordinal remains the replay position. This keeps a
+completion after its matching call identity even when runtime sequence values
+are numerically lower than later Rollout ordinals. Timeline snapshots preserve
+the resulting application order instead of sorting again by source sequence.
 
 Assistant-message identities are scoped to one provider/model call. Provider
 IDs are retained when available; otherwise the projector derives a stable ID
 from the provider attempt or iteration. Deltas coalesce only into that matching
-item. Reasoning identities remain available to replay and diagnostics but do
-not create product-facing timeline items.
+item. A tool-only provider response with no assistant content does not create a
+live-only empty item or advance `snapshotRevision`. Reasoning identities remain
+available to replay and diagnostics but do not create product-facing timeline
+items.
 
 Thread-owned runtime-event records persist the canonical item identity.
 Reconstruction of older records recovers assistant and reasoning identity from

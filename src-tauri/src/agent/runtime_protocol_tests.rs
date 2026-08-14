@@ -829,7 +829,6 @@ fn timeline_snapshot_and_patch_share_revision_and_item_projection() {
 }
 
 #[test]
-#[should_panic(expected = "cannot transition from Completed to Running")]
 fn canonical_projection_rejects_terminal_status_regression() {
     let events = vec![
         runtime_event(
@@ -850,7 +849,10 @@ fn canonical_projection_rejects_terminal_status_regression() {
         ),
     ];
 
-    let _ = project_timeline_snapshot("session-1", "turn-terminal", &events);
+    let error = project_timeline_snapshot("session-1", "turn-terminal", &events)
+        .expect_err("terminal status regression must be rejected without panicking");
+
+    assert!(error.contains("cannot transition from Completed to Running"));
 }
 
 #[test]
@@ -1073,7 +1075,6 @@ fn canonical_projection_omits_non_user_reasoning() {
 }
 
 #[test]
-#[should_panic(expected = "cannot transition phase from Commentary to FinalAnswer")]
 fn canonical_projection_rejects_reclassifying_commentary_as_final_answer() {
     let events = vec![
         runtime_event(
@@ -1098,7 +1099,10 @@ fn canonical_projection_rejects_reclassifying_commentary_as_final_answer() {
         ),
     ];
 
-    let _ = project_turn_items_from_trace_events(&events);
+    let error = project_timeline_snapshot("session-1", "turn-phase-regression", &events)
+        .expect_err("assistant phase reclassification must be rejected without panicking");
+
+    assert!(error.contains("cannot transition phase from Commentary to FinalAnswer"));
 }
 
 #[test]
@@ -1130,6 +1134,52 @@ fn canonical_timeline_rejects_work_after_final_answer() {
         .expect_err("post-final work must be rejected");
 
     assert!(error.contains("appears after final answer"));
+}
+
+#[test]
+fn canonical_timeline_uses_replay_order_for_final_answer_boundary() {
+    let events = vec![
+        runtime_event(
+            "turn-mixed-sequence",
+            "agent.tool.start",
+            AgentRuntimePhase::ToolRunning,
+            Some("tool-1"),
+            56,
+            json!({ "toolCallId": "tool-1", "toolName": "shell" }),
+        ),
+        runtime_event(
+            "turn-mixed-sequence",
+            "agent.tool.result",
+            AgentRuntimePhase::Completed,
+            Some("tool-1"),
+            67,
+            json!({ "toolCallId": "tool-1", "toolName": "shell" }),
+        ),
+        runtime_event(
+            "turn-mixed-sequence",
+            "agent.message.completed",
+            AgentRuntimePhase::Completed,
+            Some("message-1"),
+            55,
+            json!({
+                "content": "Done.",
+                "modelCallId": "call-0",
+                "messagePhase": "final_answer"
+            }),
+        ),
+    ];
+
+    let snapshot = project_timeline_snapshot("session-1", "turn-mixed-sequence", &events)
+        .expect("replay order, not source sequence, defines the final-answer boundary");
+
+    assert_eq!(
+        snapshot
+            .items
+            .iter()
+            .map(|item| (item.item_id.as_str(), item.sequence))
+            .collect::<Vec<_>>(),
+        vec![("tool-1", 56), ("message-1", 55)]
+    );
 }
 
 #[test]

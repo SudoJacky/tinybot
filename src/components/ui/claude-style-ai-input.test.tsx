@@ -112,20 +112,32 @@ describe("ClaudeStyleAiInput slash commands", () => {
     });
   });
 
-  it("queues the next turn without showing text actions while responding", async () => {
+  it("uses one primary action that switches between stop and send", async () => {
     const user = userEvent.setup();
     const onSendMessage = vi.fn();
-    render(<ClaudeStyleAiInput
+    const onStopResponding = vi.fn();
+    const view = render(<ClaudeStyleAiInput
       onSendMessage={onSendMessage}
+      onStopResponding={onStopResponding}
       responding
     />);
 
+    expect(document.querySelectorAll(".claude-ai-input__send")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Queue as next turn" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Stop generation" }));
+    expect(onStopResponding).toHaveBeenCalledTimes(1);
+
+    view.rerender(<ClaudeStyleAiInput
+      onSendMessage={onSendMessage}
+      onStopResponding={onStopResponding}
+    />);
     const input = screen.getByRole("textbox", { name: "Message" });
-    await user.type(input, "Do this afterward");
-    await user.click(screen.getByRole("button", { name: "Queue as next turn" }));
-    expect(onSendMessage).toHaveBeenCalledWith("Do this afterward", [], [], { reasoningEffort: "medium" });
-    expect(screen.queryByText("Interrupt current task")).toBeNull();
-    expect(screen.queryByText("Queue as next turn")).toBeNull();
+    await user.type(input, "Start the next turn");
+    expect(document.querySelectorAll(".claude-ai-input__send")).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Stop generation" })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    expect(onSendMessage).toHaveBeenCalledWith("Start the next turn", [], [], { reasoningEffort: "medium" });
   });
 
   it("dismisses the menu with Escape without changing the draft", async () => {

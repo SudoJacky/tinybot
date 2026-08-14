@@ -217,6 +217,59 @@ describe("chat turn model", () => {
     });
   });
 
+  test("preserves backend replay order when persisted source sequences are mixed", () => {
+    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("turn-mixed-sequence", [
+      {
+        itemId: "call-first",
+        sequence: 56,
+        kind: "tool_call",
+        status: "completed",
+        data: {
+          type: "tool_call",
+          toolCallId: "call-first",
+          name: "read_file",
+          status: "completed",
+          args: { path: "README.md" },
+          result: { summary: "first" },
+          timing: {},
+        },
+      },
+      {
+        itemId: "call-second",
+        sequence: 78,
+        kind: "tool_call",
+        status: "completed",
+        data: {
+          type: "tool_call",
+          toolCallId: "call-second",
+          name: "read_file",
+          status: "completed",
+          args: { path: "Cargo.toml" },
+          result: { summary: "second" },
+          timing: {},
+        },
+      },
+      {
+        itemId: "assistant-final",
+        sequence: 55,
+        kind: "assistant_message",
+        status: "completed",
+        data: {
+          type: "assistant_message",
+          messageId: "assistant-final",
+          modelCallId: "call-final",
+          phase: "final_answer",
+          content: "Done.",
+        },
+      },
+    ]));
+
+    const [turn] = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
+
+    expect(turn.steps.map((step) => step.id)).toEqual(["call-first", "call-second"]);
+    expect(turn.finalAnswer?.text).toBe("Done.");
+  });
+
   test("preserves the context window budget from a restored compaction item", () => {
     const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("turn-compacted", [{
       itemId: "turn-compacted:context",

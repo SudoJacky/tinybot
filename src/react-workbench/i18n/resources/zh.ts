@@ -317,7 +317,7 @@ export const zh = {
         low: { label: "轻量", description: "优先保证速度并降低 Token 消耗。" }, medium: { label: "中等", description: "使用均衡的推理深度。" },
         high: { label: "高", description: "使用更深度的推理。" }, xhigh: { label: "超高", description: "使用非常深入的推理。" }, max: { label: "最大", description: "使用模型支持的最大推理深度。" },
       },
-      queueHelp: "当前任务完成后作为下一轮发送", queueDisabled: "输入内容后排队", queue: "排队为下一轮", stop: "停止生成", stopUnavailable: "停止生成不可用：{{reason}}",
+      stop: "停止生成", stopUnavailable: "停止生成不可用：{{reason}}",
       unsupported: "不支持", stoppingUnavailable: "当前无法停止", send: "发送消息", sendDisabled: "输入内容后发送",
       context: { title: "上下文窗口", used: "已使用 {{percent}}%（剩余 {{left}}%）", strategy: "策略：{{strategy}}", aria: "上下文窗口已使用 {{percent}}%，剩余 {{left}}%", tokens: "已使用 {{used}} / {{window}} Token", zero: "已使用 0 Token", provider: "Provider 报告的 Token 预算" },
     },

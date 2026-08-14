@@ -599,8 +599,11 @@ The renderer queries canonical Turn summaries and runtime state through the Thre
 documented below. These commands accept `threadId` directly.
 
 `thread_get_turn_runtime_state` returns runtime events projected from the Thread's canonical
-Rollout plus one canonical timeline snapshot for product rendering. Rollout ordinals define event
-order; embedded event sequence values and in-memory thread items are not reconstruction sources.
+Rollout plus one canonical timeline snapshot for product rendering. Rollout ordinals define replay
+order. Persisted canonical runtime event envelopes retain their original sequence and timestamp so
+live patches and reloaded snapshots keep the same item identity; the Rollout ordinal and timestamp
+are fallback values for older records that do not carry that identity. In-memory thread items are
+not reconstruction sources.
 
 ```json
 {
@@ -638,14 +641,28 @@ order; embedded event sequence values and in-memory thread items are not reconst
 `item.sequence` is the source runtime-event position and never changes for an existing item.
 `item.revision` advances for each mutation of that item. `snapshotRevision` counts canonical
 timeline mutations only; diagnostic runtime events that do not produce an item do not advance it.
-This makes live patch revisions contiguous while preserving source ordering.
+This makes live patch revisions contiguous while preserving source identity. Snapshot array order
+is the authoritative replay/render order and does not need to be monotonic by source sequence.
+
+For Responses turns, the provider-native `function_call` remains the model-history record, while
+its canonical `agent.tool_call.delta` supplies the persisted timeline sequence and timestamp. This
+keeps model replay deduplicated and makes a reloaded Tool item match its live identity. When an
+older Rollout lacks that identity metadata, the desktop resolves a live/persisted sequence conflict
+by reloading the already-flushed durable snapshot and requires it to reach the patch revision.
+Tool outputs use their Rollout ordinal for replay order while retaining runtime sequence and
+timestamp as identity metadata, so completion cannot be replayed before its matching call. The
+projected snapshot preserves application order instead of sorting again by source sequence.
 
 `assistant_message.data.phase` is `unknown`, `commentary`, or `final_answer`. A provider-supplied
 phase is used immediately. For providers without phases, a model response followed by Tool calls is
 classified as `commentary`; a terminal response without Tool calls is classified as
-`final_answer`. Only `unknown` may transition to a classified phase. Reclassifying commentary as a
+`final_answer`. A tool-only provider response with empty assistant content does not create a
+timeline item or advance `snapshotRevision`; its Tool calls remain canonical items. Only `unknown`
+may transition to a classified phase. Reclassifying commentary as a
 final answer, changing a classified phase, or emitting Tool, Plan, Reasoning, Form, or
-Subagent work after the final answer is a protocol error and fails visibly. Plan completion is not a
+Subagent work after the final answer is a protocol error and returns a structured projection error.
+These state-machine checks belong to the backend; the renderer validates schema, revision
+continuity, and item identity, then renders the backend-provided order. Plan completion is not a
 final-answer signal.
 
 Provider reasoning is retained in provider-native replay records and debug runtime events, but it is

@@ -1010,6 +1010,7 @@ export function ChatPage({
     const applyTimeline = (nextTimeline: ChatTimelineSnapshot) => {
       setTimeline(nextTimeline);
       setTimelineError("");
+      updateSessionStatusFromTimeline(activeSessionId, nextTimeline);
       setOptimisticMessagesBySession((current) => updateSessionMessages(
         current,
         activeSessionId,
@@ -1124,16 +1125,7 @@ export function ChatPage({
       .filter((sessionId) => sessionId !== activeSessionId)
       .map((sessionId) => chatStore.subscribe(sessionId, (event) => {
         if (event.timeline) {
-          const status = sessionStatusFromTimeline(event.timeline);
-          if (status) {
-            setSessions((current) => {
-              const next = current.map((session) => (
-                session.id === sessionId ? { ...session, status } : session
-              ));
-              sessionsRef.current = next;
-              return next;
-            });
-          }
+          updateSessionStatusFromTimeline(sessionId, event.timeline);
           dispatchSessionTabs({ type: "activity", sessionId });
         }
         if (isBackgroundTabActivityEvent(event)) {
@@ -1986,6 +1978,18 @@ export function ChatPage({
       return;
     }
     await sendNextQueuedInput(sessionId, "normal_completion");
+  }
+
+  function updateSessionStatusFromTimeline(sessionId: string, nextTimeline: ChatTimelineSnapshot) {
+    const status = sessionStatusFromTimeline(nextTimeline);
+    if (!status) return;
+    setSessions((current) => {
+      const next = current.map((session) => (
+        session.id === sessionId ? { ...session, status } : session
+      ));
+      sessionsRef.current = next;
+      return next;
+    });
   }
 
   async function sendPendingInterruptInput(

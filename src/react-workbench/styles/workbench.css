@@ -6003,13 +6003,6 @@ button.tinyos-overlay-backdrop:focus-visible {
   gap: 6px;
 }
 
-.claude-ai-input__running-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
 .claude-ai-input__icon-button,
 .claude-ai-input__send {
   display: inline-grid;

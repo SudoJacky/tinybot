@@ -6,7 +6,6 @@ import {
 import type {
   BackendAgentTurnRuntimeState,
   BackendAgentTimelinePatch,
-  BackendAgentTurnItem,
   ChatTurn,
 } from "./chatTurnModel";
 
@@ -46,12 +45,23 @@ export class TimelineRevisionGapError extends Error {
   }
 }
 
+export class TimelineItemIdentityConflictError extends Error {
+  constructor(
+    readonly turnId: string,
+    readonly itemId: string,
+    readonly currentSequence: number,
+    readonly receivedSequence: number,
+    readonly snapshotRevision: number,
+  ) {
+    super(`Canonical timeline item ${itemId} changed sequence from ${currentSequence} to ${receivedSequence}`);
+    this.name = "TimelineItemIdentityConflictError";
+  }
+}
+
 type SessionTimelineState = {
   diagnostics: TimelineDiagnostic[];
   turns: Map<string, BackendAgentTurnRuntimeState>;
 };
-
-const TERMINAL_STATUSES = new Set(["completed", "failed", "cancelled"]);
 
 export function createAgentTimelineModel(): AgentTimelineModel {
   const sessions = new Map<string, SessionTimelineState>();
@@ -129,7 +139,7 @@ function applyPatchToSession(session: SessionTimelineState, patch: BackendAgentT
   if (patch.snapshotRevision === turn.snapshotRevision) {
     const current = turn.items.find((item) => item.itemId === patch.item.itemId);
     if (!current) {
-      turn.items = [...turn.items, patch.item].sort(compareCanonicalItems);
+      turn.items = [...turn.items, patch.item];
       return;
     }
     if (patch.item.revision < current.revision) {
@@ -142,10 +152,14 @@ function applyPatchToSession(session: SessionTimelineState, patch: BackendAgentT
       return;
     }
     if (patch.item.sequence !== current.sequence) {
-      throw new Error(`Canonical timeline item ${patch.item.itemId} changed sequence from ${current.sequence} to ${patch.item.sequence}`);
+      throw new TimelineItemIdentityConflictError(
+        patch.turnId,
+        patch.item.itemId,
+        current.sequence,
+        patch.item.sequence,
+        patch.snapshotRevision,
+      );
     }
-    assertMonotonicStatus(current, patch.item);
-    assertMonotonicAssistantPhase(current, patch.item);
     turn.items = turn.items.map((item) => item.itemId === patch.item.itemId ? patch.item : item);
     return;
   }
@@ -160,14 +174,20 @@ function applyPatchToSession(session: SessionTimelineState, patch: BackendAgentT
 
   const index = turn.items.findIndex((item) => item.itemId === patch.item.itemId);
   if (index < 0) {
-    turn.items = [...turn.items, patch.item].sort(compareCanonicalItems);
+    turn.items = [...turn.items, patch.item];
     turn.snapshotRevision = patch.snapshotRevision;
     return;
   }
 
   const current = turn.items[index];
   if (patch.item.sequence !== current.sequence) {
-    throw new Error(`Canonical timeline item ${patch.item.itemId} changed sequence from ${current.sequence} to ${patch.item.sequence}`);
+    throw new TimelineItemIdentityConflictError(
+      patch.turnId,
+      patch.item.itemId,
+      current.sequence,
+      patch.item.sequence,
+      patch.snapshotRevision,
+    );
   }
   if (patch.item.revision < current.revision) {
     session.diagnostics.push({
@@ -184,27 +204,8 @@ function applyPatchToSession(session: SessionTimelineState, patch: BackendAgentT
   if (patch.item.revision === current.revision) {
     throw new Error(`Canonical timeline mutation ${patch.snapshotRevision} did not advance item ${patch.item.itemId} revision ${current.revision}`);
   }
-  assertMonotonicStatus(current, patch.item);
-  assertMonotonicAssistantPhase(current, patch.item);
   turn.items = turn.items.map((item, itemIndex) => itemIndex === index ? patch.item : item);
   turn.snapshotRevision = patch.snapshotRevision;
-}
-
-function assertMonotonicAssistantPhase(current: BackendAgentTurnItem, incoming: BackendAgentTurnItem): void {
-  if (current.kind !== "assistant_message" || incoming.kind !== "assistant_message") {
-    return;
-  }
-  const currentPhase = String(current.data.phase);
-  const incomingPhase = String(incoming.data.phase);
-  if (currentPhase !== incomingPhase && currentPhase !== "unknown") {
-    throw new Error(`Canonical assistant item ${current.itemId} cannot transition phase from ${currentPhase} to ${incomingPhase}`);
-  }
-}
-
-function assertMonotonicStatus(current: BackendAgentTurnItem, incoming: BackendAgentTurnItem): void {
-  if (TERMINAL_STATUSES.has(current.status) && incoming.status !== current.status) {
-    throw new Error(`Canonical timeline item ${current.itemId} cannot transition from ${current.status} to ${incoming.status}`);
-  }
 }
 
 function projectSessionSnapshot(sessionId: string, state: SessionTimelineState): ChatTimelineSnapshot {
@@ -228,10 +229,6 @@ function emptyTimelineSnapshot(sessionId: string): ChatTimelineSnapshot {
     turns: [],
     diagnostics: [],
   };
-}
-
-function compareCanonicalItems(left: BackendAgentTurnItem, right: BackendAgentTurnItem): number {
-  return left.sequence - right.sequence || left.itemId.localeCompare(right.itemId);
 }
 
 function stableSerialize(value: unknown): string {
