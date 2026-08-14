@@ -18,6 +18,10 @@ describe("desktop native workspace API", () => {
       command: "worker_workspace_file",
       args: { input: { path: "docs/readme.md" } },
     });
+    await expect(api.bootstrapFiles(["USER.md"])).resolves.toEqual({
+      command: "worker_workspace_bootstrap_files",
+      args: { input: { files: ["USER.md"] } },
+    });
     await expect(api.putFile("docs/readme.md", { content: "# Readme\n" })).resolves.toEqual({
       command: "worker_workspace_put_file",
       args: { input: { path: "docs/readme.md", body: { content: "# Readme\n" } } },

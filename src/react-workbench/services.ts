@@ -211,6 +211,8 @@ export type ToolsStore = {
 
 export type SettingsStore = {
   load(): Promise<Array<{ label: string; value: string }>>;
+  loadPersonalizationInstructions?(): Promise<PersonalizationInstructionsData>;
+  savePersonalizationInstructions?(input: PersonalizationInstructionsSaveInput): Promise<PersonalizationInstructionsData>;
   loadChatModels?(): Promise<ChatModelOption[]>;
   loadDesktopConfigSettings?(): Promise<DesktopConfigSettingsData>;
   saveDesktopConfigSettings?(currentConfig: unknown, patch: unknown): Promise<DesktopConfigSettingsSaveResult>;
@@ -219,6 +221,17 @@ export type SettingsStore = {
   loadProviderSettings?(): Promise<ProviderModelsSettingsData>;
   fetchProviderModels?(input: ProviderModelFetchInput): Promise<ProviderModelFetchResult>;
   saveProviderSettings?(currentConfig: unknown, patch: unknown): Promise<ProviderModelsSettingsData>;
+};
+
+export type PersonalizationInstructionsData = {
+  path: "USER.md";
+  contents: string;
+  updatedAt?: string;
+};
+
+export type PersonalizationInstructionsSaveInput = {
+  contents: string;
+  expectedUpdatedAt?: string;
 };
 
 export type DesktopConfigSettingsData = {

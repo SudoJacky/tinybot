@@ -26,6 +26,7 @@ use crate::desktop_commands::skills::build_worker_skills_validate_request;
 use crate::desktop_commands::skills::worker_skills_list_with_options;
 use crate::desktop_commands::webui::worker_webui_route_with_options;
 use crate::desktop_commands::webui::WorkerWebuiRouteInput;
+use crate::desktop_commands::workspace::worker_workspace_bootstrap_files_with_options;
 use crate::desktop_commands::workspace::worker_workspace_file_with_options;
 use crate::desktop_commands::workspace::worker_workspace_files_with_options;
 use crate::desktop_commands::workspace::worker_workspace_put_file_with_options;
@@ -182,6 +183,14 @@ fn worker_workspace_file_commands_use_rust_workspace() {
         Duration::from_millis(10),
     )
     .expect("workspace file should be served by Rust workspace state");
+    let bootstrap_files = worker_workspace_bootstrap_files_with_options(
+        &shared,
+        vec!["USER.md".to_string(), "TOOLS.md".to_string()],
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_millis(10),
+    )
+    .expect("bootstrap files should be served by Rust workspace state");
     let write = worker_workspace_put_file_with_options(
         &shared,
         "docs/readme.md".to_string(),
@@ -195,6 +204,11 @@ fn worker_workspace_file_commands_use_rust_workspace() {
     assert_eq!(files["items"][0]["path"], "docs/readme.md");
     assert_eq!(file["path"], "docs/readme.md");
     assert_eq!(file["content"], "old readme");
+    assert_eq!(bootstrap_files["files"], serde_json::json!([]));
+    assert_eq!(
+        bootstrap_files["missing"],
+        serde_json::json!(["USER.md", "TOOLS.md"])
+    );
     assert_eq!(write["path"], "docs/readme.md");
     assert_eq!(
         std::fs::read_to_string(fixture.root.join("docs").join("readme.md"))

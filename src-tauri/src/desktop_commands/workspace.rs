@@ -15,6 +15,12 @@ pub(crate) struct WorkerWorkspaceFileInput {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct WorkerWorkspaceBootstrapFilesInput {
+    files: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct WorkerWorkspacePutFileInput {
     path: String,
     body: serde_json::Value,
@@ -55,6 +61,20 @@ pub(crate) fn worker_workspace_file(
     worker_workspace_file_with_options(
         state.inner(),
         input.path,
+        native_backend_workspace_root(),
+        native_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+pub(crate) fn worker_workspace_bootstrap_files(
+    input: WorkerWorkspaceBootstrapFilesInput,
+    state: State<'_, SharedNativeRuntime>,
+) -> Result<serde_json::Value, String> {
+    worker_workspace_bootstrap_files_with_options(
+        state.inner(),
+        input.files,
         native_backend_workspace_root(),
         native_config_snapshot(),
         Duration::from_secs(10),
@@ -148,6 +168,28 @@ pub(crate) fn worker_workspace_file_with_options(
             serde_json::json!({ "path": path, "format": "raw" }),
         ),
         "worker workspace file",
+    )
+}
+
+pub(crate) fn worker_workspace_bootstrap_files_with_options(
+    shared: &SharedNativeRuntime,
+    files: Vec<String>,
+    _workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
+    let request_id = next_worker_request_correlation();
+    call_rust_state_service(
+        &thread_store,
+        config_snapshot,
+        WorkerRequest::new(
+            request_id.id("workspace-bootstrap-files"),
+            request_id.trace_id("workspace-bootstrap-files"),
+            "workspace.read_bootstrap_files",
+            serde_json::json!({ "files": files }),
+        ),
+        "worker workspace bootstrap files",
     )
 }
 

@@ -43,6 +43,7 @@ export const zh = {
     sidebar: { label: "设置类别", title: "偏好设置", description: "根据你的工作方式配置 Tinybot。" },
     modules: {
       app: { label: "应用", description: "语言和当前设备的偏好设置" },
+      personalization: { label: "个性化", description: "应用于每次 Agent 任务的自定义指令" },
       appearance: { label: "外观", description: "主题、颜色、字体与对比度" },
       shortcuts: { label: "快捷键", description: "查找并自定义应用命令" },
       providers: { label: "Provider 与模型", description: "Provider、API Key 和默认模型" },
@@ -57,6 +58,14 @@ export const zh = {
         englishDescription: "Use the English interface.", chinese: "简体中文", chineseDescription: "使用简体中文界面。",
       },
       persistence: "更改会立即生效，并仅保存在这台设备上。",
+    },
+    personalization: {
+      eyebrow: "个性化", title: "个性化", description: "为 Tinybot 提供要在这台设备的每次 Agent 任务中应用的指令与背景信息。",
+      customInstructions: "自定义指令", help: "填写长期偏好、约束和工作约定。项目中的 AGENTS.md 可以继续补充更具体的指令。",
+      source: "保存在 {{path}}", nextTurn: "更改会从下一次 Agent 任务开始生效。", loading: "正在加载自定义指令…",
+      unavailable: "当前运行环境不支持自定义指令。", loadFailed: "无法加载自定义指令：{{message}}", retry: "重试",
+      save: "保存自定义指令", savingButton: "正在保存…", saving: "正在保存自定义指令…", saved: "自定义指令已保存。",
+      saveFailed: "无法保存自定义指令：{{message}}", tooLarge: "自定义指令不能超过 64 KiB（当前 {{size}} 字节）。",
     },
     appearance: {
       eyebrow: "个性化", title: "外观", description: "选择 Tinybot 在这台设备上的显示方式，并调整全局界面样式。",

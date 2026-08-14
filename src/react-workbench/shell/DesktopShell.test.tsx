@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DesktopShell } from "./DesktopShell";
 import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefaultsSettings";
 import { buildProviderModelsSettings } from "../../app-core/settings/providerModelsSettings";
-import type { AppServices, SessionSummary } from "../services";
+import type { AppServices, PersonalizationInstructionsSaveInput, SessionSummary } from "../services";
 import type { ReactChatMessage } from "../chat/messageActions";
 import { timelineFromReactMessages } from "../chat/testTimelineFixtures";
 import { unavailableTinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
@@ -53,6 +53,8 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
     saveDesktopConfigSettings?: ReturnType<typeof vi.fn>;
     loadProviderSettings?: ReturnType<typeof vi.fn>;
     saveProviderSettings?: ReturnType<typeof vi.fn>;
+    loadPersonalizationInstructions?: ReturnType<typeof vi.fn>;
+    savePersonalizationInstructions?: ReturnType<typeof vi.fn>;
   };
 } {
   return {
@@ -853,6 +855,38 @@ describe("DesktopShell", () => {
 
     await user.keyboard("{Control>}k{/Control}");
     expect(screen.queryByRole("dialog", { name: "Command palette" })).toBeNull();
+  });
+
+  it("opens Personalization settings from the settings sidebar", async () => {
+    const user = userEvent.setup();
+    const services = createServices();
+    const config = {
+      revision: "hash:1",
+      agents: { defaults: { activeProfile: "deepseek-default", model: "deepseek-v4-flash" } },
+      providers: { profiles: {} },
+    };
+    services.settingsStore.loadProviderSettings = vi.fn(async () => buildProviderModelsSettings(config));
+    services.settingsStore.saveProviderSettings = vi.fn(async () => buildProviderModelsSettings(config));
+    services.settingsStore.loadPersonalizationInstructions = vi.fn(async () => ({
+      path: "USER.md" as const,
+      contents: "Prefer concise answers.",
+      updatedAt: "unix-ms:100",
+    }));
+    services.settingsStore.savePersonalizationInstructions = vi.fn(async (input: PersonalizationInstructionsSaveInput) => ({
+      path: "USER.md" as const,
+      contents: input.contents,
+      updatedAt: "unix-ms:200",
+    }));
+    render(<DesktopShell services={services} />);
+
+    await user.click(screen.getByRole("button", { name: "System" }));
+    await user.click(within(screen.getByRole("menu", { name: "System menu" }))
+      .getByRole("menuitem", { name: "Settings (Ctrl+,)" }));
+    await user.click(await screen.findByRole("button", { name: "Personalization" }));
+
+    expect(await screen.findByRole("heading", { name: "Personalization" })).toBeTruthy();
+    expect((screen.getByRole("textbox", { name: "Custom instructions" }) as HTMLTextAreaElement).value)
+      .toBe("Prefer concise answers.");
   });
 
   it("persists App language and localizes the desktop chrome immediately", async () => {

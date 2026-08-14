@@ -455,9 +455,20 @@ impl WorkerWorkspaceRpc {
                     WorkerProtocolErrorSource::RustCore,
                 ));
             }
-            match self.read_file(requested) {
-                Ok(file) => found.push(file),
-                Err(_) => missing.push(requested.clone()),
+            let resolved = self.resolve_path(requested)?;
+            let exists = resolved.absolute_path.try_exists().map_err(|error| {
+                filesystem_error(
+                    "failed to inspect bootstrap file",
+                    serde_json::json!({
+                        "path": resolved.relative_path,
+                        "error": error.to_string(),
+                    }),
+                )
+            })?;
+            if exists {
+                found.push(self.read_file(requested)?);
+            } else {
+                missing.push(requested.clone());
             }
         }
         Ok(WorkspaceBootstrapFiles {
