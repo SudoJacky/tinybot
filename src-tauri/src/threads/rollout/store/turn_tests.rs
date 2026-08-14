@@ -2,6 +2,7 @@ use super::{
     completed_tool_result_from_response_item, response_item_from_runtime_event,
     response_items_from_runtime_event,
 };
+use crate::agent::runtime_protocol::{project_timeline_snapshot, AgentRuntimeEventEnvelope};
 use crate::protocol::capability::{CapabilityPolicy, WorkerCapability};
 use crate::threads::rollout::format::SessionApiMode;
 use crate::threads::rollout::store::{
@@ -410,6 +411,347 @@ fn completed_standalone_compaction_runtime_state_keeps_the_turn_boundary() {
     assert_eq!(serialized["stopReason"], "context_compacted");
     assert_eq!(runtime_state.timeline.items.len(), 1);
     assert_eq!(serialized["timeline"]["items"][0]["status"], "running");
+
+    drop(rpc);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn persisted_usage_preserves_the_live_timeline_item_identity() {
+    let root = std::env::temp_dir().join(format!(
+        "tinybot-usage-timeline-identity-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let rpc = WorkerThreadLogRpc::new(
+        root.clone(),
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    );
+    let session_id = "usage-timeline-session";
+    let turn_id = "turn-usage";
+    let started_at = "2026-08-14T02:12:10.469Z";
+    rpc.start_turn(
+        AgentTurnRecord {
+            session_id: session_id.to_string(),
+            turn_id: turn_id.to_string(),
+            thread_id: None,
+            parent_thread_id: None,
+            child_thread_ids: Vec::new(),
+            status: AgentTurnStatus::Running,
+            phase: "calling_model".to_string(),
+            started_at: started_at.to_string(),
+            updated_at: started_at.to_string(),
+            completed_at: None,
+            stop_reason: None,
+            model: "gpt-test".to_string(),
+            provider: Some("openai".to_string()),
+            max_iterations: 1,
+            current_iteration: 0,
+            conversation_message_ids: Vec::new(),
+            trace_messages: Vec::new(),
+            completed_tool_results: Vec::new(),
+            pending_tool_calls: Vec::new(),
+            checkpoint: None,
+            artifacts: Vec::new(),
+            usage: Vec::new(),
+            token_usage_info: None,
+            instruction_provenance: None,
+            instruction_diagnostics: Vec::new(),
+            trace_context: None,
+            error: None,
+        },
+        None,
+        Vec::new(),
+    )
+    .unwrap();
+    let live_event: AgentRuntimeEventEnvelope = serde_json::from_value(json!({
+        "schemaVersion": "tinybot.agent_event.v1",
+        "eventId": "turn-usage:agent-usage:23",
+        "sequence": 23,
+        "sessionId": session_id,
+        "threadId": session_id,
+        "turnId": turn_id,
+        "itemId": "turn-usage:usage:0",
+        "eventName": "agent.usage",
+        "phase": "calling_model",
+        "timestamp": "1786673534920",
+        "source": "provider",
+        "visibility": "debug",
+        "payload": {
+            "iteration": 0,
+            "modelCallId": "turn-usage:provider:1",
+            "usage": {
+                "inputTokens": 4469,
+                "outputTokens": 219,
+                "totalTokens": 4688
+            }
+        }
+    }))
+    .unwrap();
+    let live_timeline =
+        project_timeline_snapshot(session_id, turn_id, std::slice::from_ref(&live_event)).unwrap();
+
+    rpc.append_turn_semantic_event(
+        session_id,
+        turn_id,
+        serde_json::to_value(&live_event).unwrap(),
+    )
+    .unwrap();
+    let reloaded = rpc
+        .get_turn_runtime_state(session_id, turn_id)
+        .unwrap()
+        .expect("persisted usage should reload");
+
+    assert_eq!(reloaded.timeline.items, live_timeline.items);
+    assert_eq!(
+        reloaded.timeline.snapshot_revision,
+        live_timeline.snapshot_revision
+    );
+
+    drop(rpc);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn persisted_responses_tool_call_preserves_the_live_timeline_item_identity() {
+    let root = std::env::temp_dir().join(format!(
+        "tinybot-tool-timeline-identity-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let rpc = WorkerThreadLogRpc::new(
+        root.clone(),
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    );
+    let session_id = "tool-timeline-session";
+    let turn_id = "turn-tool";
+    let started_at = "2026-08-14T04:40:01.936Z";
+    rpc.ensure_turn_thread(
+        session_id,
+        started_at,
+        None,
+        Some(SessionApiMode::Responses),
+    )
+    .unwrap();
+    rpc.start_turn(
+        AgentTurnRecord {
+            session_id: session_id.to_string(),
+            turn_id: turn_id.to_string(),
+            thread_id: None,
+            parent_thread_id: None,
+            child_thread_ids: Vec::new(),
+            status: AgentTurnStatus::Running,
+            phase: "calling_model".to_string(),
+            started_at: started_at.to_string(),
+            updated_at: started_at.to_string(),
+            completed_at: None,
+            stop_reason: None,
+            model: "gpt-test".to_string(),
+            provider: Some("openai".to_string()),
+            max_iterations: 1,
+            current_iteration: 0,
+            conversation_message_ids: Vec::new(),
+            trace_messages: Vec::new(),
+            completed_tool_results: Vec::new(),
+            pending_tool_calls: Vec::new(),
+            checkpoint: None,
+            artifacts: Vec::new(),
+            usage: Vec::new(),
+            token_usage_info: None,
+            instruction_provenance: None,
+            instruction_diagnostics: Vec::new(),
+            trace_context: None,
+            error: None,
+        },
+        None,
+        Vec::new(),
+    )
+    .unwrap();
+
+    let classified_event: AgentRuntimeEventEnvelope = serde_json::from_value(json!({
+        "schemaVersion": "tinybot.agent_event.v1",
+        "eventId": "message-classified-1",
+        "sequence": 0,
+        "sessionId": session_id,
+        "threadId": session_id,
+        "turnId": turn_id,
+        "itemId": "assistant-1",
+        "eventName": "agent.message.classified",
+        "phase": "completed",
+        "timestamp": "1786682410223",
+        "source": "provider",
+        "visibility": "user",
+        "payload": {
+            "content": "",
+            "messageId": "assistant-1",
+            "messagePhase": "commentary",
+            "responseItems": [{
+                "type": "function_call",
+                "id": "function-call-1",
+                "call_id": "call-1",
+                "name": "exec_command",
+                "arguments": "{\"command\":\"dir\"}"
+            }]
+        }
+    }))
+    .unwrap();
+    let call_event: AgentRuntimeEventEnvelope = serde_json::from_value(json!({
+        "schemaVersion": "tinybot.agent_event.v1",
+        "eventId": "tool-call-1",
+        "sequence": 1,
+        "sessionId": session_id,
+        "threadId": session_id,
+        "turnId": turn_id,
+        "itemId": "call-1",
+        "eventName": "agent.tool_call.delta",
+        "phase": "tool_calling",
+        "timestamp": "1786682410224",
+        "source": "tool",
+        "visibility": "user",
+        "payload": {
+            "toolCallId": "call-1",
+            "toolName": "exec_command",
+            "argumentsDelta": "{\"command\":\"dir\"}"
+        }
+    }))
+    .unwrap();
+    let result_event: AgentRuntimeEventEnvelope = serde_json::from_value(json!({
+        "schemaVersion": "tinybot.agent_event.v1",
+        "eventId": "tool-result-1",
+        "sequence": 2,
+        "sessionId": session_id,
+        "threadId": session_id,
+        "turnId": turn_id,
+        "itemId": "call-1",
+        "eventName": "agent.tool.result",
+        "phase": "tool_running",
+        "timestamp": "1786682412260",
+        "source": "tool",
+        "visibility": "user",
+        "payload": {
+            "toolCallId": "call-1",
+            "toolName": "exec_command",
+            "resultStatus": "ok",
+            "result": { "exitCode": 0 },
+            "summary": "completed"
+        }
+    }))
+    .unwrap();
+    let final_event: AgentRuntimeEventEnvelope = serde_json::from_value(json!({
+        "schemaVersion": "tinybot.agent_event.v1",
+        "eventId": "message-completed-1",
+        "sequence": 90,
+        "sessionId": session_id,
+        "threadId": session_id,
+        "turnId": turn_id,
+        "itemId": "assistant-final",
+        "eventName": "agent.message.completed",
+        "phase": "completed",
+        "timestamp": "1786682413260",
+        "source": "provider",
+        "visibility": "user",
+        "payload": {
+            "content": "Done.",
+            "messageId": "assistant-final",
+            "modelCallId": "call-final",
+            "messagePhase": "final_answer",
+            "responseItems": [{
+                "type": "message",
+                "id": "assistant-final",
+                "role": "assistant",
+                "modelCallId": "call-final",
+                "phase": "final_answer",
+                "content": [{ "type": "output_text", "text": "Done." }]
+            }]
+        }
+    }))
+    .unwrap();
+    let live_timeline = project_timeline_snapshot(
+        session_id,
+        turn_id,
+        &[
+            classified_event.clone(),
+            call_event.clone(),
+            result_event.clone(),
+            final_event.clone(),
+        ],
+    )
+    .unwrap();
+
+    for event in [&classified_event, &call_event, &result_event, &final_event] {
+        rpc.append_turn_semantic_event(session_id, turn_id, serde_json::to_value(event).unwrap())
+            .unwrap();
+    }
+    let reloaded = rpc
+        .get_turn_runtime_state(session_id, turn_id)
+        .unwrap()
+        .expect("persisted tool call should reload");
+    assert_eq!(
+        live_timeline.snapshot_revision, reloaded.timeline.snapshot_revision,
+        "tool-only provider responses must not create live-only assistant mutations"
+    );
+    assert_eq!(
+        live_timeline
+            .items
+            .iter()
+            .map(|item| item.item_id.as_str())
+            .collect::<Vec<_>>(),
+        reloaded
+            .timeline
+            .items
+            .iter()
+            .map(|item| item.item_id.as_str())
+            .collect::<Vec<_>>(),
+    );
+    let live_tool = live_timeline
+        .items
+        .iter()
+        .find(|item| item.item_id == "call-1")
+        .unwrap();
+    let reloaded_tool = reloaded
+        .timeline
+        .items
+        .iter()
+        .find(|item| item.item_id == "call-1")
+        .unwrap();
+
+    assert_eq!(reloaded_tool.item_id, live_tool.item_id);
+    assert_eq!(reloaded_tool.sequence, live_tool.sequence);
+    assert_eq!(reloaded_tool.revision, live_tool.revision);
+    assert_eq!(reloaded_tool.created_at, live_tool.created_at);
+    assert_eq!(reloaded_tool.updated_at, live_tool.updated_at);
+    assert_eq!(reloaded_tool.status, live_tool.status);
+    let live_final = live_timeline
+        .items
+        .iter()
+        .find(|item| item.item_id == "assistant-final")
+        .unwrap();
+    let reloaded_final = reloaded
+        .timeline
+        .items
+        .iter()
+        .find(|item| item.item_id == "assistant-final")
+        .unwrap();
+    assert_eq!(reloaded_final.item_id, live_final.item_id);
+    assert_eq!(reloaded_final.sequence, live_final.sequence);
+    assert_eq!(reloaded_final.revision, live_final.revision);
+    assert_eq!(reloaded_final.created_at, live_final.created_at);
+    assert_eq!(reloaded_final.status, live_final.status);
+    assert_eq!(reloaded_final.data, live_final.data);
 
     drop(rpc);
     std::fs::remove_dir_all(root).unwrap();

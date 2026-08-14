@@ -433,13 +433,13 @@ fn persisted_usage_restores_context_window_after_session_reload() {
         thread_id: "thread-1".to_string(),
         turn_id: "turn-1".to_string(),
         parent_item_id: None,
-        sequence: 8,
+        sequence: 2,
         created_at: "2026-08-03T12:00:01Z".to_string(),
         kind: ThreadItemKind::Event(json!({
             "itemId": "usage-1",
             "eventId": "usage-event-1",
-            "sequence": 8,
-            "timestamp": "2026-08-03T12:00:01Z",
+            "sequence": 23,
+            "timestamp": "1786673534920",
             "eventName": "agent.usage",
             "turnId": "turn-1",
             "source": "provider",
@@ -459,10 +459,14 @@ fn persisted_usage_restores_context_window_after_session_reload() {
     let events = runtime_events_from_thread_items(&items, "thread-1", "turn-1");
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].event_name, "agent.usage");
+    assert_eq!(events[0].sequence, 23);
+    assert_eq!(events[0].timestamp, "1786673534920");
 
     let projected = turn_items_from_thread_items(&items, "thread-1", "turn-1");
     assert_eq!(projected.len(), 1);
     assert_eq!(projected[0].kind, AgentTurnItemKind::Usage);
+    assert_eq!(projected[0].sequence, 23);
+    assert_eq!(projected[0].created_at, "1786673534920");
     assert!(matches!(
         &projected[0].data,
         AgentTurnItemData::Usage { provider_payload, .. }

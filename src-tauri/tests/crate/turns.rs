@@ -828,6 +828,8 @@ fn worker_run_agent_combines_thread_history_with_current_tool_results() {
             "id",
             "output",
             "status",
+            "threadItemSequence",
+            "timestamp",
             "tinybot_result",
             "tool_name",
             "turnId",

@@ -12,6 +12,7 @@ use super::{
 use crate::agent::runtime_protocol::{resolve_event_name, AgentEventKind, EventNameResolution};
 use crate::protocol::capability::WorkerCapability;
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
+use crate::threads::rollout::format::SessionApiMode;
 use crate::threads::turn::{
     AgentTurnCheckpoint, AgentTurnRecord, AgentTurnRuntimeState, AgentTurnStatus,
 };
@@ -272,6 +273,39 @@ impl WorkerThreadLogRpc {
                 represented_function_calls.insert(call_id);
             }
             appended_response_items |= !response_items.is_empty();
+            let response_items_preserve_event_identity = api_mode
+                == SessionApiMode::ChatCompletions
+                || matches!(
+                    runtime_event_kind(&event),
+                    Some(AgentEventKind::TurnStarted | AgentEventKind::ToolResult)
+                );
+            let response_items_contain_assistant_message = matches!(
+                runtime_event_kind(&event),
+                Some(AgentEventKind::MessageClassified | AgentEventKind::MessageCompleted)
+            );
+            let event_sequence = event.get("sequence").and_then(Value::as_u64);
+            let event_timestamp = event
+                .get("timestamp")
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|timestamp| !timestamp.is_empty())
+                .map(str::to_string);
+            let event_model_call_id = event
+                .get("payload")
+                .and_then(|payload| {
+                    payload
+                        .get("modelCallId")
+                        .or_else(|| payload.get("model_call_id"))
+                })
+                .cloned();
+            let event_message_phase = event
+                .get("payload")
+                .and_then(|payload| {
+                    payload
+                        .get("messagePhase")
+                        .or_else(|| payload.get("message_phase"))
+                })
+                .cloned();
             let response_items = response_items
                 .into_iter()
                 .map(|mut item| {
@@ -286,6 +320,37 @@ impl WorkerThreadLogRpc {
                                     .to_string(),
                             ),
                         );
+                        let is_assistant_message = object.get("type").and_then(Value::as_str)
+                            == Some("message")
+                            && object.get("role").and_then(Value::as_str) == Some("assistant");
+                        if response_items_contain_assistant_message && is_assistant_message {
+                            if !object.contains_key("modelCallId") {
+                                if let Some(model_call_id) = event_model_call_id.as_ref() {
+                                    object.insert("modelCallId".to_string(), model_call_id.clone());
+                                }
+                            }
+                            if !object.contains_key("phase") {
+                                if let Some(message_phase) = event_message_phase.as_ref() {
+                                    object.insert("phase".to_string(), message_phase.clone());
+                                }
+                            }
+                        }
+                        if response_items_preserve_event_identity
+                            || (response_items_contain_assistant_message && is_assistant_message)
+                        {
+                            if let Some(sequence) = event_sequence {
+                                object.insert(
+                                    "threadItemSequence".to_string(),
+                                    Value::Number(sequence.into()),
+                                );
+                            }
+                            if let Some(timestamp) = event_timestamp.as_ref() {
+                                object.insert(
+                                    "timestamp".to_string(),
+                                    Value::String(timestamp.clone()),
+                                );
+                            }
+                        }
                     }
                     item
                 })
@@ -325,9 +390,9 @@ impl WorkerThreadLogRpc {
             for response_item in response_items {
                 items.push(ThreadLogItem::ResponseItem(response_item));
             }
-            if let Some(thread_item) =
-                semantic_thread_item_from_runtime_event(session_id, turn_id, &timestamp, &event)
-            {
+            if let Some(thread_item) = semantic_thread_item_from_runtime_event(
+                session_id, turn_id, &timestamp, &event, api_mode,
+            ) {
                 items.push(value_event(
                     super::EventKind::ThreadItem,
                     serde_json::json!({ "item": thread_item }),
@@ -1011,6 +1076,7 @@ fn semantic_thread_item_from_runtime_event(
     turn_id: &str,
     timestamp: &str,
     event: &Value,
+    api_mode: SessionApiMode,
 ) -> Option<crate::threads::domain::ThreadItem> {
     let payload = event.get("payload").cloned().unwrap_or(Value::Null);
     let kind = match runtime_event_kind(event)? {
@@ -1028,6 +1094,9 @@ fn semantic_thread_item_from_runtime_event(
         AgentEventKind::ContextCompacted
         | AgentEventKind::ContextTrimmed
         | AgentEventKind::Usage => crate::threads::domain::ThreadItemKind::Event(event.clone()),
+        AgentEventKind::ToolCallDelta if api_mode == SessionApiMode::Responses => {
+            crate::threads::domain::ThreadItemKind::Event(event.clone())
+        }
         _ => return None,
     };
     let event_id = event.get("eventId").and_then(Value::as_str)?;

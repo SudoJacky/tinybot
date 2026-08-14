@@ -382,7 +382,7 @@ describe("canonical agent timeline model", () => {
     ]);
   });
 
-  test("rejects gaps, equal-revision conflicts, and terminal regressions", () => {
+  test("rejects transport conflicts but trusts backend status transitions", () => {
     const model = createAgentTimelineModel();
     model.load(sessionId, [runtimeState()]);
 
@@ -394,11 +394,11 @@ describe("canonical agent timeline model", () => {
     }))).toThrow("equal-revision conflict");
 
     model.applyPatch(sessionId, patch(2, { revision: 2, status: "completed" }));
-    expect(() => model.applyPatch(sessionId, patch(3, { revision: 3, status: "running" })))
-      .toThrow("cannot transition from completed to running");
+    const snapshot = model.applyPatch(sessionId, patch(3, { revision: 3, status: "running" }));
+    expect(snapshot.turnRevisions).toEqual({ [turnId]: 3 });
   });
 
-  test("allows unknown assistant phase classification once and rejects reclassification", () => {
+  test("trusts backend assistant phase transitions", () => {
     const model = createAgentTimelineModel();
     model.load(sessionId, [runtimeState()]);
 
@@ -414,7 +414,7 @@ describe("canonical agent timeline model", () => {
       },
     }));
 
-    expect(() => model.applyPatch(sessionId, patch(3, {
+    const snapshot = model.applyPatch(sessionId, patch(3, {
       revision: 3,
       status: "completed",
       data: {
@@ -424,7 +424,9 @@ describe("canonical agent timeline model", () => {
         phase: "final_answer",
         content: "Done.",
       },
-    }))).toThrow("cannot transition phase from commentary to final_answer");
+    }));
+
+    expect(snapshot.turns[0].finalAnswer?.text).toBe("Done.");
   });
 
   test("ignores a lower item revision but advances the turn cursor with a diagnostic", () => {

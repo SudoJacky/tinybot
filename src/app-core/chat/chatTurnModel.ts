@@ -376,7 +376,6 @@ export function normalizeAgentTimelineSnapshotPayload(payload: unknown): Backend
     throw new Error(`Canonical timeline ${turnId} is missing items`);
   }
   const seenItemIds = new Set<string>();
-  let previousSequence = -1;
   const items = timeline.items.map((raw, index) => {
     if (!isRecord(raw)) {
       throw new Error(`Canonical timeline ${turnId} item ${index} is not an object`);
@@ -385,14 +384,9 @@ export function normalizeAgentTimelineSnapshotPayload(payload: unknown): Backend
     if (seenItemIds.has(item.itemId)) {
       throw new Error(`Canonical timeline ${turnId} contains duplicate item ${item.itemId}`);
     }
-    if (item.sequence < previousSequence) {
-      throw new Error(`Canonical timeline ${turnId} item ${item.itemId} has non-monotonic sequence ${item.sequence}`);
-    }
     seenItemIds.add(item.itemId);
-    previousSequence = item.sequence;
     return item;
   });
-  validateCanonicalFinalAnswerBoundary(items, turnId);
   return {
     schemaVersion: "tinybot.timeline.v2",
     sessionId,
@@ -481,28 +475,6 @@ function assistantMessagePhase(value: unknown, itemId: string): AssistantMessage
     return phase;
   }
   throw new Error(`Canonical assistant item ${itemId} has invalid phase ${phase || "missing"}`);
-}
-
-function validateCanonicalFinalAnswerBoundary(items: BackendAgentTurnItem[], turnId: string): void {
-  const finalItem = items.find((item) => (
-    item.kind === "assistant_message" && stringValue(item.data.phase) === "final_answer"
-  ));
-  if (!finalItem) {
-    return;
-  }
-  const invalid = items.find((item) => item.sequence > finalItem.sequence && (
-    item.kind === "assistant_message"
-      || item.kind === "reasoning"
-      || item.kind === "tool_call"
-      || item.kind === "form"
-      || item.kind === "subagent_lifecycle"
-      || item.kind === "subagent_message"
-      || item.kind === "plan_progress"
-      || item.kind === "context_compaction"
-  ));
-  if (invalid) {
-    throw new Error(`Canonical timeline ${turnId} item ${invalid.itemId} appears after final answer ${finalItem.itemId}`);
-  }
 }
 
 function requiredCanonicalString(value: Record<string, unknown>, key: string): string {
@@ -876,7 +848,6 @@ function attachFileReferences(turn: ChatTurn, items: BackendAgentTurnItem[]): vo
       title: artifact.title,
     }));
   }
-  turn.steps.sort((left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id));
 }
 
 function runtimeStep(
