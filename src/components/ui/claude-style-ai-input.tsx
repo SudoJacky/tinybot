@@ -863,39 +863,28 @@ export function ClaudeStyleAiInput({
             {contextUsageView ? <ContextUsageIndicator view={contextUsageView} /> : null}
           </div>
 
-          {responding ? (
-            <div className="claude-ai-input__running-actions">
-              <button
-                aria-label={t("composer.queue")}
-                className="claude-ai-input__send"
-                disabled={!canSend}
-                title={canSend ? t("composer.queueHelp") : t("composer.queueDisabled")}
-                type="submit"
-              >
-                <ArrowUp aria-hidden="true" size={18} />
-              </button>
-              <button
-                aria-label={canStopResponding ? t("composer.stop") : t("composer.stopUnavailable", { reason: stopUnavailableReason || t("composer.unsupported") })}
-                className="claude-ai-input__send"
-                disabled={disabled || !canStopResponding}
-                title={canStopResponding ? t("composer.stop") : stopUnavailableReason || t("composer.stoppingUnavailable")}
-                type="button"
-                onClick={() => void handleStopResponding()}
-              >
-                <Square aria-hidden="true" size={15} />
-              </button>
-            </div>
-          ) : (
-            <button
-              aria-label={t("composer.send")}
-              className="claude-ai-input__send"
-              disabled={!canSend}
-              title={canSend ? t("composer.send") : disabledReason || t("composer.sendDisabled")}
-              type="submit"
-            >
-              <ArrowUp aria-hidden="true" size={18} />
-            </button>
-          )}
+          <button
+            aria-label={responding
+              ? canStopResponding
+                ? t("composer.stop")
+                : t("composer.stopUnavailable", { reason: stopUnavailableReason || t("composer.unsupported") })
+              : t("composer.send")}
+            className="claude-ai-input__send"
+            disabled={responding ? disabled || !canStopResponding : !canSend}
+            title={responding
+              ? canStopResponding
+                ? t("composer.stop")
+                : stopUnavailableReason || t("composer.stoppingUnavailable")
+              : canSend
+                ? t("composer.send")
+                : disabledReason || t("composer.sendDisabled")}
+            type={responding ? "button" : "submit"}
+            onClick={responding ? () => void handleStopResponding() : undefined}
+          >
+            {responding
+              ? <Square aria-hidden="true" size={15} />
+              : <ArrowUp aria-hidden="true" size={18} />}
+          </button>
         </div>
       </div>
     </form>

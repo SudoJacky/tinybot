@@ -275,6 +275,52 @@ describe("desktop native chat session controller", () => {
     });
   });
 
+  test("projects a completed timeline back onto the Thread status", async () => {
+    const { controller } = createController({
+      listThreads: vi.fn(async () => ({
+        threads: [{
+          threadId: "thread-1",
+          sessionKey: "thread-1",
+          title: "Native thread",
+          status: "running" as const,
+          createdAt: "2026-07-14T00:00:00.000Z",
+          updatedAt: "2026-07-14T00:00:00.000Z",
+        }],
+        total: 1,
+      })),
+    });
+    await controller.loadSessions();
+
+    await controller.applyTimelinePatch("thread-1", {
+      schemaVersion: "tinybot.timeline_patch.v2",
+      sessionId: "thread-1",
+      turnId: "turn-1",
+      snapshotRevision: 1,
+      item: {
+        schemaVersion: "tinybot.turn_item.v2",
+        itemId: "assistant-final-1",
+        sessionId: "thread-1",
+        threadId: "thread-1",
+        turnId: "turn-1",
+        sequence: 1,
+        revision: 1,
+        kind: "assistant_message",
+        status: "completed",
+        createdAt: "2026-07-14T00:00:01.000Z",
+        data: {
+          type: "assistant_message",
+          messageId: "assistant-final-1",
+          modelCallId: "model-call-1",
+          content: "Done",
+          phase: "final_answer",
+        },
+      },
+    });
+
+    expect(controller.state.respondingThreadIds.has("thread-1")).toBe(false);
+    expect(controller.state.threads[0]?.status).toBe("idle");
+  });
+
   test("does not replay a buffered live patch already covered by the loaded snapshot", async () => {
     let resolveRuntimeState: (value: unknown) => void = () => undefined;
     const runtimeState = new Promise<unknown>((resolve) => {

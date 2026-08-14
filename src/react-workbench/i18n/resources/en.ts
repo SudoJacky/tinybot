@@ -617,7 +617,7 @@ export const en = {
         low: { label: "Light", description: "Prioritize speed and lower token use." }, medium: { label: "Medium", description: "Use balanced reasoning depth." },
         high: { label: "High", description: "Use deeper reasoning." }, xhigh: { label: "Extra High", description: "Use very deep reasoning." }, max: { label: "Max", description: "Use the model's maximum reasoning depth." },
       },
-      queueHelp: "Send as the next turn after the current task finishes", queueDisabled: "Enter content to queue", queue: "Queue as next turn", stop: "Stop generation", stopUnavailable: "Stop generation unavailable: {{reason}}",
+      stop: "Stop generation", stopUnavailable: "Stop generation unavailable: {{reason}}",
       unsupported: "unsupported", stoppingUnavailable: "Stopping is unavailable", send: "Send message", sendDisabled: "Enter content to send",
       context: { title: "Context window", used: "{{percent}}% used ({{left}}% left)", strategy: "Strategy: {{strategy}}", aria: "Context window {{percent}}% used, {{left}}% left", tokens: "{{used}} / {{window}} tokens used", zero: "0 tokens used", provider: "Token budget reported by provider" },
     },

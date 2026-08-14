@@ -1078,6 +1078,42 @@ describe("ChatPage", () => {
     await waitFor(() => expect(stores.chatStore.load).toHaveBeenLastCalledWith("s2"));
   });
 
+  it("clears the active workspace child running indicator from its completed timeline", async () => {
+    let subscribed: ((event: ChatEvent) => void) | undefined;
+    const runningSession: SessionSummary = {
+      id: "workspace-child",
+      chatId: "workspace-child",
+      title: "Inspect workspace",
+      updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+      status: "running",
+      workingDirectory: "D:\\Code\\workspace",
+    };
+    const stores = createStores({ sessions: [runningSession] });
+    const runningTimeline = await stores.chatStore.load(runningSession.id);
+    runningTimeline.turns[runningTimeline.turns.length - 1].status = "running";
+    const completedTimeline = structuredClone(runningTimeline);
+    completedTimeline.turns[completedTimeline.turns.length - 1].status = "completed";
+    stores.chatStore.load = vi.fn(async () => runningTimeline);
+    stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
+      subscribed = listener;
+      return () => undefined;
+    });
+
+    render(<ChatPage
+      chatStore={stores.chatStore}
+      now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
+      sessionStore={stores.sessionStore}
+    />);
+
+    await screen.findByRole("tab", { name: "Inspect workspace, running" });
+    act(() => subscribed?.({ type: "timeline.patch", timeline: completedTimeline }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("tab", { name: "Inspect workspace, running" })).toBeNull();
+      expect(screen.getByRole("tab", { name: "Inspect workspace" })).toBeTruthy();
+    });
+  });
+
   it("preserves per-session drafts and closing a tab does not delete the session", async () => {
     const user = userEvent.setup();
     const stores = createStores({

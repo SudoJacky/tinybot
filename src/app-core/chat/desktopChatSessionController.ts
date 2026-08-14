@@ -300,6 +300,20 @@ export function createDesktopChatSessionController({
     } else {
       state.respondingThreadIds.delete(threadId);
     }
+
+    const latestTurnStatus = snapshot.turns[snapshot.turns.length - 1]?.status;
+    const projectedThreadStatus = responding
+      ? "running"
+      : latestTurnStatus === "failed" || latestTurnStatus === "interrupted"
+        ? "failed"
+        : latestTurnStatus === "completed" ? "idle" : undefined;
+    if (projectedThreadStatus) {
+      state.threads = state.threads.map((thread) => (
+        thread.threadId === threadId && thread.status !== "archived"
+          ? { ...thread, status: projectedThreadStatus }
+          : thread
+      ));
+    }
   }
 
   async function patchSession(sessionKey: string, body: unknown): Promise<boolean> {
