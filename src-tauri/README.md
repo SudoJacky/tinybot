@@ -1,4 +1,5 @@
 # Tinybot Rust Backend
+<!-- tinybot-module-fingerprint: sha256:886242d02f21c079373890fe54b81596c16de95100a2e28ae660131da335ae0c -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -108,8 +109,9 @@ The main layers are:
    - [`threads/rollout/store/`](src/threads/rollout/store/README.md) owns
      canonical append-only Rollouts and their process-local Thread index.
 5. **Domain services**
-   - `workspace/`, `tools/`, `automation/`, `collaboration/`, and
-     `config/` own their business rules and do not depend on RPC or Tauri.
+   - `workspace/`, `tools/`, `automation/`, `collaboration/`, `config/`,
+     `project_groups.rs`, `plugins/`, `skills/`, and `memory/` own their
+     business rules and do not depend on RPC or Tauri.
 6. **Process and transport infrastructure**
    - [`runtime/`](src/runtime/README.md) owns live tasks, shared MCP state,
      startup recovery, shutdown, and operational metrics.
@@ -151,9 +153,11 @@ roles:
 | Path | Owner | Role |
 | --- | --- | --- |
 | `~/.tinybot/threads/<year>/<month>/<day>/*.jsonl` | `threads::rollout::store` | Canonical append-only Rollouts |
+| `~/.tinybot/project-groups.json` | `project_groups` | Named groups and their workspace memberships |
 
 Thread metadata, checkpoint pointers, and Rollout heads are rebuilt into a
-process-local index from these files.
+process-local index from the Rollouts. Project-group membership is loaded from
+its own atomic JSON store and authorizes coordinator-created workspace Threads.
 
 Desktop startup moves canonical Rollouts from the former
 `<workspace>/.tinybot/{threads,archived_threads}` layout into the application

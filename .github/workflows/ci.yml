@@ -27,6 +27,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Test README freshness tooling
+        run: node --test .github/scripts/readme-freshness.test.mjs
+
       - name: Run desktop tests
         shell: bash
         run: |

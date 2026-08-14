@@ -1,4 +1,5 @@
 # Agent Web 工具
+<!-- tinybot-module-fingerprint: sha256:3352832629e9f8f46bda75c164e8c2735e9946bcab385e2b8ab07cb939f7d07d -->
 
 这里放置提供给 agent 的网络和浏览器工具。
 

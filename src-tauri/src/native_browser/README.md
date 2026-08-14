@@ -1,4 +1,5 @@
 # Native Browser Runtime
+<!-- tinybot-module-fingerprint: sha256:92d0a4480946879ae365f2537a7f5ab0a29ebf24be1d6e19882391c0870396aa -->
 
 `native_browser` owns the managed WebView2 session used by TinyOS and native
 Agent browser tools. Direct user input and Agent actions operate the same child

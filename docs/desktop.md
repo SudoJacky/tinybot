@@ -33,7 +33,30 @@ From the repository root:
 
 ```bash
 npm install
+npm run hooks:install
 ```
+
+`hooks:install` configures this checkout to use the tracked hooks in
+`.githooks/`. Run it once after cloning. The pre-commit hook runs the relevant
+frontend and Rust checks and rejects staged module changes whose nearest
+`README.md` has not been reviewed.
+
+## Module README Freshness
+
+Module READMEs under `src/` and `src-tauri/` contain a fingerprint of the
+tracked files they describe. When module code changes, review the README against
+the staged implementation, then refresh and stage its fingerprint:
+
+```bash
+git add <module files>
+npm run readme:review -- --staged <module directory>
+git add <module directory>/README.md
+npm run readme:check -- --staged
+```
+
+Use `npm run readme:review -- --staged --all` only after auditing every module
+README. The fingerprint proves that the documented file set has not changed
+since that review; it does not prove that unreviewed prose is correct.
 
 ## Runtime Commands
 
