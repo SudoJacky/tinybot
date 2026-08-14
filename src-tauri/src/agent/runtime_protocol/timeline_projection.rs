@@ -15,6 +15,7 @@ pub struct AgentTimelineProjector {
     turn_id: String,
     order: Vec<String>,
     items: HashMap<String, AgentTurnItem>,
+    assistant_phases: HashMap<String, AgentAssistantMessagePhase>,
     snapshot_revision: u64,
     final_answer: Option<String>,
 }
@@ -24,12 +25,19 @@ pub fn project_turn_items_from_trace_events(
 ) -> Vec<AgentTurnItem> {
     let mut order = Vec::new();
     let mut items = HashMap::<String, AgentTurnItem>::new();
+    let mut assistant_phases = HashMap::<String, AgentAssistantMessagePhase>::new();
 
     for event in events {
         match canonical_event_kind(event) {
             Ok(Some(kind)) => {
-                apply_trace_event_to_items(&mut order, &mut items, event, kind)
-                    .unwrap_or_else(|error| panic!("{error}"));
+                apply_trace_event_to_items(
+                    &mut order,
+                    &mut items,
+                    &mut assistant_phases,
+                    event,
+                    kind,
+                )
+                .unwrap_or_else(|error| panic!("{error}"));
             }
             Ok(None) => {}
             Err(error) => panic!("{error}"),
@@ -45,6 +53,7 @@ pub fn project_turn_items_from_trace_events(
 fn apply_trace_event_to_items(
     order: &mut Vec<String>,
     items: &mut HashMap<String, AgentTurnItem>,
+    assistant_phases: &mut HashMap<String, AgentAssistantMessagePhase>,
     event: &AgentRuntimeEventEnvelope,
     event_kind: AgentEventKind,
 ) -> Result<Option<String>, String> {
@@ -55,6 +64,18 @@ fn apply_trace_event_to_items(
         .item_id
         .clone()
         .unwrap_or_else(|| projected_item_id(event, &kind));
+    if kind == AgentTurnItemKind::AssistantMessage
+        && matches!(
+            event_kind,
+            AgentEventKind::MessageClassified | AgentEventKind::MessageCompleted
+        )
+    {
+        validate_and_record_assistant_phase(
+            assistant_phases,
+            &item_id,
+            assistant_message_phase(&event.payload, event_kind),
+        )?;
+    }
     if kind == AgentTurnItemKind::AssistantMessage
         && !items.contains_key(&item_id)
         && matches!(
@@ -144,6 +165,7 @@ impl AgentTimelineProjector {
             turn_id: turn_id.into(),
             order: Vec::new(),
             items: HashMap::new(),
+            assistant_phases: HashMap::new(),
             snapshot_revision: 0,
             final_answer: None,
         }
@@ -173,8 +195,13 @@ impl AgentTimelineProjector {
         let Some(event_kind) = canonical_event_kind(event)? else {
             return Ok(None);
         };
-        let Some(item_id) =
-            apply_trace_event_to_items(&mut self.order, &mut self.items, event, event_kind)?
+        let Some(item_id) = apply_trace_event_to_items(
+            &mut self.order,
+            &mut self.items,
+            &mut self.assistant_phases,
+            event,
+            event_kind,
+        )?
         else {
             return Ok(None);
         };
@@ -495,7 +522,31 @@ fn validate_assistant_phase_transition(
     else {
         return Ok(());
     };
-    if previous_phase == next_phase || *previous_phase == AgentAssistantMessagePhase::Unknown {
+    validate_assistant_phase_change(*previous_phase, *next_phase, item_id)
+}
+
+fn validate_and_record_assistant_phase(
+    phases: &mut HashMap<String, AgentAssistantMessagePhase>,
+    item_id: &str,
+    next_phase: AgentAssistantMessagePhase,
+) -> Result<(), String> {
+    let previous_phase = phases
+        .get(item_id)
+        .copied()
+        .unwrap_or(AgentAssistantMessagePhase::Unknown);
+    validate_assistant_phase_change(previous_phase, next_phase, item_id)?;
+    if previous_phase == AgentAssistantMessagePhase::Unknown {
+        phases.insert(item_id.to_string(), next_phase);
+    }
+    Ok(())
+}
+
+fn validate_assistant_phase_change(
+    previous_phase: AgentAssistantMessagePhase,
+    next_phase: AgentAssistantMessagePhase,
+    item_id: &str,
+) -> Result<(), String> {
+    if previous_phase == next_phase || previous_phase == AgentAssistantMessagePhase::Unknown {
         return Ok(());
     }
     Err(format!(

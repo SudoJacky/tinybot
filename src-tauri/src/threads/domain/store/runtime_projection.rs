@@ -359,7 +359,7 @@ pub(crate) fn runtime_events_from_thread_items(
                     ))
             )
     });
-    items
+    let mut events = items
         .iter()
         .filter(|item| item.turn_id == turn_id)
         .filter(|item| {
@@ -374,7 +374,29 @@ pub(crate) fn runtime_events_from_thread_items(
                 )
         })
         .filter_map(|item| runtime_event_from_thread_item(item, session_id))
-        .collect()
+        .collect::<Vec<_>>();
+    let event_item_ids = events
+        .iter()
+        .filter_map(|event| event.item_id.clone())
+        .collect::<HashSet<_>>();
+    for item_id in event_item_ids {
+        let positions = events
+            .iter()
+            .enumerate()
+            .filter_map(|(index, event)| {
+                (event.item_id.as_deref() == Some(&item_id)).then_some(index)
+            })
+            .collect::<Vec<_>>();
+        let mut item_events = positions
+            .iter()
+            .map(|index| events[*index].clone())
+            .collect::<Vec<_>>();
+        item_events.sort_by_key(|event| event.sequence);
+        for (position, event) in positions.into_iter().zip(item_events) {
+            events[position] = event;
+        }
+    }
+    events
 }
 
 pub(super) fn turn_items_from_thread_items(
