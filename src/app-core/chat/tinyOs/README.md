@@ -1,5 +1,5 @@
 # TinyOS Runtime Contract
-<!-- tinybot-module-fingerprint: sha256:6d7ab0972eb1d40fe81de8da8449a7fb52a7855d5963284de6f772528f4b101c -->
+<!-- tinybot-module-fingerprint: sha256:aa1d296ccd281e01742884840fdeafcc53cc8cebbefcf51c32d1a3dcd1dd84e5 -->
 
 TinyOS presents workspace files, retained terminal executions, the managed
 browser session, generated artifacts, and Agent activity as one desktop shared
@@ -91,6 +91,14 @@ execution contract, TTY state, exit code, timestamps, duration, byte counts,
 truncation, and dropped-byte information. Cancellation targets the correlated
 process. After restart, an active persisted host operation without a matching
 live process becomes an explicit interrupted-recovery failure.
+
+## Desktop UI state
+
+The window manager owns focus, z-order, minimization, active tabs, bounds, and
+layout transitions. Only `layoutMode` and `windowLayout` are persisted; focus,
+tabs, and pointer previews remain session UI state and must not trigger layout
+writes. Restoring malformed layout data reports the error and falls back to the
+deterministic layout.
 
 ## Managed browser
 

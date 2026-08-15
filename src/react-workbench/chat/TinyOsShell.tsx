@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type MouseEvent, type PointerEvent } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { gsap } from "gsap";
@@ -48,11 +48,7 @@ import type {
 } from "../../app-core/chat/tinyOsDesktopModel";
 import { filterTinyOsDesktopByAgent } from "../../app-core/chat/tinyOsDesktopModel";
 import {
-  createTinyOsUiState,
-  loadTinyOsLayout,
   normalizeWindowLayout,
-  reduceTinyOsUiState,
-  saveTinyOsLayout,
   type TinyOsAgentRequestIntent,
   type TinyOsAgentRequestReference,
   type TinyOsDesktopBounds,
@@ -68,6 +64,7 @@ import { TinyOsSystemMonitor, type TinyOsSystemMonitorControls } from "./TinyOsS
 import { TinyOsTerminalApp } from "./TinyOsTerminalApp";
 import { boundedSelectionText, firstString, jsonPreview, recordValue, statusLabel } from "./tinyOsPresentation";
 import type { TinyOsFilesController } from "./useTinyOsFilesController";
+import { useTinyOsWindowManager } from "./useTinyOsWindowManager";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
 
 const TinyOsGlassSurface = lazy(() => import("./TinyOsGlassSurface"));
@@ -85,7 +82,6 @@ const APP_ICONS = {
 
 const APP_ORDER: TinyOsAppId[] = ["files", "terminal", "browser", "plan", "subagents", "artifacts", "inspector"];
 const EMPTY_AGENT_GROUPS: TinyOsAgentProcessGroup[] = [];
-const tinyOsSessionUiState = new Map<string, ReturnType<typeof createTinyOsUiState>>();
 type TinyOsShellOverlay = "notifications" | "overview" | "palette" | "switcher";
 type TinyOsContextMenuState = { commandIds: TinyOsShellCommandId[]; label: string; x: number; y: number };
 type TinyOsFileSaveInput = { baseRevision?: string; content: string; createOnly: boolean; path: string };
@@ -185,7 +181,6 @@ export function TinyOsShell({
   workspaceKey: string;
 }) {
   const { t } = useTranslation("tinyos");
-  const desktopRef = useRef<HTMLElement>(null);
   const launcherRef = useRef<HTMLElement>(null);
   const overlayReturnFocusRef = useRef<HTMLElement | null>(null);
   const [overlay, setOverlay] = useState<TinyOsShellOverlay | null>(null);
@@ -223,43 +218,31 @@ export function TinyOsShell({
     }
     return windows;
   }, [agentFilterId, filesController, sessionKey, snapshot.kernel, snapshot.windows, t]);
-  const initialWindowIds = useRef(new Set(appWindows.map((window) => window.id)));
-  const initialAppIds = appWindows.map((window) => window.appId);
   const browserSessionAvailable = Boolean(snapshot.kernel?.browserSessions.length);
   const browserNeedsUser = snapshot.kernel?.browserSessions.some(
     (session) => session.control?.state === "user_required",
   ) ?? false;
-  const browserSessionWasAvailable = useRef(browserSessionAvailable);
-  const browserNeededUser = useRef(false);
+  const windowManager = useTinyOsWindowManager({
+    activeAppId: snapshot.activeAppId,
+    browserNeedsUser,
+    browserSessionAvailable,
+    history,
+    layoutMode,
+    sessionKey,
+    syncKey: `${snapshot.cursorTurnId ?? ""}:${snapshot.cursorItemId ?? ""}`,
+    windows: appWindows,
+    workspaceKey,
+  });
+  const {
+    actions: windowActions,
+    availableApps,
+    desktopRef,
+    initialWindowIds,
+    state: uiState,
+    visibleWindows: windows,
+  } = windowManager;
   const seenFileOperations = useRef(new Set<string>());
   const revealedCursorItemId = useRef<string | undefined>(undefined);
-  const previousHistoryMode = useRef(history);
-  const sessionUiKey = sessionKey ? `${workspaceKey}:${sessionKey}` : undefined;
-  const [uiState, dispatchUi] = useReducer(reduceTinyOsUiState, undefined, () => {
-    const cached = sessionUiKey ? tinyOsSessionUiState.get(sessionUiKey) : undefined;
-    if (cached) {
-      return reduceTinyOsUiState(cached, {
-        appIds: initialAppIds,
-        bounds: cached.bounds,
-        layoutMode,
-        preferredActiveAppId: cached.focusedAppId,
-        type: "sync",
-      });
-    }
-    let restoredLayout;
-    try {
-      restoredLayout = loadTinyOsLayout(typeof window === "undefined" ? undefined : window.localStorage, workspaceKey, layoutMode);
-    } catch (error) {
-      console.error("TinyOS could not restore its saved layout; the deterministic layout will be used.", error);
-    }
-    return createTinyOsUiState({
-      appIds: initialAppIds,
-      bounds: { height: 560, width: layoutMode === "compact" ? 420 : 640 },
-      layoutMode,
-      preferredActiveAppId: snapshot.activeAppId,
-      restoredLayout,
-    });
-  });
   useLayoutEffect(() => {
     const launcher = launcherRef.current;
     const lens = launcher?.querySelector<HTMLElement>(".tinyos-launcher__lens");
@@ -349,44 +332,6 @@ export function TinyOsShell({
   }, [appWindows.length, uiState.focusedAppId]);
 
   useEffect(() => {
-    const returningToLive = previousHistoryMode.current && !history;
-    const browserBecameAvailable = !browserSessionWasAvailable.current && browserSessionAvailable;
-    const browserBeganNeedingUser = !browserNeededUser.current && browserNeedsUser;
-    previousHistoryMode.current = history;
-    browserSessionWasAvailable.current = browserSessionAvailable;
-    browserNeededUser.current = browserNeedsUser;
-    dispatchUi({
-      appIds: appWindows.map((window) => window.appId),
-      bounds: uiState.bounds,
-      layoutMode,
-      preferredActiveAppId: browserBecameAvailable || browserBeganNeedingUser
-        ? "browser"
-        : history || returningToLive ? snapshot.activeAppId : uiState.focusedAppId,
-      type: "sync",
-    });
-  }, [appWindows.length, browserNeedsUser, browserSessionAvailable, history, layoutMode, snapshot.activeAppId, snapshot.cursorItemId, snapshot.cursorTurnId]);
-
-  useEffect(() => {
-    const desktop = desktopRef.current;
-    if (!desktop || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => {
-      if (!entry) return;
-      const width = Math.round(entry.contentRect.width);
-      const height = Math.round(entry.contentRect.height);
-      if (width < 1 || height < 1) return;
-      dispatchUi({
-        appIds: appWindows.map((window) => window.appId),
-        bounds: { height, width },
-        layoutMode,
-        preferredActiveAppId: uiState.focusedAppId,
-        type: "sync",
-      });
-    });
-    observer.observe(desktop);
-    return () => observer.disconnect();
-  }, [appWindows.length, layoutMode, uiState.focusedAppId]);
-
-  useEffect(() => {
     if (!filesController) return;
     snapshot.windows.find(({ appId }) => appId === "files")?.entries.forEach((entry) => {
       if (seenFileOperations.current.has(entry.step.id)) return;
@@ -406,25 +351,9 @@ export function TinyOsShell({
   }, [filesController, history, snapshot.activeAppId, snapshot.cursorItemId, snapshot.windows]);
 
   useEffect(() => {
-    saveTinyOsLayout(typeof window === "undefined" ? undefined : window.localStorage, workspaceKey, uiState);
-  }, [uiState.layoutMode, uiState.windowLayout, workspaceKey]);
-
-  useEffect(() => {
-    if (sessionUiKey) tinyOsSessionUiState.set(sessionUiKey, uiState);
-  }, [sessionUiKey, uiState]);
-
-  useEffect(() => {
     if (snapshot.dialog && overlay) closeShellOverlay();
   }, [overlay, snapshot.dialog?.id]);
 
-  const windows = useMemo(() => {
-    const visible = appWindows.filter((window) => (
-      !uiState.minimizedAppIds.includes(window.appId)
-      && (uiState.layoutMode !== "compact" || window.appId === uiState.focusedAppId)
-    ));
-    return visible.sort((left, right) => uiState.zOrder.indexOf(left.appId) - uiState.zOrder.indexOf(right.appId));
-  }, [appWindows, uiState.focusedAppId, uiState.layoutMode, uiState.minimizedAppIds, uiState.zOrder]);
-  const availableApps = new Set(appWindows.map((window) => window.appId));
   const allEntries = snapshot.windows.flatMap((window) => window.entries);
   const distinctEntries = [...new Map(allEntries.map((entry) => [entry.step.id, entry])).values()];
   const scopedResourcePaths = new Set(snapshot.kernel?.resources.flatMap(({ path }) => path ? [path] : []) ?? []);
@@ -542,7 +471,7 @@ export function TinyOsShell({
     defineTinyOsShellCommand({
       availability: { available: true },
       category: "system",
-      dispatch: () => dispatchUi({ type: "reset" }),
+      dispatch: () => windowActions.reset(),
       id: "shell.reset_layout",
       input: { kind: "none" },
       keywords: ["reset", "layout", "windows"],
@@ -620,7 +549,7 @@ export function TinyOsShell({
       defineTinyOsShellCommand({
         availability: { available: true },
         category: "window",
-        dispatch: () => dispatchUi({ appId: window.appId, type: "maximize_toggle" }),
+        dispatch: () => windowActions.maximize(window.appId),
         id: `window.maximize:${window.appId}` as const,
         input: { kind: "none" },
         keywords: [window.title, "maximize", "restore"],
@@ -891,12 +820,11 @@ export function TinyOsShell({
   }
 
   function focusApp(appId: TinyOsAppId) {
-    if (!availableApps.has(appId)) return;
-    dispatchUi({ appId, type: "focus" });
+    windowActions.focus(appId);
   }
 
   function minimizeApp(appId: TinyOsAppId) {
-    dispatchUi({ appId, type: "minimize" });
+    windowActions.minimize(appId);
   }
 
   function handleShellKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -1036,7 +964,7 @@ export function TinyOsShell({
           <TinyOsAppWindow
             active={uiState.focusedAppId === window.appId}
             activeTabId={uiState.activeTabs[window.appId]}
-            animateEntry={!initialWindowIds.current.has(window.id)}
+            animateEntry={!initialWindowIds.has(window.id)}
             bounds={uiState.bounds}
             commandRegistry={shellCommandRegistry}
             canDirectEdit={canDirectEdit && !history}
@@ -1069,9 +997,9 @@ export function TinyOsShell({
             onDeleteFile={onDeleteFile}
             onMoveFile={onMoveFile}
             onSaveFile={onSaveFile}
-            onSetRect={(rect) => dispatchUi({ appId: window.appId, rect, type: "set_rect" })}
-            onSnap={(edge) => dispatchUi({ appId: window.appId, edge, type: "snap" })}
-            onTabChange={(tabId) => dispatchUi({ appId: window.appId, tabId, type: "set_active_tab" })}
+            onSetRect={(rect) => windowActions.setRect(window.appId, rect)}
+            onSnap={(edge) => windowActions.snap(window.appId, edge)}
+            onTabChange={(tabId) => windowActions.setActiveTab(window.appId, tabId)}
             requestChangeUnavailableReason={requestChangeUnavailableReason}
             directEditUnavailableReason={history ? t("shell.directHistory") : directEditUnavailableReason}
             saveFileUnavailableReason={history ? t("shell.directHistory") : saveFileUnavailableReason}

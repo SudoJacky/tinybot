@@ -449,7 +449,7 @@ Phase 4 停止判断：四个职责 seam 均已建立，`ChatPage` 从 4,630 行
 6. presentation helper 只保留纯格式化与 projection，不读取 DOM 或全局状态；
 7. 修复 `TinyOsFilesExplorer`、`TinyOsShell` 的 Hook finding 根因，不能通过 disable 规避。
 
-当前状态：浏览器与终端应用 seam 已完成。`TinyOsBrowserApp` 独立拥有 tab/地址状态、导航与恢复、用户 handoff、policy request、错误展示，以及 native surface 的 layout revision、可见性收敛与调度；`TinyOsTerminalApp` 独立拥有命令审核/执行/取消、canonical output、搜索、跟随与引用选择；共享的纯格式化函数已移到 `tinyOsPresentation.ts`。`TinyOsShell` 仅传入 kernel、runtime/command registry、窗口投影和回调。两者均有独立 interface 测试，后续修改浏览器或终端行为不再要求进入桌面 shell。
+当前状态：窗口管理、浏览器与终端应用 seam 已完成。`useTinyOsWindowManager` 独立拥有 session/layout 恢复、窗口同步与尺寸监听、浏览器抢焦点、z-order、最小化和持久化，并通过显式 actions 暴露变更；`TinyOsBrowserApp` 独立拥有 tab/地址状态、导航与恢复、用户 handoff、policy request、错误展示，以及 native surface 的 layout revision、可见性收敛与调度；`TinyOsTerminalApp` 独立拥有命令审核/执行/取消、canonical output、搜索、跟随与引用选择；共享的纯格式化函数已移到 `tinyOsPresentation.ts`。这些模块均有独立 interface 测试，shell 不再直接操作窗口 reducer，后续修改浏览器或终端行为也不再要求进入桌面 shell。
 
 退出条件：
 
