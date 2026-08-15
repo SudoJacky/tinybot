@@ -35,13 +35,11 @@ import {
   dispatchNextQueuedInput,
   pauseQueuedInputs,
   resumeNextQueuedInput,
-  submitComposerText,
   updateInterruptStatus,
 } from "../../app-core/chat/chatInputState";
 import type { QueuedInput } from "../../app-core/chat/chatUiProjection";
 import {
   ClaudeStyleAiInput,
-  formatFileMetadata,
   type ComposerFileReference,
   type ComposerContextReference,
   type ComposerSendOptions,
@@ -150,6 +148,13 @@ import {
   useChatSessionRuntime,
   type ChatSessionRuntimeEffect,
 } from "./useChatSessionRuntime";
+import {
+  MAX_COMPOSER_SESSION_REFERENCES,
+  nativeReferenceFromTinyOs,
+  prepareChatSubmission,
+  tinyOsReferenceLabel,
+  type QueuedComposerInput,
+} from "./chatSubmission";
 
 export type ChatPageProps = {
   chatStore: ChatStore;
@@ -180,8 +185,6 @@ type ConversationViewState = {
 };
 
 type RecoveryAction = "continue" | "retry" | "restart";
-
-type QueuedComposerInput = QueuedInput & { turnInput: ChatInput };
 
 function lastCanonicalEventIndex(
   items: readonly BackendAgentTurnItem[],
@@ -261,9 +264,6 @@ const LIVE_CANVAS_CLOSE_MS = 160;
 const SESSION_DELETE_DISSOLVE_MS = 180;
 const TINYOS_WIDTH_STORAGE_KEY = "tinybot.ui.tinyos.width";
 const EMPTY_OPTIMISTIC_MESSAGES: ReactChatMessage[] = [];
-const MAX_COMPOSER_SESSION_REFERENCES = 4;
-const MAX_COMPOSER_SESSION_CONTEXT_BYTES = 48 * 1024;
-const SESSION_TRANSCRIPT_OMISSION = "\n\n[... middle conversation content omitted to fit the context limit ...]\n\n";
 
 type ProjectSessionContext = {
   projectCoordinator?: boolean;
@@ -1421,10 +1421,27 @@ export function ChatPage({
     pastedContent: PastedContent[],
     options: ComposerSendOptions,
   ) {
-    if (message.trim() === "/compact") {
-      if (files.length || pastedContent.length || tinyOsContextReferences.length || composerSessionMentionIds.length) {
-        throw new Error(t("errors.compactWithAttachments"));
-      }
+    const availableMentionIds = new Set(composerSessionMentionOptions.map((option) => option.id));
+    const prepared = await prepareChatSubmission({
+      availableSessionIds: availableMentionIds,
+      files,
+      isRunning: activeSession ? sessionResponding : false,
+      loadSessionTranscript: chatStore.copyMarkdown,
+      message,
+      now: nextQueuedInputTimestamp,
+      options,
+      pastedContent,
+      queuedInputs: activeQueuedInputs,
+      selectedSessionIds: composerSessionMentionIds,
+      sessions: sessionsRef.current.map((session) => ({
+        id: session.id,
+        title: displaySessionTitle(session.title, t),
+        updatedAtMs: session.updatedAtMs,
+      })),
+      t,
+      tinyOsReferences: tinyOsContextReferences,
+    });
+    if (prepared.kind === "compact") {
       if (!activeSession) {
         throw new Error(t("errors.compactNeedsSession"));
       }
@@ -1449,52 +1466,22 @@ export function ChatPage({
       }
       return;
     }
-    const availableMentionIds = new Set(composerSessionMentionOptions.map((option) => option.id));
-    const mentionedSessions = composerSessionMentionIds.map((sessionId) => {
-      const session = sessionsRef.current.find((candidate) => candidate.id === sessionId);
-      if (!session || !availableMentionIds.has(sessionId)) {
-        throw new Error(t("composer.sessionMention.unavailable"));
-      }
-      return session;
-    });
-    const references = [
-      ...files.map(nativeReferenceFromComposerFile),
-      ...tinyOsContextReferences.map((reference) => nativeReferenceFromTinyOs(reference, t)),
-      ...await nativeReferencesFromComposerSessions(mentionedSessions, chatStore.copyMarkdown, t),
-    ];
-    const visibleText = formatComposerMessage(
-      message || (files.length
-        ? t("composer.attachedFilesPrompt")
-        : mentionedSessions.length ? t("composer.sessionMention.attachedPrompt")
-          : references.length ? t("composer.attachedContextPrompt") : ""),
-      pastedContent,
-      t,
-    );
-    const sendSession = activeSession ?? await createSessionForDraft();
-    if (!visibleText || !sendSession) {
+    if (prepared.kind === "empty") {
       return;
     }
-    const queuedResult = submitComposerText({
-      content: visibleText,
-      isRunning: sendSession.id === activeSession?.id
-        ? sessionResponding
-        : isQueueableRunningSession(sendSession, emptyActiveSession),
-      now: nextQueuedInputTimestamp(),
-      queuedInputs: activeQueuedInputs,
-    });
-    if (queuedResult.kind === "queue_limit_reached") {
+    if (prepared.kind === "queue_limit_reached") {
       setQueueMessage(t("queue.limit", { count: MAX_QUEUED_INPUTS }));
       return;
     }
-    const turnInput = createComposerChatInput(
-      queuedResult.kind === "send_message" ? queuedResult.content : queuedResult.input.content,
-      options,
-      references,
-    );
-    if (queuedResult.kind === "queue_input") {
-      handleQueuedComposerResult(sendSession.id, queuedResult.input, turnInput);
+    const sendSession = activeSession ?? await createSessionForDraft();
+    if (!sendSession) {
       return;
     }
+    if (prepared.kind === "queue_input") {
+      handleQueuedComposerResult(sendSession.id, prepared.input);
+      return;
+    }
+    const visibleText = prepared.visibleText;
     const optimisticSession = isDefaultSessionTitle(sendSession.title)
       ? { ...sendSession, title: deriveSessionTitle(visibleText, t) }
       : sendSession;
@@ -1503,7 +1490,7 @@ export function ChatPage({
       setSessions((current) => current.map((session) => session.id === sendSession.id ? optimisticSession : session));
       await sessionStore.rename(sendSession.id, optimisticSession.title);
     }
-    await dispatchTurn(sendSession.id, turnInput, "composer-send");
+    await dispatchTurn(sendSession.id, prepared.turnInput, "composer-send");
     await handleSessionStoreRefresh(optimisticSession);
   }
 
@@ -1603,16 +1590,12 @@ export function ChatPage({
 
   function handleQueuedComposerResult(
     sessionId: string,
-    input: QueuedInput,
-    turnInput: ChatInput,
+    input: QueuedComposerInput,
   ) {
     setQueueMessage("");
     updateQueuedInputsBySession((current) => {
       const next = new Map(current);
-      next.set(sessionId, [...(next.get(sessionId) ?? []), {
-        ...input,
-        turnInput,
-      }]);
+      next.set(sessionId, [...(next.get(sessionId) ?? []), input]);
       return next;
     });
   }
@@ -2925,26 +2908,8 @@ function EmptyStateText({ text }: { text: string }) {
   return <p className="react-empty-state">{text}</p>;
 }
 
-function isQueueableRunningSession(session: SessionSummary, emptyActiveSession: boolean): boolean {
-  return session.status === "running" && !emptyActiveSession && !session.id.startsWith("pending:");
-}
-
 function toChatInput(input: QueuedComposerInput): ChatInput {
   return input.turnInput;
-}
-
-function createComposerChatInput(
-  text: string,
-  options: ComposerSendOptions,
-  references: AgentInputReference[],
-): ChatInput {
-  return {
-    text,
-    ...(options.model ? { model: options.model } : {}),
-    ...(options.provider ? { provider: options.provider } : {}),
-    ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
-    ...(references.length ? { references } : {}),
-  };
 }
 
 function tinyOsContextReferenceId(reference: TinyOsContextReference): string {
@@ -3003,13 +2968,6 @@ function agentUiFormCorrelationString(form: AgentUiForm, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
-function tinyOsReferenceLabel(reference: TinyOsContextReference, t: TFunction<"chat">): string {
-  const lineRange = reference.startLine
-    ? `L${reference.startLine}${reference.endLine && reference.endLine !== reference.startLine ? `–${reference.endLine}` : ""}`
-    : t("references.selection");
-  return reference.kind === "file" ? `${reference.path} · ${lineRange}` : `${reference.command} · ${lineRange}`;
-}
-
 function composerReferenceFromTinyOs(reference: TinyOsContextReference, t: TFunction<"chat">): ComposerContextReference {
   return {
     detail: reference.kind === "file" ? t("references.fileSelection") : t("references.terminalOutput"),
@@ -3017,112 +2975,6 @@ function composerReferenceFromTinyOs(reference: TinyOsContextReference, t: TFunc
     kind: reference.kind,
     label: tinyOsReferenceLabel(reference, t),
   };
-}
-
-function nativeReferenceFromTinyOs(reference: TinyOsAgentRequestReference, t: TFunction<"chat">): AgentInputReference {
-  const canonical = reference.kind === "file"
-    ? reference.provenance.kind === "canonical" ? reference.provenance : undefined
-    : { sourceItemId: reference.sourceItemId, turnId: reference.turnId };
-  const scope = canonical?.turnId ?? (reference.kind === "file" && reference.provenance.kind === "workspace_read" ? reference.provenance.workspaceKey : undefined);
-  const detail = reference.kind === "file"
-    ? t("references.fileSelection")
-    : reference.kind === "terminal" ? t("references.terminalSelection") : t("references.planSnapshot");
-  const title = reference.kind === "plan" ? t("references.executionPlan") : tinyOsReferenceLabel(reference, t);
-  return {
-    detail,
-    evidenceId: canonical?.sourceItemId,
-    kind: "reference",
-    scope,
-    sourceEndLine: reference.kind === "plan" ? undefined : reference.endLine,
-    sourceLine: reference.kind === "plan" ? undefined : reference.startLine,
-    sourceText: reference.kind === "plan" ? reference.snapshotText : reference.selectedText,
-    title,
-    type: `tinyos.${reference.kind}`,
-    ...(reference.kind === "file" ? {
-      rawLine: reference.startLine,
-      rawPath: reference.path,
-      revision: reference.revision,
-      sourcePath: reference.path,
-    } : {}),
-  };
-}
-
-function nativeReferenceFromComposerFile(file: ComposerFileReference): AgentInputReference {
-  return {
-    detail: formatFileMetadata(file.mimeType, file.sizeBytes),
-    kind: "reference",
-    rawPath: file.path,
-    title: file.name,
-    type: "tinyos.file",
-  };
-}
-
-async function nativeReferencesFromComposerSessions(
-  sessions: SessionSummary[],
-  loadTranscript: (sessionId: string) => Promise<string>,
-  t: TFunction<"chat">,
-): Promise<AgentInputReference[]> {
-  const selected = sessions.slice(0, MAX_COMPOSER_SESSION_REFERENCES);
-  if (!selected.length) return [];
-  const transcriptBudget = Math.floor(MAX_COMPOSER_SESSION_CONTEXT_BYTES / selected.length);
-  return Promise.all(selected.map(async (session) => {
-    let transcript: string;
-    try {
-      transcript = await loadTranscript(session.id);
-    } catch (error) {
-      console.error("[chat] composer.session_reference.load_failed", {
-        error: error instanceof Error ? error.message : String(error),
-        sessionId: session.id,
-      });
-      throw error;
-    }
-    return {
-      detail: t("composer.sessionMention.referenceDetail"),
-      kind: "reference" as const,
-      revision: String(session.updatedAtMs),
-      scope: session.id,
-      sourceText: truncateUtf8Middle(
-        transcript || t("composer.sessionMention.emptyTranscript"),
-        transcriptBudget,
-      ),
-      title: displaySessionTitle(session.title, t),
-      type: "tinyos.thread",
-    };
-  }));
-}
-
-function truncateUtf8Middle(value: string, maxBytes: number): string {
-  const encoder = new TextEncoder();
-  if (encoder.encode(value).byteLength <= maxBytes) return value;
-  const markerBytes = encoder.encode(SESSION_TRANSCRIPT_OMISSION).byteLength;
-  const contentBudget = Math.max(0, maxBytes - markerBytes);
-  const prefixBudget = Math.floor(contentBudget / 3);
-  const suffixBudget = contentBudget - prefixBudget;
-  return `${utf8Prefix(value, prefixBudget, encoder)}${SESSION_TRANSCRIPT_OMISSION}${utf8Suffix(value, suffixBudget, encoder)}`;
-}
-
-function utf8Prefix(value: string, maxBytes: number, encoder: TextEncoder): string {
-  let output = "";
-  let bytes = 0;
-  for (const character of value) {
-    const nextBytes = encoder.encode(character).byteLength;
-    if (bytes + nextBytes > maxBytes) break;
-    output += character;
-    bytes += nextBytes;
-  }
-  return output;
-}
-
-function utf8Suffix(value: string, maxBytes: number, encoder: TextEncoder): string {
-  const output: string[] = [];
-  let bytes = 0;
-  for (const character of Array.from(value).reverse()) {
-    const nextBytes = encoder.encode(character).byteLength;
-    if (bytes + nextBytes > maxBytes) break;
-    output.push(character);
-    bytes += nextBytes;
-  }
-  return output.reverse().join("");
 }
 
 function tinyOsAgentRequestControl(reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent): string {
@@ -3196,14 +3048,6 @@ function moveMapValue<T>(
   const value = map.get(previousSessionId) as T;
   map.delete(previousSessionId);
   map.set(sessionId, value);
-}
-
-function formatComposerMessage(message: string, pastedContent: PastedContent[], t: TFunction<"chat">): string {
-  const segments = [message.trim()].filter(Boolean);
-  for (const pasted of pastedContent) {
-    segments.push(`${t("composer.pastedContentLabel")}:\n${pasted.content}`);
-  }
-  return segments.join("\n\n");
 }
 
 function toComposerModelOption(model: ChatModelOption, t: TFunction<"chat">): ModelOption {

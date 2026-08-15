@@ -1,7 +1,7 @@
 # Tinybot 前端模块化与瘦身计划
 
 - 日期：2026-08-15
-- 状态：实施中；Phase 3 与 Phase 7 已按职责清晰度收口，Phase 4 的 active session runtime 首个切片已完成
+- 状态：实施中；Phase 3 与 Phase 7 已按职责清晰度收口，Phase 4 的 session runtime 与 composer submission 已完成
 - 基线提交：`c18d0bae refactor: extract chat context usage`
 - 范围：`src/react-workbench`、被桌面前端直接使用的 `src/app-core`、前端依赖和分析工具
 - 本地约束：本文位于被忽略的 `docs/local/`，只作为本地实施依据，不推送到 GitHub
@@ -95,8 +95,12 @@
 - 页面测试发现初始 load 若错误发出 `timeline_applied` 会覆盖 sidebar 已有 running 状态；模块现在区分 load 与实时事件来源，只有订阅事件同步会话状态，避免用时序补丁掩盖语义差异；
 - `ChatPage.tsx` 从 4,626 行降至 4,549 行，文件内 `useEffect` 从 32 降至 30；完整分析通过 89 个测试文件、576 个测试、TypeScript、ESLint、源码分析、生产构建和 bundle 门禁；ESLint finding 从 42 降至 41，生产循环和不可达候选保持 0；
 - 本切片新增一个生产模块后，生产文件为 114、生产代码 34,290 行、分支点 6,081；初始资源 gzip 为 486,970 B，增加 908 B，JavaScript 总 gzip 为 2,529,872 B，仍在现有门禁内。Phase 4 尚未完成，下一切片应处理 composer submission 或 canonical timeline，不再继续扩大 runtime interface。
+- 新建 `prepareChatSubmission()` 深模块：compact 判别、session mention 校验、file/TinyOS/session reference 转换、48 KiB UTF-8 transcript 预算、中段省略、粘贴内容格式化、模型参数和 queued input 的 canonical `turnInput` 组装均由一个 interface 拥有；transcript 读取失败会记录 session 上下文并原样抛出；
+- `ChatPage` 不再知道 reference 字节预算或重建 queued input，只保留 session 创建、乐观标题、compact/turn dispatch 等页面副作用；空输入会在创建草稿会话前结束，避免产生无内容会话；
+- 文件元数据格式化从千行 Composer 组件移入 25 行独立工具，提交模块不再运行时依赖 UI 组件实现；`ChatPage.tsx` 继续从 4,549 行降至 4,393 行；
+- Composer submission 切片完整分析通过：90 个测试文件、580 个测试、TypeScript、ESLint、源码分析、生产构建和 bundle 门禁全部成功；ESLint finding 保持 41，生产循环和不可达候选保持 0，初始资源 gzip 为 487,108 B，JavaScript 总 gzip 为 2,530,003 B。
 
-Settings/TinyOS 剩余路由级 CSS、Chat/Settings/TinyOS 模块深化与静态分析债务仍待后续阶段实施。
+Canonical timeline、session workspace、Settings/TinyOS 模块深化、剩余路由级 CSS 与静态分析债务仍待后续阶段实施。
 
 ## 2. 调查基线
 
@@ -399,6 +403,8 @@ prepareChatSubmission(input) -> PreparedChatSubmission
 ```
 
 字节预算、引用上限和中段省略规则由模块内部拥有，调用方不再了解 UTF-8 截断细节。
+
+当前状态：已完成。模块返回 `compact | empty | queue_limit_reached | queue_input | send_message` 判别式结果，页面无需重建引用或 queued `turnInput`。输入时间戳使用惰性 callback，仅在存在可提交内容时生成；session transcript 失败保留诊断并 fail fast。文件元数据格式化独立为小型共享工具，避免纯提交逻辑反向运行时依赖 Composer 组件。
 
 #### 4.3 Canonical Timeline 模块
 
