@@ -3,20 +3,11 @@ import type { TFunction } from "i18next";
 import {
   Check,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Folder,
   FolderOpen,
-  FolderPlus,
-  GitBranch,
   Loader2,
   MoreHorizontal,
   PanelRightClose,
   PanelRightOpen,
-  Plus,
-  Search,
-  Settings,
-  Trash2,
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -40,7 +31,7 @@ import {
   type PastedContent,
 } from "../../components/ui/claude-style-ai-input";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
-import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, ProjectGroup, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, ToolsStore, WorkspaceStore } from "../services";
+import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, ToolsStore, WorkspaceStore } from "../services";
 import { createDesktopCompactCommand, createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import {
   clearCurrentChatModel,
@@ -52,7 +43,6 @@ import {
   writeCurrentChatReasoningEffort,
 } from "../../app-core/chat/reasoningEffort";
 import { pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
-import { pickDesktopWorkspaceDirectory } from "../../app-core/native/desktopNativeWorkspacePicker";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
 import type { ReactChatMessage, ToolCallSummary } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
@@ -84,10 +74,7 @@ import {
 } from "./sessionTabWorkspace";
 import {
   groupSessionsByWorkspace,
-  sessionWorkspaceName,
 } from "./sessionWorkspaces";
-import { projectSessionGroups } from "./projectSessionGroups";
-import { ProjectGroupDialog } from "./ProjectGroupDialog";
 import {
   applyLoadedDelegatedAgentTrace,
   projectLoadedArtifactDetail,
@@ -146,6 +133,15 @@ import {
   ChatTimeline,
   type RecoveryAction,
 } from "./ChatTimeline";
+import {
+  ChatSessionWorkspace,
+  type ProjectSessionContext,
+} from "./ChatSessionWorkspace";
+import {
+  deriveSessionTitle,
+  displaySessionTitle,
+  isDefaultSessionTitle,
+} from "./sessionTitle";
 
 export type ChatPageProps = {
   chatStore: ChatStore;
@@ -254,12 +250,6 @@ const SESSION_DELETE_DISSOLVE_MS = 180;
 const TINYOS_WIDTH_STORAGE_KEY = "tinybot.ui.tinyos.width";
 const EMPTY_OPTIMISTIC_MESSAGES: ReactChatMessage[] = [];
 
-type ProjectSessionContext = {
-  projectCoordinator?: boolean;
-  projectGroupId: string;
-  title?: string;
-};
-
 export function ChatPage({
   chatStore,
   createSessionSignal = 0,
@@ -280,9 +270,6 @@ export function ChatPage({
   const tinyOsUiScope = useId();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
-  const [projectGroups, setProjectGroups] = useState<ProjectGroup[]>([]);
-  const [projectDialogGroupId, setProjectDialogGroupId] = useState<string | "new">();
-  const [workspaceActionMenuOpen, setWorkspaceActionMenuOpen] = useState(false);
   const [sessionTabs, dispatchSessionTabs] = useReducer(
     reduceSessionTabWorkspace,
     INITIAL_SESSION_TAB_WORKSPACE,
@@ -298,10 +285,8 @@ export function ChatPage({
   const [composerReasoningEffort, setComposerReasoningEffort] = useState(readCurrentChatReasoningEffort);
   const [contextUsageDefaults, setContextUsageDefaults] = useState<ContextUsageDefaults>({});
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-  const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [sessionWorkspaceError, setSessionWorkspaceError] = useState("");
   const [sessionCreatePending, setSessionCreatePending] = useState(false);
-  const [workspacePickerPending, setWorkspacePickerPending] = useState(false);
   const [localSessionSidebarCollapsed, setLocalSessionSidebarCollapsed] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const [liveCanvas, dispatchLiveCanvas] = useReducer(reduceLiveCanvasState, INITIAL_LIVE_CANVAS_STATE);
@@ -341,7 +326,6 @@ export function ChatPage({
   const liveCanvasToggleRef = useRef<HTMLButtonElement | null>(null);
   const liveCanvasPreviousVisibilityRef = useRef(liveCanvas.visibility);
   const stickToLatestRef = useRef(true);
-  const workspaceActionMenuRef = useRef<HTMLDivElement | null>(null);
   const activeSessionId = sessionTabs.activeSessionId;
   const sessionRuntime = useChatSessionRuntime({
     chatStore,
@@ -392,22 +376,10 @@ export function ChatPage({
       }] : [];
     })
   ), [sessionTabs.openSessionIds, sessionTabs.unreadSessionIds, sessions]);
-  const projectProjection = useMemo(
-    () => projectSessionGroups(projectGroups, sessions),
-    [projectGroups, sessions],
-  );
   const allSessionWorkspaces = useMemo(() => groupSessionsByWorkspace(sessions).map((workspace) => ({
     ...workspace,
     label: workspace.label ?? t("shell.generalSessions"),
   })), [sessions, t]);
-  const sessionWorkspaces = useMemo(() => groupSessionsByWorkspace(projectProjection.ungroupedSessions).map((workspace) => ({
-    ...workspace,
-    label: workspace.label ?? t("shell.generalSessions"),
-  })), [projectProjection.ungroupedSessions, t]);
-  const availableProjectWorkspaceIds = useMemo(() => Array.from(new Set([
-    ...sessions.flatMap((session) => session.workingDirectory ? [session.workingDirectory] : []),
-    ...projectGroups.flatMap((group) => group.workspaceIds),
-  ])), [projectGroups, sessions]);
   const composerSessionMentionOptions = useMemo<ComposerSessionMentionOption[]>(() => {
     if (!activeSession || activeSession.pluginMigration) return [];
     const currentWorkspace = allSessionWorkspaces.find((workspace) => (
@@ -897,30 +869,6 @@ export function ChatPage({
   }, [sessionStore]);
 
   useEffect(() => {
-    if (!projectGroupStore) return;
-    let cancelled = false;
-    void projectGroupStore.list().then((groups) => {
-      if (!cancelled) setProjectGroups(groups);
-    }).catch((error) => {
-      if (!cancelled) setSessionWorkspaceError(error instanceof Error ? error.message : String(error));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [projectGroupStore]);
-
-  useEffect(() => {
-    if (!workspaceActionMenuOpen) return;
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!workspaceActionMenuRef.current?.contains(event.target as Node)) {
-        setWorkspaceActionMenuOpen(false);
-      }
-    };
-    window.addEventListener("pointerdown", closeOnOutsidePointer);
-    return () => window.removeEventListener("pointerdown", closeOnOutsidePointer);
-  }, [workspaceActionMenuOpen]);
-
-  useEffect(() => {
     if (!sessionsLoaded) {
       return;
     }
@@ -1143,73 +1091,6 @@ export function ChatPage({
     } finally {
       setInstallingMigrationJobId("");
     }
-  }
-
-  async function handleCreateSessionFromSearch() {
-    const created = await handleCreateSession();
-    if (created) {
-      setSessionSearchOpen(false);
-    }
-  }
-
-  async function handleAddWorkspace() {
-    if (workspacePickerPending || sessionCreatePending) {
-      return;
-    }
-    setWorkspacePickerPending(true);
-    setSessionWorkspaceError("");
-    try {
-      const workingDirectory = await pickDesktopWorkspaceDirectory();
-      if (workingDirectory) {
-        await handleCreateSession(workingDirectory);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setSessionWorkspaceError(message);
-      console.error("[session-workspaces] workspace.pick.failed", { error: message });
-    } finally {
-      setWorkspacePickerPending(false);
-    }
-  }
-
-  async function handleSaveProjectGroup(input: {
-    projectGroupId?: string;
-    name: string;
-    workspaceIds: string[];
-  }) {
-    if (!projectGroupStore) throw new Error(t("projectGroups.unavailable"));
-    const saved = await projectGroupStore.save(input);
-    setProjectGroups((current) => {
-      const existing = current.findIndex((group) => group.projectGroupId === saved.projectGroupId);
-      if (existing < 0) return [...current, saved];
-      const next = [...current];
-      next[existing] = saved;
-      return next;
-    });
-  }
-
-  async function handleDeleteProjectGroup(projectGroupId: string) {
-    if (!projectGroupStore) throw new Error(t("projectGroups.unavailable"));
-    await projectGroupStore.delete(projectGroupId);
-    setProjectGroups((current) => current.filter((group) => group.projectGroupId !== projectGroupId));
-  }
-
-  async function handleChooseProjectWorkspace(): Promise<string | undefined> {
-    if (workspacePickerPending) return undefined;
-    setWorkspacePickerPending(true);
-    try {
-      return await pickDesktopWorkspaceDirectory() || undefined;
-    } finally {
-      setWorkspacePickerPending(false);
-    }
-  }
-
-  function handleCreateCoordinatorSession(project: ProjectGroup) {
-    void handleCreateSession(undefined, {
-      projectCoordinator: true,
-      projectGroupId: project.projectGroupId,
-      title: t("projectGroups.newCoordinatorTitle", { name: project.name }),
-    });
   }
 
   async function handleDeleteSession(session: SessionSummary) {
@@ -2093,10 +1974,9 @@ export function ChatPage({
     onSessionSidebarCollapsedChange?.(collapsed);
   }
 
-  function handleSessionSearchSelect(session: SessionSummary) {
+  function handleSelectSession(session: SessionSummary) {
     dispatchDelete({ type: "session-selected", sessionId: session.id });
     dispatchSessionTabs({ type: "open", sessionId: session.id });
-    setSessionSearchOpen(false);
   }
 
   function handleActivateSessionTab(sessionId: string) {
@@ -2123,54 +2003,9 @@ export function ChatPage({
     void handleStopGeneration(activeSession, "chat");
   }
 
-  function renderSidebarSessionRow(session: SessionSummary, index: number) {
-    const confirming = deleteState.confirmingSessionId === session.id;
-    const dissolving = dissolvingSessionIds.has(session.id);
-    return (
-      <div
-        className="react-session-row"
-        data-active={session.id === activeSession?.id}
-        data-confirming={confirming}
-        data-dissolving={dissolving ? "true" : undefined}
-        data-motion-role="item"
-        key={session.id}
-        onMouseLeave={() => dispatchDelete({ type: "row-left", sessionId: session.id })}
-        style={{ "--react-session-row-index": String(index) } as CSSProperties}
-      >
-        <button
-          aria-label={session.title}
-          className="react-session-row__select"
-          type="button"
-          disabled={dissolving}
-          onClick={() => {
-            dispatchDelete({ type: "session-selected", sessionId: session.id });
-            dispatchSessionTabs({ type: "open", sessionId: session.id });
-          }}
-        >
-          <span className="react-session-row__title">{displaySessionTitle(session.title, t)}</span>
-          <small>{formatRelativeUpdatedTime(session.updatedAtMs, now())}</small>
-        </button>
-        <button
-          aria-label={t(confirming ? "shell.confirmDelete" : "shell.delete", { name: session.title })}
-          className="react-session-row__delete"
-          data-confirming={confirming}
-          type="button"
-          disabled={dissolving}
-          onClick={() => void handleDeleteSession(session)}
-        >
-          <Trash2 aria-hidden="true" size={15} />
-        </button>
-      </div>
-    );
-  }
-
   const visibleAgentUiForms = agentUiForms.filter(isVisibleAgentUiForm);
   const interactiveFormIds = new Set(visibleAgentUiForms.map((form) => form.form_id));
   const headerTitle = activeSession ? displaySessionTitle(activeSession.title, t) : draftNewSession ? t("shell.newChat") : t("shell.noSelection");
-  const projectDialogGroup = projectDialogGroupId && projectDialogGroupId !== "new"
-    ? projectGroups.find((group) => group.projectGroupId === projectDialogGroupId)
-    : undefined;
-
   return (
     <section
       className="react-chat-page"
@@ -2181,204 +2016,26 @@ export function ChatPage({
       style={{ "--tinyos-width": `${tinyOsWidth}px` } as CSSProperties}
       onKeyDown={handleChatPageKeyDown}
     >
-      <aside className="react-session-list" aria-label={t("shell.sessions")} data-collapsed={resolvedSessionSidebarCollapsed}>
-        <div className="react-session-list__header">
-          <div className="react-session-list__title-row">
-            <h2>Tinybot</h2>
-            <div className="react-session-list__title-actions">
-              <div className="react-session-list__workspace-actions" ref={workspaceActionMenuRef}>
-                <button
-                  aria-expanded={workspaceActionMenuOpen}
-                  aria-haspopup="menu"
-                  aria-label={t("shell.workspaceActions")}
-                  className="react-session-list__add-workspace"
-                  disabled={workspacePickerPending || sessionCreatePending}
-                  title={t("shell.workspaceActions")}
-                  type="button"
-                  onClick={() => setWorkspaceActionMenuOpen((open) => !open)}
-                >
-                  <FolderPlus aria-hidden="true" size={15} />
-                </button>
-                {workspaceActionMenuOpen ? (
-                  <div aria-label={t("shell.workspaceActions")} className="react-session-list__workspace-menu" role="menu">
-                    <button
-                      role="menuitem"
-                      type="button"
-                      onClick={() => {
-                        setWorkspaceActionMenuOpen(false);
-                        void handleAddWorkspace();
-                      }}
-                    >
-                      <FolderPlus aria-hidden="true" size={14} />
-                      {t("shell.addWorkspace")}
-                    </button>
-                    <button
-                      disabled={!projectGroupStore}
-                      role="menuitem"
-                      type="button"
-                      onClick={() => {
-                        setWorkspaceActionMenuOpen(false);
-                        setProjectDialogGroupId("new");
-                      }}
-                    >
-                      <GitBranch aria-hidden="true" size={14} />
-                      {t("projectGroups.create")}
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-              <button
-                aria-label={t("shell.searchChats")}
-                className="react-session-list__search"
-                title={t("shell.searchChats")}
-                type="button"
-                onClick={() => setSessionSearchOpen(true)}
-              >
-                <Search aria-hidden="true" size={15} />
-              </button>
-              <button
-                aria-label={resolvedSessionSidebarCollapsed ? t("shell.expandSidebar") : t("shell.collapseSidebar")}
-                className="react-session-list__collapse"
-                title={resolvedSessionSidebarCollapsed ? t("shell.expandSidebar") : t("shell.collapseSidebar")}
-                type="button"
-                onClick={() => handleSessionSidebarCollapsedChange(!resolvedSessionSidebarCollapsed)}
-              >
-                <ChevronLeft aria-hidden="true" data-direction={resolvedSessionSidebarCollapsed ? "expand" : "collapse"} size={16} />
-              </button>
-            </div>
-          </div>
-          <button
-            aria-label={t("shell.newChat")}
-            className="react-session-list__new"
-            disabled={sessionCreatePending}
-            type="button"
-            onClick={() => void handleCreateSession()}
-          >
-            {sessionCreatePending ? <Loader2 aria-hidden="true" className="react-session-list__pending" size={15} /> : <Plus aria-hidden="true" size={15} />}
-            <span>{t("shell.newChat")}</span>
-          </button>
-          {sessionWorkspaceError ? (
-            <p className="react-session-list__error" role="alert">{sessionWorkspaceError}</p>
-          ) : null}
-        </div>
-        <div className="react-session-list__rows" aria-label={t("shell.sessionRows")} data-motion="animated-list">
-          {projectProjection.groups.map((projectGroup) => {
-            const projectSessions = [
-              ...projectGroup.coordinatorSessions,
-              ...projectGroup.workspaces.flatMap((workspace) => workspace.sessions),
-            ];
-            return (
-              <details
-                aria-label={t("projectGroups.groupLabel", { name: projectGroup.project.name })}
-                className="react-project-group"
-                data-active={projectSessions.some((session) => session.id === activeSession?.id) ? "true" : undefined}
-                key={projectGroup.project.projectGroupId}
-                open
-                role="group"
-              >
-                <summary title={projectGroup.project.name}>
-                  <ChevronRight aria-hidden="true" className="react-project-group__chevron" size={14} />
-                  <GitBranch aria-hidden="true" className="react-project-group__icon" size={15} />
-                  <strong>{projectGroup.project.name}</strong>
-                </summary>
-                <div className="react-project-group__actions">
-                  <button
-                    aria-label={t("projectGroups.newCoordinator", { name: projectGroup.project.name })}
-                    disabled={sessionCreatePending}
-                    onClick={() => handleCreateCoordinatorSession(projectGroup.project)}
-                    title={t("projectGroups.newCoordinator", { name: projectGroup.project.name })}
-                    type="button"
-                  >
-                    <Plus aria-hidden="true" size={14} />
-                  </button>
-                  <button
-                    aria-label={t("projectGroups.edit", { name: projectGroup.project.name })}
-                    onClick={() => setProjectDialogGroupId(projectGroup.project.projectGroupId)}
-                    title={t("projectGroups.edit", { name: projectGroup.project.name })}
-                    type="button"
-                  >
-                    <MoreHorizontal aria-hidden="true" size={15} />
-                  </button>
-                </div>
-                <div className="react-project-group__content">
-                  {projectGroup.coordinatorSessions.length ? (
-                    <section className="react-project-group__coordinators">
-                      <div className="react-project-group__member-title">
-                        <GitBranch aria-hidden="true" size={13} />
-                        <span>{t("projectGroups.coordination")}</span>
-                      </div>
-                      {projectGroup.coordinatorSessions.map(renderSidebarSessionRow)}
-                    </section>
-                  ) : null}
-                  {projectGroup.workspaces.map((workspace) => (
-                    <section className="react-project-workspace" key={workspace.workspaceId}>
-                      <div className="react-project-group__member-title" title={workspace.workspaceId}>
-                        <Folder aria-hidden="true" size={13} />
-                        <span>
-                          <strong>{workspace.label}</strong>
-                          <small>{workspace.workspaceId}</small>
-                        </span>
-                        <button
-                          aria-label={t("projectGroups.newWorkspaceSession", { name: workspace.label })}
-                          disabled={sessionCreatePending}
-                          onClick={() => void handleCreateSession(workspace.workspaceId, {
-                            projectGroupId: projectGroup.project.projectGroupId,
-                          })}
-                          title={t("projectGroups.newWorkspaceSession", { name: workspace.label })}
-                          type="button"
-                        >
-                          <Plus aria-hidden="true" size={13} />
-                        </button>
-                      </div>
-                      <div className="react-project-workspace__sessions">
-                        {workspace.sessions.map(renderSidebarSessionRow)}
-                      </div>
-                    </section>
-                  ))}
-                </div>
-              </details>
-            );
-          })}
-          {sessionWorkspaces.length ? sessionWorkspaces.map((workspace) => (
-            <details
-              aria-label={t("shell.workspace", { name: workspace.label })}
-              className="react-session-workspace"
-              data-active={workspace.sessions.some((session) => session.id === activeSession?.id) ? "true" : undefined}
-              key={workspace.key}
-              open
-              role="group"
-            >
-              <summary title={workspace.workingDirectory ?? workspace.label}>
-                <ChevronRight aria-hidden="true" className="react-session-workspace__chevron" size={14} />
-                <span aria-hidden="true" className="react-session-workspace__folder">
-                  <Folder className="react-session-workspace__folder-icon--collapsed" size={15} />
-                  <FolderOpen className="react-session-workspace__folder-icon--expanded" size={15} />
-                </span>
-                <span className="react-session-workspace__copy">
-                  <strong>{workspace.label}</strong>
-                  {workspace.workingDirectory ? <small>{workspace.workingDirectory}</small> : null}
-                </span>
-              </summary>
-              <button
-                aria-label={t("shell.newSessionIn", { name: workspace.label })}
-                className="react-session-workspace__new"
-                disabled={sessionCreatePending}
-                title={t("shell.newSessionIn", { name: workspace.label })}
-                type="button"
-                onClick={() => void handleCreateSession(workspace.workingDirectory)}
-              >
-                <Plus aria-hidden="true" size={15} />
-              </button>
-              <div className="react-session-workspace__sessions">
-                {workspace.sessions.map(renderSidebarSessionRow)}
-              </div>
-            </details>
-          )) : null}
-          {!projectProjection.groups.length && !sessionWorkspaces.length && !resolvedSessionSidebarCollapsed
-            ? <EmptyStateText text={t("shell.noSessions")} />
-            : null}
-        </div>
-      </aside>
+      <ChatSessionWorkspace
+        actions={{
+          onCancelDeleteConfirmation: (sessionId) => dispatchDelete({ type: "row-left", sessionId }),
+          onCollapsedChange: handleSessionSidebarCollapsedChange,
+          onCreateSession: handleCreateSession,
+          onDeleteSession: handleDeleteSession,
+          onOpenFiles,
+          onOpenSettings,
+          onSelectSession: handleSelectSession,
+        }}
+        activeSessionId={activeSessionId}
+        collapsed={resolvedSessionSidebarCollapsed}
+        confirmingDeleteSessionId={deleteState.confirmingSessionId}
+        createPending={sessionCreatePending}
+        dissolvingSessionIds={dissolvingSessionIds}
+        error={sessionWorkspaceError}
+        now={now}
+        projectGroupStore={projectGroupStore}
+        sessions={sessions}
+      >
 
       <main className="react-chat-surface" data-empty-session={emptyActiveSession ? "true" : undefined}>
         <header className="react-chat-header">
@@ -2713,161 +2370,11 @@ export function ChatPage({
           </div>
         </aside>
       ) : null}
-
-      {sessionSearchOpen ? (
-        <SessionSearchDialog
-          activeSessionId={activeSession?.id ?? ""}
-          now={now}
-          sessions={sessions}
-          onClose={() => setSessionSearchOpen(false)}
-          onCreateSession={() => void handleCreateSessionFromSearch()}
-          onOpenFiles={onOpenFiles}
-          onOpenSettings={onOpenSettings}
-          onSelectSession={handleSessionSearchSelect}
-        />
-      ) : null}
-      {projectDialogGroupId ? (
-        <ProjectGroupDialog
-          availableWorkspaceIds={availableProjectWorkspaceIds}
-          group={projectDialogGroup}
-          onChooseWorkspace={handleChooseProjectWorkspace}
-          onClose={() => setProjectDialogGroupId(undefined)}
-          onDelete={projectDialogGroup ? handleDeleteProjectGroup : undefined}
-          onSave={handleSaveProjectGroup}
-        />
-      ) : null}
+      </ChatSessionWorkspace>
     </section>
   );
 }
 
-function SessionSearchDialog({
-  activeSessionId,
-  now,
-  onClose,
-  onCreateSession,
-  onOpenFiles,
-  onOpenSettings,
-  onSelectSession,
-  sessions,
-}: {
-  activeSessionId: string;
-  now: () => number;
-  onClose: () => void;
-  onCreateSession: () => void;
-  onOpenFiles?: () => void;
-  onOpenSettings?: () => void;
-  onSelectSession: (session: SessionSummary) => void;
-  sessions: SessionSummary[];
-}) {
-  const { i18n, t } = useTranslation("chat");
-  const [query, setQuery] = useState("");
-  const normalizedQuery = query.trim().toLowerCase();
-  const filteredSessions = normalizedQuery
-    ? sessions.filter((session) => [session.title, session.chatId ?? "", session.id, session.workingDirectory ?? ""]
-      .some((value) => value.toLowerCase().includes(normalizedQuery)))
-    : sessions;
-  const recommendations = [
-    {
-      id: "new-chat",
-      label: t("shell.newChat"),
-      shortcut: "Ctrl+N",
-      icon: Plus,
-      run: onCreateSession,
-    },
-    ...(onOpenFiles ? [{
-      id: "open-files",
-      label: t("search.openFolder"),
-      shortcut: "Ctrl+O",
-      icon: FolderOpen,
-      run: () => {
-        onOpenFiles();
-        onClose();
-      },
-    }] : []),
-    ...(onOpenSettings ? [{
-      id: "open-settings",
-      label: t("search.settings"),
-      shortcut: "Ctrl+,",
-      icon: Settings,
-      run: () => {
-        onOpenSettings();
-        onClose();
-      },
-    }] : []),
-  ];
-
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
-
-  return (
-    <div
-      className="react-command-palette-backdrop react-session-search-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onClose();
-        }
-      }}
-    >
-      <section aria-label={t("search.label")} className="react-command-palette react-session-search-dialog" role="dialog">
-        <div className="react-session-search__input-row">
-          <Search aria-hidden="true" size={18} />
-          <input
-            aria-label={t("search.placeholder")}
-            autoFocus
-            placeholder={t("search.placeholder")}
-            value={query}
-            onChange={(event) => setQuery(event.currentTarget.value)}
-          />
-        </div>
-        <div className="react-session-search__section">
-          <p>{t("search.chats")}</p>
-          <div className="react-session-search__list">
-            {filteredSessions.length ? filteredSessions.map((session, index) => (
-              <button
-                aria-current={session.id === activeSessionId ? "page" : undefined}
-                className="react-session-search__item"
-                key={session.id}
-                type="button"
-                onClick={() => onSelectSession(session)}
-              >
-                <span className="react-session-search__rank">{index + 1}</span>
-                <span className="react-session-search__title">{session.title}</span>
-                <span className="react-session-search__meta">
-                  {session.workingDirectory ? sessionWorkspaceName(session.workingDirectory) : t("search.regular")}
-                </span>
-                <kbd>{`Ctrl+${index + 1}`}</kbd>
-                <small>{formatRelativeUpdatedTime(session.updatedAtMs, now(), i18n.language, t("search.noDate"))}</small>
-              </button>
-            )) : <span className="react-session-search__empty">{t("search.noMatches")}</span>}
-          </div>
-        </div>
-        <div className="react-session-search__section">
-          <p>{t("search.suggested")}</p>
-          <div className="react-session-search__list">
-            {recommendations.map((recommendation) => {
-              const Icon = recommendation.icon;
-              return (
-                <button className="react-session-search__item" key={recommendation.id} type="button" onClick={recommendation.run}>
-                  <Icon aria-hidden="true" size={17} />
-                  <span className="react-session-search__title">{recommendation.label}</span>
-                  <kbd>{recommendation.shortcut}</kbd>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-}
 
 function EmptyChatStart({ onSelectPrompt }: { onSelectPrompt: (prompt: string) => void }) {
   const { t } = useTranslation("chat");
@@ -3118,19 +2625,6 @@ function queuedInputStatusLabel(input: QueuedInput, t: TFunction<"chat">): strin
   }
 }
 
-
-function displaySessionTitle(title: string, t: TFunction<"chat">): string {
-  return isDefaultSessionTitle(title) ? t("shell.newChat") : title;
-}
-
-function deriveSessionTitle(prompt: string, t: TFunction<"chat">): string {
-  const normalized = prompt.replace(/\s+/g, " ").trim();
-  return normalized.length > 28 ? `${normalized.slice(0, 28)}…` : normalized || t("shell.newChat");
-}
-
-function isDefaultSessionTitle(title: string): boolean {
-  return /^(new (chat|session)|新(建)?会话|未命名)/i.test(title.trim());
-}
 
 
 function ToolCallDetails({ toolCall }: { toolCall: ToolCallSummary }) {

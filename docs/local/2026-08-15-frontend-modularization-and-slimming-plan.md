@@ -1,7 +1,7 @@
 # Tinybot 前端模块化与瘦身计划
 
 - 日期：2026-08-15
-- 状态：实施中；Phase 3 与 Phase 7 已按职责清晰度收口，Phase 4 的 session runtime、composer submission 与 canonical timeline 已完成
+- 状态：实施中；Phase 3、Phase 4 与 Phase 7 已按职责清晰度收口，下一阶段进入 TinyOS 深化
 - 基线提交：`c18d0bae refactor: extract chat context usage`
 - 范围：`src/react-workbench`、被桌面前端直接使用的 `src/app-core`、前端依赖和分析工具
 - 本地约束：本文位于被忽略的 `docs/local/`，只作为本地实施依据，不推送到 GitHub
@@ -103,6 +103,10 @@
 - 新增 timeline interface 测试，直接验证 canonical/optimistic 展示、branch action、failed-turn retry 与 error-detail action；原有 121 个页面集成测试保持通过；
 - `ChatPage.tsx` 从 4,393 行降至 3,246 行，`ChatTimeline.tsx` 为 1,237 行且生产 interface 仅有 timeline、error detail、actions 与 recovery type，没有 compatibility re-export；
 - Canonical timeline 切片完整分析通过：91 个测试文件、582 个测试、TypeScript、ESLint、源码分析、生产构建和 bundle 门禁全部成功；ESLint finding 保持 41，生产循环和不可达候选保持 0，初始资源 gzip 为 487,425 B，JavaScript 总 gzip 为 2,530,332 B。
+- 新建 `ChatSessionWorkspace`：project group 加载/保存/删除、workspace picker、sidebar 分组、workspace action menu、搜索生命周期与对话框状态均由模块拥有；页面只提供 session create/delete/select、collapse 和 route navigation actions；project group 加载或 picker 失败保留原始错误、界面提示与带 operation 的诊断日志；
+- 新增 workspace interface 测试，覆盖 sidebar/select/search/create action 以及 project group 加载失败的可见错误与日志；默认标题识别、显示和乐观标题推导统一到 14 行纯 `sessionTitle` 模块，避免页面与 workspace 各自维护命名规则；
+- `ChatPage.tsx` 从 3,246 行继续降至分析器统计的 2,741 行，`useEffect` 从 30 降至 23，fan-out 从 37 降至 34；剩余主要是 TinyOS command/capability、queue、composer 与页面 drawer 的协作，不为达到 `<1,800` / `12 effects` 指标提前制造 pass-through hook；
+- Session workspace 切片完整分析通过：93 个测试文件、586 个测试、TypeScript、ESLint、源码分析、生产构建和 bundle 门禁全部成功；ESLint finding 保持 41，生产循环和不可达候选保持 0，初始资源 gzip 为 487,695 B，JavaScript 总 gzip 为 2,530,600 B。
 
 Canonical timeline、session workspace、Settings/TinyOS 模块深化、剩余路由级 CSS 与静态分析债务仍待后续阶段实施。
 
@@ -420,12 +424,16 @@ prepareChatSubmission(input) -> PreparedChatSubmission
 
 将 session sidebar、project group、tabs、search 和 workspace picker 收进 `ChatSessionWorkspace`，避免 ChatPage 直接维护所有菜单与弹窗状态。
 
+当前状态：已完成。`ChatSessionWorkspace` 使用一个 actions 对象封装 session side effects，并内部拥有 project/workspace/sidebar/search/dialog 状态；tab 状态继续由已经独立的 `SessionTabStrip` 与 `sessionTabWorkspace` 管理，因为 active tab 同时决定页面 runtime，强行下沉会重新暴露 tab reducer 的全部事件。
+
 退出条件：
 
 - `ChatPage.tsx` 目标低于 1,800 行、`useEffect` 不超过 12 个、fan-out 不超过 20；
 - 这些数字只作 guardrail，任何为了达标而制造 pass-through 模块的拆分必须撤销；
 - `ChatPage.test.tsx` 的 121 个测试按新 interface 迁移，页面集成测试只保留关键用户流程；
 - 切换会话、流式 patch、队列、恢复、TinyOS 打开和 reload 行为均通过测试。
+
+Phase 4 停止判断：四个职责 seam 均已建立，`ChatPage` 从 4,630 行降至 2,741 行。未硬追 `<1,800`、`12 effects` 与 fan-out 20，因为剩余最大块属于 Phase 5 的 TinyOS 协调；在 TinyOS interface 明确前继续拆 ChatPage 只会产生 callback 转发。Phase 4 在此按职责完成。
 
 ### Phase 5：深化 TinyOS 模块
 
