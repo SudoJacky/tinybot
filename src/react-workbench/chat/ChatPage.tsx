@@ -105,7 +105,7 @@ import { ProjectGroupDialog } from "./ProjectGroupDialog";
 import {
   applyLoadedDelegatedAgentTrace,
   projectLoadedArtifactDetail,
-} from "../../app-core/chat/chatTurnModel";
+} from "../../app-core/chat/chatProjection";
 import type {
   ArtifactRef,
   BackendAgentTurnItem,

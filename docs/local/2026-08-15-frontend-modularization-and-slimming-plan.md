@@ -1,7 +1,7 @@
 # Tinybot 前端模块化与瘦身计划
 
 - 日期：2026-08-15
-- 状态：实施中；Phase 7 已按职责清晰度收口，Phase 3 的稳定 Chat contracts、canonical payload 校验和安全预览策略已完成独立，timeline/UI detail 投影仍待收窄
+- 状态：实施中；Phase 3 与 Phase 7 已按职责清晰度收口，下一阶段转入 Phase 4 的 Chat 页面编排深化
 - 基线提交：`c18d0bae refactor: extract chat context usage`
 - 范围：`src/react-workbench`、被桌面前端直接使用的 `src/app-core`、前端依赖和分析工具
 - 本地约束：本文位于被忽略的 `docs/local/`，只作为本地实施依据，不推送到 GitHub
@@ -85,6 +85,11 @@
 - `chatTurnModel.ts` 继续降至 910 行，当前只导出 timeline turn 投影、loaded artifact detail 和 delegated trace 三个相互关联的 UI 投影入口；没有 compatibility re-export；
 - 本轮没有强拆 timeline/artifact/trace 内部：它们共享 artifact、trace、usage、reference 与安全字段投影，提前分离会增加内部导出或复制实现；
 - Payload/preview 切片完整分析通过：87 个测试文件、572 个测试、TypeScript、ESLint、源码分析、生产构建和 bundle 门禁全部成功；ESLint finding 保持 43，生产循环和不可达候选保持 0；初始资源 gzip 为 486,062 B，增加 33 B。
+- 将剩余 `chatTurnModel.ts` 及其测试准确重命名为 `chatProjection.ts` / `chatProjection.test.ts`；timeline 调用方只依赖 `projectBackendTimeline(sessionKey, runtimeStates)`，旧文件名与 `backendRuntimeStatesToTurns` 均无源码引用，也没有 compatibility re-export；
+- 将安全预览用例迁移到 `chatPreview.test.ts`，projection 测试只通过投影 interface 验证 timeline、artifact detail 与 delegated trace 的 observable outcome；
+- 文件重命名暴露出既有 `Boolean(payload.cancelled)` 冗余转换，直接修正根因而未迁移 lint baseline；ESLint finding 从 43 降至 42；
+- Phase 3 完整分析通过：88 个测试文件、572 个测试、TypeScript、ESLint、源码分析、生产构建和 bundle 门禁全部成功；生产循环和不可达候选保持 0，初始资源 gzip 保持 486,062 B；
+- Phase 3 在此收口：contracts、payload、preview 与 projection 已形成准确边界；artifact detail 和 delegated trace 继续留在 projection 内部，共享私有 artifact、trace、usage、reference 与安全字段 helper，继续物理拆分的收益不足以抵消 interface 膨胀。
 
 Settings/TinyOS 剩余路由级 CSS、Chat/Settings/TinyOS 模块深化与静态分析债务仍待后续阶段实施。
 
@@ -354,7 +359,7 @@ createDesktopAppServices           # single external interface remains
 4. 为投影提供单一 interface，例如 `projectBackendTimeline(input)`，内部 helper 不导出；
 5. 迁移调用方到准确模块，临时 compatibility re-export 只允许在同一阶段内存在，阶段结束前删除。
 
-当前状态：稳定 contracts、payload 校验/规范化和安全预览策略均已拆分，调用方已迁移且没有 compatibility re-export。timeline turn、loaded artifact detail 与 delegated trace projection 仍位于 `chatTurnModel.ts`；它们共享一组 UI 投影 helper，因此 Phase 3 尚未完成，但后续拆分必须由更小的调用方 interface 或测试 seam 驱动，不能只为降行数暴露内部 helper。下一步优先把 timeline turn 投影改为准确命名的单一 interface，并迁移对应测试；artifact/trace detail 仅在能够保持私有 helper 时再独立。
+当前状态：Phase 3 已完成并收口。`chatTurnContracts.ts`、`chatTimelinePayload.ts`、`chatPreview.ts` 与 `chatProjection.ts` 分别拥有稳定 contracts、canonical payload 边界、安全预览和 UI 投影职责；timeline 调用方只依赖准确命名的 `projectBackendTimeline` interface，旧模块名、旧符号和 compatibility re-export 均已退出源码。loaded artifact detail 与 delegated trace 继续保留在 projection 内，因为它们与 timeline 共享私有 artifact、trace、usage、reference 和安全字段 helper；进一步物理拆分会扩大内部 interface 或复制实现。后续 Chat 工作转入 Phase 4，不再以降低 projection 文件行数为目标。
 
 退出条件：
 

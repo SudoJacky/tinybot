@@ -74,7 +74,7 @@ function requiredCanonicalString(value: Record<string, unknown>, key: string): s
   return result;
 }
 
-export function backendRuntimeStatesToTurns(
+export function projectBackendTimeline(
   sessionKey: string,
   runtimeStates: BackendAgentTurnRuntimeState[],
 ): ChatTurn[] {
@@ -360,7 +360,7 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem): void {
       kind: "error",
       status,
       summary: safeArtifactText(stringValue(payload.message ?? item.summary)),
-      title: item.title || (Boolean(payload.cancelled) ? "Cancelled" : "Error"),
+      title: item.title || (payload.cancelled ? "Cancelled" : "Error"),
     }));
     return;
   }

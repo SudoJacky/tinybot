@@ -1,9 +1,8 @@
 import { describe, expect, test } from "vitest";
 import {
   applyLoadedDelegatedAgentTrace,
-  backendRuntimeStatesToTurns,
-} from "./chatTurnModel";
-import { redactedPreview, safeArtifactPreview } from "./chatPreview";
+  projectBackendTimeline,
+} from "./chatProjection";
 import { normalizeAgentTurnRuntimeStatePayload } from "./chatTimelinePayload";
 
 function canonicalRuntimeState(
@@ -34,7 +33,7 @@ function canonicalRuntimeState(
   };
 }
 
-describe("chat turn model", () => {
+describe("chat projection", () => {
   test("projects canonical messages, tools, and references into a chat turn", () => {
     const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("turn-1", [
       {
@@ -83,7 +82,7 @@ describe("chat turn model", () => {
       },
     ]));
 
-    const [turn] = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
+    const [turn] = projectBackendTimeline("WebSocket:chat-1", [runtimeState]);
 
     expect(turn).toMatchObject({
       id: "turn-1",
@@ -141,7 +140,7 @@ describe("chat turn model", () => {
       },
     }]));
 
-    const [turn] = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
+    const [turn] = projectBackendTimeline("WebSocket:chat-1", [runtimeState]);
 
     expect(turn.steps[0].artifacts?.[0]).toMatchObject({
       id: "dv_1",
@@ -168,7 +167,7 @@ describe("chat turn model", () => {
       },
     }]));
 
-    const [turn] = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
+    const [turn] = projectBackendTimeline("WebSocket:chat-1", [runtimeState]);
 
     expect(turn.steps[0]).toMatchObject({
       kind: "tool_call",
@@ -203,7 +202,7 @@ describe("chat turn model", () => {
       },
     ]));
 
-    const [turn] = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
+    const [turn] = projectBackendTimeline("WebSocket:chat-1", [runtimeState]);
 
     expect(turn).toMatchObject({
       id: "turn-completed",
@@ -263,7 +262,7 @@ describe("chat turn model", () => {
       },
     ]));
 
-    const [turn] = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
+    const [turn] = projectBackendTimeline("WebSocket:chat-1", [runtimeState]);
 
     expect(turn.steps.map((step) => step.id)).toEqual(["call-first", "call-second"]);
     expect(turn.finalAnswer?.text).toBe("Done.");
@@ -286,7 +285,7 @@ describe("chat turn model", () => {
       },
     }]));
 
-    const [turn] = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
+    const [turn] = projectBackendTimeline("WebSocket:chat-1", [runtimeState]);
 
     expect(turn.steps[0]?.compaction).toEqual({
       contextWindowTokens: 128000,
@@ -321,7 +320,7 @@ describe("chat turn model", () => {
       },
     ));
 
-    const [turn] = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
+    const [turn] = projectBackendTimeline("WebSocket:chat-1", [runtimeState]);
 
     expect(turn).toMatchObject({
       id: "turn-compact-completed",
@@ -371,7 +370,7 @@ describe("chat turn model", () => {
       },
     ]));
 
-    const [turn] = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
+    const [turn] = projectBackendTimeline("WebSocket:chat-1", [runtimeState]);
 
     expect(turn.status).toBe("failed");
     expect(turn.steps.find((step) => step.kind === "plan")).toMatchObject({
@@ -404,7 +403,7 @@ describe("chat turn model", () => {
       data: { type: "user_message", messageId: "user-late", content: "second restored prompt" },
     }]));
 
-    const turns = backendRuntimeStatesToTurns("WebSocket:chat-1", [late, early]);
+    const turns = projectBackendTimeline("WebSocket:chat-1", [late, early]);
 
     expect(turns.map((turn) => turn.id)).toEqual(["z-turn-early", "a-turn-late"]);
   });
@@ -445,7 +444,7 @@ describe("chat turn model", () => {
       },
     ]));
 
-    const [turn] = backendRuntimeStatesToTurns("WebSocket:chat-1", [runtimeState]);
+    const [turn] = projectBackendTimeline("WebSocket:chat-1", [runtimeState]);
 
     expect(turn.steps[0]).toMatchObject({
       kind: "delegate",
@@ -502,15 +501,4 @@ describe("chat turn model", () => {
     });
   });
 
-  test("redacts sensitive fields and renders unsafe artifact payloads inertly", () => {
-    expect(redactedPreview({
-      authorization: "Bearer token",
-      nested: { password: "hunter2", safe: "value" },
-    })).toBe('{"authorization":"[redacted]","nested":{"password":"[redacted]","safe":"value"}}');
-    expect(safeArtifactPreview({
-      html: "<script>alert(1)</script>",
-      safe: "value",
-      token: "secret",
-    })).toBe('{"html":"[unsafe omitted]","safe":"value","token":"[redacted]"}');
-  });
 });

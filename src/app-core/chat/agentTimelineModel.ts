@@ -1,4 +1,4 @@
-import { backendRuntimeStatesToTurns } from "./chatTurnModel";
+import { projectBackendTimeline } from "./chatProjection";
 import {
   normalizeAgentTurnRuntimeStatePayload,
   normalizeAgentTimelinePatchPayload,
@@ -215,7 +215,7 @@ function projectSessionSnapshot(sessionId: string, state: SessionTimelineState):
     sessionId,
     source: "canonical",
     turnRevisions: Object.fromEntries([...state.turns].map(([turnId, turn]) => [turnId, turn.timeline.snapshotRevision])),
-    turns: backendRuntimeStatesToTurns(sessionId, runtimeStates),
+    turns: projectBackendTimeline(sessionId, runtimeStates),
     diagnostics: [...state.diagnostics],
   };
 }
