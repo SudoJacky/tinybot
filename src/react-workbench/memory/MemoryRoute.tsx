@@ -1,4 +1,5 @@
 import { useTranslation } from "react-i18next";
+import "./MemoryRoute.css";
 import type { AppServices } from "../services";
 import { MemoryPage } from "./MemoryPage";
 

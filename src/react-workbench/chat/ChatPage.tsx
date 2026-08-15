@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import "./ChatPage.css";
 import {
   MAX_QUEUED_INPUTS,
   deleteQueuedInput,

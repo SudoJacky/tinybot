@@ -45,8 +45,16 @@ afterEach(() => {
 function mountWorkbenchCss(): void {
   const style = document.createElement("style");
   style.dataset.testStyle = "workbench";
-  style.textContent = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+  style.textContent = readWorkbenchCss();
   document.head.append(style);
+}
+
+function readWorkbenchCss(): string {
+  return [
+    "src/react-workbench/styles/workbench.css",
+    "src/react-workbench/chat/ChatPage.css",
+    "src/react-workbench/chat/TinyOsShell.css",
+  ].map((path) => readFileSync(path, "utf8")).join("\n");
 }
 
 function dragTransfer(): DataTransfer {
@@ -1307,7 +1315,7 @@ describe("ChatPage", () => {
   });
 
   it("uses the active session background for hovered and focused session rows", () => {
-    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+    const css = readWorkbenchCss();
 
     expect(css).toMatch(
       /\.react-session-row\[data-active="true"\],\s*\.react-session-row:hover,\s*\.react-session-row:focus-within\s*{\s*background:\s*var\(--color-cream-strong\);/s,
@@ -2983,7 +2991,7 @@ describe("ChatPage", () => {
   });
 
   it("keeps assistant messages as inline prose instead of rounded bubbles", () => {
-    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+    const css = readWorkbenchCss();
 
     expect(css).toMatch(/\.react-message__body\s*{\s*min-width:\s*0;\s*padding:\s*2px 0;\s*}/s);
     expect(css).toMatch(/\.react-message-reasoning\s*{[^}]*margin-bottom:\s*10px;[^}]*color:\s*var\(--color-muted\);/s);
@@ -2998,14 +3006,14 @@ describe("ChatPage", () => {
   });
 
   it("does not use colored left accent strips on error cards", () => {
-    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+    const css = readWorkbenchCss();
 
     expect(css).not.toMatch(/\.react-error-recovery\s*{[^}]*border-left:/s);
     expect(css).not.toMatch(/\.react-canonical-scoped-errors\s*{[^}]*border-left:/s);
   });
 
   it("uses configurable sans-serif assistant prose and modern monospace code", () => {
-    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+    const css = readWorkbenchCss();
 
     expect(css).toMatch(
       /\.react-message-markdown\s*{[^}]*font-family:\s*var\(--font-ui\);/s,
@@ -4393,7 +4401,7 @@ describe("ChatPage", () => {
   });
 
   it("defines reduced-motion fallbacks for chat motion primitives", () => {
-    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+    const css = readWorkbenchCss();
 
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
     expect(css).toContain("react-list-enter");
@@ -4406,7 +4414,7 @@ describe("ChatPage", () => {
   });
 
   it("applies a warm border glow treatment to the composer panel", () => {
-    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+    const css = readWorkbenchCss();
     const inputSource = readFileSync("src/components/ui/claude-style-ai-input.tsx", "utf8");
 
     expect(inputSource).toContain("function handlePanelPointerMove");
@@ -4434,7 +4442,7 @@ describe("ChatPage", () => {
   });
 
   it("uses a restrained 180ms fade and short horizontal exit for session deletion", () => {
-    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+    const css = readWorkbenchCss();
     const source = readFileSync("src/react-workbench/chat/ChatPage.tsx", "utf8");
 
     expect(source).toContain("const SESSION_DELETE_DISSOLVE_MS = 180;");

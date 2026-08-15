@@ -274,7 +274,11 @@ describe("DesktopShell", () => {
   });
 
   it("keeps shell navigation and settings layouts compact", () => {
-    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+    const css = [
+      "src/react-workbench/styles/workbench.css",
+      "src/react-workbench/chat/ChatPage.css",
+      "src/react-workbench/settings/SettingsRoute.css",
+    ].map((path) => readFileSync(path, "utf8")).join("\n");
 
     expect(css).toMatch(/\.react-window-frame__history button\s*{[^}]*width:\s*32px;[^}]*height:\s*32px;/s);
     expect(css).toMatch(/\.react-top-menu__trigger\s*{[^}]*font-size:\s*12px;/s);

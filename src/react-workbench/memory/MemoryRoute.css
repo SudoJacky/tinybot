@@ -1,0 +1,361 @@
+.react-memory-page {
+  display: grid;
+  align-content: start;
+  width: min(100%, 960px);
+  gap: 20px;
+}
+
+.react-memory-overview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.react-memory-overview p,
+.react-memory-note p,
+.react-memory-section header p,
+.react-memory-empty p,
+.react-memory-scope-empty {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.react-memory-overview button,
+.react-memory-error button {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  padding: 0 13px;
+  background: color-mix(in srgb, var(--color-panel) 92%, var(--color-canvas));
+  box-shadow: 0 1px 2px rgb(52 43 35 / 5%);
+  color: var(--color-body);
+  font-size: 12px;
+  font-weight: 680;
+  cursor: pointer;
+  transition:
+    transform 100ms ease-out,
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    background var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-memory-overview button:hover:not(:disabled),
+.react-memory-error button:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-primary) 34%, var(--color-hairline));
+  background: var(--color-panel);
+  color: var(--color-ink);
+}
+
+.react-memory-overview button:active:not(:disabled),
+.react-memory-error button:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.react-memory-overview button:focus-visible,
+.react-memory-error button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 60%, transparent);
+  outline-offset: 2px;
+}
+
+.react-memory-overview button:disabled,
+.react-memory-error button:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.react-memory-spinner {
+  animation: react-settings-spin 900ms linear infinite;
+}
+
+.react-memory-note {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 11px;
+  align-items: start;
+  padding: 12px 13px;
+  border: 1px solid color-mix(in srgb, var(--color-hairline) 88%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-surface-soft) 58%, var(--color-panel));
+}
+
+.react-memory-note > svg {
+  margin-top: 2px;
+  color: var(--color-muted);
+}
+
+.react-memory-note > div {
+  display: grid;
+  gap: 2px;
+}
+
+.react-memory-note strong {
+  color: var(--color-body);
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.react-memory-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+  padding: 0 2px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.react-memory-summary span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.react-memory-summary strong {
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-memory-summary i {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--color-muted-soft);
+}
+
+.react-memory-status,
+.react-memory-empty {
+  color: var(--color-muted);
+}
+
+.react-memory-status {
+  margin: 0;
+  padding: 18px 0;
+  font-size: 13px;
+}
+
+.react-memory-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--color-error) 28%, var(--color-hairline));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-error) 6%, var(--color-panel));
+  color: var(--color-error);
+}
+
+.react-memory-error > div {
+  display: grid;
+  gap: 3px;
+}
+
+.react-memory-error strong,
+.react-memory-error span {
+  font-size: 12px;
+}
+
+.react-memory-error span {
+  overflow-wrap: anywhere;
+}
+
+.react-memory-empty {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  padding: 24px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-panel) 84%, var(--color-canvas));
+}
+
+.react-memory-empty strong {
+  color: var(--color-ink);
+  font-size: 14px;
+}
+
+.react-memory-section {
+  display: grid;
+  gap: 11px;
+}
+
+.react-memory-section > header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  align-items: start;
+}
+
+.react-memory-section > header > svg {
+  margin-top: 2px;
+  color: var(--color-primary-active);
+}
+
+.react-memory-section h2 {
+  margin: 0 0 2px;
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.react-memory-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-panel) 88%, var(--color-canvas));
+  list-style: none;
+}
+
+.react-memory-list li {
+  position: relative;
+  padding: 12px 14px 12px 32px;
+  color: var(--color-body);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.react-memory-list li + li {
+  border-top: 1px solid color-mix(in srgb, var(--color-hairline) 72%, transparent);
+}
+
+.react-memory-list li::before {
+  position: absolute;
+  top: 19px;
+  left: 15px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  content: "";
+}
+
+.react-memory-workspaces {
+  display: grid;
+  gap: 10px;
+}
+
+.react-memory-workspace {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-panel) 88%, var(--color-canvas));
+}
+
+.react-memory-workspace[data-current="true"] {
+  border-color: color-mix(in srgb, var(--color-primary) 25%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-primary) 3%, var(--color-panel));
+}
+
+.react-memory-workspace > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 43px;
+  padding: 10px 14px;
+}
+
+.react-memory-workspace > header > div {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.react-memory-workspace code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-muted);
+  font-family: var(--font-code);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-memory-workspace > header > div > span {
+  flex: none;
+  padding: 3px 7px 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary) 10%, var(--color-panel));
+  color: var(--color-primary-active);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.react-memory-workspace > header > small {
+  flex: none;
+  color: var(--color-muted-soft);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.react-memory-workspace .react-memory-list {
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--color-hairline) 78%, transparent);
+  border-radius: 0;
+  background: transparent;
+}
+
+.react-memory-scope-empty {
+  padding: 11px 14px;
+  border-top: 1px solid color-mix(in srgb, var(--color-hairline) 78%, transparent);
+}
+
+@media (max-width: 780px) {
+  .react-memory-overview,
+.react-memory-error {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .react-memory-overview button,
+.react-memory-error button {
+    align-self: flex-start;
+  }
+
+  .react-memory-workspace code {
+    overflow-wrap: anywhere;
+    white-space: normal;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-memory-overview button,
+.react-memory-error button {
+    transition-duration: 0ms;
+  }
+
+  .react-memory-spinner {
+    animation: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .react-memory-note,
+.react-memory-list,
+.react-memory-workspace,
+.react-memory-empty {
+    border-color: var(--color-body);
+  }
+}
+
+@keyframes react-settings-spin {
+  to { transform: rotate(360deg); }
+}

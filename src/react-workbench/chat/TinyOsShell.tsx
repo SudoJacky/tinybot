@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, 
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import { gsap } from "gsap";
+import "./TinyOsShell.css";
 import {
   Activity,
   AlertTriangle,

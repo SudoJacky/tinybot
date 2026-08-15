@@ -2,6 +2,7 @@ import type { TFunction } from "i18next";
 import { useEffect, useState, type ReactNode } from "react";
 import { AppWindow, Bot, Cable, ChevronRight, Cloud, Keyboard, Radio, SunMoon, UserRound, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import "./SettingsRoute.css";
 import type { AppServices, SettingsStore } from "../services";
 import { AgentDefaultsSettingsPage } from "./AgentDefaultsSettingsPage";
 import { AppSettingsPage } from "./AppSettingsPage";

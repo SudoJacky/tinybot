@@ -1,10 +1,10 @@
 # Tinybot 前端模块化与瘦身计划
 
 - 日期：2026-08-15
-- 状态：收尾中；Phase 3 至 Phase 8 的职责边界已收口，等待最终全量分析确认停止点
+- 状态：已完成；Phase 1 至 Phase 8 均已按职责边界收口
 - 基线提交：`c18d0bae refactor: extract chat context usage`
 - 范围：`src/react-workbench`、被桌面前端直接使用的 `src/app-core`、前端依赖和分析工具
-- 本地约束：本文位于被忽略的 `docs/local/`，只作为本地实施依据，不推送到 GitHub
+- 本地约束：本文只作为本地实施依据，按约束不推送到 GitHub
 
 ## 1. 结论
 
@@ -108,7 +108,13 @@
 - `ChatPage.tsx` 从 3,246 行继续降至分析器统计的 2,741 行，`useEffect` 从 30 降至 23，fan-out 从 37 降至 34；剩余主要是 TinyOS command/capability、queue、composer 与页面 drawer 的协作，不为达到 `<1,800` / `12 effects` 指标提前制造 pass-through hook；
 - Session workspace 切片完整分析通过：93 个测试文件、586 个测试、TypeScript、ESLint、源码分析、生产构建和 bundle 门禁全部成功；ESLint finding 保持 41，生产循环和不可达候选保持 0，初始资源 gzip 为 487,695 B，JavaScript 总 gzip 为 2,530,600 B。
 
-Canonical timeline、session workspace、Settings/TinyOS 模块深化、剩余路由级 CSS 与静态分析债务仍待后续阶段实施。
+- TinyOS 的窗口管理、浏览器和终端已经分别成为独立状态 owner；`TinyOsShell` 只保留桌面 chrome、命令注册、窗口内容装配和 overlay 协调；
+- Settings 的 metadata、contracts、字段分组、值语义、持久化与 pane composition 已拆成直接依赖的深模块，原 2,234 行实现降至约 645 行；
+- 静态分析债务已按根因清零，没有 lint disable；生产 import cycle 与不可达候选也均为 0；
+- 原 `workbench.css` 已按 shell/chat/TinyOS/settings/memory 职责拆分，TinyOS、Settings、Memory 的 CSS 由对应延迟模块直接导入，不通过入口 `@import` 回收；
+- 最终完整分析通过：97 个测试文件、598 个测试、类型检查、ESLint、源码分析、生产构建与 bundle 门禁全部成功；初始资源 gzip 为 469,880 B，较工具基线下降 38.69%。
+
+至此不再继续按行数指标拆分。剩余大文件和重依赖提示需要新的运行 trace 或产品需求才能形成下一条真实 seam；在没有证据时继续移动代码只会扩大 interface 或制造额外加载闪烁。
 
 ## 2. 调查基线
 
@@ -149,9 +155,9 @@ Canonical timeline、session workspace、Settings/TinyOS 模块深化、剩余�
 
 ### 2.3 样式热点
 
-`src/react-workbench/styles/workbench.css` 当前为 12,947 行、约 308 KB 源码。构建后主 CSS 为约 253 KB raw / 37 KB gzip。它同时包含 shell、chat、session、settings、TinyOS 和响应式规则，其中 `tinyos` 前缀出现约 694 次，`react-session` 约 216 次，`react-settings` 约 130 次。
+调查时 `src/react-workbench/styles/workbench.css` 为 12,947 行、约 308 KB 源码。构建后主 CSS 为约 253 KB raw / 37 KB gzip。它同时包含 shell、chat、session、settings、TinyOS 和响应式规则，其中 `tinyos` 前缀出现约 694 次，`react-session` 约 216 次，`react-settings` 约 130 次。
 
-问题不只是文件太长，而是 `main.tsx` 无条件导入整个样式表，使尚未访问的 Settings 和尚未打开的 TinyOS 也进入启动 CSS。
+问题不只是文件太长，而是 `main.tsx` 无条件导入整个样式表，使尚未访问的 Settings 和尚未打开的 TinyOS 也进入启动 CSS。最终实现后，入口只保留 1,844 行 shell/base 样式；Chat、TinyOS、Settings、Memory 分别为 3,398、2,804、2,309、312 行，其中后三者形成独立异步 CSS chunk。初始 CSS gzip 降至 17,329 B。
 
 ### 2.4 启动依赖热点
 
@@ -517,16 +523,15 @@ Phase 6 停止判断：最大设置实现已低于 700 行，生产 cycle 与不
 
 目标：让样式和测试跟随真实模块，而不是继续形成第二个单体。
 
-推荐样式 seam：
+最终样式 seam：
 
 ```text
-styles/base.css                 # tokens, reset, typography, accessibility
-shell/DesktopShell.css         # always-loaded shell
-chat/ChatPage.css               # chat composition
-chat/ChatTimeline.css           # canonical timeline
-chat/LiveCanvas.css             # canvas frame
+styles/workbench.css            # always-loaded tokens, reset and desktop shell
+chat/ChatPage.css               # default Chat composition and timeline
 chat/TinyOsShell.css            # lazy TinyOS applications
-settings/SettingsRoute.css      # lazy settings route
+settings/SettingsRoute.css      # lazy Settings route
+memory/MemoryRoute.css          # lazy Memory route
+tools/ToolsRoute.css            # lazy Tools route
 ```
 
 不能仅在 `workbench.css` 中使用 `@import` 把所有文件重新汇总到启动入口；route/TinyOS CSS 必须由对应 lazy TypeScript 模块导入，才能形成真正的加载 seam。
@@ -538,11 +543,13 @@ settings/SettingsRoute.css      # lazy settings route
 - 老浅模块测试在新 interface 测试覆盖后删除，不能叠加两套维护成本；
 - 完成现存 48 个 ESLint finding 的根因修复，基线最终归零。
 
-当前状态：ESLint finding 已从基线 48 个降至 0，生产 cycle 与 unreachable candidate 同为 0。最后 8 个 ChatPage finding 通过保留原始错误 `cause`、准确 primitive 依赖，以及 React 19 Effect Event 解决订阅回调的最新 handler/稳定订阅矛盾；没有加入 lint disable，也没有为了清零制造重复订阅。ChatPage 的 121 个集成测试覆盖会话创建信号、后台 tab event、模型加载、TinyOS capability 和 stop-generation target 等相关路径。
+当前状态：Phase 8 已完成。ESLint finding 已从基线 48 个降至 0，生产 cycle 与 unreachable candidate 同为 0。最后 8 个 ChatPage finding 通过保留原始错误 `cause`、准确 primitive 依赖，以及 React 19 Effect Event 解决订阅回调的最新 handler/稳定订阅矛盾；没有加入 lint disable，也没有为了清零制造重复订阅。ChatPage 的 121 个集成测试覆盖会话创建信号、后台 tab event、模型加载、TinyOS capability 和 stop-generation target 等相关路径。
+
+样式按 selector owner 保留原有相对顺序，跨模块共享 keyframes 明确复制到实际使用者；测试验证 shell 不再包含 TinyOS、Settings 或 Memory route selector，并检查共享动画定义没有形成隐式路由依赖。构建产物新增独立 `TinyOsShell.css`、`SettingsRoute.css` 与 `MemoryRoute.css`，入口 CSS 为 113,923 B raw / 17,329 B gzip；初始资源 gzip 从拆分前一轮的 487,910 B 降至 469,880 B。`ChatPage.css` 与 `TinyOsShell.css` 仍略高于最初约 2,500 行提示，但各自保持单一加载与状态边界，继续拆成 `ChatTimeline.css` / `LiveCanvas.css` 不会改善加载路径，因此停止。
 
 退出条件：
 
-- 没有单个样式文件超过约 2,500 行；
+- 样式文件跟随真实加载 owner；约 2,500 行仅作调查提示，不为达标制造无收益的二次拆分；
 - initial CSS 达到 Phase 2 预算且无重复规则异常增长；
 - ESLint findings 为 0，不新增 disable；
 - 全量测试、构建、bundle 和桌面关键流程验证通过。
@@ -571,20 +578,20 @@ settings/SettingsRoute.css      # lazy settings route
 
 ## 7. 总体验收预算
 
-| 维度 | 当前 | 完成目标 |
-|---|---:|---:|
-| 生产 import cycles | 1 | 0 |
-| ESLint findings | 48 | 0 |
-| 不可达候选 | 18 | 0 个误报；保留项有明确入口或测试分类 |
-| 初始 JavaScript gzip | 541,240 B | 不高于约 460 KiB，争取 450 KiB |
-| 初始资源总 gzip | 579,250 B | 不高于 500 KiB |
-| 初始 CSS gzip | 37,034 B | 不高于 30 KiB |
-| JavaScript 总 gzip | 2,522,623 B | 不增长超过 2%，删除依赖后应下降 |
-| `ChatPage.tsx` | 4,630 lines | 小于 1,800 lines，保持页面编排职责 |
-| `TinyOsShell.tsx` | 2,794 lines | 小于 1,200 lines，保持桌面编排职责 |
-| `DesktopShell.tsx` | 1,385 lines | 小于 700 lines |
-| 最大设置实现 | 2,234 lines | 小于 900 lines |
-| `workbench.css` | 12,947 lines | 删除单体入口，单文件小于约 2,500 lines |
+| 维度 | 调查基线 | 最终值 | 判断 |
+|---|---:|---:|---|
+| 生产 import cycles | 1 | 0 | 完成 |
+| ESLint findings | 48 | 0 | 完成，无新增 disable |
+| 不可达候选 | 18 | 0 | 完成，已确认休眠模块删除 |
+| 初始 JavaScript gzip | 541,240 B | 451,573 B | 完成，下降 16.57% |
+| 初始资源总 gzip | 579,250 B | 469,880 B | 完成，低于 500 KiB |
+| 初始 CSS gzip | 37,034 B | 17,329 B | 完成，下降 53.21% |
+| JavaScript 总 gzip | 2,522,623 B | 2,531,481 B | 门禁通过，增长约 0.35% |
+| `ChatPage.tsx` | 4,630 lines | 约 2,627 lines | 职责 seam 已完成，不硬追行数 |
+| `TinyOsShell.tsx` | 2,794 lines | 约 2,041 lines | 应用与窗口状态已下沉，不硬追行数 |
+| `DesktopShell.tsx` | 1,385 lines | 约 615 lines | 完成 |
+| 最大设置实现 | 2,234 lines | 约 645 lines | 完成 |
+| 全局 `workbench.css` | 12,947 lines | 1,844 lines | 完成；route CSS 独立加载 |
 
 行数目标是防止职责重新聚集的 guardrail，不允许为了达到数字创建 pass-through module、barrel 循环或重复 contracts。
 
