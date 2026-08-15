@@ -31,8 +31,12 @@
 - 不可达候选从 18 降至 0，ESLint finding 从 48 降至 47；
 - 完整分析通过：80 个 Vitest 文件、552 个测试、TypeScript、ESLint、源码分析、生产构建和 bundle 分析全部成功；
 - 构建产物保持不变，证明删除内容此前没有进入生产 bundle。
+- 移除 8 个没有前端调用的 npm 直接依赖，直接依赖从 22 个降至 14 个，lockfile package 记录从 591 降至 563；
+- npm 实际移除 28 个包；`clsx` 仍作为传递依赖存在，但 Tinybot 不再直接声明；
+- 保留 Rust `tauri-plugin-notification`、bootstrap 注册和 capability，只移除未使用的前端 JS bindings；
+- 依赖清理后的完整前端分析再次通过，生产 bundle 保持不变。
 
-无引用 npm 依赖、真实加载 seam 和剩余模块化阶段尚未实施。
+真实加载 seam 和剩余模块化阶段尚未实施。
 
 ## 2. 调查基线
 

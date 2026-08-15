@@ -15,15 +15,10 @@ export const analysisConfig = Object.freeze({
     largeFileWarningLines: 800,
     branchWarningPoints: 120,
     heavyDependencies: [
-      "3d-force-graph",
       "echarts",
       "gsap",
       "highlight.js",
-      "marked",
-      "openai",
-      "sigma",
       "streamdown",
-      "three",
     ],
   },
   bundle: {
