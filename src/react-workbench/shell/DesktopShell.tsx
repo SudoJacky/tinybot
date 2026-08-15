@@ -6,10 +6,8 @@ import {
   useMemo,
   useRef,
   useState,
-  type DependencyList,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
-  type ReactNode,
 } from "react";
 import {
   ArrowLeft,
@@ -33,20 +31,13 @@ import {
   type ShortcutPreferences,
 } from "../../app-core/settings/appShortcuts";
 import { createDesktopNativeShortcutClient } from "../../app-core/native/desktopNativeShortcuts";
-import { ChatPage } from "../chat/ChatPage";
 import { AppAppearanceProvider, useAppAppearance } from "../settings/AppAppearanceContext";
 import { AppLanguageProvider } from "../settings/AppLanguageContext";
 import { AppShortcutProvider, useAppShortcuts } from "../settings/AppShortcutContext";
-import type { AppServices, WorkspaceFileSummary } from "../services";
+import type { AppServices } from "../services";
 import type { DesktopUpdateClient } from "../../app-core/native/desktopNativeUpdate";
-import { DeferredSurface } from "./DeferredSurface";
 import { DesktopUpdateDialogs } from "./DesktopUpdateDialogs";
-
-type AppRoute = "chat" | "files" | "memory" | "github" | "docs" | "tools" | "settings";
-
-const loadMemoryRoute = () => import("../memory/MemoryRoute");
-const loadSettingsRoute = () => import("../settings/SettingsRoute");
-const loadToolsRoute = () => import("../tools/ToolsRoute");
+import { RouteSurface, type AppRoute } from "./RouteSurface";
 
 type RouteHistory = {
   back: AppRoute[];
@@ -606,18 +597,20 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
       <div className="react-workbench-layout">
         <section className="react-route-surface">
           <RouteSurface
-            createChatSignal={createChatSignal}
-            now={now}
-          route={route}
-          services={services}
-          sessionSidebarCollapsed={sessionSidebarCollapsed}
-          onNavigate={navigateToRoute}
-          onSessionSidebarCollapsedChange={(collapsed) => {
-            setSidebarMotionSource("pointer");
-            setSessionSidebarCollapsed(collapsed);
-          }}
-          onStopGenerationTargetChange={handleStopGenerationTargetChange}
-        />
+            chat={{
+              createSessionSignal: createChatSignal,
+              now,
+              sessionSidebarCollapsed,
+              onSessionSidebarCollapsedChange: (collapsed) => {
+                setSidebarMotionSource("pointer");
+                setSessionSidebarCollapsed(collapsed);
+              },
+              onStopGenerationTargetChange: handleStopGenerationTargetChange,
+            }}
+            route={route}
+            services={services}
+            onNavigate={navigateToRoute}
+          />
         </section>
       </div>
 
@@ -658,145 +651,4 @@ function logWindowFrameError(error: unknown): void {
 
 function menuCommandAccessibleLabel(command: TopMenuCommand): string {
   return command.shortcut ? `${command.label} (${command.shortcut})` : command.label;
-}
-
-function RouteSurface({
-  createChatSignal,
-  now,
-  onNavigate,
-  onSessionSidebarCollapsedChange,
-  onStopGenerationTargetChange,
-  route,
-  services,
-  sessionSidebarCollapsed,
-}: {
-  createChatSignal: number;
-  now?: () => number;
-  onNavigate: (route: AppRoute) => void;
-  onSessionSidebarCollapsedChange: (collapsed: boolean) => void;
-  onStopGenerationTargetChange: (sessionId: string) => void;
-  route: AppRoute;
-  services: AppServices;
-  sessionSidebarCollapsed: boolean;
-}) {
-  const { t } = useTranslation("common");
-  const routeLabels = createRouteLabels(t);
-  switch (route) {
-    case "chat":
-      return (
-        <ChatPage
-          chatStore={services.chatStore}
-          createSessionSignal={createChatSignal}
-          now={now}
-          projectGroupStore={services.projectGroupStore}
-          sessionStore={services.sessionStore}
-          settingsStore={services.settingsStore}
-          toolsStore={services.toolsStore}
-          workspaceStore={services.workspaceStore}
-          sessionSidebarCollapsed={sessionSidebarCollapsed}
-          onOpenFiles={() => onNavigate("files")}
-          onOpenSettings={() => onNavigate("settings")}
-          onSessionSidebarCollapsedChange={onSessionSidebarCollapsedChange}
-          onStopGenerationTargetChange={onStopGenerationTargetChange}
-        />
-      );
-    case "files":
-      return <FilesPage emptyMessage={t("files.empty")} services={services} title={routeLabels.files} />;
-    case "memory":
-      return <DeferredSurface load={loadMemoryRoute} name={routeLabels.memory} surfaceProps={{ services }} />;
-    case "tools":
-      return (
-        <DeferredSurface
-          load={loadToolsRoute}
-          name={routeLabels.tools}
-          surfaceProps={{ services, onOpenChat: () => onNavigate("chat") }}
-        />
-      );
-    case "settings":
-      return <DeferredSurface load={loadSettingsRoute} name={routeLabels.settings} surfaceProps={{ services }} />;
-    case "github":
-    case "docs":
-      return <PlaceholderPage title={routeLabels[route]} />;
-  }
-}
-
-function FilesPage({ emptyMessage, services, title }: { emptyMessage: string; services: AppServices; title: string }) {
-  const { t } = useTranslation("common");
-  const files = useAsyncList(() => services.workspaceStore.listFiles(), [services]);
-  return (
-    <WorkbenchPage title={title}>
-      <DataList
-        empty={emptyMessage}
-        items={files}
-        renderItem={(file) => (
-          <div className="react-data-row" key={file.path}>
-            <strong>{file.path}</strong>
-            <small>{formatFileSize(file.size, t("files.sizeUnavailable"))}</small>
-          </div>
-        )}
-      />
-    </WorkbenchPage>
-  );
-}
-
-function WorkbenchPage({ children, title }: { children: ReactNode; title: string }) {
-  return (
-    <div className="react-workbench-page">
-      <header>
-        <h1>{title}</h1>
-      </header>
-      {children}
-    </div>
-  );
-}
-
-function DataList<T>({ empty, items, renderItem }: {
-  empty: string;
-  items: T[];
-  renderItem: (item: T) => ReactNode;
-}) {
-  if (!items.length) {
-    return <p className="react-empty-state">{empty}</p>;
-  }
-  return <div className="react-data-list">{items.map(renderItem)}</div>;
-}
-
-function PlaceholderPage({ title }: { title: string }) {
-  const { t } = useTranslation("common");
-  return (
-    <div className="react-placeholder-page">
-      <h1>{title}</h1>
-      <p>{t("placeholder")}</p>
-    </div>
-  );
-}
-
-function useAsyncList<T>(load: () => Promise<T[]>, deps: DependencyList): T[] {
-  const [items, setItems] = useState<T[]>([]);
-  useEffect(() => {
-    let cancelled = false;
-    void load().then((nextItems) => {
-      if (!cancelled) {
-        setItems(nextItems);
-      }
-    }).catch(() => {
-      if (!cancelled) {
-        setItems([]);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, deps);
-  return items;
-}
-
-function formatFileSize(size: WorkspaceFileSummary["size"], unavailable: string): string {
-  if (typeof size !== "number" || !Number.isFinite(size)) {
-    return unavailable;
-  }
-  if (size < 1024) {
-    return `${size} B`;
-  }
-  return `${(size / 1024).toFixed(1)} KB`;
 }

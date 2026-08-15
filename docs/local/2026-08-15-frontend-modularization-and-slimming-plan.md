@@ -1,7 +1,7 @@
 # Tinybot 前端模块化与瘦身计划
 
 - 日期：2026-08-15
-- 状态：实施中；低风险瘦身、TinyOS/Memory/Settings/Tools 加载 seam、首批路由 CSS 与 TinyOS 循环清理已完成
+- 状态：实施中；低风险瘦身、TinyOS/Memory/Settings/Tools 加载 seam、首批路由 CSS、Shell route surface 与 TinyOS 循环清理已完成
 - 基线提交：`c18d0bae refactor: extract chat context usage`
 - 范围：`src/react-workbench`、被桌面前端直接使用的 `src/app-core`、前端依赖和分析工具
 - 本地约束：本文位于被忽略的 `docs/local/`，只作为本地实施依据，不推送到 GitHub
@@ -52,8 +52,14 @@
 - JavaScript 总 gzip 为 2,528,804 B，相比最初基线只增长 0.18%，新增 route chunk 未造成异常重复；
 - ESLint finding 从 47 降至 45；完整分析通过 81 个测试文件、554 个测试、类型检查、源码分析、构建与 bundle 门禁；
 - 真实浏览器确认 Tools 代码与 CSS 只在首次进入路由后请求，专属样式已应用；无 Tauri 环境会显示工具目录错误与重试按钮，而不是伪装为空目录。
+- 将 Chat/Files/Memory/Tools/Settings 的路由选择和延迟加载统一收进 `RouteSurface`，`DesktopShell` 只向它提供当前路由、服务、导航和成组的 Chat route context；
+- `DesktopShell.tsx` 从 802 行降至 654 行，达到 Phase 7 的低于 700 行目标，没有引入 pass-through wrapper 或 compatibility re-export；
+- 删除会吞掉 Files 加载错误的通用 `useAsyncList`：Files 现在区分 loading/ready/failed，失败时保留原始 cause、记录 `[tinybot-files-route]` 与 attempt，并提供显式重试；
+- ESLint finding 从 45 降至 43；完整分析通过 82 个测试文件、555 个测试、类型检查、源码分析、构建与 bundle 门禁；
+- 初始 JavaScript gzip 从 449,525 B 降至 449,034 B，初始资源总 gzip 从 485,896 B 降至 485,402 B，拆分未引入启动体积回退；
+- 真实浏览器验证 Files 失败文案和重试路径：无 Tauri 环境显示原始错误，第二次请求记录 `attempt: 2`，不会伪装为空目录。
 
-Settings/TinyOS 剩余路由级 CSS、Shell route surface、Chat/Settings 模块深化与静态分析债务仍待后续阶段实施。
+Settings/TinyOS 剩余路由级 CSS、Chat/Settings 模块深化、service composition root 与静态分析债务仍待后续阶段实施。
 
 ## 2. 调查基线
 
