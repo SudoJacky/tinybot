@@ -1,4 +1,3 @@
-import type { ChatStep } from "../../app-core/chat/chatTurnModel";
 import type { TinyOsTimelineEntry } from "../../app-core/chat/tinyOsDesktopModel";
 
 export type LiveCanvasMode = "live_follow" | "history";
@@ -66,10 +65,6 @@ export function tinyOsMaxWidth(viewportWidth = currentViewportWidth()): number {
     ? TINYOS_DESKTOP_RESERVED_WIDTH
     : TINYOS_OVERLAY_RESERVED_WIDTH;
   return Math.max(MIN_TINYOS_WIDTH, Math.floor(viewportWidth - reservedWidth));
-}
-
-export function liveCanvasEntryForStep(turnId: string, step: ChatStep): LiveCanvasEntry {
-  return { step, turnId };
 }
 
 function currentViewportWidth(): number {

@@ -78,6 +78,10 @@ import {
   projectChatEventEffects,
   projectTimelineSessionStatus,
 } from "./chatEventPolicy";
+import {
+  projectLatestContextUsage,
+  type ContextUsageDefaults,
+} from "./chatContextUsage";
 import { LiveCanvas } from "./LiveCanvas";
 import {
   clampTinyOsWidth,
@@ -108,7 +112,6 @@ import {
   type ChatTurn,
   type DelegatedAgentState,
   type LoadedArtifactDetail,
-  type TokenUsage,
   type ToolCallState,
 } from "../../app-core/chat/chatTurnModel";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
@@ -170,11 +173,6 @@ type DrawerState =
 type ConversationViewState = {
   scrollTop: number;
   stickToLatest: boolean;
-};
-
-type ContextUsageDefaults = {
-  contextWindowStrategy?: string;
-  contextWindowTokens?: number;
 };
 
 type RecoveryAction = "continue" | "retry" | "restart";
@@ -529,7 +527,7 @@ export function ChatPage({
     )),
   );
   const activeContextUsage = useMemo(
-    () => latestTimelineUsage(timeline?.turns ?? [], contextUsageDefaults),
+    () => projectLatestContextUsage(timeline?.turns ?? [], contextUsageDefaults),
     [contextUsageDefaults, timeline],
   );
   const latestFailedTurnId = useMemo(() => (
@@ -3005,65 +3003,6 @@ function EmptyStateText({ text }: { text: string }) {
       <TextType ariaLabel={text} className="react-text-type" loop={false} showCursor={false} text={text} />
     </p>
   );
-}
-
-function latestTimelineUsage(
-  turns: ChatTurn[],
-  defaults: ContextUsageDefaults = {},
-): TokenUsage | undefined {
-  let latestCompactedTokens: number | undefined;
-  let latestCompactionStrategy: string | undefined;
-  for (const turn of [...turns].reverse()) {
-    if (turn.usage) {
-      if (latestCompactedTokens === undefined || turn.usage.contextWindowTokens === undefined) {
-        return turn.usage;
-      }
-      return usageAfterCompaction(
-        latestCompactedTokens,
-        turn.usage.contextWindowTokens,
-        latestCompactionStrategy,
-        turn.usage,
-      );
-    }
-    const compaction = [...turn.steps]
-      .reverse()
-      .find((step) => step.kind === "compaction" && step.compaction?.estimatedTokensAfter !== undefined)
-      ?.compaction;
-    latestCompactedTokens ??= compaction?.estimatedTokensAfter;
-    latestCompactionStrategy ??= compaction?.strategy;
-    if (latestCompactedTokens !== undefined && compaction?.contextWindowTokens !== undefined) {
-      return usageAfterCompaction(
-        latestCompactedTokens,
-        compaction.contextWindowTokens,
-        latestCompactionStrategy,
-      );
-    }
-  }
-  if (latestCompactedTokens !== undefined && defaults.contextWindowTokens !== undefined) {
-    return usageAfterCompaction(
-      latestCompactedTokens,
-      defaults.contextWindowTokens,
-      latestCompactionStrategy ?? defaults.contextWindowStrategy,
-    );
-  }
-  return undefined;
-}
-
-function usageAfterCompaction(
-  estimatedTokensAfter: number,
-  contextWindowTokens: number,
-  contextWindowStrategy?: string,
-  previousUsage: TokenUsage = {},
-): TokenUsage {
-  const contextWindowUsedTokens = Math.min(estimatedTokensAfter, contextWindowTokens);
-  return {
-    ...previousUsage,
-    contextWindowRemainingTokens: Math.max(0, contextWindowTokens - contextWindowUsedTokens),
-    ...(contextWindowStrategy ? { contextWindowStrategy } : {}),
-    contextWindowTokens,
-    contextWindowUsedTokens,
-    percent: contextWindowTokens > 0 ? (contextWindowUsedTokens / contextWindowTokens) * 100 : 0,
-  };
 }
 
 function isQueueableRunningSession(session: SessionSummary, emptyActiveSession: boolean): boolean {

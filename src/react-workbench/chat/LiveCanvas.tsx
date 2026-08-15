@@ -21,7 +21,7 @@ import {
   type LiveCanvasMode,
 } from "./liveCanvasModel";
 
-export { clampTinyOsWidth, liveCanvasEntryForStep, tinyOsMaxWidth } from "./liveCanvasModel";
+export { clampTinyOsWidth, tinyOsMaxWidth } from "./liveCanvasModel";
 export type { LiveCanvasEntry, LiveCanvasMode } from "./liveCanvasModel";
 
 const TINYOS_BOOT_DURATION_MS = 450;
