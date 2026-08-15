@@ -1,7 +1,7 @@
 # Tinybot 前端模块化与瘦身计划
 
 - 日期：2026-08-15
-- 状态：实施中；低风险瘦身、TinyOS/Memory/Settings/Tools 加载 seam、首批路由 CSS、Shell route surface、Workspace、Tools/Plugins 与 Settings adapter、TinyOS 循环清理已完成
+- 状态：实施中；Phase 7 已按职责清晰度收口，低风险瘦身、TinyOS/Memory/Settings/Tools 加载 seam、首批路由 CSS、Shell route surface、Workspace、Tools/Plugins、Settings 与 native event adapter、TinyOS 循环清理已完成
 - 基线提交：`c18d0bae refactor: extract chat context usage`
 - 范围：`src/react-workbench`、被桌面前端直接使用的 `src/app-core`、前端依赖和分析工具
 - 本地约束：本文位于被忽略的 `docs/local/`，只作为本地实施依据，不推送到 GitHub
@@ -71,8 +71,13 @@
 - 合并三处重复的 native config 保存与 persisted revision 回写逻辑，并删除 provider catalog 请求失败时返回空集合的静默兜底；原始失败现在会穿过 interface 交给页面展示；
 - `defaultServices.ts` 从 1,139 行继续降至约 854 行；新增 SettingsStore interface 测试，覆盖模型目录、错误传播、个性化文件、保存 side effect 分类与模型发现；
 - 完整分析通过 86 个测试文件、568 个测试、类型检查、源码分析、构建与 bundle 门禁；ESLint finding 保持 43，生产循环保持 0，初始资源 gzip 为 485,776 B，仅比上轮增加 22 B。
+- 提取 `createDesktopNativeEventBridge()`：timeline、Agent form、browser snapshot、host operation 的 listener 注册、payload 归一化、terminal turn 去重和 host dispatch 状态投影现在由同一个模块拥有；
+- 无效 Agent form 和 host-operation payload 不再静默丢弃，分别投影为 `agent-ui.form.error` 与 `host.operation.error`；timeline 与 browser 的原始失败语义保持不变；
+- `defaultServices.ts` 从约 854 行继续降至约 692 行；新增 event bridge interface 测试，覆盖四类 listener、workspace child discovery、terminal event 去重、form 状态、browser/host 错误和 dispatch 状态一致性；
+- 完整分析通过 87 个测试文件、572 个测试、类型检查、源码分析、构建与 bundle 门禁；ESLint finding 保持 43，生产循环保持 0，初始资源 gzip 为 486,029 B，比上轮增加 253 B。
+- Phase 7 在此收口：剩余 `defaultServices.ts` 主体是 controller、SessionStore、ChatStore 与 command dispatch 的同一条会话编排链，继续拆分会制造 callback 拼装并与 Phase 4 重叠；Memory/ProjectGroup 则只是薄 native 转发，不为达到 `<400` 行目标单独提取。
 
-Settings/TinyOS 剩余路由级 CSS、Chat/Settings 模块深化、native event bridge 与静态分析债务仍待后续阶段实施。
+Settings/TinyOS 剩余路由级 CSS、Chat/Settings/TinyOS 模块深化与静态分析债务仍待后续阶段实施。
 
 ## 2. 调查基线
 
@@ -446,7 +451,7 @@ reconcileDesktopSettingsSave(draft, result) -> DesktopSettingsDraft
 5. normalization 放回拥有相应数据语义的模块，不建立通用 `utils.ts`；
 6. native event 和 adapter 错误携带 event/session/operation 标识，`catch` 不得只返回空集合。
 
-当前判断：Phase 7 下一条仍有明确收益的 seam 是 native event bridge，它可以独立拥有 listener 注册、payload 归一化和事件错误投影。Memory/ProjectGroup 目前只是简单 native 转发，不为追求行数单独提取；Chat/Session 与 controller 高度耦合，应结合 Phase 4 的会话运行模块处理。如果 event bridge 提取后继续拆分只会产生大量 callback 参数或 pass-through adapter，则允许 Phase 7 在高于 400 行时结束。
+停止判断：native event bridge 已完成提取，Phase 7 在 `defaultServices.ts` 约 692 行时结束，不再追逐 `<400` 行指标。Memory/ProjectGroup 保留简单 native 转发；Chat/Session 与 controller 高度耦合，后续结合 Phase 4 的会话运行模块处理，避免提前制造大量 callback 参数或 pass-through adapter。
 
 退出条件：
 

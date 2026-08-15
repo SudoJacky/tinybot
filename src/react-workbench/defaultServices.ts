@@ -2,12 +2,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { createDesktopChatSessionController } from "../app-core/chat/desktopChatSessionController";
 import type { AgentInputReference } from "../app-core/chat/agentInputReference";
-import {
-  createAgentUiEventState,
-  normalizeAgentUiEvents,
-  reduceAgentUiEventState,
-  type AgentUiForm,
-} from "../app-core/agent-ui/agentUiEvents";
 import type { DesktopCommand, DesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
 import { createDesktopNativeConfigApi } from "../app-core/native/desktopNativeConfig";
 import { applyNativeConfigPatch } from "../app-core/native/desktopNativeConfigPatch";
@@ -20,17 +14,16 @@ import {
 import { createDesktopNativeHostCommandApi } from "../app-core/native/desktopNativeHostCommand";
 import { createDesktopNativeMemoryApi } from "../app-core/native/desktopNativeMemory";
 import { createDesktopNativeProjectGroupsApi } from "../app-core/native/desktopNativeProjectGroups";
-import { createDesktopNativeBrowserApi, normalizeNativeBrowserSnapshot } from "../app-core/native/desktopNativeBrowser";
-import { toDesktopNativeTauriEventName } from "../app-core/native/desktopNativeTauriEvents";
+import { createDesktopNativeBrowserApi } from "../app-core/native/desktopNativeBrowser";
 import { createDesktopNativeWebuiApi } from "../app-core/native/desktopNativeWebui";
 import { createDesktopNativeWorkspaceApi } from "../app-core/native/desktopNativeWorkspace";
-import { normalizeNativeBackendEventPayload } from "../app-core/native/nativeBackendContract";
 import type {
   AppServices,
   ChatEvent,
   PluginMigrationSession,
   SessionSummary,
 } from "./services";
+import { createDesktopNativeEventBridge } from "./adapters/desktopNativeEventBridge";
 import { createDesktopSettingsStore } from "./adapters/desktopSettingsStore";
 import { createDesktopToolsStore } from "./adapters/desktopToolsStore";
 import { createDesktopWorkspaceStore } from "./adapters/desktopWorkspaceStore";
@@ -62,8 +55,6 @@ export function createDesktopAppServices(): AppServices {
   const nativeWorkspace = nativeMode ? createDesktopNativeWorkspaceApi({ invoke }) : undefined;
   let initialized: Promise<void> | null = null;
   const listeners = new Map<string, Set<Listener>>();
-  const notifiedTerminalTurns = new Set<string>();
-  const agentUiState = createAgentUiEventState();
 
   const controller = createDesktopChatSessionController({
     api: {
@@ -80,6 +71,12 @@ export function createDesktopAppServices(): AppServices {
       }),
       submitThreadTurn: (input) => requireNative(nativeThreads, "Thread").submitTurn(input),
     },
+  });
+  const nativeEvents = createDesktopNativeEventBridge({
+    controller,
+    listen: (eventName, handler) => listen(eventName, (event) => handler(event)),
+    notifyAll,
+    notifySession,
   });
 
   async function listConversationThreads() {
@@ -118,110 +115,10 @@ export function createDesktopAppServices(): AppServices {
       if (!nativeMode) {
         throw new Error("Tinybot chat requires the Tauri native runtime");
       }
-      await registerNativeRuntimeEvents();
+      await nativeEvents.register();
       await controller.loadSessions();
     })();
     return initialized;
-  }
-
-  async function registerNativeRuntimeEvents(): Promise<void> {
-    await Promise.all([
-      listen(toDesktopNativeTauriEventName("agent.timeline.patch"), async (event) => {
-        const payload = normalizeNativeBackendEventPayload(event.payload);
-        const sessionId = isRecord(payload) ? stringValue(payload.sessionId) : "";
-        if (!sessionId) {
-          notifyAll({ type: "timeline.error", error: "Canonical timeline patch is missing sessionId" });
-          return;
-        }
-        try {
-          if (!controller.state.threads.some((thread) => thread.threadId === sessionId)) {
-            await controller.loadSessions();
-            if (controller.state.threads.some((thread) => thread.threadId === sessionId)) {
-              notifyAll({ type: "chat.created" });
-            }
-          }
-          const timeline = await controller.applyTimelinePatch(sessionId, payload);
-          if (timeline) {
-            notifySession(sessionId, { type: "timeline.patch", timeline });
-            notifyTerminalTimelineState(sessionId, timeline);
-          }
-        } catch (error) {
-          notifySession(sessionId, {
-            type: "timeline.error",
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }),
-      listen(toDesktopNativeTauriEventName("agent.awaiting_form"), (event) => {
-        reduceNativeAgentFormEvent(normalizeNativeBackendEventPayload(event.payload));
-      }),
-      listen("tinyos:browser-snapshot", (event) => {
-        try {
-          const browserSnapshot = normalizeNativeBrowserSnapshot(event.payload);
-          notifySession(browserSnapshot.data.sessionId, { browserSnapshot, type: "browser.snapshot" });
-        } catch (error) {
-          notifyAll({
-            error: error instanceof Error ? error.message : String(error),
-            type: "browser.snapshot.error",
-          });
-        }
-      }),
-      listen("tinyos:host-operation", (event) => {
-        const update = normalizeTinyOsHostOperationUpdate(event.payload);
-        if (!update) return;
-        notifySession(update.sessionId, {
-          commandId: update.commandId,
-          error: update.error,
-          operationId: update.operationId,
-          operationStatus: update.status,
-          type: "host.operation",
-        });
-      }),
-    ]);
-  }
-
-  function notifyTerminalTimelineState(sessionId: string, timeline: Awaited<ReturnType<typeof controller.applyTimelinePatch>>): void {
-    const turn = timeline?.turns[timeline.turns.length - 1];
-    if (!turn || !["completed", "failed", "interrupted"].includes(turn.status)) return;
-    const key = `${sessionId}:${turn.id}:${turn.status}`;
-    if (notifiedTerminalTurns.has(key)) return;
-    notifiedTerminalTurns.add(key);
-    const eventType = turn.status === "completed"
-      ? "agent.turn.completed"
-      : turn.status === "failed" ? "agent.turn.failed" : "agent.turn.interrupted";
-    notifySession(sessionId, { type: "agent.event", eventType });
-  }
-
-  function reduceNativeAgentFormEvent(payload: unknown): void {
-    if (!isRecord(payload)) return;
-    const form = isRecord(payload.form) ? payload.form : payload;
-    const traceContext = isRecord(payload.traceContext) ? payload.traceContext : {};
-    const formId = stringValue(payload.formId ?? payload.form_id ?? form.formId ?? form.form_id);
-    const threadId = stringValue(traceContext.threadId ?? traceContext.thread_id);
-    const turnId = stringValue(traceContext.turnId ?? traceContext.turn_id);
-    if (!formId || !threadId) return;
-    const correlation = isRecord(form.correlation) ? form.correlation : {};
-    for (const agentUiEvent of normalizeAgentUiEvents({
-      event: "agent_ui_event",
-      agent_ui_event: {
-        event_type: "ui.form.requested",
-        turn_id: turnId,
-        payload: {
-          ...form,
-          form_id: formId,
-          correlation: {
-            ...correlation,
-            form_id: formId,
-            turn_id: turnId,
-            session_key: threadId,
-            thread_id: threadId,
-          },
-        },
-      },
-    })) {
-      reduceAgentUiEventState(agentUiState, agentUiEvent);
-    }
-    notifySession(threadId, { type: "agent-ui.form" });
   }
 
   function notifyAll(event: ChatEvent): void {
@@ -268,7 +165,7 @@ export function createDesktopAppServices(): AppServices {
       });
       if ("operationId" in hostCommand.target) {
         const directHostCommand = hostCommand as TinyOsDirectHostCommand;
-        const update = tinyOsHostOperationUpdateFromDispatch(directHostCommand, result);
+        const update = nativeEvents.hostOperationUpdateFromDispatch(directHostCommand, result);
         notifySession(command.target.sessionId, {
           commandId: command.commandId,
           error: update.error,
@@ -325,7 +222,7 @@ export function createDesktopAppServices(): AppServices {
       void result.completion
         .then((timeline) => {
           notifySession(sessionId, { type: "timeline.patch", timeline });
-          notifyTerminalTimelineState(sessionId, timeline);
+          nativeEvents.notifyTerminalTimelineState(sessionId, timeline);
         })
         .catch((error) => {
           notifySession(sessionId, {
@@ -377,7 +274,7 @@ export function createDesktopAppServices(): AppServices {
       });
       const timeline = await controller.loadTimeline(sessionId);
       notifySession(sessionId, { type: "timeline.patch", timeline });
-      notifyTerminalTimelineState(sessionId, timeline);
+      nativeEvents.notifyTerminalTimelineState(sessionId, timeline);
       return;
     }
     await dispatchTinyOsCommand(command);
@@ -548,7 +445,7 @@ export function createDesktopAppServices(): AppServices {
       },
       async listAgentUiForms(sessionId) {
         await initialize();
-        return Array.from(agentUiState.forms.values()).filter((form) => formMatchesSession(form, sessionId));
+        return nativeEvents.listAgentUiForms(sessionId);
       },
       async loadDelegateTrace(selection) {
         await initialize();
@@ -718,14 +615,6 @@ function timestampFromPayload(payload: unknown): number | null {
   return typeof value === "string" ? timestampMs(value) : null;
 }
 
-function formMatchesSession(form: AgentUiForm, sessionId: string): boolean {
-  const chatId = stringValue(form.chat_id || form.correlation.chat_id);
-  const sessionKey = stringValue(form.correlation.session_key ?? form.correlation.sessionKey);
-  return sessionKey === sessionId
-    || chatId === sessionId
-    || (Boolean(chatId) && sessionId.endsWith(`:${chatId}`));
-}
-
 function nativeThreadMetadataPatch(body: unknown): Record<string, unknown> {
   if (!isRecord(body)) return {};
   const metadata = isRecord(body.metadata) ? body.metadata : {};
@@ -777,57 +666,6 @@ function withModelProvider(extra: Record<string, unknown>, provider?: string): R
     next.modelProvider = provider.trim();
   }
   return next;
-}
-
-type TinyOsHostOperationUpdate = {
-  commandId: string;
-  error?: string;
-  operationId: string;
-  sessionId: string;
-  status: "running" | "completed" | "failed" | "cancelled";
-};
-
-function normalizeTinyOsHostOperationUpdate(value: unknown): TinyOsHostOperationUpdate | undefined {
-  if (!isRecord(value)) return undefined;
-  const commandId = stringValue(value.commandId);
-  const operationId = stringValue(value.operationId);
-  const sessionId = stringValue(value.sessionId);
-  const status = normalizeTinyOsHostOperationStatus(value.status);
-  if (!commandId || !operationId || !sessionId || !status) return undefined;
-  const error = stringValue(value.error);
-  return {
-    commandId,
-    operationId,
-    sessionId,
-    status,
-    ...(error ? { error } : {}),
-  };
-}
-
-function tinyOsHostOperationUpdateFromDispatch(
-  command: TinyOsDirectHostCommand,
-  value: unknown,
-): Pick<TinyOsHostOperationUpdate, "error" | "status"> {
-  const root = isRecord(value) ? value : {};
-  const operation = isRecord(root.operation) ? root.operation : {};
-  if (command.kind === "terminal.cancel") return { status: "cancelled" };
-  const status = normalizeTinyOsHostOperationStatus(operation.status);
-  if (status) {
-    const error = stringValue(operation.error ?? operation.reason);
-    return { status, ...(error ? { error } : {}) };
-  }
-  return { status: "completed" };
-}
-
-function normalizeTinyOsHostOperationStatus(
-  value: unknown,
-): TinyOsHostOperationUpdate["status"] | undefined {
-  const status = stringValue(value);
-  if (status === "running" || status === "completed" || status === "failed" || status === "cancelled") {
-    return status;
-  }
-  if (status === "user_required") return "completed";
-  return undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

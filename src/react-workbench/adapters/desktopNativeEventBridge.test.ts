@@ -1,0 +1,212 @@
+import { describe, expect, it, vi } from "vitest";
+import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
+import {
+  createTinyOsTerminalCancelCommand,
+  createTinyOsTerminalExecuteCommand,
+} from "../../app-core/chat/tinyOsCommand";
+import type { NativeThreadRecord } from "../../app-core/native/desktopNativeThreads";
+import { createDesktopNativeEventBridge } from "./desktopNativeEventBridge";
+
+type BridgeOptions = Parameters<typeof createDesktopNativeEventBridge>[0];
+
+function nativeThread(threadId: string): NativeThreadRecord {
+  return {
+    threadId,
+    title: threadId,
+    status: "idle",
+    createdAt: "2026-08-15T00:00:00.000Z",
+    updatedAt: "2026-08-15T00:00:00.000Z",
+  };
+}
+
+function terminalTimeline(status: "completed" | "failed" | "interrupted"): ChatTimelineSnapshot {
+  return {
+    turns: [{ id: "turn-1", status }],
+  } as unknown as ChatTimelineSnapshot;
+}
+
+function createHarness(threads: NativeThreadRecord[] = [nativeThread("thread-1")]) {
+  const handlers = new Map<string, (event: { payload: unknown }) => void | Promise<void>>();
+  const state: BridgeOptions["controller"]["state"] = {
+    threads,
+    activeThreadId: "",
+    respondingThreadIds: new Set(),
+    error: "",
+  };
+  const applyTimelinePatch = vi.fn(async () => null as ChatTimelineSnapshot | null);
+  const loadSessions = vi.fn(async () => state.threads.length);
+  const listen: BridgeOptions["listen"] = vi.fn(async (eventName, handler) => {
+    handlers.set(eventName, handler);
+    return () => handlers.delete(eventName);
+  });
+  const notifyAll = vi.fn<BridgeOptions["notifyAll"]>();
+  const notifySession = vi.fn<BridgeOptions["notifySession"]>();
+  const bridge = createDesktopNativeEventBridge({
+    controller: { state, applyTimelinePatch, loadSessions },
+    listen,
+    notifyAll,
+    notifySession,
+  });
+  return {
+    applyTimelinePatch,
+    bridge,
+    handlers,
+    loadSessions,
+    notifyAll,
+    notifySession,
+    state,
+  };
+}
+
+const browserSnapshot = {
+  data: {
+    activeTabId: "tab-1",
+    browserSessionId: "browser-1",
+    contract: "browser_session_v1",
+    interaction: { click: true, navigate: true, type: true },
+    kind: "browser_session",
+    operationId: "operation-1",
+    sessionId: "thread-1",
+    state: "running",
+    tabs: [{
+      activeHistoryIndex: 0,
+      captures: [],
+      history: [{ url: "about:blank" }],
+      loading: false,
+      tabId: "tab-1",
+      title: "New tab",
+      url: "about:blank",
+    }],
+  },
+  observedAt: "2026-08-15T00:00:00.000Z",
+  revision: 1,
+  sourceId: "native-browser:browser-1",
+};
+
+describe("desktop native event bridge", () => {
+  it("registers native event listeners and projects timeline outcomes once", async () => {
+    const harness = createHarness([]);
+    const timeline = terminalTimeline("completed");
+    harness.loadSessions.mockImplementation(async () => {
+      harness.state.threads = [nativeThread("thread-1")];
+      return 1;
+    });
+    harness.applyTimelinePatch.mockResolvedValue(timeline);
+
+    await harness.bridge.register();
+
+    expect([...harness.handlers.keys()]).toEqual([
+      "agent:timeline:patch",
+      "agent:awaiting_form",
+      "tinyos:browser-snapshot",
+      "tinyos:host-operation",
+    ]);
+    const timelineHandler = harness.handlers.get("agent:timeline:patch");
+    await timelineHandler?.({ payload: { sessionId: "thread-1", turnId: "turn-1" } });
+    await timelineHandler?.({ payload: { sessionId: "thread-1", turnId: "turn-1" } });
+
+    expect(harness.loadSessions).toHaveBeenCalledTimes(1);
+    expect(harness.notifyAll).toHaveBeenCalledWith({ type: "chat.created" });
+    expect(harness.notifySession).toHaveBeenCalledWith("thread-1", { type: "timeline.patch", timeline });
+    expect(harness.notifySession.mock.calls.filter(([, event]) => event.type === "agent.event")).toEqual([
+      ["thread-1", { type: "agent.event", eventType: "agent.turn.completed" }],
+    ]);
+
+    await timelineHandler?.({ payload: { turnId: "turn-without-session" } });
+    expect(harness.notifyAll).toHaveBeenCalledWith({
+      type: "timeline.error",
+      error: "Canonical timeline patch is missing sessionId",
+    });
+  });
+
+  it("stores valid agent forms and makes malformed form events observable", async () => {
+    const harness = createHarness();
+    await harness.bridge.register();
+    const formHandler = harness.handlers.get("agent:awaiting_form");
+
+    await formHandler?.({
+      payload: {
+        formId: "form-1",
+        traceContext: { threadId: "thread-1", turnId: "turn-1" },
+        form: {
+          title: "Choose a mode",
+          fields: [{ name: "mode", type: "text", label: "Mode", required: true }],
+        },
+      },
+    });
+
+    expect(harness.bridge.listAgentUiForms("thread-1")).toEqual([
+      expect.objectContaining({ form_id: "form-1", title: "Choose a mode" }),
+    ]);
+    expect(harness.notifySession).toHaveBeenCalledWith("thread-1", { type: "agent-ui.form" });
+
+    await formHandler?.({ payload: { traceContext: { threadId: "thread-1" } } });
+    expect(harness.notifyAll).toHaveBeenCalledWith({
+      type: "agent-ui.form.error",
+      error: "Native agent form event is missing formId.",
+    });
+  });
+
+  it("projects browser and host-operation events with explicit error events", async () => {
+    const harness = createHarness();
+    await harness.bridge.register();
+
+    await harness.handlers.get("tinyos:browser-snapshot")?.({ payload: browserSnapshot });
+    expect(harness.notifySession).toHaveBeenCalledWith("thread-1", expect.objectContaining({
+      type: "browser.snapshot",
+      browserSnapshot: expect.objectContaining({ data: expect.objectContaining({ browserSessionId: "browser-1" }) }),
+    }));
+
+    await harness.handlers.get("tinyos:browser-snapshot")?.({ payload: null });
+    expect(harness.notifyAll).toHaveBeenCalledWith({
+      type: "browser.snapshot.error",
+      error: "Native browser snapshot must be an object.",
+    });
+
+    await harness.handlers.get("tinyos:host-operation")?.({
+      payload: {
+        commandId: "command-1",
+        operationId: "operation-1",
+        sessionId: "thread-1",
+        status: "user_required",
+      },
+    });
+    expect(harness.notifySession).toHaveBeenCalledWith("thread-1", {
+      commandId: "command-1",
+      error: undefined,
+      operationId: "operation-1",
+      operationStatus: "completed",
+      type: "host.operation",
+    });
+
+    await harness.handlers.get("tinyos:host-operation")?.({ payload: { operationId: "operation-2" } });
+    expect(harness.notifyAll).toHaveBeenCalledWith({
+      type: "host.operation.error",
+      error: "Native host operation event is missing commandId, operationId, sessionId, or status.",
+    });
+  });
+
+  it("uses the same host-operation status projection for dispatch results", () => {
+    const bridge = createHarness().bridge;
+    const source = { control: "test", surface: "tinyos" } as const;
+    const cancel = createTinyOsTerminalCancelCommand({
+      commandId: "cancel-1",
+      issuedAt: "2026-08-15T00:00:00.000Z",
+      operationId: "terminal-1",
+      sessionId: "thread-1",
+      source,
+    });
+    const execute = createTinyOsTerminalExecuteCommand({
+      command: "npm test",
+      commandId: "execute-1",
+      issuedAt: "2026-08-15T00:00:00.000Z",
+      sessionId: "thread-1",
+      source,
+    });
+
+    expect(bridge.hostOperationUpdateFromDispatch(cancel, {})).toEqual({ status: "cancelled" });
+    expect(bridge.hostOperationUpdateFromDispatch(execute, {
+      operation: { status: "failed", reason: "process exited" },
+    })).toEqual({ status: "failed", error: "process exited" });
+  });
+});
