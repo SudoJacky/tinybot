@@ -8,7 +8,8 @@ import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import type { BackendAgentTurnItem, ChatStep } from "../../app-core/chat/chatTurnModel";
 import { createTinyOsBrowserSessionSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
-import { clampTinyOsWidth, LiveCanvas, type LiveCanvasEntry } from "./LiveCanvas";
+import { LiveCanvas } from "./LiveCanvas";
+import { clampTinyOsWidth, type LiveCanvasEntry } from "./liveCanvasModel";
 
 afterEach(() => {
   cleanup();

@@ -73,7 +73,13 @@ import { AssistantMarkdown } from "./AssistantMarkdown";
 import { isApplyPatchToolCall, PatchDiffCard, patchChangeSetFromToolResult } from "./PatchDiffCard";
 import { ToolActivityItem } from "./ToolActivityItem";
 import { DataViewCard } from "./DataViewCard";
-import { clampTinyOsWidth, LiveCanvas, type LiveCanvasEntry, type LiveCanvasMode } from "./LiveCanvas";
+import { LiveCanvas } from "./LiveCanvas";
+import {
+  clampTinyOsWidth,
+  INITIAL_LIVE_CANVAS_STATE,
+  reduceLiveCanvasState,
+  type LiveCanvasEntry,
+} from "./liveCanvasModel";
 import { SessionTabStrip, type SessionTabItem } from "./SessionTabStrip";
 import {
   INITIAL_SESSION_TAB_WORKSPACE,
@@ -165,55 +171,6 @@ type ContextUsageDefaults = {
   contextWindowStrategy?: string;
   contextWindowTokens?: number;
 };
-
-type LiveCanvasState = {
-  mode: LiveCanvasMode;
-  selection?: { eventIndex?: number; itemId: string; turnId: string };
-  surface: "panel" | "expanded";
-  visibility: "closed" | "closing" | "open";
-};
-
-type LiveCanvasAction =
-  | { type: "close" }
-  | { type: "close_complete" }
-  | { type: "expand_toggle" }
-  | { type: "return_live" }
-  | { type: "select"; eventIndex?: number; itemId: string; turnId: string }
-  | { type: "toggle" };
-
-const INITIAL_LIVE_CANVAS_STATE: LiveCanvasState = {
-  mode: "live_follow",
-  surface: "panel",
-  visibility: "closed",
-};
-
-function reduceLiveCanvasState(state: LiveCanvasState, action: LiveCanvasAction): LiveCanvasState {
-  switch (action.type) {
-    case "close":
-      return state.visibility === "open" ? { ...state, visibility: "closing" } : state;
-    case "close_complete":
-      return state.visibility === "closing" ? { ...state, visibility: "closed" } : state;
-    case "expand_toggle":
-      return { ...state, surface: state.surface === "expanded" ? "panel" : "expanded", visibility: "open" };
-    case "return_live":
-      return { ...state, mode: "live_follow", visibility: "open" };
-    case "select":
-      return {
-        ...state,
-        mode: "history",
-        selection: {
-          ...(action.eventIndex !== undefined ? { eventIndex: action.eventIndex } : {}),
-          itemId: action.itemId,
-          turnId: action.turnId,
-        },
-        visibility: "open",
-      };
-    case "toggle":
-      return state.visibility === "open"
-        ? { ...state, visibility: "closing" }
-        : { ...state, mode: "live_follow", visibility: "open" };
-  }
-}
 
 type RecoveryAction = "continue" | "retry" | "restart";
 

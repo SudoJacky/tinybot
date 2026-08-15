@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerE
 import { Maximize2, Minimize2, MonitorDot, Play, Power, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
-import { projectKernelBackedTinyOsDesktop, projectTinyOsDesktop, type TinyOsTimelineEntry } from "../../app-core/chat/tinyOsDesktopModel";
+import { projectKernelBackedTinyOsDesktop, projectTinyOsDesktop } from "../../app-core/chat/tinyOsDesktopModel";
 import { tinyOsLayoutModeForWidth, type TinyOsAgentRequestIntent, type TinyOsAgentRequestReference, type TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
-import type { ArtifactRef, BackendAgentTurnItem, ChatStep } from "../../app-core/chat/chatTurnModel";
+import type { ArtifactRef, BackendAgentTurnItem } from "../../app-core/chat/chatTurnModel";
 import type { TinyOsBrowserAction } from "../../app-core/chat/tinyOsCommand";
 import type { TinyOsNativeSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
 import { TinyOsShell, type TinyOsBrowserHandoff } from "./TinyOsShell";
@@ -13,13 +13,17 @@ import { isTinyOsCommandInFlight, type TinyOsCommandLifecycle } from "../../app-
 import { createTinyOsShellCommandRegistry, defineTinyOsShellCommand, type TinyOsShellCommandAvailability } from "../../app-core/chat/tinyOsShellCommandRegistry";
 import { createTinyOsTimeMachineIndex, type TinyOsTimeMachineBoundary } from "../../app-core/chat/tinyOsTimeMachine";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
+import {
+  clampTinyOsWidth,
+  MIN_TINYOS_WIDTH,
+  tinyOsMaxWidth,
+  type LiveCanvasEntry,
+  type LiveCanvasMode,
+} from "./liveCanvasModel";
 
-export type LiveCanvasMode = "live_follow" | "history";
-export type LiveCanvasEntry = TinyOsTimelineEntry;
+export { clampTinyOsWidth, liveCanvasEntryForStep, tinyOsMaxWidth } from "./liveCanvasModel";
+export type { LiveCanvasEntry, LiveCanvasMode } from "./liveCanvasModel";
 
-const MIN_TINYOS_WIDTH = 380;
-const TINYOS_DESKTOP_RESERVED_WIDTH = 520;
-const TINYOS_OVERLAY_RESERVED_WIDTH = 64;
 const TINYOS_BOOT_DURATION_MS = 450;
 const TINYOS_BOOT_SEEN_STORAGE_KEY = "tinybot.ui.tinyos.boot-seen";
 
@@ -441,25 +445,6 @@ function resolveHistoryEventIndex(
     if (boundary.itemId === selection?.step.id && boundary.turnId === selection.turnId) return index;
   }
   return boundaries.length - 1;
-}
-
-export function clampTinyOsWidth(widthPx: number, viewportWidth = currentViewportWidth()): number {
-  return Math.min(tinyOsMaxWidth(viewportWidth), Math.max(MIN_TINYOS_WIDTH, Math.round(widthPx)));
-}
-
-function tinyOsMaxWidth(viewportWidth = currentViewportWidth()): number {
-  const reservedWidth = viewportWidth >= 1_280
-    ? TINYOS_DESKTOP_RESERVED_WIDTH
-    : TINYOS_OVERLAY_RESERVED_WIDTH;
-  return Math.max(MIN_TINYOS_WIDTH, Math.floor(viewportWidth - reservedWidth));
-}
-
-function currentViewportWidth(): number {
-  return typeof window === "undefined" ? 1_240 : window.innerWidth;
-}
-
-export function liveCanvasEntryForStep(turnId: string, step: ChatStep): LiveCanvasEntry {
-  return { step, turnId };
 }
 
 function prefersReducedMotion(): boolean {
