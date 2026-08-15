@@ -1,7 +1,7 @@
 # Tinybot 前端模块化与瘦身计划
 
 - 日期：2026-08-15
-- 状态：实施中；低风险瘦身、首批加载 seam 与 TinyOS 循环清理已完成
+- 状态：实施中；低风险瘦身、TinyOS/Memory/Settings/Tools 加载 seam、首批路由 CSS 与 TinyOS 循环清理已完成
 - 基线提交：`c18d0bae refactor: extract chat context usage`
 - 范围：`src/react-workbench`、被桌面前端直接使用的 `src/app-core`、前端依赖和分析工具
 - 本地约束：本文位于被忽略的 `docs/local/`，只作为本地实施依据，不推送到 GitHub
@@ -44,8 +44,16 @@
 - JavaScript 总 gzip 为 2,527,641 B，相比上一阶段只增长约 0.20%，没有因拆分产生异常重复；
 - 完整分析再次通过：80 个测试文件、553 个测试、TypeScript、ESLint、源码分析、构建与 bundle 门禁全部成功；
 - 真实浏览器验证 Chat 首屏、Settings 首次加载和 TinyOS 首次打开均成功，未出现动态模块加载错误。
+- 将 Tools 与插件页从 `DesktopShell` 提取为 `ToolsRoute`，外部 interface 只保留 `services` 与 `onOpenChat`，并通过 `DeferredSurface` 按需加载；
+- 将 Tools 独占的 650 余行样式移动到 route-scoped `ToolsRoute.css`，形成约 13.02 KiB raw / 2.52 KiB gzip 的异步 CSS chunk；
+- `DesktopShell.tsx` 从上一阶段约 1,229 行降至 802 行，`workbench.css` 从 12,947 行降至 12,291 行；
+- 修复工具目录加载失败被空集合掩盖的问题：失败状态现在显示原始错误、提供重试，并记录 `[tinybot-tools-route]` 诊断；
+- 初始 JavaScript gzip 从 452,901 B 继续降至 449,525 B，初始 CSS gzip 从 36,964 B 降至 35,391 B，初始资源总 gzip 从 490,845 B 降至 485,896 B；
+- JavaScript 总 gzip 为 2,528,804 B，相比最初基线只增长 0.18%，新增 route chunk 未造成异常重复；
+- ESLint finding 从 47 降至 45；完整分析通过 81 个测试文件、554 个测试、类型检查、源码分析、构建与 bundle 门禁；
+- 真实浏览器确认 Tools 代码与 CSS 只在首次进入路由后请求，专属样式已应用；无 Tauri 环境会显示工具目录错误与重试按钮，而不是伪装为空目录。
 
-Tools 路由、路由级 CSS、Chat/Settings 剩余模块深化与静态分析债务仍待后续阶段实施。
+Settings/TinyOS 剩余路由级 CSS、Shell route surface、Chat/Settings 模块深化与静态分析债务仍待后续阶段实施。
 
 ## 2. 调查基线
 

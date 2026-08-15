@@ -483,7 +483,7 @@ describe("DesktopShell", () => {
     resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
     await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Tools & Plugins" }));
     expect(await screen.findByRole("heading", { name: "Tools & Plugins" })).toBeTruthy();
-    expect(screen.getByText(/review-tools/)).toBeTruthy();
+    expect(await screen.findByText(/review-tools/)).toBeTruthy();
     await user.click(screen.getByRole("switch", { name: "Disable review-tools" }));
     await waitFor(() => expect(services.toolsStore.setPluginEnabled).toHaveBeenCalledWith("review-tools", false));
     await user.click(screen.getByRole("button", { name: "Tools" }));
