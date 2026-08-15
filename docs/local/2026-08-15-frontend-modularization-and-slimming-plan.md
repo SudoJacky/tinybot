@@ -1,7 +1,7 @@
 # Tinybot 前端模块化与瘦身计划
 
 - 日期：2026-08-15
-- 状态：实施中；Phase 3 与 Phase 7 已按职责清晰度收口，Phase 4 的 session runtime 与 composer submission 已完成
+- 状态：实施中；Phase 3 与 Phase 7 已按职责清晰度收口，Phase 4 的 session runtime、composer submission 与 canonical timeline 已完成
 - 基线提交：`c18d0bae refactor: extract chat context usage`
 - 范围：`src/react-workbench`、被桌面前端直接使用的 `src/app-core`、前端依赖和分析工具
 - 本地约束：本文位于被忽略的 `docs/local/`，只作为本地实施依据，不推送到 GitHub
@@ -99,6 +99,10 @@
 - `ChatPage` 不再知道 reference 字节预算或重建 queued input，只保留 session 创建、乐观标题、compact/turn dispatch 等页面副作用；空输入会在创建草稿会话前结束，避免产生无内容会话；
 - 文件元数据格式化从千行 Composer 组件移入 25 行独立工具，提交模块不再运行时依赖 UI 组件实现；`ChatPage.tsx` 继续从 4,549 行降至 4,393 行；
 - Composer submission 切片完整分析通过：90 个测试文件、580 个测试、TypeScript、ESLint、源码分析、生产构建和 bundle 门禁全部成功；ESLint finding 保持 41，生产循环和不可达候选保持 0，初始资源 gzip 为 487,108 B，JavaScript 总 gzip 为 2,530,003 B。
+- 新建 `ChatTimeline`：页面只传 canonical turns、optimistic messages、必要 view state 与一个 actions 对象；内部统一拥有 turn 分组、execution 折叠、消息/推理/计划/工具/artifact/form 展示、错误恢复和复制行为；drawer 使用的 canonical error detail 也由该展示模块导出，页面不再复制错误投影知识；
+- 新增 timeline interface 测试，直接验证 canonical/optimistic 展示、branch action、failed-turn retry 与 error-detail action；原有 121 个页面集成测试保持通过；
+- `ChatPage.tsx` 从 4,393 行降至 3,246 行，`ChatTimeline.tsx` 为 1,237 行且生产 interface 仅有 timeline、error detail、actions 与 recovery type，没有 compatibility re-export；
+- Canonical timeline 切片完整分析通过：91 个测试文件、582 个测试、TypeScript、ESLint、源码分析、生产构建和 bundle 门禁全部成功；ESLint finding 保持 41，生产循环和不可达候选保持 0，初始资源 gzip 为 487,425 B，JavaScript 总 gzip 为 2,530,332 B。
 
 Canonical timeline、session workspace、Settings/TinyOS 模块深化、剩余路由级 CSS 与静态分析债务仍待后续阶段实施。
 
@@ -409,6 +413,8 @@ prepareChatSubmission(input) -> PreparedChatSubmission
 #### 4.3 Canonical Timeline 模块
 
 把当前约 1,250 行的 `CanonicalChatTurn`、Execution、Plan、Message、Error、Tool、Artifact 和 Subagent 展示收敛到 `ChatTimeline`。外部只传 canonical turns、必要 view state 和一个 actions 对象；分组、状态文案、错误详情和 artifact 去重留在内部。
+
+当前状态：已完成。`ChatTimeline` 通过单一 actions interface 向页面请求 branch、drawer、TinyOS canvas 与 recovery 副作用；canonical turn 的具体展示、折叠状态、错误文案、引用与 artifact 去重均留在模块内部。文件本身接近原预计的 1,250 行，但 interface 较深，继续按卡片拆文件只会扩大内部 props，因此本阶段不再追逐该文件行数。
 
 #### 4.4 Session workspace 模块
 
