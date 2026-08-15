@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useEffectEvent, useId, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { TFunction } from "i18next";
 import {
   Check,
@@ -375,7 +375,7 @@ export function ChatPage({
         unread: sessionTabs.unreadSessionIds.includes(session.id),
       }] : [];
     })
-  ), [sessionTabs.openSessionIds, sessionTabs.unreadSessionIds, sessions]);
+  ), [sessionTabs.openSessionIds, sessionTabs.unreadSessionIds, sessions, t]);
   const allSessionWorkspaces = useMemo(() => groupSessionsByWorkspace(sessions).map((workspace) => ({
     ...workspace,
     label: workspace.label ?? t("shell.generalSessions"),
@@ -531,13 +531,14 @@ export function ChatPage({
     return () => window.clearTimeout(timer);
   }, [liveCanvas.visibility]);
 
+  const browserSessionId = browserSnapshot?.data.browserSessionId;
+  const browserControlState = browserSnapshot?.data.control?.state;
   useEffect(() => {
-    const browserSession = browserSnapshot?.data;
-    if (!browserSession) return;
-    if (browserSession.control?.state === "user_required") {
+    if (!browserSessionId) return;
+    if (browserControlState === "user_required") {
       dispatchLiveCanvas({ type: "return_live" });
     }
-  }, [browserSnapshot?.data.browserSessionId, browserSnapshot?.data.control?.state]);
+  }, [browserControlState, browserSessionId]);
 
   useEffect(() => {
     if (liveCanvas.visibility !== "open"
@@ -659,7 +660,9 @@ export function ChatPage({
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       dispatchCommandLifecycle({ commandId: command.commandId, error: message, type: "rejected" });
-      throw new Error(message);
+      const commandError = new Error(message);
+      (commandError as Error & { cause?: unknown }).cause = error;
+      throw commandError;
     }
   }
 
@@ -767,7 +770,7 @@ export function ChatPage({
     return () => {
       cancelled = true;
     };
-  }, [activeTurn?.id, activeTurn?.status, activeSessionId, chatStore]);
+  }, [activeTurn?.id, activeTurn?.status, activeSessionId, chatStore, t]);
 
   useEffect(() => {
     setTinyOsContextReferences([]);
@@ -878,29 +881,35 @@ export function ChatPage({
     return () => window.clearTimeout(timer);
   }, [sessionTabs, sessionsLoaded]);
 
+  const createSessionFromSignal = useEffectEvent(() => {
+    void handleCreateSession();
+  });
   useEffect(() => {
     if (createSessionSignal === lastCreateSessionSignal.current) {
       return;
     }
     lastCreateSessionSignal.current = createSessionSignal;
-    void handleCreateSession();
+    createSessionFromSignal();
   }, [createSessionSignal]);
 
+  const handleBackgroundChatEvent = useEffectEvent((sessionId: string, event: ChatEvent) => {
+    const effects = projectChatEventEffects(event);
+    if (event.timeline) {
+      updateSessionStatusFromTimeline(sessionId, event.timeline);
+      dispatchSessionTabs({ type: "activity", sessionId });
+    }
+    if (effects.backgroundTabActivity) {
+      dispatchSessionTabs({ type: "activity", sessionId });
+    }
+    if (effects.reloadSessions) {
+      void handleQueueStateAfterChatEvent(sessionId, event);
+    }
+  });
   useEffect(() => {
     const unsubscribes = sessionTabs.openSessionIds
       .filter((sessionId) => sessionId !== activeSessionId)
       .map((sessionId) => chatStore.subscribe(sessionId, (event) => {
-        const effects = projectChatEventEffects(event);
-        if (event.timeline) {
-          updateSessionStatusFromTimeline(sessionId, event.timeline);
-          dispatchSessionTabs({ type: "activity", sessionId });
-        }
-        if (effects.backgroundTabActivity) {
-          dispatchSessionTabs({ type: "activity", sessionId });
-        }
-        if (effects.reloadSessions) {
-          void handleQueueStateAfterChatEvent(sessionId, event);
-        }
+        handleBackgroundChatEvent(sessionId, event);
       }));
     return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
   }, [activeSessionId, chatStore, sessionTabs.openSessionIds]);
@@ -928,7 +937,7 @@ export function ChatPage({
     return () => {
       cancelled = true;
     };
-  }, [settingsStore]);
+  }, [settingsStore, t]);
 
   useEffect(() => {
     if (!composerModels.length) return;
@@ -974,9 +983,10 @@ export function ChatPage({
     };
   }, [settingsStore]);
 
+  const stopGenerationSessionId = activeSession && sessionResponding ? activeSession.id : "";
   useEffect(() => {
-    onStopGenerationTargetChange?.(activeSession && sessionResponding ? activeSession.id : "");
-  }, [activeSession?.id, onStopGenerationTargetChange, sessionResponding]);
+    onStopGenerationTargetChange?.(stopGenerationSessionId);
+  }, [onStopGenerationTargetChange, stopGenerationSessionId]);
 
   useEffect(() => {
     const view = conversationViewBySessionRef.current.get(activeSessionId);

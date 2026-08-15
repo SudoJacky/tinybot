@@ -1,7 +1,7 @@
 # Tinybot 前端模块化与瘦身计划
 
 - 日期：2026-08-15
-- 状态：实施中；Phase 3、Phase 4 与 Phase 7 已按职责清晰度收口，下一阶段进入 TinyOS 深化
+- 状态：收尾中；Phase 3 至 Phase 8 的职责边界已收口，等待最终全量分析确认停止点
 - 基线提交：`c18d0bae refactor: extract chat context usage`
 - 范围：`src/react-workbench`、被桌面前端直接使用的 `src/app-core`、前端依赖和分析工具
 - 本地约束：本文位于被忽略的 `docs/local/`，只作为本地实施依据，不推送到 GitHub
@@ -537,6 +537,8 @@ settings/SettingsRoute.css      # lazy settings route
 - 关键视觉 contract 用可访问语义、computed style 或浏览器截图验证；
 - 老浅模块测试在新 interface 测试覆盖后删除，不能叠加两套维护成本；
 - 完成现存 48 个 ESLint finding 的根因修复，基线最终归零。
+
+当前状态：ESLint finding 已从基线 48 个降至 0，生产 cycle 与 unreachable candidate 同为 0。最后 8 个 ChatPage finding 通过保留原始错误 `cause`、准确 primitive 依赖，以及 React 19 Effect Event 解决订阅回调的最新 handler/稳定订阅矛盾；没有加入 lint disable，也没有为了清零制造重复订阅。ChatPage 的 121 个集成测试覆盖会话创建信号、后台 tab event、模型加载、TinyOS capability 和 stop-generation target 等相关路径。
 
 退出条件：
 
