@@ -1,7 +1,7 @@
 # Tinybot 前端模块化与瘦身计划
 
 - 日期：2026-08-15
-- 状态：实施中；低风险瘦身、TinyOS/Memory/Settings/Tools 加载 seam、首批路由 CSS、Shell route surface、Workspace 与 Tools/Plugins adapter、TinyOS 循环清理已完成
+- 状态：实施中；低风险瘦身、TinyOS/Memory/Settings/Tools 加载 seam、首批路由 CSS、Shell route surface、Workspace、Tools/Plugins 与 Settings adapter、TinyOS 循环清理已完成
 - 基线提交：`c18d0bae refactor: extract chat context usage`
 - 范围：`src/react-workbench`、被桌面前端直接使用的 `src/app-core`、前端依赖和分析工具
 - 本地约束：本文位于被忽略的 `docs/local/`，只作为本地实施依据，不推送到 GitHub
@@ -67,8 +67,12 @@
 - 从 `defaultServices.ts` 提取 `createDesktopToolsStore()`：工具目录请求与归一化、插件安装、迁移、启停和卸载现在收敛在同一个 adapter 内，调用方仍只依赖 `AppServices.toolsStore`；
 - `defaultServices.ts` 从 1,204 行继续降至 1,139 行；新增 ToolsStore interface 测试，覆盖目录协议默认值、完整插件生命周期和 native 失败原样传播；
 - 完整分析通过 85 个测试文件、563 个测试、类型检查、源码分析、构建与 bundle 门禁；ESLint finding 保持 43，生产循环保持 0，初始资源 gzip 为 485,754 B，与上轮基本持平（增加 134 B）。
+- 从 `defaultServices.ts` 提取 `createDesktopSettingsStore()`：provider catalog、模型选项、native config 保存回写、provider 模型发现与 `USER.md` revision 写入规则现在由 SettingsStore adapter 自己拥有；
+- 合并三处重复的 native config 保存与 persisted revision 回写逻辑，并删除 provider catalog 请求失败时返回空集合的静默兜底；原始失败现在会穿过 interface 交给页面展示；
+- `defaultServices.ts` 从 1,139 行继续降至约 854 行；新增 SettingsStore interface 测试，覆盖模型目录、错误传播、个性化文件、保存 side effect 分类与模型发现；
+- 完整分析通过 86 个测试文件、568 个测试、类型检查、源码分析、构建与 bundle 门禁；ESLint finding 保持 43，生产循环保持 0，初始资源 gzip 为 485,776 B，仅比上轮增加 22 B。
 
-Settings/TinyOS 剩余路由级 CSS、Chat/Settings 模块深化、Settings/native event adapters 与静态分析债务仍待后续阶段实施。
+Settings/TinyOS 剩余路由级 CSS、Chat/Settings 模块深化、native event bridge 与静态分析债务仍待后续阶段实施。
 
 ## 2. 调查基线
 
@@ -441,6 +445,8 @@ reconcileDesktopSettingsSave(draft, result) -> DesktopSettingsDraft
 4. 将 native event bridge、chat/session、settings、tools/plugin、workspace/memory adapter 移到内部实现文件；
 5. normalization 放回拥有相应数据语义的模块，不建立通用 `utils.ts`；
 6. native event 和 adapter 错误携带 event/session/operation 标识，`catch` 不得只返回空集合。
+
+当前判断：Phase 7 下一条仍有明确收益的 seam 是 native event bridge，它可以独立拥有 listener 注册、payload 归一化和事件错误投影。Memory/ProjectGroup 目前只是简单 native 转发，不为追求行数单独提取；Chat/Session 与 controller 高度耦合，应结合 Phase 4 的会话运行模块处理。如果 event bridge 提取后继续拆分只会产生大量 callback 参数或 pass-through adapter，则允许 Phase 7 在高于 400 行时结束。
 
 退出条件：
 
