@@ -2,10 +2,9 @@ import { describe, expect, test } from "vitest";
 import {
   applyLoadedDelegatedAgentTrace,
   backendRuntimeStatesToTurns,
-  normalizeAgentTurnRuntimeStatePayload,
-  redactedPreview,
-  safeArtifactPreview,
 } from "./chatTurnModel";
+import { redactedPreview, safeArtifactPreview } from "./chatPreview";
+import { normalizeAgentTurnRuntimeStatePayload } from "./chatTimelinePayload";
 
 function canonicalRuntimeState(
   turnId: string,

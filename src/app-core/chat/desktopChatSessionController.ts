@@ -6,7 +6,7 @@ import {
   TimelineRevisionGapError,
   type ChatTimelineSnapshot,
 } from "./agentTimelineModel";
-import { normalizeAgentTimelinePatchPayload } from "./chatTurnModel";
+import { normalizeAgentTimelinePatchPayload } from "./chatTimelinePayload";
 import { logDesktopNativeDebug, summarizeDebugText } from "../native/desktopNativeChatDebug";
 import type {
   NativeThreadListResult,

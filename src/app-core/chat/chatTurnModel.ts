@@ -3,13 +3,9 @@ import type {
   AgentContext,
   ArtifactRef,
   AssistantMessagePhase,
-  BackendAgentTimelinePatch,
-  BackendAgentTimelineSnapshot,
   BackendAgentTurnItem,
   BackendAgentTurnRuntimeState,
   BackendAgentTurnStatus,
-  CanonicalTurnItemData,
-  CanonicalTurnItemKind,
   ChatMessage,
   ChatStep,
   ChatStepStatus,
@@ -24,6 +20,7 @@ import type {
   TokenUsage,
   ToolCallState,
 } from "./chatTurnContracts";
+import { safeArtifactPreview, sanitizeTextPreview } from "./chatPreview";
 import { parseDataViewDocument, type DataViewDocument } from "./dataView";
 
 export function projectLoadedArtifactDetail(
@@ -61,149 +58,6 @@ function safeRasterImageDataUrl(value: string): string | undefined {
     : undefined;
 }
 
-const SENSITIVE_KEYS = new Set(["api_key", "token", "secret", "password", "authorization", "cookie", "credential", "private_key"]);
-const UNSAFE_KEYS = new Set(["html", "script", "style", "component", "handler", "renderer", "template", "onClick", "onSubmit"]);
-
-export function normalizeAgentTurnRuntimeStatePayload(payload: unknown): BackendAgentTurnRuntimeState {
-  const value = recordValue(payload);
-  const timeline = normalizeAgentTimelineSnapshotPayload(value.timeline);
-  const status = normalizeBackendAgentTurnStatus(value.status);
-  const completedAt = stringValue(value.completedAt ?? value.completed_at) || undefined;
-  const stopReason = stringValue(value.stopReason ?? value.stop_reason) || undefined;
-  return {
-    runtimeEvents: Array.isArray(value.runtimeEvents) ? value.runtimeEvents : Array.isArray(value.runtime_events) ? value.runtime_events : [],
-    ...(status ? { status } : {}),
-    ...(completedAt ? { completedAt } : {}),
-    ...(stopReason ? { stopReason } : {}),
-    timeline,
-  };
-}
-
-function normalizeBackendAgentTurnStatus(value: unknown): BackendAgentTurnStatus | undefined {
-  if (value === undefined || value === null || value === "") {
-    return undefined;
-  }
-  if (typeof value !== "string") {
-    throw new Error("Canonical turn runtime status must be a string");
-  }
-  switch (value) {
-    case "running":
-    case "waiting":
-    case "completed":
-    case "failed":
-    case "cancelled":
-    case "interrupted":
-      return value;
-    default:
-      throw new Error(`Unsupported canonical turn runtime status: ${value}`);
-  }
-}
-
-export function normalizeAgentTimelineSnapshotPayload(payload: unknown): BackendAgentTimelineSnapshot {
-  const timeline = recordValue(payload);
-  if (stringValue(timeline.schemaVersion) !== "tinybot.timeline.v2") {
-    throw new Error(`Unsupported canonical timeline schema: ${stringValue(timeline.schemaVersion) || "missing"}`);
-  }
-  const sessionId = requiredCanonicalString(timeline, "sessionId");
-  const turnId = requiredCanonicalString(timeline, "turnId");
-  const snapshotRevision = requiredCanonicalNumber(timeline, "snapshotRevision");
-  if (!Array.isArray(timeline.items)) {
-    throw new Error(`Canonical timeline ${turnId} is missing items`);
-  }
-  const seenItemIds = new Set<string>();
-  const items = timeline.items.map((raw, index) => {
-    if (!isRecord(raw)) {
-      throw new Error(`Canonical timeline ${turnId} item ${index} is not an object`);
-    }
-    const item = normalizeCanonicalTurnItem(raw, sessionId, turnId);
-    if (seenItemIds.has(item.itemId)) {
-      throw new Error(`Canonical timeline ${turnId} contains duplicate item ${item.itemId}`);
-    }
-    seenItemIds.add(item.itemId);
-    return item;
-  });
-  return {
-    schemaVersion: "tinybot.timeline.v2",
-    sessionId,
-    turnId,
-    snapshotRevision,
-    items,
-  };
-}
-
-export function normalizeAgentTimelinePatchPayload(payload: unknown): BackendAgentTimelinePatch {
-  const value = recordValue(payload);
-  if (stringValue(value.schemaVersion) !== "tinybot.timeline_patch.v2") {
-    throw new Error(`Unsupported canonical timeline patch schema: ${stringValue(value.schemaVersion) || "missing"}`);
-  }
-  const sessionId = requiredCanonicalString(value, "sessionId");
-  const turnId = requiredCanonicalString(value, "turnId");
-  if (!isRecord(value.item)) {
-    throw new Error(`Canonical timeline patch ${sessionId}/${turnId} is missing item`);
-  }
-  return {
-    schemaVersion: "tinybot.timeline_patch.v2",
-    sessionId,
-    turnId,
-    snapshotRevision: requiredCanonicalNumber(value, "snapshotRevision"),
-    item: normalizeCanonicalTurnItem(value.item, sessionId, turnId),
-  };
-}
-
-const CANONICAL_ITEM_KINDS = new Set<CanonicalTurnItemKind>([
-  "user_message", "assistant_message", "reasoning", "tool_call", "form",
-  "subagent_lifecycle", "subagent_message", "plan_progress", "context_compaction", "usage",
-  "file_reference", "error", "system_notice",
-]);
-
-function normalizeCanonicalTurnItem(
-  raw: Record<string, unknown>,
-  sessionId: string,
-  turnId: string,
-): BackendAgentTurnItem {
-  if (stringValue(raw.schemaVersion) !== "tinybot.turn_item.v2") {
-    throw new Error(`Unsupported canonical item schema for ${stringValue(raw.itemId) || "unknown item"}`);
-  }
-  const itemId = requiredCanonicalString(raw, "itemId");
-  const itemSessionId = requiredCanonicalString(raw, "sessionId");
-  const itemTurnId = requiredCanonicalString(raw, "turnId");
-  if (itemSessionId !== sessionId || itemTurnId !== turnId) {
-    throw new Error(`Canonical item ${itemId} identity does not match timeline ${sessionId}/${turnId}`);
-  }
-  const kind = stringValue(raw.kind) as CanonicalTurnItemKind;
-  if (!CANONICAL_ITEM_KINDS.has(kind)) {
-    throw new Error(`Canonical item ${itemId} has unsupported kind ${kind || "missing"}`);
-  }
-  const data = recordValue(raw.data);
-  if (stringValue(data.type) !== kind) {
-    throw new Error(`Canonical item ${itemId} kind/data mismatch: ${kind}/${stringValue(data.type) || "missing"}`);
-  }
-  if (kind === "assistant_message") {
-    requiredCanonicalString(data, "modelCallId");
-    assistantMessagePhase(data.phase, itemId);
-  }
-  if (kind === "reasoning") {
-    requiredCanonicalString(data, "modelCallId");
-  }
-  return {
-    schemaVersion: "tinybot.turn_item.v2",
-    itemId,
-    sessionId: itemSessionId,
-    ...(stringValue(raw.threadId) ? { threadId: stringValue(raw.threadId) } : {}),
-    turnId: itemTurnId,
-    ...(stringValue(raw.parentItemId) ? { parentItemId: stringValue(raw.parentItemId) } : {}),
-    sequence: requiredCanonicalNumber(raw, "sequence"),
-    revision: requiredCanonicalNumber(raw, "revision"),
-    kind,
-    status: requiredCanonicalString(raw, "status"),
-    createdAt: requiredCanonicalString(raw, "createdAt"),
-    ...(stringValue(raw.updatedAt) ? { updatedAt: stringValue(raw.updatedAt) } : {}),
-    ...(stringValue(raw.title) ? { title: stringValue(raw.title) } : {}),
-    ...(stringValue(raw.summary) ? { summary: safeArtifactText(stringValue(raw.summary)) } : {}),
-    data: data as CanonicalTurnItemData,
-  };
-}
-
 function assistantMessagePhase(value: unknown, itemId: string): AssistantMessagePhase {
   const phase = stringValue(value);
   if (phase === "unknown" || phase === "commentary" || phase === "final_answer") {
@@ -216,14 +70,6 @@ function requiredCanonicalString(value: Record<string, unknown>, key: string): s
   const result = stringValue(value[key]);
   if (!result) {
     throw new Error(`Canonical timeline field ${key} is required`);
-  }
-  return result;
-}
-
-function requiredCanonicalNumber(value: Record<string, unknown>, key: string): number {
-  const result = numberValue(value[key]);
-  if (result === undefined || !Number.isInteger(result) || result < 0) {
-    throw new Error(`Canonical timeline field ${key} must be a non-negative integer`);
   }
   return result;
 }
@@ -736,34 +582,6 @@ function reconcileTerminalStepStatuses(turn: ChatTurn): void {
   }
 }
 
-export function redactedPreview(value: unknown): string {
-  return serialize(redactSensitive(value));
-}
-
-export function safeArtifactPreview(value: unknown): string {
-  return serialize(omitUnsafe(redactSensitive(value)));
-}
-
-export function redactSensitive(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(redactSensitive);
-  }
-  if (!isRecord(value)) {
-    return value;
-  }
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [
-    key,
-    SENSITIVE_KEYS.has(key.toLowerCase()) ? "[redacted]" : redactSensitive(item),
-  ]));
-}
-
-export function sanitizeTextPreview(value: string): string {
-  return value
-    .replace(/<\s*script\b[^>]*>[\s\S]*?<\s*\/\s*script\s*>/gi, "[unsafe omitted]")
-    .replace(/<[^>]+>/g, "[unsafe omitted]")
-    .replace(/\b(api_key|token|secret|password|authorization|cookie|credential|private_key)\s*[:=]\s*([^\s,;]+)/gi, "$1=[redacted]");
-}
-
 function artifactFromPayload(value: unknown): ArtifactRef {
   const payload = recordValue(value);
   const fetchPath = stringValue(payload.fetch_path ?? payload.fetchPath);
@@ -1055,32 +873,8 @@ function stableId(...parts: Array<string | number | undefined>): string {
     .join(":");
 }
 
-function omitUnsafe(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(omitUnsafe);
-  }
-  if (!isRecord(value)) {
-    return value;
-  }
-  return Object.fromEntries(Object.entries(value).map(([key, item]) => [
-    key,
-    UNSAFE_KEYS.has(key) ? "[unsafe omitted]" : omitUnsafe(item),
-  ]));
-}
-
 function safeArtifactText(value: string): string {
   return sanitizeTextPreview(value);
-}
-
-function serialize(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
 }
 
 function recordValue(value: unknown): Record<string, unknown> {

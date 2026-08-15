@@ -1,8 +1,8 @@
+import { backendRuntimeStatesToTurns } from "./chatTurnModel";
 import {
-  backendRuntimeStatesToTurns,
   normalizeAgentTurnRuntimeStatePayload,
   normalizeAgentTimelinePatchPayload,
-} from "./chatTurnModel";
+} from "./chatTimelinePayload";
 import type {
   BackendAgentTurnRuntimeState,
   BackendAgentTimelinePatch,
