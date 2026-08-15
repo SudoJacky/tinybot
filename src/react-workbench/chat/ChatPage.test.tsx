@@ -454,7 +454,7 @@ describe("ChatPage", () => {
     expect(openButton.getAttribute("aria-expanded")).toBe("true");
     expect(getComputedStyle(openButton).minWidth).toBe("44px");
     expect(document.querySelector(".react-chat-page")?.getAttribute("data-live-canvas-open")).toBe("true");
-    expect(canvas.querySelector('[aria-label="Terminal window"]')).toBeTruthy();
+    await waitFor(() => expect(canvas.querySelector('[aria-label="Terminal window"]')).toBeTruthy());
     expect(canvas.querySelector(".tinyos-system-bar__status")).toBeNull();
     expect(document.activeElement).toBe(canvasHeading);
 
@@ -1211,19 +1211,16 @@ describe("ChatPage", () => {
     expect(screen.getByRole("button", { name: "Expand session sidebar" })).toBeTruthy();
   });
 
-  it("uses Text Type for chat empty states without changing the accessible copy", async () => {
+  it("renders chat empty states without starting a session", async () => {
     const stores = createStores();
     stores.sessionStore.list = vi.fn(async () => []);
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
-    const sessionEmptyState = await screen.findByLabelText("No sessions yet.");
+    const sessionEmptyState = await screen.findByText("No sessions yet.");
     const start = await screen.findByLabelText("Start a new chat");
 
-    expect(sessionEmptyState.classList.contains("react-text-type")).toBe(true);
-    expect(sessionEmptyState.getAttribute("data-text-type")).toBe("once");
-    expect(sessionEmptyState.getAttribute("aria-label")).toBe("No sessions yet.");
-    expect(within(sessionEmptyState).getByTestId("text-type-visual")).toBeTruthy();
+    expect(sessionEmptyState.classList.contains("react-empty-state")).toBe(true);
     expect(screen.getByRole("heading", { name: "New chat" })).toBeTruthy();
     expect(screen.queryByLabelText("Select or create a session.")).toBeNull();
     expect(stores.sessionStore.create).not.toHaveBeenCalled();
@@ -4397,11 +4394,8 @@ describe("ChatPage", () => {
 
   it("defines reduced-motion fallbacks for chat motion primitives", () => {
     const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
-    const textTypeCss = readFileSync("src/components/ui/TextType.css", "utf8");
 
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
-    expect(textTypeCss).toContain(".text-type__content");
-    expect(textTypeCss).toContain(".text-type__cursor");
     expect(css).toContain("react-list-enter");
     expect(css).toContain("react-drawer-enter");
     expect(css).toContain("react-stepper-current");

@@ -1,11 +1,19 @@
 # TinyOS Runtime Contract
-<!-- tinybot-module-fingerprint: sha256:5fa4a62734ddedc317681e87417b2f98d8b757613b4521edab6e829c416e18d8 -->
+<!-- tinybot-module-fingerprint: sha256:7079efc0dfff1d89787c6e129531cde67e51b9a398de19951c129fdbbb96f8c7 -->
 
 TinyOS presents workspace files, retained terminal executions, the managed
 browser session, generated artifacts, and Agent activity as one desktop shared
 by the user and Agent. Both participants operate on the same underlying
 workspace objects. TinyOS is a product projection of canonical Thread and
 native runtime state, not a second persistence authority.
+
+## Contract layering
+
+`tinyOsKernelContracts.ts` owns the shared provenance, process-state, and
+resource-access vocabulary. Native snapshot types and the kernel projection
+depend on those contracts independently, so native observations never need to
+import the higher-level kernel model. `tinyOsKernelModel.ts` remains the owner
+of projected process, resource, history, and simulation behavior.
 
 ## Chat references
 

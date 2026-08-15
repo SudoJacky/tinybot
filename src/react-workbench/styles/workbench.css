@@ -5158,12 +5158,6 @@ button.tinyos-overlay-backdrop:focus-visible {
   min-height: 1.5em;
 }
 
-.react-text-type {
-  display: inline-block;
-  max-width: 100%;
-  vertical-align: baseline;
-}
-
 .react-message {
   display: grid;
   grid-template-columns: minmax(0, 1fr);

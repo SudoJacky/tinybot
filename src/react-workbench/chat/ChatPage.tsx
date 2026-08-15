@@ -50,7 +50,6 @@ import {
   type ModelOption,
   type PastedContent,
 } from "../../components/ui/claude-style-ai-input";
-import { TextType } from "../../components/ui/TextType";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
 import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, ProjectGroup, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, ToolsStore, WorkspaceStore } from "../services";
 import { createDesktopCompactCommand, createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
@@ -2998,11 +2997,7 @@ function EmptyChatStart({ onSelectPrompt }: { onSelectPrompt: (prompt: string) =
 }
 
 function EmptyStateText({ text }: { text: string }) {
-  return (
-    <p className="react-empty-state">
-      <TextType ariaLabel={text} className="react-text-type" loop={false} showCursor={false} text={text} />
-    </p>
-  );
+  return <p className="react-empty-state">{text}</p>;
 }
 
 function isQueueableRunningSession(session: SessionSummary, emptyActiveSession: boolean): boolean {

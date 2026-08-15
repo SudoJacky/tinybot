@@ -1,7 +1,7 @@
 # Tinybot 前端模块化与瘦身计划
 
 - 日期：2026-08-15
-- 状态：实施中；测试分类与休眠模块清理已完成
+- 状态：实施中；低风险瘦身、首批加载 seam 与 TinyOS 循环清理已完成
 - 基线提交：`c18d0bae refactor: extract chat context usage`
 - 范围：`src/react-workbench`、被桌面前端直接使用的 `src/app-core`、前端依赖和分析工具
 - 本地约束：本文位于被忽略的 `docs/local/`，只作为本地实施依据，不推送到 GitHub
@@ -35,8 +35,17 @@
 - npm 实际移除 28 个包；`clsx` 仍作为传递依赖存在，但 Tinybot 不再直接声明；
 - 保留 Rust `tauri-plugin-notification`、bootstrap 注册和 capability，只移除未使用的前端 JS bindings；
 - 依赖清理后的完整前端分析再次通过，生产 bundle 保持不变。
+- 建立统一的 `DeferredSurface` 加载模块，集中处理 loading、失败原因、诊断日志与显式重试；
+- `LiveCanvas` 改为首次打开时加载 `TinyOsShell`，TinyOS 独立为约 76.52 KiB gzip 的异步 chunk；
+- Settings 与 Memory 从 `DesktopShell` 的启动图中移出，分别形成约 14.94 KiB 与 1.59 KiB gzip 的异步 chunk；
+- 删除 Chat 空状态唯一使用的 `TextType`、其 GSAP 运行时链路和只验证该孤儿实现的测试与样式；
+- 将共享 TinyOS contracts 下沉到 `tinyOsKernelContracts.ts`，生产 import cycle 从 1 降至 0；
+- 初始 JavaScript gzip 从 541,240 B 降至 452,901 B，下降 16.32%；初始资源总 gzip 从 579,250 B 降至 490,845 B，下降 15.26%；
+- JavaScript 总 gzip 为 2,527,641 B，相比上一阶段只增长约 0.20%，没有因拆分产生异常重复；
+- 完整分析再次通过：80 个测试文件、553 个测试、TypeScript、ESLint、源码分析、构建与 bundle 门禁全部成功；
+- 真实浏览器验证 Chat 首屏、Settings 首次加载和 TinyOS 首次打开均成功，未出现动态模块加载错误。
 
-真实加载 seam 和剩余模块化阶段尚未实施。
+Tools 路由、路由级 CSS、Chat/Settings 剩余模块深化与静态分析债务仍待后续阶段实施。
 
 ## 2. 调查基线
 

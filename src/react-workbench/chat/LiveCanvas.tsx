@@ -7,12 +7,13 @@ import { tinyOsLayoutModeForWidth, type TinyOsAgentRequestIntent, type TinyOsAge
 import type { ArtifactRef, BackendAgentTurnItem } from "../../app-core/chat/chatTurnModel";
 import type { TinyOsBrowserAction } from "../../app-core/chat/tinyOsCommand";
 import type { TinyOsNativeSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
-import { TinyOsShell, type TinyOsBrowserHandoff } from "./TinyOsShell";
+import type { TinyOsBrowserHandoff } from "./TinyOsShell";
 import type { TinyOsFilesController } from "./useTinyOsFilesController";
 import { isTinyOsCommandInFlight, type TinyOsCommandLifecycle } from "../../app-core/chat/tinyOsCommand";
 import { createTinyOsShellCommandRegistry, defineTinyOsShellCommand, type TinyOsShellCommandAvailability } from "../../app-core/chat/tinyOsShellCommandRegistry";
 import { createTinyOsTimeMachineIndex, type TinyOsTimeMachineBoundary } from "../../app-core/chat/tinyOsTimeMachine";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
+import { DeferredSurface } from "../shell/DeferredSurface";
 import {
   clampTinyOsWidth,
   MIN_TINYOS_WIDTH,
@@ -26,6 +27,7 @@ export type { LiveCanvasEntry, LiveCanvasMode } from "./liveCanvasModel";
 
 const TINYOS_BOOT_DURATION_MS = 450;
 const TINYOS_BOOT_SEEN_STORAGE_KEY = "tinybot.ui.tinyos.boot-seen";
+const loadTinyOsShell = () => import("./TinyOsShell").then(({ TinyOsShell }) => ({ default: TinyOsShell }));
 
 export function LiveCanvas({
   activeTurnId,
@@ -376,49 +378,53 @@ export function LiveCanvas({
         </div>
       </header>
 
-      <TinyOsShell
+      <DeferredSurface
         key={sessionKey}
-        agentUiForms={agentUiForms}
-        canCancelTerminal={canCancelTerminal}
-        canDirectEdit={canDirectEdit}
-        canExecuteTerminal={canExecuteTerminal}
-        canInteractBrowser={canInteractBrowser}
-        canRequestChange={canRequestChange}
-        canRetryTurn={canRetryTurn}
-        canSaveFile={canSaveFile}
-        commandLifecycle={commandLifecycle}
-        directEditUnavailableReason={directEditUnavailableReason}
-        browserInteractUnavailableReason={browserInteractUnavailableReason}
-        browserRuntime={browserRuntime}
-        filesController={filesController}
-        history={mode === "history"}
-        onAttachContext={onAttachContext}
-        submittingFormId={submittingFormId}
-        snapshot={snapshot}
-        layoutMode={tinyOsLayoutModeForWidth(widthPx, expanded)}
-        sessionKey={sessionKey}
-        workspaceKey={filesController?.state.workspaceKey ?? workspaceKey}
-        onCancelForm={onCancelForm}
-        onOpenArtifact={onOpenArtifact}
-        onAgentRequest={(reference, intent) => onAgentRequest(reference, intent, mode === "history")}
-        onCancelTerminal={onCancelTerminal}
-        onBrowserHandoffComplete={onBrowserHandoffComplete}
-        onBrowserInteract={onBrowserInteract}
-        onDeleteFile={onDeleteFile}
-        onExecuteTerminal={onExecuteTerminal}
-        onMoveFile={onMoveFile}
-        onRetryOperation={onRetryOperation}
-        onSelectEntry={onSelectEntry}
-        onSubmitForm={onSubmitForm}
-        onSaveFile={onSaveFile}
-        requestChangeUnavailableReason={requestChangeUnavailableReason}
-        runtimeCommandRegistry={canvasCommandRegistry}
-        retryTurnId={retryTurnId}
-        retryUnavailableReason={retryUnavailableReason}
-        runningTerminalOperationId={runningTerminalOperationId}
-        saveFileUnavailableReason={saveFileUnavailableReason}
-        terminalCancelUnavailableReason={terminalCancelUnavailableReason}
-        terminalExecuteUnavailableReason={terminalExecuteUnavailableReason}
+        load={loadTinyOsShell}
+        name="TinyOS"
+        surfaceProps={{
+          agentUiForms,
+          browserInteractUnavailableReason,
+          browserRuntime,
+          canCancelTerminal,
+          canDirectEdit,
+          canExecuteTerminal,
+          canInteractBrowser,
+          canRequestChange,
+          canRetryTurn,
+          canSaveFile,
+          commandLifecycle,
+          directEditUnavailableReason,
+          filesController,
+          history: mode === "history",
+          layoutMode: tinyOsLayoutModeForWidth(widthPx, expanded),
+          onAgentRequest: (reference, intent) => onAgentRequest(reference, intent, mode === "history"),
+          onAttachContext,
+          onBrowserHandoffComplete,
+          onBrowserInteract,
+          onCancelForm,
+          onCancelTerminal,
+          onDeleteFile,
+          onExecuteTerminal,
+          onMoveFile,
+          onOpenArtifact,
+          onRetryOperation,
+          onSaveFile,
+          onSelectEntry,
+          onSubmitForm,
+          requestChangeUnavailableReason,
+          retryTurnId,
+          retryUnavailableReason,
+          runningTerminalOperationId,
+          runtimeCommandRegistry: canvasCommandRegistry,
+          saveFileUnavailableReason,
+          sessionKey,
+          snapshot,
+          submittingFormId,
+          terminalCancelUnavailableReason,
+          terminalExecuteUnavailableReason,
+          workspaceKey: filesController?.state.workspaceKey ?? workspaceKey,
+        }}
       />
 
       {booting ? (
