@@ -1,7 +1,7 @@
 # Tinybot 前端模块化与瘦身计划
 
 - 日期：2026-08-15
-- 状态：实施中；低风险瘦身、TinyOS/Memory/Settings/Tools 加载 seam、首批路由 CSS、Shell route surface 与 TinyOS 循环清理已完成
+- 状态：实施中；低风险瘦身、TinyOS/Memory/Settings/Tools 加载 seam、首批路由 CSS、Shell route surface、Workspace adapter 与 TinyOS 循环清理已完成
 - 基线提交：`c18d0bae refactor: extract chat context usage`
 - 范围：`src/react-workbench`、被桌面前端直接使用的 `src/app-core`、前端依赖和分析工具
 - 本地约束：本文位于被忽略的 `docs/local/`，只作为本地实施依据，不推送到 GitHub
@@ -58,8 +58,14 @@
 - ESLint finding 从 45 降至 43；完整分析通过 82 个测试文件、555 个测试、类型检查、源码分析、构建与 bundle 门禁；
 - 初始 JavaScript gzip 从 449,525 B 降至 449,034 B，初始资源总 gzip 从 485,896 B 降至 485,402 B，拆分未引入启动体积回退；
 - 真实浏览器验证 Files 失败文案和重试路径：无 Tauri 环境显示原始错误，第二次请求记录 `attempt: 2`，不会伪装为空目录。
+- 从 `defaultServices.ts` 提取 `createDesktopWorkspaceStore()`：调用方只提供初始化动作和 native workspace adapter，文件列表、目录页、文件 chunk、路径格式与结构化查询错误均收进模块内部；
+- `defaultServices.ts` 从 1,325 行降至 1,204 行，`createDesktopAppServices()` 和 `AppServices.workspaceStore` interface 保持不变；
+- 新增 WorkspaceStore interface 测试，覆盖文件摘要、目录/文件结果归一化及 `code/path/retryable` 错误语义；
+- 完整分析在并发运行时暴露 Agent UI 表单 draft 竞态：首次挂载后的冗余 effect 或相同表单对象重新投影会覆盖刚输入的值；
+- 表单 draft 现在仅在 `form_id + updated_at` canonical revision 变化时重置，同 revision 重投影保留本地编辑，新 revision 仍接收后端值；
+- 完整分析通过 84 个测试文件、560 个测试、类型检查、源码分析、构建与 bundle 门禁；ESLint finding 保持 43，生产循环保持 0。
 
-Settings/TinyOS 剩余路由级 CSS、Chat/Settings 模块深化、service composition root 与静态分析债务仍待后续阶段实施。
+Settings/TinyOS 剩余路由级 CSS、Chat/Settings 模块深化、Tools/Settings/native event adapters 与静态分析债务仍待后续阶段实施。
 
 ## 2. 调查基线
 
