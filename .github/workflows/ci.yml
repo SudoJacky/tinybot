@@ -30,6 +30,9 @@ jobs:
       - name: Test README freshness tooling
         run: node --test .github/scripts/readme-freshness.test.mjs
 
+      - name: Check module README freshness
+        run: npm run readme:check
+
       - name: Run desktop tests
         shell: bash
         run: |
