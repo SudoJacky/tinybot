@@ -1,7 +1,7 @@
 # Tinybot 前端模块化与瘦身计划
 
 - 日期：2026-08-15
-- 状态：实施中；Phase 3 与 Phase 7 已按职责清晰度收口，下一阶段转入 Phase 4 的 Chat 页面编排深化
+- 状态：实施中；Phase 3 与 Phase 7 已按职责清晰度收口，Phase 4 的 active session runtime 首个切片已完成
 - 基线提交：`c18d0bae refactor: extract chat context usage`
 - 范围：`src/react-workbench`、被桌面前端直接使用的 `src/app-core`、前端依赖和分析工具
 - 本地约束：本文位于被忽略的 `docs/local/`，只作为本地实施依据，不推送到 GitHub
@@ -90,6 +90,11 @@
 - 文件重命名暴露出既有 `Boolean(payload.cancelled)` 冗余转换，直接修正根因而未迁移 lint baseline；ESLint finding 从 43 降至 42；
 - Phase 3 完整分析通过：88 个测试文件、572 个测试、TypeScript、ESLint、源码分析、生产构建和 bundle 门禁全部成功；生产循环和不可达候选保持 0，初始资源 gzip 保持 486,062 B；
 - Phase 3 在此收口：contracts、payload、preview 与 projection 已形成准确边界；artifact detail 和 delegated trace 继续留在 projection 内部，共享私有 artifact、trace、usage、reference 与安全字段 helper，继续物理拆分的收益不足以抵消 interface 膨胀。
+- 新建 `useChatSessionRuntime`：通过 `{ state, actions }` interface 统一拥有 active session 的 timeline/forms 加载、订阅清理、流式 timeline 的 animation-frame 合并、browser snapshot、`idle | loading | ready | failed` 状态、显式 reload 与带 session/operation 的错误诊断；
+- 跨模块影响统一投影为 `timeline_applied | message_received | command_received | session_refresh_requested` 四类判别式 effect，`ChatPage` 只负责把它们编排到 sidebar、optimistic message、queue 和 command lifecycle，不再读取订阅协议的 reload 细节；
+- 页面测试发现初始 load 若错误发出 `timeline_applied` 会覆盖 sidebar 已有 running 状态；模块现在区分 load 与实时事件来源，只有订阅事件同步会话状态，避免用时序补丁掩盖语义差异；
+- `ChatPage.tsx` 从 4,626 行降至 4,549 行，文件内 `useEffect` 从 32 降至 30；完整分析通过 89 个测试文件、576 个测试、TypeScript、ESLint、源码分析、生产构建和 bundle 门禁；ESLint finding 从 42 降至 41，生产循环和不可达候选保持 0；
+- 本切片新增一个生产模块后，生产文件为 114、生产代码 34,290 行、分支点 6,081；初始资源 gzip 为 486,970 B，增加 908 B，JavaScript 总 gzip 为 2,529,872 B，仍在现有门禁内。Phase 4 尚未完成，下一切片应处理 composer submission 或 canonical timeline，不再继续扩大 runtime interface。
 
 Settings/TinyOS 剩余路由级 CSS、Chat/Settings/TinyOS 模块深化与静态分析债务仍待后续阶段实施。
 
@@ -382,6 +387,8 @@ useChatSessionRuntime({ sessionId, chatStore })
 ```
 
 `state` 必须显式表示 `loading | ready | failed`，`actions` 只暴露 reload 和运行控制等真实能力。revision gap 和加载错误应 fail fast，并保留 session/turn/revision 诊断信息。
+
+当前状态：首个切片已完成。模块额外使用 `idle` 表示没有 active session；其余状态、timeline/forms load、subscribe、browser snapshot、流式帧合并、reload 和诊断错误均由模块拥有。页面只接收四类判别式 effect 来协调仍由其他模块拥有的 session status、optimistic message、queue 与 TinyOS command lifecycle。browser native session 的创建/关闭仍留在页面编排层，因为它同时依赖 LiveCanvas visibility 和 native runtime；在 TinyOS seam 明确前不把这段编排硬塞进 session runtime。
 
 #### 4.2 Composer 提交模块
 

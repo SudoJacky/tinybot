@@ -116,7 +116,6 @@ import type {
   ToolCallState,
 } from "../../app-core/chat/chatTurnContracts";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
-import type { TinyOsNativeBrowserSession, TinyOsNativeSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
 import type { AgentInputReference } from "../../app-core/chat/agentInputReference";
 import type { TinyOsAgentRequestIntent, TinyOsAgentRequestReference, TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
 import { readTinyOsReferenceTransfer, tinyOsReferenceAcceptedBy, TINYOS_REFERENCE_MIME } from "../../app-core/chat/tinyOsReferenceTransfer";
@@ -147,6 +146,10 @@ import {
   unavailableTinyOsEffectiveCapabilities,
   type TinyOsEffectiveCapabilities,
 } from "../../app-core/chat/tinyOsCapabilities";
+import {
+  useChatSessionRuntime,
+  type ChatSessionRuntimeEffect,
+} from "./useChatSessionRuntime";
 
 export type ChatPageProps = {
   chatStore: ChatStore;
@@ -179,10 +182,6 @@ type ConversationViewState = {
 type RecoveryAction = "continue" | "retry" | "restart";
 
 type QueuedComposerInput = QueuedInput & { turnInput: ChatInput };
-
-function shouldFrameBatchTimeline(timeline: ChatTimelineSnapshot): boolean {
-  return timeline.turns[timeline.turns.length - 1]?.status === "running";
-}
 
 function lastCanonicalEventIndex(
   items: readonly BackendAgentTurnItem[],
@@ -299,13 +298,9 @@ export function ChatPage({
     reduceSessionTabWorkspace,
     INITIAL_SESSION_TAB_WORKSPACE,
   );
-  const [timeline, setTimeline] = useState<ChatTimelineSnapshot | null>(null);
   const [optimisticMessagesBySession, setOptimisticMessagesBySession] = useState<Map<string, ReactChatMessage[]>>(
     () => new Map(),
   );
-  const [timelineError, setTimelineError] = useState("");
-  const [browserSnapshot, setBrowserSnapshot] = useState<TinyOsNativeSnapshot<TinyOsNativeBrowserSession>>();
-  const [browserRuntimeError, setBrowserRuntimeError] = useState("");
   const [tinyOsCapabilities, setTinyOsCapabilities] = useState<TinyOsEffectiveCapabilities>(() => (
     unavailableTinyOsEffectiveCapabilities("", "loading", t("runtime.loadingCapabilities"))
   ));
@@ -327,7 +322,6 @@ export function ChatPage({
   );
   const [compactingSessionId, setCompactingSessionId] = useState("");
   const [tinyOsWidth, setTinyOsWidth] = useState(readStoredTinyOsWidth);
-  const [agentUiForms, setAgentUiForms] = useState<AgentUiForm[]>([]);
   const [queuedInputsBySession, setQueuedInputsBySession] = useState<Map<string, QueuedComposerInput[]>>(() => new Map());
   const [queueMessage, setQueueMessage] = useState("");
   const [tinyOsContextReferences, setTinyOsContextReferences] = useState<TinyOsContextReference[]>([]);
@@ -360,6 +354,27 @@ export function ChatPage({
   const stickToLatestRef = useRef(true);
   const workspaceActionMenuRef = useRef<HTMLDivElement | null>(null);
   const activeSessionId = sessionTabs.activeSessionId;
+  const sessionRuntime = useChatSessionRuntime({
+    chatStore,
+    onEffect: handleChatSessionRuntimeEffect,
+    sessionId: activeSessionId,
+  });
+  const {
+    agentUiForms,
+    browserError: browserRuntimeError,
+    browserSnapshot,
+    error: timelineError,
+    timeline,
+  } = sessionRuntime.state;
+  const {
+    acceptBrowserSnapshot,
+    clearBrowserError,
+    clearBrowserSnapshot,
+    clearError: clearTimelineError,
+    reload: reloadSessionRuntime,
+    reportBrowserError,
+    reportError: reportTimelineError,
+  } = sessionRuntime.actions;
   const composerDraft = sessionTabDraft(sessionTabs, activeSessionId);
   const optimisticMessages = optimisticMessagesBySession.get(activeSessionId) ?? EMPTY_OPTIMISTIC_MESSAGES;
 
@@ -564,11 +579,6 @@ export function ChatPage({
   }, [browserSnapshot?.data.browserSessionId, browserSnapshot?.data.control?.state]);
 
   useEffect(() => {
-    setBrowserSnapshot(undefined);
-    setBrowserRuntimeError("");
-  }, [activeSession?.id]);
-
-  useEffect(() => {
     if (liveCanvas.visibility !== "open"
       || browserSnapshot
       || !activeSession?.id
@@ -578,16 +588,15 @@ export function ChatPage({
     let cancelled = false;
     void chatStore.browserRuntime.createSession({ ownerSessionId: activeSession.id }).then((snapshot) => {
       if (!cancelled) {
-        setBrowserSnapshot(snapshot);
-        setBrowserRuntimeError("");
+        acceptBrowserSnapshot(snapshot);
       }
     }).catch((error) => {
-      if (!cancelled) setBrowserRuntimeError(error instanceof Error ? error.message : String(error));
+      if (!cancelled) reportBrowserError(error);
     });
     return () => {
       cancelled = true;
     };
-  }, [activeSession?.id, browserSnapshot, chatStore, liveCanvas.visibility]);
+  }, [acceptBrowserSnapshot, activeSession?.id, browserSnapshot, chatStore, liveCanvas.visibility, reportBrowserError]);
   const liveCanvasEntries = useMemo<LiveCanvasEntry[]>(() => (
     (timelineLoaded ? timeline?.turns ?? [] : []).flatMap((turn) => (
       (turn.executionItems ?? turn.steps).map((step) => ({ step, turnId: turn.id }))
@@ -650,7 +659,7 @@ export function ChatPage({
   ): Promise<void> {
     if (!activeSession || isTinyOsCommandInFlight(commandLifecycle)) return;
     if (tinyOsCapabilities.threadId !== activeSession.id || !requestChangeCapability.available) {
-      setTimelineError(requestChangeUnavailableReason);
+      reportTimelineError(requestChangeUnavailableReason);
       return;
     }
     const command = createTinyOsAgentRequestChangeCommand({
@@ -660,7 +669,7 @@ export function ChatPage({
       sessionId: activeSession.id,
       source: { control: `${fromHistory ? "history-" : ""}${tinyOsAgentRequestControl(reference, intent)}`, surface: "tinyos" },
     });
-    setTimelineError("");
+    clearTimelineError();
     dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
     if (fromHistory) dispatchLiveCanvas({ type: "return_live" });
     try {
@@ -682,7 +691,7 @@ export function ChatPage({
     if (isTinyOsCommandInFlight(commandLifecycle) && !(allowDuringTerminalExecution && terminalExecutionInFlight)) {
       throw new Error(t("runtime.tinyOsCommandAlreadyInFlight"));
     }
-    setTimelineError("");
+    clearTimelineError();
     dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
     try {
       await chatStore.dispatch(command);
@@ -847,29 +856,29 @@ export function ChatPage({
     if (commandLifecycle.stage === "idle") return;
     if (commandLifecycle.command.kind === "operation.retry"
       && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
-      setTimelineError(`Retry failed: ${commandLifecycle.error}`);
+      reportTimelineError(`Retry failed: ${commandLifecycle.error}`);
       return;
     }
     if (commandLifecycle.command.kind === "agent.request_change"
       && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
-      setTimelineError(`Agent request failed: ${commandLifecycle.error}`);
+      reportTimelineError(`Agent request failed: ${commandLifecycle.error}`);
       return;
     }
     if ((commandLifecycle.command.kind === "agent.pause" || commandLifecycle.command.kind === "agent.resume")
       && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
-      setTimelineError(`Agent ${commandLifecycle.command.kind === "agent.pause" ? "pause" : "resume"} failed: ${commandLifecycle.error}`);
+      reportTimelineError(`Agent ${commandLifecycle.command.kind === "agent.pause" ? "pause" : "resume"} failed: ${commandLifecycle.error}`);
       return;
     }
     if ((commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
       && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
-      setTimelineError(`Form ${commandLifecycle.command.kind === "form.cancel" ? "cancellation" : "submission"} failed: ${commandLifecycle.error}`);
+      reportTimelineError(`Form ${commandLifecycle.command.kind === "form.cancel" ? "cancellation" : "submission"} failed: ${commandLifecycle.error}`);
       return;
     }
     if (["file.save", "file.move", "file.delete", "terminal.execute", "terminal.cancel", "browser.interact"].includes(commandLifecycle.command.kind)
       && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
-      setTimelineError(`TinyOS host operation failed: ${commandLifecycle.error}`);
+      reportTimelineError(`TinyOS host operation failed: ${commandLifecycle.error}`);
     }
-  }, [commandLifecycle]);
+  }, [commandLifecycle, reportTimelineError]);
 
   useEffect(() => {
     return () => {
@@ -939,148 +948,6 @@ export function ChatPage({
     lastCreateSessionSignal.current = createSessionSignal;
     void handleCreateSession();
   }, [createSessionSignal]);
-
-  useEffect(() => {
-    if (!activeSessionId) {
-      setTimeline(null);
-      setTimelineError("");
-      return;
-    }
-    setTimeline(null);
-    setTimelineError("");
-    setAgentUiForms([]);
-    setBrowserSnapshot(undefined);
-    let cancelled = false;
-    const loadTimeline = () => chatStore.load(activeSessionId).then((nextTimeline) => {
-      if (!cancelled) {
-        setTimeline(nextTimeline);
-        setTimelineError("");
-      }
-    }).catch((error) => {
-      if (!cancelled) {
-        setTimelineError(error instanceof Error ? error.message : String(error));
-      }
-    });
-    const loadAgentUiForms = () => chatStore.listAgentUiForms(activeSessionId).then((nextForms) => {
-      if (!cancelled) {
-        setAgentUiForms(nextForms);
-      }
-    });
-    let pendingStreamingTimeline: ChatTimelineSnapshot | null = null;
-    let streamingFrame: number | null = null;
-    const applyTimeline = (nextTimeline: ChatTimelineSnapshot) => {
-      setTimeline(nextTimeline);
-      setTimelineError("");
-      updateSessionStatusFromTimeline(activeSessionId, nextTimeline);
-      setOptimisticMessagesBySession((current) => updateSessionMessages(
-        current,
-        activeSessionId,
-        (messages) => messages.filter((message) => !nextTimeline.turns.some((turn) => (
-          turn.userMessage.clientEventId === message.id
-        ))),
-      ));
-    };
-    const scheduleStreamingTimeline = (nextTimeline: ChatTimelineSnapshot) => {
-      pendingStreamingTimeline = nextTimeline;
-      if (streamingFrame !== null) {
-        return;
-      }
-      streamingFrame = window.requestAnimationFrame(() => {
-        streamingFrame = null;
-        const pending = pendingStreamingTimeline;
-        pendingStreamingTimeline = null;
-        if (pending && !cancelled) {
-          applyTimeline(pending);
-        }
-      });
-    };
-    void loadTimeline();
-    void loadAgentUiForms();
-    const unsubscribe = chatStore.subscribe(activeSessionId, (event) => {
-      const effects = projectChatEventEffects(event);
-      if (event.browserSnapshot) {
-        setBrowserSnapshot(event.browserSnapshot);
-        setBrowserRuntimeError("");
-        return;
-      }
-      if (event.command && event.type === "command.dispatched") {
-        pauseQueuedInputsForSession(event.command.target.sessionId);
-        dispatchCommandLifecycle({ command: event.command, nowMs: now(), type: "dispatch" });
-        return;
-      }
-      if (event.commandId && event.operationId && event.operationStatus && event.type === "host.operation") {
-        dispatchCommandLifecycle({
-          commandId: event.commandId,
-          error: event.error,
-          nowMs: now(),
-          operationId: event.operationId,
-          status: event.operationStatus,
-          type: "host_operation_updated",
-        });
-        return;
-      }
-      if (event.commandId && event.type === "command.accepted") {
-        dispatchCommandLifecycle({ commandId: event.commandId, nowMs: now(), type: "transport_accepted" });
-        return;
-      }
-      if (event.commandId && event.type === "command.canonical-updated") {
-        void loadTimeline();
-        return;
-      }
-      if (event.commandId && event.type === "error") {
-        dispatchCommandLifecycle({ commandId: event.commandId, error: event.error || t("runtime.commandRejected"), type: "rejected" });
-        return;
-      }
-      if (event.timeline) {
-        if (shouldFrameBatchTimeline(event.timeline)) {
-          scheduleStreamingTimeline(event.timeline);
-        } else {
-          if (streamingFrame !== null) {
-            window.cancelAnimationFrame(streamingFrame);
-            streamingFrame = null;
-            pendingStreamingTimeline = null;
-          }
-          applyTimeline(event.timeline);
-        }
-        return;
-      }
-      if (event.error) {
-        setTimelineError(event.error);
-        return;
-      }
-      if (event.message) {
-        const nextMessage = event.message;
-        setOptimisticMessagesBySession((current) => updateSessionMessages(
-          current,
-          activeSessionId,
-          (messages) => (
-            messages.some((message) => message.id === nextMessage.id)
-              ? messages.map((message) => (
-                message.id === nextMessage.id ? { ...message, ...nextMessage } : message
-              ))
-              : [...messages, nextMessage]
-          ),
-        ));
-        return;
-      }
-      if (effects.reloadSessions) {
-        void handleQueueStateAfterChatEvent(activeSessionId, event);
-      }
-      if (effects.reloadMessages) {
-        void loadTimeline();
-      }
-      if (effects.reloadAgentUiForms) {
-        void loadAgentUiForms();
-      }
-    });
-    return () => {
-      cancelled = true;
-      if (streamingFrame !== null) {
-        window.cancelAnimationFrame(streamingFrame);
-      }
-      unsubscribe();
-    };
-  }, [activeSessionId, chatStore, now]);
 
   useEffect(() => {
     const unsubscribes = sessionTabs.openSessionIds
@@ -1521,7 +1388,7 @@ export function ChatPage({
       await dispatchTurn(session.id, { text: t("browserHandoffContinue") }, "browser-handoff-complete");
       await handleSessionStoreRefresh(session);
     } catch (error) {
-      setTimelineError(t("runtime.browserHandoffFailed", { message: error instanceof Error ? error.message : String(error) }));
+      reportTimelineError(t("runtime.browserHandoffFailed", { message: error instanceof Error ? error.message : String(error) }));
     }
   }
 
@@ -1533,8 +1400,8 @@ export function ChatPage({
         await browserRuntime.closeSession(browserSession.browserSessionId);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        setBrowserRuntimeError(message);
-        setTimelineError(t("runtime.browserReleaseFailed", { message }));
+        reportBrowserError(message);
+        reportTimelineError(t("runtime.browserReleaseFailed", { message }));
         console.error("[tinyos] browser.session.close.failed", {
           browserSessionId: browserSession.browserSessionId,
           error: message,
@@ -1542,10 +1409,8 @@ export function ChatPage({
         });
         return;
       }
-      setBrowserSnapshot((current) => (
-        current?.data.browserSessionId === browserSession.browserSessionId ? undefined : current
-      ));
-      setBrowserRuntimeError("");
+      clearBrowserSnapshot(browserSession.browserSessionId);
+      clearBrowserError();
     }
     dispatchLiveCanvas({ type: "close" });
   }
@@ -1571,10 +1436,7 @@ export function ChatPage({
           sessionId: compactSession.id,
           source: { control: "slash-compact", surface: "chat" },
         }));
-        const compactedTimeline = await chatStore.load(compactSession.id);
-        setTimeline((current) => (
-          current?.sessionId === compactSession.id ? compactedTimeline : current
-        ));
+        await reloadSessionRuntime();
         await handleSessionStoreRefresh(compactSession);
       } catch (error) {
         console.error("[chat] context.compact.failed", {
@@ -1660,14 +1522,14 @@ export function ChatPage({
         if (tinyOsCapabilities.threadId !== activeSession.id
           || tinyOsCapabilities.evaluatedTurnId !== turn.id
           || !tinyOsCapabilities.capabilities.agent.retry.available) {
-          setTimelineError(tinyOsCapabilities.capabilities.agent.retry.reason || t("runtime.failedTurnRetryUnavailable"));
+          reportTimelineError(tinyOsCapabilities.capabilities.agent.retry.reason || t("runtime.failedTurnRetryUnavailable"));
           return;
         }
         const failedItem = retryItemId
           ? (turn.executionItems ?? turn.steps).find((step) => step.id === retryItemId && step.status === "failed")
           : [...(turn.executionItems ?? turn.steps)].reverse().find((step) => step.status === "failed");
         if (!failedItem) {
-          setTimelineError(t("runtime.failedItemUnavailable"));
+          reportTimelineError(t("runtime.failedItemUnavailable"));
           return;
         }
         const command = createTinyOsOperationRetryCommand({
@@ -1677,7 +1539,7 @@ export function ChatPage({
           threadId: turn.canonicalItems?.find((item) => item.threadId)?.threadId,
           turnId: turn.id,
         });
-        setTimelineError("");
+        clearTimelineError();
         dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
         try {
           await chatStore.dispatch(command);
@@ -1882,11 +1744,11 @@ export function ChatPage({
   async function handleStopGeneration(session: SessionSummary, surface: "chat" | "tinyos") {
     if (cancelInFlight) return;
     if (!canCancelTurn) {
-      setTimelineError(`Cannot cancel: ${cancelUnavailableReason}`);
+      reportTimelineError(`Cannot cancel: ${cancelUnavailableReason}`);
       return;
     }
     if (!activeTurn) {
-      setTimelineError(t("runtime.cancelActiveTurnUnavailable"));
+      reportTimelineError(t("runtime.cancelActiveTurnUnavailable"));
       return;
     }
     const command = createTinyOsAgentCancelCommand({
@@ -1922,6 +1784,67 @@ export function ChatPage({
     const sequence = queuedInputSequence.current;
     queuedInputSequence.current += 1;
     return new Date(now() + sequence).toISOString();
+  }
+
+  function handleChatSessionRuntimeEffect(effect: ChatSessionRuntimeEffect): void {
+    if (effect.type === "timeline_applied") {
+      updateSessionStatusFromTimeline(effect.sessionId, effect.timeline);
+      setOptimisticMessagesBySession((current) => updateSessionMessages(
+        current,
+        effect.sessionId,
+        (messages) => messages.filter((message) => !effect.timeline.turns.some((turn) => (
+          turn.userMessage.clientEventId === message.id
+        ))),
+      ));
+      return;
+    }
+    if (effect.type === "message_received") {
+      setOptimisticMessagesBySession((current) => updateSessionMessages(
+        current,
+        effect.sessionId,
+        (messages) => (
+          messages.some((message) => message.id === effect.message.id)
+            ? messages.map((message) => (
+              message.id === effect.message.id ? { ...message, ...effect.message } : message
+            ))
+            : [...messages, effect.message]
+        ),
+      ));
+      return;
+    }
+    if (effect.type === "session_refresh_requested") {
+      void handleQueueStateAfterChatEvent(effect.sessionId, effect.event);
+      return;
+    }
+
+    const event = effect.event;
+    if (event.command && event.type === "command.dispatched") {
+      pauseQueuedInputsForSession(event.command.target.sessionId);
+      dispatchCommandLifecycle({ command: event.command, nowMs: now(), type: "dispatch" });
+      return;
+    }
+    if (event.commandId && event.operationId && event.operationStatus && event.type === "host.operation") {
+      dispatchCommandLifecycle({
+        commandId: event.commandId,
+        error: event.error,
+        nowMs: now(),
+        operationId: event.operationId,
+        status: event.operationStatus,
+        type: "host_operation_updated",
+      });
+      return;
+    }
+    if (event.commandId && event.type === "command.accepted") {
+      dispatchCommandLifecycle({ commandId: event.commandId, nowMs: now(), type: "transport_accepted" });
+      return;
+    }
+    if (event.commandId && event.type === "error") {
+      dispatchCommandLifecycle({
+        commandId: event.commandId,
+        error: event.error || t("runtime.commandRejected"),
+        type: "rejected",
+      });
+    }
   }
 
   async function handleQueueStateAfterChatEvent(sessionId: string, event: ChatEvent) {
@@ -2095,12 +2018,12 @@ export function ChatPage({
       return;
     }
     if (!activeTurn) {
-      setTimelineError(t("runtime.submitFormTurnUnavailable"));
+      reportTimelineError(t("runtime.submitFormTurnUnavailable"));
       return;
     }
     const formTurnId = agentUiFormCorrelationString(form, "turn_id") || form.turn_id || activeTurn.id;
     if (formTurnId !== activeTurn.id) {
-      setTimelineError(t("runtime.submitFormStaleTurn", { turnId: formTurnId }));
+      reportTimelineError(t("runtime.submitFormStaleTurn", { turnId: formTurnId }));
       return;
     }
     const command = createTinyOsFormSubmitCommand({
@@ -2112,7 +2035,7 @@ export function ChatPage({
       turnId: activeTurn.id,
       values,
     });
-    setTimelineError("");
+    clearTimelineError();
     dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
     try {
       await chatStore.dispatch(command);
@@ -2130,12 +2053,12 @@ export function ChatPage({
       return;
     }
     if (!activeTurn) {
-      setTimelineError(t("runtime.cancelFormTurnUnavailable"));
+      reportTimelineError(t("runtime.cancelFormTurnUnavailable"));
       return;
     }
     const formTurnId = agentUiFormCorrelationString(form, "turn_id") || form.turn_id || activeTurn.id;
     if (formTurnId !== activeTurn.id) {
-      setTimelineError(t("runtime.cancelFormStaleTurn", { turnId: formTurnId }));
+      reportTimelineError(t("runtime.cancelFormStaleTurn", { turnId: formTurnId }));
       return;
     }
     const command = createTinyOsFormCancelCommand({
@@ -2146,7 +2069,7 @@ export function ChatPage({
         || activeTurn.canonicalItems?.find((item) => item.threadId)?.threadId,
       turnId: activeTurn.id,
     });
-    setTimelineError("");
+    clearTimelineError();
     dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
     try {
       await chatStore.dispatch(command);
@@ -2164,11 +2087,11 @@ export function ChatPage({
     const available = kind === "agent.pause" ? canPauseTurn : canResumeTurn;
     const unavailableReason = kind === "agent.pause" ? pauseUnavailableReason : resumeUnavailableReason;
     if (!available) {
-      setTimelineError(t(kind === "agent.pause" ? "runtime.cannotPause" : "runtime.cannotResume", { reason: unavailableReason }));
+      reportTimelineError(t(kind === "agent.pause" ? "runtime.cannotPause" : "runtime.cannotResume", { reason: unavailableReason }));
       return;
     }
     if (!activeTurn) {
-      setTimelineError(t(kind === "agent.pause" ? "runtime.pauseTurnUnavailable" : "runtime.resumeTurnUnavailable"));
+      reportTimelineError(t(kind === "agent.pause" ? "runtime.pauseTurnUnavailable" : "runtime.resumeTurnUnavailable"));
       return;
     }
     const command = createTinyOsAgentTurnControlCommand({
@@ -2178,7 +2101,7 @@ export function ChatPage({
       threadId: activeTurn.canonicalItems?.find((item) => item.threadId)?.threadId,
       turnId: activeTurn.id,
     });
-    setTimelineError("");
+    clearTimelineError();
     dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
     try {
       await chatStore.dispatch(command);
@@ -2699,7 +2622,7 @@ export function ChatPage({
                 ? sessionStore.setModel?.(activeSession.id, selectedModelId, selected.providerId)
                 : sessionStore.setModel?.(activeSession.id, selectedModelId);
               void setModel?.catch((error) => {
-                setTimelineError(t("errors.modelSaveFailed", { message: error instanceof Error ? error.message : String(error) }));
+                reportTimelineError(t("errors.modelSaveFailed", { message: error instanceof Error ? error.message : String(error) }));
               });
             }
           }}
