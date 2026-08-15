@@ -1,0 +1,161 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-15T04:59:54.038Z",
+  "source": {
+    "cycles": [
+      [
+        "src/app-core/chat/tinyOsKernelModel.ts",
+        "src/app-core/chat/tinyOsNativeSnapshot.ts"
+      ]
+    ]
+  },
+  "eslint": {
+    "findings": [
+      {
+        "fingerprint": "src/app-core/chat/chatTurnModel.ts|no-extra-boolean-cast|Redundant Boolean call.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/app-core/chat/desktopChatSessionController.ts|preserve-caught-error|There is no `cause` attached to the symptom error being thrown.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/app-core/chat/tinyOsReferenceTransfer.ts|no-redeclare|'tinyOsReferenceAcceptedBy' is already defined.",
+        "count": 2
+      },
+      {
+        "fingerprint": "src/app-core/native/rendererDiagnostics.test.ts|no-unreachable|Unreachable code.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/app-core/workspace/desktopFileExport.ts|no-control-regex|Unexpected control character(s) in regular expression: \\x00, \\x1f.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/ChatPage.tsx|preserve-caught-error|There is no `cause` attached to the symptom error being thrown.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/ChatPage.tsx|react-hooks/exhaustive-deps|React Hook useEffect has a missing dependency: 'activeSession'. Either include it or remove the dependency array.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/ChatPage.tsx|react-hooks/exhaustive-deps|React Hook useEffect has a missing dependency: 'browserSnapshot?.data'. Either include it or remove the dependency array.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/ChatPage.tsx|react-hooks/exhaustive-deps|React Hook useEffect has a missing dependency: 'handleCreateSession'. Either include it or remove the dependency array.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/ChatPage.tsx|react-hooks/exhaustive-deps|React Hook useEffect has a missing dependency: 'handleQueueStateAfterChatEvent'. Either include it or remove the dependency array.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/ChatPage.tsx|react-hooks/exhaustive-deps|React Hook useEffect has a missing dependency: 't'. Either include it or remove the dependency array.",
+        "count": 2
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/ChatPage.tsx|react-hooks/exhaustive-deps|React Hook useEffect has missing dependencies: 'handleQueueStateAfterChatEvent', 'pauseQueuedInputsForSession', and 't'. Either include them or remove the dependency array.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/ChatPage.tsx|react-hooks/exhaustive-deps|React Hook useMemo has a missing dependency: 't'. Either include it or remove the dependency array.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/DataViewCard.tsx|no-control-regex|Unexpected control character(s) in regular expression: \\x00, \\x1f.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/DataViewCard.tsx|react-hooks/exhaustive-deps|React Hook useEffect has a missing dependency: 'option'. Either include it or remove the dependency array.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/TinyOsFilesExplorer.tsx|react-hooks/exhaustive-deps|React Hook useEffect has a missing dependency: 'controller'. Either include it or remove the dependency array.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/TinyOsFilesExplorer.tsx|react-hooks/rules-of-hooks|React Hook \"useEffect\" is called conditionally. React Hooks must be called in the exact same order in every component render. Did you accidentally call a React Hook after an early return?",
+        "count": 2
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/TinyOsFilesExplorer.tsx|react-hooks/rules-of-hooks|React Hook \"useHighlightedLines\" is called conditionally. React Hooks must be called in the exact same order in every component render. Did you accidentally call a React Hook after an early return?",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/TinyOsFilesExplorer.tsx|react-hooks/rules-of-hooks|React Hook \"useMemo\" is called conditionally. React Hooks must be called in the exact same order in every component render.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/TinyOsFilesExplorer.tsx|react-hooks/rules-of-hooks|React Hook \"useMemo\" is called conditionally. React Hooks must be called in the exact same order in every component render. Did you accidentally call a React Hook after an early return?",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/TinyOsFilesExplorer.tsx|react-hooks/rules-of-hooks|React Hook \"useRef\" is called conditionally. React Hooks must be called in the exact same order in every component render. Did you accidentally call a React Hook after an early return?",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/TinyOsFilesExplorer.tsx|react-hooks/rules-of-hooks|React Hook \"useState\" is called conditionally. React Hooks must be called in the exact same order in every component render. Did you accidentally call a React Hook after an early return?",
+        "count": 10
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/TinyOsShell.tsx|no-redeclare|'TinyOsShellOverlay' is already defined.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/TinyOsShell.tsx|react-hooks/exhaustive-deps|React Hook useEffect has a missing dependency: 'appWindows'. Either include it or remove the dependency array.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/TinyOsShell.tsx|react-hooks/exhaustive-deps|React Hook useEffect has a missing dependency: 'snapshot.dialog'. Either include it or remove the dependency array.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/TinyOsShell.tsx|react-hooks/exhaustive-deps|React Hook useEffect has a missing dependency: 'uiState'. Either include it or remove the dependency array.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/TinyOsShell.tsx|react-hooks/exhaustive-deps|React Hook useEffect has missing dependencies: 'appWindows', 'uiState.bounds', and 'uiState.focusedAppId'. Either include them or remove the dependency array.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/TinyOsShell.tsx|react-hooks/exhaustive-deps|React Hook useLayoutEffect has a missing dependency: 'layout'. Either include it or remove the dependency array.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/TinyOsShell.tsx|react-hooks/exhaustive-deps|The 'agentGroups' logical expression could make the dependencies of useEffect Hook (at line 215) change on every render. To fix this, wrap the initialization of 'agentGroups' in its own useMemo() Hook.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/chat/ToolActivityItem.test.tsx|no-useless-escape|Unnecessary escape character: \\\".",
+        "count": 2
+      },
+      {
+        "fingerprint": "src/react-workbench/settings/ProviderModelsSettingsPage.tsx|react-hooks/exhaustive-deps|The 'modelOptions' logical expression could make the dependencies of useMemo Hook (at line 214) change on every render. To fix this, wrap the initialization of 'modelOptions' in its own useMemo() Hook.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/shell/DesktopShell.tsx|react-hooks/exhaustive-deps|React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency array. If 'load' changes too often, find the parent component that defines it and wrap that definition in useCallback.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/shell/DesktopShell.tsx|react-hooks/exhaustive-deps|React Hook useEffect has missing dependencies: 'initialValue' and 'load'. Either include them or remove the dependency array. If 'load' changes too often, find the parent component that defines it and wrap that definition in useCallback.",
+        "count": 1
+      },
+      {
+        "fingerprint": "src/react-workbench/shell/DesktopShell.tsx|react-hooks/exhaustive-deps|React Hook useEffect was passed a dependency list that is not an array literal. This means we can't statically verify whether you've passed the correct dependencies.",
+        "count": 2
+      },
+      {
+        "fingerprint": "src/react-workbench/shell/DesktopUpdateDialogs.tsx|react-hooks/exhaustive-deps|React Hook useEffect has a missing dependency: 'closeDialog'. Either include it or remove the dependency array.",
+        "count": 1
+      }
+    ]
+  },
+  "bundle": {
+    "initialGzipBytes": 766411,
+    "javascriptGzipBytes": 2524301,
+    "totalGzipBytes": 2568806
+  }
+}
