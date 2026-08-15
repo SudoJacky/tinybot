@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import type { TFunction } from "i18next";
 import { Copy, FileDiff } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { ChatStepStatus, ToolCallState } from "../../app-core/chat/chatTurnModel";
+import type { ChatStepStatus, ToolCallState } from "../../app-core/chat/chatTurnContracts";
 import { ToolActivityFrame } from "./ToolActivityItem";
 
 type PatchHunkSummary = {

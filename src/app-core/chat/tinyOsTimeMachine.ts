@@ -1,4 +1,4 @@
-import type { BackendAgentTurnItem } from "./chatTurnModel";
+import type { BackendAgentTurnItem } from "./chatTurnContracts";
 import {
   projectTinyOsKernel,
   type TinyOsKernelProjectionOptions,

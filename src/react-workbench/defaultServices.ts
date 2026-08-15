@@ -2,12 +2,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { createDesktopChatSessionController } from "../app-core/chat/desktopChatSessionController";
 import type { AgentInputReference } from "../app-core/chat/agentInputReference";
-import {
-  createAgentUiEventState,
-  normalizeAgentUiEvents,
-  reduceAgentUiEventState,
-  type AgentUiForm,
-} from "../app-core/agent-ui/agentUiEvents";
 import type { DesktopCommand, DesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
 import { createDesktopNativeConfigApi } from "../app-core/native/desktopNativeConfig";
 import { applyNativeConfigPatch } from "../app-core/native/desktopNativeConfigPatch";
@@ -20,38 +14,19 @@ import {
 import { createDesktopNativeHostCommandApi } from "../app-core/native/desktopNativeHostCommand";
 import { createDesktopNativeMemoryApi } from "../app-core/native/desktopNativeMemory";
 import { createDesktopNativeProjectGroupsApi } from "../app-core/native/desktopNativeProjectGroups";
-import { createDesktopNativeBrowserApi, normalizeNativeBrowserSnapshot } from "../app-core/native/desktopNativeBrowser";
-import { toDesktopNativeTauriEventName } from "../app-core/native/desktopNativeTauriEvents";
+import { createDesktopNativeBrowserApi } from "../app-core/native/desktopNativeBrowser";
 import { createDesktopNativeWebuiApi } from "../app-core/native/desktopNativeWebui";
 import { createDesktopNativeWorkspaceApi } from "../app-core/native/desktopNativeWorkspace";
-import { normalizeNativeBackendEventPayload } from "../app-core/native/nativeBackendContract";
-import {
-  buildDesktopProviderCatalogItems,
-  buildDesktopSettingsFormState,
-  buildDesktopSettingsPaneModel,
-} from "../app-core/settings/desktopSettingsProviders";
-import { saveDesktopSettingsConfig } from "../app-core/settings/desktopSettingsSave";
-import { buildAgentDefaultsSettings } from "../app-core/settings/agentDefaultsSettings";
-import {
-  buildProviderModelsSettings,
-  normalizeProviderModelFetchResult,
-} from "../app-core/settings/providerModelsSettings";
 import type {
   AppServices,
-  ChatModelOption,
   ChatEvent,
-  McpServerSummary,
-  PersonalizationInstructionsData,
   PluginMigrationSession,
   SessionSummary,
-  ToolCatalogSummary,
-  ToolSummary,
-  WorkspaceDirectoryPage,
-  WorkspaceFileChunk,
-  WorkspaceFileSummary,
-  WorkspaceQueryError,
-  WorkspaceQueryErrorCode,
 } from "./services";
+import { createDesktopNativeEventBridge } from "./adapters/desktopNativeEventBridge";
+import { createDesktopSettingsStore } from "./adapters/desktopSettingsStore";
+import { createDesktopToolsStore } from "./adapters/desktopToolsStore";
+import { createDesktopWorkspaceStore } from "./adapters/desktopWorkspaceStore";
 import type { ReactChatMessage } from "./chat/messageActions";
 import {
   createTinyOsAgentCancelCommand,
@@ -80,8 +55,6 @@ export function createDesktopAppServices(): AppServices {
   const nativeWorkspace = nativeMode ? createDesktopNativeWorkspaceApi({ invoke }) : undefined;
   let initialized: Promise<void> | null = null;
   const listeners = new Map<string, Set<Listener>>();
-  const notifiedTerminalTurns = new Set<string>();
-  const agentUiState = createAgentUiEventState();
 
   const controller = createDesktopChatSessionController({
     api: {
@@ -98,6 +71,12 @@ export function createDesktopAppServices(): AppServices {
       }),
       submitThreadTurn: (input) => requireNative(nativeThreads, "Thread").submitTurn(input),
     },
+  });
+  const nativeEvents = createDesktopNativeEventBridge({
+    controller,
+    listen: (eventName, handler) => listen(eventName, (event) => handler(event)),
+    notifyAll,
+    notifySession,
   });
 
   async function listConversationThreads() {
@@ -136,110 +115,10 @@ export function createDesktopAppServices(): AppServices {
       if (!nativeMode) {
         throw new Error("Tinybot chat requires the Tauri native runtime");
       }
-      await registerNativeRuntimeEvents();
+      await nativeEvents.register();
       await controller.loadSessions();
     })();
     return initialized;
-  }
-
-  async function registerNativeRuntimeEvents(): Promise<void> {
-    await Promise.all([
-      listen(toDesktopNativeTauriEventName("agent.timeline.patch"), async (event) => {
-        const payload = normalizeNativeBackendEventPayload(event.payload);
-        const sessionId = isRecord(payload) ? stringValue(payload.sessionId) : "";
-        if (!sessionId) {
-          notifyAll({ type: "timeline.error", error: "Canonical timeline patch is missing sessionId" });
-          return;
-        }
-        try {
-          if (!controller.state.threads.some((thread) => thread.threadId === sessionId)) {
-            await controller.loadSessions();
-            if (controller.state.threads.some((thread) => thread.threadId === sessionId)) {
-              notifyAll({ type: "chat.created" });
-            }
-          }
-          const timeline = await controller.applyTimelinePatch(sessionId, payload);
-          if (timeline) {
-            notifySession(sessionId, { type: "timeline.patch", timeline });
-            notifyTerminalTimelineState(sessionId, timeline);
-          }
-        } catch (error) {
-          notifySession(sessionId, {
-            type: "timeline.error",
-            error: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }),
-      listen(toDesktopNativeTauriEventName("agent.awaiting_form"), (event) => {
-        reduceNativeAgentFormEvent(normalizeNativeBackendEventPayload(event.payload));
-      }),
-      listen("tinyos:browser-snapshot", (event) => {
-        try {
-          const browserSnapshot = normalizeNativeBrowserSnapshot(event.payload);
-          notifySession(browserSnapshot.data.sessionId, { browserSnapshot, type: "browser.snapshot" });
-        } catch (error) {
-          notifyAll({
-            error: error instanceof Error ? error.message : String(error),
-            type: "browser.snapshot.error",
-          });
-        }
-      }),
-      listen("tinyos:host-operation", (event) => {
-        const update = normalizeTinyOsHostOperationUpdate(event.payload);
-        if (!update) return;
-        notifySession(update.sessionId, {
-          commandId: update.commandId,
-          error: update.error,
-          operationId: update.operationId,
-          operationStatus: update.status,
-          type: "host.operation",
-        });
-      }),
-    ]);
-  }
-
-  function notifyTerminalTimelineState(sessionId: string, timeline: Awaited<ReturnType<typeof controller.applyTimelinePatch>>): void {
-    const turn = timeline?.turns[timeline.turns.length - 1];
-    if (!turn || !["completed", "failed", "interrupted"].includes(turn.status)) return;
-    const key = `${sessionId}:${turn.id}:${turn.status}`;
-    if (notifiedTerminalTurns.has(key)) return;
-    notifiedTerminalTurns.add(key);
-    const eventType = turn.status === "completed"
-      ? "agent.turn.completed"
-      : turn.status === "failed" ? "agent.turn.failed" : "agent.turn.interrupted";
-    notifySession(sessionId, { type: "agent.event", eventType });
-  }
-
-  function reduceNativeAgentFormEvent(payload: unknown): void {
-    if (!isRecord(payload)) return;
-    const form = isRecord(payload.form) ? payload.form : payload;
-    const traceContext = isRecord(payload.traceContext) ? payload.traceContext : {};
-    const formId = stringValue(payload.formId ?? payload.form_id ?? form.formId ?? form.form_id);
-    const threadId = stringValue(traceContext.threadId ?? traceContext.thread_id);
-    const turnId = stringValue(traceContext.turnId ?? traceContext.turn_id);
-    if (!formId || !threadId) return;
-    const correlation = isRecord(form.correlation) ? form.correlation : {};
-    for (const agentUiEvent of normalizeAgentUiEvents({
-      event: "agent_ui_event",
-      agent_ui_event: {
-        event_type: "ui.form.requested",
-        turn_id: turnId,
-        payload: {
-          ...form,
-          form_id: formId,
-          correlation: {
-            ...correlation,
-            form_id: formId,
-            turn_id: turnId,
-            session_key: threadId,
-            thread_id: threadId,
-          },
-        },
-      },
-    })) {
-      reduceAgentUiEventState(agentUiState, agentUiEvent);
-    }
-    notifySession(threadId, { type: "agent-ui.form" });
   }
 
   function notifyAll(event: ChatEvent): void {
@@ -254,22 +133,6 @@ export function createDesktopAppServices(): AppServices {
     for (const callback of listeners.get(sessionId) ?? []) {
       callback(event);
     }
-  }
-
-  async function loadSettingsSnapshot(): Promise<unknown> {
-    return requireNative(nativeConfig, "Config").get();
-  }
-
-  async function loadProviderCatalog(): Promise<unknown[]> {
-    const payload = await requireNative(nativeWebui, "WebUI").route({ method: "GET", path: "/api/providers" }).catch(() => []);
-    if (Array.isArray(payload)) {
-      return payload;
-    }
-    if (isRecord(payload)) {
-      const providers = payloadItems(payload, ["providers", "items", "catalog"]);
-      return providers.length ? providers : [payload];
-    }
-    return [];
   }
 
   async function dispatchTinyOsCommand(command: TinyOsCommand): Promise<void> {
@@ -302,7 +165,7 @@ export function createDesktopAppServices(): AppServices {
       });
       if ("operationId" in hostCommand.target) {
         const directHostCommand = hostCommand as TinyOsDirectHostCommand;
-        const update = tinyOsHostOperationUpdateFromDispatch(directHostCommand, result);
+        const update = nativeEvents.hostOperationUpdateFromDispatch(directHostCommand, result);
         notifySession(command.target.sessionId, {
           commandId: command.commandId,
           error: update.error,
@@ -359,7 +222,7 @@ export function createDesktopAppServices(): AppServices {
       void result.completion
         .then((timeline) => {
           notifySession(sessionId, { type: "timeline.patch", timeline });
-          notifyTerminalTimelineState(sessionId, timeline);
+          nativeEvents.notifyTerminalTimelineState(sessionId, timeline);
         })
         .catch((error) => {
           notifySession(sessionId, {
@@ -411,7 +274,7 @@ export function createDesktopAppServices(): AppServices {
       });
       const timeline = await controller.loadTimeline(sessionId);
       notifySession(sessionId, { type: "timeline.patch", timeline });
-      notifyTerminalTimelineState(sessionId, timeline);
+      nativeEvents.notifyTerminalTimelineState(sessionId, timeline);
       return;
     }
     await dispatchTinyOsCommand(command);
@@ -582,7 +445,7 @@ export function createDesktopAppServices(): AppServices {
       },
       async listAgentUiForms(sessionId) {
         await initialize();
-        return Array.from(agentUiState.forms.values()).filter((form) => formMatchesSession(form, sessionId));
+        return nativeEvents.listAgentUiForms(sessionId);
       },
       async loadDelegateTrace(selection) {
         await initialize();
@@ -653,20 +516,7 @@ export function createDesktopAppServices(): AppServices {
         };
       },
     },
-    workspaceStore: {
-      async listFiles() {
-        await initialize();
-        return normalizeWorkspaceFiles(await requireNative(nativeWorkspace, "Workspace").files());
-      },
-      async listDirectory(request) {
-        await initialize();
-        return normalizeWorkspaceDirectoryPage(await requireNative(nativeWorkspace, "Workspace").directory(request));
-      },
-      async readFile(request) {
-        await initialize();
-        return normalizeWorkspaceFileChunk(await requireNative(nativeWorkspace, "Workspace").fileChunk(request));
-      },
-    },
+    workspaceStore: createDesktopWorkspaceStore({ initialize, nativeWorkspace }),
     memoryStore: {
       async load() {
         await initialize();
@@ -687,167 +537,16 @@ export function createDesktopAppServices(): AppServices {
         await requireNative(nativeProjectGroups, "Project group").delete(projectGroupId);
       },
     },
-    toolsStore: {
-      async loadCatalog() {
-        await initialize();
-        return normalizeToolCatalog(await requireNative(nativeWebui, "WebUI").route({ method: "GET", path: "/api/tools" }));
-      },
-      async listPlugins() {
-        await initialize();
-        return (await requireNative(nativePlugins, "Plugins").list()).plugins;
-      },
-      async installPlugin(path) {
-        await initialize();
-        return requireNative(nativePlugins, "Plugins").install(path);
-      },
-      async preparePluginMigration(path) {
-        await initialize();
-        return requireNative(nativePlugins, "Plugins").prepareMigration(path);
-      },
-      async installPluginMigration(jobId) {
-        await initialize();
-        return requireNative(nativePlugins, "Plugins").installMigration(jobId);
-      },
-      async setPluginEnabled(name, enabled) {
-        await initialize();
-        return requireNative(nativePlugins, "Plugins").setEnabled(name, enabled);
-      },
-      async uninstallPlugin(name) {
-        await initialize();
-        await requireNative(nativePlugins, "Plugins").uninstall(name);
-      },
-    },
-    settingsStore: {
-      async load() {
-        await initialize();
-        const snapshot = await loadSettingsSnapshot();
-        return normalizeSettingsSummary(snapshot);
-      },
-      async loadChatModels() {
-        await initialize();
-        const snapshot = await loadSettingsSnapshot();
-        if (!isRecord(snapshot)) {
-          return [];
-        }
-        const providerCatalog = buildDesktopProviderCatalogItems(await loadProviderCatalog());
-        const state = buildDesktopSettingsFormState(snapshot, providerCatalog);
-        const pane = buildDesktopSettingsPaneModel(state, { providerCatalog });
-        return normalizeChatModelOptions(pane);
-      },
-      async loadPersonalizationInstructions() {
-        await initialize();
-        const payload = await requireNative(nativeWorkspace, "Workspace")
-          .bootstrapFiles([PERSONALIZATION_INSTRUCTIONS_PATH]);
-        return normalizePersonalizationInstructions(payload);
-      },
-      async savePersonalizationInstructions(input) {
-        await initialize();
-        const body = {
-          content: input.contents,
-          ...(input.expectedUpdatedAt ? { expectedUpdatedAt: input.expectedUpdatedAt } : {}),
-        };
-        const payload = await requireNative(nativeWorkspace, "Workspace")
-          .putFile(PERSONALIZATION_INSTRUCTIONS_PATH, body);
-        return normalizePersonalizationWrite(payload, input.contents);
-      },
-      async loadDesktopConfigSettings() {
-        await initialize();
-        const currentConfig = await loadSettingsSnapshot();
-        const providerCatalog = buildDesktopProviderCatalogItems(await loadProviderCatalog());
-        const formState = buildDesktopSettingsFormState(currentConfig, providerCatalog);
-        return {
-          currentConfig,
-          formState,
-          pane: buildDesktopSettingsPaneModel(formState, { providerCatalog }),
-        };
-      },
-      async saveDesktopConfigSettings(currentConfig, patch) {
-        await initialize();
-        const result = await saveDesktopSettingsConfig(currentConfig, patch, {
-          applyNativeConfigPatch: nativeMode
-            ? (configToPatch, nativePatch) => applyNativeConfigPatch(configToPatch, nativePatch, { invoke })
-            : undefined,
-        });
-        const savedConfig = result.persistedRevision && isRecord(result.config)
-          ? { ...result.config, revision: result.persistedRevision }
-          : result.config;
-        const providerCatalog = buildDesktopProviderCatalogItems(await loadProviderCatalog());
-        const formState = buildDesktopSettingsFormState(savedConfig, providerCatalog);
-        const saveDetails = {
-          transport: result.transport,
-          persistedRevision: result.persistedRevision,
-          updatedFields: result.updatedFields,
-          applied: result.applied,
-          restartRequired: result.restartRequired,
-          reloadRequired: result.reloadRequired,
-          warnings: result.warnings,
-        };
-        return {
-          currentConfig: savedConfig,
-          formState,
-          pane: buildDesktopSettingsPaneModel(formState, {
-            providerCatalog,
-            saveStatus: "saved",
-            saveDetails,
-          }),
-          saveDetails,
-        };
-      },
-      async loadProviderSettings() {
-        await initialize();
-        return buildProviderModelsSettings(await loadSettingsSnapshot());
-      },
-      async loadAgentDefaultsSettings() {
-        await initialize();
-        return buildAgentDefaultsSettings(await loadSettingsSnapshot());
-      },
-      async saveAgentDefaultsSettings(currentConfig, patch) {
-        await initialize();
-        const result = await saveDesktopSettingsConfig(currentConfig, patch, {
-          applyNativeConfigPatch: nativeMode
-            ? (configToPatch, nativePatch) => applyNativeConfigPatch(configToPatch, nativePatch, { invoke })
-            : undefined,
-        });
-        const savedConfig = result.persistedRevision && isRecord(result.config)
-          ? { ...result.config, revision: result.persistedRevision }
-          : result.config;
-        return buildAgentDefaultsSettings(savedConfig);
-      },
-      async fetchProviderModels(input) {
-        await initialize();
-        if (input.modelDiscovery.status !== "openai-compatible") {
-          return {
-            ok: true,
-            models: [],
-            warning: "This provider uses a static model list.",
-            url: null,
-            error: null,
-          };
-        }
-        return normalizeProviderModelFetchResult(await requireNative(nativeWebui, "WebUI").route({
-          method: "POST",
-          path: "/api/provider-models",
-          body: {
-            provider: input.providerId,
-            profile: input.profileId,
-            apiBase: input.apiBase,
-            refreshLive: true,
-          },
-        }));
-      },
-      async saveProviderSettings(currentConfig, patch) {
-        await initialize();
-        const result = await saveDesktopSettingsConfig(currentConfig, patch, {
-          applyNativeConfigPatch: nativeMode
-            ? (configToPatch, nativePatch) => applyNativeConfigPatch(configToPatch, nativePatch, { invoke })
-            : undefined,
-        });
-        const savedConfig = result.persistedRevision && isRecord(result.config)
-          ? { ...result.config, revision: result.persistedRevision }
-          : result.config;
-        return buildProviderModelsSettings(savedConfig);
-      },
-    },
+    toolsStore: createDesktopToolsStore({ initialize, nativePlugins, nativeWebui }),
+    settingsStore: createDesktopSettingsStore({
+      initialize,
+      nativeConfig,
+      nativeWebui,
+      nativeWorkspace,
+      applyNativeConfigPatch: nativeMode
+        ? (configToPatch, nativePatch) => applyNativeConfigPatch(configToPatch, nativePatch, { invoke })
+        : undefined,
+    }),
   };
 }
 
@@ -916,217 +615,6 @@ function timestampFromPayload(payload: unknown): number | null {
   return typeof value === "string" ? timestampMs(value) : null;
 }
 
-const PERSONALIZATION_INSTRUCTIONS_PATH = "USER.md" as const;
-
-function normalizePersonalizationInstructions(payload: unknown): PersonalizationInstructionsData {
-  if (!isRecord(payload)) {
-    throw new Error("Personalization instructions response must be an object.");
-  }
-  const files = Array.isArray(payload.files) ? payload.files : [];
-  const file = files.find((candidate) => (
-    isRecord(candidate) && stringValue(candidate.path) === PERSONALIZATION_INSTRUCTIONS_PATH
-  ));
-  if (isRecord(file)) {
-    if (typeof file.contents !== "string") {
-      throw new Error("Personalization instructions response must include text contents.");
-    }
-    return {
-      path: PERSONALIZATION_INSTRUCTIONS_PATH,
-      contents: file.contents,
-      ...(stringValue(file.updated_at ?? file.updatedAt)
-        ? { updatedAt: stringValue(file.updated_at ?? file.updatedAt) }
-        : {}),
-    };
-  }
-  const missing = Array.isArray(payload.missing)
-    ? payload.missing.filter((candidate): candidate is string => typeof candidate === "string")
-    : [];
-  if (missing.includes(PERSONALIZATION_INSTRUCTIONS_PATH)) {
-    return { path: PERSONALIZATION_INSTRUCTIONS_PATH, contents: "" };
-  }
-  throw new Error("Personalization instructions response omitted USER.md.");
-}
-
-function normalizePersonalizationWrite(payload: unknown, contents: string): PersonalizationInstructionsData {
-  if (!isRecord(payload) || stringValue(payload.path) !== PERSONALIZATION_INSTRUCTIONS_PATH) {
-    throw new Error("Personalization save response must identify USER.md.");
-  }
-  const updatedAt = stringValue(payload.updated_at ?? payload.updatedAt);
-  return {
-    path: PERSONALIZATION_INSTRUCTIONS_PATH,
-    contents,
-    ...(updatedAt ? { updatedAt } : {}),
-  };
-}
-
-function normalizeWorkspaceFiles(payload: unknown): WorkspaceFileSummary[] {
-  return payloadItems(payload, ["files", "items"]).map((item) => {
-    const path = stringValue(item.path ?? item.name ?? item.file ?? item.relative_path);
-    return {
-      path: path || "Untitled file",
-      size: numberValue(item.size ?? item.bytes),
-      updatedAtMs: timestampMs(stringValue(item.updated_at ?? item.updatedAt ?? item.modified_at)) ?? undefined,
-    };
-  });
-}
-
-function normalizeWorkspaceDirectoryPage(payload: unknown): WorkspaceDirectoryPage {
-  const value = workspaceQueryResult(payload);
-  if (!isRecord(value)) throw workspaceQueryError("io_error", "Workspace directory response must be an object.");
-  const entries = Array.isArray(value.entries) ? value.entries : [];
-  return {
-    entries: entries.flatMap((entry): WorkspaceDirectoryPage["entries"] => {
-      if (!isRecord(entry)) return [];
-      const path = stringValue(entry.path);
-      const rawKind = stringValue(entry.kind);
-      if (!path || (rawKind !== "dir" && rawKind !== "directory" && rawKind !== "file")) return [];
-      const normalizedPath = path.replace(/\\/g, "/");
-      const trimmedPath = normalizedPath.replace(/\/$/, "");
-      return [{
-        kind: rawKind === "file" ? "file" : "directory",
-        name: trimmedPath.split("/").filter(Boolean).pop() || trimmedPath,
-        path: trimmedPath,
-        sizeBytes: numberValue(entry.size_bytes ?? entry.sizeBytes) ?? undefined,
-        updatedAt: stringValue(entry.updated_at ?? entry.updatedAt) || undefined,
-      }];
-    }),
-    listingRevision: stringValue(value.listing_revision ?? value.listingRevision),
-    nextCursor: stringValue(value.next_cursor ?? value.nextCursor) || undefined,
-    path: stringValue(value.path) || ".",
-    workspaceKey: stringValue(value.workspace_key ?? value.workspaceKey) || undefined,
-  };
-}
-
-function normalizeWorkspaceFileChunk(payload: unknown): WorkspaceFileChunk {
-  const value = workspaceQueryResult(payload);
-  if (!isRecord(value)) throw workspaceQueryError("io_error", "Workspace file response must be an object.");
-  const rawContentType = stringValue(value.content_type ?? value.contentType);
-  const contentType = rawContentType === "text" || rawContentType === "binary" || rawContentType === "unsupported"
-    ? rawContentType
-    : "unsupported";
-  return {
-    content: typeof value.content === "string" ? value.content : undefined,
-    contentType,
-    lineEnd: numberValue(value.line_end ?? value.lineEnd) ?? undefined,
-    lineStart: numberValue(value.line_start ?? value.lineStart) ?? undefined,
-    nextCursor: stringValue(value.next_cursor ?? value.nextCursor) || undefined,
-    path: stringValue(value.path),
-    revision: stringValue(value.revision),
-    sizeBytes: numberValue(value.size_bytes ?? value.sizeBytes) ?? 0,
-    updatedAt: stringValue(value.updated_at ?? value.updatedAt) || undefined,
-  };
-}
-
-function workspaceQueryResult(payload: unknown): unknown {
-  if (!isRecord(payload)) throw workspaceQueryError("io_error", "Workspace query response must be an object.");
-  if (isRecord(payload.error)) {
-    const details = isRecord(payload.error.details) ? payload.error.details : {};
-    const protocolCode = stringValue(payload.error.code);
-    const queryCode = stringValue(details.query_code ?? details.queryCode);
-    const code = isWorkspaceQueryErrorCode(queryCode)
-      ? queryCode
-      : protocolCode === "capability_denied" ? "capability_denied" : "io_error";
-    throw workspaceQueryError(
-      code,
-      stringValue(payload.error.message) || "Workspace query failed.",
-      stringValue(details.path) || undefined,
-      Boolean(payload.error.retryable),
-    );
-  }
-  if (!("result" in payload)) return payload;
-  if (payload.result === undefined || payload.result === null) {
-    throw workspaceQueryError("io_error", "Workspace query returned no result.");
-  }
-  return payload.result;
-}
-
-function workspaceQueryError(
-  code: WorkspaceQueryErrorCode,
-  message: string,
-  path?: string,
-  retryable = false,
-): WorkspaceQueryError {
-  return Object.assign(new Error(message), { code, path, retryable });
-}
-
-function isWorkspaceQueryErrorCode(value: string): value is WorkspaceQueryErrorCode {
-  return [
-    "not_configured",
-    "capability_denied",
-    "root_unavailable",
-    "invalid_path",
-    "not_found",
-    "not_directory",
-    "listing_changed",
-    "source_changed",
-    "io_error",
-  ].includes(value);
-}
-
-function normalizeToolCatalog(payload: unknown): ToolCatalogSummary {
-  return {
-    tools: payloadItems(payload, ["tools", "items"]).map(normalizeToolSummary),
-    mcpServers: payloadItems(payload, ["mcpServers", "servers"]).map(normalizeMcpServerSummary),
-  };
-}
-
-function normalizeToolSummary(item: Record<string, unknown>): ToolSummary {
-  const name = stringValue(item.name ?? item.id);
-  return {
-    id: stringValue(item.id) || name,
-    name,
-    displayName: stringValue(item.displayName ?? item.title) || name,
-    description: stringValue(item.description),
-    source: stringValue(item.source) || "builtin",
-    serverId: stringValue(item.serverId) || undefined,
-    enabled: item.enabled !== false,
-    available: item.available !== false,
-    reason: stringValue(item.reason) || undefined,
-  };
-}
-
-function normalizeMcpServerSummary(item: Record<string, unknown>): McpServerSummary {
-  const status = isRecord(item.status) ? item.status : {};
-  return {
-    id: stringValue(item.id),
-    enabled: item.enabled !== false,
-    transport: stringValue(item.transport) || "stdio",
-    state: stringValue(status.state) || (item.enabled === false ? "disabled" : "unknown"),
-    toolCount: numberValue(item.toolCount ?? status.toolCount) ?? 0,
-    error: stringValue(item.error ?? status.lastError) || undefined,
-  };
-}
-
-function normalizeSettingsSummary(snapshot: unknown) {
-  const rows: Array<{ label: string; value: string }> = [];
-  if (!isRecord(snapshot)) {
-    return rows;
-  }
-  const agents = isRecord(snapshot.agents) ? snapshot.agents : {};
-  const defaults = isRecord(snapshot.defaults)
-    ? snapshot.defaults
-    : isRecord(agents.defaults)
-      ? agents.defaults
-      : agents;
-  const model = stringValue(defaults.model ?? defaults.default_model ?? snapshot.model);
-  if (model) {
-    rows.unshift({ label: "Default model", value: model });
-  }
-  const providers = payloadItems(snapshot.providers ?? snapshot.llm_providers ?? snapshot.provider_configs, ["items"]);
-  if (providers.length) {
-    rows.push({ label: "Providers", value: String(providers.length) });
-  }
-  return rows;
-}
-
-function formMatchesSession(form: AgentUiForm, sessionId: string): boolean {
-  const chatId = stringValue(form.chat_id || form.correlation.chat_id);
-  const sessionKey = stringValue(form.correlation.session_key ?? form.correlation.sessionKey);
-  return sessionKey === sessionId
-    || chatId === sessionId
-    || (Boolean(chatId) && sessionId.endsWith(`:${chatId}`));
-}
-
 function nativeThreadMetadataPatch(body: unknown): Record<string, unknown> {
   if (!isRecord(body)) return {};
   const metadata = isRecord(body.metadata) ? body.metadata : {};
@@ -1171,60 +659,6 @@ function requireNative<T>(value: T | undefined, capability: string): T {
   return value;
 }
 
-function normalizeChatModelOptions(
-  pane: ReturnType<typeof buildDesktopSettingsPaneModel>,
-): ChatModelOption[] {
-  const defaultModel = stringValue(pane.defaultRouting?.model);
-  const defaultProviderId = stringValue(pane.defaultRouting?.providerId);
-  const defaultProvider = pane.providerCatalog.find((provider) => provider.id === defaultProviderId);
-  const providers = pane.providerCatalog.filter((provider) => provider.enabled !== false);
-  const options = new Map<string, ChatModelOption>();
-  for (const provider of providers) {
-    if (provider.enabled === false) {
-      continue;
-    }
-    for (const model of provider.models ?? []) {
-      const optionKey = chatModelOptionKey(provider.id, model);
-      if (!model || options.has(optionKey)) {
-        continue;
-      }
-      const isDefault = provider.id === defaultProviderId && model === defaultModel;
-      options.set(optionKey, {
-        id: model,
-        label: model,
-        description: provider.label || provider.id || "Configured provider",
-        providerId: provider.id,
-        providerLabel: provider.label,
-        ...(isDefault ? { default: true } : {}),
-      });
-    }
-  }
-  const defaultOptionKey = chatModelOptionKey(defaultProvider?.id || defaultProviderId, defaultModel);
-  if (defaultModel && !options.has(defaultOptionKey)) {
-    options.set(defaultOptionKey, {
-      id: defaultModel,
-      label: defaultModel,
-      description: defaultProvider?.label || pane.defaultRouting?.providerLabel || "Default model",
-      providerId: defaultProvider?.id || defaultProviderId,
-      providerLabel: defaultProvider?.label || pane.defaultRouting?.providerLabel,
-      default: true,
-    });
-  }
-  return [...options.values()].sort((left, right) => {
-    if (left.default) {
-      return -1;
-    }
-    if (right.default) {
-      return 1;
-    }
-    return left.label.localeCompare(right.label);
-  });
-}
-
-function chatModelOptionKey(providerId: string, modelId: string): string {
-  return `${providerId}\u001f${modelId}`;
-}
-
 function withModelProvider(extra: Record<string, unknown>, provider?: string): Record<string, unknown> {
   const next = { ...extra };
   delete next.modelProvider;
@@ -1232,73 +666,6 @@ function withModelProvider(extra: Record<string, unknown>, provider?: string): R
     next.modelProvider = provider.trim();
   }
   return next;
-}
-
-function payloadItems(payload: unknown, keys: string[]): Record<string, unknown>[] {
-  if (Array.isArray(payload)) {
-    return payload.filter(isRecord);
-  }
-  if (!isRecord(payload)) {
-    return [];
-  }
-  for (const key of keys) {
-    const value = payload[key];
-    if (Array.isArray(value)) {
-      return value.filter(isRecord);
-    }
-  }
-  return [];
-}
-
-type TinyOsHostOperationUpdate = {
-  commandId: string;
-  error?: string;
-  operationId: string;
-  sessionId: string;
-  status: "running" | "completed" | "failed" | "cancelled";
-};
-
-function normalizeTinyOsHostOperationUpdate(value: unknown): TinyOsHostOperationUpdate | undefined {
-  if (!isRecord(value)) return undefined;
-  const commandId = stringValue(value.commandId);
-  const operationId = stringValue(value.operationId);
-  const sessionId = stringValue(value.sessionId);
-  const status = normalizeTinyOsHostOperationStatus(value.status);
-  if (!commandId || !operationId || !sessionId || !status) return undefined;
-  const error = stringValue(value.error);
-  return {
-    commandId,
-    operationId,
-    sessionId,
-    status,
-    ...(error ? { error } : {}),
-  };
-}
-
-function tinyOsHostOperationUpdateFromDispatch(
-  command: TinyOsDirectHostCommand,
-  value: unknown,
-): Pick<TinyOsHostOperationUpdate, "error" | "status"> {
-  const root = isRecord(value) ? value : {};
-  const operation = isRecord(root.operation) ? root.operation : {};
-  if (command.kind === "terminal.cancel") return { status: "cancelled" };
-  const status = normalizeTinyOsHostOperationStatus(operation.status);
-  if (status) {
-    const error = stringValue(operation.error ?? operation.reason);
-    return { status, ...(error ? { error } : {}) };
-  }
-  return { status: "completed" };
-}
-
-function normalizeTinyOsHostOperationStatus(
-  value: unknown,
-): TinyOsHostOperationUpdate["status"] | undefined {
-  const status = stringValue(value);
-  if (status === "running" || status === "completed" || status === "failed" || status === "cancelled") {
-    return status;
-  }
-  if (status === "user_required") return "completed";
-  return undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

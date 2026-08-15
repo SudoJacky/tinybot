@@ -1,11 +1,23 @@
 # TinyOS Runtime Contract
-<!-- tinybot-module-fingerprint: sha256:5fa4a62734ddedc317681e87417b2f98d8b757613b4521edab6e829c416e18d8 -->
+<!-- tinybot-module-fingerprint: sha256:d6da30942edb8fb3aab6cbc73b7138cd750b23bb312d7fc5e4afce3f2d72d736 -->
 
 TinyOS presents workspace files, retained terminal executions, the managed
 browser session, generated artifacts, and Agent activity as one desktop shared
 by the user and Agent. Both participants operate on the same underlying
 workspace objects. TinyOS is a product projection of canonical Thread and
 native runtime state, not a second persistence authority.
+
+## Contract layering
+
+`tinyOsKernelContracts.ts` owns the shared provenance, process-state, and
+resource-access vocabulary. Native snapshot types and the kernel projection
+depend on those contracts independently, so native observations never need to
+import the higher-level kernel model. `tinyOsKernelModel.ts` remains the owner
+of projected process, resource, history, and simulation behavior.
+
+Canonical timeline items and UI turn shapes live in the sibling
+`chatTurnContracts.ts`. TinyOS models import those types directly, so their
+contract dependency does not load chat payload validation or projection code.
 
 ## Chat references
 
@@ -18,6 +30,10 @@ an untrusted-evidence block; stored and visible message text is unchanged.
 One message may carry at most 16 TinyOS references and 64 KiB of serialized
 reference data. Exceeding either limit fails the request instead of silently
 dropping context.
+
+Cross-app drag envelopes are target-checked before use: Chat accepts context
+references and Inspector accepts canonical evidence. Unsupported target/type
+combinations are rejected explicitly.
 
 ## Agent controls
 
@@ -79,6 +95,14 @@ execution contract, TTY state, exit code, timestamps, duration, byte counts,
 truncation, and dropped-byte information. Cancellation targets the correlated
 process. After restart, an active persisted host operation without a matching
 live process becomes an explicit interrupted-recovery failure.
+
+## Desktop UI state
+
+The window manager owns focus, z-order, minimization, active tabs, bounds, and
+layout transitions. Only `layoutMode` and `windowLayout` are persisted; focus,
+tabs, and pointer previews remain session UI state and must not trigger layout
+writes. Restoring malformed layout data reports the error and falls back to the
+deterministic layout.
 
 ## Managed browser
 

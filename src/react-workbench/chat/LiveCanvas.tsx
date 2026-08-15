@@ -2,26 +2,32 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerE
 import { Maximize2, Minimize2, MonitorDot, Play, Power, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
-import { projectKernelBackedTinyOsDesktop, projectTinyOsDesktop, type TinyOsTimelineEntry } from "../../app-core/chat/tinyOsDesktopModel";
+import { projectKernelBackedTinyOsDesktop, projectTinyOsDesktop } from "../../app-core/chat/tinyOsDesktopModel";
 import { tinyOsLayoutModeForWidth, type TinyOsAgentRequestIntent, type TinyOsAgentRequestReference, type TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
-import type { ArtifactRef, BackendAgentTurnItem, ChatStep } from "../../app-core/chat/chatTurnModel";
+import type { ArtifactRef, BackendAgentTurnItem } from "../../app-core/chat/chatTurnContracts";
 import type { TinyOsBrowserAction } from "../../app-core/chat/tinyOsCommand";
 import type { TinyOsNativeSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
-import { TinyOsShell, type TinyOsBrowserHandoff } from "./TinyOsShell";
+import type { TinyOsBrowserHandoff } from "./TinyOsBrowserApp";
 import type { TinyOsFilesController } from "./useTinyOsFilesController";
 import { isTinyOsCommandInFlight, type TinyOsCommandLifecycle } from "../../app-core/chat/tinyOsCommand";
 import { createTinyOsShellCommandRegistry, defineTinyOsShellCommand, type TinyOsShellCommandAvailability } from "../../app-core/chat/tinyOsShellCommandRegistry";
 import { createTinyOsTimeMachineIndex, type TinyOsTimeMachineBoundary } from "../../app-core/chat/tinyOsTimeMachine";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
+import { DeferredSurface } from "../shell/DeferredSurface";
+import {
+  clampTinyOsWidth,
+  MIN_TINYOS_WIDTH,
+  tinyOsMaxWidth,
+  type LiveCanvasEntry,
+  type LiveCanvasMode,
+} from "./liveCanvasModel";
 
-export type LiveCanvasMode = "live_follow" | "history";
-export type LiveCanvasEntry = TinyOsTimelineEntry;
+export { clampTinyOsWidth, tinyOsMaxWidth } from "./liveCanvasModel";
+export type { LiveCanvasEntry, LiveCanvasMode } from "./liveCanvasModel";
 
-const MIN_TINYOS_WIDTH = 380;
-const TINYOS_DESKTOP_RESERVED_WIDTH = 520;
-const TINYOS_OVERLAY_RESERVED_WIDTH = 64;
 const TINYOS_BOOT_DURATION_MS = 450;
 const TINYOS_BOOT_SEEN_STORAGE_KEY = "tinybot.ui.tinyos.boot-seen";
+const loadTinyOsShell = () => import("./TinyOsShell").then(({ TinyOsShell }) => ({ default: TinyOsShell }));
 
 export function LiveCanvas({
   activeTurnId,
@@ -372,49 +378,53 @@ export function LiveCanvas({
         </div>
       </header>
 
-      <TinyOsShell
+      <DeferredSurface
         key={sessionKey}
-        agentUiForms={agentUiForms}
-        canCancelTerminal={canCancelTerminal}
-        canDirectEdit={canDirectEdit}
-        canExecuteTerminal={canExecuteTerminal}
-        canInteractBrowser={canInteractBrowser}
-        canRequestChange={canRequestChange}
-        canRetryTurn={canRetryTurn}
-        canSaveFile={canSaveFile}
-        commandLifecycle={commandLifecycle}
-        directEditUnavailableReason={directEditUnavailableReason}
-        browserInteractUnavailableReason={browserInteractUnavailableReason}
-        browserRuntime={browserRuntime}
-        filesController={filesController}
-        history={mode === "history"}
-        onAttachContext={onAttachContext}
-        submittingFormId={submittingFormId}
-        snapshot={snapshot}
-        layoutMode={tinyOsLayoutModeForWidth(widthPx, expanded)}
-        sessionKey={sessionKey}
-        workspaceKey={filesController?.state.workspaceKey ?? workspaceKey}
-        onCancelForm={onCancelForm}
-        onOpenArtifact={onOpenArtifact}
-        onAgentRequest={(reference, intent) => onAgentRequest(reference, intent, mode === "history")}
-        onCancelTerminal={onCancelTerminal}
-        onBrowserHandoffComplete={onBrowserHandoffComplete}
-        onBrowserInteract={onBrowserInteract}
-        onDeleteFile={onDeleteFile}
-        onExecuteTerminal={onExecuteTerminal}
-        onMoveFile={onMoveFile}
-        onRetryOperation={onRetryOperation}
-        onSelectEntry={onSelectEntry}
-        onSubmitForm={onSubmitForm}
-        onSaveFile={onSaveFile}
-        requestChangeUnavailableReason={requestChangeUnavailableReason}
-        runtimeCommandRegistry={canvasCommandRegistry}
-        retryTurnId={retryTurnId}
-        retryUnavailableReason={retryUnavailableReason}
-        runningTerminalOperationId={runningTerminalOperationId}
-        saveFileUnavailableReason={saveFileUnavailableReason}
-        terminalCancelUnavailableReason={terminalCancelUnavailableReason}
-        terminalExecuteUnavailableReason={terminalExecuteUnavailableReason}
+        load={loadTinyOsShell}
+        name="TinyOS"
+        surfaceProps={{
+          agentUiForms,
+          browserInteractUnavailableReason,
+          browserRuntime,
+          canCancelTerminal,
+          canDirectEdit,
+          canExecuteTerminal,
+          canInteractBrowser,
+          canRequestChange,
+          canRetryTurn,
+          canSaveFile,
+          commandLifecycle,
+          directEditUnavailableReason,
+          filesController,
+          history: mode === "history",
+          layoutMode: tinyOsLayoutModeForWidth(widthPx, expanded),
+          onAgentRequest: (reference, intent) => onAgentRequest(reference, intent, mode === "history"),
+          onAttachContext,
+          onBrowserHandoffComplete,
+          onBrowserInteract,
+          onCancelForm,
+          onCancelTerminal,
+          onDeleteFile,
+          onExecuteTerminal,
+          onMoveFile,
+          onOpenArtifact,
+          onRetryOperation,
+          onSaveFile,
+          onSelectEntry,
+          onSubmitForm,
+          requestChangeUnavailableReason,
+          retryTurnId,
+          retryUnavailableReason,
+          runningTerminalOperationId,
+          runtimeCommandRegistry: canvasCommandRegistry,
+          saveFileUnavailableReason,
+          sessionKey,
+          snapshot,
+          submittingFormId,
+          terminalCancelUnavailableReason,
+          terminalExecuteUnavailableReason,
+          workspaceKey: filesController?.state.workspaceKey ?? workspaceKey,
+        }}
       />
 
       {booting ? (
@@ -441,25 +451,6 @@ function resolveHistoryEventIndex(
     if (boundary.itemId === selection?.step.id && boundary.turnId === selection.turnId) return index;
   }
   return boundaries.length - 1;
-}
-
-export function clampTinyOsWidth(widthPx: number, viewportWidth = currentViewportWidth()): number {
-  return Math.min(tinyOsMaxWidth(viewportWidth), Math.max(MIN_TINYOS_WIDTH, Math.round(widthPx)));
-}
-
-function tinyOsMaxWidth(viewportWidth = currentViewportWidth()): number {
-  const reservedWidth = viewportWidth >= 1_280
-    ? TINYOS_DESKTOP_RESERVED_WIDTH
-    : TINYOS_OVERLAY_RESERVED_WIDTH;
-  return Math.max(MIN_TINYOS_WIDTH, Math.floor(viewportWidth - reservedWidth));
-}
-
-function currentViewportWidth(): number {
-  return typeof window === "undefined" ? 1_240 : window.innerWidth;
-}
-
-export function liveCanvasEntryForStep(turnId: string, step: ChatStep): LiveCanvasEntry {
-  return { step, turnId };
 }
 
 function prefersReducedMotion(): boolean {

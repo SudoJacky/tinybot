@@ -1,0 +1,2697 @@
+.react-settings-layout {
+  display: grid;
+  grid-template-columns: 204px minmax(0, 860px);
+  justify-content: start;
+  gap: 46px;
+  align-items: start;
+}
+
+.react-workbench-page--settings > .react-settings-layout {
+  padding: 28px 30px 48px;
+}
+
+.react-settings-sidebar {
+  position: sticky;
+  top: 0;
+  min-height: calc(100vh - 154px);
+  padding-right: 8px;
+}
+
+.react-settings-sidebar nav {
+  display: grid;
+  gap: 4px;
+}
+
+.react-settings-sidebar__intro {
+  display: grid;
+  gap: 4px;
+  padding: 2px 10px 16px;
+}
+
+.react-settings-sidebar__intro span {
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.react-settings-sidebar__intro small {
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.react-settings-sidebar button {
+  position: relative;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 15px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  border: 0;
+  border-radius: 4px;
+  padding: 0 10px;
+  color: var(--color-muted);
+  text-align: left;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-settings-sidebar button[aria-current="page"] {
+  background: color-mix(in srgb, var(--color-surface-soft) 82%, transparent);
+  color: var(--color-ink);
+  box-shadow: none;
+}
+
+.react-settings-sidebar button[aria-current="page"]::before {
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 0;
+  width: 2px;
+  background: var(--color-primary);
+  content: "";
+}
+
+.react-settings-sidebar button span {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-settings-sidebar button[aria-current="page"] > svg:first-child {
+  color: var(--color-primary-active);
+}
+
+.react-settings-sidebar__chevron {
+  color: var(--color-muted-soft);
+  opacity: 0;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-settings-sidebar button:hover .react-settings-sidebar__chevron,
+.react-settings-sidebar button:focus-visible .react-settings-sidebar__chevron,
+.react-settings-sidebar button[aria-current="page"] .react-settings-sidebar__chevron {
+  opacity: 1;
+}
+
+.react-settings-detail {
+  min-width: 0;
+  width: 100%;
+}
+
+.react-provider-settings,
+.react-app-settings,
+.react-appearance-settings,
+.react-shortcuts-settings,
+.react-agent-defaults-settings,
+.react-personalization-settings,
+.react-config-settings {
+  display: grid;
+  gap: 26px;
+}
+
+.react-personalization-settings .react-config-settings__field textarea {
+  min-height: 320px;
+  resize: vertical;
+}
+
+.react-personalization-settings__load-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.react-personalization-settings__load-error > button {
+  min-height: 34px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 0 12px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-app-settings__list {
+  border-top: 1px solid var(--color-hairline);
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.react-app-settings__list > .react-settings-choice {
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  align-items: center;
+  gap: 28px;
+  min-height: 68px;
+  padding: 12px 0;
+}
+
+.react-app-settings__list .react-settings-choice-trigger {
+  min-height: 44px;
+}
+
+.react-app-settings__list .react-settings-choice-popover {
+  right: 0;
+  left: auto;
+  width: min(320px, 100%);
+}
+
+.react-app-settings__persistence {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-appearance-settings {
+  display: grid;
+  gap: 26px;
+}
+
+.react-appearance-settings__modes {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.react-appearance-settings__modes > legend {
+  padding: 0;
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.react-appearance-settings__modes > p {
+  margin: 0 0 7px;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.react-theme-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.react-theme-mode-card {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+  background: var(--color-panel);
+  padding: 9px;
+  cursor: pointer;
+  transition:
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-theme-mode-card:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 46%, var(--color-hairline));
+}
+
+.react-theme-mode-card:has(input:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 62%, transparent);
+  outline-offset: 2px;
+}
+
+.react-theme-mode-card[data-selected="true"] {
+  border-color: var(--color-primary-active);
+  box-shadow: 0 0 0 1px var(--color-primary-active);
+}
+
+.react-theme-mode-card > input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.react-theme-mode-card > strong,
+.react-theme-mode-card > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-theme-mode-card > strong {
+  color: var(--color-ink);
+  font-size: 12px;
+}
+
+.react-theme-mode-card > small {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.react-theme-mode-card__preview {
+  position: relative;
+  display: grid;
+  grid-template-rows: 30px minmax(0, 1fr);
+  height: 112px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-ink) 14%, transparent);
+  border-radius: 8px;
+  background: #f5f5f4;
+  color: #686865;
+}
+
+.react-theme-mode-card__preview[data-preview="dark"] {
+  background: #2a2a28;
+  color: #e8e6e0;
+}
+
+.react-theme-mode-card__preview[data-preview="system"] {
+  background: linear-gradient(90deg, #f5f5f4 0 50%, #2a2a28 50% 100%);
+  color: #77736d;
+}
+
+.react-theme-mode-card__chrome {
+  display: flex;
+  align-items: center;
+  padding: 0 9px;
+  border-bottom: 1px solid rgb(128 128 124 / 24%);
+}
+
+.react-theme-mode-card__window {
+  display: grid;
+  align-content: center;
+  gap: 7px;
+  margin: 11px 12px 0;
+  border-radius: 8px 8px 0 0;
+  background: color-mix(in srgb, var(--color-panel) 88%, transparent);
+  padding: 13px;
+}
+
+.react-theme-mode-card__preview[data-preview="dark"] .react-theme-mode-card__window {
+  background: #3a3a38;
+}
+
+.react-theme-mode-card__preview[data-preview="system"] .react-theme-mode-card__window {
+  background: linear-gradient(90deg, rgb(255 255 255 / 90%) 0 50%, #3a3a38 50% 100%);
+}
+
+.react-theme-mode-card__window i {
+  display: block;
+  width: 74%;
+  height: 5px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: .2;
+}
+
+.react-theme-mode-card__window i:first-child {
+  width: 42%;
+}
+
+.react-appearance-settings__themes {
+  display: grid;
+  gap: 16px;
+}
+
+.react-appearance-theme {
+  overflow: hidden;
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+  background: var(--color-panel);
+}
+
+.react-appearance-theme[data-active="true"] {
+  border-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-hairline));
+}
+
+.react-appearance-theme > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  gap: 16px;
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 0 14px;
+}
+
+.react-appearance-theme > header > div,
+.react-appearance-theme > header > button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.react-appearance-theme > header h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-appearance-theme > header span {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+  padding: 3px 7px;
+  color: var(--color-primary-active);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.react-appearance-theme > header button {
+  min-height: 32px;
+  padding: 0 8px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-appearance-theme__rows {
+  display: grid;
+  padding: 0 14px;
+}
+
+.react-appearance-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
+  align-items: center;
+  min-height: 54px;
+  gap: 24px;
+  border-bottom: 1px solid var(--color-hairline);
+  color: var(--color-body);
+  font-size: 12px;
+}
+
+.react-appearance-row:last-child {
+  border-bottom: 0;
+}
+
+.react-appearance-row > span:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.react-appearance-row strong {
+  color: var(--color-body);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-appearance-row small {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.react-appearance-row select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 0 9px;
+  color: var(--color-ink);
+}
+
+.react-appearance-row select:focus-visible,
+.react-appearance-row input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 52%, transparent);
+  outline-offset: 2px;
+}
+
+.react-appearance-color {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  min-height: 36px;
+  gap: 8px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 4px 8px 4px 4px;
+}
+
+.react-appearance-color input {
+  width: 34px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+}
+
+.react-appearance-color code {
+  color: var(--color-muted);
+  font-family: var(--font-code);
+  font-size: 11px;
+  text-align: right;
+}
+
+.react-appearance-row--toggle > input {
+  justify-self: end;
+  width: 38px;
+  height: 22px;
+  appearance: none;
+  border-radius: 999px;
+  background: var(--color-surface-card);
+  cursor: pointer;
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-appearance-row--toggle > input::after {
+  display: block;
+  width: 16px;
+  height: 16px;
+  margin: 3px;
+  border-radius: 50%;
+  background: var(--color-panel);
+  box-shadow: 0 1px 3px rgb(20 20 19 / 22%);
+  content: "";
+  transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-appearance-row--toggle > input:checked {
+  background: var(--color-primary);
+}
+
+.react-appearance-row--toggle > input:checked::after {
+  transform: translateX(16px);
+}
+
+.react-appearance-range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 10px;
+}
+
+.react-appearance-range input {
+  width: 100%;
+  accent-color: var(--color-primary);
+}
+
+.react-appearance-range output {
+  color: var(--color-muted);
+  font-size: 11px;
+  text-align: right;
+}
+
+.react-shortcuts-settings {
+  display: grid;
+  gap: 22px;
+}
+
+.react-shortcuts-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.react-shortcuts-search {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  min-height: 42px;
+  gap: 9px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: var(--color-panel);
+  padding: 0 12px;
+  color: var(--color-muted);
+}
+
+.react-shortcuts-search:focus-within {
+  border-color: color-mix(in srgb, var(--color-primary) 58%, var(--color-hairline));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.react-shortcuts-search input {
+  min-width: 0;
+  height: 40px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 12px;
+}
+
+.react-shortcuts-reset-all {
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--color-hairline);
+  background: var(--color-panel);
+  padding: 0 12px;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.react-shortcuts-list {
+  overflow: hidden;
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+  background: var(--color-panel);
+}
+
+.react-shortcut-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 220px) auto;
+  align-items: center;
+  min-height: 76px;
+  gap: 18px;
+  padding: 12px 14px 12px 16px;
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.react-shortcut-row:last-child {
+  border-bottom: 0;
+}
+
+.react-shortcut-row[data-recording="true"] {
+  background: color-mix(in srgb, var(--color-primary) 4%, var(--color-panel));
+}
+
+.react-shortcut-row__copy {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.react-shortcut-row__copy strong {
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 680;
+}
+
+.react-shortcut-row__copy small {
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.react-shortcut-row__error {
+  margin-top: 3px;
+  color: var(--color-error);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.react-shortcut-row__binding {
+  display: flex;
+  min-width: 0;
+  justify-content: flex-end;
+  color: var(--color-muted-soft);
+  font-size: 11px;
+}
+
+.react-shortcut-row__binding kbd {
+  display: inline-flex;
+  min-height: 26px;
+  align-items: center;
+  border: 1px solid var(--color-hairline);
+  border-radius: 7px;
+  background: var(--color-surface-soft);
+  padding: 0 9px;
+  color: var(--color-body);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--color-ink) 10%, transparent);
+  font: 600 10px/1 var(--font-code);
+  white-space: nowrap;
+}
+
+.react-shortcut-recorder {
+  display: inline-flex;
+  min-width: 190px;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-panel));
+  padding: 0 10px;
+  color: var(--color-primary-active);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.react-shortcut-recorder:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.react-shortcut-row__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.react-shortcut-row__actions button {
+  display: inline-grid;
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  place-items: center;
+  padding: 0;
+  color: var(--color-muted);
+}
+
+.react-shortcut-row__actions button:hover:not(:disabled),
+.react-shortcut-row__actions button:focus-visible {
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+}
+
+.react-shortcut-row__actions button:focus-visible,
+.react-shortcuts-reset-all:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.react-shortcuts-empty {
+  display: grid;
+  min-height: 180px;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  border: 1px dashed var(--color-hairline);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-panel) 72%, transparent);
+  padding: 24px;
+  color: var(--color-muted);
+  text-align: center;
+}
+
+.react-shortcuts-empty strong {
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-shortcuts-empty span {
+  font-size: 11px;
+}
+
+.react-config-settings__persistence {
+  flex: 0 0 auto;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.react-config-settings__form {
+  display: grid;
+  gap: 18px;
+}
+
+.react-config-settings__fields {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--color-hairline);
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.react-config-settings__field,
+.react-config-settings__toggle {
+  min-width: 0;
+  border: 0;
+  border-bottom: 1px solid var(--color-hairline);
+  border-radius: 0;
+  background: transparent;
+  padding: 14px 0;
+}
+
+.react-config-settings__field:last-child,
+.react-config-settings__toggle:last-child {
+  border-bottom: 0;
+}
+
+.react-config-settings__field {
+  display: grid;
+  grid-template-areas:
+    "label control"
+    "description control"
+    ". error";
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  align-items: center;
+  gap: 4px 28px;
+}
+
+.react-config-settings__field--wide {
+  grid-template-areas:
+    "label"
+    "description"
+    "control"
+    "error";
+  grid-template-columns: minmax(0, 1fr);
+  gap: 7px;
+}
+
+.react-config-settings__field > span,
+.react-config-settings__toggle > span {
+  min-width: 0;
+}
+
+.react-config-settings__field > span {
+  display: flex;
+  grid-area: label;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.react-config-settings__field strong,
+.react-config-settings__toggle strong {
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.react-config-settings__field em {
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  padding: 2px 6px;
+  color: var(--color-muted);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.react-config-settings__field > small,
+.react-config-settings__toggle small {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.react-config-settings__field input,
+.react-config-settings__field select,
+.react-config-settings__field textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  outline: 0;
+  background: var(--color-panel);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.react-config-settings__field input,
+.react-config-settings__field select {
+  min-height: 38px;
+  padding: 0 10px;
+}
+
+.react-config-settings__field textarea {
+  resize: vertical;
+  min-height: 156px;
+  padding: 10px 11px;
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.react-config-settings__field input:focus,
+.react-config-settings__field select:focus,
+.react-config-settings__field textarea:focus {
+  border-color: color-mix(in srgb, var(--color-primary) 52%, var(--color-hairline));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.react-config-settings__field input[aria-invalid="true"],
+.react-config-settings__field textarea[aria-invalid="true"] {
+  border-color: #d92d20;
+}
+
+.react-config-settings__field :disabled,
+.react-config-settings__toggle[data-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.react-config-settings__input-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.react-config-settings__input-wrap > span {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  color: var(--color-muted);
+  font-size: 11px;
+  transform: translateY(-50%);
+}
+
+.react-config-settings__toggle {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: 16px;
+  cursor: pointer;
+}
+
+.react-config-settings__toggle > span {
+  display: grid;
+  gap: 4px;
+}
+
+.react-config-settings__toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.react-config-settings__toggle i {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-muted) 28%, var(--color-panel));
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-config-settings__toggle i::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-panel);
+  box-shadow: 0 1px 3px rgb(20 20 19 / 22%);
+  content: "";
+  transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-config-settings__toggle input:checked + i {
+  background: var(--color-primary);
+}
+
+.react-config-settings__toggle input:checked + i::after {
+  transform: translateX(16px);
+}
+
+.react-config-settings__toggle:focus-within {
+  background: color-mix(in srgb, var(--color-surface-soft) 46%, transparent);
+  box-shadow: none;
+}
+
+.react-config-settings__notice {
+  color: #8a5b12 !important;
+}
+
+.react-config-settings__error {
+  grid-area: error;
+  color: #b42318 !important;
+}
+
+.react-config-settings__advanced-toggle {
+  justify-self: start;
+  border: 0;
+  background: transparent;
+  padding: 2px 0;
+  color: var(--color-primary-active);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-config-settings__form > footer,
+.react-config-settings__form > footer > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.react-config-settings__form > footer {
+  justify-content: space-between;
+  border-top: 1px solid var(--color-hairline);
+  padding-top: 16px;
+}
+
+.react-config-settings__form > footer > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.react-config-settings__form > footer span,
+.react-config-settings__form > footer small {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-config-settings__form > footer button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  gap: 6px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 0 12px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-config-settings__form > footer .react-config-settings__save {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.react-provider-settings__header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.react-provider-settings__header h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 27px;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+}
+
+.react-config-settings__field > small:not(.react-config-settings__error) {
+  grid-area: description;
+}
+
+.react-config-settings__field > input,
+.react-config-settings__field > select,
+.react-config-settings__field > textarea,
+.react-config-settings__field > .react-config-settings__input-wrap {
+  grid-area: control;
+}
+
+.react-provider-settings__header p {
+  max-width: 680px;
+  margin: 8px 0 0;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.react-settings-eyebrow {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--color-primary-active);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+}
+
+.react-provider-settings__summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-provider-settings__summary span {
+  border: 1px solid var(--color-hairline);
+  border-radius: 999px;
+  background: var(--color-panel);
+  padding: 4px 8px;
+}
+
+.react-provider-settings__summary strong {
+  color: var(--color-ink);
+  font-weight: 650;
+}
+
+.react-settings-save-status,
+.react-settings-alert {
+  margin: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.react-settings-save-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  opacity: 1;
+  transition:
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    opacity var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-settings-save-status[data-state="idle"] {
+  opacity: 0;
+}
+
+.react-settings-save-status[data-state="error"] {
+  color: var(--color-error);
+}
+
+.react-settings-save-status__icon {
+  position: relative;
+  display: inline-grid;
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+  place-items: center;
+}
+
+.react-settings-save-status__icon > svg {
+  position: absolute;
+  opacity: 0;
+  transform: scale(.97);
+  transition:
+    opacity var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-settings-save-status[data-state="saving"] [data-icon="saving"] {
+  opacity: 1;
+  transform: scale(1);
+  animation: react-settings-spin 900ms linear infinite;
+}
+
+.react-settings-save-status[data-state="saved"] [data-icon="saved"] {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.react-settings-save-status__message {
+  opacity: 1;
+  transform: scale(1);
+  transform-origin: left center;
+  transition:
+    opacity var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-settings-spinner {
+  animation: react-settings-spin 900ms linear infinite;
+}
+
+@starting-style {
+  .react-settings-save-status__message {
+    opacity: 0;
+    transform: scale(.97);
+  }
+}
+
+@keyframes react-settings-spin {
+  to { transform: rotate(360deg); }
+}
+
+.react-default-llm-panel {
+  display: grid;
+  gap: 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 4px 0 0;
+  box-shadow: none;
+}
+
+.react-default-llm-panel > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.react-default-llm-panel h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 17px;
+  letter-spacing: -0.01em;
+}
+
+.react-default-llm-panel > header p {
+  margin-top: 5px;
+  font-size: 13px;
+}
+
+.react-default-llm-summary {
+  display: grid;
+  grid-template-columns: 44px minmax(180px, 1fr) minmax(132px, 0.6fr) auto auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 78px;
+  border: 0;
+  border-top: 1px solid var(--color-hairline);
+  border-bottom: 1px solid var(--color-hairline);
+  border-radius: 0;
+  background: transparent;
+  padding: 14px 0;
+}
+
+.react-default-llm-summary__provider,
+.react-default-llm-summary__model {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.react-default-llm-summary__provider strong,
+.react-default-llm-summary__model strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-default-llm-summary__model {
+  padding-left: 2px;
+}
+
+.react-default-llm-summary__model span {
+  justify-self: start;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.react-default-llm-summary__provider small {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.react-default-llm-summary__count {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.react-default-llm-editor {
+  display: flex;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.react-default-model-picker {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.72fr) minmax(300px, 1.45fr);
+  flex: 1 1 auto;
+  min-height: 310px;
+}
+
+.react-default-model-picker__providers {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  border-right: 1px solid var(--color-hairline);
+  padding: 14px 12px;
+}
+
+.react-default-model-picker__providers button {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) 16px;
+  justify-content: initial;
+  min-width: 0;
+  min-height: 62px;
+  gap: 11px;
+  border-color: transparent;
+  background: transparent;
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.react-default-model-picker__providers button:hover,
+.react-default-model-picker__providers button:focus-visible {
+  background: var(--color-surface-soft);
+}
+
+.react-default-model-picker__providers button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--color-surface-soft) 82%, var(--color-panel));
+}
+
+.react-default-model-picker__providers button > span:not(.react-provider-brand-icon) {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.react-default-model-picker__providers strong,
+.react-default-model-picker__providers small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-default-model-picker__providers strong {
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-default-model-picker__providers small {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.react-default-model-picker__providers svg {
+  color: var(--color-muted);
+}
+
+.react-default-model-picker__models {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  min-width: 0;
+  padding: 18px 18px 14px;
+}
+
+.react-default-model-picker__models h4 {
+  margin: 0 0 14px;
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.react-default-model-picker__search {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  min-height: 40px;
+  gap: 9px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 0 11px;
+  color: var(--color-muted);
+}
+
+.react-default-model-picker__search:focus-within {
+  border-color: color-mix(in srgb, var(--color-primary) 52%, var(--color-hairline));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.react-default-model-picker__search input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.react-default-model-picker__search input::placeholder {
+  color: var(--color-muted-soft);
+}
+
+.react-default-model-picker__count {
+  padding: 11px 2px 8px;
+  font-size: 11px;
+}
+
+.react-default-model-picker__models-list {
+  min-height: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  scrollbar-color: color-mix(in srgb, var(--color-muted) 42%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.react-default-model-picker__models-list > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 18px;
+  justify-content: initial;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  gap: 14px;
+  border: 0;
+  border-bottom: 1px solid var(--color-hairline);
+  border-radius: 0;
+  background: transparent;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.react-default-model-picker__models-list > button:hover,
+.react-default-model-picker__models-list > button:focus-visible {
+  background: var(--color-surface-soft);
+}
+
+.react-default-model-picker__models-list > button[aria-checked="true"] {
+  border-bottom-color: transparent;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-surface-soft) 82%, var(--color-panel));
+}
+
+.react-default-model-picker__models-list strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-default-model-picker__models-list small {
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.react-default-model-picker__models-list svg {
+  color: var(--color-primary-active);
+}
+
+.react-default-model-picker__empty {
+  padding: 28px 10px;
+  text-align: center;
+}
+
+.react-default-llm-panel label {
+  display: grid;
+  gap: 7px;
+  color: var(--color-body);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.react-default-llm-panel select {
+  min-height: 34px;
+  min-width: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 0 10px;
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-settings-choice {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.react-settings-choice__label {
+  display: grid;
+  gap: 3px;
+  color: var(--color-body);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.react-settings-choice__label strong,
+.react-settings-choice__label small {
+  display: block;
+}
+
+.react-settings-choice__label small {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.react-settings-choice-trigger {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  align-items: center;
+  min-width: 0;
+  min-height: 40px;
+  gap: 12px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-settings-choice-trigger:hover,
+.react-settings-choice-trigger:focus-visible,
+.react-settings-choice-trigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-hairline));
+  background: var(--color-surface-soft);
+}
+
+.react-settings-choice-trigger:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 24%, transparent);
+}
+
+.react-settings-choice-trigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--color-primary) 56%, var(--color-hairline));
+  background: var(--color-surface-card);
+}
+
+.react-settings-choice-trigger > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  justify-items: start;
+}
+
+.react-settings-choice-trigger strong,
+.react-settings-choice-trigger small,
+.react-settings-choice-item strong,
+.react-settings-choice-item small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-settings-choice-trigger strong,
+.react-settings-choice-item strong {
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-settings-choice-trigger small,
+.react-settings-choice-item small {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.react-settings-choice-trigger svg {
+  justify-self: end;
+  color: var(--color-muted);
+  transition:
+    transform var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-settings-choice-trigger[aria-expanded="true"] svg {
+  color: var(--color-primary-active);
+  transform: rotate(180deg);
+}
+
+.react-settings-choice-popover {
+  top: calc(100% + 8px);
+  right: 0;
+  left: 0;
+  width: auto;
+  max-height: 260px;
+  overflow: auto;
+  z-index: 55;
+}
+
+.react-settings-choice-item {
+  grid-template-columns: minmax(0, 1fr) 18px;
+  min-height: 42px;
+  gap: 10px;
+  padding: 7px 10px;
+}
+
+.react-settings-choice-item .react-top-menu__menu-label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 14px;
+  white-space: normal;
+}
+
+.react-settings-choice-item strong {
+  justify-self: start;
+}
+
+.react-settings-choice-item small {
+  justify-self: end;
+}
+
+.react-settings-choice-item[aria-checked="true"] {
+  background: var(--color-surface-card);
+}
+
+.react-settings-choice-item svg {
+  color: var(--color-primary-active);
+}
+
+.react-settings-choice > small {
+  color: #b42318;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.react-default-llm-summary > button,
+.react-default-llm-editor footer button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 108px;
+  min-height: 38px;
+  gap: 6px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 6px;
+  background: var(--color-panel);
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-default-llm-summary > button {
+  border-color: var(--color-hairline);
+  background: transparent;
+  color: var(--color-primary-active);
+}
+
+.react-default-llm-summary > button:disabled,
+.react-default-llm-editor footer button:disabled {
+  opacity: 0.55;
+}
+
+.react-default-llm-panel p,
+.react-default-llm-panel small {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-default-llm-editor footer,
+.react-default-llm-editor footer > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.react-default-llm-editor footer {
+  justify-content: space-between;
+  border-top: 1px solid var(--color-hairline);
+  padding: 12px 16px;
+}
+
+.react-default-llm-editor footer > span {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-settings-linked-summary,
+.react-agent-defaults-form {
+  display: grid;
+  gap: 14px;
+}
+
+.react-settings-linked-summary {
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.2fr) auto;
+  align-items: center;
+  border-top: 1px solid var(--color-hairline);
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 16px 0;
+}
+
+.react-settings-linked-summary h3,
+.react-agent-defaults-form h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 15px;
+}
+
+.react-settings-linked-summary p {
+  margin: 4px 0 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-settings-linked-summary dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.react-settings-linked-summary dt,
+.react-settings-linked-summary dd {
+  margin: 0;
+}
+
+.react-settings-linked-summary dt {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-settings-linked-summary dd {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.react-settings-linked-summary button,
+.react-agent-defaults-form button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 6px;
+  background: var(--color-panel);
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-settings-linked-summary button {
+  padding: 0 12px;
+}
+
+.react-agent-defaults-form section {
+  display: grid;
+  gap: 12px;
+}
+
+.react-agent-defaults-grid {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--color-hairline);
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.react-agent-defaults-grid > label,
+.react-agent-defaults-grid > .react-settings-choice {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  align-items: center;
+  gap: 4px 28px;
+  min-height: 68px;
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 12px 0;
+  color: var(--color-body);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.react-agent-defaults-grid > :last-child {
+  border-bottom: 0;
+}
+
+.react-agent-defaults-grid > label > span,
+.react-agent-defaults-grid > .react-settings-choice > .react-settings-choice__label {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.react-agent-defaults-grid > label > input,
+.react-agent-defaults-grid > .react-settings-choice > .react-settings-choice-trigger {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.react-agent-defaults-grid > label > small,
+.react-agent-defaults-grid > .react-settings-choice > small {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.react-agent-defaults-grid .react-settings-choice-popover {
+  right: 0;
+  left: auto;
+  width: min(320px, 100%);
+}
+
+.react-agent-defaults-grid input,
+.react-agent-defaults-grid select {
+  min-height: 34px;
+  min-width: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 0 10px;
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-agent-defaults-grid > label > small {
+  color: #b42318;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.react-agent-defaults-form footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.react-agent-defaults-form footer small {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-agent-defaults-form button {
+  min-width: 120px;
+  padding: 0 12px;
+}
+
+.react-provider-grid {
+  display: grid;
+  gap: 0;
+  border-top: 1px solid var(--color-hairline);
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.react-provider-directory {
+  display: grid;
+  gap: 14px;
+}
+
+.react-provider-directory > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.react-provider-directory > header h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+
+.react-provider-directory > header p {
+  margin: 6px 0 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.react-provider-card {
+  display: grid;
+  grid-template-columns: minmax(250px, 1.35fr) minmax(150px, 0.8fr) minmax(130px, 0.6fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 88px;
+  border: 0;
+  border-bottom: 1px solid var(--color-hairline);
+  border-radius: 0;
+  background: transparent;
+  padding: 14px 0;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-provider-card:last-child {
+  border-bottom: 0;
+}
+
+.react-provider-card:hover,
+.react-provider-card:focus-within {
+  background: color-mix(in srgb, var(--color-surface-soft) 46%, transparent);
+  box-shadow: none;
+}
+
+.react-provider-card__identity,
+.react-provider-card__actions,
+.react-provider-model-add,
+.react-provider-model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.react-provider-card__identity {
+  min-width: 0;
+}
+
+.react-provider-card__identity > div {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.react-provider-card__identity > div > span:first-child {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 7px;
+}
+
+.react-provider-brand-icon {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 9px;
+  background: var(--color-panel);
+  color: var(--color-ink);
+}
+
+.react-provider-brand-icon img {
+  display: block;
+  width: 23px;
+  height: 23px;
+}
+
+.react-provider-brand-icon__fallback {
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+
+.react-provider-card__identity strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-default-llm-summary > .react-provider-brand-icon,
+.react-provider-card .react-provider-brand-icon {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.react-provider-card__identity small {
+  flex: 0 0 auto;
+  color: var(--color-primary-active);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.react-provider-status {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-provider-status > span {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--color-muted-soft);
+}
+
+.react-provider-status[data-status="available"] {
+  color: var(--color-success);
+}
+
+.react-provider-status[data-status="available"] > span {
+  background: var(--color-success);
+}
+
+.react-provider-status[data-status="not_ready"] {
+  color: var(--color-warning);
+}
+
+.react-provider-status[data-status="not_ready"] > span {
+  background: var(--color-warning);
+}
+
+.react-provider-card__state small,
+.react-provider-model-row > span {
+  justify-self: start;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.react-provider-card__state {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.react-provider-card__url,
+.react-provider-card__models,
+.react-provider-card__model strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-provider-card__url {
+  color: var(--color-muted);
+  font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.react-provider-card__model {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.react-provider-card__model > small {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.react-provider-card__model strong {
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-provider-card__models {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-provider-card__actions {
+  position: relative;
+  justify-content: flex-end;
+}
+
+.react-provider-card__actions button,
+.react-settings-dialog footer button,
+.react-provider-model-add button,
+.react-provider-model-row button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  gap: 6px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 6px;
+  background: var(--color-panel);
+  padding: 0 10px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-provider-card__actions button {
+  min-width: 82px;
+}
+
+.react-provider-card__actions .react-provider-card__more {
+  min-width: 32px;
+  width: 32px;
+  border-color: transparent;
+  padding: 0;
+}
+
+.react-provider-card__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  min-width: 140px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 5px;
+  box-shadow: 0 14px 36px rgb(20 20 19 / 12%);
+}
+
+.react-provider-card__menu button {
+  justify-content: flex-start;
+  min-width: 0;
+  border-color: transparent;
+}
+
+.react-provider-add {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  min-height: 38px;
+  gap: 7px;
+  margin: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  padding: 0 4px;
+  color: var(--color-primary-active);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.react-provider-add:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.react-settings-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: stretch end;
+  background: rgb(20 20 19 / 34%);
+  padding: 0;
+  opacity: 1;
+  transition: opacity 180ms var(--motion-ease-standard);
+}
+
+.react-settings-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(500px, 100%);
+  height: 100%;
+  max-height: 100vh;
+  gap: 16px;
+  overflow: auto;
+  border: 1px solid var(--color-hairline);
+  border-width: 0 0 0 1px;
+  border-radius: 18px 0 0 18px;
+  background: var(--color-panel);
+  padding: 24px;
+  box-shadow: -24px 0 80px rgb(20 20 19 / 15%);
+  transform: translateX(0);
+  transition: transform 280ms var(--motion-ease-drawer);
+  will-change: transform;
+}
+
+.react-settings-dialog-backdrop[data-state="closing"] {
+  opacity: 0;
+}
+
+.react-settings-dialog-backdrop[data-state="closing"] .react-settings-dialog {
+  transform: translateX(100%);
+}
+
+@starting-style {
+  .react-settings-dialog-backdrop {
+    opacity: 0;
+  }
+
+  .react-settings-dialog {
+    transform: translateX(100%);
+  }
+}
+
+.react-settings-dialog--wide {
+  width: min(680px, 100%);
+}
+
+.react-settings-dialog--compact {
+  width: min(460px, 100%);
+}
+
+.react-settings-dialog header,
+.react-settings-dialog footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.react-settings-dialog header h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 16px;
+}
+
+.react-settings-dialog header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.react-settings-dialog header p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.react-settings-sheet__content {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  gap: 16px;
+}
+
+.react-settings-dialog header button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  padding: 0;
+}
+
+.react-settings-dialog label {
+  display: grid;
+  gap: 7px;
+  color: var(--color-body);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.react-settings-dialog input {
+  min-height: 34px;
+  min-width: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 0 10px;
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-settings-dialog input:focus-visible {
+  outline: 0;
+  border-color: color-mix(in srgb, var(--color-primary) 56%, var(--color-hairline));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 16%, transparent);
+}
+
+.react-settings-checkbox {
+  display: flex !important;
+  grid-template-columns: unset;
+  align-items: center;
+  gap: 8px !important;
+  font-weight: 500 !important;
+}
+
+.react-settings-checkbox input {
+  min-height: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+}
+
+.react-provider-config {
+  gap: 0;
+}
+
+.react-provider-config__section {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--color-hairline);
+  padding: 20px 0;
+}
+
+.react-provider-config__section:first-child {
+  border-top: 0;
+  padding-top: 4px;
+}
+
+.react-provider-config__section h3,
+.react-provider-config__section legend {
+  margin: 0;
+  padding: 0;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.react-provider-config__field-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.react-provider-config__field-heading small {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.react-provider-config__field-heading small::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-muted-soft);
+  content: "";
+}
+
+.react-provider-config__field-heading small[data-status="configured"] {
+  color: color-mix(in srgb, var(--color-success) 74%, var(--color-ink));
+}
+
+.react-provider-config__field-heading small[data-status="configured"]::before {
+  background: var(--color-success);
+}
+
+.react-provider-config__help,
+.react-provider-config__mode > small {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.react-provider-config__switch {
+  position: relative;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: 16px !important;
+  cursor: pointer;
+}
+
+.react-provider-config__switch > span {
+  display: grid;
+  gap: 4px;
+}
+
+.react-provider-config__switch strong {
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.react-provider-config__switch small {
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.react-provider-config__switch input,
+.react-provider-config__mode input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  opacity: 0;
+}
+
+.react-provider-config__switch i {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-muted) 28%, var(--color-panel));
+  transition: background-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-provider-config__switch i::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-panel);
+  box-shadow: 0 1px 3px rgb(20 20 19 / 22%);
+  content: "";
+  transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-provider-config__switch input:checked + i {
+  background: var(--color-primary);
+}
+
+.react-provider-config__switch input:checked + i::after {
+  transform: translateX(16px);
+}
+
+.react-provider-config__switch:has(input:focus-visible) i {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 20%, transparent);
+}
+
+.react-provider-config__switch[data-disabled="true"] {
+  cursor: default;
+}
+
+.react-provider-config__mode > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-soft);
+  padding: 3px;
+}
+
+.react-provider-config__mode label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border-radius: 6px;
+  color: var(--color-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition:
+    background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-provider-config__mode label[data-selected="true"] {
+  background: var(--color-panel);
+  color: var(--color-ink);
+  box-shadow: 0 1px 4px rgb(20 20 19 / 11%);
+}
+
+.react-provider-config__mode label:has(input:focus-visible) {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 35%, transparent);
+}
+
+.react-provider-config__cancel {
+  border-color: transparent;
+  background: transparent;
+}
+
+.react-provider-config__save {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.react-provider-config__save:hover,
+.react-provider-config__save:focus-visible {
+  border-color: var(--color-primary-active);
+  background: var(--color-primary-active);
+  color: var(--color-on-primary);
+}
+
+.react-provider-model-list {
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+  max-height: 340px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.react-provider-model-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  min-height: 44px;
+  border-radius: 8px;
+  padding: 7px 8px;
+}
+
+.react-provider-model-row:hover {
+  background: var(--color-surface-soft);
+}
+
+.react-provider-model-row div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.react-provider-model-row strong,
+.react-provider-model-row small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-provider-model-row strong {
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-provider-model-row small {
+  color: var(--color-muted);
+  font: 12px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.react-provider-model-row button:disabled,
+.react-settings-dialog footer button:disabled {
+  opacity: 0.45;
+}
+
+.react-provider-model-add {
+  align-items: stretch;
+}
+
+.react-provider-model-add input {
+  flex: 1 1 auto;
+}
+
+@media (max-width: 1080px) {
+  .react-settings-layout {
+    grid-template-columns: 184px minmax(0, 1fr);
+    gap: 28px;
+  }
+
+  .react-settings-sidebar {
+    padding-right: 4px;
+  }
+
+  .react-default-llm-summary {
+    grid-template-columns: 40px minmax(160px, 1fr) minmax(132px, 0.6fr) auto;
+  }
+
+  .react-default-llm-summary__count {
+    display: none;
+  }
+
+  .react-provider-card {
+    grid-template-columns: minmax(210px, 1.2fr) minmax(135px, 0.8fr) minmax(120px, 0.65fr) auto;
+  }
+
+  .react-provider-card__url {
+    display: none;
+  }
+}
+
+.react-settings-dialog footer {
+  position: sticky;
+  bottom: -24px;
+  margin-top: auto;
+  border-top: 1px solid var(--color-hairline);
+  background: var(--color-panel);
+  padding: 16px 0 2px;
+}
+
+@media (max-width: 780px) {
+  .react-settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 22px;
+  }
+
+  .react-settings-sidebar {
+    position: static;
+    min-height: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-hairline);
+    overflow-x: auto;
+    padding: 0 0 14px;
+  }
+
+  .react-settings-sidebar nav {
+    display: flex;
+    gap: 6px;
+    min-width: max-content;
+  }
+
+  .react-settings-sidebar__intro {
+    display: none;
+  }
+
+  .react-settings-sidebar button {
+    grid-template-columns: 17px auto;
+    width: auto;
+    padding-inline: 11px;
+  }
+
+  .react-settings-sidebar__chevron {
+    display: none;
+  }
+
+  .react-app-settings__list > .react-settings-choice {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .react-app-settings__list .react-settings-choice-popover {
+    right: 0;
+    left: 0;
+    width: auto;
+  }
+
+  .react-provider-settings__header h2 {
+    font-size: 24px;
+  }
+
+  .react-config-settings__fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .react-config-settings__field--wide {
+    grid-column: auto;
+  }
+
+  .react-config-settings__form > footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .react-default-llm-summary {
+    grid-template-areas:
+      "icon model action"
+      "provider provider provider";
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+  }
+
+  .react-default-llm-summary > .react-provider-brand-icon {
+    grid-area: icon;
+  }
+
+  .react-default-llm-summary__provider {
+    grid-area: provider;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    border-top: 1px solid var(--color-hairline);
+    padding-top: 12px;
+  }
+
+  .react-default-llm-summary__model {
+    grid-area: model;
+    padding: 0;
+  }
+
+  .react-default-llm-summary > button {
+    grid-area: action;
+  }
+
+  .react-default-model-picker {
+    grid-template-columns: minmax(145px, 0.6fr) minmax(270px, 1.4fr);
+  }
+
+  .react-default-model-picker__providers {
+    padding-inline: 8px;
+  }
+
+  .react-default-model-picker__providers button {
+    grid-template-columns: 36px minmax(0, 1fr) 14px;
+    gap: 8px;
+    padding-inline: 7px;
+  }
+
+  .react-provider-directory > header {
+    align-items: center;
+  }
+
+  .react-provider-card {
+    grid-template-areas:
+      "identity actions"
+      "model state";
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px 16px;
+  }
+
+  .react-provider-card__identity {
+    grid-area: identity;
+  }
+
+  .react-provider-card__model {
+    grid-area: model;
+  }
+
+  .react-provider-card__state {
+    grid-area: state;
+  }
+
+  .react-provider-card__actions {
+    grid-area: actions;
+    align-self: start;
+  }
+
+  .react-settings-dialog,
+.react-settings-dialog--wide {
+    width: 100%;
+    border-radius: 0;
+  }
+
+  .react-theme-mode-card__preview {
+    height: 96px;
+  }
+
+  .react-appearance-row {
+    grid-template-columns: minmax(0, 1fr) minmax(190px, 250px);
+  }
+
+  .react-shortcut-row {
+    grid-template-areas:
+      "copy copy"
+      "binding actions";
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px 12px;
+  }
+
+  .react-shortcut-row__copy {
+    grid-area: copy;
+  }
+
+  .react-shortcut-row__binding {
+    grid-area: binding;
+    justify-content: flex-start;
+  }
+
+  .react-shortcut-row__actions {
+    grid-area: actions;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .react-settings-choice-trigger svg,
+.react-config-settings__toggle i,
+.react-config-settings__toggle i::after,
+.react-provider-config__switch i,
+.react-provider-config__switch i::after,
+.react-provider-config__mode label {
+    transition-duration: 0ms;
+  }
+
+  .react-settings-dialog {
+    transform: none !important;
+    transition: none;
+    will-change: auto;
+  }
+
+  .react-settings-dialog-backdrop {
+    transition-duration: 140ms;
+  }
+
+  .react-settings-save-status,
+.react-settings-save-status__icon > svg,
+.react-settings-save-status__message {
+    transform: none;
+    transition-duration: 140ms;
+  }
+
+}

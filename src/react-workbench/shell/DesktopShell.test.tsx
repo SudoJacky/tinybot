@@ -9,7 +9,7 @@ import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefault
 import { buildProviderModelsSettings } from "../../app-core/settings/providerModelsSettings";
 import type { AppServices, PersonalizationInstructionsSaveInput, SessionSummary } from "../services";
 import type { ReactChatMessage } from "../chat/messageActions";
-import { timelineFromReactMessages } from "../chat/testTimelineFixtures";
+import { timelineFromReactMessages } from "../chat/test/timelineFixtures";
 import { unavailableTinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
 import type { DesktopUpdateClient, DesktopUpdateSnapshot } from "../../app-core/native/desktopNativeUpdate";
 import { pickDesktopPluginMigrationDirectory } from "../../app-core/native/desktopNativePluginPicker";
@@ -274,7 +274,11 @@ describe("DesktopShell", () => {
   });
 
   it("keeps shell navigation and settings layouts compact", () => {
-    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+    const css = [
+      "src/react-workbench/styles/workbench.css",
+      "src/react-workbench/chat/ChatPage.css",
+      "src/react-workbench/settings/SettingsRoute.css",
+    ].map((path) => readFileSync(path, "utf8")).join("\n");
 
     expect(css).toMatch(/\.react-window-frame__history button\s*{[^}]*width:\s*32px;[^}]*height:\s*32px;/s);
     expect(css).toMatch(/\.react-top-menu__trigger\s*{[^}]*font-size:\s*12px;/s);
@@ -483,7 +487,7 @@ describe("DesktopShell", () => {
     resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
     await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Tools & Plugins" }));
     expect(await screen.findByRole("heading", { name: "Tools & Plugins" })).toBeTruthy();
-    expect(screen.getByText(/review-tools/)).toBeTruthy();
+    expect(await screen.findByText(/review-tools/)).toBeTruthy();
     await user.click(screen.getByRole("switch", { name: "Disable review-tools" }));
     await waitFor(() => expect(services.toolsStore.setPluginEnabled).toHaveBeenCalledWith("review-tools", false));
     await user.click(screen.getByRole("button", { name: "Tools" }));

@@ -16,7 +16,7 @@ import {
   Wrench,
   XCircle,
 } from "lucide-react";
-import type { ChatStepStatus, ToolCallState } from "../../app-core/chat/chatTurnModel";
+import type { ChatStepStatus, ToolCallState } from "../../app-core/chat/chatTurnContracts";
 
 type ToolActivityKind = "file" | "generic" | "plan" | "subagent" | "terminal" | "web";
 

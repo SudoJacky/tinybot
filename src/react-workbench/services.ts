@@ -23,11 +23,11 @@ import type {
   ProviderModelFetchResult,
   ProviderModelsSettingsData,
 } from "../app-core/settings/providerModelsSettings";
+import type { DesktopSettingsFormState } from "../app-core/settings/desktopSettingsContracts";
 import type {
-  DesktopSettingsFormState,
   DesktopSettingsPaneModel,
   DesktopSettingsPaneSaveDetails,
-} from "../app-core/settings/desktopSettingsProviders";
+} from "../app-core/settings/desktopSettingsPaneContracts";
 import type { NativeBrowserRuntimeApi } from "../app-core/native/desktopNativeBrowser";
 import type { TinyOsNativeBrowserSession, TinyOsNativeSnapshot } from "../app-core/chat/tinyOsNativeSnapshot";
 

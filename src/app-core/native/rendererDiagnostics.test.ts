@@ -54,9 +54,8 @@ describe("renderer diagnostics", () => {
   });
 
   test("falls back to a bounded localStorage crash log when native recording fails", async () => {
-    const invoke = vi.fn(async <T,>() => {
+    const invoke = vi.fn(async <T,>(): Promise<T> => {
       throw new Error("native unavailable");
-      return undefined as T;
     });
 
     await recordRendererDiagnostic(

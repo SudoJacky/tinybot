@@ -1,47 +1,28 @@
-import { useEffect, useId, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useEffectEvent, useId, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { TFunction } from "i18next";
 import {
-  Activity,
-  AlertTriangle,
   Check,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Circle,
-  Copy,
-  FileText,
-  Folder,
   FolderOpen,
-  FolderPlus,
-  GitBranch,
   Loader2,
-  ListCollapse,
-  Play,
-  RefreshCw,
-  RotateCcw,
   MoreHorizontal,
   PanelRightClose,
   PanelRightOpen,
-  Plus,
-  Search,
-  Settings,
-  Trash2,
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import "./ChatPage.css";
 import {
   MAX_QUEUED_INPUTS,
   deleteQueuedInput,
   dispatchNextQueuedInput,
   pauseQueuedInputs,
   resumeNextQueuedInput,
-  submitComposerText,
   updateInterruptStatus,
 } from "../../app-core/chat/chatInputState";
 import type { QueuedInput } from "../../app-core/chat/chatUiProjection";
 import {
   ClaudeStyleAiInput,
-  formatFileMetadata,
   type ComposerFileReference,
   type ComposerContextReference,
   type ComposerSendOptions,
@@ -50,9 +31,8 @@ import {
   type ModelOption,
   type PastedContent,
 } from "../../components/ui/claude-style-ai-input";
-import { TextType } from "../../components/ui/TextType";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
-import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, ProjectGroup, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, ToolsStore, WorkspaceStore } from "../services";
+import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, ToolsStore, WorkspaceStore } from "../services";
 import { createDesktopCompactCommand, createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import {
   clearCurrentChatModel,
@@ -64,16 +44,27 @@ import {
   writeCurrentChatReasoningEffort,
 } from "../../app-core/chat/reasoningEffort";
 import { pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
-import { pickDesktopWorkspaceDirectory } from "../../app-core/native/desktopNativeWorkspacePicker";
 import { reduceSessionDeleteState } from "../sessions/sessionDeleteState";
-import { canBranchFromMessage, canCopyMessage, type ContextReferenceSummary, type ReactChatMessage, type ToolCallSummary } from "./messageActions";
+import type { ReactChatMessage, ToolCallSummary } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { AgentUiFormCard } from "./AgentUiFormCard";
-import { AssistantMarkdown } from "./AssistantMarkdown";
-import { isApplyPatchToolCall, PatchDiffCard, patchChangeSetFromToolResult } from "./PatchDiffCard";
-import { ToolActivityItem } from "./ToolActivityItem";
 import { DataViewCard } from "./DataViewCard";
-import { clampTinyOsWidth, LiveCanvas, type LiveCanvasEntry, type LiveCanvasMode } from "./LiveCanvas";
+import {
+  canDispatchQueuedInput,
+  projectChatEventEffects,
+  projectTimelineSessionStatus,
+} from "./chatEventPolicy";
+import {
+  projectLatestContextUsage,
+  type ContextUsageDefaults,
+} from "./chatContextUsage";
+import { LiveCanvas } from "./LiveCanvas";
+import {
+  clampTinyOsWidth,
+  INITIAL_LIVE_CANVAS_STATE,
+  reduceLiveCanvasState,
+  type LiveCanvasEntry,
+} from "./liveCanvasModel";
 import { SessionTabStrip, type SessionTabItem } from "./SessionTabStrip";
 import {
   INITIAL_SESSION_TAB_WORKSPACE,
@@ -84,25 +75,20 @@ import {
 } from "./sessionTabWorkspace";
 import {
   groupSessionsByWorkspace,
-  sessionWorkspaceName,
 } from "./sessionWorkspaces";
-import { projectSessionGroups } from "./projectSessionGroups";
-import { ProjectGroupDialog } from "./ProjectGroupDialog";
 import {
   applyLoadedDelegatedAgentTrace,
   projectLoadedArtifactDetail,
-  type ArtifactRef,
-  type BackendAgentTurnItem,
-  type ChatStep,
-  type ChatTurn,
-  type DelegatedAgentState,
-  type LoadedArtifactDetail,
-  type TokenUsage,
-  type ToolCallState,
-} from "../../app-core/chat/chatTurnModel";
+} from "../../app-core/chat/chatProjection";
+import type {
+  ArtifactRef,
+  BackendAgentTurnItem,
+  ChatStep,
+  ChatTurn,
+  DelegatedAgentState,
+  LoadedArtifactDetail,
+} from "../../app-core/chat/chatTurnContracts";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
-import type { TinyOsNativeBrowserSession, TinyOsNativeSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
-import type { AgentInputReference } from "../../app-core/chat/agentInputReference";
 import type { TinyOsAgentRequestIntent, TinyOsAgentRequestReference, TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
 import { readTinyOsReferenceTransfer, tinyOsReferenceAcceptedBy, TINYOS_REFERENCE_MIME } from "../../app-core/chat/tinyOsReferenceTransfer";
 import { useTinyOsFilesController } from "./useTinyOsFilesController";
@@ -132,6 +118,31 @@ import {
   unavailableTinyOsEffectiveCapabilities,
   type TinyOsEffectiveCapabilities,
 } from "../../app-core/chat/tinyOsCapabilities";
+import {
+  useChatSessionRuntime,
+  type ChatSessionRuntimeEffect,
+} from "./useChatSessionRuntime";
+import {
+  MAX_COMPOSER_SESSION_REFERENCES,
+  nativeReferenceFromTinyOs,
+  prepareChatSubmission,
+  tinyOsReferenceLabel,
+  type QueuedComposerInput,
+} from "./chatSubmission";
+import {
+  ChatErrorDetails,
+  ChatTimeline,
+  type RecoveryAction,
+} from "./ChatTimeline";
+import {
+  ChatSessionWorkspace,
+  type ProjectSessionContext,
+} from "./ChatSessionWorkspace";
+import {
+  deriveSessionTitle,
+  displaySessionTitle,
+  isDefaultSessionTitle,
+} from "./sessionTitle";
 
 export type ChatPageProps = {
   chatStore: ChatStore;
@@ -160,68 +171,6 @@ type ConversationViewState = {
   scrollTop: number;
   stickToLatest: boolean;
 };
-
-type ContextUsageDefaults = {
-  contextWindowStrategy?: string;
-  contextWindowTokens?: number;
-};
-
-type LiveCanvasState = {
-  mode: LiveCanvasMode;
-  selection?: { eventIndex?: number; itemId: string; turnId: string };
-  surface: "panel" | "expanded";
-  visibility: "closed" | "closing" | "open";
-};
-
-type LiveCanvasAction =
-  | { type: "close" }
-  | { type: "close_complete" }
-  | { type: "expand_toggle" }
-  | { type: "return_live" }
-  | { type: "select"; eventIndex?: number; itemId: string; turnId: string }
-  | { type: "toggle" };
-
-const INITIAL_LIVE_CANVAS_STATE: LiveCanvasState = {
-  mode: "live_follow",
-  surface: "panel",
-  visibility: "closed",
-};
-
-function reduceLiveCanvasState(state: LiveCanvasState, action: LiveCanvasAction): LiveCanvasState {
-  switch (action.type) {
-    case "close":
-      return state.visibility === "open" ? { ...state, visibility: "closing" } : state;
-    case "close_complete":
-      return state.visibility === "closing" ? { ...state, visibility: "closed" } : state;
-    case "expand_toggle":
-      return { ...state, surface: state.surface === "expanded" ? "panel" : "expanded", visibility: "open" };
-    case "return_live":
-      return { ...state, mode: "live_follow", visibility: "open" };
-    case "select":
-      return {
-        ...state,
-        mode: "history",
-        selection: {
-          ...(action.eventIndex !== undefined ? { eventIndex: action.eventIndex } : {}),
-          itemId: action.itemId,
-          turnId: action.turnId,
-        },
-        visibility: "open",
-      };
-    case "toggle":
-      return state.visibility === "open"
-        ? { ...state, visibility: "closing" }
-        : { ...state, mode: "live_follow", visibility: "open" };
-  }
-}
-
-type RecoveryAction = "continue" | "retry" | "restart";
-
-type QueuedComposerInput = QueuedInput & { turnInput: ChatInput };
-
-function shouldFrameBatchTimeline(timeline: ChatTimelineSnapshot): boolean {
-  return timeline.turns[timeline.turns.length - 1]?.status === "running";
-}
 
 function lastCanonicalEventIndex(
   items: readonly BackendAgentTurnItem[],
@@ -301,15 +250,6 @@ const LIVE_CANVAS_CLOSE_MS = 160;
 const SESSION_DELETE_DISSOLVE_MS = 180;
 const TINYOS_WIDTH_STORAGE_KEY = "tinybot.ui.tinyos.width";
 const EMPTY_OPTIMISTIC_MESSAGES: ReactChatMessage[] = [];
-const MAX_COMPOSER_SESSION_REFERENCES = 4;
-const MAX_COMPOSER_SESSION_CONTEXT_BYTES = 48 * 1024;
-const SESSION_TRANSCRIPT_OMISSION = "\n\n[... middle conversation content omitted to fit the context limit ...]\n\n";
-
-type ProjectSessionContext = {
-  projectCoordinator?: boolean;
-  projectGroupId: string;
-  title?: string;
-};
 
 export function ChatPage({
   chatStore,
@@ -331,20 +271,13 @@ export function ChatPage({
   const tinyOsUiScope = useId();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
-  const [projectGroups, setProjectGroups] = useState<ProjectGroup[]>([]);
-  const [projectDialogGroupId, setProjectDialogGroupId] = useState<string | "new">();
-  const [workspaceActionMenuOpen, setWorkspaceActionMenuOpen] = useState(false);
   const [sessionTabs, dispatchSessionTabs] = useReducer(
     reduceSessionTabWorkspace,
     INITIAL_SESSION_TAB_WORKSPACE,
   );
-  const [timeline, setTimeline] = useState<ChatTimelineSnapshot | null>(null);
   const [optimisticMessagesBySession, setOptimisticMessagesBySession] = useState<Map<string, ReactChatMessage[]>>(
     () => new Map(),
   );
-  const [timelineError, setTimelineError] = useState("");
-  const [browserSnapshot, setBrowserSnapshot] = useState<TinyOsNativeSnapshot<TinyOsNativeBrowserSession>>();
-  const [browserRuntimeError, setBrowserRuntimeError] = useState("");
   const [tinyOsCapabilities, setTinyOsCapabilities] = useState<TinyOsEffectiveCapabilities>(() => (
     unavailableTinyOsEffectiveCapabilities("", "loading", t("runtime.loadingCapabilities"))
   ));
@@ -353,10 +286,8 @@ export function ChatPage({
   const [composerReasoningEffort, setComposerReasoningEffort] = useState(readCurrentChatReasoningEffort);
   const [contextUsageDefaults, setContextUsageDefaults] = useState<ContextUsageDefaults>({});
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
-  const [sessionSearchOpen, setSessionSearchOpen] = useState(false);
   const [sessionWorkspaceError, setSessionWorkspaceError] = useState("");
   const [sessionCreatePending, setSessionCreatePending] = useState(false);
-  const [workspacePickerPending, setWorkspacePickerPending] = useState(false);
   const [localSessionSidebarCollapsed, setLocalSessionSidebarCollapsed] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const [liveCanvas, dispatchLiveCanvas] = useReducer(reduceLiveCanvasState, INITIAL_LIVE_CANVAS_STATE);
@@ -366,7 +297,6 @@ export function ChatPage({
   );
   const [compactingSessionId, setCompactingSessionId] = useState("");
   const [tinyOsWidth, setTinyOsWidth] = useState(readStoredTinyOsWidth);
-  const [agentUiForms, setAgentUiForms] = useState<AgentUiForm[]>([]);
   const [queuedInputsBySession, setQueuedInputsBySession] = useState<Map<string, QueuedComposerInput[]>>(() => new Map());
   const [queueMessage, setQueueMessage] = useState("");
   const [tinyOsContextReferences, setTinyOsContextReferences] = useState<TinyOsContextReference[]>([]);
@@ -397,8 +327,28 @@ export function ChatPage({
   const liveCanvasToggleRef = useRef<HTMLButtonElement | null>(null);
   const liveCanvasPreviousVisibilityRef = useRef(liveCanvas.visibility);
   const stickToLatestRef = useRef(true);
-  const workspaceActionMenuRef = useRef<HTMLDivElement | null>(null);
   const activeSessionId = sessionTabs.activeSessionId;
+  const sessionRuntime = useChatSessionRuntime({
+    chatStore,
+    onEffect: handleChatSessionRuntimeEffect,
+    sessionId: activeSessionId,
+  });
+  const {
+    agentUiForms,
+    browserError: browserRuntimeError,
+    browserSnapshot,
+    error: timelineError,
+    timeline,
+  } = sessionRuntime.state;
+  const {
+    acceptBrowserSnapshot,
+    clearBrowserError,
+    clearBrowserSnapshot,
+    clearError: clearTimelineError,
+    reload: reloadSessionRuntime,
+    reportBrowserError,
+    reportError: reportTimelineError,
+  } = sessionRuntime.actions;
   const composerDraft = sessionTabDraft(sessionTabs, activeSessionId);
   const optimisticMessages = optimisticMessagesBySession.get(activeSessionId) ?? EMPTY_OPTIMISTIC_MESSAGES;
 
@@ -426,23 +376,11 @@ export function ChatPage({
         unread: sessionTabs.unreadSessionIds.includes(session.id),
       }] : [];
     })
-  ), [sessionTabs.openSessionIds, sessionTabs.unreadSessionIds, sessions]);
-  const projectProjection = useMemo(
-    () => projectSessionGroups(projectGroups, sessions),
-    [projectGroups, sessions],
-  );
+  ), [sessionTabs.openSessionIds, sessionTabs.unreadSessionIds, sessions, t]);
   const allSessionWorkspaces = useMemo(() => groupSessionsByWorkspace(sessions).map((workspace) => ({
     ...workspace,
     label: workspace.label ?? t("shell.generalSessions"),
   })), [sessions, t]);
-  const sessionWorkspaces = useMemo(() => groupSessionsByWorkspace(projectProjection.ungroupedSessions).map((workspace) => ({
-    ...workspace,
-    label: workspace.label ?? t("shell.generalSessions"),
-  })), [projectProjection.ungroupedSessions, t]);
-  const availableProjectWorkspaceIds = useMemo(() => Array.from(new Set([
-    ...sessions.flatMap((session) => session.workingDirectory ? [session.workingDirectory] : []),
-    ...projectGroups.flatMap((group) => group.workspaceIds),
-  ])), [projectGroups, sessions]);
   const composerSessionMentionOptions = useMemo<ComposerSessionMentionOption[]>(() => {
     if (!activeSession || activeSession.pluginMigration) return [];
     const currentWorkspace = allSessionWorkspaces.find((workspace) => (
@@ -567,7 +505,7 @@ export function ChatPage({
     )),
   );
   const activeContextUsage = useMemo(
-    () => latestTimelineUsage(timeline?.turns ?? [], contextUsageDefaults),
+    () => projectLatestContextUsage(timeline?.turns ?? [], contextUsageDefaults),
     [contextUsageDefaults, timeline],
   );
   const latestFailedTurnId = useMemo(() => (
@@ -594,18 +532,14 @@ export function ChatPage({
     return () => window.clearTimeout(timer);
   }, [liveCanvas.visibility]);
 
+  const browserSessionId = browserSnapshot?.data.browserSessionId;
+  const browserControlState = browserSnapshot?.data.control?.state;
   useEffect(() => {
-    const browserSession = browserSnapshot?.data;
-    if (!browserSession) return;
-    if (browserSession.control?.state === "user_required") {
+    if (!browserSessionId) return;
+    if (browserControlState === "user_required") {
       dispatchLiveCanvas({ type: "return_live" });
     }
-  }, [browserSnapshot?.data.browserSessionId, browserSnapshot?.data.control?.state]);
-
-  useEffect(() => {
-    setBrowserSnapshot(undefined);
-    setBrowserRuntimeError("");
-  }, [activeSession?.id]);
+  }, [browserControlState, browserSessionId]);
 
   useEffect(() => {
     if (liveCanvas.visibility !== "open"
@@ -617,16 +551,15 @@ export function ChatPage({
     let cancelled = false;
     void chatStore.browserRuntime.createSession({ ownerSessionId: activeSession.id }).then((snapshot) => {
       if (!cancelled) {
-        setBrowserSnapshot(snapshot);
-        setBrowserRuntimeError("");
+        acceptBrowserSnapshot(snapshot);
       }
     }).catch((error) => {
-      if (!cancelled) setBrowserRuntimeError(error instanceof Error ? error.message : String(error));
+      if (!cancelled) reportBrowserError(error);
     });
     return () => {
       cancelled = true;
     };
-  }, [activeSession?.id, browserSnapshot, chatStore, liveCanvas.visibility]);
+  }, [acceptBrowserSnapshot, activeSession?.id, browserSnapshot, chatStore, liveCanvas.visibility, reportBrowserError]);
   const liveCanvasEntries = useMemo<LiveCanvasEntry[]>(() => (
     (timelineLoaded ? timeline?.turns ?? [] : []).flatMap((turn) => (
       (turn.executionItems ?? turn.steps).map((step) => ({ step, turnId: turn.id }))
@@ -689,7 +622,7 @@ export function ChatPage({
   ): Promise<void> {
     if (!activeSession || isTinyOsCommandInFlight(commandLifecycle)) return;
     if (tinyOsCapabilities.threadId !== activeSession.id || !requestChangeCapability.available) {
-      setTimelineError(requestChangeUnavailableReason);
+      reportTimelineError(requestChangeUnavailableReason);
       return;
     }
     const command = createTinyOsAgentRequestChangeCommand({
@@ -699,7 +632,7 @@ export function ChatPage({
       sessionId: activeSession.id,
       source: { control: `${fromHistory ? "history-" : ""}${tinyOsAgentRequestControl(reference, intent)}`, surface: "tinyos" },
     });
-    setTimelineError("");
+    clearTimelineError();
     dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
     if (fromHistory) dispatchLiveCanvas({ type: "return_live" });
     try {
@@ -721,14 +654,16 @@ export function ChatPage({
     if (isTinyOsCommandInFlight(commandLifecycle) && !(allowDuringTerminalExecution && terminalExecutionInFlight)) {
       throw new Error(t("runtime.tinyOsCommandAlreadyInFlight"));
     }
-    setTimelineError("");
+    clearTimelineError();
     dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
     try {
       await chatStore.dispatch(command);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       dispatchCommandLifecycle({ commandId: command.commandId, error: message, type: "rejected" });
-      throw new Error(message);
+      const commandError = new Error(message);
+      (commandError as Error & { cause?: unknown }).cause = error;
+      throw commandError;
     }
   }
 
@@ -836,7 +771,7 @@ export function ChatPage({
     return () => {
       cancelled = true;
     };
-  }, [activeTurn?.id, activeTurn?.status, activeSessionId, chatStore]);
+  }, [activeTurn?.id, activeTurn?.status, activeSessionId, chatStore, t]);
 
   useEffect(() => {
     setTinyOsContextReferences([]);
@@ -886,29 +821,29 @@ export function ChatPage({
     if (commandLifecycle.stage === "idle") return;
     if (commandLifecycle.command.kind === "operation.retry"
       && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
-      setTimelineError(`Retry failed: ${commandLifecycle.error}`);
+      reportTimelineError(`Retry failed: ${commandLifecycle.error}`);
       return;
     }
     if (commandLifecycle.command.kind === "agent.request_change"
       && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
-      setTimelineError(`Agent request failed: ${commandLifecycle.error}`);
+      reportTimelineError(`Agent request failed: ${commandLifecycle.error}`);
       return;
     }
     if ((commandLifecycle.command.kind === "agent.pause" || commandLifecycle.command.kind === "agent.resume")
       && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
-      setTimelineError(`Agent ${commandLifecycle.command.kind === "agent.pause" ? "pause" : "resume"} failed: ${commandLifecycle.error}`);
+      reportTimelineError(`Agent ${commandLifecycle.command.kind === "agent.pause" ? "pause" : "resume"} failed: ${commandLifecycle.error}`);
       return;
     }
     if ((commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
       && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
-      setTimelineError(`Form ${commandLifecycle.command.kind === "form.cancel" ? "cancellation" : "submission"} failed: ${commandLifecycle.error}`);
+      reportTimelineError(`Form ${commandLifecycle.command.kind === "form.cancel" ? "cancellation" : "submission"} failed: ${commandLifecycle.error}`);
       return;
     }
     if (["file.save", "file.move", "file.delete", "terminal.execute", "terminal.cancel", "browser.interact"].includes(commandLifecycle.command.kind)
       && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
-      setTimelineError(`TinyOS host operation failed: ${commandLifecycle.error}`);
+      reportTimelineError(`TinyOS host operation failed: ${commandLifecycle.error}`);
     }
-  }, [commandLifecycle]);
+  }, [commandLifecycle, reportTimelineError]);
 
   useEffect(() => {
     return () => {
@@ -938,30 +873,6 @@ export function ChatPage({
   }, [sessionStore]);
 
   useEffect(() => {
-    if (!projectGroupStore) return;
-    let cancelled = false;
-    void projectGroupStore.list().then((groups) => {
-      if (!cancelled) setProjectGroups(groups);
-    }).catch((error) => {
-      if (!cancelled) setSessionWorkspaceError(error instanceof Error ? error.message : String(error));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [projectGroupStore]);
-
-  useEffect(() => {
-    if (!workspaceActionMenuOpen) return;
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!workspaceActionMenuRef.current?.contains(event.target as Node)) {
-        setWorkspaceActionMenuOpen(false);
-      }
-    };
-    window.addEventListener("pointerdown", closeOnOutsidePointer);
-    return () => window.removeEventListener("pointerdown", closeOnOutsidePointer);
-  }, [workspaceActionMenuOpen]);
-
-  useEffect(() => {
     if (!sessionsLoaded) {
       return;
     }
@@ -971,169 +882,35 @@ export function ChatPage({
     return () => window.clearTimeout(timer);
   }, [sessionTabs, sessionsLoaded]);
 
+  const createSessionFromSignal = useEffectEvent(() => {
+    void handleCreateSession();
+  });
   useEffect(() => {
     if (createSessionSignal === lastCreateSessionSignal.current) {
       return;
     }
     lastCreateSessionSignal.current = createSessionSignal;
-    void handleCreateSession();
+    createSessionFromSignal();
   }, [createSessionSignal]);
 
-  useEffect(() => {
-    if (!activeSessionId) {
-      setTimeline(null);
-      setTimelineError("");
-      return;
+  const handleBackgroundChatEvent = useEffectEvent((sessionId: string, event: ChatEvent) => {
+    const effects = projectChatEventEffects(event);
+    if (event.timeline) {
+      updateSessionStatusFromTimeline(sessionId, event.timeline);
+      dispatchSessionTabs({ type: "activity", sessionId });
     }
-    setTimeline(null);
-    setTimelineError("");
-    setAgentUiForms([]);
-    setBrowserSnapshot(undefined);
-    let cancelled = false;
-    const loadTimeline = () => chatStore.load(activeSessionId).then((nextTimeline) => {
-      if (!cancelled) {
-        setTimeline(nextTimeline);
-        setTimelineError("");
-      }
-    }).catch((error) => {
-      if (!cancelled) {
-        setTimelineError(error instanceof Error ? error.message : String(error));
-      }
-    });
-    const loadAgentUiForms = () => chatStore.listAgentUiForms(activeSessionId).then((nextForms) => {
-      if (!cancelled) {
-        setAgentUiForms(nextForms);
-      }
-    });
-    let pendingStreamingTimeline: ChatTimelineSnapshot | null = null;
-    let streamingFrame: number | null = null;
-    const applyTimeline = (nextTimeline: ChatTimelineSnapshot) => {
-      setTimeline(nextTimeline);
-      setTimelineError("");
-      updateSessionStatusFromTimeline(activeSessionId, nextTimeline);
-      setOptimisticMessagesBySession((current) => updateSessionMessages(
-        current,
-        activeSessionId,
-        (messages) => messages.filter((message) => !nextTimeline.turns.some((turn) => (
-          turn.userMessage.clientEventId === message.id
-        ))),
-      ));
-    };
-    const scheduleStreamingTimeline = (nextTimeline: ChatTimelineSnapshot) => {
-      pendingStreamingTimeline = nextTimeline;
-      if (streamingFrame !== null) {
-        return;
-      }
-      streamingFrame = window.requestAnimationFrame(() => {
-        streamingFrame = null;
-        const pending = pendingStreamingTimeline;
-        pendingStreamingTimeline = null;
-        if (pending && !cancelled) {
-          applyTimeline(pending);
-        }
-      });
-    };
-    void loadTimeline();
-    void loadAgentUiForms();
-    const unsubscribe = chatStore.subscribe(activeSessionId, (event) => {
-      if (event.browserSnapshot) {
-        setBrowserSnapshot(event.browserSnapshot);
-        setBrowserRuntimeError("");
-        return;
-      }
-      if (event.command && event.type === "command.dispatched") {
-        pauseQueuedInputsForSession(event.command.target.sessionId);
-        dispatchCommandLifecycle({ command: event.command, nowMs: now(), type: "dispatch" });
-        return;
-      }
-      if (event.commandId && event.operationId && event.operationStatus && event.type === "host.operation") {
-        dispatchCommandLifecycle({
-          commandId: event.commandId,
-          error: event.error,
-          nowMs: now(),
-          operationId: event.operationId,
-          status: event.operationStatus,
-          type: "host_operation_updated",
-        });
-        return;
-      }
-      if (event.commandId && event.type === "command.accepted") {
-        dispatchCommandLifecycle({ commandId: event.commandId, nowMs: now(), type: "transport_accepted" });
-        return;
-      }
-      if (event.commandId && event.type === "command.canonical-updated") {
-        void loadTimeline();
-        return;
-      }
-      if (event.commandId && event.type === "error") {
-        dispatchCommandLifecycle({ commandId: event.commandId, error: event.error || t("runtime.commandRejected"), type: "rejected" });
-        return;
-      }
-      if (event.timeline) {
-        if (shouldFrameBatchTimeline(event.timeline)) {
-          scheduleStreamingTimeline(event.timeline);
-        } else {
-          if (streamingFrame !== null) {
-            window.cancelAnimationFrame(streamingFrame);
-            streamingFrame = null;
-            pendingStreamingTimeline = null;
-          }
-          applyTimeline(event.timeline);
-        }
-        return;
-      }
-      if (event.error) {
-        setTimelineError(event.error);
-        return;
-      }
-      if (event.message) {
-        const nextMessage = event.message;
-        setOptimisticMessagesBySession((current) => updateSessionMessages(
-          current,
-          activeSessionId,
-          (messages) => (
-            messages.some((message) => message.id === nextMessage.id)
-              ? messages.map((message) => (
-                message.id === nextMessage.id ? { ...message, ...nextMessage } : message
-              ))
-              : [...messages, nextMessage]
-          ),
-        ));
-        return;
-      }
-      if (shouldReloadSessionsForChatEvent(event)) {
-        void handleQueueStateAfterChatEvent(activeSessionId, event);
-      }
-      if (shouldReloadMessagesForChatEvent(event.type)) {
-        void loadTimeline();
-      }
-      if (shouldReloadAgentUiFormsForChatEvent(event.type)) {
-        void loadAgentUiForms();
-      }
-    });
-    return () => {
-      cancelled = true;
-      if (streamingFrame !== null) {
-        window.cancelAnimationFrame(streamingFrame);
-      }
-      unsubscribe();
-    };
-  }, [activeSessionId, chatStore, now]);
-
+    if (effects.backgroundTabActivity) {
+      dispatchSessionTabs({ type: "activity", sessionId });
+    }
+    if (effects.reloadSessions) {
+      void handleQueueStateAfterChatEvent(sessionId, event);
+    }
+  });
   useEffect(() => {
     const unsubscribes = sessionTabs.openSessionIds
       .filter((sessionId) => sessionId !== activeSessionId)
       .map((sessionId) => chatStore.subscribe(sessionId, (event) => {
-        if (event.timeline) {
-          updateSessionStatusFromTimeline(sessionId, event.timeline);
-          dispatchSessionTabs({ type: "activity", sessionId });
-        }
-        if (isBackgroundTabActivityEvent(event)) {
-          dispatchSessionTabs({ type: "activity", sessionId });
-        }
-        if (shouldReloadSessionsForChatEvent(event)) {
-          void handleQueueStateAfterChatEvent(sessionId, event);
-        }
+        handleBackgroundChatEvent(sessionId, event);
       }));
     return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
   }, [activeSessionId, chatStore, sessionTabs.openSessionIds]);
@@ -1161,7 +938,7 @@ export function ChatPage({
     return () => {
       cancelled = true;
     };
-  }, [settingsStore]);
+  }, [settingsStore, t]);
 
   useEffect(() => {
     if (!composerModels.length) return;
@@ -1207,9 +984,10 @@ export function ChatPage({
     };
   }, [settingsStore]);
 
+  const stopGenerationSessionId = activeSession && sessionResponding ? activeSession.id : "";
   useEffect(() => {
-    onStopGenerationTargetChange?.(activeSession && sessionResponding ? activeSession.id : "");
-  }, [activeSession?.id, onStopGenerationTargetChange, sessionResponding]);
+    onStopGenerationTargetChange?.(stopGenerationSessionId);
+  }, [onStopGenerationTargetChange, stopGenerationSessionId]);
 
   useEffect(() => {
     const view = conversationViewBySessionRef.current.get(activeSessionId);
@@ -1324,73 +1102,6 @@ export function ChatPage({
     } finally {
       setInstallingMigrationJobId("");
     }
-  }
-
-  async function handleCreateSessionFromSearch() {
-    const created = await handleCreateSession();
-    if (created) {
-      setSessionSearchOpen(false);
-    }
-  }
-
-  async function handleAddWorkspace() {
-    if (workspacePickerPending || sessionCreatePending) {
-      return;
-    }
-    setWorkspacePickerPending(true);
-    setSessionWorkspaceError("");
-    try {
-      const workingDirectory = await pickDesktopWorkspaceDirectory();
-      if (workingDirectory) {
-        await handleCreateSession(workingDirectory);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setSessionWorkspaceError(message);
-      console.error("[session-workspaces] workspace.pick.failed", { error: message });
-    } finally {
-      setWorkspacePickerPending(false);
-    }
-  }
-
-  async function handleSaveProjectGroup(input: {
-    projectGroupId?: string;
-    name: string;
-    workspaceIds: string[];
-  }) {
-    if (!projectGroupStore) throw new Error(t("projectGroups.unavailable"));
-    const saved = await projectGroupStore.save(input);
-    setProjectGroups((current) => {
-      const existing = current.findIndex((group) => group.projectGroupId === saved.projectGroupId);
-      if (existing < 0) return [...current, saved];
-      const next = [...current];
-      next[existing] = saved;
-      return next;
-    });
-  }
-
-  async function handleDeleteProjectGroup(projectGroupId: string) {
-    if (!projectGroupStore) throw new Error(t("projectGroups.unavailable"));
-    await projectGroupStore.delete(projectGroupId);
-    setProjectGroups((current) => current.filter((group) => group.projectGroupId !== projectGroupId));
-  }
-
-  async function handleChooseProjectWorkspace(): Promise<string | undefined> {
-    if (workspacePickerPending) return undefined;
-    setWorkspacePickerPending(true);
-    try {
-      return await pickDesktopWorkspaceDirectory() || undefined;
-    } finally {
-      setWorkspacePickerPending(false);
-    }
-  }
-
-  function handleCreateCoordinatorSession(project: ProjectGroup) {
-    void handleCreateSession(undefined, {
-      projectCoordinator: true,
-      projectGroupId: project.projectGroupId,
-      title: t("projectGroups.newCoordinatorTitle", { name: project.name }),
-    });
   }
 
   async function handleDeleteSession(session: SessionSummary) {
@@ -1558,7 +1269,7 @@ export function ChatPage({
       await dispatchTurn(session.id, { text: t("browserHandoffContinue") }, "browser-handoff-complete");
       await handleSessionStoreRefresh(session);
     } catch (error) {
-      setTimelineError(t("runtime.browserHandoffFailed", { message: error instanceof Error ? error.message : String(error) }));
+      reportTimelineError(t("runtime.browserHandoffFailed", { message: error instanceof Error ? error.message : String(error) }));
     }
   }
 
@@ -1570,8 +1281,8 @@ export function ChatPage({
         await browserRuntime.closeSession(browserSession.browserSessionId);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        setBrowserRuntimeError(message);
-        setTimelineError(t("runtime.browserReleaseFailed", { message }));
+        reportBrowserError(message);
+        reportTimelineError(t("runtime.browserReleaseFailed", { message }));
         console.error("[tinyos] browser.session.close.failed", {
           browserSessionId: browserSession.browserSessionId,
           error: message,
@@ -1579,10 +1290,8 @@ export function ChatPage({
         });
         return;
       }
-      setBrowserSnapshot((current) => (
-        current?.data.browserSessionId === browserSession.browserSessionId ? undefined : current
-      ));
-      setBrowserRuntimeError("");
+      clearBrowserSnapshot(browserSession.browserSessionId);
+      clearBrowserError();
     }
     dispatchLiveCanvas({ type: "close" });
   }
@@ -1593,10 +1302,27 @@ export function ChatPage({
     pastedContent: PastedContent[],
     options: ComposerSendOptions,
   ) {
-    if (message.trim() === "/compact") {
-      if (files.length || pastedContent.length || tinyOsContextReferences.length || composerSessionMentionIds.length) {
-        throw new Error(t("errors.compactWithAttachments"));
-      }
+    const availableMentionIds = new Set(composerSessionMentionOptions.map((option) => option.id));
+    const prepared = await prepareChatSubmission({
+      availableSessionIds: availableMentionIds,
+      files,
+      isRunning: activeSession ? sessionResponding : false,
+      loadSessionTranscript: chatStore.copyMarkdown,
+      message,
+      now: nextQueuedInputTimestamp,
+      options,
+      pastedContent,
+      queuedInputs: activeQueuedInputs,
+      selectedSessionIds: composerSessionMentionIds,
+      sessions: sessionsRef.current.map((session) => ({
+        id: session.id,
+        title: displaySessionTitle(session.title, t),
+        updatedAtMs: session.updatedAtMs,
+      })),
+      t,
+      tinyOsReferences: tinyOsContextReferences,
+    });
+    if (prepared.kind === "compact") {
       if (!activeSession) {
         throw new Error(t("errors.compactNeedsSession"));
       }
@@ -1608,10 +1334,7 @@ export function ChatPage({
           sessionId: compactSession.id,
           source: { control: "slash-compact", surface: "chat" },
         }));
-        const compactedTimeline = await chatStore.load(compactSession.id);
-        setTimeline((current) => (
-          current?.sessionId === compactSession.id ? compactedTimeline : current
-        ));
+        await reloadSessionRuntime();
         await handleSessionStoreRefresh(compactSession);
       } catch (error) {
         console.error("[chat] context.compact.failed", {
@@ -1624,52 +1347,22 @@ export function ChatPage({
       }
       return;
     }
-    const availableMentionIds = new Set(composerSessionMentionOptions.map((option) => option.id));
-    const mentionedSessions = composerSessionMentionIds.map((sessionId) => {
-      const session = sessionsRef.current.find((candidate) => candidate.id === sessionId);
-      if (!session || !availableMentionIds.has(sessionId)) {
-        throw new Error(t("composer.sessionMention.unavailable"));
-      }
-      return session;
-    });
-    const references = [
-      ...files.map(nativeReferenceFromComposerFile),
-      ...tinyOsContextReferences.map((reference) => nativeReferenceFromTinyOs(reference, t)),
-      ...await nativeReferencesFromComposerSessions(mentionedSessions, chatStore.copyMarkdown, t),
-    ];
-    const visibleText = formatComposerMessage(
-      message || (files.length
-        ? t("composer.attachedFilesPrompt")
-        : mentionedSessions.length ? t("composer.sessionMention.attachedPrompt")
-          : references.length ? t("composer.attachedContextPrompt") : ""),
-      pastedContent,
-      t,
-    );
-    const sendSession = activeSession ?? await createSessionForDraft();
-    if (!visibleText || !sendSession) {
+    if (prepared.kind === "empty") {
       return;
     }
-    const queuedResult = submitComposerText({
-      content: visibleText,
-      isRunning: sendSession.id === activeSession?.id
-        ? sessionResponding
-        : isQueueableRunningSession(sendSession, emptyActiveSession),
-      now: nextQueuedInputTimestamp(),
-      queuedInputs: activeQueuedInputs,
-    });
-    if (queuedResult.kind === "queue_limit_reached") {
+    if (prepared.kind === "queue_limit_reached") {
       setQueueMessage(t("queue.limit", { count: MAX_QUEUED_INPUTS }));
       return;
     }
-    const turnInput = createComposerChatInput(
-      queuedResult.kind === "send_message" ? queuedResult.content : queuedResult.input.content,
-      options,
-      references,
-    );
-    if (queuedResult.kind === "queue_input") {
-      handleQueuedComposerResult(sendSession.id, queuedResult.input, turnInput);
+    const sendSession = activeSession ?? await createSessionForDraft();
+    if (!sendSession) {
       return;
     }
+    if (prepared.kind === "queue_input") {
+      handleQueuedComposerResult(sendSession.id, prepared.input);
+      return;
+    }
+    const visibleText = prepared.visibleText;
     const optimisticSession = isDefaultSessionTitle(sendSession.title)
       ? { ...sendSession, title: deriveSessionTitle(visibleText, t) }
       : sendSession;
@@ -1678,7 +1371,7 @@ export function ChatPage({
       setSessions((current) => current.map((session) => session.id === sendSession.id ? optimisticSession : session));
       await sessionStore.rename(sendSession.id, optimisticSession.title);
     }
-    await dispatchTurn(sendSession.id, turnInput, "composer-send");
+    await dispatchTurn(sendSession.id, prepared.turnInput, "composer-send");
     await handleSessionStoreRefresh(optimisticSession);
   }
 
@@ -1697,14 +1390,14 @@ export function ChatPage({
         if (tinyOsCapabilities.threadId !== activeSession.id
           || tinyOsCapabilities.evaluatedTurnId !== turn.id
           || !tinyOsCapabilities.capabilities.agent.retry.available) {
-          setTimelineError(tinyOsCapabilities.capabilities.agent.retry.reason || t("runtime.failedTurnRetryUnavailable"));
+          reportTimelineError(tinyOsCapabilities.capabilities.agent.retry.reason || t("runtime.failedTurnRetryUnavailable"));
           return;
         }
         const failedItem = retryItemId
           ? (turn.executionItems ?? turn.steps).find((step) => step.id === retryItemId && step.status === "failed")
           : [...(turn.executionItems ?? turn.steps)].reverse().find((step) => step.status === "failed");
         if (!failedItem) {
-          setTimelineError(t("runtime.failedItemUnavailable"));
+          reportTimelineError(t("runtime.failedItemUnavailable"));
           return;
         }
         const command = createTinyOsOperationRetryCommand({
@@ -1714,7 +1407,7 @@ export function ChatPage({
           threadId: turn.canonicalItems?.find((item) => item.threadId)?.threadId,
           turnId: turn.id,
         });
-        setTimelineError("");
+        clearTimelineError();
         dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
         try {
           await chatStore.dispatch(command);
@@ -1778,16 +1471,12 @@ export function ChatPage({
 
   function handleQueuedComposerResult(
     sessionId: string,
-    input: QueuedInput,
-    turnInput: ChatInput,
+    input: QueuedComposerInput,
   ) {
     setQueueMessage("");
     updateQueuedInputsBySession((current) => {
       const next = new Map(current);
-      next.set(sessionId, [...(next.get(sessionId) ?? []), {
-        ...input,
-        turnInput,
-      }]);
+      next.set(sessionId, [...(next.get(sessionId) ?? []), input]);
       return next;
     });
   }
@@ -1919,11 +1608,11 @@ export function ChatPage({
   async function handleStopGeneration(session: SessionSummary, surface: "chat" | "tinyos") {
     if (cancelInFlight) return;
     if (!canCancelTurn) {
-      setTimelineError(`Cannot cancel: ${cancelUnavailableReason}`);
+      reportTimelineError(`Cannot cancel: ${cancelUnavailableReason}`);
       return;
     }
     if (!activeTurn) {
-      setTimelineError(t("runtime.cancelActiveTurnUnavailable"));
+      reportTimelineError(t("runtime.cancelActiveTurnUnavailable"));
       return;
     }
     const command = createTinyOsAgentCancelCommand({
@@ -1961,27 +1650,89 @@ export function ChatPage({
     return new Date(now() + sequence).toISOString();
   }
 
-  async function handleQueueStateAfterChatEvent(sessionId: string, event: ChatEvent) {
-    const nextSessions = await handleSessionStoreRefresh();
-    if (isTerminalAgentEvent(event) && await sendPendingInterruptInput(sessionId, true)) {
+  function handleChatSessionRuntimeEffect(effect: ChatSessionRuntimeEffect): void {
+    if (effect.type === "timeline_applied") {
+      updateSessionStatusFromTimeline(effect.sessionId, effect.timeline);
+      setOptimisticMessagesBySession((current) => updateSessionMessages(
+        current,
+        effect.sessionId,
+        (messages) => messages.filter((message) => !effect.timeline.turns.some((turn) => (
+          turn.userMessage.clientEventId === message.id
+        ))),
+      ));
       return;
     }
-    if (shouldPauseQueuedInputsForChatEvent(event)) {
+    if (effect.type === "message_received") {
+      setOptimisticMessagesBySession((current) => updateSessionMessages(
+        current,
+        effect.sessionId,
+        (messages) => (
+          messages.some((message) => message.id === effect.message.id)
+            ? messages.map((message) => (
+              message.id === effect.message.id ? { ...message, ...effect.message } : message
+            ))
+            : [...messages, effect.message]
+        ),
+      ));
+      return;
+    }
+    if (effect.type === "session_refresh_requested") {
+      void handleQueueStateAfterChatEvent(effect.sessionId, effect.event);
+      return;
+    }
+
+    const event = effect.event;
+    if (event.command && event.type === "command.dispatched") {
+      pauseQueuedInputsForSession(event.command.target.sessionId);
+      dispatchCommandLifecycle({ command: event.command, nowMs: now(), type: "dispatch" });
+      return;
+    }
+    if (event.commandId && event.operationId && event.operationStatus && event.type === "host.operation") {
+      dispatchCommandLifecycle({
+        commandId: event.commandId,
+        error: event.error,
+        nowMs: now(),
+        operationId: event.operationId,
+        status: event.operationStatus,
+        type: "host_operation_updated",
+      });
+      return;
+    }
+    if (event.commandId && event.type === "command.accepted") {
+      dispatchCommandLifecycle({ commandId: event.commandId, nowMs: now(), type: "transport_accepted" });
+      return;
+    }
+    if (event.commandId && event.type === "error") {
+      dispatchCommandLifecycle({
+        commandId: event.commandId,
+        error: event.error || t("runtime.commandRejected"),
+        type: "rejected",
+      });
+    }
+  }
+
+  async function handleQueueStateAfterChatEvent(sessionId: string, event: ChatEvent) {
+    const nextSessions = await handleSessionStoreRefresh();
+    const effects = projectChatEventEffects(event);
+    if (effects.terminalAgentEvent && await sendPendingInterruptInput(sessionId, true)) {
+      return;
+    }
+    if (effects.queuedInputDisposition === "pause") {
       pauseQueuedInputsForSession(sessionId);
       return;
     }
-    if (!shouldDispatchQueuedInputForChatEvent(event)) {
+    if (effects.queuedInputDisposition !== "dispatch_next") {
       return;
     }
     const nextSession = nextSessions.find((session) => session.id === sessionId);
-    if (!canDispatchQueuedInputForSession(nextSession)) {
+    if (!canDispatchQueuedInput(nextSession)) {
       return;
     }
     await sendNextQueuedInput(sessionId, "normal_completion");
   }
 
   function updateSessionStatusFromTimeline(sessionId: string, nextTimeline: ChatTimelineSnapshot) {
-    const status = sessionStatusFromTimeline(nextTimeline);
+    const status = projectTimelineSessionStatus(nextTimeline);
     if (!status) return;
     setSessions((current) => {
       const next = current.map((session) => (
@@ -2131,12 +1882,12 @@ export function ChatPage({
       return;
     }
     if (!activeTurn) {
-      setTimelineError(t("runtime.submitFormTurnUnavailable"));
+      reportTimelineError(t("runtime.submitFormTurnUnavailable"));
       return;
     }
     const formTurnId = agentUiFormCorrelationString(form, "turn_id") || form.turn_id || activeTurn.id;
     if (formTurnId !== activeTurn.id) {
-      setTimelineError(t("runtime.submitFormStaleTurn", { turnId: formTurnId }));
+      reportTimelineError(t("runtime.submitFormStaleTurn", { turnId: formTurnId }));
       return;
     }
     const command = createTinyOsFormSubmitCommand({
@@ -2148,7 +1899,7 @@ export function ChatPage({
       turnId: activeTurn.id,
       values,
     });
-    setTimelineError("");
+    clearTimelineError();
     dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
     try {
       await chatStore.dispatch(command);
@@ -2166,12 +1917,12 @@ export function ChatPage({
       return;
     }
     if (!activeTurn) {
-      setTimelineError(t("runtime.cancelFormTurnUnavailable"));
+      reportTimelineError(t("runtime.cancelFormTurnUnavailable"));
       return;
     }
     const formTurnId = agentUiFormCorrelationString(form, "turn_id") || form.turn_id || activeTurn.id;
     if (formTurnId !== activeTurn.id) {
-      setTimelineError(t("runtime.cancelFormStaleTurn", { turnId: formTurnId }));
+      reportTimelineError(t("runtime.cancelFormStaleTurn", { turnId: formTurnId }));
       return;
     }
     const command = createTinyOsFormCancelCommand({
@@ -2182,7 +1933,7 @@ export function ChatPage({
         || activeTurn.canonicalItems?.find((item) => item.threadId)?.threadId,
       turnId: activeTurn.id,
     });
-    setTimelineError("");
+    clearTimelineError();
     dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
     try {
       await chatStore.dispatch(command);
@@ -2200,11 +1951,11 @@ export function ChatPage({
     const available = kind === "agent.pause" ? canPauseTurn : canResumeTurn;
     const unavailableReason = kind === "agent.pause" ? pauseUnavailableReason : resumeUnavailableReason;
     if (!available) {
-      setTimelineError(t(kind === "agent.pause" ? "runtime.cannotPause" : "runtime.cannotResume", { reason: unavailableReason }));
+      reportTimelineError(t(kind === "agent.pause" ? "runtime.cannotPause" : "runtime.cannotResume", { reason: unavailableReason }));
       return;
     }
     if (!activeTurn) {
-      setTimelineError(t(kind === "agent.pause" ? "runtime.pauseTurnUnavailable" : "runtime.resumeTurnUnavailable"));
+      reportTimelineError(t(kind === "agent.pause" ? "runtime.pauseTurnUnavailable" : "runtime.resumeTurnUnavailable"));
       return;
     }
     const command = createTinyOsAgentTurnControlCommand({
@@ -2214,7 +1965,7 @@ export function ChatPage({
       threadId: activeTurn.canonicalItems?.find((item) => item.threadId)?.threadId,
       turnId: activeTurn.id,
     });
-    setTimelineError("");
+    clearTimelineError();
     dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
     try {
       await chatStore.dispatch(command);
@@ -2234,10 +1985,9 @@ export function ChatPage({
     onSessionSidebarCollapsedChange?.(collapsed);
   }
 
-  function handleSessionSearchSelect(session: SessionSummary) {
+  function handleSelectSession(session: SessionSummary) {
     dispatchDelete({ type: "session-selected", sessionId: session.id });
     dispatchSessionTabs({ type: "open", sessionId: session.id });
-    setSessionSearchOpen(false);
   }
 
   function handleActivateSessionTab(sessionId: string) {
@@ -2264,54 +2014,9 @@ export function ChatPage({
     void handleStopGeneration(activeSession, "chat");
   }
 
-  function renderSidebarSessionRow(session: SessionSummary, index: number) {
-    const confirming = deleteState.confirmingSessionId === session.id;
-    const dissolving = dissolvingSessionIds.has(session.id);
-    return (
-      <div
-        className="react-session-row"
-        data-active={session.id === activeSession?.id}
-        data-confirming={confirming}
-        data-dissolving={dissolving ? "true" : undefined}
-        data-motion-role="item"
-        key={session.id}
-        onMouseLeave={() => dispatchDelete({ type: "row-left", sessionId: session.id })}
-        style={{ "--react-session-row-index": String(index) } as CSSProperties}
-      >
-        <button
-          aria-label={session.title}
-          className="react-session-row__select"
-          type="button"
-          disabled={dissolving}
-          onClick={() => {
-            dispatchDelete({ type: "session-selected", sessionId: session.id });
-            dispatchSessionTabs({ type: "open", sessionId: session.id });
-          }}
-        >
-          <span className="react-session-row__title">{displaySessionTitle(session.title, t)}</span>
-          <small>{formatRelativeUpdatedTime(session.updatedAtMs, now())}</small>
-        </button>
-        <button
-          aria-label={t(confirming ? "shell.confirmDelete" : "shell.delete", { name: session.title })}
-          className="react-session-row__delete"
-          data-confirming={confirming}
-          type="button"
-          disabled={dissolving}
-          onClick={() => void handleDeleteSession(session)}
-        >
-          <Trash2 aria-hidden="true" size={15} />
-        </button>
-      </div>
-    );
-  }
-
   const visibleAgentUiForms = agentUiForms.filter(isVisibleAgentUiForm);
   const interactiveFormIds = new Set(visibleAgentUiForms.map((form) => form.form_id));
   const headerTitle = activeSession ? displaySessionTitle(activeSession.title, t) : draftNewSession ? t("shell.newChat") : t("shell.noSelection");
-  const projectDialogGroup = projectDialogGroupId && projectDialogGroupId !== "new"
-    ? projectGroups.find((group) => group.projectGroupId === projectDialogGroupId)
-    : undefined;
-
   return (
     <section
       className="react-chat-page"
@@ -2322,204 +2027,26 @@ export function ChatPage({
       style={{ "--tinyos-width": `${tinyOsWidth}px` } as CSSProperties}
       onKeyDown={handleChatPageKeyDown}
     >
-      <aside className="react-session-list" aria-label={t("shell.sessions")} data-collapsed={resolvedSessionSidebarCollapsed}>
-        <div className="react-session-list__header">
-          <div className="react-session-list__title-row">
-            <h2>Tinybot</h2>
-            <div className="react-session-list__title-actions">
-              <div className="react-session-list__workspace-actions" ref={workspaceActionMenuRef}>
-                <button
-                  aria-expanded={workspaceActionMenuOpen}
-                  aria-haspopup="menu"
-                  aria-label={t("shell.workspaceActions")}
-                  className="react-session-list__add-workspace"
-                  disabled={workspacePickerPending || sessionCreatePending}
-                  title={t("shell.workspaceActions")}
-                  type="button"
-                  onClick={() => setWorkspaceActionMenuOpen((open) => !open)}
-                >
-                  <FolderPlus aria-hidden="true" size={15} />
-                </button>
-                {workspaceActionMenuOpen ? (
-                  <div aria-label={t("shell.workspaceActions")} className="react-session-list__workspace-menu" role="menu">
-                    <button
-                      role="menuitem"
-                      type="button"
-                      onClick={() => {
-                        setWorkspaceActionMenuOpen(false);
-                        void handleAddWorkspace();
-                      }}
-                    >
-                      <FolderPlus aria-hidden="true" size={14} />
-                      {t("shell.addWorkspace")}
-                    </button>
-                    <button
-                      disabled={!projectGroupStore}
-                      role="menuitem"
-                      type="button"
-                      onClick={() => {
-                        setWorkspaceActionMenuOpen(false);
-                        setProjectDialogGroupId("new");
-                      }}
-                    >
-                      <GitBranch aria-hidden="true" size={14} />
-                      {t("projectGroups.create")}
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-              <button
-                aria-label={t("shell.searchChats")}
-                className="react-session-list__search"
-                title={t("shell.searchChats")}
-                type="button"
-                onClick={() => setSessionSearchOpen(true)}
-              >
-                <Search aria-hidden="true" size={15} />
-              </button>
-              <button
-                aria-label={resolvedSessionSidebarCollapsed ? t("shell.expandSidebar") : t("shell.collapseSidebar")}
-                className="react-session-list__collapse"
-                title={resolvedSessionSidebarCollapsed ? t("shell.expandSidebar") : t("shell.collapseSidebar")}
-                type="button"
-                onClick={() => handleSessionSidebarCollapsedChange(!resolvedSessionSidebarCollapsed)}
-              >
-                <ChevronLeft aria-hidden="true" data-direction={resolvedSessionSidebarCollapsed ? "expand" : "collapse"} size={16} />
-              </button>
-            </div>
-          </div>
-          <button
-            aria-label={t("shell.newChat")}
-            className="react-session-list__new"
-            disabled={sessionCreatePending}
-            type="button"
-            onClick={() => void handleCreateSession()}
-          >
-            {sessionCreatePending ? <Loader2 aria-hidden="true" className="react-session-list__pending" size={15} /> : <Plus aria-hidden="true" size={15} />}
-            <span>{t("shell.newChat")}</span>
-          </button>
-          {sessionWorkspaceError ? (
-            <p className="react-session-list__error" role="alert">{sessionWorkspaceError}</p>
-          ) : null}
-        </div>
-        <div className="react-session-list__rows" aria-label={t("shell.sessionRows")} data-motion="animated-list">
-          {projectProjection.groups.map((projectGroup) => {
-            const projectSessions = [
-              ...projectGroup.coordinatorSessions,
-              ...projectGroup.workspaces.flatMap((workspace) => workspace.sessions),
-            ];
-            return (
-              <details
-                aria-label={t("projectGroups.groupLabel", { name: projectGroup.project.name })}
-                className="react-project-group"
-                data-active={projectSessions.some((session) => session.id === activeSession?.id) ? "true" : undefined}
-                key={projectGroup.project.projectGroupId}
-                open
-                role="group"
-              >
-                <summary title={projectGroup.project.name}>
-                  <ChevronRight aria-hidden="true" className="react-project-group__chevron" size={14} />
-                  <GitBranch aria-hidden="true" className="react-project-group__icon" size={15} />
-                  <strong>{projectGroup.project.name}</strong>
-                </summary>
-                <div className="react-project-group__actions">
-                  <button
-                    aria-label={t("projectGroups.newCoordinator", { name: projectGroup.project.name })}
-                    disabled={sessionCreatePending}
-                    onClick={() => handleCreateCoordinatorSession(projectGroup.project)}
-                    title={t("projectGroups.newCoordinator", { name: projectGroup.project.name })}
-                    type="button"
-                  >
-                    <Plus aria-hidden="true" size={14} />
-                  </button>
-                  <button
-                    aria-label={t("projectGroups.edit", { name: projectGroup.project.name })}
-                    onClick={() => setProjectDialogGroupId(projectGroup.project.projectGroupId)}
-                    title={t("projectGroups.edit", { name: projectGroup.project.name })}
-                    type="button"
-                  >
-                    <MoreHorizontal aria-hidden="true" size={15} />
-                  </button>
-                </div>
-                <div className="react-project-group__content">
-                  {projectGroup.coordinatorSessions.length ? (
-                    <section className="react-project-group__coordinators">
-                      <div className="react-project-group__member-title">
-                        <GitBranch aria-hidden="true" size={13} />
-                        <span>{t("projectGroups.coordination")}</span>
-                      </div>
-                      {projectGroup.coordinatorSessions.map(renderSidebarSessionRow)}
-                    </section>
-                  ) : null}
-                  {projectGroup.workspaces.map((workspace) => (
-                    <section className="react-project-workspace" key={workspace.workspaceId}>
-                      <div className="react-project-group__member-title" title={workspace.workspaceId}>
-                        <Folder aria-hidden="true" size={13} />
-                        <span>
-                          <strong>{workspace.label}</strong>
-                          <small>{workspace.workspaceId}</small>
-                        </span>
-                        <button
-                          aria-label={t("projectGroups.newWorkspaceSession", { name: workspace.label })}
-                          disabled={sessionCreatePending}
-                          onClick={() => void handleCreateSession(workspace.workspaceId, {
-                            projectGroupId: projectGroup.project.projectGroupId,
-                          })}
-                          title={t("projectGroups.newWorkspaceSession", { name: workspace.label })}
-                          type="button"
-                        >
-                          <Plus aria-hidden="true" size={13} />
-                        </button>
-                      </div>
-                      <div className="react-project-workspace__sessions">
-                        {workspace.sessions.map(renderSidebarSessionRow)}
-                      </div>
-                    </section>
-                  ))}
-                </div>
-              </details>
-            );
-          })}
-          {sessionWorkspaces.length ? sessionWorkspaces.map((workspace) => (
-            <details
-              aria-label={t("shell.workspace", { name: workspace.label })}
-              className="react-session-workspace"
-              data-active={workspace.sessions.some((session) => session.id === activeSession?.id) ? "true" : undefined}
-              key={workspace.key}
-              open
-              role="group"
-            >
-              <summary title={workspace.workingDirectory ?? workspace.label}>
-                <ChevronRight aria-hidden="true" className="react-session-workspace__chevron" size={14} />
-                <span aria-hidden="true" className="react-session-workspace__folder">
-                  <Folder className="react-session-workspace__folder-icon--collapsed" size={15} />
-                  <FolderOpen className="react-session-workspace__folder-icon--expanded" size={15} />
-                </span>
-                <span className="react-session-workspace__copy">
-                  <strong>{workspace.label}</strong>
-                  {workspace.workingDirectory ? <small>{workspace.workingDirectory}</small> : null}
-                </span>
-              </summary>
-              <button
-                aria-label={t("shell.newSessionIn", { name: workspace.label })}
-                className="react-session-workspace__new"
-                disabled={sessionCreatePending}
-                title={t("shell.newSessionIn", { name: workspace.label })}
-                type="button"
-                onClick={() => void handleCreateSession(workspace.workingDirectory)}
-              >
-                <Plus aria-hidden="true" size={15} />
-              </button>
-              <div className="react-session-workspace__sessions">
-                {workspace.sessions.map(renderSidebarSessionRow)}
-              </div>
-            </details>
-          )) : null}
-          {!projectProjection.groups.length && !sessionWorkspaces.length && !resolvedSessionSidebarCollapsed
-            ? <EmptyStateText text={t("shell.noSessions")} />
-            : null}
-        </div>
-      </aside>
+      <ChatSessionWorkspace
+        actions={{
+          onCancelDeleteConfirmation: (sessionId) => dispatchDelete({ type: "row-left", sessionId }),
+          onCollapsedChange: handleSessionSidebarCollapsedChange,
+          onCreateSession: handleCreateSession,
+          onDeleteSession: handleDeleteSession,
+          onOpenFiles,
+          onOpenSettings,
+          onSelectSession: handleSelectSession,
+        }}
+        activeSessionId={activeSessionId}
+        collapsed={resolvedSessionSidebarCollapsed}
+        confirmingDeleteSessionId={deleteState.confirmingSessionId}
+        createPending={sessionCreatePending}
+        dissolvingSessionIds={dissolvingSessionIds}
+        error={sessionWorkspaceError}
+        now={now}
+        projectGroupStore={projectGroupStore}
+        sessions={sessions}
+      >
 
       <main className="react-chat-surface" data-empty-session={emptyActiveSession ? "true" : undefined}>
         <header className="react-chat-header">
@@ -2588,33 +2115,25 @@ export function ChatPage({
           role="tabpanel"
           onScroll={handleConversationScroll}
         >
-          {timelineError ? <p aria-live="assertive" className="react-timeline-error">{timelineError}</p> : null}
-          {activeSession && timeline?.turns.length ? timeline.turns.map((turn) => (
-            <CanonicalChatTurn
-              interactiveFormIds={interactiveFormIds}
-              key={turn.id}
-              turn={turn}
-              onBranch={(messageId) => void handleBranchFromMessage(activeSession, messageId)}
-              onOpenArtifact={(artifact) => void handleOpenArtifact(artifact)}
-              onOpenLiveCanvas={(step) => openLiveCanvasItem(turn.id, step)}
-              onOpenSubagent={(delegate) => void handleOpenSubagent(delegate)}
-              onOpenTool={(toolCall) => setDrawer({ kind: "tool", title: toolCall.name, toolCall })}
-              focusError={turn.id === latestFailedTurnId}
-              recovering={recoveringTurnId === turn.id}
-              onOpenError={(step) => setDrawer({ kind: "error", title: t("shell.errorDetails"), step, turn })}
-              onRecover={(action) => void handleRecoverTurn(turn, action)}
-            />
-          )) : emptyActiveSession ? <EmptyChatStart onSelectPrompt={handleComposerDraftChange} /> : activeSession ? null : <EmptyStateText text={t("shell.selectSession")} />}
-          {optimisticMessages.map((message) => (
-            <MessageBubble
-              key={message.id}
-              message={message}
-              onBranch={() => undefined}
-              onCopy={() => void writeClipboardText(formatMessageForCopy(message))}
-              onOpenTool={() => undefined}
-              sessionRunning={sessionRunning}
-            />
-          ))}
+          <ChatTimeline
+            actions={{
+              onBranch: (messageId) => activeSession && void handleBranchFromMessage(activeSession, messageId),
+              onOpenArtifact: (artifact) => void handleOpenArtifact(artifact),
+              onOpenError: (turn, step) => setDrawer({ kind: "error", title: t("shell.errorDetails"), step, turn }),
+              onOpenLiveCanvas: (turn, step) => openLiveCanvasItem(turn.id, step),
+              onOpenSubagent: (delegate) => void handleOpenSubagent(delegate),
+              onOpenTool: (toolCall) => setDrawer({ kind: "tool", title: toolCall.name, toolCall }),
+              onRecover: (turn, action) => void handleRecoverTurn(turn, action),
+            }}
+            error={timelineError}
+            interactiveFormIds={interactiveFormIds}
+            latestFailedTurnId={latestFailedTurnId}
+            optimisticMessages={optimisticMessages}
+            recoveringTurnId={recoveringTurnId}
+            sessionRunning={sessionRunning}
+            turns={activeSession ? timeline?.turns ?? [] : []}
+          />
+          {activeSession && timeline?.turns.length ? null : emptyActiveSession ? <EmptyChatStart onSelectPrompt={handleComposerDraftChange} /> : activeSession ? null : <EmptyStateText text={t("shell.selectSession")} />}
           {showPluginMigrationResult && activeSession?.pluginMigration ? (
             <section
               aria-label={t("migration.label")}
@@ -2735,7 +2254,7 @@ export function ChatPage({
                 ? sessionStore.setModel?.(activeSession.id, selectedModelId, selected.providerId)
                 : sessionStore.setModel?.(activeSession.id, selectedModelId);
               void setModel?.catch((error) => {
-                setTimelineError(t("errors.modelSaveFailed", { message: error instanceof Error ? error.message : String(error) }));
+                reportTimelineError(t("errors.modelSaveFailed", { message: error instanceof Error ? error.message : String(error) }));
               });
             }
           }}
@@ -2857,166 +2376,16 @@ export function ChatPage({
             ) : drawer.kind === "artifact" ? (
               <ArtifactDetails artifact={drawer.artifact} detail={drawer.detail} error={drawer.error} loading={drawer.loading} />
             ) : (
-              <ErrorDetails step={drawer.step} turn={drawer.turn} />
+              <ChatErrorDetails step={drawer.step} turn={drawer.turn} />
             )}
           </div>
         </aside>
       ) : null}
-
-      {sessionSearchOpen ? (
-        <SessionSearchDialog
-          activeSessionId={activeSession?.id ?? ""}
-          now={now}
-          sessions={sessions}
-          onClose={() => setSessionSearchOpen(false)}
-          onCreateSession={() => void handleCreateSessionFromSearch()}
-          onOpenFiles={onOpenFiles}
-          onOpenSettings={onOpenSettings}
-          onSelectSession={handleSessionSearchSelect}
-        />
-      ) : null}
-      {projectDialogGroupId ? (
-        <ProjectGroupDialog
-          availableWorkspaceIds={availableProjectWorkspaceIds}
-          group={projectDialogGroup}
-          onChooseWorkspace={handleChooseProjectWorkspace}
-          onClose={() => setProjectDialogGroupId(undefined)}
-          onDelete={projectDialogGroup ? handleDeleteProjectGroup : undefined}
-          onSave={handleSaveProjectGroup}
-        />
-      ) : null}
+      </ChatSessionWorkspace>
     </section>
   );
 }
 
-function SessionSearchDialog({
-  activeSessionId,
-  now,
-  onClose,
-  onCreateSession,
-  onOpenFiles,
-  onOpenSettings,
-  onSelectSession,
-  sessions,
-}: {
-  activeSessionId: string;
-  now: () => number;
-  onClose: () => void;
-  onCreateSession: () => void;
-  onOpenFiles?: () => void;
-  onOpenSettings?: () => void;
-  onSelectSession: (session: SessionSummary) => void;
-  sessions: SessionSummary[];
-}) {
-  const { i18n, t } = useTranslation("chat");
-  const [query, setQuery] = useState("");
-  const normalizedQuery = query.trim().toLowerCase();
-  const filteredSessions = normalizedQuery
-    ? sessions.filter((session) => [session.title, session.chatId ?? "", session.id, session.workingDirectory ?? ""]
-      .some((value) => value.toLowerCase().includes(normalizedQuery)))
-    : sessions;
-  const recommendations = [
-    {
-      id: "new-chat",
-      label: t("shell.newChat"),
-      shortcut: "Ctrl+N",
-      icon: Plus,
-      run: onCreateSession,
-    },
-    ...(onOpenFiles ? [{
-      id: "open-files",
-      label: t("search.openFolder"),
-      shortcut: "Ctrl+O",
-      icon: FolderOpen,
-      run: () => {
-        onOpenFiles();
-        onClose();
-      },
-    }] : []),
-    ...(onOpenSettings ? [{
-      id: "open-settings",
-      label: t("search.settings"),
-      shortcut: "Ctrl+,",
-      icon: Settings,
-      run: () => {
-        onOpenSettings();
-        onClose();
-      },
-    }] : []),
-  ];
-
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
-
-  return (
-    <div
-      className="react-command-palette-backdrop react-session-search-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onClose();
-        }
-      }}
-    >
-      <section aria-label={t("search.label")} className="react-command-palette react-session-search-dialog" role="dialog">
-        <div className="react-session-search__input-row">
-          <Search aria-hidden="true" size={18} />
-          <input
-            aria-label={t("search.placeholder")}
-            autoFocus
-            placeholder={t("search.placeholder")}
-            value={query}
-            onChange={(event) => setQuery(event.currentTarget.value)}
-          />
-        </div>
-        <div className="react-session-search__section">
-          <p>{t("search.chats")}</p>
-          <div className="react-session-search__list">
-            {filteredSessions.length ? filteredSessions.map((session, index) => (
-              <button
-                aria-current={session.id === activeSessionId ? "page" : undefined}
-                className="react-session-search__item"
-                key={session.id}
-                type="button"
-                onClick={() => onSelectSession(session)}
-              >
-                <span className="react-session-search__rank">{index + 1}</span>
-                <span className="react-session-search__title">{session.title}</span>
-                <span className="react-session-search__meta">
-                  {session.workingDirectory ? sessionWorkspaceName(session.workingDirectory) : t("search.regular")}
-                </span>
-                <kbd>{`Ctrl+${index + 1}`}</kbd>
-                <small>{formatRelativeUpdatedTime(session.updatedAtMs, now(), i18n.language, t("search.noDate"))}</small>
-              </button>
-            )) : <span className="react-session-search__empty">{t("search.noMatches")}</span>}
-          </div>
-        </div>
-        <div className="react-session-search__section">
-          <p>{t("search.suggested")}</p>
-          <div className="react-session-search__list">
-            {recommendations.map((recommendation) => {
-              const Icon = recommendation.icon;
-              return (
-                <button className="react-session-search__item" key={recommendation.id} type="button" onClick={recommendation.run}>
-                  <Icon aria-hidden="true" size={17} />
-                  <span className="react-session-search__title">{recommendation.label}</span>
-                  <kbd>{recommendation.shortcut}</kbd>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-    </div>
-  );
-}
 
 function EmptyChatStart({ onSelectPrompt }: { onSelectPrompt: (prompt: string) => void }) {
   const { t } = useTranslation("chat");
@@ -3035,161 +2404,11 @@ function EmptyChatStart({ onSelectPrompt }: { onSelectPrompt: (prompt: string) =
 }
 
 function EmptyStateText({ text }: { text: string }) {
-  return (
-    <p className="react-empty-state">
-      <TextType ariaLabel={text} className="react-text-type" loop={false} showCursor={false} text={text} />
-    </p>
-  );
-}
-
-const MESSAGE_RELOAD_EVENT_TYPES = new Set([
-  "attached",
-]);
-
-const SESSION_RELOAD_EVENT_TYPES = new Set([
-  "chat.created",
-  "interrupted",
-]);
-
-const TERMINAL_AGENT_EVENT_TYPES = new Set([
-  "agent.turn.completed",
-  "agent.turn.failed",
-  "agent.turn.interrupted",
-]);
-
-function shouldReloadMessagesForChatEvent(type: string): boolean {
-  return MESSAGE_RELOAD_EVENT_TYPES.has(type);
-}
-
-function shouldReloadSessionsForChatEvent(event: ChatEvent): boolean {
-  return SESSION_RELOAD_EVENT_TYPES.has(event.type)
-    || (event.type === "agent.event" && Boolean(event.eventType && TERMINAL_AGENT_EVENT_TYPES.has(event.eventType)));
-}
-
-function shouldReloadAgentUiFormsForChatEvent(type: string): boolean {
-  return type === "agent-ui.form" || type === "agent-ui.event";
-}
-
-function isBackgroundTabActivityEvent(event: ChatEvent): boolean {
-  return Boolean(
-    event.error
-    || event.timeline
-    || (event.type === "agent.event" && event.eventType && TERMINAL_AGENT_EVENT_TYPES.has(event.eventType)),
-  );
-}
-
-function sessionStatusFromTimeline(timeline: ChatTimelineSnapshot): SessionSummary["status"] | undefined {
-  const status = timeline.turns[timeline.turns.length - 1]?.status;
-  if (status === "pending" || status === "running" || status === "awaiting_user") {
-    return "running";
-  }
-  if (status === "failed" || status === "interrupted") {
-    return "failed";
-  }
-  if (status === "completed") {
-    return "idle";
-  }
-  return undefined;
-}
-
-function shouldDispatchQueuedInputForChatEvent(event: ChatEvent): boolean {
-  return event.type === "agent.event" && event.eventType === "agent.turn.completed";
-}
-
-function isTerminalAgentEvent(event: ChatEvent): boolean {
-  return event.type === "agent.event" && Boolean(event.eventType && TERMINAL_AGENT_EVENT_TYPES.has(event.eventType));
-}
-
-function shouldPauseQueuedInputsForChatEvent(event: ChatEvent): boolean {
-  return event.type === "interrupted"
-    || (event.type === "agent.event" && (
-      event.eventType === "agent.turn.failed" || event.eventType === "agent.turn.interrupted"
-    ));
-}
-
-function canDispatchQueuedInputForSession(session: SessionSummary | undefined): boolean {
-  return session?.status !== "running" && session?.status !== "failed";
-}
-
-function latestTimelineUsage(
-  turns: ChatTurn[],
-  defaults: ContextUsageDefaults = {},
-): TokenUsage | undefined {
-  let latestCompactedTokens: number | undefined;
-  let latestCompactionStrategy: string | undefined;
-  for (const turn of [...turns].reverse()) {
-    if (turn.usage) {
-      if (latestCompactedTokens === undefined || turn.usage.contextWindowTokens === undefined) {
-        return turn.usage;
-      }
-      return usageAfterCompaction(
-        latestCompactedTokens,
-        turn.usage.contextWindowTokens,
-        latestCompactionStrategy,
-        turn.usage,
-      );
-    }
-    const compaction = [...turn.steps]
-      .reverse()
-      .find((step) => step.kind === "compaction" && step.compaction?.estimatedTokensAfter !== undefined)
-      ?.compaction;
-    latestCompactedTokens ??= compaction?.estimatedTokensAfter;
-    latestCompactionStrategy ??= compaction?.strategy;
-    if (latestCompactedTokens !== undefined && compaction?.contextWindowTokens !== undefined) {
-      return usageAfterCompaction(
-        latestCompactedTokens,
-        compaction.contextWindowTokens,
-        latestCompactionStrategy,
-      );
-    }
-  }
-  if (latestCompactedTokens !== undefined && defaults.contextWindowTokens !== undefined) {
-    return usageAfterCompaction(
-      latestCompactedTokens,
-      defaults.contextWindowTokens,
-      latestCompactionStrategy ?? defaults.contextWindowStrategy,
-    );
-  }
-  return undefined;
-}
-
-function usageAfterCompaction(
-  estimatedTokensAfter: number,
-  contextWindowTokens: number,
-  contextWindowStrategy?: string,
-  previousUsage: TokenUsage = {},
-): TokenUsage {
-  const contextWindowUsedTokens = Math.min(estimatedTokensAfter, contextWindowTokens);
-  return {
-    ...previousUsage,
-    contextWindowRemainingTokens: Math.max(0, contextWindowTokens - contextWindowUsedTokens),
-    ...(contextWindowStrategy ? { contextWindowStrategy } : {}),
-    contextWindowTokens,
-    contextWindowUsedTokens,
-    percent: contextWindowTokens > 0 ? (contextWindowUsedTokens / contextWindowTokens) * 100 : 0,
-  };
-}
-
-function isQueueableRunningSession(session: SessionSummary, emptyActiveSession: boolean): boolean {
-  return session.status === "running" && !emptyActiveSession && !session.id.startsWith("pending:");
+  return <p className="react-empty-state">{text}</p>;
 }
 
 function toChatInput(input: QueuedComposerInput): ChatInput {
   return input.turnInput;
-}
-
-function createComposerChatInput(
-  text: string,
-  options: ComposerSendOptions,
-  references: AgentInputReference[],
-): ChatInput {
-  return {
-    text,
-    ...(options.model ? { model: options.model } : {}),
-    ...(options.provider ? { provider: options.provider } : {}),
-    ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
-    ...(references.length ? { references } : {}),
-  };
 }
 
 function tinyOsContextReferenceId(reference: TinyOsContextReference): string {
@@ -3248,13 +2467,6 @@ function agentUiFormCorrelationString(form: AgentUiForm, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
-function tinyOsReferenceLabel(reference: TinyOsContextReference, t: TFunction<"chat">): string {
-  const lineRange = reference.startLine
-    ? `L${reference.startLine}${reference.endLine && reference.endLine !== reference.startLine ? `–${reference.endLine}` : ""}`
-    : t("references.selection");
-  return reference.kind === "file" ? `${reference.path} · ${lineRange}` : `${reference.command} · ${lineRange}`;
-}
-
 function composerReferenceFromTinyOs(reference: TinyOsContextReference, t: TFunction<"chat">): ComposerContextReference {
   return {
     detail: reference.kind === "file" ? t("references.fileSelection") : t("references.terminalOutput"),
@@ -3262,112 +2474,6 @@ function composerReferenceFromTinyOs(reference: TinyOsContextReference, t: TFunc
     kind: reference.kind,
     label: tinyOsReferenceLabel(reference, t),
   };
-}
-
-function nativeReferenceFromTinyOs(reference: TinyOsAgentRequestReference, t: TFunction<"chat">): AgentInputReference {
-  const canonical = reference.kind === "file"
-    ? reference.provenance.kind === "canonical" ? reference.provenance : undefined
-    : { sourceItemId: reference.sourceItemId, turnId: reference.turnId };
-  const scope = canonical?.turnId ?? (reference.kind === "file" && reference.provenance.kind === "workspace_read" ? reference.provenance.workspaceKey : undefined);
-  const detail = reference.kind === "file"
-    ? t("references.fileSelection")
-    : reference.kind === "terminal" ? t("references.terminalSelection") : t("references.planSnapshot");
-  const title = reference.kind === "plan" ? t("references.executionPlan") : tinyOsReferenceLabel(reference, t);
-  return {
-    detail,
-    evidenceId: canonical?.sourceItemId,
-    kind: "reference",
-    scope,
-    sourceEndLine: reference.kind === "plan" ? undefined : reference.endLine,
-    sourceLine: reference.kind === "plan" ? undefined : reference.startLine,
-    sourceText: reference.kind === "plan" ? reference.snapshotText : reference.selectedText,
-    title,
-    type: `tinyos.${reference.kind}`,
-    ...(reference.kind === "file" ? {
-      rawLine: reference.startLine,
-      rawPath: reference.path,
-      revision: reference.revision,
-      sourcePath: reference.path,
-    } : {}),
-  };
-}
-
-function nativeReferenceFromComposerFile(file: ComposerFileReference): AgentInputReference {
-  return {
-    detail: formatFileMetadata(file.mimeType, file.sizeBytes),
-    kind: "reference",
-    rawPath: file.path,
-    title: file.name,
-    type: "tinyos.file",
-  };
-}
-
-async function nativeReferencesFromComposerSessions(
-  sessions: SessionSummary[],
-  loadTranscript: (sessionId: string) => Promise<string>,
-  t: TFunction<"chat">,
-): Promise<AgentInputReference[]> {
-  const selected = sessions.slice(0, MAX_COMPOSER_SESSION_REFERENCES);
-  if (!selected.length) return [];
-  const transcriptBudget = Math.floor(MAX_COMPOSER_SESSION_CONTEXT_BYTES / selected.length);
-  return Promise.all(selected.map(async (session) => {
-    let transcript: string;
-    try {
-      transcript = await loadTranscript(session.id);
-    } catch (error) {
-      console.error("[chat] composer.session_reference.load_failed", {
-        error: error instanceof Error ? error.message : String(error),
-        sessionId: session.id,
-      });
-      throw error;
-    }
-    return {
-      detail: t("composer.sessionMention.referenceDetail"),
-      kind: "reference" as const,
-      revision: String(session.updatedAtMs),
-      scope: session.id,
-      sourceText: truncateUtf8Middle(
-        transcript || t("composer.sessionMention.emptyTranscript"),
-        transcriptBudget,
-      ),
-      title: displaySessionTitle(session.title, t),
-      type: "tinyos.thread",
-    };
-  }));
-}
-
-function truncateUtf8Middle(value: string, maxBytes: number): string {
-  const encoder = new TextEncoder();
-  if (encoder.encode(value).byteLength <= maxBytes) return value;
-  const markerBytes = encoder.encode(SESSION_TRANSCRIPT_OMISSION).byteLength;
-  const contentBudget = Math.max(0, maxBytes - markerBytes);
-  const prefixBudget = Math.floor(contentBudget / 3);
-  const suffixBudget = contentBudget - prefixBudget;
-  return `${utf8Prefix(value, prefixBudget, encoder)}${SESSION_TRANSCRIPT_OMISSION}${utf8Suffix(value, suffixBudget, encoder)}`;
-}
-
-function utf8Prefix(value: string, maxBytes: number, encoder: TextEncoder): string {
-  let output = "";
-  let bytes = 0;
-  for (const character of value) {
-    const nextBytes = encoder.encode(character).byteLength;
-    if (bytes + nextBytes > maxBytes) break;
-    output += character;
-    bytes += nextBytes;
-  }
-  return output;
-}
-
-function utf8Suffix(value: string, maxBytes: number, encoder: TextEncoder): string {
-  const output: string[] = [];
-  let bytes = 0;
-  for (const character of Array.from(value).reverse()) {
-    const nextBytes = encoder.encode(character).byteLength;
-    if (bytes + nextBytes > maxBytes) break;
-    output.push(character);
-    bytes += nextBytes;
-  }
-  return output.reverse().join("");
 }
 
 function tinyOsAgentRequestControl(reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent): string {
@@ -3441,14 +2547,6 @@ function moveMapValue<T>(
   const value = map.get(previousSessionId) as T;
   map.delete(previousSessionId);
   map.set(sessionId, value);
-}
-
-function formatComposerMessage(message: string, pastedContent: PastedContent[], t: TFunction<"chat">): string {
-  const segments = [message.trim()].filter(Boolean);
-  for (const pasted of pastedContent) {
-    segments.push(`${t("composer.pastedContentLabel")}:\n${pasted.content}`);
-  }
-  return segments.join("\n\n");
 }
 
 function toComposerModelOption(model: ChatModelOption, t: TFunction<"chat">): ModelOption {
@@ -3538,1148 +2636,7 @@ function queuedInputStatusLabel(input: QueuedInput, t: TFunction<"chat">): strin
   }
 }
 
-function CanonicalChatTurn({
-  focusError,
-  interactiveFormIds,
-  onBranch,
-  onOpenError,
-  onOpenArtifact,
-  onOpenLiveCanvas,
-  onRecover,
-  onOpenSubagent,
-  onOpenTool,
-  recovering,
-  turn,
-}: {
-  focusError: boolean;
-  interactiveFormIds: ReadonlySet<string>;
-  onBranch: (messageId: string) => void;
-  onOpenError: (step: ChatStep) => void;
-  onOpenArtifact: (artifact: ArtifactRef) => void;
-  onOpenLiveCanvas: (step: ChatStep) => void;
-  onRecover: (action: RecoveryAction) => void;
-  onOpenSubagent: (delegate: DelegatedAgentState) => void;
-  onOpenTool: (toolCall: ToolCallSummary) => void;
-  recovering: boolean;
-  turn: ChatTurn;
-}) {
-  const { t } = useTranslation("chat");
-  const executionItems = turn.executionItems ?? turn.steps;
-  const finalAnswer = turn.finalAnswer ?? turn.finalMessage;
-  const reasoningSteps = turn.steps.filter((step) => step.kind === "reasoning");
-  const planSteps = turn.steps.filter((step) => step.kind === "plan");
-  const errorSteps = turn.status === "interrupted"
-    ? []
-    : turn.steps.filter((step) => step.kind === "error");
-  const legacyProcessSteps = turn.steps.filter((step) => (
-    step.kind !== "reasoning"
-    && step.kind !== "plan"
-    && step.kind !== "error"
-    && !(step.kind === "form" && step.form && interactiveFormIds.has(step.form.formId))
-  ));
-  const dataViewArtifacts = uniqueArtifacts(executionItems.flatMap((step) => step.artifacts ?? []))
-    .filter((artifact) => artifact.kind === "data_view");
-  const hasUserMessage = Boolean(turn.userMessage.text.trim() || turn.userMessage.references?.length);
-  return (
-    <section aria-label={t("turn.label")} className="react-canonical-turn" data-status={turn.status}>
-      {hasUserMessage ? (
-        <CanonicalMessage
-          messageId={turn.userMessage.id}
-          references={turn.userMessage.references}
-          role="user"
-          text={turn.userMessage.text}
-        />
-      ) : null}
-      {turn.executionItems && executionItems.length ? (
-        <ExecutionTimeline
-          executionItems={executionItems}
-          focusError={focusError}
-          onOpenArtifact={onOpenArtifact}
-          onOpenError={onOpenError}
-          onOpenLiveCanvas={onOpenLiveCanvas}
-          onOpenSubagent={onOpenSubagent}
-          onOpenTool={onOpenTool}
-          onRecover={onRecover}
-          recovering={recovering}
-          turn={turn}
-        />
-      ) : !turn.executionItems ? (
-        <>
-          {planSteps.map((step) => (
-            <CanonicalChatStep key={step.id} onOpenArtifact={onOpenArtifact} onOpenSubagent={onOpenSubagent} onOpenTool={onOpenTool} step={step} />
-          ))}
-          {groupCanonicalSteps(legacyProcessSteps).map((group) => (
-            Array.isArray(group) ? (
-              <div className="react-canonical-tool-group" key={group.map((step) => step.id).join(":")}>
-                <AgentSteps onOpenTool={onOpenTool} toolCalls={group.map((step) => toolCallSummaryFromStep(step, step.toolCall!, t))} />
-                <CanonicalArtifacts artifacts={group.flatMap((step) => step.artifacts ?? [])} onOpen={onOpenArtifact} />
-                <CanonicalScopedErrors errors={group.flatMap((step) => step.scopedErrors ?? [])} />
-              </div>
-            ) : (
-              <CanonicalChatStep key={group.id} onOpenArtifact={onOpenArtifact} onOpenSubagent={onOpenSubagent} onOpenTool={onOpenTool} step={group} />
-            )
-          ))}
-          {errorSteps.map((step, index) => (
-            <ErrorRecoveryCard
-              focusOnMount={focusError && index === errorSteps.length - 1}
-              key={step.id}
-              recovering={recovering}
-              step={step}
-              turn={turn}
-              onOpenDetails={() => onOpenError(step)}
-              onRecover={onRecover}
-            />
-          ))}
-        </>
-      ) : null}
-      {finalAnswer ? (
-        <CanonicalMessage
-          allowActions={turn.status === "completed"}
-          messageId={finalAnswer.id}
-          reasoning={turn.executionItems ? [] : reasoningSteps}
-          references={finalAnswer.references}
-          role="assistant"
-          streaming={turn.status === "running"}
-          text={finalAnswer.text}
-          onBranch={turn.status === "completed" ? () => onBranch(finalAnswer.id) : undefined}
-        />
-      ) : !turn.executionItems && reasoningSteps.length ? (
-        <CanonicalMessage
-          allowActions={false}
-          messageId={reasoningSteps[reasoningSteps.length - 1]?.messageId || reasoningSteps[reasoningSteps.length - 1]?.id || turn.id}
-          reasoning={reasoningSteps}
-          role="assistant"
-          streaming={turn.status === "running"}
-          text=""
-        />
-      ) : null}
-      {dataViewArtifacts.map((artifact) => (
-        <DataViewCard artifact={artifact} key={artifact.id} onOpen={onOpenArtifact} />
-      ))}
-    </section>
-  );
-}
 
-function groupCanonicalSteps(steps: ChatStep[]): Array<ChatStep | ChatStep[]> {
-  const groups: Array<ChatStep | ChatStep[]> = [];
-  for (const step of steps) {
-    if (step.kind !== "tool_call" || !step.toolCall) {
-      groups.push(step);
-      continue;
-    }
-    const previous = groups[groups.length - 1];
-    if (Array.isArray(previous)) {
-      previous.push(step);
-    } else {
-      groups.push([step]);
-    }
-  }
-  return groups;
-}
-
-type ExecutionFoldIntent = "untouched" | "user_open" | "user_closed";
-
-function ExecutionTimeline({
-  executionItems,
-  focusError,
-  onOpenArtifact,
-  onOpenError,
-  onOpenLiveCanvas,
-  onOpenSubagent,
-  onOpenTool,
-  onRecover,
-  recovering,
-  turn,
-}: {
-  executionItems: ChatStep[];
-  focusError: boolean;
-  onOpenArtifact: (artifact: ArtifactRef) => void;
-  onOpenError: (step: ChatStep) => void;
-  onOpenLiveCanvas: (step: ChatStep) => void;
-  onOpenSubagent: (delegate: DelegatedAgentState) => void;
-  onOpenTool: (toolCall: ToolCallSummary) => void;
-  onRecover: (action: RecoveryAction) => void;
-  recovering: boolean;
-  turn: ChatTurn;
-}) {
-  const { t } = useTranslation("chat");
-  const contentId = useId();
-  const timelineRef = useRef<HTMLElement | null>(null);
-  const abnormal = executionItems.some((step) => step.status === "failed" || step.status === "cancelled" || step.status === "blocked")
-    || turn.status === "failed"
-    || turn.status === "interrupted"
-    || turn.status === "awaiting_user";
-  const hasFinalAnswer = Boolean(turn.finalAnswer ?? turn.finalMessage);
-  const [foldIntent, setFoldIntent] = useState<ExecutionFoldIntent>("untouched");
-  const [open, setOpen] = useState(() => abnormal || !hasFinalAnswer);
-  const visibleExecutionItems = turn.status === "interrupted"
-    ? executionItems.filter((step) => step.kind !== "error")
-    : executionItems;
-  const errorItems = visibleExecutionItems.filter((step) => step.kind === "error");
-
-  useEffect(() => {
-    if (foldIntent !== "untouched") {
-      return;
-    }
-    const nextOpen = abnormal || !hasFinalAnswer;
-    setOpen((currentOpen) => {
-      if (currentOpen === nextOpen) {
-        return currentOpen;
-      }
-      if (currentOpen && !nextOpen) {
-        const timeline = timelineRef.current;
-        const scroller = timeline?.closest<HTMLElement>(".react-conversation-view");
-        const heightBefore = timeline?.getBoundingClientRect().height ?? 0;
-        const timelineTop = timeline?.getBoundingClientRect().top ?? 0;
-        const scrollerTop = scroller?.getBoundingClientRect().top ?? 0;
-        const userIsReadingHistory = Boolean(scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight >= 96);
-        requestAnimationFrame(() => {
-          if (!timeline || !scroller || !userIsReadingHistory || timelineTop >= scrollerTop) {
-            return;
-          }
-          const collapsedBy = Math.max(0, heightBefore - timeline.getBoundingClientRect().height);
-          scroller.scrollTop = Math.max(0, scroller.scrollTop - collapsedBy);
-        });
-      }
-      return nextOpen;
-    });
-  }, [abnormal, foldIntent, hasFinalAnswer]);
-
-  const summary = executionTimelineSummary(turn, executionItems, abnormal, t);
-  return (
-    <section className="react-execution-timeline" data-abnormal={abnormal ? "true" : undefined} ref={timelineRef}>
-      <button
-        aria-controls={contentId}
-        aria-expanded={open}
-        className="react-execution-timeline__trigger"
-        type="button"
-        onClick={() => {
-          setOpen((currentOpen) => {
-            setFoldIntent(currentOpen ? "user_closed" : "user_open");
-            return !currentOpen;
-          });
-        }}
-      >
-        <span className="react-execution-timeline__status"><Activity aria-hidden="true" size={17} /></span>
-        <span className="react-execution-timeline__heading">
-          <strong>{t("turn.workPerformed")}</strong>
-          <small aria-live="polite">{summary}</small>
-        </span>
-        <ChevronDown aria-hidden="true" className="react-execution-timeline__chevron" size={18} />
-      </button>
-      <div className="react-execution-timeline__content" hidden={!open} id={contentId}>
-        {visibleExecutionItems.map((step) => (
-          <div className="react-execution-timeline__item" data-kind={step.kind} data-status={step.status} key={step.id}>
-            {step.kind === "tool_call" ? null : (
-              <button
-                aria-label={t("turn.viewTinyOs", { name: step.title })}
-                className="react-execution-timeline__canvas-button"
-                title={t("turn.viewInTinyOs")}
-                type="button"
-                onClick={() => onOpenLiveCanvas(step)}
-              >
-                <PanelRightOpen aria-hidden="true" size={15} />
-              </button>
-            )}
-            {step.kind === "error" ? (
-              <ErrorRecoveryCard
-                focusOnMount={focusError && step.id === errorItems[errorItems.length - 1]?.id}
-                recovering={recovering}
-                step={step}
-                turn={turn}
-                onOpenDetails={() => onOpenError(step)}
-                onRecover={onRecover}
-              />
-            ) : (
-              <CanonicalChatStep
-                onOpenArtifact={onOpenArtifact}
-                onOpenLiveCanvas={onOpenLiveCanvas}
-                onOpenSubagent={onOpenSubagent}
-                onOpenTool={onOpenTool}
-                step={step}
-              />
-            )}
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function executionTimelineSummary(turn: ChatTurn, items: ChatStep[], abnormal: boolean, t: TFunction<"chat">): string {
-  const plan = [...items].reverse().find((step) => step.plan)?.plan;
-  const durationMs = turn.completedAt
-    ? Math.max(0, Date.parse(turn.completedAt) - Date.parse(turn.startedAt))
-    : undefined;
-  const parts = [executionStatusLabel(turn.status, t), t("execution.actionCount", { count: items.length })];
-  if (plan) {
-    parts.push(t("execution.plan", { completed: plan.completed, total: plan.total }));
-  }
-  if (durationMs !== undefined && Number.isFinite(durationMs)) {
-    parts.push(formatExecutionDuration(durationMs));
-  }
-  if (abnormal) {
-    const blocked = items.find((step) => step.status === "failed" || step.status === "cancelled" || step.status === "blocked");
-    parts.push(blocked?.title || t("execution.attention"));
-  }
-  return parts.join(" · ");
-}
-
-function executionStatusLabel(status: ChatTurn["status"], t: TFunction<"chat">): string {
-  switch (status) {
-    case "completed": return t("execution.status.completed");
-    case "failed": return t("execution.status.failed");
-    case "interrupted": return t("execution.status.interrupted");
-    case "awaiting_user": return t("execution.status.awaiting");
-    default: return t("execution.status.running");
-  }
-}
-
-function formatExecutionDuration(durationMs: number): string {
-  if (durationMs < 1_000) {
-    return `${Math.round(durationMs)}ms`;
-  }
-  if (durationMs < 60_000) {
-    return `${Math.round(durationMs / 1_000)}s`;
-  }
-  const minutes = Math.floor(durationMs / 60_000);
-  const seconds = Math.round((durationMs % 60_000) / 1_000);
-  return `${minutes}m ${seconds}s`;
-}
-
-function CanonicalMessage({
-  allowActions = true,
-  messageId,
-  onBranch,
-  reasoning = [],
-  references = [],
-  role,
-  streaming = false,
-  text,
-}: {
-  allowActions?: boolean;
-  messageId: string;
-  onBranch?: () => void;
-  reasoning?: ChatStep[];
-  references?: AgentInputReference[];
-  role: "user" | "assistant";
-  streaming?: boolean;
-  text: string;
-}) {
-  const { t } = useTranslation("chat");
-  return (
-    <article className="react-message" data-actions-placement="bottom" data-role={role} data-testid={`message-${messageId}`}>
-      <div className="react-message__body">
-        {reasoning.map((step) => (
-          <MessageReasoning durationMs={reasoningDurationMs(step)} key={step.id} streaming={step.status === "running"} text={step.summary ?? ""} />
-        ))}
-        {role === "assistant" ? <AssistantMarkdown streaming={streaming} text={text} /> : <PlainMessageText text={text} />}
-        {references?.length ? <MessageContext references={references.map(canonicalReferenceSummary)} /> : null}
-        {streaming ? <span aria-label={t("turn.agentResponding")} className="react-message__streaming" /> : null}
-      </div>
-      {allowActions && text.trim() ? (
-        <div className="react-message__actions" data-align={role === "user" ? "right" : "left"}>
-          <button aria-label={t("turn.copyMessage")} type="button" onClick={() => void writeClipboardText(text)}>
-            <Copy aria-hidden="true" size={14} />
-          </button>
-          {onBranch ? (
-            <button aria-label={t("turn.branchHere")} type="button" onClick={onBranch}>
-              <GitBranch aria-hidden="true" size={14} />
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-    </article>
-  );
-}
-
-function CanonicalChatStep({
-  onOpenArtifact,
-  onOpenLiveCanvas,
-  onOpenSubagent,
-  onOpenTool,
-  step,
-}: {
-  onOpenArtifact: (artifact: ArtifactRef) => void;
-  onOpenLiveCanvas?: (step: ChatStep) => void;
-  onOpenSubagent: (delegate: DelegatedAgentState) => void;
-  onOpenTool: (toolCall: ToolCallSummary) => void;
-  step: ChatStep;
-}) {
-  const { i18n, t } = useTranslation("chat");
-  if (step.kind === "reasoning") {
-    return <MessageReasoning streaming={step.status === "running"} text={step.summary ?? ""} />;
-  }
-  if (step.kind === "message") {
-    return (
-      <CanonicalMessage
-        allowActions={step.status === "completed"}
-        messageId={step.messageId || step.id}
-        role="assistant"
-        streaming={step.status === "running"}
-        text={step.summary ?? ""}
-      />
-    );
-  }
-  if (step.kind === "tool_call" && step.toolCall) {
-    if (isApplyPatchToolCall(step.toolCall) && patchChangeSetFromToolResult(step.toolCall.resultJson)?.files.length) {
-      return (
-        <PatchDiffCard
-          status={step.status}
-          toolCall={step.toolCall}
-          onOpenDetails={() => onOpenTool(toolCallSummaryFromStep(step, step.toolCall!, t))}
-        />
-      );
-    }
-    return (
-      <ToolActivityItem
-        fallbackSummary={step.summary}
-        status={step.status}
-        toolCall={step.toolCall}
-        onOpenDetails={onOpenLiveCanvas
-          ? () => onOpenLiveCanvas(step)
-          : () => onOpenTool(toolCallSummaryFromStep(step, step.toolCall!, t))}
-      />
-    );
-  }
-  if (step.kind === "form" && step.form) {
-    const values = canonicalFormEntries(step.form.values);
-    const errors = Object.entries(step.form.errors ?? {});
-    const resolution = step.form.action === "submit"
-      ? t("form.submitted")
-      : step.form.action === "cancel"
-        ? t("form.cancelled")
-        : step.status === "completed"
-          ? t("form.resolved")
-          : t("form.waiting");
-    return (
-      <section aria-label={step.title} className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
-        <span className="react-canonical-step__icon"><AgentStepIcon status={canonicalStepIconStatus(step)} /></span>
-        <div>
-          <strong>{step.title}</strong>
-          <small>{resolution}</small>
-          {values.length ? (
-            <dl className="react-canonical-form-summary">
-              {values.map(([key, value]) => (
-                <div key={key}><dt>{key}</dt><dd>{canonicalFormValue(value)}</dd></div>
-              ))}
-            </dl>
-          ) : null}
-          {errors.length ? (
-            <ul aria-label={t("turn.formErrors")} role="alert">
-              {errors.map(([key, error]) => <li key={key}>{key}: {error}</li>)}
-            </ul>
-          ) : null}
-          <CanonicalScopedErrors errors={step.scopedErrors ?? []} />
-        </div>
-      </section>
-    );
-  }
-  if (step.kind === "delegate" && step.delegate) {
-    return (
-      <div className="react-canonical-step-stack">
-        <button
-          aria-label={t("turn.openDetails", { name: step.title })}
-          className="react-canonical-step react-canonical-step--button"
-          data-kind={step.kind}
-          data-status={step.status}
-          type="button"
-          onClick={() => onOpenSubagent(step.delegate!)}
-        >
-          <span className="react-canonical-step__icon"><AgentStepIcon status={canonicalStepIconStatus(step)} /></span>
-          <span>
-            <strong>{step.title}</strong>
-            {step.delegate.latestActivity ? <small>{step.delegate.latestActivity}</small> : null}
-          </span>
-        </button>
-        <CanonicalScopedErrors errors={step.scopedErrors ?? []} />
-      </div>
-    );
-  }
-  if (step.kind === "plan" && step.plan) {
-    return <CanonicalPlanCard step={step} />;
-  }
-  if (step.kind === "error") {
-    return (
-      <section aria-label={step.title} className="react-canonical-step" data-kind={step.kind} data-status={step.status} role="alert">
-        <AlertTriangle aria-hidden="true" size={16} />
-        <div><strong>{step.title}</strong>{step.summary ? <p>{step.summary}</p> : null}</div>
-      </section>
-    );
-  }
-  if (step.kind === "compaction") {
-    const compaction = step.compaction;
-    return (
-      <details className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
-        <summary>
-          <span className="react-canonical-step__icon"><ListCollapse aria-hidden="true" size={16} /></span>
-          <span>{t("turn.contextCompacted")}</span>
-          <ChevronRight aria-hidden="true" className="react-context-compaction-chevron" size={15} />
-        </summary>
-        {step.summary ? <p>{step.summary}</p> : null}
-        {compaction ? (
-          <ul aria-label={t("turn.compactionDetails")}>
-            {compaction.estimatedTokensBefore !== undefined ? <li>{t("compaction.before", { value: compaction.estimatedTokensBefore.toLocaleString(i18n.resolvedLanguage) })}</li> : null}
-            {compaction.estimatedTokensAfter !== undefined ? <li>{t("compaction.after", { value: compaction.estimatedTokensAfter.toLocaleString(i18n.resolvedLanguage) })}</li> : null}
-            <li>{t("compaction.dropped", { value: compaction.droppedItemCount.toLocaleString(i18n.resolvedLanguage) })}</li>
-          </ul>
-        ) : null}
-      </details>
-    );
-  }
-  return (
-    <section aria-label={step.title} className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
-      <span className="react-canonical-step__icon"><AgentStepIcon status={canonicalStepIconStatus(step)} /></span>
-      <div>
-        <strong>{step.title}</strong>
-        {step.summary ? <p>{step.summary}</p> : null}
-        {step.delegate?.latestActivity ? <small>{step.delegate.latestActivity}</small> : null}
-        <CanonicalArtifacts artifacts={step.artifacts ?? []} onOpen={onOpenArtifact} />
-        <CanonicalScopedErrors errors={step.scopedErrors ?? []} />
-      </div>
-    </section>
-  );
-}
-
-function ErrorRecoveryCard({
-  focusOnMount,
-  onOpenDetails,
-  onRecover,
-  recovering,
-  step,
-  turn,
-}: {
-  focusOnMount: boolean;
-  onOpenDetails: () => void;
-  onRecover: (action: RecoveryAction) => void;
-  recovering: boolean;
-  step: ChatStep;
-  turn: ChatTurn;
-}) {
-  const { t } = useTranslation("chat");
-  const cardRef = useRef<HTMLElement | null>(null);
-  const error = canonicalErrorInfo(step, t);
-  const failedStep = failedPlanStep(turn);
-  const completedSteps = completedPlanStepCount(turn);
-
-  useEffect(() => {
-    if (focusOnMount) {
-      cardRef.current?.focus();
-    }
-  }, [focusOnMount]);
-
-  return (
-    <section
-      ref={cardRef}
-      aria-label={t("recovery.label")}
-      className="react-error-recovery"
-      role="alert"
-      tabIndex={-1}
-    >
-      <div className="react-error-recovery__heading">
-        <AlertTriangle aria-hidden="true" size={18} />
-        <div>
-          <strong>{turn.status === "interrupted" ? t("recovery.cancelled") : t("recovery.interrupted")}</strong>
-          <p>{friendlyErrorMessage(error.code, error.message, t)}</p>
-        </div>
-      </div>
-      <dl className="react-error-recovery__summary">
-        {failedStep ? <div><dt>{t("recovery.failedAt")}</dt><dd>{failedStep}</dd></div> : null}
-        <div><dt>{t("recovery.progress")}</dt><dd>{t("recovery.completedSteps", { count: completedSteps })}</dd></div>
-      </dl>
-      {completedPlanSteps(turn).length ? (
-        <div className="react-error-recovery__valid-results">
-          <strong>{t("recovery.validResults")}</strong>
-          <ul>{completedPlanSteps(turn).map((item) => <li key={item}>{item}</li>)}</ul>
-        </div>
-      ) : null}
-      <div className="react-error-recovery__actions" aria-label={t("recovery.actions")}>
-        <button disabled={recovering} type="button" onClick={() => onRecover("continue")}><Play aria-hidden="true" size={15} />{t("recovery.continue")}</button>
-        <button disabled={recovering} type="button" onClick={() => onRecover("retry")}><RotateCcw aria-hidden="true" size={15} />{t("recovery.retry")}</button>
-        <button disabled={recovering} type="button" onClick={() => onRecover("restart")}><RefreshCw aria-hidden="true" size={15} />{t("recovery.restart")}</button>
-        <button type="button" onClick={onOpenDetails}>{t("recovery.details")}</button>
-        <button type="button" onClick={() => void writeClipboardText(formatFailureDetails(step, turn, t))}><Copy aria-hidden="true" size={15} />{t("recovery.copyError")}</button>
-      </div>
-    </section>
-  );
-}
-
-function CanonicalPlanCard({ step }: { step: ChatStep }) {
-  const { t } = useTranslation("chat");
-  const contentId = useId();
-  const [expanded, setExpanded] = useState(step.status !== "completed");
-  const plan = step.plan;
-  const completed = plan?.steps.filter((item) => item.status === "completed").length ?? 0;
-
-  useEffect(() => {
-    if (step.status === "completed") {
-      setExpanded(false);
-    } else if (step.status === "running") {
-      setExpanded(true);
-    }
-  }, [step.status]);
-
-  if (!plan) {
-    return null;
-  }
-
-  return (
-    <section aria-label={t("plan.label")} aria-live="polite" className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
-      <span className="react-canonical-step__icon"><AgentStepIcon status={canonicalStepIconStatus(step)} /></span>
-      <div className="react-canonical-plan">
-        <button
-          aria-controls={contentId}
-          aria-expanded={expanded}
-          className="react-canonical-plan__heading"
-          type="button"
-          onClick={() => setExpanded((open) => !open)}
-        >
-          <strong>{t("plan.label")}</strong>
-          <span>{t("plan.completed", { completed, total: plan.total })}</span>
-          {expanded ? <ChevronDown aria-hidden="true" size={15} /> : <ChevronRight aria-hidden="true" size={15} />}
-        </button>
-        <progress
-          aria-label={step.title}
-          aria-valuemax={plan.total}
-          aria-valuemin={0}
-          aria-valuenow={completed}
-          max={Math.max(plan.total, 1)}
-          value={completed}
-        />
-        {expanded ? (
-          <div className="react-canonical-plan__content" id={contentId}>
-            {plan.explanation ? <p className="react-canonical-plan__explanation">{plan.explanation}</p> : null}
-            <ol className="react-canonical-plan__steps">
-              {plan.steps.map((planStep, index) => (
-                <li data-status={planStep.status} key={`${index}:${planStep.step}`}>
-                  <span className="react-canonical-plan__step-icon"><PlanStepIcon status={planStep.status} /></span>
-                  <PlanStepLabel text={planStep.step} />
-                  <small>{formatPlanStepStatus(planStep.status, t)}</small>
-                </li>
-              ))}
-            </ol>
-          </div>
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
-type PlanStepStatus = NonNullable<ChatStep["plan"]>["steps"][number]["status"];
-
-function PlanStepIcon({ status }: { status: PlanStepStatus }) {
-  const { t } = useTranslation("chat");
-  switch (status) {
-    case "completed": return <Check aria-label={t("plan.status.completed")} size={14} />;
-    case "in_progress": return <Loader2 aria-label={t("plan.status.inProgress")} size={14} />;
-    case "failed": return <AlertTriangle aria-label={t("plan.status.failed")} size={14} />;
-    case "cancelled": return <X aria-label={t("plan.status.cancelled")} size={14} />;
-    default: return <Circle aria-label={t("plan.status.pending")} size={12} />;
-  }
-}
-
-function PlanStepLabel({ text }: { text: string }) {
-  const { t } = useTranslation("chat");
-  const [expanded, setExpanded] = useState(false);
-  const canExpand = text.length > 72;
-  return (
-    <span className="react-canonical-plan__step-label">
-      <span data-expanded={expanded ? "true" : undefined}>{text}</span>
-      {canExpand ? (
-        <button aria-expanded={expanded} type="button" onClick={() => setExpanded((open) => !open)}>
-          {expanded ? t("plan.collapse") : t("plan.expand")}
-        </button>
-      ) : null}
-    </span>
-  );
-}
-
-function formatPlanStepStatus(status: PlanStepStatus, t: TFunction<"chat">): string {
-  switch (status) {
-    case "completed": return t("plan.status.completed");
-    case "in_progress": return t("plan.status.inProgress");
-    case "failed": return t("plan.status.failed");
-    case "cancelled": return t("plan.status.cancelled");
-    default: return t("plan.status.pending");
-  }
-}
-
-function CanonicalArtifacts({ artifacts, onOpen }: { artifacts: ArtifactRef[]; onOpen: (artifact: ArtifactRef) => void }) {
-  const { t } = useTranslation("chat");
-  const visibleArtifacts = artifacts.filter((artifact) => artifact.kind !== "data_view");
-  if (!visibleArtifacts.length) {
-    return null;
-  }
-  return (
-    <ul aria-label={t("artifacts.label")} className="react-canonical-artifacts">
-      {visibleArtifacts.map((artifact) => (
-        <li key={artifact.id}>
-          <button aria-label={t("artifacts.preview", { name: artifact.title })} type="button" onClick={() => onOpen(artifact)}>{artifact.title}</button>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function uniqueArtifacts(artifacts: ArtifactRef[]): ArtifactRef[] {
-  return [...new Map(artifacts.map((artifact) => [artifact.id, artifact])).values()];
-}
-
-function CanonicalScopedErrors({ errors }: { errors: NonNullable<ChatStep["scopedErrors"]> }) {
-  if (!errors.length) {
-    return null;
-  }
-  return (
-    <ul className="react-canonical-scoped-errors" role="alert">
-      {errors.map((error, index) => <li key={`${error.code}:${index}`}><strong>{error.code}</strong>: {error.message}</li>)}
-    </ul>
-  );
-}
-
-function canonicalFormEntries(values: unknown): Array<[string, unknown]> {
-  return values !== null && typeof values === "object" && !Array.isArray(values)
-    ? Object.entries(values)
-    : [];
-}
-
-function canonicalFormValue(value: unknown): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  if (value === undefined) {
-    return "";
-  }
-  return JSON.stringify(value);
-}
-
-function canonicalReferenceSummary(reference: AgentInputReference, index: number): ContextReferenceSummary {
-  return {
-    id: reference.noteId || reference.evidenceId || `${reference.kind}:${index}`,
-    kind: reference.kind,
-    presentation: reference.type === "tinyos.file" && Boolean(reference.rawPath) && !reference.sourcePath
-      ? "attachment"
-      : "context",
-    title: reference.title,
-    detail: reference.detail,
-    sourcePath: reference.sourcePath,
-    sourceLine: reference.sourceLine,
-  };
-}
-
-function toolCallSummaryFromStep(step: ChatStep, toolCall: ToolCallState, t: TFunction<"chat">): ToolCallSummary {
-  return {
-    id: toolCall.id,
-    name: displayToolName(toolCall.name, t),
-    status: step.status,
-    summary: toolCall.resultPreview || step.summary,
-    ...(toolCall.argsPreview ? { argsText: toolCall.argsPreview } : {}),
-    ...(toolCall.resultPreview ? { responseText: toolCall.resultPreview } : {}),
-  };
-}
-
-function canonicalStepIconStatus(step: ChatStep): AgentStepStatus {
-  if (step.status === "completed") return "success";
-  if (step.status === "running") return "active";
-  if (step.status === "blocked") return "waiting";
-  if (step.status === "failed" || step.status === "cancelled") return "error";
-  return "pending";
-}
-
-function MessageBubble({
-  message,
-  onBranch,
-  onCopy,
-  onOpenTool,
-  sessionRunning,
-}: {
-  message: ReactChatMessage;
-  onBranch: () => void;
-  onCopy: () => void;
-  onOpenTool: (toolCall: ToolCallSummary) => void;
-  sessionRunning: boolean;
-}) {
-  const { t } = useTranslation("chat");
-  const actionAlignment = message.role === "user" ? "right" : "left";
-  const showCopyAction = canCopyMessage(message, { sessionRunning });
-  const showBranchAction = canBranchFromMessage(message, { sessionRunning });
-  return (
-    <article
-      className="react-message"
-      data-actions-placement="bottom"
-      data-role={message.role}
-      data-testid={`message-${message.id}`}
-    >
-      <div className="react-message__body">
-        {message.reasoningText ? (
-          <MessageReasoning streaming={message.status === "streaming"} text={message.reasoningText} />
-        ) : null}
-        {message.role === "assistant" ? (
-          <AssistantMarkdown streaming={message.status === "streaming"} text={message.text} />
-        ) : (
-          <PlainMessageText text={message.text} />
-        )}
-        {message.contextReferences?.length ? <MessageContext references={message.contextReferences} /> : null}
-        {message.toolCalls?.length ? <AgentSteps toolCalls={message.toolCalls} onOpenTool={onOpenTool} /> : null}
-        {message.status === "streaming" ? <span className="react-message__streaming" aria-label={t("turn.agentResponding")} /> : null}
-      </div>
-      {showCopyAction || showBranchAction ? (
-        <div className="react-message__actions" data-align={actionAlignment}>
-          {showCopyAction ? (
-            <button aria-label={t("turn.copyMessage")} type="button" onClick={onCopy}>
-              <Copy aria-hidden="true" size={14} />
-            </button>
-          ) : null}
-          {showBranchAction ? (
-            <button aria-label={t("turn.branchHere")} type="button" onClick={onBranch}>
-              <GitBranch aria-hidden="true" size={14} />
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-    </article>
-  );
-}
-
-function MessageReasoning({ durationMs, streaming, text }: { durationMs?: number; streaming: boolean; text: string }) {
-  const { t } = useTranslation("chat");
-  const [expanded, setExpanded] = useState(streaming);
-  const wasStreaming = useRef(streaming);
-  const contentId = useId();
-
-  useEffect(() => {
-    if (wasStreaming.current !== streaming) {
-      setExpanded(streaming);
-      wasStreaming.current = streaming;
-    }
-  }, [streaming]);
-
-  return (
-    <section className="react-message-reasoning" aria-label={t("reasoning.label")}>
-      <button
-        aria-controls={contentId}
-        aria-expanded={expanded}
-        className="react-message-reasoning__trigger"
-        type="button"
-        onClick={() => setExpanded((open) => !open)}
-      >
-        <span>{streaming ? t("reasoning.thinking") : formatThinkingLabel(durationMs, t)}</span>
-        {expanded ? <ChevronDown aria-hidden="true" size={14} /> : <ChevronRight aria-hidden="true" size={14} />}
-      </button>
-      {expanded ? (
-        <div className="react-message-reasoning__content" id={contentId}>
-          <PlainMessageText text={text} />
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function MessageContext({ references }: { references: ContextReferenceSummary[] }) {
-  const { t } = useTranslation("chat");
-  const attachmentsOnly = references.every((reference) => reference.presentation === "attachment");
-  const label = attachmentsOnly ? t("context.attachments") : t("context.context");
-  return (
-    <section
-      aria-label={label}
-      className="react-message-context"
-      data-presentation={attachmentsOnly ? "attachment" : "context"}
-    >
-      <h3>{label}</h3>
-      <ul>
-        {references.map((reference) => (
-          <li data-presentation={reference.presentation ?? "context"} key={reference.id}>
-            {reference.presentation === "attachment" ? (
-              <span className="react-message-context__icon"><FileText aria-hidden="true" size={16} /></span>
-            ) : null}
-            <span className="react-message-context__text">
-              <strong>{reference.title}</strong>
-              {reference.detail ? <small>{reference.detail}</small> : null}
-              {reference.sourcePath ? (
-                <small>
-                  {reference.sourcePath}{typeof reference.sourceLine === "number" ? `:${reference.sourceLine}` : ""}
-                </small>
-              ) : null}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-function formatMessageForCopy(message: ReactChatMessage): string {
-  return message.text;
-}
-
-type AgentStepStatus = "pending" | "active" | "success" | "waiting" | "error";
-
-function AgentSteps({
-  flat = false,
-  onOpenTool,
-  toolCalls,
-}: {
-  flat?: boolean;
-  onOpenTool: (toolCall: ToolCallSummary) => void;
-  toolCalls: ToolCallSummary[];
-}) {
-  const { t } = useTranslation("chat");
-  const [expanded, setExpanded] = useState(false);
-  const listId = useId();
-  const overallStatus = resolveAgentStepsStatus(toolCalls);
-  const countLabel = t("steps.count", { count: toolCalls.length });
-  const currentStepIndex = resolveCurrentAgentStepIndex(toolCalls);
-  return (
-    <section className="react-agent-steps" data-flat={flat ? "true" : undefined} data-status={overallStatus} data-stepper="true">
-      {!flat ? (
-        <button
-          aria-controls={listId}
-          aria-expanded={expanded}
-          aria-label={`${t("steps.label")}, ${countLabel}`}
-          className="react-agent-steps__header"
-          type="button"
-          onClick={() => setExpanded((open) => !open)}
-        >
-          <span className="react-agent-steps__header-icon" data-status={overallStatus}>
-            <AgentStepIcon status={overallStatus} />
-          </span>
-          <span className="react-agent-steps__title">{t("steps.title")}</span>
-          <small>{countLabel}</small>
-          {expanded ? <ChevronDown aria-hidden="true" size={15} /> : <ChevronRight aria-hidden="true" size={15} />}
-        </button>
-      ) : null}
-
-      {flat || expanded ? (
-        <ol aria-label={t("steps.label")} className="react-agent-steps__list" id={listId}>
-          {toolCalls.map((toolCall, index) => {
-            const status = normalizeAgentStepStatus(toolCall.status);
-            const isLast = index === toolCalls.length - 1;
-            const isCurrent = index === currentStepIndex;
-            return (
-              <li
-                aria-current={isCurrent ? "step" : undefined}
-                className="react-agent-step-item"
-                data-motion-role="step"
-                data-status={status}
-                data-step-count={toolCalls.length}
-                data-step-index={index}
-                key={toolCall.id}
-              >
-                {!isLast ? <span aria-hidden="true" className="react-agent-step-item__line" /> : null}
-                <span className="react-agent-step-item__marker" data-status={status}>
-                  <AgentStepIcon status={status} />
-                </span>
-                <button
-                  aria-label={t("steps.openDetails", { name: toolCall.name })}
-                  className="react-agent-step"
-                  type="button"
-                  onClick={() => onOpenTool(toolCall)}
-                >
-                  <span className="react-agent-step__content">
-                    <span>{toolCall.name}</span>
-                    {toolCall.summary ? <small>{toolCall.summary}</small> : null}
-                  </span>
-                  <small className="react-agent-step__status">{formatAgentStepStatus(toolCall.status, t)}</small>
-                  <PanelRightOpen aria-hidden="true" size={15} />
-                </button>
-              </li>
-            );
-          })}
-        </ol>
-      ) : null}
-    </section>
-  );
-}
-
-function AgentStepIcon({ status }: { status: AgentStepStatus }) {
-  switch (status) {
-    case "success":
-      return <Check aria-hidden="true" size={14} />;
-    case "active":
-      return <Loader2 aria-hidden="true" size={14} />;
-    case "waiting":
-    case "error":
-      return <AlertTriangle aria-hidden="true" size={14} />;
-    default:
-      return <Circle aria-hidden="true" size={12} />;
-  }
-}
-
-function resolveAgentStepsStatus(toolCalls: ToolCallSummary[]): AgentStepStatus {
-  if (toolCalls.some((toolCall) => normalizeAgentStepStatus(toolCall.status) === "error")) {
-    return "error";
-  }
-  if (toolCalls.some((toolCall) => normalizeAgentStepStatus(toolCall.status) === "waiting")) {
-    return "waiting";
-  }
-  if (toolCalls.some((toolCall) => normalizeAgentStepStatus(toolCall.status) === "active")) {
-    return "active";
-  }
-  if (toolCalls.length && toolCalls.every((toolCall) => normalizeAgentStepStatus(toolCall.status) === "success")) {
-    return "success";
-  }
-  return "pending";
-}
-
-function resolveCurrentAgentStepIndex(toolCalls: ToolCallSummary[]): number {
-  const activeIndex = toolCalls.findIndex((toolCall) => normalizeAgentStepStatus(toolCall.status) === "active");
-  if (activeIndex >= 0) {
-    return activeIndex;
-  }
-  const waitingIndex = toolCalls.findIndex((toolCall) => normalizeAgentStepStatus(toolCall.status) === "waiting");
-  if (waitingIndex >= 0) {
-    return waitingIndex;
-  }
-  return -1;
-}
-
-function normalizeAgentStepStatus(status: string): AgentStepStatus {
-  switch (status.toLowerCase()) {
-    case "complete":
-    case "completed":
-    case "success":
-    case "succeeded":
-      return "success";
-    case "running":
-    case "active":
-      return "active";
-    case "blocked":
-      return "waiting";
-    case "failed":
-    case "error":
-    case "cancelled":
-    case "canceled":
-      return "error";
-    default:
-      return status ? "pending" : "pending";
-  }
-}
-
-function formatAgentStepStatus(status: string, t: TFunction<"chat">): string {
-  switch (normalizeAgentStepStatus(status)) {
-    case "active": return t("steps.status.active");
-    case "success": return t("steps.status.success");
-    case "waiting": return t("steps.status.waiting");
-    case "error": return status.toLowerCase().includes("cancel") ? t("steps.status.cancelled") : t("steps.status.error");
-    default: return t("steps.status.pending");
-  }
-}
-
-function reasoningDurationMs(step: ChatStep): number | undefined {
-  if (!step.startedAt || !step.completedAt) {
-    return undefined;
-  }
-  const duration = Date.parse(step.completedAt) - Date.parse(step.startedAt);
-  return Number.isFinite(duration) && duration >= 0 ? duration : undefined;
-}
-
-function formatThinkingLabel(durationMs: number | undefined, t: TFunction<"chat">): string {
-  if (durationMs === undefined) {
-    return t("reasoning.label");
-  }
-  if (durationMs < 1000) {
-    return t("reasoning.underSecond");
-  }
-  return t("reasoning.seconds", { count: Math.max(1, Math.round(durationMs / 1000)) });
-}
-
-function PlainMessageText({ text }: { text: string }) {
-  if (!text.trim()) {
-    return null;
-  }
-  return (
-    <div className="react-message-plain-text">
-      <p>{text}</p>
-    </div>
-  );
-}
-
-function displaySessionTitle(title: string, t: TFunction<"chat">): string {
-  return isDefaultSessionTitle(title) ? t("shell.newChat") : title;
-}
-
-function deriveSessionTitle(prompt: string, t: TFunction<"chat">): string {
-  const normalized = prompt.replace(/\s+/g, " ").trim();
-  return normalized.length > 28 ? `${normalized.slice(0, 28)}…` : normalized || t("shell.newChat");
-}
-
-function isDefaultSessionTitle(title: string): boolean {
-  return /^(new (chat|session)|新(建)?会话|未命名)/i.test(title.trim());
-}
-
-function failedPlanStep(turn: ChatTurn): string {
-  for (const step of turn.steps) {
-    const failed = step.plan?.steps.find((planStep) => planStep.status === "failed" || planStep.status === "in_progress");
-    if (failed) {
-      return failed.step;
-    }
-  }
-  return "";
-}
-
-function completedPlanStepCount(turn: ChatTurn): number {
-  return turn.steps.reduce((count, step) => (
-    count + (step.plan?.steps.filter((planStep) => planStep.status === "completed").length ?? 0)
-  ), 0);
-}
-
-function completedPlanSteps(turn: ChatTurn): string[] {
-  return turn.steps.flatMap((step) => (
-    step.plan?.steps.filter((planStep) => planStep.status === "completed").map((planStep) => planStep.step) ?? []
-  ));
-}
-
-function canonicalErrorInfo(step: ChatStep, t: TFunction<"chat">): { code: string; message: string } {
-  const error = step.error && typeof step.error === "object" ? step.error as Record<string, unknown> : {};
-  return {
-    code: typeof error.code === "string" && error.code ? error.code : "runtime_error",
-    message: typeof error.message === "string" && error.message ? error.message : step.summary || t("friendlyError.taskFailed"),
-  };
-}
-
-function displayToolName(name: string, t?: TFunction<"chat">): string {
-  return name === "update_plan" ? t?.("tool.updatePlan") ?? name : name;
-}
-
-function friendlyErrorMessage(code: string, message: string, t: TFunction<"chat">): string {
-  if (code === "max_iterations" || message.toLowerCase().includes("max iterations")) {
-    return t("friendlyError.maxIterations");
-  }
-  if (code.includes("cancel") || message.toLowerCase().includes("cancel")) {
-    return t("friendlyError.cancelled");
-  }
-  return message;
-}
-
-function formatFailureDetails(step: ChatStep, turn: ChatTurn, t: TFunction<"chat">): string {
-  const error = canonicalErrorInfo(step, t);
-  return [
-    `${t("details.task")}: ${turn.userMessage.text}`,
-    `${t("details.status")}: ${turn.status}`,
-    `${t("details.errorCode")}: ${error.code}`,
-    `${t("details.errorMessage")}: ${error.message}`,
-    failedPlanStep(turn) ? `${t("details.interruptedAt")}: ${failedPlanStep(turn)}` : "",
-  ].filter(Boolean).join("\n");
-}
-
-function ErrorDetails({ step, turn }: { step: ChatStep; turn: ChatTurn }) {
-  const { t } = useTranslation("chat");
-  const error = canonicalErrorInfo(step, t);
-  return (
-    <div className="react-error-detail">
-      <dl>
-        <div><dt>{t("details.turnId")}</dt><dd><code>{turn.id}</code></dd></div>
-        <div><dt>{t("details.status")}</dt><dd>{turn.status}</dd></div>
-        <div><dt>{t("details.stopReason")}</dt><dd><code>{error.code}</code></dd></div>
-        {failedPlanStep(turn) ? <div><dt>{t("details.interruptedAt")}</dt><dd>{failedPlanStep(turn)}</dd></div> : null}
-        <div><dt>{t("details.originalTask")}</dt><dd>{turn.userMessage.text}</dd></div>
-      </dl>
-      <section>
-        <h3>{t("details.originalError")}</h3>
-        <pre>{error.message}</pre>
-      </section>
-    </div>
-  );
-}
 
 function ToolCallDetails({ toolCall }: { toolCall: ToolCallSummary }) {
   const { t } = useTranslation("chat");

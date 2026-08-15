@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { BackendAgentTurnItem, ChatStep } from "./chatTurnModel";
+import type { BackendAgentTurnItem, ChatStep } from "./chatTurnContracts";
 import { filterTinyOsDesktopByAgent, projectKernelBackedTinyOsDesktop, projectTinyOsDesktop, tinyOsAppForStep, type TinyOsTimelineEntry } from "./tinyOsDesktopModel";
 import type { TinyOsKernelSnapshot } from "./tinyOsKernelModel";
 

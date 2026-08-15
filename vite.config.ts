@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
+import { visualizer } from "rollup-plugin-visualizer";
 import type { Plugin } from "vite";
 import { defineConfig } from "vitest/config";
 
@@ -9,10 +10,23 @@ const host = process.env.TAURI_DEV_HOST;
 const dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = dirname;
 const desktopStaticRoot = path.resolve(repoRoot, "public");
+const frontendAnalysisRoot = path.resolve(repoRoot, "tools", "frontend-analysis", "reports", "latest");
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [react(), desktopStaticPlugin(desktopStaticRoot)],
+  plugins: [
+    react(),
+    desktopStaticPlugin(desktopStaticRoot),
+    ...(process.env.TINYBOT_ANALYZE_FRONTEND === "1"
+      ? [visualizer({
+          filename: path.join(frontendAnalysisRoot, "bundle-treemap.html"),
+          title: "tinybot frontend bundle",
+          template: "treemap",
+          gzipSize: true,
+          brotliSize: true,
+        })]
+      : []),
+  ],
   publicDir: desktopStaticRoot,
   clearScreen: false,
   server: {

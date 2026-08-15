@@ -1,14 +1,24 @@
 // @vitest-environment happy-dom
 
-import { createRef, Profiler } from "react";
+import { createRef, Profiler, type ComponentProps } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
-import type { BackendAgentTurnItem, ChatStep } from "../../app-core/chat/chatTurnModel";
+import type { BackendAgentTurnItem, ChatStep } from "../../app-core/chat/chatTurnContracts";
 import { createTinyOsBrowserSessionSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
-import { clampTinyOsWidth, LiveCanvas, type LiveCanvasEntry } from "./LiveCanvas";
+import { LiveCanvas } from "./LiveCanvas";
+import { clampTinyOsWidth, type LiveCanvasEntry } from "./liveCanvasModel";
+
+vi.mock("../shell/DeferredSurface", async () => {
+  const { TinyOsShell } = await import("./TinyOsShell");
+  return {
+    DeferredSurface: ({ surfaceProps }: { surfaceProps: ComponentProps<typeof TinyOsShell> }) => (
+      <TinyOsShell {...surfaceProps} />
+    ),
+  };
+});
 
 afterEach(() => {
   cleanup();

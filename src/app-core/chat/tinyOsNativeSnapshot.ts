@@ -2,7 +2,7 @@ import type {
   TinyOsProcessState,
   TinyOsProvenance,
   TinyOsResourceAccess,
-} from "./tinyOsKernelModel";
+} from "./tinyOsKernelContracts";
 
 export type TinyOsNativeWorkspaceResource = {
   access: TinyOsResourceAccess;

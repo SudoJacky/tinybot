@@ -35,6 +35,7 @@ export const zh = {
     },
     settingsFallbackEmpty: "没有可显示的设置摘要。",
     placeholder: "此 React 占位页会在对应页面重建期间保持导航可用。",
+    deferredSurface: { loading: "正在加载{{name}}…", loadFailed: "无法加载{{name}}：{{message}}", retry: "重新加载{{name}}" },
     fatal: { title: "Tinybot 界面崩溃", unexpected: "渲染器发生意外错误。", crashId: "崩溃 ID：{{id}}", reload: "重新加载" },
     generic: { later: "稍后", cancel: "取消", retry: "重试", refresh: "刷新", save: "保存", saving: "正在保存", close: "关闭" },
   },

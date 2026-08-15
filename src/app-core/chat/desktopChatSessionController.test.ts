@@ -393,4 +393,32 @@ describe("desktop native chat session controller", () => {
     });
     expect(getAgentTurnRuntimeState).toHaveBeenCalledTimes(2);
   });
+
+  test("preserves the identity conflict when durable recovery is stale", async () => {
+    const getAgentTurnRuntimeState = vi.fn(async () => toolRuntimeState(20, 1, "running"));
+    const { controller } = createController({
+      listTurns: vi.fn(async () => ({ turns: [{ turnId: "turn-tool" }] })),
+      getAgentTurnRuntimeState,
+    });
+    await controller.loadTimeline("thread-1");
+
+    const recovery = controller.applyTimelinePatch("thread-1", {
+      schemaVersion: "tinybot.timeline_patch.v2",
+      sessionId: "thread-1",
+      turnId: "turn-tool",
+      snapshotRevision: 2,
+      item: toolCallItem(33, 2, "completed"),
+    });
+
+    await expect(recovery).rejects.toMatchObject({
+      message: "Canonical timeline identity recovery for item call-1 loaded revision 1, expected at least 2",
+      cause: expect.objectContaining({
+        itemId: "call-1",
+        currentSequence: 20,
+        receivedSequence: 33,
+        snapshotRevision: 2,
+      }),
+    });
+    expect(getAgentTurnRuntimeState).toHaveBeenCalledTimes(2);
+  });
 });

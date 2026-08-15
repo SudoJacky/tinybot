@@ -14,7 +14,7 @@ import type { TinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapa
 import { createTinyOsBrowserSessionSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
 import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefaultsSettings";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
-import { timelineFromReactMessages } from "./testTimelineFixtures";
+import { timelineFromReactMessages } from "./test/timelineFixtures";
 import { i18n } from "../i18n";
 
 const nativeFilePickerMocks = vi.hoisted(() => ({
@@ -45,8 +45,16 @@ afterEach(() => {
 function mountWorkbenchCss(): void {
   const style = document.createElement("style");
   style.dataset.testStyle = "workbench";
-  style.textContent = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+  style.textContent = readWorkbenchCss();
   document.head.append(style);
+}
+
+function readWorkbenchCss(): string {
+  return [
+    "src/react-workbench/styles/workbench.css",
+    "src/react-workbench/chat/ChatPage.css",
+    "src/react-workbench/chat/TinyOsShell.css",
+  ].map((path) => readFileSync(path, "utf8")).join("\n");
 }
 
 function dragTransfer(): DataTransfer {
@@ -454,7 +462,7 @@ describe("ChatPage", () => {
     expect(openButton.getAttribute("aria-expanded")).toBe("true");
     expect(getComputedStyle(openButton).minWidth).toBe("44px");
     expect(document.querySelector(".react-chat-page")?.getAttribute("data-live-canvas-open")).toBe("true");
-    expect(canvas.querySelector('[aria-label="Terminal window"]')).toBeTruthy();
+    await waitFor(() => expect(canvas.querySelector('[aria-label="Terminal window"]')).toBeTruthy());
     expect(canvas.querySelector(".tinyos-system-bar__status")).toBeNull();
     expect(document.activeElement).toBe(canvasHeading);
 
@@ -1211,19 +1219,16 @@ describe("ChatPage", () => {
     expect(screen.getByRole("button", { name: "Expand session sidebar" })).toBeTruthy();
   });
 
-  it("uses Text Type for chat empty states without changing the accessible copy", async () => {
+  it("renders chat empty states without starting a session", async () => {
     const stores = createStores();
     stores.sessionStore.list = vi.fn(async () => []);
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
-    const sessionEmptyState = await screen.findByLabelText("No sessions yet.");
+    const sessionEmptyState = await screen.findByText("No sessions yet.");
     const start = await screen.findByLabelText("Start a new chat");
 
-    expect(sessionEmptyState.classList.contains("react-text-type")).toBe(true);
-    expect(sessionEmptyState.getAttribute("data-text-type")).toBe("once");
-    expect(sessionEmptyState.getAttribute("aria-label")).toBe("No sessions yet.");
-    expect(within(sessionEmptyState).getByTestId("text-type-visual")).toBeTruthy();
+    expect(sessionEmptyState.classList.contains("react-empty-state")).toBe(true);
     expect(screen.getByRole("heading", { name: "New chat" })).toBeTruthy();
     expect(screen.queryByLabelText("Select or create a session.")).toBeNull();
     expect(stores.sessionStore.create).not.toHaveBeenCalled();
@@ -1310,7 +1315,7 @@ describe("ChatPage", () => {
   });
 
   it("uses the active session background for hovered and focused session rows", () => {
-    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+    const css = readWorkbenchCss();
 
     expect(css).toMatch(
       /\.react-session-row\[data-active="true"\],\s*\.react-session-row:hover,\s*\.react-session-row:focus-within\s*{\s*background:\s*var\(--color-cream-strong\);/s,
@@ -2986,7 +2991,7 @@ describe("ChatPage", () => {
   });
 
   it("keeps assistant messages as inline prose instead of rounded bubbles", () => {
-    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+    const css = readWorkbenchCss();
 
     expect(css).toMatch(/\.react-message__body\s*{\s*min-width:\s*0;\s*padding:\s*2px 0;\s*}/s);
     expect(css).toMatch(/\.react-message-reasoning\s*{[^}]*margin-bottom:\s*10px;[^}]*color:\s*var\(--color-muted\);/s);
@@ -3001,14 +3006,14 @@ describe("ChatPage", () => {
   });
 
   it("does not use colored left accent strips on error cards", () => {
-    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+    const css = readWorkbenchCss();
 
     expect(css).not.toMatch(/\.react-error-recovery\s*{[^}]*border-left:/s);
     expect(css).not.toMatch(/\.react-canonical-scoped-errors\s*{[^}]*border-left:/s);
   });
 
   it("uses configurable sans-serif assistant prose and modern monospace code", () => {
-    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+    const css = readWorkbenchCss();
 
     expect(css).toMatch(
       /\.react-message-markdown\s*{[^}]*font-family:\s*var\(--font-ui\);/s,
@@ -4396,12 +4401,9 @@ describe("ChatPage", () => {
   });
 
   it("defines reduced-motion fallbacks for chat motion primitives", () => {
-    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
-    const textTypeCss = readFileSync("src/components/ui/TextType.css", "utf8");
+    const css = readWorkbenchCss();
 
     expect(css).toContain("@media (prefers-reduced-motion: reduce)");
-    expect(textTypeCss).toContain(".text-type__content");
-    expect(textTypeCss).toContain(".text-type__cursor");
     expect(css).toContain("react-list-enter");
     expect(css).toContain("react-drawer-enter");
     expect(css).toContain("react-stepper-current");
@@ -4412,7 +4414,7 @@ describe("ChatPage", () => {
   });
 
   it("applies a warm border glow treatment to the composer panel", () => {
-    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+    const css = readWorkbenchCss();
     const inputSource = readFileSync("src/components/ui/claude-style-ai-input.tsx", "utf8");
 
     expect(inputSource).toContain("function handlePanelPointerMove");
@@ -4440,7 +4442,7 @@ describe("ChatPage", () => {
   });
 
   it("uses a restrained 180ms fade and short horizontal exit for session deletion", () => {
-    const css = readFileSync("src/react-workbench/styles/workbench.css", "utf8");
+    const css = readWorkbenchCss();
     const source = readFileSync("src/react-workbench/chat/ChatPage.tsx", "utf8");
 
     expect(source).toContain("const SESSION_DELETE_DISSOLVE_MS = 180;");

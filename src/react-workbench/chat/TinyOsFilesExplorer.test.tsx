@@ -97,6 +97,24 @@ describe("TinyOS Workspace Explorer", () => {
     expect(screen.getByText("Select a UTF-8 text file to preview it.")).toBeTruthy();
   });
 
+  it("mounts and unmounts the document surface when the active file changes", () => {
+    const callbacks = {
+      canRequestChange: false,
+      layoutMode: "workspace" as const,
+      onAttachContext: vi.fn(),
+      onRequestExplanation: vi.fn(),
+      onRequestModification: vi.fn(),
+    };
+    const view = render(<TinyOsFilesExplorer {...callbacks} controller={controller(treeState())} />);
+    expect(screen.getByText("Select a UTF-8 text file to preview it.")).toBeTruthy();
+
+    view.rerender(<TinyOsFilesExplorer {...callbacks} controller={controller(openDocumentState())} />);
+    expect(screen.getByRole("tab", { name: "README.md" })).toBeTruthy();
+
+    view.rerender(<TinyOsFilesExplorer {...callbacks} controller={controller(treeState())} />);
+    expect(screen.getByText("Select a UTF-8 text file to preview it.")).toBeTruthy();
+  });
+
   it("creates an immutable workspace reference from a selected line range", async () => {
     const onAttachContext = vi.fn();
     const onRequestExplanation = vi.fn();

@@ -100,6 +100,11 @@ export const en = {
     },
     settingsFallbackEmpty: "No settings summary available.",
     placeholder: "This React placeholder keeps navigation available while the page-specific implementation is rebuilt.",
+    deferredSurface: {
+      loading: "Loading {{name}}…",
+      loadFailed: "{{name}} could not be loaded: {{message}}",
+      retry: "Retry loading {{name}}",
+    },
     fatal: {
       title: "Tinybot UI crashed",
       unexpected: "An unexpected renderer error occurred.",

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { AgentUiForm, AgentUiFormField } from "../../app-core/agent-ui/agentUiEvents";
 
@@ -15,10 +15,14 @@ export function AgentUiFormCard({
 }) {
   const { t } = useTranslation("chat");
   const [values, setValues] = useState<Record<string, unknown>>(() => initialAgentUiFormValues(form));
+  const formRevision = `${form.form_id}\u001f${form.updated_at ?? ""}`;
+  const previousFormRevision = useRef(formRevision);
 
   useEffect(() => {
+    if (previousFormRevision.current === formRevision) return;
+    previousFormRevision.current = formRevision;
     setValues(initialAgentUiFormValues(form));
-  }, [form]);
+  }, [form, formRevision]);
 
   function updateValue(field: AgentUiFormField, value: unknown) {
     setValues((current) => ({ ...current, [field.name]: value }));

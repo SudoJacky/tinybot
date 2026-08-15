@@ -1,4 +1,4 @@
-import type { ChatTurn } from "./chatTurnModel";
+import type { ChatTurn } from "./chatTurnContracts";
 import type { AgentInputReference } from "./agentInputReference";
 
 export const TINYOS_COMMAND_ACK_TIMEOUT_MS = 5_000;

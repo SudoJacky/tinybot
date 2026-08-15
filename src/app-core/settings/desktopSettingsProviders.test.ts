@@ -3,19 +3,23 @@ import {
   applyDesktopProviderModels,
   applyDesktopSettingsFieldEdit,
   buildDesktopProviderCatalogItems,
-  buildDesktopSettingsPaneModel,
   buildDesktopProviderModelRequest,
-  buildDesktopSecretField,
   buildDesktopSettingsFormState,
-  buildDesktopSettingsSavePatch,
-  createDesktopSettingsPatch,
   findDesktopProfileIdForProvider,
   getDesktopProviderProfileConfig,
-  parseDesktopProviderModelList,
-  reconcileDesktopSettingsSavedState,
-  resolveDesktopSecretValue,
   validateDesktopSettingsForm,
 } from "./desktopSettingsProviders";
+import { buildDesktopSettingsPaneModel } from "./desktopSettingsPaneModel";
+import {
+  buildDesktopSettingsSavePatch,
+  createDesktopSettingsPatch,
+  reconcileDesktopSettingsSavedState,
+} from "./desktopSettingsPersistence";
+import {
+  buildDesktopSecretField,
+  parseDesktopProviderModelList,
+  resolveDesktopSecretValue,
+} from "./desktopSettingsValues";
 
 describe("desktop settings and provider helpers", () => {
   test("normalizes config and provider profiles for desktop panes", () => {

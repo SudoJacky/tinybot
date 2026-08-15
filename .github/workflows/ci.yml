@@ -33,25 +33,17 @@ jobs:
       - name: Check module README freshness
         run: npm run readme:check
 
-      - name: Run desktop tests
-        shell: bash
-        run: |
-          set +e
-          npm test > test-output.log 2>&1
-          status=$?
-          tail -n 200 test-output.log
-          exit "$status"
+      - name: Run frontend analysis gate
+        run: npm run analyze:frontend:ci
 
-      - name: Upload failed desktop test log
-        if: failure()
+      - name: Upload frontend analysis report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-test-output
-          path: test-output.log
-          retention-days: 3
-
-      - name: Build desktop frontend
-        run: npm run build
+          name: frontend-analysis
+          path: tools/frontend-analysis/reports/latest/
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable

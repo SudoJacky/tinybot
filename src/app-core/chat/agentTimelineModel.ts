@@ -1,13 +1,13 @@
+import { projectBackendTimeline } from "./chatProjection";
 import {
-  backendRuntimeStatesToTurns,
   normalizeAgentTurnRuntimeStatePayload,
   normalizeAgentTimelinePatchPayload,
-} from "./chatTurnModel";
+} from "./chatTimelinePayload";
 import type {
   BackendAgentTurnRuntimeState,
   BackendAgentTimelinePatch,
   ChatTurn,
-} from "./chatTurnModel";
+} from "./chatTurnContracts";
 
 export type TimelineDiagnostic = {
   code: "lower_item_revision";
@@ -215,7 +215,7 @@ function projectSessionSnapshot(sessionId: string, state: SessionTimelineState):
     sessionId,
     source: "canonical",
     turnRevisions: Object.fromEntries([...state.turns].map(([turnId, turn]) => [turnId, turn.timeline.snapshotRevision])),
-    turns: backendRuntimeStatesToTurns(sessionId, runtimeStates),
+    turns: projectBackendTimeline(sessionId, runtimeStates),
     diagnostics: [...state.diagnostics],
   };
 }

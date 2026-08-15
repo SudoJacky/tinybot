@@ -7,9 +7,9 @@ import { isTinyOsCommandInFlight, type TinyOsCommandLifecycle } from "../../app-
 import type {
   TinyOsKernelSnapshot,
   TinyOsProcess,
-  TinyOsProcessState,
   TinyOsResource,
 } from "../../app-core/chat/tinyOsKernelModel";
+import type { TinyOsProcessState } from "../../app-core/chat/tinyOsKernelContracts";
 
 type TinyOsSystemMonitorFilters = {
   agentId: string;

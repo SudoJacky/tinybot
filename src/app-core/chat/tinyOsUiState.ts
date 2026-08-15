@@ -272,7 +272,7 @@ export function loadTinyOsLayout(
 export function saveTinyOsLayout(
   storage: Pick<Storage, "setItem"> | undefined,
   workspaceKey: string,
-  state: TinyOsUiState,
+  state: Pick<TinyOsUiState, "layoutMode" | "windowLayout">,
 ): void {
   if (!storage) return;
   storage.setItem(tinyOsLayoutStorageKey(workspaceKey, state.layoutMode), JSON.stringify({
