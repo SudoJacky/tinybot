@@ -357,27 +357,7 @@ function TreeEntry({
   );
 }
 
-function WorkspaceDocument({
-  canDirectEdit,
-  canRequestChange,
-  canSave,
-  commandRegistry,
-  compact,
-  controller,
-  directEditUnavailableReason,
-  favorite,
-  kernel,
-  onAttachContext,
-  onBrowseDirectory,
-  onDeleteFile,
-  onMoveFile,
-  onRequestExplanation,
-  onRequestModification,
-  onSaveFile,
-  onToggleFavorite,
-  requestChangeUnavailableReason,
-  saveUnavailableReason,
-}: {
+type WorkspaceDocumentProps = {
   canDirectEdit: boolean;
   canRequestChange: boolean;
   canSave: boolean;
@@ -397,12 +377,39 @@ function WorkspaceDocument({
   onToggleFavorite: () => void;
   requestChangeUnavailableReason?: string;
   saveUnavailableReason?: string;
-}) {
+};
+
+function WorkspaceDocument(props: WorkspaceDocumentProps) {
+  const { t } = useTranslation("tinyos");
+  const activePath = props.controller.state.activePath;
+  if (!activePath) return <section className="tinyos-workspace-document"><ExplorerMessage text={t("files.selectFile")} /></section>;
+  return <WorkspaceDocumentContent {...props} path={activePath} />;
+}
+
+function WorkspaceDocumentContent({
+  canDirectEdit,
+  canRequestChange,
+  canSave,
+  commandRegistry,
+  compact,
+  controller,
+  directEditUnavailableReason,
+  favorite,
+  kernel,
+  onAttachContext,
+  onBrowseDirectory,
+  onDeleteFile,
+  onMoveFile,
+  path,
+  onRequestExplanation,
+  onRequestModification,
+  onSaveFile,
+  onToggleFavorite,
+  requestChangeUnavailableReason,
+  saveUnavailableReason,
+}: WorkspaceDocumentProps & { path: string }) {
   const { t } = useTranslation("tinyos");
   const { state } = controller;
-  const activePath = state.activePath;
-  if (!activePath) return <section className="tinyos-workspace-document"><ExplorerMessage text={t("files.selectFile")} /></section>;
-  const path: string = activePath;
   const resource = state.documents[path];
   const document = resourceValue(resource);
   const lines = useMemo(() => document?.content.split("\n") ?? [], [document?.content]);
@@ -435,7 +442,7 @@ function WorkspaceDocument({
     setMutationError("");
     setMutationConflict(undefined);
     setOpenWith(false);
-  }, [path]);
+  }, [controller, path]);
   useEffect(() => activeMatchRef.current?.scrollIntoView({ block: "center" }), [matchLine]);
 
   function selectLine(lineNumber: number, extend: boolean) {

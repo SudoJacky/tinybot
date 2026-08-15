@@ -82,7 +82,7 @@ const APP_ICONS = {
 
 const APP_ORDER: TinyOsAppId[] = ["files", "terminal", "browser", "plan", "subagents", "artifacts", "inspector"];
 const EMPTY_AGENT_GROUPS: TinyOsAgentProcessGroup[] = [];
-type TinyOsShellOverlay = "notifications" | "overview" | "palette" | "switcher";
+type TinyOsShellOverlayKind = "notifications" | "overview" | "palette" | "switcher";
 type TinyOsContextMenuState = { commandIds: TinyOsShellCommandId[]; label: string; x: number; y: number };
 type TinyOsFileSaveInput = { baseRevision?: string; content: string; createOnly: boolean; path: string };
 type TinyOsFileMoveInput = { baseRevision: string; path: string; targetPath: string };
@@ -183,7 +183,7 @@ export function TinyOsShell({
   const { t } = useTranslation("tinyos");
   const launcherRef = useRef<HTMLElement>(null);
   const overlayReturnFocusRef = useRef<HTMLElement | null>(null);
-  const [overlay, setOverlay] = useState<TinyOsShellOverlay | null>(null);
+  const [overlay, setOverlay] = useState<TinyOsShellOverlayKind | null>(null);
   const [paletteQuery, setPaletteQuery] = useState("");
   const [readNotificationIds, setReadNotificationIds] = useState<Set<string>>(() => new Set());
   const [switcherAppId, setSwitcherAppId] = useState<TinyOsAppId | undefined>(undefined);
@@ -351,7 +351,7 @@ export function TinyOsShell({
   }, [filesController, history, snapshot.activeAppId, snapshot.cursorItemId, snapshot.windows]);
 
   useEffect(() => {
-    if (snapshot.dialog && overlay) closeShellOverlay();
+    if (snapshot.dialog?.id && overlay) closeShellOverlay();
   }, [overlay, snapshot.dialog?.id]);
 
   const allEntries = snapshot.windows.flatMap((window) => window.entries);
@@ -786,7 +786,7 @@ export function TinyOsShell({
     setPinnedEvidence((current) => [...current.filter(({ id }) => id !== pin.id), pin].slice(-2));
   }
 
-  function openShellOverlay(nextOverlay: TinyOsShellOverlay) {
+  function openShellOverlay(nextOverlay: TinyOsShellOverlayKind) {
     if (!overlay && typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
       overlayReturnFocusRef.current = document.activeElement;
     }
@@ -1134,7 +1134,7 @@ function TinyOsShellOverlay({
   notifications: TinyOsDesktopSnapshot["notifications"];
   onClose: () => void;
   onPaletteQueryChange: (query: string) => void;
-  overlay: TinyOsShellOverlay;
+  overlay: TinyOsShellOverlayKind;
   paletteQuery: string;
   readNotificationIds: Set<string>;
   processes: TinyOsProcess[];
@@ -1417,7 +1417,7 @@ function TinyOsAppWindow({
   useLayoutEffect(() => {
     if (pointerActive || !layout) return;
     applyWindowRect(windowRef.current, layout);
-  }, [layout?.height, layout?.width, layout?.x, layout?.y, pointerActive]);
+  }, [layout, pointerActive]);
 
   useLayoutEffect(() => {
     const element = windowRef.current;
@@ -2028,7 +2028,7 @@ function requiredShellCommand(
   return command;
 }
 
-function overlayLabel(overlay: TinyOsShellOverlay, t: TFunction<"tinyos">): string {
+function overlayLabel(overlay: TinyOsShellOverlayKind, t: TFunction<"tinyos">): string {
   switch (overlay) {
     case "notifications": return t("shell.overlay.notification");
     case "overview": return t("shell.overlay.overview");

@@ -1,5 +1,5 @@
 # TinyOS Runtime Contract
-<!-- tinybot-module-fingerprint: sha256:aa1d296ccd281e01742884840fdeafcc53cc8cebbefcf51c32d1a3dcd1dd84e5 -->
+<!-- tinybot-module-fingerprint: sha256:d6da30942edb8fb3aab6cbc73b7138cd750b23bb312d7fc5e4afce3f2d72d736 -->
 
 TinyOS presents workspace files, retained terminal executions, the managed
 browser session, generated artifacts, and Agent activity as one desktop shared
@@ -30,6 +30,10 @@ an untrusted-evidence block; stored and visible message text is unchanged.
 One message may carry at most 16 TinyOS references and 64 KiB of serialized
 reference data. Exceeding either limit fails the request instead of silently
 dropping context.
+
+Cross-app drag envelopes are target-checked before use: Chat accepts context
+references and Inspector accepts canonical evidence. Unsupported target/type
+combinations are rejected explicitly.
 
 ## Agent controls
 

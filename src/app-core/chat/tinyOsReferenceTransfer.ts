@@ -50,20 +50,20 @@ export function readTinyOsReferenceTransfer(
   return { reference: value.reference, status: "accepted" };
 }
 
-export function tinyOsReferenceAcceptedBy(
+type TinyOsTargetReference<TTarget extends "chat" | "inspector"> = TTarget extends "chat"
+  ? Extract<TinyOsCrossAppReference, { kind: "context" }>
+  : Extract<TinyOsCrossAppReference, { kind: "evidence" }>;
+
+export function tinyOsReferenceAcceptedBy<TTarget extends "chat" | "inspector">(
   reference: TinyOsCrossAppReference,
-  target: "chat",
-): TinyOsTargetReadResult<Extract<TinyOsCrossAppReference, { kind: "context" }>>;
-export function tinyOsReferenceAcceptedBy(
-  reference: TinyOsCrossAppReference,
-  target: "inspector",
-): TinyOsTargetReadResult<Extract<TinyOsCrossAppReference, { kind: "evidence" }>>;
-export function tinyOsReferenceAcceptedBy(
-  reference: TinyOsCrossAppReference,
-  target: "chat" | "inspector",
-): TinyOsReferenceReadResult {
-  if (target === "chat" && reference.kind === "context") return { reference, status: "accepted" };
-  if (target === "inspector" && reference.kind === "evidence") return { reference, status: "accepted" };
+  target: TTarget,
+): TinyOsTargetReadResult<TinyOsTargetReference<TTarget>> {
+  if (target === "chat" && reference.kind === "context") {
+    return { reference: reference as TinyOsTargetReference<TTarget>, status: "accepted" };
+  }
+  if (target === "inspector" && reference.kind === "evidence") {
+    return { reference: reference as TinyOsTargetReference<TTarget>, status: "accepted" };
+  }
   return {
     reason: target === "chat"
       ? `Chat accepts file and terminal context, not ${reference.kind} references.`

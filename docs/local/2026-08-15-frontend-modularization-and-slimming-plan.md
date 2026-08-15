@@ -451,6 +451,8 @@ Phase 4 停止判断：四个职责 seam 均已建立，`ChatPage` 从 4,630 行
 
 当前状态：窗口管理、浏览器与终端应用 seam 已完成。`useTinyOsWindowManager` 独立拥有 session/layout 恢复、窗口同步与尺寸监听、浏览器抢焦点、z-order、最小化和持久化，并通过显式 actions 暴露变更；`TinyOsBrowserApp` 独立拥有 tab/地址状态、导航与恢复、用户 handoff、policy request、错误展示，以及 native surface 的 layout revision、可见性收敛与调度；`TinyOsTerminalApp` 独立拥有命令审核/执行/取消、canonical output、搜索、跟随与引用选择；共享的纯格式化函数已移到 `tinyOsPresentation.ts`。这些模块均有独立 interface 测试，shell 不再直接操作窗口 reducer，后续修改浏览器或终端行为也不再要求进入桌面 shell。
 
+`TinyOsFilesExplorer` 的 document surface 已通过显式组件边界按 active file 挂载/卸载，消除了 early return 后调用 Hook 的真实顺序风险；测试覆盖从无 active file 到打开、再关闭文件的往返。TinyOS 范围内的 `rules-of-hooks`、`exhaustive-deps` 与 overload `no-redeclare` finding 已从分析报告中清零，没有使用 lint disable 或更新债务基线。
+
 退出条件：
 
 - `TinyOsShell.tsx` 目标低于 1,200 行；
