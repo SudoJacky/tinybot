@@ -266,9 +266,11 @@ export function createDesktopChatSessionController({
         const snapshot = await loadTimeline(sessionKey);
         const durableRevision = snapshot.turnRevisions[error.turnId];
         if (durableRevision === undefined || durableRevision < error.snapshotRevision) {
-          throw new Error(
+          const recoveryError = new Error(
             `Canonical timeline identity recovery for item ${error.itemId} loaded revision ${durableRevision ?? "missing"}, expected at least ${error.snapshotRevision}`,
           );
+          (recoveryError as Error & { cause?: unknown }).cause = error;
+          throw recoveryError;
         }
         return snapshot;
       }

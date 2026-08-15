@@ -187,7 +187,7 @@ function DefaultLlmPanel({
     : initialProvider?.defaultModel ?? initialModelOptions[0]?.id ?? "";
   const [profileId, setProfileId] = useState(initialProfileId);
   const selectedProvider = data.providers.find((provider) => provider.profileId === profileId) ?? data.providers[0];
-  const modelOptions = selectedProvider?.models ?? [];
+  const modelOptions = useMemo(() => selectedProvider?.models ?? [], [selectedProvider]);
   const [model, setModel] = useState(initialModel);
   const [modelSearch, setModelSearch] = useState("");
   const [saving, setSaving] = useState(false);

@@ -199,6 +199,18 @@ function downloadCsv(document: DataViewDocument) {
 }
 
 function safeFileName(value: string): string {
-  const safe = value.trim().replace(/[<>:"/\\|?*\u0000-\u001f]+/g, "-").replace(/\s+/g, " ").slice(0, 96);
+  let safe = "";
+  let replacingInvalidRun = false;
+  for (const character of value.trim()) {
+    const invalid = character.charCodeAt(0) <= 31 || '<>:"/\\|?*'.includes(character);
+    if (invalid) {
+      if (!replacingInvalidRun) safe += "-";
+      replacingInvalidRun = true;
+      continue;
+    }
+    replacingInvalidRun = false;
+    safe += character;
+  }
+  safe = safe.replace(/\s+/g, " ").slice(0, 96);
   return safe || "data-view";
 }

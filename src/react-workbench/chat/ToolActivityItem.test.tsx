@@ -113,7 +113,7 @@ describe("ToolActivityItem", () => {
     expect(screen.getByText("Command failed")).toBeTruthy();
     expect(screen.getByText("Failed")).toBeTruthy();
     expect(screen.getByText("error[E0308]: mismatched types")).toBeTruthy();
-    expect(screen.queryByText(/\{\"stderr\"/)).toBeNull();
+    expect(screen.queryByText(/\{"stderr"/)).toBeNull();
   });
 
   it("labels a failed data view publication as failed", () => {

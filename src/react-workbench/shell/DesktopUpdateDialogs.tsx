@@ -107,6 +107,17 @@ export function DesktopUpdateDialogs({
     }
   }, [openDialog]);
 
+  const closeDialog = useCallback(() => {
+    if (isUpdateBusy(snapshot.phase, pendingAction)) {
+      return;
+    }
+    if (openDialog === "update" && snapshot.availableVersion) {
+      dismissedVersionRef.current = snapshot.availableVersion;
+    }
+    setActionError(null);
+    setOpenDialog(null);
+  }, [openDialog, pendingAction, snapshot.availableVersion, snapshot.phase]);
+
   useEffect(() => {
     if (!openDialog) {
       return;
@@ -118,18 +129,7 @@ export function DesktopUpdateDialogs({
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [openDialog, pendingAction, snapshot.phase]);
-
-  function closeDialog() {
-    if (isUpdateBusy(snapshot.phase, pendingAction)) {
-      return;
-    }
-    if (openDialog === "update" && snapshot.availableVersion) {
-      dismissedVersionRef.current = snapshot.availableVersion;
-    }
-    setActionError(null);
-    setOpenDialog(null);
-  }
+  }, [closeDialog, openDialog, pendingAction, snapshot.phase]);
 
   async function checkForUpdate() {
     if (!client) {

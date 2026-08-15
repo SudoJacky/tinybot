@@ -453,6 +453,8 @@ Phase 4 停止判断：四个职责 seam 均已建立，`ChatPage` 从 4,630 行
 
 `TinyOsFilesExplorer` 的 document surface 已通过显式组件边界按 active file 挂载/卸载，消除了 early return 后调用 Hook 的真实顺序风险；测试覆盖从无 active file 到打开、再关闭文件的往返。TinyOS 范围内的 `rules-of-hooks`、`exhaustive-deps` 与 overload `no-redeclare` finding 已从分析报告中清零，没有使用 lint disable 或更新债务基线。
 
+Phase 5 停止判断：`TinyOsShell` 现只保留桌面 chrome、窗口内容装配、命令注册和 overlay 协调。继续为了 `<1,200` 行目标把 palette、context menu 或 command registry 机械搬到文件外，会扩大 props/callback interface，却不会形成独立状态所有权；因此本阶段按职责边界完成，不再追逐行数指标。reduced-motion、键盘路径与恢复行为继续由现有 shell 集成测试和最终浏览器检查兜底。
+
 退出条件：
 
 - `TinyOsShell.tsx` 目标低于 1,200 行；
@@ -477,6 +479,8 @@ reconcileDesktopSettingsSave(draft, result) -> DesktopSettingsDraft
 内部实现分为 contracts、metadata registry、draft reducer、persistence patch 和 pane projection；调用方不直接组合 touched path、secret mask、provider editor 和 save status。
 
 同时将 `ProviderModelsSettingsPage` 的加载/保存状态与表单展示分开，但不建立只有一个 adapter 的假 port。
+
+当前状态：原 2,234 行的 `desktopSettingsProviders.ts` 已在此前工作中降至约 1,300 行，provider model discovery/patch、native save 与部分设置领域已经分离；`ProviderModelsSettingsPage` 约 920 行。本阶段仍需把剩余的 metadata、draft/edit/save reconcile 和 pane projection 职责按真实调用边界收窄，行数只作为聚集信号，不要求机械达到目标值。
 
 退出条件：
 
