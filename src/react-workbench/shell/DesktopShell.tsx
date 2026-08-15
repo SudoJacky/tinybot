@@ -32,6 +32,7 @@ import {
   Settings,
   Square,
   SunMoon,
+  UserRound,
   WandSparkles,
   X,
   type LucideIcon,
@@ -56,6 +57,7 @@ import { AppSettingsPage } from "../settings/AppSettingsPage";
 import { AppearanceSettingsPage } from "../settings/AppearanceSettingsPage";
 import { ConfigSettingsPage, type ConfigSettingsGroupId } from "../settings/ConfigSettingsPage";
 import { KeyboardShortcutsSettingsPage } from "../settings/KeyboardShortcutsSettingsPage";
+import { PersonalizationSettingsPage } from "../settings/PersonalizationSettingsPage";
 import { ProviderModelsSettingsPage } from "../settings/ProviderModelsSettingsPage";
 import type { AppServices, PluginMigrationJob, PluginSummary, ToolCatalogSummary, WorkspaceFileSummary } from "../services";
 import type { DesktopUpdateClient } from "../../app-core/native/desktopNativeUpdate";
@@ -1171,6 +1173,9 @@ function SettingsPage({ services }: { services: AppServices }) {
       if (module.id === "agent-defaults") {
         return Boolean(services.settingsStore.loadAgentDefaultsSettings && services.settingsStore.saveAgentDefaultsSettings);
       }
+      if (module.id === "personalization") {
+        return Boolean(services.settingsStore.loadPersonalizationInstructions && services.settingsStore.savePersonalizationInstructions);
+      }
       if (module.groupId) {
         return Boolean(services.settingsStore.loadDesktopConfigSettings && services.settingsStore.saveDesktopConfigSettings);
       }
@@ -1188,6 +1193,8 @@ function SettingsPage({ services }: { services: AppServices }) {
         >
           {activeModuleId === "app" ? (
             <AppSettingsPage />
+          ) : activeModuleId === "personalization" ? (
+            <PersonalizationSettingsPage settingsStore={services.settingsStore} />
           ) : activeModuleId === "appearance" ? (
             <AppearanceSettingsPage />
           ) : activeModuleId === "keyboard-shortcuts" ? (
@@ -1225,7 +1232,7 @@ function SettingsPage({ services }: { services: AppServices }) {
   );
 }
 
-type SettingsModuleId = "app" | "appearance" | "keyboard-shortcuts" | "provider-models" | "agent-defaults" | ConfigSettingsGroupId;
+type SettingsModuleId = "app" | "personalization" | "appearance" | "keyboard-shortcuts" | "provider-models" | "agent-defaults" | ConfigSettingsGroupId;
 
 type SettingsModule = {
   id: SettingsModuleId;
@@ -1238,6 +1245,7 @@ type SettingsModule = {
 function createSettingsModules(t: TFunction<"settings">): SettingsModule[] {
   return [
     { id: "app", label: t("modules.app.label"), description: t("modules.app.description"), icon: AppWindow },
+    { id: "personalization", label: t("modules.personalization.label"), description: t("modules.personalization.description"), icon: UserRound },
     { id: "appearance", label: t("modules.appearance.label"), description: t("modules.appearance.description"), icon: SunMoon },
     { id: "keyboard-shortcuts", label: t("modules.shortcuts.label"), description: t("modules.shortcuts.description"), icon: Keyboard },
     { id: "provider-models", label: t("modules.providers.label"), description: t("modules.providers.description"), icon: Cloud },

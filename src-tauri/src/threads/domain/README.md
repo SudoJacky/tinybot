@@ -1,4 +1,5 @@
 # Worker Thread
+<!-- tinybot-module-fingerprint: sha256:b53667fbbc4b67e7df87149fb5224fc7a1993a85a9ac522020dce71783e4af6b -->
 
 `threads::domain` is Tinybot's typed conversation domain. It defines Thread
 records, Turns, Items, lifecycle operations, active-Turn projections, and the
@@ -76,6 +77,8 @@ Rollout store under one operation boundary.
   whether children are included.
 - Runtime status, activity, checkpoints, and agent-turn views are
   projections from canonical Rollout items.
+- Replayed runtime events preserve their persisted event ID, sequence, and
+  timestamp; assistant message phases must remain causally valid per item.
 - Capability checks occur before reading or appending Thread state.
 - `MemoryThreadStore` must not gain a journal or database.
 - Compatibility projections must not become an alternate canonical write path.

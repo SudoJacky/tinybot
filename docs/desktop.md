@@ -35,6 +35,9 @@ From the repository root:
 npm install
 ```
 
+For repository hooks and contribution checks, see
+[CONTRIBUTING.md](../CONTRIBUTING.md).
+
 ## Runtime Commands
 
 Run only the frontend checks:

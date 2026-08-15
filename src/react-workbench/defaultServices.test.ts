@@ -176,6 +176,52 @@ describe("desktop native app services", () => {
     ]));
   });
 
+  test("loads and saves personalization instructions through USER.md with revision checks", async () => {
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === "worker_threads_list") return { threads: [thread], total: 1 };
+      if (command === "thread_list_turns") return { turns: [] };
+      if (command === "thread_get_turn_runtime_state") return null;
+      if (command === "worker_workspace_bootstrap_files") {
+        return {
+          files: [{ path: "USER.md", contents: "Keep answers concise.", updated_at: "unix-ms:100" }],
+          missing: [],
+        };
+      }
+      if (command === "worker_workspace_put_file") {
+        return { path: "USER.md", bytes_written: 33, updated_at: "unix-ms:200" };
+      }
+      return {};
+    });
+    const services = createDesktopAppServices();
+
+    await expect(services.settingsStore.loadPersonalizationInstructions?.()).resolves.toEqual({
+      path: "USER.md",
+      contents: "Keep answers concise.",
+      updatedAt: "unix-ms:100",
+    });
+    await expect(services.settingsStore.savePersonalizationInstructions?.({
+      contents: "Keep answers concise and concrete.",
+      expectedUpdatedAt: "unix-ms:100",
+    })).resolves.toEqual({
+      path: "USER.md",
+      contents: "Keep answers concise and concrete.",
+      updatedAt: "unix-ms:200",
+    });
+
+    expect(mocks.invoke).toHaveBeenCalledWith("worker_workspace_bootstrap_files", {
+      input: { files: ["USER.md"] },
+    });
+    expect(mocks.invoke).toHaveBeenCalledWith("worker_workspace_put_file", {
+      input: {
+        path: "USER.md",
+        body: {
+          content: "Keep answers concise and concrete.",
+          expectedUpdatedAt: "unix-ms:100",
+        },
+      },
+    });
+  });
+
   test("reloads canonical runtime state whenever an existing session is loaded", async () => {
     const services = createDesktopAppServices();
 

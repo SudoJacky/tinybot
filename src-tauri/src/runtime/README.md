@@ -1,4 +1,5 @@
 # Native Runtime Services
+<!-- tinybot-module-fingerprint: sha256:dfa80cebc5215478cc749a6e2162fe657d13748bb2c6934c899a1f48a8c476c2 -->
 
 `runtime` owns process-local services that must outlive an individual backend
 request: turn execution ownership, shared MCP connections, startup/shutdown

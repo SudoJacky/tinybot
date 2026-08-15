@@ -9408,9 +9408,33 @@ button.tinyos-overlay-backdrop:focus-visible {
 .react-appearance-settings,
 .react-shortcuts-settings,
 .react-agent-defaults-settings,
+.react-personalization-settings,
 .react-config-settings {
   display: grid;
   gap: 26px;
+}
+
+.react-personalization-settings .react-config-settings__field textarea {
+  min-height: 320px;
+  resize: vertical;
+}
+
+.react-personalization-settings__load-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.react-personalization-settings__load-error > button {
+  min-height: 34px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 0 12px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .react-app-settings__list {

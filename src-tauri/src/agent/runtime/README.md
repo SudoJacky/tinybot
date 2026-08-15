@@ -1,4 +1,5 @@
 # Native Agent Runtime
+<!-- tinybot-module-fingerprint: sha256:e7908557fd0147d4e7166f3fecc971501439fe387e013da7f1cd01362b6c6f3d -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -16,6 +17,8 @@ to [`agent::bridge`](../bridge/README.md).
 - Call the configured provider and adapt provider-specific responses.
 - Maintain the typed `AgentItem` history used inside the runtime.
 - Route model-requested tools through injected dispatch services.
+- Expose persistent cross-workspace Thread tools only to eligible project-group
+  coordinator Turns.
 - Evaluate hooks around provider, turn, thread, and context-compaction stages.
 - Emit correlated runtime events and project typed items for compatibility
   consumers.
@@ -46,9 +49,14 @@ decide which durable conversation store a caller uses.
 7. Usage and runtime events are emitted through the injected trace sink, and
    `result.rs` builds the terminal response.
 
-Nested workspace Turns inherit an already-installed trace sink. This preserves
-both durable semantic projection and live desktop timeline patches, allowing
-backend-created child Threads to appear in the session list without polling.
+Project-group coordinator Turns receive `spawn_workspace_thread` and
+`send_thread_message`. Each call authorizes the target workspace against the
+group, creates or resumes a normal user-visible persistent Thread, and returns
+its terminal status and final message. Child Turns inherit the installed trace
+sink so durable projection and live desktop timeline patches stay aligned.
+They remain owned by the parent Turn: parent cancellation propagates to active
+children and waits for their bounded cleanup before the parent becomes
+terminal.
 
 ## Public extension points
 
@@ -117,6 +125,8 @@ conditionals throughout those shared runtime modules.
   instruction composition.
 - `tool_router.rs`, `tool_dispatcher.rs`, `tool_runtime.rs`: discovery,
   routing, execution, cleanup, and deferred tools.
+- `workspace_threads.rs`: project-group authorization, persistent child Thread
+  execution, follow-up messages, and parent cancellation propagation.
 - `tool_projection.rs`, `tool_result.rs`: normalized tool lifecycle output.
 - `hooks.rs`, `events.rs`, `trace_commit.rs`: runtime hooks, event construction,
   and ordered trace commits.
@@ -223,7 +233,8 @@ conversation-message transport.
 
 Cancellation is idempotent and has one terminal owner. The Turn remains in
 `cancelling` while owned children perform bounded cleanup, and a late result
-cannot replace the published terminal result.
+cannot replace the published terminal result. Workspace child Threads follow
+this same ownership contract instead of detaching when their coordinator stops.
 
 Shutdown stops admission, cancels and drains owned Turns, terminates retained
 shell process trees, stops MCP clients and stdio children, interrupts
@@ -270,9 +281,11 @@ The foundational model-visible tool set contains available instances of
 `update_plan`, `web.open`, `web.read`, `web.act`, and the
 `subagent.spawn`, `subagent.send_input`, `subagent.wait`, `subagent.close`, and
 `subagent.resume` lifecycle controls. MCP tools explicitly allowlisted by backend
-workspace configuration are injected after discovery. Other deferred extension
-tools remain hidden unless selected by backend Turn policy. Selection lasts only
-for the current Turn; inactive calls fail before dispatch.
+workspace configuration are injected after discovery. Eligible project-group
+coordinator Turns additionally receive `spawn_workspace_thread` and
+`send_thread_message`; ordinary Threads never see them. Other deferred
+extension tools remain hidden unless selected by backend Turn policy. Selection
+lasts only for the current Turn; inactive calls fail before dispatch.
 
 `update_plan` replaces the complete Turn plan. States are `pending`,
 `in_progress`, and `completed`; an incomplete plan has exactly one active step.

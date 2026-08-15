@@ -1,0 +1,101 @@
+#!/usr/bin/env sh
+set -eu
+
+root="$(git rev-parse --show-toplevel)"
+cd "$root"
+
+changed_files="$(git diff --cached --name-only --diff-filter=ACMRD)"
+
+if [ -z "$changed_files" ]; then
+  exit 0
+fi
+
+module_changed=0
+frontend_changed=0
+tauri_changed=0
+
+while IFS= read -r path; do
+  case "$path" in
+    src/*|src-tauri/*)
+      module_changed=1
+      ;;
+  esac
+
+  case "$path" in
+    package.json|package-lock.json|index.html|tsconfig*.json|vite.config.js|vite.config.ts|vite.config.mjs|vite.config.cjs|vite.config.mts|vite.config.cts|src/*.css|src/*.ts|src/*.tsx)
+      frontend_changed=1
+      ;;
+  esac
+
+  case "$path" in
+    src-tauri/*.json|src-tauri/*.rs|src-tauri/*.toml)
+      tauri_changed=1
+      ;;
+  esac
+done <<EOF
+$changed_files
+EOF
+
+if [ "$module_changed" -eq 1 ]; then
+  if ! command -v node >/dev/null 2>&1; then
+    echo "pre-commit: node is required to check module README freshness." >&2
+    exit 1
+  fi
+
+  echo "pre-commit: checking staged module README freshness"
+  node .github/scripts/readme-freshness.mjs check --staged
+fi
+
+if [ "$frontend_changed" -eq 0 ] && [ "$tauri_changed" -eq 0 ]; then
+  echo "pre-commit: no frontend or Tauri source changes detected; skipping code checks."
+  exit 0
+fi
+
+if [ "$frontend_changed" -eq 1 ]; then
+  if [ "${OS:-}" = "Windows_NT" ]; then
+    if command -v npm.cmd >/dev/null 2>&1; then
+      run_npm() {
+        npm.cmd "$@"
+      }
+    else
+      node_command="$(command -v node || true)"
+      npm_cli="${node_command%/*}/node_modules/npm/bin/npm-cli.js"
+      if [ -z "$node_command" ] || [ ! -f "$npm_cli" ]; then
+        echo "pre-commit: npm is required to validate frontend changes." >&2
+        exit 1
+      fi
+      run_npm() {
+        "$node_command" "$npm_cli" "$@"
+      }
+    fi
+  else
+    if ! command -v npm >/dev/null 2>&1; then
+      echo "pre-commit: npm is required to validate frontend changes." >&2
+      exit 1
+    fi
+    run_npm() {
+      npm "$@"
+    }
+  fi
+
+  if [ ! -d node_modules ]; then
+    echo "pre-commit: node_modules is missing. Run npm install before committing." >&2
+    exit 1
+  fi
+
+  echo "pre-commit: running npm test"
+  run_npm test
+
+  echo "pre-commit: running npm run build"
+  run_npm run build
+fi
+
+if [ "$tauri_changed" -eq 1 ]; then
+  if ! command -v cargo >/dev/null 2>&1; then
+    echo "pre-commit: cargo is required to validate Tauri changes." >&2
+    exit 1
+  fi
+
+  echo "pre-commit: running cargo check"
+  cargo check --manifest-path src-tauri/Cargo.toml
+fi

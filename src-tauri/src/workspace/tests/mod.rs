@@ -157,6 +157,20 @@ mod tests {
     }
 
     #[test]
+    fn read_bootstrap_files_does_not_report_unreadable_paths_as_missing() {
+        let fixture = WorkspaceFixture::new();
+        std::fs::create_dir(fixture.root.join("USER.md"))
+            .expect("bootstrap fixture directory should create");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
+
+        let error = rpc
+            .read_bootstrap_files(&["USER.md".to_string()])
+            .expect_err("an unreadable bootstrap path should fail");
+
+        assert_eq!(error.code, WorkerProtocolErrorCode::WorkerError);
+    }
+
+    #[test]
     fn list_files_skips_symlinked_directories() {
         let fixture = WorkspaceFixture::new();
         fixture.write("real/NOTE.md", "note");

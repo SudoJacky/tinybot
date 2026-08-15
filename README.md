@@ -24,6 +24,9 @@ Some design documents (in Chinese): [Tinybot Design Docs](https://sudojacky.gith
 
 To install Tinybot, open [GitHub Tags](https://github.com/SudoJacky/tinybot/tags), select the latest version, and download the installer for your platform.
 
+For development setup and repository contribution requirements, see
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 <img width="558" height="314" alt="image" src="https://github.com/user-attachments/assets/dc8755a3-c9ff-45d9-aa72-8a7257822787" />
 
 <img width="597" height="348" alt="image" src="https://github.com/user-attachments/assets/e78f6ddd-3d7b-43eb-beb5-d3628d846e82" />

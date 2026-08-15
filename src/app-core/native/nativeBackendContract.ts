@@ -39,6 +39,7 @@ export const NATIVE_BACKEND_COMMAND_NAMES = [
   "worker_project_group_delete",
   "worker_workspace_files",
   "worker_workspace_file",
+  "worker_workspace_bootstrap_files",
   "worker_workspace_put_file",
   "worker_workspace_directory",
   "worker_workspace_file_chunk",

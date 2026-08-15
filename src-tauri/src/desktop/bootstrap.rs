@@ -200,6 +200,7 @@ pub(crate) fn run() {
             crate::desktop_commands::project_groups::worker_project_group_delete,
             crate::desktop_commands::workspace::worker_workspace_files,
             crate::desktop_commands::workspace::worker_workspace_file,
+            crate::desktop_commands::workspace::worker_workspace_bootstrap_files,
             crate::desktop_commands::workspace::worker_workspace_put_file,
             crate::desktop_commands::workspace::worker_workspace_directory,
             crate::desktop_commands::workspace::worker_workspace_file_chunk,

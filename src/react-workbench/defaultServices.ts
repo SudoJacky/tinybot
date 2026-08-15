@@ -41,6 +41,7 @@ import type {
   ChatModelOption,
   ChatEvent,
   McpServerSummary,
+  PersonalizationInstructionsData,
   PluginMigrationSession,
   SessionSummary,
   ToolCatalogSummary,
@@ -733,6 +734,22 @@ export function createDesktopAppServices(): AppServices {
         const pane = buildDesktopSettingsPaneModel(state, { providerCatalog });
         return normalizeChatModelOptions(pane);
       },
+      async loadPersonalizationInstructions() {
+        await initialize();
+        const payload = await requireNative(nativeWorkspace, "Workspace")
+          .bootstrapFiles([PERSONALIZATION_INSTRUCTIONS_PATH]);
+        return normalizePersonalizationInstructions(payload);
+      },
+      async savePersonalizationInstructions(input) {
+        await initialize();
+        const body = {
+          content: input.contents,
+          ...(input.expectedUpdatedAt ? { expectedUpdatedAt: input.expectedUpdatedAt } : {}),
+        };
+        const payload = await requireNative(nativeWorkspace, "Workspace")
+          .putFile(PERSONALIZATION_INSTRUCTIONS_PATH, body);
+        return normalizePersonalizationWrite(payload, input.contents);
+      },
       async loadDesktopConfigSettings() {
         await initialize();
         const currentConfig = await loadSettingsSnapshot();
@@ -897,6 +914,49 @@ function timestampFromPayload(payload: unknown): number | null {
   }
   const value = payload.updated_at ?? payload.updatedAt;
   return typeof value === "string" ? timestampMs(value) : null;
+}
+
+const PERSONALIZATION_INSTRUCTIONS_PATH = "USER.md" as const;
+
+function normalizePersonalizationInstructions(payload: unknown): PersonalizationInstructionsData {
+  if (!isRecord(payload)) {
+    throw new Error("Personalization instructions response must be an object.");
+  }
+  const files = Array.isArray(payload.files) ? payload.files : [];
+  const file = files.find((candidate) => (
+    isRecord(candidate) && stringValue(candidate.path) === PERSONALIZATION_INSTRUCTIONS_PATH
+  ));
+  if (isRecord(file)) {
+    if (typeof file.contents !== "string") {
+      throw new Error("Personalization instructions response must include text contents.");
+    }
+    return {
+      path: PERSONALIZATION_INSTRUCTIONS_PATH,
+      contents: file.contents,
+      ...(stringValue(file.updated_at ?? file.updatedAt)
+        ? { updatedAt: stringValue(file.updated_at ?? file.updatedAt) }
+        : {}),
+    };
+  }
+  const missing = Array.isArray(payload.missing)
+    ? payload.missing.filter((candidate): candidate is string => typeof candidate === "string")
+    : [];
+  if (missing.includes(PERSONALIZATION_INSTRUCTIONS_PATH)) {
+    return { path: PERSONALIZATION_INSTRUCTIONS_PATH, contents: "" };
+  }
+  throw new Error("Personalization instructions response omitted USER.md.");
+}
+
+function normalizePersonalizationWrite(payload: unknown, contents: string): PersonalizationInstructionsData {
+  if (!isRecord(payload) || stringValue(payload.path) !== PERSONALIZATION_INSTRUCTIONS_PATH) {
+    throw new Error("Personalization save response must identify USER.md.");
+  }
+  const updatedAt = stringValue(payload.updated_at ?? payload.updatedAt);
+  return {
+    path: PERSONALIZATION_INSTRUCTIONS_PATH,
+    contents,
+    ...(updatedAt ? { updatedAt } : {}),
+  };
 }
 
 function normalizeWorkspaceFiles(payload: unknown): WorkspaceFileSummary[] {

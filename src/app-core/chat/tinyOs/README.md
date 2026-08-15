@@ -1,4 +1,5 @@
 # TinyOS Runtime Contract
+<!-- tinybot-module-fingerprint: sha256:5fa4a62734ddedc317681e87417b2f98d8b757613b4521edab6e829c416e18d8 -->
 
 TinyOS presents workspace files, retained terminal executions, the managed
 browser session, generated artifacts, and Agent activity as one desktop shared

@@ -1074,6 +1074,7 @@ Migration preparation accepts a recognized standalone Skill, MCP configuration, 
 | --- | --- | --- |
 | `worker_workspace_files` | none | `{ files: WorkspaceFileEntry[] }` |
 | `worker_workspace_file` | `{ input: { path } }` | `WorkspaceReadFileResult` |
+| `worker_workspace_bootstrap_files` | `{ input: { files } }` | `WorkspaceBootstrapFiles` |
 | `worker_workspace_put_file` | `{ input: { path, body } }` | `WorkspaceWriteResult` |
 | `worker_workspace_directory` | `{ input: { path, cursor?, nameQuery? } }` | Worker response containing `WorkspaceDirectoryPage` |
 | `worker_workspace_file_chunk` | `{ input: { path, cursor? } }` | Worker response containing `WorkspaceFileChunk` |

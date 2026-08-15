@@ -1,4 +1,5 @@
 # Create Agent Plugin
+<!-- tinybot-module-fingerprint: sha256:4ca912110ab5cfc18b91cacf936786566a9460ac035c8dbcdf13e480b009c6f5 -->
 
 Tinybot's bundled helper for creating a portable [Agent Plugins v1](https://agent-plugins.org/specification) package from an existing standalone Skill, MCP configuration, or client-specific plugin.
 
