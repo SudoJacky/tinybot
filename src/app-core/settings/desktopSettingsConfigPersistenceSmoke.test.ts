@@ -3,8 +3,8 @@ import { applyNativeConfigPatch } from "../native/desktopNativeConfigPatch";
 import { saveDesktopSettingsConfig } from "./desktopSettingsSave";
 import {
   buildDesktopSettingsFormState,
-  buildDesktopSettingsPaneModel,
 } from "./desktopSettingsProviders";
+import { buildDesktopSettingsPaneModel } from "./desktopSettingsPaneModel";
 
 describe("desktop settings config persistence smoke", () => {
   test("loads origin metadata, saves canonical operations, and displays pending runtime effects", async () => {

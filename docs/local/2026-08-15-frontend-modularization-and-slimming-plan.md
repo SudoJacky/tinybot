@@ -480,7 +480,9 @@ reconcileDesktopSettingsSave(draft, result) -> DesktopSettingsDraft
 
 同时将 `ProviderModelsSettingsPage` 的加载/保存状态与表单展示分开，但不建立只有一个 adapter 的假 port。
 
-当前状态：原 2,234 行的 `desktopSettingsProviders.ts` 已降至约 1,850 行，provider model discovery/patch、native save 与部分设置领域已经分离；`ProviderModelsSettingsPage` 约 920 行。稳定 form/provider/save contracts 已移到 `desktopSettingsContracts.ts`，metadata registry 独立拥有 group/field 文案、敏感性、导航、自动提交和确认策略，并通过单一 behavior metadata interface 投影；draft 与 metadata 不再互相导入，生产 cycle 保持为 0。下一切片继续收窄 pane projection 与 draft/edit/save reconcile，行数只作为聚集信号，不要求机械达到目标值。
+当前状态：Phase 6 已完成并收口。原 2,234 行的 `desktopSettingsProviders.ts` 现约 645 行，只拥有 config/provider draft 构建、provider editor action、model discovery apply 与 validation；`desktopSettingsPersistence.ts` 约 350 行，独占 touched/full patch、save validation、reconcile 和 dirty comparison；`desktopSettingsPaneModel.ts` 约 237 行，组合 save/default routing/diagnostics；`desktopSettingsPaneGroups.ts` 约 547 行，独占字段构造、metadata enrichment、持久化路径和 value-origin 投影。稳定 contracts、pane contracts、metadata registry 与 secret/model-list value semantics 分别有准确模块，调用方直接依赖对应 interface，不保留 compatibility re-export。
+
+Phase 6 停止判断：最大设置实现已低于 700 行，生产 cycle 与不可达候选均为 0；provider 页面约 920 行，但其剩余内容是四个实际表单/对话框及页面加载编排，继续为了 `<900` 目标移动一个小组件没有架构收益。现有设置测试覆盖 secret、provider default、auto/manual commit、workspace reload、validation、patch/reconcile 和失败状态，本阶段不再做指标驱动拆分。
 
 退出条件：
 

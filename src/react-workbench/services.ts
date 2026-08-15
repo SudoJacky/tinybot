@@ -27,7 +27,7 @@ import type { DesktopSettingsFormState } from "../app-core/settings/desktopSetti
 import type {
   DesktopSettingsPaneModel,
   DesktopSettingsPaneSaveDetails,
-} from "../app-core/settings/desktopSettingsProviders";
+} from "../app-core/settings/desktopSettingsPaneContracts";
 import type { NativeBrowserRuntimeApi } from "../app-core/native/desktopNativeBrowser";
 import type { TinyOsNativeBrowserSession, TinyOsNativeSnapshot } from "../app-core/chat/tinyOsNativeSnapshot";
 

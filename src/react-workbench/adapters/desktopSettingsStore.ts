@@ -6,8 +6,8 @@ import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefault
 import {
   buildDesktopProviderCatalogItems,
   buildDesktopSettingsFormState,
-  buildDesktopSettingsPaneModel,
 } from "../../app-core/settings/desktopSettingsProviders";
+import { buildDesktopSettingsPaneModel } from "../../app-core/settings/desktopSettingsPaneModel";
 import {
   buildProviderModelsSettings,
   normalizeProviderModelFetchResult,

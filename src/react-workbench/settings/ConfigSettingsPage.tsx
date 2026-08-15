@@ -4,11 +4,11 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   applyDesktopSettingsFieldEdit,
-  buildDesktopSettingsPaneModel,
-  createDesktopSettingsPatch,
-  type DesktopSettingsPaneField,
 } from "../../app-core/settings/desktopSettingsProviders";
+import { buildDesktopSettingsPaneModel } from "../../app-core/settings/desktopSettingsPaneModel";
+import { createDesktopSettingsPatch } from "../../app-core/settings/desktopSettingsPersistence";
 import type { DesktopSettingsFormState } from "../../app-core/settings/desktopSettingsContracts";
+import type { DesktopSettingsPaneField } from "../../app-core/settings/desktopSettingsPaneContracts";
 import type {
   DesktopConfigSettingsData,
   DesktopConfigSettingsSaveResult,
