@@ -6,9 +6,9 @@ import {
   applyDesktopSettingsFieldEdit,
   buildDesktopSettingsPaneModel,
   createDesktopSettingsPatch,
-  type DesktopSettingsFormState,
   type DesktopSettingsPaneField,
 } from "../../app-core/settings/desktopSettingsProviders";
+import type { DesktopSettingsFormState } from "../../app-core/settings/desktopSettingsContracts";
 import type {
   DesktopConfigSettingsData,
   DesktopConfigSettingsSaveResult,

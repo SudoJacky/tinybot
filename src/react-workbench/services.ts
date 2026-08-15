@@ -23,8 +23,8 @@ import type {
   ProviderModelFetchResult,
   ProviderModelsSettingsData,
 } from "../app-core/settings/providerModelsSettings";
+import type { DesktopSettingsFormState } from "../app-core/settings/desktopSettingsContracts";
 import type {
-  DesktopSettingsFormState,
   DesktopSettingsPaneModel,
   DesktopSettingsPaneSaveDetails,
 } from "../app-core/settings/desktopSettingsProviders";

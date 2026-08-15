@@ -480,7 +480,7 @@ reconcileDesktopSettingsSave(draft, result) -> DesktopSettingsDraft
 
 同时将 `ProviderModelsSettingsPage` 的加载/保存状态与表单展示分开，但不建立只有一个 adapter 的假 port。
 
-当前状态：原 2,234 行的 `desktopSettingsProviders.ts` 已在此前工作中降至约 1,300 行，provider model discovery/patch、native save 与部分设置领域已经分离；`ProviderModelsSettingsPage` 约 920 行。本阶段仍需把剩余的 metadata、draft/edit/save reconcile 和 pane projection 职责按真实调用边界收窄，行数只作为聚集信号，不要求机械达到目标值。
+当前状态：原 2,234 行的 `desktopSettingsProviders.ts` 已降至约 1,850 行，provider model discovery/patch、native save 与部分设置领域已经分离；`ProviderModelsSettingsPage` 约 920 行。稳定 form/provider/save contracts 已移到 `desktopSettingsContracts.ts`，metadata registry 独立拥有 group/field 文案、敏感性、导航、自动提交和确认策略，并通过单一 behavior metadata interface 投影；draft 与 metadata 不再互相导入，生产 cycle 保持为 0。下一切片继续收窄 pane projection 与 draft/edit/save reconcile，行数只作为聚集信号，不要求机械达到目标值。
 
 退出条件：
 
