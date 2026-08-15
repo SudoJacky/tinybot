@@ -14,7 +14,7 @@ import type { TinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapa
 import { createTinyOsBrowserSessionSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
 import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefaultsSettings";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
-import { timelineFromReactMessages } from "./testTimelineFixtures";
+import { timelineFromReactMessages } from "./test/timelineFixtures";
 import { i18n } from "../i18n";
 
 const nativeFilePickerMocks = vi.hoisted(() => ({

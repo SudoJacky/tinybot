@@ -1,6 +1,6 @@
-import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
-import type { ChatStep, ChatTurn } from "../../app-core/chat/chatTurnModel";
-import type { ReactChatMessage } from "./messageActions";
+import type { ChatTimelineSnapshot } from "../../../app-core/chat/agentTimelineModel";
+import type { ChatStep, ChatTurn } from "../../../app-core/chat/chatTurnModel";
+import type { ReactChatMessage } from "../messageActions";
 
 export function timelineFromReactMessages(
   sessionId: string,

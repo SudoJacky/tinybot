@@ -9,7 +9,7 @@ import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefault
 import { buildProviderModelsSettings } from "../../app-core/settings/providerModelsSettings";
 import type { AppServices, PersonalizationInstructionsSaveInput, SessionSummary } from "../services";
 import type { ReactChatMessage } from "../chat/messageActions";
-import { timelineFromReactMessages } from "../chat/testTimelineFixtures";
+import { timelineFromReactMessages } from "../chat/test/timelineFixtures";
 import { unavailableTinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
 import type { DesktopUpdateClient, DesktopUpdateSnapshot } from "../../app-core/native/desktopNativeUpdate";
 import { pickDesktopPluginMigrationDirectory } from "../../app-core/native/desktopNativePluginPicker";

@@ -1,7 +1,7 @@
 # Tinybot 前端模块化与瘦身计划
 
 - 日期：2026-08-15
-- 状态：调查完成，待分阶段实施
+- 状态：实施中；测试分类与休眠模块清理已完成
 - 基线提交：`c18d0bae refactor: extract chat context usage`
 - 范围：`src/react-workbench`、被桌面前端直接使用的 `src/app-core`、前端依赖和分析工具
 - 本地约束：本文位于被忽略的 `docs/local/`，只作为本地实施依据，不推送到 GitHub
@@ -19,6 +19,20 @@
 7. 在上述职责 seam 上拆分 CSS 和测试，最后清零现存静态分析债务。
 
 `defaultServices.ts` 虽然大，但它现在对外只暴露 `createDesktopAppServices()`，外部 interface 已经较深。因此它不是简单按行数拆文件的第一优先级；实施时应保留这个小 interface，只把内部 adapter 和归一化实现移到其所属模块。
+
+### 1.1 实施进度
+
+2026-08-15 已完成第一批清理：
+
+- 删除 17 个确认不连接生产入口的迁移遗留模块；
+- 删除 16 个只验证这些休眠实现的测试文件，共移除 54 个休眠行为测试；
+- 保留 `timelineFromReactMessages`，并将其移动到 `chat/test/`，使分析器正确识别为测试 helper；
+- 生产文件从 119 降至 101，生产代码从 36,125 行降至 33,717 行，分支点从 6,399 降至 6,006；
+- 不可达候选从 18 降至 0，ESLint finding 从 48 降至 47；
+- 完整分析通过：80 个 Vitest 文件、552 个测试、TypeScript、ESLint、源码分析、生产构建和 bundle 分析全部成功；
+- 构建产物保持不变，证明删除内容此前没有进入生产 bundle。
+
+无引用 npm 依赖、真实加载 seam 和剩余模块化阶段尚未实施。
 
 ## 2. 调查基线
 
