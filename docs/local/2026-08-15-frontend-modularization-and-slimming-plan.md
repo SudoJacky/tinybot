@@ -449,6 +449,8 @@ Phase 4 停止判断：四个职责 seam 均已建立，`ChatPage` 从 4,630 行
 6. presentation helper 只保留纯格式化与 projection，不读取 DOM 或全局状态；
 7. 修复 `TinyOsFilesExplorer`、`TinyOsShell` 的 Hook finding 根因，不能通过 disable 规避。
 
+当前状态：浏览器应用 seam 已完成。`TinyOsBrowserApp` 独立拥有 tab/地址状态、导航与恢复、用户 handoff、policy request、错误展示，以及 native surface 的 layout revision、可见性收敛与调度；`TinyOsShell` 仅传入 kernel、runtime、窗口布局和完成回调。模块已通过独立的 tab/导航 interface 测试与地址规范化测试，后续修改浏览器行为不再要求进入桌面 shell。
+
 退出条件：
 
 - `TinyOsShell.tsx` 目标低于 1,200 行；

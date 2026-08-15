@@ -7,7 +7,7 @@ import { tinyOsLayoutModeForWidth, type TinyOsAgentRequestIntent, type TinyOsAge
 import type { ArtifactRef, BackendAgentTurnItem } from "../../app-core/chat/chatTurnContracts";
 import type { TinyOsBrowserAction } from "../../app-core/chat/tinyOsCommand";
 import type { TinyOsNativeSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
-import type { TinyOsBrowserHandoff } from "./TinyOsShell";
+import type { TinyOsBrowserHandoff } from "./TinyOsBrowserApp";
 import type { TinyOsFilesController } from "./useTinyOsFilesController";
 import { isTinyOsCommandInFlight, type TinyOsCommandLifecycle } from "../../app-core/chat/tinyOsCommand";
 import { createTinyOsShellCommandRegistry, defineTinyOsShellCommand, type TinyOsShellCommandAvailability } from "../../app-core/chat/tinyOsShellCommandRegistry";
