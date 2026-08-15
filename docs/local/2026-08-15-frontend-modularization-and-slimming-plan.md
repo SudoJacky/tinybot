@@ -1,7 +1,7 @@
 # Tinybot 前端模块化与瘦身计划
 
 - 日期：2026-08-15
-- 状态：实施中；低风险瘦身、TinyOS/Memory/Settings/Tools 加载 seam、首批路由 CSS、Shell route surface、Workspace adapter 与 TinyOS 循环清理已完成
+- 状态：实施中；低风险瘦身、TinyOS/Memory/Settings/Tools 加载 seam、首批路由 CSS、Shell route surface、Workspace 与 Tools/Plugins adapter、TinyOS 循环清理已完成
 - 基线提交：`c18d0bae refactor: extract chat context usage`
 - 范围：`src/react-workbench`、被桌面前端直接使用的 `src/app-core`、前端依赖和分析工具
 - 本地约束：本文位于被忽略的 `docs/local/`，只作为本地实施依据，不推送到 GitHub
@@ -64,8 +64,11 @@
 - 完整分析在并发运行时暴露 Agent UI 表单 draft 竞态：首次挂载后的冗余 effect 或相同表单对象重新投影会覆盖刚输入的值；
 - 表单 draft 现在仅在 `form_id + updated_at` canonical revision 变化时重置，同 revision 重投影保留本地编辑，新 revision 仍接收后端值；
 - 完整分析通过 84 个测试文件、560 个测试、类型检查、源码分析、构建与 bundle 门禁；ESLint finding 保持 43，生产循环保持 0。
+- 从 `defaultServices.ts` 提取 `createDesktopToolsStore()`：工具目录请求与归一化、插件安装、迁移、启停和卸载现在收敛在同一个 adapter 内，调用方仍只依赖 `AppServices.toolsStore`；
+- `defaultServices.ts` 从 1,204 行继续降至 1,139 行；新增 ToolsStore interface 测试，覆盖目录协议默认值、完整插件生命周期和 native 失败原样传播；
+- 完整分析通过 85 个测试文件、563 个测试、类型检查、源码分析、构建与 bundle 门禁；ESLint finding 保持 43，生产循环保持 0，初始资源 gzip 为 485,754 B，与上轮基本持平（增加 134 B）。
 
-Settings/TinyOS 剩余路由级 CSS、Chat/Settings 模块深化、Tools/Settings/native event adapters 与静态分析债务仍待后续阶段实施。
+Settings/TinyOS 剩余路由级 CSS、Chat/Settings 模块深化、Settings/native event adapters 与静态分析债务仍待后续阶段实施。
 
 ## 2. 调查基线
 

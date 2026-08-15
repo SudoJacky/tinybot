@@ -40,13 +40,11 @@ import type {
   AppServices,
   ChatModelOption,
   ChatEvent,
-  McpServerSummary,
   PersonalizationInstructionsData,
   PluginMigrationSession,
   SessionSummary,
-  ToolCatalogSummary,
-  ToolSummary,
 } from "./services";
+import { createDesktopToolsStore } from "./adapters/desktopToolsStore";
 import { createDesktopWorkspaceStore } from "./adapters/desktopWorkspaceStore";
 import type { ReactChatMessage } from "./chat/messageActions";
 import {
@@ -670,36 +668,7 @@ export function createDesktopAppServices(): AppServices {
         await requireNative(nativeProjectGroups, "Project group").delete(projectGroupId);
       },
     },
-    toolsStore: {
-      async loadCatalog() {
-        await initialize();
-        return normalizeToolCatalog(await requireNative(nativeWebui, "WebUI").route({ method: "GET", path: "/api/tools" }));
-      },
-      async listPlugins() {
-        await initialize();
-        return (await requireNative(nativePlugins, "Plugins").list()).plugins;
-      },
-      async installPlugin(path) {
-        await initialize();
-        return requireNative(nativePlugins, "Plugins").install(path);
-      },
-      async preparePluginMigration(path) {
-        await initialize();
-        return requireNative(nativePlugins, "Plugins").prepareMigration(path);
-      },
-      async installPluginMigration(jobId) {
-        await initialize();
-        return requireNative(nativePlugins, "Plugins").installMigration(jobId);
-      },
-      async setPluginEnabled(name, enabled) {
-        await initialize();
-        return requireNative(nativePlugins, "Plugins").setEnabled(name, enabled);
-      },
-      async uninstallPlugin(name) {
-        await initialize();
-        await requireNative(nativePlugins, "Plugins").uninstall(name);
-      },
-    },
+    toolsStore: createDesktopToolsStore({ initialize, nativePlugins, nativeWebui }),
     settingsStore: {
       async load() {
         await initialize();
@@ -939,40 +908,6 @@ function normalizePersonalizationWrite(payload: unknown, contents: string): Pers
     path: PERSONALIZATION_INSTRUCTIONS_PATH,
     contents,
     ...(updatedAt ? { updatedAt } : {}),
-  };
-}
-
-function normalizeToolCatalog(payload: unknown): ToolCatalogSummary {
-  return {
-    tools: payloadItems(payload, ["tools", "items"]).map(normalizeToolSummary),
-    mcpServers: payloadItems(payload, ["mcpServers", "servers"]).map(normalizeMcpServerSummary),
-  };
-}
-
-function normalizeToolSummary(item: Record<string, unknown>): ToolSummary {
-  const name = stringValue(item.name ?? item.id);
-  return {
-    id: stringValue(item.id) || name,
-    name,
-    displayName: stringValue(item.displayName ?? item.title) || name,
-    description: stringValue(item.description),
-    source: stringValue(item.source) || "builtin",
-    serverId: stringValue(item.serverId) || undefined,
-    enabled: item.enabled !== false,
-    available: item.available !== false,
-    reason: stringValue(item.reason) || undefined,
-  };
-}
-
-function normalizeMcpServerSummary(item: Record<string, unknown>): McpServerSummary {
-  const status = isRecord(item.status) ? item.status : {};
-  return {
-    id: stringValue(item.id),
-    enabled: item.enabled !== false,
-    transport: stringValue(item.transport) || "stdio",
-    state: stringValue(status.state) || (item.enabled === false ? "disabled" : "unknown"),
-    toolCount: numberValue(item.toolCount ?? status.toolCount) ?? 0,
-    error: stringValue(item.error ?? status.lastError) || undefined,
   };
 }
 
