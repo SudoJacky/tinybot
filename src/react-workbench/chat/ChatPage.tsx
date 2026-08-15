@@ -73,6 +73,11 @@ import { AssistantMarkdown } from "./AssistantMarkdown";
 import { isApplyPatchToolCall, PatchDiffCard, patchChangeSetFromToolResult } from "./PatchDiffCard";
 import { ToolActivityItem } from "./ToolActivityItem";
 import { DataViewCard } from "./DataViewCard";
+import {
+  canDispatchQueuedInput,
+  projectChatEventEffects,
+  projectTimelineSessionStatus,
+} from "./chatEventPolicy";
 import { LiveCanvas } from "./LiveCanvas";
 import {
   clampTinyOsWidth,
@@ -993,6 +998,7 @@ export function ChatPage({
     void loadTimeline();
     void loadAgentUiForms();
     const unsubscribe = chatStore.subscribe(activeSessionId, (event) => {
+      const effects = projectChatEventEffects(event);
       if (event.browserSnapshot) {
         setBrowserSnapshot(event.browserSnapshot);
         setBrowserRuntimeError("");
@@ -1058,13 +1064,13 @@ export function ChatPage({
         ));
         return;
       }
-      if (shouldReloadSessionsForChatEvent(event)) {
+      if (effects.reloadSessions) {
         void handleQueueStateAfterChatEvent(activeSessionId, event);
       }
-      if (shouldReloadMessagesForChatEvent(event.type)) {
+      if (effects.reloadMessages) {
         void loadTimeline();
       }
-      if (shouldReloadAgentUiFormsForChatEvent(event.type)) {
+      if (effects.reloadAgentUiForms) {
         void loadAgentUiForms();
       }
     });
@@ -1081,14 +1087,15 @@ export function ChatPage({
     const unsubscribes = sessionTabs.openSessionIds
       .filter((sessionId) => sessionId !== activeSessionId)
       .map((sessionId) => chatStore.subscribe(sessionId, (event) => {
+        const effects = projectChatEventEffects(event);
         if (event.timeline) {
           updateSessionStatusFromTimeline(sessionId, event.timeline);
           dispatchSessionTabs({ type: "activity", sessionId });
         }
-        if (isBackgroundTabActivityEvent(event)) {
+        if (effects.backgroundTabActivity) {
           dispatchSessionTabs({ type: "activity", sessionId });
         }
-        if (shouldReloadSessionsForChatEvent(event)) {
+        if (effects.reloadSessions) {
           void handleQueueStateAfterChatEvent(sessionId, event);
         }
       }));
@@ -1920,25 +1927,26 @@ export function ChatPage({
 
   async function handleQueueStateAfterChatEvent(sessionId: string, event: ChatEvent) {
     const nextSessions = await handleSessionStoreRefresh();
-    if (isTerminalAgentEvent(event) && await sendPendingInterruptInput(sessionId, true)) {
+    const effects = projectChatEventEffects(event);
+    if (effects.terminalAgentEvent && await sendPendingInterruptInput(sessionId, true)) {
       return;
     }
-    if (shouldPauseQueuedInputsForChatEvent(event)) {
+    if (effects.queuedInputDisposition === "pause") {
       pauseQueuedInputsForSession(sessionId);
       return;
     }
-    if (!shouldDispatchQueuedInputForChatEvent(event)) {
+    if (effects.queuedInputDisposition !== "dispatch_next") {
       return;
     }
     const nextSession = nextSessions.find((session) => session.id === sessionId);
-    if (!canDispatchQueuedInputForSession(nextSession)) {
+    if (!canDispatchQueuedInput(nextSession)) {
       return;
     }
     await sendNextQueuedInput(sessionId, "normal_completion");
   }
 
   function updateSessionStatusFromTimeline(sessionId: string, nextTimeline: ChatTimelineSnapshot) {
-    const status = sessionStatusFromTimeline(nextTimeline);
+    const status = projectTimelineSessionStatus(nextTimeline);
     if (!status) return;
     setSessions((current) => {
       const next = current.map((session) => (
@@ -2997,75 +3005,6 @@ function EmptyStateText({ text }: { text: string }) {
       <TextType ariaLabel={text} className="react-text-type" loop={false} showCursor={false} text={text} />
     </p>
   );
-}
-
-const MESSAGE_RELOAD_EVENT_TYPES = new Set([
-  "attached",
-]);
-
-const SESSION_RELOAD_EVENT_TYPES = new Set([
-  "chat.created",
-  "interrupted",
-]);
-
-const TERMINAL_AGENT_EVENT_TYPES = new Set([
-  "agent.turn.completed",
-  "agent.turn.failed",
-  "agent.turn.interrupted",
-]);
-
-function shouldReloadMessagesForChatEvent(type: string): boolean {
-  return MESSAGE_RELOAD_EVENT_TYPES.has(type);
-}
-
-function shouldReloadSessionsForChatEvent(event: ChatEvent): boolean {
-  return SESSION_RELOAD_EVENT_TYPES.has(event.type)
-    || (event.type === "agent.event" && Boolean(event.eventType && TERMINAL_AGENT_EVENT_TYPES.has(event.eventType)));
-}
-
-function shouldReloadAgentUiFormsForChatEvent(type: string): boolean {
-  return type === "agent-ui.form" || type === "agent-ui.event";
-}
-
-function isBackgroundTabActivityEvent(event: ChatEvent): boolean {
-  return Boolean(
-    event.error
-    || event.timeline
-    || (event.type === "agent.event" && event.eventType && TERMINAL_AGENT_EVENT_TYPES.has(event.eventType)),
-  );
-}
-
-function sessionStatusFromTimeline(timeline: ChatTimelineSnapshot): SessionSummary["status"] | undefined {
-  const status = timeline.turns[timeline.turns.length - 1]?.status;
-  if (status === "pending" || status === "running" || status === "awaiting_user") {
-    return "running";
-  }
-  if (status === "failed" || status === "interrupted") {
-    return "failed";
-  }
-  if (status === "completed") {
-    return "idle";
-  }
-  return undefined;
-}
-
-function shouldDispatchQueuedInputForChatEvent(event: ChatEvent): boolean {
-  return event.type === "agent.event" && event.eventType === "agent.turn.completed";
-}
-
-function isTerminalAgentEvent(event: ChatEvent): boolean {
-  return event.type === "agent.event" && Boolean(event.eventType && TERMINAL_AGENT_EVENT_TYPES.has(event.eventType));
-}
-
-function shouldPauseQueuedInputsForChatEvent(event: ChatEvent): boolean {
-  return event.type === "interrupted"
-    || (event.type === "agent.event" && (
-      event.eventType === "agent.turn.failed" || event.eventType === "agent.turn.interrupted"
-    ));
-}
-
-function canDispatchQueuedInputForSession(session: SessionSummary | undefined): boolean {
-  return session?.status !== "running" && session?.status !== "failed";
 }
 
 function latestTimelineUsage(
