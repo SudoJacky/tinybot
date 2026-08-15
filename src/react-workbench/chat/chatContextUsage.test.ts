@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ChatTurn, CompactionState, TokenUsage } from "../../app-core/chat/chatTurnModel";
+import type { ChatTurn, CompactionState, TokenUsage } from "../../app-core/chat/chatTurnContracts";
 import { projectLatestContextUsage } from "./chatContextUsage";
 
 describe("chatContextUsage", () => {

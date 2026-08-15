@@ -1,5 +1,5 @@
 # TinyOS Runtime Contract
-<!-- tinybot-module-fingerprint: sha256:7079efc0dfff1d89787c6e129531cde67e51b9a398de19951c129fdbbb96f8c7 -->
+<!-- tinybot-module-fingerprint: sha256:6d7ab0972eb1d40fe81de8da8449a7fb52a7855d5963284de6f772528f4b101c -->
 
 TinyOS presents workspace files, retained terminal executions, the managed
 browser session, generated artifacts, and Agent activity as one desktop shared
@@ -14,6 +14,10 @@ resource-access vocabulary. Native snapshot types and the kernel projection
 depend on those contracts independently, so native observations never need to
 import the higher-level kernel model. `tinyOsKernelModel.ts` remains the owner
 of projected process, resource, history, and simulation behavior.
+
+Canonical timeline items and UI turn shapes live in the sibling
+`chatTurnContracts.ts`. TinyOS models import those types directly, so their
+contract dependency does not load chat payload validation or projection code.
 
 ## Chat references
 

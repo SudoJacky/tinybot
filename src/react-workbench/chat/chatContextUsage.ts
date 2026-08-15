@@ -1,4 +1,4 @@
-import type { ChatTurn, TokenUsage } from "../../app-core/chat/chatTurnModel";
+import type { ChatTurn, TokenUsage } from "../../app-core/chat/chatTurnContracts";
 
 export type ContextUsageDefaults = {
   contextWindowStrategy?: string;

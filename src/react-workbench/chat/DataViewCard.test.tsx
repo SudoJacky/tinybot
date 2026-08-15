@@ -3,7 +3,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseDataViewDocument } from "../../app-core/chat/dataView";
-import type { ArtifactRef } from "../../app-core/chat/chatTurnModel";
+import type { ArtifactRef } from "../../app-core/chat/chatTurnContracts";
 import { DataViewCard } from "./DataViewCard";
 
 const mocks = vi.hoisted(() => ({

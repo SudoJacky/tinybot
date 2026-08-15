@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { BackendAgentTurnItem } from "./chatTurnModel";
+import type { BackendAgentTurnItem } from "./chatTurnContracts";
 import {
   benchmarkTinyOsReplay,
   createTinyOsTimeMachineIndex,

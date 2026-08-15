@@ -7,7 +7,7 @@ import type {
   BackendAgentTurnRuntimeState,
   BackendAgentTimelinePatch,
   ChatTurn,
-} from "./chatTurnModel";
+} from "./chatTurnContracts";
 
 export type TimelineDiagnostic = {
   code: "lower_item_revision";

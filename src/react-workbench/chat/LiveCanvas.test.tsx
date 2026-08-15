@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
-import type { BackendAgentTurnItem, ChatStep } from "../../app-core/chat/chatTurnModel";
+import type { BackendAgentTurnItem, ChatStep } from "../../app-core/chat/chatTurnContracts";
 import { createTinyOsBrowserSessionSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
 import { LiveCanvas } from "./LiveCanvas";

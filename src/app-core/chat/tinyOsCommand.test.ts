@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import type { ChatTurn } from "./chatTurnModel";
+import type { ChatTurn } from "./chatTurnContracts";
 import {
   canonicalTinyOsCommandAcknowledgement,
   canonicalTinyOsCommandCompletion,

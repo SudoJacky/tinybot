@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ChatTurnStatus } from "../../app-core/chat/chatTurnModel";
+import type { ChatTurnStatus } from "../../app-core/chat/chatTurnContracts";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import type { ChatEvent, SessionSummary } from "../services";
 import {

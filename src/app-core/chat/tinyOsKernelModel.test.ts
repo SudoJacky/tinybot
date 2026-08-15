@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { BackendAgentTurnItem, CanonicalTurnItemKind } from "./chatTurnModel";
+import type { BackendAgentTurnItem, CanonicalTurnItemKind } from "./chatTurnContracts";
 import {
   assertTinyOsMetricSupported,
   assertTinyOsResourceMutationReady,

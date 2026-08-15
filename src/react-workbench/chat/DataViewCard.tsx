@@ -7,7 +7,7 @@ import {
   type DataViewDocument,
   type DataViewRow,
 } from "../../app-core/chat/dataView";
-import type { ArtifactRef } from "../../app-core/chat/chatTurnModel";
+import type { ArtifactRef } from "../../app-core/chat/chatTurnContracts";
 
 const DataViewChart = lazy(() => import("./DataViewChart"));
 

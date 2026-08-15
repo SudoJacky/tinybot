@@ -1,4 +1,4 @@
-import type { BackendAgentTurnItem, ChatStep, ChatStepStatus } from "./chatTurnModel";
+import type { BackendAgentTurnItem, ChatStep, ChatStepStatus } from "./chatTurnContracts";
 import { projectTinyOsKernel, type TinyOsKernelProjectionOptions, type TinyOsKernelSnapshot } from "./tinyOsKernelModel";
 
 export type TinyOsAppId =

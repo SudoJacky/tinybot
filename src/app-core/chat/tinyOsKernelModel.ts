@@ -1,4 +1,4 @@
-import type { BackendAgentTurnItem } from "./chatTurnModel";
+import type { BackendAgentTurnItem } from "./chatTurnContracts";
 import type { TinyOsProcessState, TinyOsProvenance, TinyOsResourceAccess } from "./tinyOsKernelContracts";
 import type { TinyOsNativeBrowserSession, TinyOsNativeSnapshot } from "./tinyOsNativeSnapshot";
 

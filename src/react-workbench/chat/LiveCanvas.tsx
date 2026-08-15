@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { projectKernelBackedTinyOsDesktop, projectTinyOsDesktop } from "../../app-core/chat/tinyOsDesktopModel";
 import { tinyOsLayoutModeForWidth, type TinyOsAgentRequestIntent, type TinyOsAgentRequestReference, type TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
-import type { ArtifactRef, BackendAgentTurnItem } from "../../app-core/chat/chatTurnModel";
+import type { ArtifactRef, BackendAgentTurnItem } from "../../app-core/chat/chatTurnContracts";
 import type { TinyOsBrowserAction } from "../../app-core/chat/tinyOsCommand";
 import type { TinyOsNativeSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
 import type { TinyOsBrowserHandoff } from "./TinyOsShell";

@@ -5,7 +5,7 @@ import type { TFunction } from "i18next";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DEFAULT_REASONING_EFFORT, type ReasoningEffort } from "../../app-core/chat/reasoningEffort";
-import type { TokenUsage } from "../../app-core/chat/chatTurnModel";
+import type { TokenUsage } from "../../app-core/chat/chatTurnContracts";
 import {
   AlertCircle,
   Archive,

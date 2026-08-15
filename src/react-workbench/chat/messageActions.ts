@@ -1,4 +1,4 @@
-import type { TokenUsage } from "../../app-core/chat/chatTurnModel";
+import type { TokenUsage } from "../../app-core/chat/chatTurnContracts";
 
 export type ToolCallSummary = {
   argsText?: string;

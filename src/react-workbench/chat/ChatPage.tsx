@@ -105,14 +105,16 @@ import { ProjectGroupDialog } from "./ProjectGroupDialog";
 import {
   applyLoadedDelegatedAgentTrace,
   projectLoadedArtifactDetail,
-  type ArtifactRef,
-  type BackendAgentTurnItem,
-  type ChatStep,
-  type ChatTurn,
-  type DelegatedAgentState,
-  type LoadedArtifactDetail,
-  type ToolCallState,
 } from "../../app-core/chat/chatTurnModel";
+import type {
+  ArtifactRef,
+  BackendAgentTurnItem,
+  ChatStep,
+  ChatTurn,
+  DelegatedAgentState,
+  LoadedArtifactDetail,
+  ToolCallState,
+} from "../../app-core/chat/chatTurnContracts";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import type { TinyOsNativeBrowserSession, TinyOsNativeSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
 import type { AgentInputReference } from "../../app-core/chat/agentInputReference";
