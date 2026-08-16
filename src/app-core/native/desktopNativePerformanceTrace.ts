@@ -1,3 +1,5 @@
+import type { RendererLogEntry } from "./rendererLogger";
+
 export type PerformanceTraceDuration = {
   count: number;
   totalMs: number;
@@ -29,6 +31,20 @@ export type PerformanceTraceSnapshot = {
   recentEvents: PerformanceTraceEvent[];
 };
 
+export type DiagnosticBundleExportInput = {
+  diagnosticModeEnabled: boolean;
+  locale?: string;
+  timeZone?: string;
+  rendererLogs: RendererLogEntry[];
+};
+
+export type DiagnosticBundleExportResult = {
+  schemaVersion: "tinybot.diagnostic_bundle.v1";
+  path: string;
+  sizeBytes: number;
+  includedFiles: string[];
+};
+
 type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
 
 export function createDesktopNativePerformanceTraceApi({ invoke }: { invoke: Invoke }) {
@@ -37,6 +53,34 @@ export function createDesktopNativePerformanceTraceApi({ invoke }: { invoke: Inv
       const value = await invoke("desktop_performance_snapshot");
       return normalizePerformanceTraceSnapshot(value);
     },
+    async exportDiagnosticBundle(
+      input: DiagnosticBundleExportInput,
+    ): Promise<DiagnosticBundleExportResult | null> {
+      const value = await invoke("desktop_export_diagnostic_bundle", {
+        input: {
+          schemaVersion: "tinybot.diagnostic_bundle_input.v1",
+          diagnosticModeEnabled: input.diagnosticModeEnabled,
+          locale: input.locale,
+          timeZone: input.timeZone,
+          rendererLogs: input.rendererLogs,
+        },
+      });
+      return value === null ? null : normalizeDiagnosticBundleExportResult(value);
+    },
+  };
+}
+
+export function normalizeDiagnosticBundleExportResult(value: unknown): DiagnosticBundleExportResult {
+  const result = requireRecord(value, "diagnostic bundle export result");
+  if (result.schemaVersion !== "tinybot.diagnostic_bundle.v1") {
+    throw new Error("Diagnostic bundle export result has an unsupported schema version");
+  }
+  return {
+    schemaVersion: "tinybot.diagnostic_bundle.v1",
+    path: requireString(result.path, "diagnostic bundle path"),
+    sizeBytes: requireFiniteNumber(result.sizeBytes, "diagnostic bundle sizeBytes"),
+    includedFiles: requireArray(result.includedFiles, "diagnostic bundle includedFiles")
+      .map((item, index) => requireString(item, `diagnostic bundle includedFiles ${index}`)),
   };
 }
 

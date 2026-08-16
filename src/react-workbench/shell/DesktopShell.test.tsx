@@ -209,6 +209,7 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
         },
         recentEvents: [],
       })),
+      exportDiagnosticBundle: vi.fn(async () => null),
     },
   };
 }

@@ -38,9 +38,13 @@ impl NativeLogEvent {
             schema_version: "tinybot.native_log.v1",
             level,
             event: event.into(),
-            context: sanitize_log_value(context, "", 0),
+            context: sanitize_native_log_context(context),
         }
     }
+}
+
+pub(crate) fn sanitize_native_log_context(value: Value) -> Value {
+    sanitize_log_value(value, "", 0)
 }
 
 pub(crate) fn append_native_backend_log_event(
@@ -135,7 +139,7 @@ fn rotate_native_backend_log_if_needed(path: &Path, max_bytes: u64) -> std::io::
     std::fs::rename(path, rotated)
 }
 
-fn native_backend_rotated_log_path(path: &Path) -> PathBuf {
+pub(crate) fn native_backend_rotated_log_path(path: &Path) -> PathBuf {
     let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
         return path.with_extension("1");
     };

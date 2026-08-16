@@ -56,7 +56,8 @@ export function createRendererLogger(options: RendererLoggerOptions = {}): Rende
       if (!stage.trim()) {
         throw new Error("renderer log stage must not be empty");
       }
-      if (level === "debug" && !isDebugEnabled()) {
+      const diagnosticModeEnabled = isDebugEnabled();
+      if (level === "debug" && !diagnosticModeEnabled) {
         return;
       }
 
@@ -70,7 +71,7 @@ export function createRendererLogger(options: RendererLoggerOptions = {}): Rende
       retainRendererLog(entry);
       writeRendererConsole(consoleSink, entry);
 
-      if ((level === "warn" || level === "error") && isNativeRuntime()) {
+      if ((diagnosticModeEnabled || level === "warn" || level === "error") && isNativeRuntime()) {
         persistRendererLog(invoke, consoleSink, entry);
       }
     },
@@ -85,6 +86,33 @@ export function logRendererEvent(
   details: Record<string, unknown> = {},
 ): void {
   rendererLogger.log(level, stage, details);
+}
+
+export function isRendererDiagnosticModeEnabled(): boolean {
+  return readDebugEnabled();
+}
+
+export function setRendererDiagnosticModeEnabled(enabled: boolean): void {
+  if (typeof window === "undefined") {
+    throw new Error("renderer diagnostic mode requires a browser window");
+  }
+  if (enabled) {
+    window.localStorage.setItem(DEBUG_STORAGE_KEY, "on");
+    window.localStorage.removeItem(LEGACY_DEBUG_STORAGE_KEY);
+    return;
+  }
+  window.localStorage.removeItem(DEBUG_STORAGE_KEY);
+  window.localStorage.removeItem(LEGACY_DEBUG_STORAGE_KEY);
+}
+
+export function rendererLogSnapshot(): RendererLogEntry[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  return (window.__tinybotRendererLogs ?? []).map((entry) => ({
+    ...entry,
+    details: sanitizeRendererLogDetails(entry.details),
+  }));
 }
 
 function retainRendererLog(entry: RendererLogEntry): void {

@@ -180,11 +180,12 @@ native backend log. Context strings, arrays, objects, and nesting are bounded;
 credential, token, prompt, and request or response body keys are redacted.
 Serialized records above 64 KiB and log write failures reject the command.
 
-## Desktop Performance Trace Command
+## Desktop Performance Trace and Diagnostic Bundle Commands
 
 | Command | Args | Response |
 | --- | --- | --- |
 | `desktop_performance_snapshot` | none | `PerformanceTraceSnapshot` |
+| `desktop_export_diagnostic_bundle` | `{ input: DiagnosticBundleInput }` | `DiagnosticBundleExportResult \| null` |
 
 `PerformanceTraceSnapshot` uses schema `tinybot.performance_trace.v1`. It
 combines the existing process-local runtime metrics snapshot with at most 200
@@ -192,6 +193,26 @@ recent structured events collected through shared desktop state. Events carry
 their timestamp, stream, level, event identifier, and already bounded/redacted
 context. The snapshot is read-only, resets with the app process, and does not
 start a background sampler.
+
+`DiagnosticBundleInput` uses schema `tinybot.diagnostic_bundle_input.v1` and
+contains the current diagnostic-mode flag, optional locale and time zone, and
+at most 300 renderer log entries (4 MiB serialized). The command opens a native
+save dialog and returns `null` when the user cancels. A successful result uses
+schema `tinybot.diagnostic_bundle.v1` and returns the local path, ZIP size, and
+included entry names.
+
+The ZIP contains `manifest.json`, `performance-trace.json`,
+`renderer-logs.json`, `system-info.json`, and the available bounded native log
+files (`native-backend.log` and `native-backend.log.1`). Each native source is
+limited to its newest 6 MiB. Persistent structured log lines and renderer
+details are parsed and redacted again during export; malformed persistent lines
+are omitted and counted in the manifest. System information is allowlisted to
+app version, OS, architecture, locale, time zone, and diagnostic-mode state.
+
+The bundle is saved locally and is never uploaded automatically. Its manifest
+marks user review as required because paths and arbitrary error messages can
+still contain private data even after key-based redaction. Users should inspect
+the ZIP before manually attaching it to an Issue.
 
 ## Desktop Menu Shortcut Command
 

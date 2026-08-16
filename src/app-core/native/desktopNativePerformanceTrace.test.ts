@@ -55,4 +55,68 @@ describe("desktopNativePerformanceTrace", () => {
 
     await expect(api.snapshot()).rejects.toThrow("unsupported level");
   });
+
+  it("exports a diagnostic bundle through the native save flow", async () => {
+    const invoke = vi.fn(async () => ({
+      schemaVersion: "tinybot.diagnostic_bundle.v1",
+      path: "C:\\Temp\\tinybot-diagnostic.zip",
+      sizeBytes: 4096,
+      includedFiles: ["manifest.json", "renderer-logs.json"],
+    }));
+    const api = createDesktopNativePerformanceTraceApi({ invoke });
+
+    const result = await api.exportDiagnosticBundle({
+      diagnosticModeEnabled: true,
+      locale: "zh-CN",
+      timeZone: "Asia/Singapore",
+      rendererLogs: [{
+        schemaVersion: "tinybot.renderer_log.v1",
+        at: "2026-08-16T01:02:03.000Z",
+        level: "info",
+        stage: "diagnostic.fixture",
+        details: { threadId: "thread-1" },
+      }],
+    });
+
+    expect(invoke).toHaveBeenCalledWith("desktop_export_diagnostic_bundle", {
+      input: {
+        schemaVersion: "tinybot.diagnostic_bundle_input.v1",
+        diagnosticModeEnabled: true,
+        locale: "zh-CN",
+        timeZone: "Asia/Singapore",
+        rendererLogs: [expect.objectContaining({ stage: "diagnostic.fixture" })],
+      },
+    });
+    expect(result).toEqual({
+      schemaVersion: "tinybot.diagnostic_bundle.v1",
+      path: "C:\\Temp\\tinybot-diagnostic.zip",
+      sizeBytes: 4096,
+      includedFiles: ["manifest.json", "renderer-logs.json"],
+    });
+  });
+
+  it("returns null when the diagnostic bundle save dialog is cancelled", async () => {
+    const api = createDesktopNativePerformanceTraceApi({ invoke: vi.fn(async () => null) });
+
+    await expect(api.exportDiagnosticBundle({
+      diagnosticModeEnabled: false,
+      rendererLogs: [],
+    })).resolves.toBeNull();
+  });
+
+  it("fails fast when the diagnostic bundle result is invalid", async () => {
+    const api = createDesktopNativePerformanceTraceApi({
+      invoke: vi.fn(async () => ({
+        schemaVersion: "tinybot.diagnostic_bundle.v1",
+        path: "",
+        sizeBytes: 1,
+        includedFiles: [],
+      })),
+    });
+
+    await expect(api.exportDiagnosticBundle({
+      diagnosticModeEnabled: false,
+      rendererLogs: [],
+    })).rejects.toThrow("path must be a non-empty string");
+  });
 });

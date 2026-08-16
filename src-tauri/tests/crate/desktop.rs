@@ -10,10 +10,11 @@ use crate::desktop::menu::{
 };
 use crate::desktop::state::NativeRuntimeState;
 use crate::desktop::{
-    desktop_performance_snapshot_with_options, record_renderer_diagnostic_with_options,
-    record_renderer_log_with_options,
+    desktop_performance_snapshot_with_options, export_diagnostic_bundle_with_options,
+    record_renderer_diagnostic_with_options, record_renderer_log_with_options,
 };
 use crate::runtime::observability::AgentRuntimeMetrics;
+use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -191,6 +192,133 @@ fn desktop_performance_snapshot_bounds_recent_events() {
     assert_eq!(events.len(), 200);
     assert_eq!(events[0]["context"]["details"]["sequence"], 5);
     assert_eq!(events[199]["context"]["details"]["sequence"], 204);
+}
+
+#[test]
+fn diagnostic_bundle_contains_bounded_sanitized_issue_evidence() {
+    let fixture = WorkspaceFixture::new();
+    let log_path = fixture.root.join("logs").join("native-backend.log");
+    std::fs::create_dir_all(log_path.parent().expect("log path should have a parent"))
+        .expect("diagnostic log directory should create");
+    std::fs::write(&log_path, "malformed legacy line\n")
+        .expect("malformed diagnostic fixture should write");
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
+        persistent_log_path: log_path,
+        ..NativeRuntimeState::default()
+    }));
+    let metrics = AgentRuntimeMetrics::isolated();
+    metrics.increment_by("tool.calls", 2);
+
+    record_renderer_log_with_options(
+        &shared,
+        serde_json::json!({
+            "schemaVersion": "tinybot.renderer_log.v1",
+            "at": "2026-08-16T01:02:03.000Z",
+            "level": "error",
+            "stage": "diagnostics.native.fixture",
+            "details": { "apiKey": "native-must-not-leak", "threadId": "thread-1" }
+        }),
+    )
+    .expect("native diagnostic fixture should persist");
+
+    let bundle_path = fixture.root.join("tinybot-diagnostic.zip");
+    let result = export_diagnostic_bundle_with_options(
+        &bundle_path,
+        &shared,
+        &metrics,
+        serde_json::json!({
+            "schemaVersion": "tinybot.diagnostic_bundle_input.v1",
+            "diagnosticModeEnabled": true,
+            "locale": "zh-CN",
+            "timeZone": "Asia/Singapore",
+            "rendererLogs": [{
+                "schemaVersion": "tinybot.renderer_log.v1",
+                "at": "2026-08-16T01:02:03.000Z",
+                "level": "info",
+                "stage": "diagnostics.renderer.fixture",
+                "details": { "token": "renderer-must-not-leak", "state": "ready" }
+            }]
+        }),
+    )
+    .expect("diagnostic bundle should export");
+
+    assert_eq!(result["schemaVersion"], "tinybot.diagnostic_bundle.v1");
+    assert_eq!(result["path"], bundle_path.display().to_string());
+    assert!(result["sizeBytes"].as_u64().unwrap_or_default() > 0);
+
+    let file = std::fs::File::open(&bundle_path).expect("diagnostic bundle should exist");
+    let mut archive = zip::ZipArchive::new(file).expect("diagnostic bundle should be a ZIP");
+    let names = (0..archive.len())
+        .map(|index| {
+            archive
+                .by_index(index)
+                .expect("diagnostic entry should open")
+                .name()
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        vec![
+            "manifest.json",
+            "performance-trace.json",
+            "renderer-logs.json",
+            "system-info.json",
+            "native-backend.log",
+        ]
+    );
+
+    let manifest = read_zip_json(&mut archive, "manifest.json");
+    assert_eq!(manifest["schemaVersion"], "tinybot.diagnostic_bundle.v1");
+    assert_eq!(manifest["omittedMalformedLogLines"], 1);
+    assert_eq!(manifest["redaction"]["userReviewRequired"], true);
+    assert_eq!(
+        manifest["missingFiles"],
+        serde_json::json!(["native-backend.log.1"])
+    );
+
+    let renderer_logs = read_zip_json(&mut archive, "renderer-logs.json");
+    assert_eq!(renderer_logs[0]["details"]["token"], "[redacted]");
+    assert!(!renderer_logs.to_string().contains("renderer-must-not-leak"));
+
+    let performance = read_zip_json(&mut archive, "performance-trace.json");
+    assert_eq!(performance["metrics"]["counters"]["tool.calls"], 2);
+
+    let system_info = read_zip_json(&mut archive, "system-info.json");
+    assert_eq!(system_info["locale"], "zh-CN");
+    assert_eq!(system_info["timeZone"], "Asia/Singapore");
+    assert_eq!(system_info["diagnosticModeEnabled"], true);
+    assert!(system_info.get("currentWorkingDirectory").is_none());
+    assert!(system_info.get("userName").is_none());
+
+    let native_log = read_zip_text(&mut archive, "native-backend.log");
+    assert!(native_log.contains("diagnostics.native.fixture"));
+    assert!(native_log.contains("[redacted]"));
+    assert!(!native_log.contains("native-must-not-leak"));
+    assert!(!native_log.contains("malformed legacy line"));
+}
+
+#[test]
+fn diagnostic_bundle_rejects_unknown_input_schema() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
+        persistent_log_path: fixture.root.join("logs").join("native-backend.log"),
+        ..NativeRuntimeState::default()
+    }));
+
+    let error = export_diagnostic_bundle_with_options(
+        &fixture.root.join("tinybot-diagnostic.zip"),
+        &shared,
+        &AgentRuntimeMetrics::isolated(),
+        serde_json::json!({
+            "schemaVersion": "tinybot.diagnostic_bundle_input.v0",
+            "diagnosticModeEnabled": false,
+            "rendererLogs": []
+        }),
+    )
+    .expect_err("unsupported diagnostic schema should fail fast");
+
+    assert!(error.contains("unsupported schema"));
 }
 
 #[test]
@@ -438,4 +566,20 @@ fn configurable_desktop_menu_shortcuts() -> Vec<DesktopMenuShortcutBinding> {
         accelerator: accelerator.map(str::to_string),
     })
     .collect()
+}
+
+fn read_zip_json(archive: &mut zip::ZipArchive<std::fs::File>, name: &str) -> serde_json::Value {
+    serde_json::from_str(&read_zip_text(archive, name))
+        .unwrap_or_else(|error| panic!("diagnostic ZIP entry {name} should be JSON: {error}"))
+}
+
+fn read_zip_text(archive: &mut zip::ZipArchive<std::fs::File>, name: &str) -> String {
+    let mut entry = archive
+        .by_name(name)
+        .unwrap_or_else(|error| panic!("diagnostic ZIP entry {name} should exist: {error}"));
+    let mut contents = String::new();
+    entry
+        .read_to_string(&mut contents)
+        .unwrap_or_else(|error| panic!("diagnostic ZIP entry {name} should be readable: {error}"));
+    contents
 }

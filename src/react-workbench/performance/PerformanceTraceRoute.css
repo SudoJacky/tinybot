@@ -41,6 +41,8 @@
 .react-performance-trace-actions {
   display: flex;
   flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
 }
 
@@ -56,8 +58,10 @@
   background: var(--color-panel);
   padding: 0 12px;
   color: var(--color-ink);
+  cursor: pointer;
   font-size: 12px;
   font-weight: 650;
+  transition: border-color 180ms ease, background-color 180ms ease;
 }
 
 .react-performance-trace-actions button:hover:not(:disabled),
@@ -84,6 +88,51 @@
   padding: 3px 0 3px 10px;
 }
 
+.react-performance-trace-diagnostics {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-panel) 96%, transparent);
+  padding: 12px 14px;
+}
+
+.react-performance-trace-diagnostics label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.react-performance-trace-diagnostics input {
+  width: 16px;
+  height: 16px;
+  margin: 2px 0 0;
+  accent-color: var(--color-primary);
+}
+
+.react-performance-trace-diagnostics span {
+  display: grid;
+  gap: 3px;
+}
+
+.react-performance-trace-diagnostics strong {
+  font-size: 13px;
+}
+
+.react-performance-trace-diagnostics small,
+.react-performance-trace-diagnostics p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.react-performance-trace-diagnostics p {
+  border-top: 1px solid var(--color-hairline);
+  padding-top: 9px;
+}
+
 .react-performance-trace-status,
 .react-performance-trace-empty {
   margin: 0;
@@ -107,6 +156,17 @@
   padding: 10px 12px;
   color: var(--color-error);
   font-size: 12px;
+}
+
+.react-performance-trace-success {
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--color-success, #2f855a) 35%, var(--color-hairline));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-success, #2f855a) 7%, var(--color-panel));
+  padding: 10px 12px;
+  color: var(--color-success, #2f855a);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 
 .react-performance-trace-content {
@@ -332,6 +392,7 @@
 
   .react-performance-trace-actions button {
     flex: 1;
+    min-height: 44px;
   }
 
   .react-performance-trace-summary,

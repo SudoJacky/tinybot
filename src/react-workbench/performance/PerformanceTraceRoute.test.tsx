@@ -8,6 +8,10 @@ import PerformanceTraceRoute, { downloadPerformanceTrace } from "./PerformanceTr
 
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
+  window.__tinybotRendererLogs = [];
+  window.__tinybotNativeDebug = [];
+  window.__tinybotNativeChatDebug = [];
   vi.restoreAllMocks();
 });
 
@@ -48,6 +52,44 @@ describe("PerformanceTraceRoute", () => {
     expect(createObjectURL).toHaveBeenCalledTimes(1);
     expect(click).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:trace");
+  });
+
+  it("exports a local diagnostic bundle and reports the saved path", async () => {
+    const exportDiagnosticBundle = vi.fn(async () => ({
+      schemaVersion: "tinybot.diagnostic_bundle.v1" as const,
+      path: "C:\\Temp\\tinybot-diagnostic.zip",
+      sizeBytes: 4096,
+      includedFiles: ["manifest.json", "performance-trace.json"],
+    }));
+    render(<PerformanceTraceRoute services={{
+      performanceStore: { load: vi.fn(async () => fixtureSnapshot()), exportDiagnosticBundle },
+    } as unknown as AppServices} />);
+
+    await screen.findByText("tool.duration");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Export Diagnostic Bundle" }));
+
+    await waitFor(() => expect(exportDiagnosticBundle).toHaveBeenCalledOnce());
+    expect((await screen.findByRole("status")).textContent).toContain("C:\\Temp\\tinybot-diagnostic.zip");
+  });
+
+  it("enables and disables persistent renderer diagnostics from the trace page", async () => {
+    render(<PerformanceTraceRoute services={{
+      performanceStore: {
+        load: vi.fn(async () => fixtureSnapshot()),
+        exportDiagnosticBundle: vi.fn(async () => null),
+      },
+    } as unknown as AppServices} />);
+    const checkbox = await screen.findByRole("checkbox", { name: /Diagnostic mode/ });
+
+    await userEvent.setup().click(checkbox);
+
+    expect(window.localStorage.getItem("tinybot.desktop.nativeDebug")).toBe("on");
+    expect(checkbox).toHaveProperty("checked", true);
+
+    await userEvent.setup().click(checkbox);
+
+    expect(window.localStorage.getItem("tinybot.desktop.nativeDebug")).toBeNull();
+    expect(checkbox).toHaveProperty("checked", false);
   });
 });
 

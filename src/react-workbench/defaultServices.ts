@@ -18,6 +18,10 @@ import { createDesktopNativeBrowserApi } from "../app-core/native/desktopNativeB
 import { createDesktopNativeWebuiApi } from "../app-core/native/desktopNativeWebui";
 import { createDesktopNativeWorkspaceApi } from "../app-core/native/desktopNativeWorkspace";
 import { createDesktopNativePerformanceTraceApi } from "../app-core/native/desktopNativePerformanceTrace";
+import {
+  isRendererDiagnosticModeEnabled,
+  rendererLogSnapshot,
+} from "../app-core/native/rendererLogger";
 import type {
   AppServices,
   ChatEvent,
@@ -553,6 +557,15 @@ export function createDesktopAppServices(): AppServices {
       async load() {
         await initialize();
         return requireNative(nativePerformanceTrace, "Performance trace").snapshot();
+      },
+      async exportDiagnosticBundle() {
+        await initialize();
+        return requireNative(nativePerformanceTrace, "Performance trace").exportDiagnosticBundle({
+          diagnosticModeEnabled: isRendererDiagnosticModeEnabled(),
+          locale: navigator.language || undefined,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
+          rendererLogs: rendererLogSnapshot(),
+        });
       },
     },
   };

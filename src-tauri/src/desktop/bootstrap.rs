@@ -12,7 +12,6 @@ use crate::desktop_commands::runtime::{
     shutdown_native_runtime_for_window_close, start_native_runtime_with_workspace_root,
 };
 use crate::native_browser;
-use crate::runtime::observability::{global_agent_runtime_metrics, AgentRuntimeMetrics};
 use crate::system_prompt::{load_or_create_system_prompt, SYSTEM_PROMPT_FILE_NAME};
 use crate::tool_notes::{create_default_tool_notes_if_missing, TOOL_NOTES_FILE_NAME};
 
@@ -38,31 +37,6 @@ fn record_renderer_log(
     state: State<'_, SharedNativeRuntime>,
 ) -> Result<(), String> {
     record_renderer_log_with_options(state.inner(), input)
-}
-
-#[tauri::command]
-fn desktop_performance_snapshot(state: State<'_, SharedNativeRuntime>) -> serde_json::Value {
-    desktop_performance_snapshot_with_options(state.inner(), global_agent_runtime_metrics())
-}
-
-pub(crate) fn desktop_performance_snapshot_with_options(
-    shared: &SharedNativeRuntime,
-    metrics: &AgentRuntimeMetrics,
-) -> serde_json::Value {
-    let recent_events = {
-        let runtime = lock_runtime(shared);
-        runtime
-            .recent_log_events
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>()
-    };
-    serde_json::json!({
-        "schemaVersion": "tinybot.performance_trace.v1",
-        "generatedAtUnixMs": now_unix_ms(),
-        "metrics": metrics.snapshot(),
-        "recentEvents": recent_events,
-    })
 }
 
 pub(crate) fn record_renderer_diagnostic_with_options(
@@ -223,7 +197,8 @@ pub(crate) fn run() {
         .invoke_handler(tauri::generate_handler![
             record_renderer_diagnostic,
             record_renderer_log,
-            desktop_performance_snapshot,
+            crate::desktop::diagnostics::desktop_performance_snapshot,
+            crate::desktop::diagnostics::desktop_export_diagnostic_bundle,
             crate::desktop::update::desktop_update_status,
             crate::desktop::update::desktop_check_for_update,
             crate::desktop::update::desktop_install_update,
@@ -371,11 +346,4 @@ pub(crate) fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-fn now_unix_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis().min(u128::from(u64::MAX)) as u64)
-        .unwrap_or_default()
 }

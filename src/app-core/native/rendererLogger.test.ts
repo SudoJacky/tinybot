@@ -1,7 +1,12 @@
 // @vitest-environment happy-dom
 
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { createRendererLogger } from "./rendererLogger";
+import {
+  createRendererLogger,
+  isRendererDiagnosticModeEnabled,
+  rendererLogSnapshot,
+  setRendererDiagnosticModeEnabled,
+} from "./rendererLogger";
 
 describe("renderer logger", () => {
   afterEach(() => {
@@ -80,6 +85,42 @@ describe("renderer logger", () => {
     });
   });
 
+  test("persists info and debug logs while diagnostic mode is enabled", async () => {
+    const invoke = vi.fn(async () => undefined);
+    const logger = createRendererLogger({
+      console: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+      invoke,
+      isDebugEnabled: () => true,
+      isNativeRuntime: () => true,
+    });
+
+    logger.log("info", "diagnostics.info");
+    logger.log("debug", "diagnostics.debug");
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "record_renderer_log", {
+      input: expect.objectContaining({ level: "info", stage: "diagnostics.info" }),
+    });
+    expect(invoke).toHaveBeenNthCalledWith(2, "record_renderer_log", {
+      input: expect.objectContaining({ level: "debug", stage: "diagnostics.debug" }),
+    });
+  });
+
+  test("stores diagnostic mode explicitly and clears the legacy key", () => {
+    window.localStorage.setItem("tinybot.desktop.nativeChatDebug", "on");
+
+    setRendererDiagnosticModeEnabled(true);
+
+    expect(isRendererDiagnosticModeEnabled()).toBe(true);
+    expect(window.localStorage.getItem("tinybot.desktop.nativeDebug")).toBe("on");
+    expect(window.localStorage.getItem("tinybot.desktop.nativeChatDebug")).toBeNull();
+
+    setRendererDiagnosticModeEnabled(false);
+
+    expect(isRendererDiagnosticModeEnabled()).toBe(false);
+    expect(window.localStorage.getItem("tinybot.desktop.nativeDebug")).toBeNull();
+  });
+
   test("keeps only the latest 300 renderer entries", () => {
     const logger = createRendererLogger({
       console: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
@@ -92,6 +133,18 @@ describe("renderer logger", () => {
     expect(window.__tinybotRendererLogs).toHaveLength(300);
     expect(window.__tinybotRendererLogs?.[0]?.stage).toBe("renderer.event.5");
     expect(window.__tinybotRendererLogs?.[299]?.stage).toBe("renderer.event.304");
+  });
+
+  test("returns a detached renderer log snapshot", () => {
+    const logger = createRendererLogger({
+      console: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+    });
+    logger.log("info", "renderer.snapshot", { nested: { state: "ready" } });
+
+    const snapshot = rendererLogSnapshot();
+    (snapshot[0].details.nested as { state: string }).state = "changed";
+
+    expect(window.__tinybotRendererLogs?.[0]?.details).toEqual({ nested: { state: "ready" } });
   });
 
   test("reports native persistence failures without recursively logging", async () => {

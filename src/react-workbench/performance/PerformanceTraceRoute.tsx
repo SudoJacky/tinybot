@@ -1,10 +1,16 @@
-import { Download, RefreshCw } from "lucide-react";
+import { Archive, Download, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
+  DiagnosticBundleExportResult,
   PerformanceTraceDuration,
   PerformanceTraceSnapshot,
 } from "../../app-core/native/desktopNativePerformanceTrace";
+import {
+  isRendererDiagnosticModeEnabled,
+  logRendererEvent,
+  setRendererDiagnosticModeEnabled,
+} from "../../app-core/native/rendererLogger";
 import type { AppServices } from "../services";
 import "./PerformanceTraceRoute.css";
 
@@ -18,6 +24,9 @@ export default function PerformanceTraceRoute({ services }: { services: AppServi
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<TraceState>({ status: "loading" });
   const [exportError, setExportError] = useState<Error | null>(null);
+  const [bundleExporting, setBundleExporting] = useState(false);
+  const [bundleResult, setBundleResult] = useState<DiagnosticBundleExportResult | null>(null);
+  const [diagnosticModeEnabled, setDiagnosticModeEnabled] = useState(isRendererDiagnosticModeEnabled);
   const performanceStore = services.performanceStore;
 
   useEffect(() => {
@@ -46,6 +55,7 @@ export default function PerformanceTraceRoute({ services }: { services: AppServi
 
   const refresh = () => {
     setExportError(null);
+    setBundleResult(null);
     setAttempt((value) => value + 1);
   };
 
@@ -57,6 +67,48 @@ export default function PerformanceTraceRoute({ services }: { services: AppServi
     } catch (cause: unknown) {
       const error = cause instanceof Error ? cause : new Error(String(cause));
       console.error("[tinybot-performance-trace-export]", { error });
+      setExportError(error);
+    }
+  };
+
+  const exportDiagnosticBundle = async () => {
+    if (!performanceStore || state.status !== "ready") return;
+    setExportError(null);
+    setBundleResult(null);
+    setBundleExporting(true);
+    try {
+      const result = await performanceStore.exportDiagnosticBundle();
+      if (result) {
+        setBundleResult(result);
+        logRendererEvent("info", "diagnostics.bundle.exported", {
+          includedFileCount: result.includedFiles.length,
+          sizeBytes: result.sizeBytes,
+        });
+      }
+    } catch (cause: unknown) {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
+      logRendererEvent("error", "diagnostics.bundle.export_failed", { error });
+      setExportError(error);
+    } finally {
+      setBundleExporting(false);
+    }
+  };
+
+  const toggleDiagnosticMode = (enabled: boolean) => {
+    setExportError(null);
+    setBundleResult(null);
+    try {
+      if (enabled) {
+        setRendererDiagnosticModeEnabled(true);
+        logRendererEvent("info", "diagnostics.mode.enabled");
+      } else {
+        logRendererEvent("info", "diagnostics.mode.disabled");
+        setRendererDiagnosticModeEnabled(false);
+      }
+      setDiagnosticModeEnabled(enabled);
+    } catch (cause: unknown) {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
+      logRendererEvent("error", "diagnostics.mode.update_failed", { enabled, error });
       setExportError(error);
     }
   };
@@ -77,13 +129,40 @@ export default function PerformanceTraceRoute({ services }: { services: AppServi
             <Download aria-hidden="true" size={15} />
             {t("performanceTrace.export")}
           </button>
+          <button
+            disabled={state.status !== "ready" || bundleExporting}
+            type="button"
+            onClick={() => void exportDiagnosticBundle()}
+          >
+            <Archive aria-hidden="true" size={15} />
+            {bundleExporting ? t("performanceTrace.exportingBundle") : t("performanceTrace.exportBundle")}
+          </button>
         </div>
       </header>
 
       <p className="react-performance-trace-note">{t("performanceTrace.processLocal")}</p>
+      <section aria-labelledby="performance-diagnostic-mode-title" className="react-performance-trace-diagnostics">
+        <label>
+          <input
+            checked={diagnosticModeEnabled}
+            type="checkbox"
+            onChange={(event) => toggleDiagnosticMode(event.currentTarget.checked)}
+          />
+          <span>
+            <strong id="performance-diagnostic-mode-title">{t("performanceTrace.diagnosticMode")}</strong>
+            <small>{t("performanceTrace.diagnosticModeDescription")}</small>
+          </span>
+        </label>
+        <p>{t("performanceTrace.bundlePrivacy")}</p>
+      </section>
       {exportError ? (
         <p className="react-performance-trace-error" role="alert">
           {t("performanceTrace.exportFailed", { message: exportError.message })}
+        </p>
+      ) : null}
+      {bundleResult ? (
+        <p className="react-performance-trace-success" role="status">
+          {t("performanceTrace.bundleSaved", { path: bundleResult.path })}
         </p>
       ) : null}
       {state.status === "loading" ? (
