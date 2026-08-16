@@ -6,7 +6,7 @@ export const zh = {
     menu: {
       app: "应用", resources: "资源", system: "系统", help: "帮助", applicationLabel: "应用菜单", resourcesLabel: "资源菜单",
       systemLabel: "系统菜单", helpLabel: "帮助菜单", newChat: "新建会话", searchSessions: "搜索会话", stopGeneration: "停止生成",
-      toggleTheme: "切换主题", toggleSidebar: "切换侧栏", about: "关于 Tinybot", documentation: "使用文档", more: "更多",
+      toggleTheme: "切换主题", toggleSidebar: "切换侧栏", about: "关于 Tinybot", whatsNew: "更新内容", documentation: "使用文档", more: "更多",
       moreHelpLabel: "更多帮助选项", shortcutHelp: "快捷键帮助", pageHelp: "页面帮助", backendLogs: "后端日志",
       openNativeWorkbench: "打开原生工作台", tinybotRepo: "Tinybot 仓库",
     },
@@ -217,10 +217,13 @@ export const zh = {
   },
   updates: {
     desktopOnly: "只能在 Tinybot 桌面应用中检查更新。", unavailable: "当前没有经过审核、可供安装的更新。", updateAvailableLabel: "Tinybot 有可用更新",
+    whatsNewLabel: "Tinybot 更新内容", whatsNewTitle: "Tinybot {{version}} 更新内容",
     aboutLabel: "关于 Tinybot", softwareUpdate: "软件更新", desktopName: "Tinybot Desktop", availableTitle: "Tinybot {{version}} 可用",
     close: "关闭", later: "稍后", currentVersion: "当前版本", developmentBuild: "开发版本",
     aboutDescription: "Tinybot 是用于会话、工具和本地项目工作的桌面 AI 工作区。", readyToReview: "版本 {{version}} 已可查看",
-    version: "版本", beforeUpdate: "更新前请注意", whatsNew: "更新内容", noNotes: "此更新没有提供 Release Note。",
+    version: "版本", beforeUpdate: "更新前请注意", whatsNew: "更新内容", releaseHighlights: "版本亮点", releaseNotes: "Release Notes",
+    noNotes: "此更新没有提供 Release Note。", noSavedNotes: "尚未保存可查看的更新内容。",
+    notesSaveFailed: "无法保存更新内容：{{message}}", notesLoadFailed: "无法读取更新内容：{{message}}",
     preparingInstaller: "正在准备安装程序", downloadingUpdate: "正在下载更新", latest: "你正在使用最新版本。",
     browserUnavailable: "浏览器预览中不可用", checking: "正在检查…", checkAgain: "再次检查", check: "检查更新",
     downloading: "正在下载 {{percent}}%", installing: "正在安装…", install: "下载并安装",

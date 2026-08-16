@@ -72,6 +72,7 @@ type TopMenuCommandId =
   | "open-tools"
   | "open-tinybot-repo"
   | "open-settings"
+  | "open-whats-new"
   | "open-performance-trace"
   | "open-docs"
   | "open-shortcut-help"
@@ -158,6 +159,7 @@ function createTopMenuItems(
     icon: Settings,
     entries: [
       menuCommand({ id: "open-settings", label: routeLabels.settings, route: "settings", shortcut: shortcuts["open-settings"] ?? undefined }),
+      menuCommand({ id: "open-whats-new", label: t("menu.whatsNew") }),
       menuSeparator("system-observability-separator"),
       menuCommand({ id: "open-performance-trace", label: routeLabels.performanceTrace, route: "performanceTrace" }),
     ],
@@ -218,6 +220,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
   const [sidebarMotionSource, setSidebarMotionSource] = useState<MotionSource>("pointer");
   const [createChatSignal, setCreateChatSignal] = useState(0);
   const [aboutOpenSignal, setAboutOpenSignal] = useState(0);
+  const [whatsNewOpenSignal, setWhatsNewOpenSignal] = useState(0);
   const [stopGenerationSessionId, setStopGenerationSessionId] = useState("");
   const stopGenerationSessionIdRef = useRef("");
   const frameControls = useMemo(() => windowControls ?? resolveWindowFrameControls(), [windowControls]);
@@ -401,6 +404,9 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
     switch (command.id) {
       case "open-about":
         setAboutOpenSignal((current) => current + 1);
+        return;
+      case "open-whats-new":
+        setWhatsNewOpenSignal((current) => current + 1);
         return;
       default:
         return;
@@ -621,6 +627,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
       <DesktopUpdateDialogs
         aboutOpenSignal={aboutOpenSignal}
         updateClient={updateClient}
+        whatsNewOpenSignal={whatsNewOpenSignal}
       />
 
     </div>

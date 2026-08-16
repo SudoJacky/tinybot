@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:a0e81a2426a85fba8314a66bab657e15795652f247599fba983fa001b97e7a47 -->
+<!-- tinybot-module-fingerprint: sha256:b5114ed7e7d36cc2e9a775fca95d7da02c6e93ba4073724d90ea39650af990f6 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -25,3 +25,8 @@ diagnostic-bundle export result used by the System > Performance Trace route.
 It passes the current renderer log snapshot and allowlisted locale metadata to
 the native exporter. Invalid metrics, events, or result shapes fail at the
 native boundary instead of being partially rendered.
+
+`desktopUpdateNotes` persists the last available update's version, publication
+time, Release Notes, and custom display notes in renderer storage. The update
+dialog uses this validated record for System > What's New after an installer
+restart has cleared the process-local native update snapshot.

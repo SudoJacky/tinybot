@@ -345,10 +345,17 @@ describe("DesktopShell", () => {
     await user.click(screen.getByRole("button", { name: "System" }));
     const systemMenu = screen.getByRole("menu", { name: "System menu" });
     expect(within(systemMenu).getByRole("menuitem", { name: "Settings (Ctrl+,)" })).toBeTruthy();
+    expect(within(systemMenu).getByRole("menuitem", { name: "What's New" })).toBeTruthy();
     expect(within(systemMenu).getByRole("menuitem", { name: "Performance Trace" })).toBeTruthy();
     expect(within(systemMenu).queryByRole("menuitem", { name: /Runtime Status/ })).toBeNull();
 
-    await user.click(within(systemMenu).getByRole("menuitem", { name: "Performance Trace" }));
+    await user.click(within(systemMenu).getByRole("menuitem", { name: "What's New" }));
+    const whatsNewDialog = await screen.findByRole("dialog", { name: "Tinybot What's New" });
+    expect(within(whatsNewDialog).getByText("No saved update notes are available yet.")).toBeTruthy();
+    await user.click(within(whatsNewDialog).getAllByRole("button", { name: "Close" })[0]);
+
+    await user.click(screen.getByRole("button", { name: "System" }));
+    await user.click(within(screen.getByRole("menu", { name: "System menu" })).getByRole("menuitem", { name: "Performance Trace" }));
     expect(await screen.findByRole("heading", { name: "Performance Trace" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "System" }));

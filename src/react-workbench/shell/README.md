@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:7d962e9235b50fe998805968c0cf16a31b102269454c9f0ec209968c009e6731 -->
+<!-- tinybot-module-fingerprint: sha256:874035bb76965b43d1d545e6b062022cca66630b9f8dcbff1121386ca6784c80 -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
@@ -19,3 +19,6 @@ export behavior remain under `performance/`.
 
 Update dialogs retain update lifecycle state in the shell and reuse
 `components/ui/useModalDialog` for desktop-level modal interaction behavior.
+System > What's New reopens the validated latest update record persisted by
+`app-core/native/desktopUpdateNotes`, while automatic update prompts continue
+to render the live native updater snapshot.
