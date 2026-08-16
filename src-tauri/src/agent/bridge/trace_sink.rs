@@ -206,7 +206,11 @@ impl Drop for TracePersistenceWorker {
         if let Err(error) = self.shutdown() {
             crate::runtime::observability::global_agent_runtime_metrics()
                 .increment("persistence.worker.shutdown.failed");
-            eprintln!("trace persistence worker shutdown failed: {error}");
+            report_trace_sink_log(
+                crate::desktop::logging::NativeLogLevel::Error,
+                "trace.persistence_worker.shutdown_failed",
+                serde_json::json!({ "error": error }),
+            );
         }
     }
 }
@@ -551,8 +555,9 @@ fn persist_pending_trace_events(
             .lock()
             .expect("trace persistence terminal error lock should not be poisoned");
         if terminal.is_none() {
-            eprintln!(
-                "trace persistence entered terminal failure: {}",
+            report_trace_sink_log(
+                crate::desktop::logging::NativeLogLevel::Error,
+                "trace.persistence_worker.terminal_failure",
                 serde_json::json!({
                     "sessionId": session_id,
                     "turnId": turn_id,
@@ -563,7 +568,7 @@ fn persist_pending_trace_events(
                     "lastSequence": last_event.map(|event| event.sequence),
                     "queueDepth": queued_events.load(Ordering::Relaxed),
                     "error": error,
-                })
+                }),
             );
             crate::runtime::observability::global_agent_runtime_metrics()
                 .increment("persistence.worker.terminal_failure");
@@ -602,7 +607,11 @@ fn send_trace_worker_reply(
     if reply.send(result).is_err() {
         crate::runtime::observability::global_agent_runtime_metrics()
             .increment("persistence.worker.reply.failed");
-        eprintln!("trace persistence worker {operation} reply receiver was dropped");
+        report_trace_sink_log(
+            crate::desktop::logging::NativeLogLevel::Warn,
+            "trace.persistence_worker.reply_dropped",
+            serde_json::json!({ "operation": operation }),
+        );
     }
 }
 
@@ -659,8 +668,9 @@ impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
             .emit(&event_name, payload)
             .map_err(|error| format!("native agent frontend event emit failed: {error}"));
         if let Err(error) = &result {
-            eprintln!(
-                "native_agent_frontend_event_emit_failed {}",
+            report_trace_sink_log(
+                crate::desktop::logging::NativeLogLevel::Error,
+                "trace.frontend_event.emit_failed",
                 serde_json::json!({
                     "sessionId": session_id,
                     "turnId": turn_id,
@@ -668,7 +678,7 @@ impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
                     "eventName": event.event_name,
                     "sequence": event.sequence,
                     "error": error,
-                })
+                }),
             );
         }
         metrics.record_duration("live.trace.emit.durationMs", started_at.elapsed());
@@ -693,8 +703,9 @@ impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
             .emit(&tauri_safe_event_name("agent.timeline.patch"), patch)
             .map_err(|error| format!("canonical agent timeline patch emit failed: {error}"));
         if let Err(error) = &result {
-            eprintln!(
-                "native_agent_timeline_patch_emit_failed {}",
+            report_trace_sink_log(
+                crate::desktop::logging::NativeLogLevel::Error,
+                "trace.timeline_patch.emit_failed",
                 serde_json::json!({
                     "sessionId": session_id,
                     "turnId": turn_id,
@@ -703,7 +714,7 @@ impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
                     "itemKind": patch.item.kind,
                     "itemStatus": patch.item.status,
                     "error": error,
-                })
+                }),
             );
         }
         metrics.record_duration("live.timeline_patch.emit.durationMs", started_at.elapsed());
@@ -713,6 +724,19 @@ impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
             "live.timeline_patch.emit.failed"
         });
         result
+    }
+}
+
+fn report_trace_sink_log(
+    level: crate::desktop::logging::NativeLogLevel,
+    event: &str,
+    context: serde_json::Value,
+) {
+    if let Err(error) = crate::desktop::logging::append_default_native_backend_log_event(
+        "trace",
+        crate::desktop::logging::NativeLogEvent::new(level, event, context),
+    ) {
+        eprintln!("native trace log write failed: {error}; event={event}");
     }
 }
 

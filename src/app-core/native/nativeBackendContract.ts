@@ -1,5 +1,6 @@
 export const NATIVE_BACKEND_COMMAND_NAMES = [
   "record_renderer_diagnostic",
+  "record_renderer_log",
   "worker_submit_thread_turn",
   "worker_submit_thread_form",
   "worker_background_trace_list",

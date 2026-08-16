@@ -6,7 +6,9 @@ pub(crate) mod state;
 mod update;
 
 #[cfg(test)]
-pub(crate) use bootstrap::{record_renderer_diagnostic_with_options, truncate_utf8_with_ellipsis};
+pub(crate) use bootstrap::{
+    record_renderer_diagnostic_with_options, record_renderer_log_with_options,
+};
 pub(crate) use state::{lock_runtime, SharedNativeRuntime};
 
 pub(crate) fn run() {

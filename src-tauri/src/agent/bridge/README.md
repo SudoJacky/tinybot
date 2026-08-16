@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:f985ea535c1bfff7d3ed83269acbd318f8c532b4b60300867f723bacb788ce3b -->
+<!-- tinybot-module-fingerprint: sha256:cefb1139bc72361de59a9b0769ab8301294d2642de12eaf7f6f639319f4348a9 -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -69,6 +69,9 @@ when it failed.
   a successful turn.
 - Frontend event-emission failures log session, turn, event or item identity,
   and revision without logging the event payload.
+- Trace persistence-worker and frontend-emission failures use the desktop
+  structured collector under the `trace` stream; only collector failures fall
+  back to stderr.
 
 See [`agent::runtime`](../runtime/README.md) for the execution core and
 [`threads::domain`](../../threads/domain/README.md) for typed conversation

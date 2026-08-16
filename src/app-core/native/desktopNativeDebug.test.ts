@@ -46,7 +46,11 @@ describe("desktop native debug logger", () => {
         nested: { value: "ready" },
       },
     });
-    expect(info).toHaveBeenCalledWith("[Tinybot native]", "session.delete.start", window.__tinybotNativeDebug?.[0]?.details);
+    expect(info).toHaveBeenCalledWith(
+      "[tinybot-renderer]",
+      "session.delete.start",
+      window.__tinybotNativeDebug?.[0]?.details,
+    );
   });
 
   test("records startup trace phase timings", () => {

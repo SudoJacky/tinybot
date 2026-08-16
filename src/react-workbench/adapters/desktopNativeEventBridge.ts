@@ -10,6 +10,7 @@ import type { DesktopChatSessionController } from "../../app-core/chat/desktopCh
 import type { TinyOsDirectHostCommand } from "../../app-core/chat/tinyOsCommand";
 import { normalizeNativeBrowserSnapshot } from "../../app-core/native/desktopNativeBrowser";
 import { logDesktopNativeDebug } from "../../app-core/native/desktopNativeChatDebug";
+import { logRendererEvent } from "../../app-core/native/rendererLogger";
 import { toDesktopNativeTauriEventName } from "../../app-core/native/desktopNativeTauriEvents";
 import { normalizeNativeBackendEventPayload } from "../../app-core/native/nativeBackendContract";
 import type { ChatEvent } from "../services";
@@ -326,7 +327,7 @@ function reportNativeEventBridgeError(
     ...details,
     error: loggedError,
   });
-  console.error("[tinybot-native-event-bridge]", {
+  logRendererEvent("error", "native.event_bridge.failed", {
     ...details,
     error: loggedError,
     stage,

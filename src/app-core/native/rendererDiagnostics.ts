@@ -1,5 +1,6 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import type { DesktopNativeDebugEntry } from "./desktopNativeChatDebug";
+import { logRendererEvent } from "./rendererLogger";
 
 export type RendererDiagnosticType = "react.render" | "window.error" | "window.unhandledrejection";
 
@@ -67,7 +68,11 @@ export async function recordRendererDiagnostic(
     await invoke("record_renderer_diagnostic", { input: diagnostic });
   } catch (error) {
     persistLocalDiagnostic(diagnostic, options.storage);
-    console.error("[tinybot-renderer-diagnostic]", diagnostic, error);
+    logRendererEvent("error", "renderer.diagnostic.persist_failed", {
+      diagnosticId: diagnostic.id,
+      diagnosticType: diagnostic.type,
+      error,
+    });
   }
 }
 

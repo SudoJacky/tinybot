@@ -163,15 +163,22 @@ names fail before provider dispatch. Workspace profile and skill files have a 64
 while project instructions share a 64 KiB aggregate budget. Invalid UTF-8, unreadable paths, invalid
 field types, truncation, and empty sources are surfaced instead of silently disappearing.
 
-## Renderer Diagnostics Command
+## Renderer Logging Commands
 
 | Command | Args | Response |
 | --- | --- | --- |
 | `record_renderer_diagnostic` | `{ input: unknown }` | `void` |
+| `record_renderer_log` | `{ input: RendererLogEntry }` | `void` |
 
-The command serializes the supplied JSON value, records it in the process-local native runtime log,
-and appends it to the persistent native backend log. A single serialized renderer entry is bounded
-to 16 KiB with UTF-8-safe truncation. Log write failures reject the command.
+`RendererLogEntry` uses schema `tinybot.renderer_log.v1` and contains `at`, a
+`debug | info | warn | error` level, a non-empty `stage`, and an object-valued
+`details` field. Unknown schemas, levels, fields, or invalid shapes fail fast.
+
+Both commands route through the shared `tinybot.native_log.v1` collector, add
+the record to the process-local runtime ring, and append it to the persistent
+native backend log. Context strings, arrays, objects, and nesting are bounded;
+credential, token, prompt, and request or response body keys are redacted.
+Serialized records above 64 KiB and log write failures reject the command.
 
 ## Desktop Menu Shortcut Command
 

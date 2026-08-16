@@ -16,7 +16,9 @@ mod unsupported;
 #[cfg(all(windows, feature = "native-browser-runtime"))]
 mod windows;
 
-use crate::desktop_commands::runtime::native_backend_log_path;
+use crate::desktop::logging::{
+    append_default_native_backend_log_event, NativeLogEvent, NativeLogLevel,
+};
 pub(crate) use manager::{
     BrowserAgentPageState, BrowserAgentPageText, SharedBrowserRuntime, AGENT_SNAPSHOT_STALE,
 };
@@ -38,27 +40,30 @@ pub(crate) fn create_runtime(app: &AppHandle) -> Result<SharedBrowserRuntime, St
     let snapshot_app = app.clone();
     let snapshot_sink: BrowserSnapshotSink = Arc::new(move |snapshot| {
         if let Err(error) = snapshot_app.emit("tinyos:browser-snapshot", snapshot) {
-            eprintln!("failed to emit native browser snapshot: {error}");
+            report_native_browser_log(
+                NativeLogLevel::Error,
+                "browser.snapshot.emit_failed",
+                serde_json::json!({ "error": error.to_string() }),
+            );
         }
     });
     let diagnostic_app = app.clone();
-    let diagnostic_log_path = native_backend_log_path();
     let diagnostic_sink: BrowserDiagnosticSink = Arc::new(move |diagnostic| {
-        match serde_json::to_string(&diagnostic) {
-            Ok(line) => {
-                if let Err(error) = crate::desktop::logging::append_native_backend_log_line(
-                    &diagnostic_log_path,
-                    crate::desktop::state::NATIVE_BACKEND_LOG_MAX_BYTES,
-                    "browser",
-                    &line,
-                ) {
-                    eprintln!("failed to persist native browser diagnostic: {error}");
-                }
-            }
-            Err(error) => eprintln!("failed to serialize native browser diagnostic: {error}"),
+        let level = native_browser_diagnostic_level(&diagnostic.event);
+        match serde_json::to_value(&diagnostic) {
+            Ok(context) => report_native_browser_log(level, &diagnostic.event, context),
+            Err(error) => report_native_browser_log(
+                NativeLogLevel::Error,
+                "browser.diagnostic.serialize_failed",
+                serde_json::json!({ "error": error.to_string() }),
+            ),
         }
         if let Err(error) = diagnostic_app.emit("tinyos:browser-diagnostic", diagnostic) {
-            eprintln!("failed to emit native browser diagnostic: {error}");
+            report_native_browser_log(
+                NativeLogLevel::Error,
+                "browser.diagnostic.emit_failed",
+                serde_json::json!({ "error": error.to_string() }),
+            );
         }
     });
 
@@ -75,4 +80,23 @@ pub(crate) fn create_runtime(app: &AppHandle) -> Result<SharedBrowserRuntime, St
         snapshot_sink,
         diagnostic_sink,
     ))
+}
+
+fn native_browser_diagnostic_level(event: &str) -> NativeLogLevel {
+    if event.contains("failed") || event.contains("error") || event.contains("crashed") {
+        NativeLogLevel::Error
+    } else if event.contains("blocked") || event.contains("denied") || event.contains("orphaned") {
+        NativeLogLevel::Warn
+    } else {
+        NativeLogLevel::Info
+    }
+}
+
+fn report_native_browser_log(level: NativeLogLevel, event: &str, context: serde_json::Value) {
+    if let Err(error) = append_default_native_backend_log_event(
+        "browser",
+        NativeLogEvent::new(level, event, context),
+    ) {
+        eprintln!("native browser log write failed: {error}; event={event}");
+    }
 }

@@ -1,20 +1,21 @@
 use crate::agent::runtime::NativeAgentRuntimeServices;
 use crate::collaboration::subagents::SubagentThreadManager;
-use crate::desktop_commands::runtime::native_backend_log_path;
 use crate::runtime::lifecycle::RuntimeLifecycleStatus;
 use crate::runtime::mcp::McpRuntime;
 use crate::threads::workspace_store::WorkspaceThreadStore;
+use serde_json::json;
 use std::{
     collections::VecDeque,
     path::PathBuf,
     sync::{Arc, Mutex},
 };
 
-use super::logging::append_native_backend_log_line;
+use super::logging::{
+    append_native_backend_log_event, native_backend_log_event_line, native_backend_log_path,
+    NativeLogEvent, NativeLogLevel, NATIVE_BACKEND_LOG_MAX_BYTES,
+};
 
 pub(crate) type SharedNativeRuntime = Arc<Mutex<NativeRuntimeState>>;
-
-pub(crate) const NATIVE_BACKEND_LOG_MAX_BYTES: u64 = 5 * 1024 * 1024;
 
 pub(crate) struct NativeRuntimeState {
     pub(crate) native_agent_runtime: NativeAgentRuntimeServices,
@@ -99,13 +100,31 @@ pub(crate) fn lock_runtime(
 }
 
 pub(crate) fn push_log(shared: &SharedNativeRuntime, line: &str) {
+    if let Err(error) = record_native_log(
+        shared,
+        "runtime",
+        NativeLogEvent::new(
+            NativeLogLevel::Info,
+            "runtime.message",
+            json!({ "message": line }),
+        ),
+    ) {
+        eprintln!("native runtime log write failed: {error}; message={line}");
+    }
+}
+
+pub(crate) fn record_native_log(
+    shared: &SharedNativeRuntime,
+    stream: &str,
+    event: NativeLogEvent,
+) -> Result<(), String> {
+    let line = native_backend_log_event_line(&event)?;
     let log_path = {
         let mut runtime = lock_runtime(shared);
-        append_log(&mut runtime, line);
+        append_log(&mut runtime, &format!("{stream} {line}"));
         runtime.persistent_log_path.clone()
     };
-    let _ =
-        append_native_backend_log_line(&log_path, NATIVE_BACKEND_LOG_MAX_BYTES, "runtime", line);
+    append_native_backend_log_event(&log_path, NATIVE_BACKEND_LOG_MAX_BYTES, stream, event)
 }
 
 pub(crate) fn append_log(runtime: &mut NativeRuntimeState, line: &str) {

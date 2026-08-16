@@ -3,13 +3,13 @@ use crate::desktop::files::allowed_workspace_file_path;
 use crate::desktop::files::mime_type_for_path;
 use crate::desktop::files::upload_file_from_path;
 use crate::desktop::files::write_export_file;
-use crate::desktop::logging::append_native_backend_log_line;
+use crate::desktop::logging::{append_native_backend_log_event, NativeLogEvent, NativeLogLevel};
 use crate::desktop::menu::{
     desktop_menu_item_descriptors, validate_desktop_menu_shortcut_bindings,
     DesktopMenuShortcutBinding,
 };
 use crate::desktop::state::NativeRuntimeState;
-use crate::desktop::{record_renderer_diagnostic_with_options, truncate_utf8_with_ellipsis};
+use crate::desktop::{record_renderer_diagnostic_with_options, record_renderer_log_with_options};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -39,20 +39,132 @@ fn renderer_diagnostics_append_to_persistent_backend_log() {
     let contents =
         std::fs::read_to_string(log_path).expect("persistent backend log should be written");
     assert!(contents.contains("renderer"));
+    assert!(contents.contains("\"event\":\"renderer.diagnostic\""));
     assert!(contents.contains("\"type\":\"react.render\""));
     assert!(contents.contains("\"message\":\"render exploded\""));
     assert!(contents.contains("\"stage\":\"socket.frame\""));
 }
 
 #[test]
-fn renderer_diagnostics_truncate_on_utf8_boundary() {
-    let line = format!("{}你好", "a".repeat((16 * 1024) - 1));
+fn renderer_logs_validate_and_append_to_the_shared_backend_log() {
+    let fixture = WorkspaceFixture::new();
+    let log_path = fixture.root.join("logs").join("native-backend.log");
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
+        persistent_log_path: log_path.clone(),
+        ..NativeRuntimeState::default()
+    }));
 
-    let truncated = truncate_utf8_with_ellipsis(line, 16 * 1024);
+    record_renderer_log_with_options(
+        &shared,
+        serde_json::json!({
+            "schemaVersion": "tinybot.renderer_log.v1",
+            "at": "2026-08-16T01:02:03.000Z",
+            "level": "error",
+            "stage": "native.event_bridge.failed",
+            "details": {
+                "sessionId": "thread-1",
+                "authorization": "Bearer must-not-leak"
+            }
+        }),
+    )
+    .expect("renderer log should persist");
 
-    assert!(truncated.ends_with("..."));
-    assert!(truncated.is_char_boundary(truncated.len()));
-    assert_eq!(truncated, format!("{}...", "a".repeat((16 * 1024) - 1)));
+    let contents = std::fs::read_to_string(log_path).expect("renderer log should be written");
+    assert!(contents.contains("\"level\":\"error\""));
+    assert!(contents.contains("\"event\":\"native.event_bridge.failed\""));
+    assert!(contents.contains("thread-1"));
+    assert!(!contents.contains("must-not-leak"));
+    assert!(contents.contains("[redacted]"));
+
+    let invalid = record_renderer_log_with_options(
+        &shared,
+        serde_json::json!({
+            "schemaVersion": "tinybot.renderer_log.v1",
+            "at": "2026-08-16T01:02:03.000Z",
+            "level": "fatal",
+            "stage": "native.event_bridge.failed",
+            "details": {}
+        }),
+    )
+    .expect_err("unknown renderer log level should fail fast");
+    assert!(invalid.contains("renderer log input"));
+
+    let empty_stage = record_renderer_log_with_options(
+        &shared,
+        serde_json::json!({
+            "schemaVersion": "tinybot.renderer_log.v1",
+            "at": "2026-08-16T01:02:03.000Z",
+            "level": "error",
+            "stage": "",
+            "details": {}
+        }),
+    )
+    .expect_err("empty renderer log stage should fail fast");
+    assert!(empty_stage.contains("event must be non-empty"));
+}
+
+#[test]
+fn structured_backend_log_redacts_sensitive_context() {
+    let fixture = WorkspaceFixture::new();
+    let log_path = fixture.root.join("logs").join("native-backend.log");
+
+    append_native_backend_log_event(
+        &log_path,
+        1024 * 1024,
+        "runtime",
+        NativeLogEvent::new(
+            NativeLogLevel::Error,
+            "runtime.start.failed",
+            serde_json::json!({
+                "authorization": "Bearer must-not-leak",
+                "phase": "startup"
+            }),
+        ),
+    )
+    .expect("structured log should append");
+
+    let contents = std::fs::read_to_string(log_path).expect("backend log should be written");
+    let json = contents
+        .splitn(3, ' ')
+        .nth(2)
+        .expect("log line should contain a JSON record");
+    let record: serde_json::Value =
+        serde_json::from_str(json).expect("structured backend log should be JSON");
+    assert_eq!(record["schemaVersion"], "tinybot.native_log.v1");
+    assert_eq!(record["level"], "error");
+    assert_eq!(record["event"], "runtime.start.failed");
+    assert_eq!(record["context"]["authorization"], "[redacted]");
+    assert_eq!(record["context"]["phase"], "startup");
+}
+
+#[test]
+fn structured_backend_log_truncates_utf8_context_on_a_character_boundary() {
+    let fixture = WorkspaceFixture::new();
+    let log_path = fixture.root.join("logs").join("native-backend.log");
+
+    append_native_backend_log_event(
+        &log_path,
+        1024 * 1024,
+        "runtime",
+        NativeLogEvent::new(
+            NativeLogLevel::Warn,
+            "runtime.large_context",
+            serde_json::json!({ "detail": format!("{}你好", "a".repeat(2047)) }),
+        ),
+    )
+    .expect("structured log should append");
+
+    let contents = std::fs::read_to_string(log_path).expect("backend log should be written");
+    let json = contents
+        .splitn(3, ' ')
+        .nth(2)
+        .expect("log line should contain a JSON record");
+    let record: serde_json::Value =
+        serde_json::from_str(json).expect("structured backend log should be valid JSON");
+    assert_eq!(
+        record["context"]["detail"],
+        format!("{}...", "a".repeat(2047))
+    );
 }
 
 #[test]
@@ -63,14 +175,24 @@ fn persistent_backend_log_rotates_when_size_limit_is_exceeded() {
         .expect("log directory should create");
     std::fs::write(&log_path, "older diagnostic line\n").expect("old log should write");
 
-    append_native_backend_log_line(&log_path, 8, "stderr", "new diagnostic line")
-        .expect("new log line should append");
+    append_native_backend_log_event(
+        &log_path,
+        8,
+        "stderr",
+        NativeLogEvent::new(
+            NativeLogLevel::Warn,
+            "legacy.stderr",
+            serde_json::json!({ "message": "new diagnostic line" }),
+        ),
+    )
+    .expect("new log line should append");
 
     let rotated = std::fs::read_to_string(log_path.with_extension("log.1"))
         .expect("rotated log should exist");
     let current = std::fs::read_to_string(log_path).expect("current log should exist");
     assert!(rotated.contains("older diagnostic line"));
-    assert!(current.contains("stderr new diagnostic line"));
+    assert!(current.contains("stderr"));
+    assert!(current.contains("new diagnostic line"));
 }
 
 #[test]

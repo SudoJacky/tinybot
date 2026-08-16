@@ -7,8 +7,8 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 use crate::desktop_commands::runtime::shutdown_native_runtime;
 
 use super::{
-    logging::append_native_backend_log_line,
-    state::{append_log, lock_runtime, SharedNativeRuntime, NATIVE_BACKEND_LOG_MAX_BYTES},
+    logging::{NativeLogEvent, NativeLogLevel},
+    state::{record_native_log, SharedNativeRuntime},
 };
 
 pub(crate) const DESKTOP_UPDATE_STATUS_EVENT: &str = "desktop-update-status";
@@ -110,12 +110,18 @@ fn record_update_event(
     detail: Option<&str>,
 ) -> Result<(), String> {
     let line = update_diagnostic_line(event, current_version, available_version, detail)?;
-    let log_path = {
-        let mut runtime = lock_runtime(shared);
-        append_log(&mut runtime, &format!("updater {line}"));
-        runtime.persistent_log_path.clone()
+    let context = serde_json::from_str(&line)
+        .map_err(|error| format!("failed to parse updater diagnostic: {error}"))?;
+    let level = if event.contains("failed") || event.contains("error") {
+        NativeLogLevel::Error
+    } else {
+        NativeLogLevel::Info
     };
-    append_native_backend_log_line(&log_path, NATIVE_BACKEND_LOG_MAX_BYTES, "updater", &line)
+    record_native_log(
+        shared,
+        "updater",
+        NativeLogEvent::new(level, format!("updater.{event}"), context),
+    )
 }
 
 fn report_update_event(

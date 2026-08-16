@@ -15,13 +15,12 @@ use crate::native_browser;
 use crate::system_prompt::{load_or_create_system_prompt, SYSTEM_PROMPT_FILE_NAME};
 use crate::tool_notes::{create_default_tool_notes_if_missing, TOOL_NOTES_FILE_NAME};
 
-use super::logging::append_native_backend_log_line;
+use super::logging::{NativeLogEvent, NativeLogLevel};
 use super::menu::{
     install_desktop_application_menu, is_desktop_menu_command, DesktopMenuCommandPayload,
 };
 use super::state::{
-    append_log, lock_runtime, push_log, NativeRuntimeState, SharedNativeRuntime,
-    NATIVE_BACKEND_LOG_MAX_BYTES,
+    lock_runtime, push_log, record_native_log, NativeRuntimeState, SharedNativeRuntime,
 };
 
 #[tauri::command]
@@ -32,41 +31,62 @@ fn record_renderer_diagnostic(
     record_renderer_diagnostic_with_options(state.inner(), input)
 }
 
+#[tauri::command]
+fn record_renderer_log(
+    input: serde_json::Value,
+    state: State<'_, SharedNativeRuntime>,
+) -> Result<(), String> {
+    record_renderer_log_with_options(state.inner(), input)
+}
+
 pub(crate) fn record_renderer_diagnostic_with_options(
     shared: &SharedNativeRuntime,
     input: serde_json::Value,
 ) -> Result<(), String> {
-    let line = renderer_diagnostic_log_line(input);
-    let log_path = {
-        let mut runtime = lock_runtime(shared);
-        append_log(&mut runtime, &format!("renderer {line}"));
-        runtime.persistent_log_path.clone()
-    };
-    append_native_backend_log_line(&log_path, NATIVE_BACKEND_LOG_MAX_BYTES, "renderer", &line)
+    record_native_log(
+        shared,
+        "renderer",
+        NativeLogEvent::new(NativeLogLevel::Error, "renderer.diagnostic", input),
+    )
 }
 
-fn renderer_diagnostic_log_line(input: serde_json::Value) -> String {
-    let line = serde_json::to_string(&input)
-        .unwrap_or_else(|_| "{\"type\":\"renderer.diagnostic.serialize_failed\"}".to_string());
-    const MAX_RENDERER_DIAGNOSTIC_LOG_LINE: usize = 16 * 1024;
-    if line.len() <= MAX_RENDERER_DIAGNOSTIC_LOG_LINE {
-        return line;
+pub(crate) fn record_renderer_log_with_options(
+    shared: &SharedNativeRuntime,
+    input: serde_json::Value,
+) -> Result<(), String> {
+    let input: RendererLogInput = serde_json::from_value(input)
+        .map_err(|error| format!("invalid renderer log input: {error}"))?;
+    if input.schema_version != "tinybot.renderer_log.v1" {
+        return Err(format!(
+            "invalid renderer log input: unsupported schema {}",
+            input.schema_version
+        ));
     }
-    truncate_utf8_with_ellipsis(line, MAX_RENDERER_DIAGNOSTIC_LOG_LINE)
+    if !input.details.is_object() {
+        return Err("invalid renderer log input: details must be an object".to_string());
+    }
+    record_native_log(
+        shared,
+        "renderer",
+        NativeLogEvent::new(
+            input.level,
+            input.stage,
+            serde_json::json!({
+                "rendererAt": input.at,
+                "details": input.details,
+            }),
+        ),
+    )
 }
 
-pub(crate) fn truncate_utf8_with_ellipsis(mut value: String, max_bytes: usize) -> String {
-    if value.len() <= max_bytes {
-        return value;
-    }
-    let boundary = value
-        .char_indices()
-        .map(|(index, _)| index)
-        .take_while(|index| *index <= max_bytes)
-        .last()
-        .unwrap_or(0);
-    value.truncate(boundary);
-    format!("{value}...")
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RendererLogInput {
+    schema_version: String,
+    at: String,
+    level: NativeLogLevel,
+    stage: String,
+    details: serde_json::Value,
 }
 
 pub(crate) fn run() {
@@ -176,6 +196,7 @@ pub(crate) fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             record_renderer_diagnostic,
+            record_renderer_log,
             crate::desktop::update::desktop_update_status,
             crate::desktop::update::desktop_check_for_update,
             crate::desktop::update::desktop_install_update,

@@ -269,7 +269,8 @@ describe("desktop native event bridge", () => {
     });
     expect(JSON.stringify(window.__tinybotNativeDebug)).not.toContain("must not be logged");
     expect(console.error).toHaveBeenCalledWith(
-      "[tinybot-native-event-bridge]",
+      "[tinybot-renderer]",
+      "native.event_bridge.failed",
       expect.objectContaining({
         error: "Native browser snapshot must be an object.",
         stage: "browserSnapshot",
