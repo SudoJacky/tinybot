@@ -375,7 +375,8 @@
   padding: 0 14px;
 }
 
-.react-appearance-row {
+.react-appearance-row,
+.react-appearance-theme__rows > .react-settings-choice {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
   align-items: center;
@@ -386,7 +387,8 @@
   font-size: 12px;
 }
 
-.react-appearance-row:last-child {
+.react-appearance-row:last-child,
+.react-appearance-theme__rows > .react-settings-choice:last-child {
   border-bottom: 0;
 }
 
@@ -408,17 +410,22 @@
   line-height: 1.4;
 }
 
-.react-appearance-row select {
-  width: 100%;
-  min-height: 36px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  background: var(--color-panel);
-  padding: 0 9px;
-  color: var(--color-ink);
+.react-appearance-theme__rows > .react-settings-choice > .react-settings-choice__label {
+  grid-column: 1;
+  grid-row: 1;
 }
 
-.react-appearance-row select:focus-visible,
+.react-appearance-theme__rows > .react-settings-choice > .react-settings-choice-trigger {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.react-appearance-theme__rows > .react-settings-choice > .react-settings-choice-popover {
+  right: 0;
+  left: auto;
+  width: min(300px, 100%);
+}
+
 .react-appearance-row input:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--color-primary) 52%, transparent);
   outline-offset: 2px;
@@ -720,6 +727,7 @@
 }
 
 .react-config-settings__field,
+.react-config-settings__fields > .react-settings-choice,
 .react-config-settings__toggle {
   min-width: 0;
   border: 0;
@@ -730,6 +738,7 @@
 }
 
 .react-config-settings__field:last-child,
+.react-config-settings__fields > .react-settings-choice:last-child,
 .react-config-settings__toggle:last-child {
   border-bottom: 0;
 }
@@ -743,6 +752,33 @@
   grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
   align-items: center;
   gap: 4px 28px;
+}
+
+.react-config-settings__fields > .react-settings-choice {
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+  align-items: center;
+  gap: 4px 28px;
+}
+
+.react-config-settings__fields > .react-settings-choice > .react-settings-choice__label {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.react-config-settings__fields > .react-settings-choice > .react-settings-choice-trigger {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.react-config-settings__fields > .react-settings-choice > .react-settings-choice-popover {
+  right: 0;
+  left: auto;
+  width: min(320px, 100%);
+}
+
+.react-config-settings__fields > .react-settings-choice > small {
+  grid-column: 2;
+  grid-row: 2;
 }
 
 .react-config-settings__field--wide {
@@ -794,7 +830,6 @@
 }
 
 .react-config-settings__field input,
-.react-config-settings__field select,
 .react-config-settings__field textarea {
   width: 100%;
   min-width: 0;
@@ -807,8 +842,7 @@
   font-size: 13px;
 }
 
-.react-config-settings__field input,
-.react-config-settings__field select {
+.react-config-settings__field input {
   min-height: 38px;
   padding: 0 10px;
 }
@@ -823,7 +857,6 @@
 }
 
 .react-config-settings__field input:focus,
-.react-config-settings__field select:focus,
 .react-config-settings__field textarea:focus {
   border-color: color-mix(in srgb, var(--color-primary) 52%, var(--color-hairline));
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 18%, transparent);
@@ -994,7 +1027,6 @@
 }
 
 .react-config-settings__field > input,
-.react-config-settings__field > select,
 .react-config-settings__field > textarea,
 .react-config-settings__field > .react-config-settings__input-wrap {
   grid-area: control;
@@ -1425,6 +1457,17 @@
   display: block;
 }
 
+.react-settings-choice__label em {
+  margin-left: 7px;
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  padding: 2px 6px;
+  color: var(--color-muted);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+}
+
 .react-settings-choice__label small {
   color: var(--color-muted);
   font-size: 12px;
@@ -1456,6 +1499,11 @@
 .react-settings-choice-trigger[aria-expanded="true"] {
   border-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-hairline));
   background: var(--color-surface-soft);
+}
+
+.react-settings-choice-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .react-settings-choice-trigger:focus-visible {
@@ -2640,7 +2688,8 @@
     height: 96px;
   }
 
-  .react-appearance-row {
+  .react-appearance-row,
+  .react-appearance-theme__rows > .react-settings-choice {
     grid-template-columns: minmax(0, 1fr) minmax(190px, 250px);
   }
 

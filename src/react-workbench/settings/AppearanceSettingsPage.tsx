@@ -11,6 +11,7 @@ import {
   type UiFontId,
 } from "../../app-core/settings/appAppearance";
 import { useAppAppearance } from "./AppAppearanceContext";
+import { SettingsChoiceList } from "./SettingsChoiceList";
 
 const THEME_MODE_OPTIONS: Array<{ mode: ThemeMode; icon: LucideIcon }> = [
   { mode: "system", icon: Monitor },
@@ -213,11 +214,12 @@ function SelectRow({
   value: string;
 }) {
   return (
-    <label className="react-appearance-row">
-      <strong>{label}</strong>
-      <select aria-label={ariaLabel} onChange={(event) => onChange(event.target.value)} value={value}>
-        {options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
-      </select>
-    </label>
+    <SettingsChoiceList
+      ariaLabel={ariaLabel}
+      label={label}
+      onChange={onChange}
+      options={options.map((option) => ({ label: option.label, value: option.id }))}
+      value={value}
+    />
   );
 }

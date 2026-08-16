@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { APPEARANCE_STORAGE_KEY } from "../../app-core/settings/appAppearance";
@@ -51,6 +51,21 @@ describe("AppearanceSettingsPage", () => {
 
     fireEvent.click(screen.getByRole("radio", { name: "Dark" }));
     expect(document.documentElement.style.getPropertyValue("--color-primary")).toBe("#3366ff");
+  });
+
+  test("uses the shared settings choice menu for theme fonts", async () => {
+    const user = userEvent.setup();
+    renderAppearancePage();
+
+    expect(screen.queryByRole("combobox")).toBeNull();
+    const trigger = screen.getByRole("button", { name: "Light theme UI font: Inter" });
+    await user.click(trigger);
+    const menu = screen.getByRole("menu", { name: "UI font options" });
+    await waitFor(() => expect(document.activeElement).toBe(within(menu).getByRole("menuitemradio", { name: "Inter" })));
+    await user.keyboard("{ArrowDown}{Enter}");
+
+    expect(screen.getByRole("button", { name: "Light theme UI font: System" })).toBe(document.activeElement);
+    expect(JSON.parse(window.localStorage.getItem(APPEARANCE_STORAGE_KEY) ?? "{}").light.uiFont).toBe("system");
   });
 });
 
