@@ -1,5 +1,5 @@
 # Native Browser Runtime
-<!-- tinybot-module-fingerprint: sha256:92d0a4480946879ae365f2537a7f5ab0a29ebf24be1d6e19882391c0870396aa -->
+<!-- tinybot-module-fingerprint: sha256:b7017d535ce78e2ac4a2a04b822a46c24e949a3447b8c8e2710092f61aba7bf4 -->
 
 `native_browser` owns the managed WebView2 session used by TinyOS and native
 Agent browser tools. Direct user input and Agent actions operate the same child
@@ -84,6 +84,11 @@ autocomplete, or one-time-code values.
 Diagnostics redact URL credentials, queries, and fragments. They do not log
 headers, cookies, form values, response bodies, screenshots, or semantic
 payloads.
+
+Platform events that reference an unknown tab emit an orphaned-event diagnostic
+with the tab identity and event kind. Navigation-triggered background recapture
+failures retain their session, tab, trigger, and error context instead of being
+silently discarded.
 
 ## Verification
 

@@ -28,6 +28,7 @@ struct FakeAdapter {
     page_text: Mutex<Option<String>>,
     page_text_revision: std::sync::atomic::AtomicU64,
     fail_create: std::sync::atomic::AtomicBool,
+    fail_observe: std::sync::atomic::AtomicBool,
 }
 
 impl FakeAdapter {
@@ -166,6 +167,9 @@ impl BrowserRuntimeAdapter for FakeAdapter {
             .load(std::sync::atomic::Ordering::Relaxed);
         if delay_ms > 0 {
             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+        }
+        if self.fail_observe.load(std::sync::atomic::Ordering::Relaxed) {
+            return Err("fixture observation failed".to_string());
         }
         self.observe_completed
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -1060,6 +1064,89 @@ async fn diagnostics_correlate_commands_and_redact_navigation_urls() {
         diagnostic.event == "browser.navigation.completed"
             && diagnostic.safe_url.as_deref() == Some("https://example.com/path")
     }));
+}
+
+#[test]
+fn orphaned_platform_events_emit_a_redacted_diagnostic() {
+    let adapter = Arc::new(FakeAdapter::default());
+    let diagnostics = Arc::new(Mutex::new(Vec::new()));
+    let _manager = manager_with_diagnostics(adapter.clone(), diagnostics.clone());
+
+    adapter.sink.read().unwrap().as_ref().unwrap()(BrowserPlatformEvent::ContentDirty {
+        tab_id: BrowserTabId("orphaned-tab".to_string()),
+    });
+
+    let diagnostics = diagnostics.lock().unwrap();
+    let orphaned = diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.event == "browser.platform_event.orphaned")
+        .expect("orphaned platform events should be observable");
+    assert_eq!(
+        orphaned.tab_id.as_ref(),
+        Some(&BrowserTabId("orphaned-tab".to_string()))
+    );
+    assert_eq!(orphaned.reason_code.as_deref(), Some("session_not_found"));
+    assert_eq!(orphaned.details["platformEvent"], "content_dirty");
+    assert!(orphaned.safe_url.is_none());
+}
+
+#[tokio::test]
+async fn navigation_recapture_failure_keeps_its_trigger_context() {
+    let adapter = Arc::new(FakeAdapter::default());
+    let diagnostics = Arc::new(Mutex::new(Vec::new()));
+    let manager = manager_with_diagnostics(adapter.clone(), diagnostics.clone());
+    let snapshot = manager
+        .create_session(BrowserCreateSessionInput {
+            owner_session_id: "thread-recapture-diagnostic".to_string(),
+            profile_id: None,
+            persistence: BrowserProfilePersistence::Persistent,
+            initial_url: None,
+        })
+        .await
+        .unwrap();
+    adapter
+        .fail_observe
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    let session_id = snapshot.data.browser_session_id;
+    let tab_id = snapshot.data.active_tab_id;
+
+    adapter.sink.read().unwrap().as_ref().unwrap()(BrowserPlatformEvent::NavigationFinished {
+        tab_id: tab_id.clone(),
+        url: "https://example.com/complete?secret=redacted".to_string(),
+        can_go_back: true,
+        can_go_forward: false,
+    });
+
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if diagnostics
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|diagnostic| diagnostic.event == "browser.navigation.recapture.failed")
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("navigation recapture failure should be observable");
+
+    let diagnostics = diagnostics.lock().unwrap();
+    let failed = diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.event == "browser.navigation.recapture.failed")
+        .unwrap();
+    assert_eq!(failed.browser_session_id.as_ref(), Some(&session_id));
+    assert_eq!(failed.tab_id.as_ref(), Some(&tab_id));
+    assert_eq!(
+        failed.reason_code.as_deref(),
+        Some("navigation_recapture_failed")
+    );
+    assert_eq!(failed.details["trigger"], "navigation_completed");
+    assert_eq!(failed.details["message"], "fixture observation failed");
+    assert!(failed.safe_url.is_none());
 }
 
 #[test]

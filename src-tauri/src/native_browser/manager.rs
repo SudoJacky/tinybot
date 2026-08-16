@@ -2157,7 +2157,7 @@ impl BrowserSessionManager {
     fn handle_platform_event(self: &Arc<Self>, event: BrowserPlatformEvent) {
         let (session_id, recapture_tab_id, publish_snapshot) = {
             let mut state = self.lock_state();
-            let Some(session_id) = find_session_for_tab(&state, event_tab_id(&event)) else {
+            let Some(session_id) = self.session_id_for_platform_event(&mut state, &event) else {
                 return;
             };
             let mut recapture_tab_id = None;
@@ -2494,18 +2494,70 @@ impl BrowserSessionManager {
             self.publish_snapshot(&session_id);
         }
         if let Some(tab_id) = recapture_tab_id {
-            let manager = self.clone();
-            tauri::async_runtime::spawn(async move {
-                let _ = manager
-                    .observe(BrowserObserveInput {
-                        browser_session_id: session_id,
-                        tab_id,
-                        capture: true,
-                        semantic: true,
-                    })
-                    .await;
-            });
+            self.schedule_navigation_recapture(session_id, tab_id);
         }
+    }
+
+    fn session_id_for_platform_event(
+        &self,
+        state: &mut BrowserRuntimeState,
+        event: &BrowserPlatformEvent,
+    ) -> Option<BrowserSessionId> {
+        let tab_id = event_tab_id(event);
+        let session_id = find_session_for_tab(state, tab_id);
+        if session_id.is_none() {
+            increment_counter(state, "browser.platform_event.orphaned");
+            self.diagnostic(
+                "browser.platform_event.orphaned",
+                None,
+                Some(tab_id.clone()),
+                None,
+                Some("session_not_found"),
+                None,
+                diagnostic_details([(
+                    "platformEvent",
+                    serde_json::Value::String(browser_platform_event_name(event).to_string()),
+                )]),
+            );
+        }
+        session_id
+    }
+
+    fn schedule_navigation_recapture(
+        self: &Arc<Self>,
+        session_id: BrowserSessionId,
+        tab_id: BrowserTabId,
+    ) {
+        let manager = self.clone();
+        tauri::async_runtime::spawn(async move {
+            let recapture_session_id = session_id.clone();
+            let recapture_tab_id = tab_id.clone();
+            if let Err(error) = manager
+                .observe(BrowserObserveInput {
+                    browser_session_id: session_id,
+                    tab_id,
+                    capture: true,
+                    semantic: true,
+                })
+                .await
+            {
+                manager.diagnostic(
+                    "browser.navigation.recapture.failed",
+                    Some(recapture_session_id),
+                    Some(recapture_tab_id),
+                    None,
+                    Some("navigation_recapture_failed"),
+                    None,
+                    diagnostic_details([
+                        ("message", serde_json::Value::String(error)),
+                        (
+                            "trigger",
+                            serde_json::Value::String("navigation_completed".to_string()),
+                        ),
+                    ]),
+                );
+            }
+        });
     }
 
     fn publish_snapshot(&self, session_id: &BrowserSessionId) {
@@ -3052,6 +3104,21 @@ fn event_tab_id(event: &BrowserPlatformEvent) -> &BrowserTabId {
         | BrowserPlatformEvent::DownloadBlocked { tab_id, .. }
         | BrowserPlatformEvent::PolicyDenied { tab_id, .. }
         | BrowserPlatformEvent::RendererCrashed { tab_id, .. } => tab_id,
+    }
+}
+
+fn browser_platform_event_name(event: &BrowserPlatformEvent) -> &'static str {
+    match event {
+        BrowserPlatformEvent::NavigationStarted { .. } => "navigation_started",
+        BrowserPlatformEvent::NavigationFinished { .. } => "navigation_finished",
+        BrowserPlatformEvent::TitleChanged { .. } => "title_changed",
+        BrowserPlatformEvent::UserInput { .. } => "user_input",
+        BrowserPlatformEvent::ContentDirty { .. } => "content_dirty",
+        BrowserPlatformEvent::PopupRequested { .. } => "popup_requested",
+        BrowserPlatformEvent::ExternalProtocolRequested { .. } => "external_protocol_requested",
+        BrowserPlatformEvent::DownloadBlocked { .. } => "download_blocked",
+        BrowserPlatformEvent::PolicyDenied { .. } => "policy_denied",
+        BrowserPlatformEvent::RendererCrashed { .. } => "renderer_crashed",
     }
 }
 

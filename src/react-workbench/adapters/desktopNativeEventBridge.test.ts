@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment happy-dom
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import {
   createTinyOsTerminalCancelCommand,
@@ -84,6 +86,21 @@ const browserSnapshot = {
 };
 
 describe("desktop native event bridge", () => {
+  beforeEach(() => {
+    window.localStorage.setItem("tinybot.desktop.nativeDebug", "on");
+    window.__tinybotNativeDebug = [];
+    window.__tinybotNativeChatDebug = window.__tinybotNativeDebug;
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    window.localStorage.removeItem("tinybot.desktop.nativeDebug");
+    delete window.__tinybotNativeDebug;
+    delete window.__tinybotNativeChatDebug;
+    vi.restoreAllMocks();
+  });
+
   it("registers native event listeners and projects timeline outcomes once", async () => {
     const harness = createHarness([]);
     const timeline = terminalTimeline("completed");
@@ -208,5 +225,55 @@ describe("desktop native event bridge", () => {
     expect(bridge.hostOperationUpdateFromDispatch(execute, {
       operation: { status: "failed", reason: "process exited" },
     })).toEqual({ status: "failed", error: "process exited" });
+  });
+
+  it("records correlated lifecycle stages without logging native payload content", async () => {
+    const harness = createHarness();
+    const timeline = terminalTimeline("completed");
+    harness.applyTimelinePatch.mockResolvedValue(timeline);
+
+    await harness.bridge.register();
+    await harness.handlers.get("agent:timeline:patch")?.({
+      payload: {
+        sessionId: "thread-1",
+        turnId: "turn-1",
+        snapshotRevision: 4,
+        item: {
+          itemId: "item-1",
+          kind: "assistant_message",
+          status: "completed",
+          content: "must not be logged",
+        },
+      },
+    });
+    await harness.handlers.get("tinyos:browser-snapshot")?.({ payload: null });
+
+    expect(window.__tinybotNativeDebug?.map((entry) => entry.stage)).toEqual(expect.arrayContaining([
+      "nativeEventBridge.register.start",
+      "nativeEventBridge.register.complete",
+      "nativeEventBridge.timelinePatch.received",
+      "nativeEventBridge.timelinePatch.applied",
+      "nativeEventBridge.timelinePatch.terminal",
+      "nativeEventBridge.browserSnapshot.failed",
+    ]));
+    const received = window.__tinybotNativeDebug?.find((entry) => (
+      entry.stage === "nativeEventBridge.timelinePatch.received"
+    ));
+    expect(received?.details).toEqual({
+      itemId: "item-1",
+      itemKind: "assistant_message",
+      itemStatus: "completed",
+      sessionId: "thread-1",
+      snapshotRevision: 4,
+      turnId: "turn-1",
+    });
+    expect(JSON.stringify(window.__tinybotNativeDebug)).not.toContain("must not be logged");
+    expect(console.error).toHaveBeenCalledWith(
+      "[tinybot-native-event-bridge]",
+      expect.objectContaining({
+        error: "Native browser snapshot must be an object.",
+        stage: "browserSnapshot",
+      }),
+    );
   });
 });

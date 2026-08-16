@@ -636,8 +636,8 @@ struct DesktopAgentEventSink<R: Runtime + 'static> {
 impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
     fn append_trace_event(
         &self,
-        _session_id: &str,
-        _turn_id: &str,
+        session_id: &str,
+        turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
     ) -> Result<(), String> {
         let event_name = tauri_safe_event_name(&event.event_name);
@@ -658,6 +658,19 @@ impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
             .app
             .emit(&event_name, payload)
             .map_err(|error| format!("native agent frontend event emit failed: {error}"));
+        if let Err(error) = &result {
+            eprintln!(
+                "native_agent_frontend_event_emit_failed {}",
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "turnId": turn_id,
+                    "eventId": event.event_id,
+                    "eventName": event.event_name,
+                    "sequence": event.sequence,
+                    "error": error,
+                })
+            );
+        }
         metrics.record_duration("live.trace.emit.durationMs", started_at.elapsed());
         metrics.increment(if result.is_ok() {
             "live.trace.emit.completed"
@@ -669,8 +682,8 @@ impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
 
     fn append_timeline_patch(
         &self,
-        _session_id: &str,
-        _turn_id: &str,
+        session_id: &str,
+        turn_id: &str,
         patch: &AgentTimelinePatch,
     ) -> Result<(), String> {
         let metrics = crate::runtime::observability::global_agent_runtime_metrics();
@@ -679,6 +692,20 @@ impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
             .app
             .emit(&tauri_safe_event_name("agent.timeline.patch"), patch)
             .map_err(|error| format!("canonical agent timeline patch emit failed: {error}"));
+        if let Err(error) = &result {
+            eprintln!(
+                "native_agent_timeline_patch_emit_failed {}",
+                serde_json::json!({
+                    "sessionId": session_id,
+                    "turnId": turn_id,
+                    "snapshotRevision": patch.snapshot_revision,
+                    "itemId": patch.item.item_id,
+                    "itemKind": patch.item.kind,
+                    "itemStatus": patch.item.status,
+                    "error": error,
+                })
+            );
+        }
         metrics.record_duration("live.timeline_patch.emit.durationMs", started_at.elapsed());
         metrics.increment(if result.is_ok() {
             "live.timeline_patch.emit.completed"
