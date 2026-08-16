@@ -90,6 +90,25 @@ pub(crate) fn native_backend_log_event_line(event: &NativeLogEvent) -> Result<St
     Ok(line)
 }
 
+pub(crate) fn native_backend_log_event_value(
+    stream: &str,
+    event: &NativeLogEvent,
+) -> Result<Value, String> {
+    validate_log_identity("stream", stream)?;
+    validate_log_identity("event", &event.event)?;
+    let mut value = serde_json::to_value(event)
+        .map_err(|error| format!("failed to serialize native backend log event: {error}"))?;
+    let object = value
+        .as_object_mut()
+        .expect("native backend log event must serialize to an object");
+    object.insert("stream".to_string(), Value::String(stream.to_string()));
+    object.insert(
+        "timestampUnixMs".to_string(),
+        Value::from(now_unix_ms_u64()),
+    );
+    Ok(value)
+}
+
 pub(crate) fn native_backend_log_path() -> PathBuf {
     let base = std::env::var_os("LOCALAPPDATA")
         .or_else(|| std::env::var_os("APPDATA"))
@@ -128,6 +147,10 @@ fn now_unix_ms() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|duration| duration.as_millis())
         .unwrap_or_default()
+}
+
+fn now_unix_ms_u64() -> u64 {
+    now_unix_ms().min(u128::from(u64::MAX)) as u64
 }
 
 fn validate_log_identity(name: &str, value: &str) -> Result<(), String> {

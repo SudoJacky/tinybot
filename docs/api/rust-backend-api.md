@@ -180,6 +180,19 @@ native backend log. Context strings, arrays, objects, and nesting are bounded;
 credential, token, prompt, and request or response body keys are redacted.
 Serialized records above 64 KiB and log write failures reject the command.
 
+## Desktop Performance Trace Command
+
+| Command | Args | Response |
+| --- | --- | --- |
+| `desktop_performance_snapshot` | none | `PerformanceTraceSnapshot` |
+
+`PerformanceTraceSnapshot` uses schema `tinybot.performance_trace.v1`. It
+combines the existing process-local runtime metrics snapshot with at most 200
+recent structured events collected through shared desktop state. Events carry
+their timestamp, stream, level, event identifier, and already bounded/redacted
+context. The snapshot is read-only, resets with the app process, and does not
+start a background sampler.
+
 ## Desktop Menu Shortcut Command
 
 | Command | Args | Response |

@@ -1,0 +1,353 @@
+.react-performance-trace-page {
+  display: grid;
+  width: min(100%, 1080px);
+  gap: 14px;
+  align-content: start;
+  padding: 24px;
+  color: var(--color-ink);
+}
+
+.react-performance-trace-header,
+.react-performance-trace-section__heading,
+.react-performance-trace-event__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.react-performance-trace-header h1,
+.react-performance-trace-section h2,
+.react-performance-trace-header p,
+.react-performance-trace-section__heading p,
+.react-performance-trace-error p {
+  margin: 0;
+}
+
+.react-performance-trace-header h1 {
+  font-size: 22px;
+  letter-spacing: -0.025em;
+}
+
+.react-performance-trace-header p,
+.react-performance-trace-section__heading p,
+.react-performance-trace-note {
+  margin: 4px 0 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.react-performance-trace-actions {
+  display: flex;
+  flex: none;
+  gap: 8px;
+}
+
+.react-performance-trace-actions button,
+.react-performance-trace-error button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 9px;
+  background: var(--color-panel);
+  padding: 0 12px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-performance-trace-actions button:hover:not(:disabled),
+.react-performance-trace-error button:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-panel));
+}
+
+.react-performance-trace-actions button:focus-visible,
+.react-performance-trace-error button:focus-visible,
+.react-performance-trace-events summary:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 58%, transparent);
+  outline-offset: 2px;
+}
+
+.react-performance-trace-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.react-performance-trace-note {
+  margin: 0;
+  border-left: 2px solid color-mix(in srgb, var(--color-primary) 48%, var(--color-hairline));
+  padding: 3px 0 3px 10px;
+}
+
+.react-performance-trace-status,
+.react-performance-trace-empty {
+  margin: 0;
+  border: 1px dashed var(--color-hairline);
+  border-radius: 10px;
+  padding: 18px;
+  color: var(--color-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.react-performance-trace-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--color-error) 32%, var(--color-hairline));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-error) 7%, var(--color-panel));
+  padding: 10px 12px;
+  color: var(--color-error);
+  font-size: 12px;
+}
+
+.react-performance-trace-content {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.react-performance-trace-section {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-panel) 96%, transparent);
+  padding: 14px;
+}
+
+.react-performance-trace-section h2 {
+  font-size: 14px;
+  font-weight: 720;
+  letter-spacing: -0.01em;
+}
+
+.react-performance-trace-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.react-performance-trace-summary article {
+  display: grid;
+  gap: 4px;
+  border-radius: 9px;
+  background: var(--color-surface-soft);
+  padding: 12px;
+}
+
+.react-performance-trace-summary strong {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.react-performance-trace-summary span,
+.react-performance-trace-event__heading > span,
+.react-performance-trace-event__heading time {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-performance-trace-table-wrap {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.react-performance-trace-table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.react-performance-trace-table th,
+.react-performance-trace-table td {
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 9px 8px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.react-performance-trace-table th:first-child {
+  width: 42%;
+  text-align: left;
+}
+
+.react-performance-trace-table thead th {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 680;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.react-performance-trace-table tbody th {
+  font-weight: 620;
+}
+
+.react-performance-trace-bar {
+  display: block;
+  height: 3px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  overflow: hidden;
+}
+
+.react-performance-trace-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary);
+}
+
+.react-performance-trace-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.react-performance-trace-metrics {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.react-performance-trace-metrics div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 12px;
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 8px 0;
+}
+
+.react-performance-trace-metrics dt {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.react-performance-trace-metrics dd {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.react-performance-trace-events {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.react-performance-trace-events li {
+  display: grid;
+  gap: 8px;
+  border-radius: 9px;
+  background: var(--color-surface-soft);
+  padding: 10px;
+}
+
+.react-performance-trace-event__heading {
+  justify-content: flex-start;
+}
+
+.react-performance-trace-event__heading strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.react-performance-trace-event__heading time {
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.react-performance-trace-level {
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 1px 6px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.react-performance-trace-level[data-level="warn"] {
+  color: #9a6800;
+}
+
+.react-performance-trace-level[data-level="error"] {
+  color: var(--color-error);
+}
+
+.react-performance-trace-events details {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-performance-trace-events summary {
+  cursor: pointer;
+  width: max-content;
+}
+
+.react-performance-trace-events pre {
+  max-height: 240px;
+  margin: 8px 0 0;
+  overflow: auto;
+  border: 1px solid var(--color-hairline);
+  border-radius: 7px;
+  background: var(--color-panel);
+  padding: 9px;
+  color: var(--color-ink);
+  font-size: 10px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .react-performance-trace-page {
+    padding: 16px;
+  }
+
+  .react-performance-trace-header,
+  .react-performance-trace-event__heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .react-performance-trace-actions {
+    width: 100%;
+  }
+
+  .react-performance-trace-actions button {
+    flex: 1;
+  }
+
+  .react-performance-trace-summary,
+  .react-performance-trace-pair {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .react-performance-trace-event__heading time {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .react-performance-trace-summary,
+  .react-performance-trace-pair {
+    grid-template-columns: 1fr;
+  }
+}

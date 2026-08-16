@@ -196,6 +196,20 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
     settingsStore: {
       load: vi.fn(async () => [{ label: "Default model", value: "tinybot" }]),
     },
+    performanceStore: {
+      load: vi.fn(async () => ({
+        schemaVersion: "tinybot.performance_trace.v1" as const,
+        generatedAtUnixMs: Date.UTC(2026, 7, 16, 1, 2, 3),
+        metrics: {
+          schemaVersion: 1,
+          generatedAtUnixMs: Date.UTC(2026, 7, 16, 1, 2, 2),
+          counters: {},
+          durations: {},
+          gauges: {},
+        },
+        recentEvents: [],
+      })),
+    },
   };
 }
 
@@ -329,9 +343,14 @@ describe("DesktopShell", () => {
     await user.click(screen.getByRole("button", { name: "System" }));
     const systemMenu = screen.getByRole("menu", { name: "System menu" });
     expect(within(systemMenu).getByRole("menuitem", { name: "Settings (Ctrl+,)" })).toBeTruthy();
+    expect(within(systemMenu).getByRole("menuitem", { name: "Performance Trace" })).toBeTruthy();
     expect(within(systemMenu).queryByRole("menuitem", { name: /Runtime Status/ })).toBeNull();
 
-    await user.click(within(systemMenu).getByRole("menuitem", { name: "Settings (Ctrl+,)" }));
+    await user.click(within(systemMenu).getByRole("menuitem", { name: "Performance Trace" }));
+    expect(await screen.findByRole("heading", { name: "Performance Trace" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "System" }));
+    await user.click(within(screen.getByRole("menu", { name: "System menu" })).getByRole("menuitem", { name: "Settings (Ctrl+,)" }));
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Help" }));

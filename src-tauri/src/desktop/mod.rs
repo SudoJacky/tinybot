@@ -7,7 +7,8 @@ mod update;
 
 #[cfg(test)]
 pub(crate) use bootstrap::{
-    record_renderer_diagnostic_with_options, record_renderer_log_with_options,
+    desktop_performance_snapshot_with_options, record_renderer_diagnostic_with_options,
+    record_renderer_log_with_options,
 };
 pub(crate) use state::{lock_runtime, SharedNativeRuntime};
 

@@ -9,7 +9,11 @@ use crate::desktop::menu::{
     DesktopMenuShortcutBinding,
 };
 use crate::desktop::state::NativeRuntimeState;
-use crate::desktop::{record_renderer_diagnostic_with_options, record_renderer_log_with_options};
+use crate::desktop::{
+    desktop_performance_snapshot_with_options, record_renderer_diagnostic_with_options,
+    record_renderer_log_with_options,
+};
+use crate::runtime::observability::AgentRuntimeMetrics;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -101,6 +105,92 @@ fn renderer_logs_validate_and_append_to_the_shared_backend_log() {
     )
     .expect_err("empty renderer log stage should fail fast");
     assert!(empty_stage.contains("event must be non-empty"));
+}
+
+#[test]
+fn desktop_performance_snapshot_combines_runtime_metrics_and_recent_events() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
+        persistent_log_path: fixture.root.join("logs").join("native-backend.log"),
+        ..NativeRuntimeState::default()
+    }));
+    let metrics = AgentRuntimeMetrics::isolated();
+    metrics.increment_by("tool.calls", 3);
+    metrics.record_duration_ms("tool.duration", 120);
+    metrics.record_duration_ms("tool.duration", 80);
+    metrics.set_gauge("runtime.active", 2);
+
+    record_renderer_log_with_options(
+        &shared,
+        serde_json::json!({
+            "schemaVersion": "tinybot.renderer_log.v1",
+            "at": "2026-08-16T01:02:03.000Z",
+            "level": "warn",
+            "stage": "trace.fixture",
+            "details": { "threadId": "thread-1" }
+        }),
+    )
+    .expect("renderer event should be recorded");
+
+    let snapshot = desktop_performance_snapshot_with_options(&shared, &metrics);
+    assert_eq!(snapshot["schemaVersion"], "tinybot.performance_trace.v1");
+    assert_eq!(snapshot["metrics"]["counters"]["tool.calls"], 3);
+    assert_eq!(
+        snapshot["metrics"]["durations"]["tool.duration"]["count"],
+        2
+    );
+    assert_eq!(
+        snapshot["metrics"]["durations"]["tool.duration"]["totalMs"],
+        200
+    );
+    assert_eq!(
+        snapshot["metrics"]["durations"]["tool.duration"]["maxMs"],
+        120
+    );
+    assert_eq!(
+        snapshot["metrics"]["durations"]["tool.duration"]["averageMs"],
+        100.0
+    );
+    assert_eq!(snapshot["metrics"]["gauges"]["runtime.active"], 2);
+    assert_eq!(snapshot["recentEvents"][0]["stream"], "renderer");
+    assert_eq!(snapshot["recentEvents"][0]["event"], "trace.fixture");
+    assert_eq!(
+        snapshot["recentEvents"][0]["context"]["details"]["threadId"],
+        "thread-1"
+    );
+    assert!(snapshot["recentEvents"][0]["timestampUnixMs"].is_u64());
+}
+
+#[test]
+fn desktop_performance_snapshot_bounds_recent_events() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
+        persistent_log_path: fixture.root.join("logs").join("native-backend.log"),
+        ..NativeRuntimeState::default()
+    }));
+    let metrics = AgentRuntimeMetrics::isolated();
+
+    for sequence in 0..205 {
+        record_renderer_log_with_options(
+            &shared,
+            serde_json::json!({
+                "schemaVersion": "tinybot.renderer_log.v1",
+                "at": "2026-08-16T01:02:03.000Z",
+                "level": "debug",
+                "stage": "trace.sequence",
+                "details": { "sequence": sequence }
+            }),
+        )
+        .expect("bounded renderer event should be recorded");
+    }
+
+    let snapshot = desktop_performance_snapshot_with_options(&shared, &metrics);
+    let events = snapshot["recentEvents"]
+        .as_array()
+        .expect("recent events should be an array");
+    assert_eq!(events.len(), 200);
+    assert_eq!(events[0]["context"]["details"]["sequence"], 5);
+    assert_eq!(events[199]["context"]["details"]["sequence"], 204);
 }
 
 #[test]

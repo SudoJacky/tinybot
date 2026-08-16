@@ -72,6 +72,7 @@ type TopMenuCommandId =
   | "open-tools"
   | "open-tinybot-repo"
   | "open-settings"
+  | "open-performance-trace"
   | "open-docs"
   | "open-shortcut-help"
   | "open-page-help"
@@ -113,6 +114,7 @@ function createRouteLabels(t: TFunction<"common">): Record<AppRoute, string> {
     docs: t("routes.docs"),
     tools: t("routes.tools"),
     settings: t("routes.settings"),
+    performanceTrace: t("routes.performanceTrace"),
   };
 }
 
@@ -156,6 +158,8 @@ function createTopMenuItems(
     icon: Settings,
     entries: [
       menuCommand({ id: "open-settings", label: routeLabels.settings, route: "settings", shortcut: shortcuts["open-settings"] ?? undefined }),
+      menuSeparator("system-observability-separator"),
+      menuCommand({ id: "open-performance-trace", label: routeLabels.performanceTrace, route: "performanceTrace" }),
     ],
   },
   {

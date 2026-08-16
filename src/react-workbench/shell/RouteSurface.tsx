@@ -4,7 +4,7 @@ import { ChatPage } from "../chat/ChatPage";
 import type { AppServices, WorkspaceFileSummary } from "../services";
 import { DeferredSurface } from "./DeferredSurface";
 
-export type AppRoute = "chat" | "files" | "memory" | "github" | "docs" | "tools" | "settings";
+export type AppRoute = "chat" | "files" | "memory" | "github" | "docs" | "tools" | "settings" | "performanceTrace";
 
 type ChatRouteProps = {
   createSessionSignal: number;
@@ -20,6 +20,7 @@ type FilesState =
   | { status: "failed"; error: Error };
 
 const loadMemoryRoute = () => import("../memory/MemoryRoute");
+const loadPerformanceTraceRoute = () => import("../performance/PerformanceTraceRoute");
 const loadSettingsRoute = () => import("../settings/SettingsRoute");
 const loadToolsRoute = () => import("../tools/ToolsRoute");
 
@@ -70,6 +71,8 @@ export function RouteSurface({
       );
     case "settings":
       return <DeferredSurface load={loadSettingsRoute} name={routeName} surfaceProps={{ services }} />;
+    case "performanceTrace":
+      return <DeferredSurface load={loadPerformanceTraceRoute} name={routeName} surfaceProps={{ services }} />;
     case "github":
     case "docs":
       return <PlaceholderPage title={routeName} />;
