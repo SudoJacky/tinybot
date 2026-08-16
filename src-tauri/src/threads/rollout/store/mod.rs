@@ -9,7 +9,7 @@ mod state_index;
 mod turn;
 
 pub use self::projection::ThreadHistoryProjection;
-pub(crate) use self::turn::is_turn_semantic_event;
+pub(crate) use self::protocol_projection::is_turn_semantic_event;
 
 use self::projection::{thread_agent_context_from_replay, thread_history_from_replay};
 use crate::protocol::capability::{CapabilityPolicy, WorkerCapability};
