@@ -21,6 +21,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { useModalDialog } from "../../components/ui/useModalDialog";
 import { pickDesktopWorkspaceDirectory } from "../../app-core/native/desktopNativeWorkspacePicker";
 import type {
   ProjectGroup,
@@ -536,32 +537,25 @@ function SessionSearchDialog({
     }] : []),
   ];
 
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  const { dialogRef, onBackdropPointerDown } = useModalDialog<HTMLElement>({ onClose });
 
   return (
     <div
       className="react-command-palette-backdrop react-session-search-backdrop"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onClose();
-        }
-      }}
+      onPointerDown={onBackdropPointerDown}
     >
-      <section aria-label={t("search.label")} className="react-command-palette react-session-search-dialog" role="dialog">
+      <section
+        aria-label={t("search.label")}
+        aria-modal="true"
+        className="react-command-palette react-session-search-dialog"
+        ref={dialogRef}
+        role="dialog"
+      >
         <div className="react-session-search__input-row">
           <Search aria-hidden="true" size={18} />
           <input
             aria-label={t("search.placeholder")}
-            autoFocus
+            data-dialog-initial-focus
             placeholder={t("search.placeholder")}
             value={query}
             onChange={(event) => setQuery(event.currentTarget.value)}

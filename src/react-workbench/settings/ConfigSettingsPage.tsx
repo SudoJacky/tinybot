@@ -14,6 +14,7 @@ import type {
   DesktopConfigSettingsSaveResult,
   SettingsStore,
 } from "../services";
+import { SettingsChoiceList } from "./SettingsChoiceList";
 import { SettingsSaveStatus, type SettingsSaveState } from "./SettingsSaveStatus";
 
 export type ConfigSettingsGroupId = "tools-mcp" | "channels";
@@ -249,6 +250,24 @@ function ConfigField({
     );
   }
 
+  if (field.control === "select") {
+    return (
+      <SettingsChoiceList
+        badge={field.advanced ? t("config.advanced") : undefined}
+        description={copy.description}
+        disabled={field.disabled}
+        error={error}
+        label={copy.label}
+        onChange={onChange}
+        options={(field.options ?? []).map((option) => ({
+          label: friendlyOptionLabel(option.label),
+          value: option.value,
+        }))}
+        value={field.inputValue}
+      />
+    );
+  }
+
   const controlId = `config-setting-${field.id}`;
   return (
     <label className={field.control === "textarea" ? "react-config-settings__field react-config-settings__field--wide" : "react-config-settings__field"}>
@@ -257,19 +276,7 @@ function ConfigField({
         {field.advanced ? <em>{t("config.advanced")}</em> : null}
       </span>
       {copy.description ? <small>{copy.description}</small> : null}
-      {field.control === "select" ? (
-        <select
-          aria-label={copy.label}
-          id={controlId}
-          disabled={field.disabled}
-          value={field.inputValue}
-          onChange={(event) => onChange(event.currentTarget.value)}
-        >
-          {(field.options ?? []).map((option) => (
-            <option key={option.value} value={option.value}>{friendlyOptionLabel(option.label)}</option>
-          ))}
-        </select>
-      ) : field.control === "textarea" ? (
+      {field.control === "textarea" ? (
         <textarea
           aria-label={copy.label}
           id={controlId}

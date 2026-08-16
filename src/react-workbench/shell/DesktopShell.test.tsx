@@ -196,6 +196,21 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
     settingsStore: {
       load: vi.fn(async () => [{ label: "Default model", value: "tinybot" }]),
     },
+    performanceStore: {
+      load: vi.fn(async () => ({
+        schemaVersion: "tinybot.performance_trace.v1" as const,
+        generatedAtUnixMs: Date.UTC(2026, 7, 16, 1, 2, 3),
+        metrics: {
+          schemaVersion: 1,
+          generatedAtUnixMs: Date.UTC(2026, 7, 16, 1, 2, 2),
+          counters: {},
+          durations: {},
+          gauges: {},
+        },
+        recentEvents: [],
+      })),
+      exportDiagnosticBundle: vi.fn(async () => null),
+    },
   };
 }
 
@@ -284,6 +299,7 @@ describe("DesktopShell", () => {
     expect(css).toMatch(/\.react-top-menu__trigger\s*{[^}]*font-size:\s*12px;/s);
     expect(css).toMatch(/\.react-top-menu__menu-item\s*{[^}]*font-size:\s*13px;/s);
     expect(css).toMatch(/\.react-workbench-layout\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s);
+    expect(css).toMatch(/\.react-route-surface\s*{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/s);
     expect(css).toMatch(/\.react-chat-surface\s*{[^}]*grid-template-rows:\s*45px minmax\(0,\s*1fr\) auto;/s);
     expect(css).toMatch(/\.react-top-menu__menu-item\[aria-current="page"\]\s*{[^}]*background:/s);
     expect(css).not.toMatch(/\.react-activity-rail/);
@@ -329,9 +345,21 @@ describe("DesktopShell", () => {
     await user.click(screen.getByRole("button", { name: "System" }));
     const systemMenu = screen.getByRole("menu", { name: "System menu" });
     expect(within(systemMenu).getByRole("menuitem", { name: "Settings (Ctrl+,)" })).toBeTruthy();
+    expect(within(systemMenu).getByRole("menuitem", { name: "What's New" })).toBeTruthy();
+    expect(within(systemMenu).getByRole("menuitem", { name: "Performance Trace" })).toBeTruthy();
     expect(within(systemMenu).queryByRole("menuitem", { name: /Runtime Status/ })).toBeNull();
 
-    await user.click(within(systemMenu).getByRole("menuitem", { name: "Settings (Ctrl+,)" }));
+    await user.click(within(systemMenu).getByRole("menuitem", { name: "What's New" }));
+    const whatsNewDialog = await screen.findByRole("dialog", { name: "Tinybot What's New" });
+    expect(within(whatsNewDialog).getByText("No saved update notes are available yet.")).toBeTruthy();
+    await user.click(within(whatsNewDialog).getAllByRole("button", { name: "Close" })[0]);
+
+    await user.click(screen.getByRole("button", { name: "System" }));
+    await user.click(within(screen.getByRole("menu", { name: "System menu" })).getByRole("menuitem", { name: "Performance Trace" }));
+    expect(await screen.findByRole("heading", { name: "Performance Trace" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "System" }));
+    await user.click(within(screen.getByRole("menu", { name: "System menu" })).getByRole("menuitem", { name: "Settings (Ctrl+,)" }));
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Help" }));

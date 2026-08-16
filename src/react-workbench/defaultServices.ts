@@ -17,6 +17,11 @@ import { createDesktopNativeProjectGroupsApi } from "../app-core/native/desktopN
 import { createDesktopNativeBrowserApi } from "../app-core/native/desktopNativeBrowser";
 import { createDesktopNativeWebuiApi } from "../app-core/native/desktopNativeWebui";
 import { createDesktopNativeWorkspaceApi } from "../app-core/native/desktopNativeWorkspace";
+import { createDesktopNativePerformanceTraceApi } from "../app-core/native/desktopNativePerformanceTrace";
+import {
+  isRendererDiagnosticModeEnabled,
+  rendererLogSnapshot,
+} from "../app-core/native/rendererLogger";
 import type {
   AppServices,
   ChatEvent,
@@ -53,6 +58,7 @@ export function createDesktopAppServices(): AppServices {
   const nativeBrowser = nativeMode ? createDesktopNativeBrowserApi({ invoke }) : undefined;
   const nativeWebui = nativeMode ? createDesktopNativeWebuiApi({ invoke }) : undefined;
   const nativeWorkspace = nativeMode ? createDesktopNativeWorkspaceApi({ invoke }) : undefined;
+  const nativePerformanceTrace = nativeMode ? createDesktopNativePerformanceTraceApi({ invoke }) : undefined;
   let initialized: Promise<void> | null = null;
   const listeners = new Map<string, Set<Listener>>();
 
@@ -547,6 +553,21 @@ export function createDesktopAppServices(): AppServices {
         ? (configToPatch, nativePatch) => applyNativeConfigPatch(configToPatch, nativePatch, { invoke })
         : undefined,
     }),
+    performanceStore: {
+      async load() {
+        await initialize();
+        return requireNative(nativePerformanceTrace, "Performance trace").snapshot();
+      },
+      async exportDiagnosticBundle() {
+        await initialize();
+        return requireNative(nativePerformanceTrace, "Performance trace").exportDiagnosticBundle({
+          diagnosticModeEnabled: isRendererDiagnosticModeEnabled(),
+          locale: navigator.language || undefined,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
+          rendererLogs: rendererLogSnapshot(),
+        });
+      },
+    },
   };
 }
 

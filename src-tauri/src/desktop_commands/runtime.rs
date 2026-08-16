@@ -99,18 +99,6 @@ pub(crate) fn start_native_runtime_with_workspace_root(
     Ok(())
 }
 
-pub(crate) fn native_backend_log_path() -> PathBuf {
-    let base = std::env::var_os("LOCALAPPDATA")
-        .or_else(|| std::env::var_os("APPDATA"))
-        .or_else(|| std::env::var_os("XDG_STATE_HOME"))
-        .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local").join("state"))
-        })
-        .unwrap_or_else(std::env::temp_dir);
-    base.join("tinybot").join("logs").join("native-backend.log")
-}
-
 pub(crate) fn shutdown_native_runtime(
     shared: &SharedNativeRuntime,
     explicit: bool,

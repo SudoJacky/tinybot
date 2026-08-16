@@ -313,7 +313,7 @@ function DefaultLlmPanel({
                     <Search aria-hidden="true" size={16} />
                     <span className="react-sr-only">{t("provider.searchModels")}</span>
                     <input
-                      data-settings-sheet-focus
+                      data-dialog-initial-focus
                       type="search"
                       placeholder={t("provider.searchModels")}
                       value={modelSearch}
@@ -555,7 +555,7 @@ function ProviderConfigureDialog({
               <span>{t("provider.configureDialog.apiBase")}</span>
               <input
                 aria-label={t("provider.configureDialog.apiBase")}
-                data-settings-sheet-focus
+                data-dialog-initial-focus
                 value={apiBase}
                 onChange={(event) => setApiBase(event.currentTarget.value)}
               />
@@ -716,7 +716,7 @@ function CustomProviderDialog({
             <input
               aria-label={t("provider.addDialog.providerId")}
               autoComplete="off"
-              data-settings-sheet-focus
+              data-dialog-initial-focus
               placeholder="local-openai"
               value={providerId}
               onChange={(event) => setProviderId(event.currentTarget.value)}
@@ -883,7 +883,7 @@ function ProviderModelsDialog({
             <span>{t("provider.searchModels")}</span>
             <input
               aria-label={t("provider.searchModels")}
-              data-settings-sheet-focus
+              data-dialog-initial-focus
               placeholder={t("provider.searchModels")}
               value={query}
               onChange={(event) => setQuery(event.currentTarget.value)}

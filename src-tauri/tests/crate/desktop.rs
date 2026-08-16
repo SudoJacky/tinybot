@@ -3,13 +3,18 @@ use crate::desktop::files::allowed_workspace_file_path;
 use crate::desktop::files::mime_type_for_path;
 use crate::desktop::files::upload_file_from_path;
 use crate::desktop::files::write_export_file;
-use crate::desktop::logging::append_native_backend_log_line;
+use crate::desktop::logging::{append_native_backend_log_event, NativeLogEvent, NativeLogLevel};
 use crate::desktop::menu::{
     desktop_menu_item_descriptors, validate_desktop_menu_shortcut_bindings,
     DesktopMenuShortcutBinding,
 };
 use crate::desktop::state::NativeRuntimeState;
-use crate::desktop::{record_renderer_diagnostic_with_options, truncate_utf8_with_ellipsis};
+use crate::desktop::{
+    desktop_performance_snapshot_with_options, export_diagnostic_bundle_with_options,
+    record_renderer_diagnostic_with_options, record_renderer_log_with_options,
+};
+use crate::runtime::observability::AgentRuntimeMetrics;
+use std::io::Read;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -39,20 +44,345 @@ fn renderer_diagnostics_append_to_persistent_backend_log() {
     let contents =
         std::fs::read_to_string(log_path).expect("persistent backend log should be written");
     assert!(contents.contains("renderer"));
+    assert!(contents.contains("\"event\":\"renderer.diagnostic\""));
     assert!(contents.contains("\"type\":\"react.render\""));
     assert!(contents.contains("\"message\":\"render exploded\""));
     assert!(contents.contains("\"stage\":\"socket.frame\""));
 }
 
 #[test]
-fn renderer_diagnostics_truncate_on_utf8_boundary() {
-    let line = format!("{}你好", "a".repeat((16 * 1024) - 1));
+fn renderer_logs_validate_and_append_to_the_shared_backend_log() {
+    let fixture = WorkspaceFixture::new();
+    let log_path = fixture.root.join("logs").join("native-backend.log");
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
+        persistent_log_path: log_path.clone(),
+        ..NativeRuntimeState::default()
+    }));
 
-    let truncated = truncate_utf8_with_ellipsis(line, 16 * 1024);
+    record_renderer_log_with_options(
+        &shared,
+        serde_json::json!({
+            "schemaVersion": "tinybot.renderer_log.v1",
+            "at": "2026-08-16T01:02:03.000Z",
+            "level": "error",
+            "stage": "native.event_bridge.failed",
+            "details": {
+                "sessionId": "thread-1",
+                "authorization": "Bearer must-not-leak"
+            }
+        }),
+    )
+    .expect("renderer log should persist");
 
-    assert!(truncated.ends_with("..."));
-    assert!(truncated.is_char_boundary(truncated.len()));
-    assert_eq!(truncated, format!("{}...", "a".repeat((16 * 1024) - 1)));
+    let contents = std::fs::read_to_string(log_path).expect("renderer log should be written");
+    assert!(contents.contains("\"level\":\"error\""));
+    assert!(contents.contains("\"event\":\"native.event_bridge.failed\""));
+    assert!(contents.contains("thread-1"));
+    assert!(!contents.contains("must-not-leak"));
+    assert!(contents.contains("[redacted]"));
+
+    let invalid = record_renderer_log_with_options(
+        &shared,
+        serde_json::json!({
+            "schemaVersion": "tinybot.renderer_log.v1",
+            "at": "2026-08-16T01:02:03.000Z",
+            "level": "fatal",
+            "stage": "native.event_bridge.failed",
+            "details": {}
+        }),
+    )
+    .expect_err("unknown renderer log level should fail fast");
+    assert!(invalid.contains("renderer log input"));
+
+    let empty_stage = record_renderer_log_with_options(
+        &shared,
+        serde_json::json!({
+            "schemaVersion": "tinybot.renderer_log.v1",
+            "at": "2026-08-16T01:02:03.000Z",
+            "level": "error",
+            "stage": "",
+            "details": {}
+        }),
+    )
+    .expect_err("empty renderer log stage should fail fast");
+    assert!(empty_stage.contains("event must be non-empty"));
+}
+
+#[test]
+fn desktop_performance_snapshot_combines_runtime_metrics_and_recent_events() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
+        persistent_log_path: fixture.root.join("logs").join("native-backend.log"),
+        ..NativeRuntimeState::default()
+    }));
+    let metrics = AgentRuntimeMetrics::isolated();
+    metrics.increment_by("tool.calls", 3);
+    metrics.record_duration_ms("tool.duration", 120);
+    metrics.record_duration_ms("tool.duration", 80);
+    metrics.set_gauge("runtime.active", 2);
+
+    record_renderer_log_with_options(
+        &shared,
+        serde_json::json!({
+            "schemaVersion": "tinybot.renderer_log.v1",
+            "at": "2026-08-16T01:02:03.000Z",
+            "level": "warn",
+            "stage": "trace.fixture",
+            "details": { "threadId": "thread-1" }
+        }),
+    )
+    .expect("renderer event should be recorded");
+
+    let snapshot = desktop_performance_snapshot_with_options(&shared, &metrics);
+    assert_eq!(snapshot["schemaVersion"], "tinybot.performance_trace.v1");
+    assert_eq!(snapshot["metrics"]["counters"]["tool.calls"], 3);
+    assert_eq!(
+        snapshot["metrics"]["durations"]["tool.duration"]["count"],
+        2
+    );
+    assert_eq!(
+        snapshot["metrics"]["durations"]["tool.duration"]["totalMs"],
+        200
+    );
+    assert_eq!(
+        snapshot["metrics"]["durations"]["tool.duration"]["maxMs"],
+        120
+    );
+    assert_eq!(
+        snapshot["metrics"]["durations"]["tool.duration"]["averageMs"],
+        100.0
+    );
+    assert_eq!(snapshot["metrics"]["gauges"]["runtime.active"], 2);
+    assert_eq!(snapshot["recentEvents"][0]["stream"], "renderer");
+    assert_eq!(snapshot["recentEvents"][0]["event"], "trace.fixture");
+    assert_eq!(
+        snapshot["recentEvents"][0]["context"]["details"]["threadId"],
+        "thread-1"
+    );
+    assert!(snapshot["recentEvents"][0]["timestampUnixMs"].is_u64());
+}
+
+#[test]
+fn desktop_performance_snapshot_bounds_recent_events() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
+        persistent_log_path: fixture.root.join("logs").join("native-backend.log"),
+        ..NativeRuntimeState::default()
+    }));
+    let metrics = AgentRuntimeMetrics::isolated();
+
+    for sequence in 0..205 {
+        record_renderer_log_with_options(
+            &shared,
+            serde_json::json!({
+                "schemaVersion": "tinybot.renderer_log.v1",
+                "at": "2026-08-16T01:02:03.000Z",
+                "level": "debug",
+                "stage": "trace.sequence",
+                "details": { "sequence": sequence }
+            }),
+        )
+        .expect("bounded renderer event should be recorded");
+    }
+
+    let snapshot = desktop_performance_snapshot_with_options(&shared, &metrics);
+    let events = snapshot["recentEvents"]
+        .as_array()
+        .expect("recent events should be an array");
+    assert_eq!(events.len(), 200);
+    assert_eq!(events[0]["context"]["details"]["sequence"], 5);
+    assert_eq!(events[199]["context"]["details"]["sequence"], 204);
+}
+
+#[test]
+fn diagnostic_bundle_contains_bounded_sanitized_issue_evidence() {
+    let fixture = WorkspaceFixture::new();
+    let log_path = fixture.root.join("logs").join("native-backend.log");
+    std::fs::create_dir_all(log_path.parent().expect("log path should have a parent"))
+        .expect("diagnostic log directory should create");
+    std::fs::write(&log_path, "malformed legacy line\n")
+        .expect("malformed diagnostic fixture should write");
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
+        persistent_log_path: log_path,
+        ..NativeRuntimeState::default()
+    }));
+    let metrics = AgentRuntimeMetrics::isolated();
+    metrics.increment_by("tool.calls", 2);
+
+    record_renderer_log_with_options(
+        &shared,
+        serde_json::json!({
+            "schemaVersion": "tinybot.renderer_log.v1",
+            "at": "2026-08-16T01:02:03.000Z",
+            "level": "error",
+            "stage": "diagnostics.native.fixture",
+            "details": { "apiKey": "native-must-not-leak", "threadId": "thread-1" }
+        }),
+    )
+    .expect("native diagnostic fixture should persist");
+
+    let bundle_path = fixture.root.join("tinybot-diagnostic.zip");
+    let result = export_diagnostic_bundle_with_options(
+        &bundle_path,
+        &shared,
+        &metrics,
+        serde_json::json!({
+            "schemaVersion": "tinybot.diagnostic_bundle_input.v1",
+            "diagnosticModeEnabled": true,
+            "locale": "zh-CN",
+            "timeZone": "Asia/Singapore",
+            "rendererLogs": [{
+                "schemaVersion": "tinybot.renderer_log.v1",
+                "at": "2026-08-16T01:02:03.000Z",
+                "level": "info",
+                "stage": "diagnostics.renderer.fixture",
+                "details": { "token": "renderer-must-not-leak", "state": "ready" }
+            }]
+        }),
+    )
+    .expect("diagnostic bundle should export");
+
+    assert_eq!(result["schemaVersion"], "tinybot.diagnostic_bundle.v1");
+    assert_eq!(result["path"], bundle_path.display().to_string());
+    assert!(result["sizeBytes"].as_u64().unwrap_or_default() > 0);
+
+    let file = std::fs::File::open(&bundle_path).expect("diagnostic bundle should exist");
+    let mut archive = zip::ZipArchive::new(file).expect("diagnostic bundle should be a ZIP");
+    let names = (0..archive.len())
+        .map(|index| {
+            archive
+                .by_index(index)
+                .expect("diagnostic entry should open")
+                .name()
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        names,
+        vec![
+            "manifest.json",
+            "performance-trace.json",
+            "renderer-logs.json",
+            "system-info.json",
+            "native-backend.log",
+        ]
+    );
+
+    let manifest = read_zip_json(&mut archive, "manifest.json");
+    assert_eq!(manifest["schemaVersion"], "tinybot.diagnostic_bundle.v1");
+    assert_eq!(manifest["omittedMalformedLogLines"], 1);
+    assert_eq!(manifest["redaction"]["userReviewRequired"], true);
+    assert_eq!(
+        manifest["missingFiles"],
+        serde_json::json!(["native-backend.log.1"])
+    );
+
+    let renderer_logs = read_zip_json(&mut archive, "renderer-logs.json");
+    assert_eq!(renderer_logs[0]["details"]["token"], "[redacted]");
+    assert!(!renderer_logs.to_string().contains("renderer-must-not-leak"));
+
+    let performance = read_zip_json(&mut archive, "performance-trace.json");
+    assert_eq!(performance["metrics"]["counters"]["tool.calls"], 2);
+
+    let system_info = read_zip_json(&mut archive, "system-info.json");
+    assert_eq!(system_info["locale"], "zh-CN");
+    assert_eq!(system_info["timeZone"], "Asia/Singapore");
+    assert_eq!(system_info["diagnosticModeEnabled"], true);
+    assert!(system_info.get("currentWorkingDirectory").is_none());
+    assert!(system_info.get("userName").is_none());
+
+    let native_log = read_zip_text(&mut archive, "native-backend.log");
+    assert!(native_log.contains("diagnostics.native.fixture"));
+    assert!(native_log.contains("[redacted]"));
+    assert!(!native_log.contains("native-must-not-leak"));
+    assert!(!native_log.contains("malformed legacy line"));
+}
+
+#[test]
+fn diagnostic_bundle_rejects_unknown_input_schema() {
+    let fixture = WorkspaceFixture::new();
+    let shared = Arc::new(Mutex::new(NativeRuntimeState {
+        persistent_log_path: fixture.root.join("logs").join("native-backend.log"),
+        ..NativeRuntimeState::default()
+    }));
+
+    let error = export_diagnostic_bundle_with_options(
+        &fixture.root.join("tinybot-diagnostic.zip"),
+        &shared,
+        &AgentRuntimeMetrics::isolated(),
+        serde_json::json!({
+            "schemaVersion": "tinybot.diagnostic_bundle_input.v0",
+            "diagnosticModeEnabled": false,
+            "rendererLogs": []
+        }),
+    )
+    .expect_err("unsupported diagnostic schema should fail fast");
+
+    assert!(error.contains("unsupported schema"));
+}
+
+#[test]
+fn structured_backend_log_redacts_sensitive_context() {
+    let fixture = WorkspaceFixture::new();
+    let log_path = fixture.root.join("logs").join("native-backend.log");
+
+    append_native_backend_log_event(
+        &log_path,
+        1024 * 1024,
+        "runtime",
+        NativeLogEvent::new(
+            NativeLogLevel::Error,
+            "runtime.start.failed",
+            serde_json::json!({
+                "authorization": "Bearer must-not-leak",
+                "phase": "startup"
+            }),
+        ),
+    )
+    .expect("structured log should append");
+
+    let contents = std::fs::read_to_string(log_path).expect("backend log should be written");
+    let json = contents
+        .splitn(3, ' ')
+        .nth(2)
+        .expect("log line should contain a JSON record");
+    let record: serde_json::Value =
+        serde_json::from_str(json).expect("structured backend log should be JSON");
+    assert_eq!(record["schemaVersion"], "tinybot.native_log.v1");
+    assert_eq!(record["level"], "error");
+    assert_eq!(record["event"], "runtime.start.failed");
+    assert_eq!(record["context"]["authorization"], "[redacted]");
+    assert_eq!(record["context"]["phase"], "startup");
+}
+
+#[test]
+fn structured_backend_log_truncates_utf8_context_on_a_character_boundary() {
+    let fixture = WorkspaceFixture::new();
+    let log_path = fixture.root.join("logs").join("native-backend.log");
+
+    append_native_backend_log_event(
+        &log_path,
+        1024 * 1024,
+        "runtime",
+        NativeLogEvent::new(
+            NativeLogLevel::Warn,
+            "runtime.large_context",
+            serde_json::json!({ "detail": format!("{}你好", "a".repeat(2047)) }),
+        ),
+    )
+    .expect("structured log should append");
+
+    let contents = std::fs::read_to_string(log_path).expect("backend log should be written");
+    let json = contents
+        .splitn(3, ' ')
+        .nth(2)
+        .expect("log line should contain a JSON record");
+    let record: serde_json::Value =
+        serde_json::from_str(json).expect("structured backend log should be valid JSON");
+    assert_eq!(
+        record["context"]["detail"],
+        format!("{}...", "a".repeat(2047))
+    );
 }
 
 #[test]
@@ -63,14 +393,24 @@ fn persistent_backend_log_rotates_when_size_limit_is_exceeded() {
         .expect("log directory should create");
     std::fs::write(&log_path, "older diagnostic line\n").expect("old log should write");
 
-    append_native_backend_log_line(&log_path, 8, "stderr", "new diagnostic line")
-        .expect("new log line should append");
+    append_native_backend_log_event(
+        &log_path,
+        8,
+        "stderr",
+        NativeLogEvent::new(
+            NativeLogLevel::Warn,
+            "legacy.stderr",
+            serde_json::json!({ "message": "new diagnostic line" }),
+        ),
+    )
+    .expect("new log line should append");
 
     let rotated = std::fs::read_to_string(log_path.with_extension("log.1"))
         .expect("rotated log should exist");
     let current = std::fs::read_to_string(log_path).expect("current log should exist");
     assert!(rotated.contains("older diagnostic line"));
-    assert!(current.contains("stderr new diagnostic line"));
+    assert!(current.contains("stderr"));
+    assert!(current.contains("new diagnostic line"));
 }
 
 #[test]
@@ -226,4 +566,20 @@ fn configurable_desktop_menu_shortcuts() -> Vec<DesktopMenuShortcutBinding> {
         accelerator: accelerator.map(str::to_string),
     })
     .collect()
+}
+
+fn read_zip_json(archive: &mut zip::ZipArchive<std::fs::File>, name: &str) -> serde_json::Value {
+    serde_json::from_str(&read_zip_text(archive, name))
+        .unwrap_or_else(|error| panic!("diagnostic ZIP entry {name} should be JSON: {error}"))
+}
+
+fn read_zip_text(archive: &mut zip::ZipArchive<std::fs::File>, name: &str) -> String {
+    let mut entry = archive
+        .by_name(name)
+        .unwrap_or_else(|error| panic!("diagnostic ZIP entry {name} should exist: {error}"));
+    let mut contents = String::new();
+    entry
+        .read_to_string(&mut contents)
+        .unwrap_or_else(|error| panic!("diagnostic ZIP entry {name} should be readable: {error}"));
+    contents
 }

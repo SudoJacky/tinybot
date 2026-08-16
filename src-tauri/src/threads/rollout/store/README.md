@@ -1,5 +1,5 @@
 # Worker Thread Log
-<!-- tinybot-module-fingerprint: sha256:b546771572be330e13449b4d839c851d0c2d8e17738c385db5a64c1a61026ab6 -->
+<!-- tinybot-module-fingerprint: sha256:b8d3deda820c62d506c63fb8afe24ec4cf4824aa426e281a6014390456021807 -->
 
 `threads::rollout::store` owns Tinybot's canonical append-only Rollout. It validates
 paths, records typed lines, reconstructs Thread and runtime projections,

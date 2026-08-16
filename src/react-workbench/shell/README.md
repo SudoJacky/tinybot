@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:fd1537411fed7a61f1c420ab4557c360a3479b3a9671fe94ee09bd632a78f5ac -->
+<!-- tinybot-module-fingerprint: sha256:874035bb76965b43d1d545e6b062022cca66630b9f8dcbff1121386ca6784c80 -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
@@ -7,3 +7,18 @@ selection, deferred route loading, and update dialogs.
 `DesktopShell.tsx` coordinates shell state, while `RouteSurface.tsx` selects
 the active route and preserves lazy seams for optional surfaces. Route-specific
 behavior remains in the route module rather than moving into the shell.
+
+The bounded `react-route-surface` owns vertical overflow for document-like
+routes so long settings, tools, and diagnostics pages remain scrollable inside
+the fixed desktop window frame. Full-height routes such as Chat can continue to
+own their more specific inner scroll regions without moving the window frame.
+
+The System menu links to Settings and the lazily loaded Performance Trace
+route. The shell owns only navigation; metrics, recent events, refresh, and
+export behavior remain under `performance/`.
+
+Update dialogs retain update lifecycle state in the shell and reuse
+`components/ui/useModalDialog` for desktop-level modal interaction behavior.
+System > What's New reopens the validated latest update record persisted by
+`app-core/native/desktopUpdateNotes`, while automatic update prompts continue
+to render the live native updater snapshot.

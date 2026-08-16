@@ -908,3 +908,114 @@ fn persisted_tool_result_keeps_trust_fields_for_memory_evidence() {
     assert_eq!(result["status"], "ok");
     assert_eq!(result["summary"], "contents");
 }
+
+#[test]
+fn empty_semantic_batch_fails_before_touching_the_rollout() {
+    let root = std::env::temp_dir().join(format!(
+        "tinybot-empty-semantic-batch-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let rpc = WorkerThreadLogRpc::new(
+        root.clone(),
+        CapabilityPolicy::new([WorkerCapability::SessionWrite]),
+    );
+
+    let error = rpc
+        .append_turn_semantic_events("empty-batch-session", "empty-batch-turn", Vec::new())
+        .expect_err("an empty semantic batch must fail fast");
+
+    assert!(error.message.contains("must contain at least one event"));
+    assert!(std::fs::read_dir(&root).unwrap().next().is_none());
+    drop(rpc);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn invalid_token_count_batch_does_not_append_partial_rollout_items() {
+    let root = std::env::temp_dir().join(format!(
+        "tinybot-invalid-token-batch-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let rpc = WorkerThreadLogRpc::new(
+        root.clone(),
+        CapabilityPolicy::new([WorkerCapability::SessionWrite]),
+    );
+    let session_id = "invalid-token-session";
+    let turn_id = "invalid-token-turn";
+    let timestamp = "2026-08-16T00:00:00Z";
+    let thread = rpc
+        .ensure_turn_thread(
+            session_id,
+            timestamp,
+            None,
+            Some(SessionApiMode::ChatCompletions),
+        )
+        .unwrap();
+    rpc.start_turn(
+        AgentTurnRecord {
+            session_id: session_id.to_string(),
+            turn_id: turn_id.to_string(),
+            thread_id: None,
+            parent_thread_id: None,
+            child_thread_ids: Vec::new(),
+            status: AgentTurnStatus::Running,
+            phase: "planning".to_string(),
+            started_at: timestamp.to_string(),
+            updated_at: timestamp.to_string(),
+            completed_at: None,
+            stop_reason: None,
+            model: "test-model".to_string(),
+            provider: Some("openai".to_string()),
+            max_iterations: 8,
+            current_iteration: 0,
+            conversation_message_ids: Vec::new(),
+            trace_messages: Vec::new(),
+            completed_tool_results: Vec::new(),
+            pending_tool_calls: Vec::new(),
+            checkpoint: None,
+            artifacts: Vec::new(),
+            usage: Vec::new(),
+            token_usage_info: None,
+            instruction_provenance: None,
+            instruction_diagnostics: Vec::new(),
+            trace_context: None,
+            error: None,
+        },
+        None,
+        Vec::new(),
+    )
+    .unwrap();
+    let path = std::path::Path::new(&thread.thread_path);
+    let initial_line_count = read_thread_lines(path).unwrap().len();
+
+    let error = rpc
+        .append_turn_semantic_events(
+            session_id,
+            turn_id,
+            vec![json!({
+                "eventId": "invalid-token-count",
+                "eventName": "agent.token_count",
+                "payload": {
+                    "info": {
+                        "totalTokenUsage": { "totalTokens": 21 }
+                    }
+                }
+            })],
+        )
+        .expect_err("token usage without lastTokenUsage must fail fast");
+
+    assert!(error.message.contains("missing lastTokenUsage"));
+    assert_eq!(read_thread_lines(path).unwrap().len(), initial_line_count);
+    drop(rpc);
+    std::fs::remove_dir_all(root).unwrap();
+}

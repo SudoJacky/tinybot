@@ -30,6 +30,10 @@ import type {
 } from "../app-core/settings/desktopSettingsPaneContracts";
 import type { NativeBrowserRuntimeApi } from "../app-core/native/desktopNativeBrowser";
 import type { TinyOsNativeBrowserSession, TinyOsNativeSnapshot } from "../app-core/chat/tinyOsNativeSnapshot";
+import type {
+  DiagnosticBundleExportResult,
+  PerformanceTraceSnapshot,
+} from "../app-core/native/desktopNativePerformanceTrace";
 
 export type SessionSummary = {
   id: string;
@@ -253,6 +257,11 @@ export type ChatModelOption = {
   default?: boolean;
 };
 
+export type PerformanceStore = {
+  load(): Promise<PerformanceTraceSnapshot>;
+  exportDiagnosticBundle(): Promise<DiagnosticBundleExportResult | null>;
+};
+
 export type AppServices = {
   sessionStore: SessionStore;
   chatStore: ChatStore;
@@ -261,4 +270,5 @@ export type AppServices = {
   workspaceStore: WorkspaceStore;
   toolsStore: ToolsStore;
   settingsStore: SettingsStore;
+  performanceStore?: PerformanceStore;
 };

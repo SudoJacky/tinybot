@@ -9,19 +9,26 @@ import {
 import type { TFunction } from "i18next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useModalDialog } from "../../components/ui/useModalDialog";
 import {
   createDesktopNativeUpdateClient,
   type DesktopUpdateClient,
   type DesktopUpdateSnapshot,
 } from "../../app-core/native/desktopNativeUpdate";
+import {
+  loadLatestDesktopUpdateNotes,
+  rememberLatestDesktopUpdateNotes,
+  type DesktopUpdateNotes,
+} from "../../app-core/native/desktopUpdateNotes";
 import { AssistantMarkdown } from "../chat/AssistantMarkdown";
 
 type DesktopUpdateDialogsProps = {
   aboutOpenSignal: number;
   updateClient?: DesktopUpdateClient | null;
+  whatsNewOpenSignal: number;
 };
 
-type OpenDialog = "about" | "update" | null;
+type OpenDialog = "about" | "update" | "whats-new" | null;
 type PendingAction = "check" | "install" | null;
 
 const browserPreviewSnapshot: DesktopUpdateSnapshot = {
@@ -38,6 +45,7 @@ const browserPreviewSnapshot: DesktopUpdateSnapshot = {
 export function DesktopUpdateDialogs({
   aboutOpenSignal,
   updateClient,
+  whatsNewOpenSignal,
 }: DesktopUpdateDialogsProps) {
   const { t } = useTranslation("updates");
   const client = useMemo(
@@ -48,12 +56,22 @@ export function DesktopUpdateDialogs({
   const [openDialog, setOpenDialog] = useState<OpenDialog>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [latestNotes, setLatestNotes] = useState<DesktopUpdateNotes | null>(null);
   const dismissedVersionRef = useRef<string | null>(null);
   const lastAboutSignalRef = useRef(aboutOpenSignal);
+  const lastWhatsNewSignalRef = useRef(whatsNewOpenSignal);
   const primaryActionRef = useRef<HTMLButtonElement>(null);
 
   const acceptSnapshot = useCallback((next: DesktopUpdateSnapshot) => {
     setSnapshot(next);
+    if (next.phase === "available") {
+      try {
+        rememberLatestDesktopUpdateNotes(next);
+      } catch (error) {
+        console.error("[tinybot-updater] Failed to persist the latest update notes.", error);
+        setActionError(t("notesSaveFailed", { message: toErrorMessage(error) }));
+      }
+    }
     if (
       next.phase === "available"
       && next.availableVersion
@@ -61,7 +79,7 @@ export function DesktopUpdateDialogs({
     ) {
       setOpenDialog("update");
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     if (!client) {
@@ -102,6 +120,22 @@ export function DesktopUpdateDialogs({
   }, [aboutOpenSignal]);
 
   useEffect(() => {
+    if (whatsNewOpenSignal === lastWhatsNewSignalRef.current) {
+      return;
+    }
+    lastWhatsNewSignalRef.current = whatsNewOpenSignal;
+    setActionError(null);
+    try {
+      setLatestNotes(loadLatestDesktopUpdateNotes());
+    } catch (error) {
+      console.error("[tinybot-updater] Failed to load the latest update notes.", error);
+      setLatestNotes(null);
+      setActionError(t("notesLoadFailed", { message: toErrorMessage(error) }));
+    }
+    setOpenDialog("whats-new");
+  }, [t, whatsNewOpenSignal]);
+
+  useEffect(() => {
     if (openDialog) {
       primaryActionRef.current?.focus();
     }
@@ -117,19 +151,6 @@ export function DesktopUpdateDialogs({
     setActionError(null);
     setOpenDialog(null);
   }, [openDialog, pendingAction, snapshot.availableVersion, snapshot.phase]);
-
-  useEffect(() => {
-    if (!openDialog) {
-      return;
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape" && !isUpdateBusy(snapshot.phase, pendingAction)) {
-        closeDialog();
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closeDialog, openDialog, pendingAction, snapshot.phase]);
 
   async function checkForUpdate() {
     if (!client) {
@@ -164,28 +185,43 @@ export function DesktopUpdateDialogs({
     }
   }
 
+  const busy = isUpdateBusy(snapshot.phase, pendingAction);
+  const { dialogRef, onBackdropPointerDown } = useModalDialog<HTMLElement>({
+    active: openDialog !== null,
+    closeEnabled: !busy,
+    onClose: closeDialog,
+  });
+
   if (!openDialog) {
     return null;
   }
 
-  const busy = isUpdateBusy(snapshot.phase, pendingAction);
-  const error = actionError ?? snapshot.error;
+  const isWhatsNew = openDialog === "whats-new";
+  const error = isWhatsNew ? actionError : actionError ?? snapshot.error;
   const isUpdatePrompt = openDialog === "update" && Boolean(snapshot.availableVersion);
-  const dialogLabel = isUpdatePrompt ? t("updateAvailableLabel") : t("aboutLabel");
+  const dialogLabel = isUpdatePrompt
+    ? t("updateAvailableLabel")
+    : isWhatsNew
+      ? t("whatsNewLabel")
+      : t("aboutLabel");
+  const heading = isUpdatePrompt
+    ? t("availableTitle", { version: snapshot.availableVersion ?? "" })
+    : isWhatsNew && latestNotes
+      ? t("whatsNewTitle", { version: latestNotes.version })
+      : isWhatsNew
+        ? t("whatsNew")
+        : t("aboutLabel");
 
   return (
     <div
       className="desktop-update-overlay"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          closeDialog();
-        }
-      }}
+      onPointerDown={onBackdropPointerDown}
     >
       <section
         aria-label={dialogLabel}
         aria-modal="true"
         className="desktop-update-dialog"
+        ref={dialogRef}
         role="dialog"
       >
         <header className="desktop-update-dialog__header">
@@ -193,8 +229,8 @@ export function DesktopUpdateDialogs({
             <Bot size={24} strokeWidth={1.8} />
           </span>
           <div>
-            <p>{isUpdatePrompt ? t("softwareUpdate") : t("desktopName")}</p>
-            <h2>{isUpdatePrompt ? t("availableTitle", { version: snapshot.availableVersion ?? "" }) : t("aboutLabel")}</h2>
+            <p>{isUpdatePrompt ? t("softwareUpdate") : isWhatsNew ? t("releaseNotes") : t("desktopName")}</p>
+            <h2>{heading}</h2>
           </div>
           <button
             aria-label={t("close")}
@@ -210,6 +246,8 @@ export function DesktopUpdateDialogs({
 
         {isUpdatePrompt ? (
           <UpdateAvailableContent snapshot={snapshot} />
+        ) : isWhatsNew ? (
+          <WhatsNewContent notes={latestNotes} />
         ) : (
           <AboutContent
             snapshot={snapshot}
@@ -222,7 +260,7 @@ export function DesktopUpdateDialogs({
             <AlertCircle aria-hidden="true" size={16} />
             <span>{error}</span>
           </p>
-        ) : (
+        ) : isWhatsNew ? null : (
           <UpdateStatus snapshot={snapshot} />
         )}
 
@@ -232,6 +270,7 @@ export function DesktopUpdateDialogs({
               <button disabled={busy} type="button" onClick={closeDialog}>{t("later")}</button>
               <button
                 className="desktop-update-dialog__primary"
+                data-dialog-initial-focus
                 disabled={busy}
                 ref={primaryActionRef}
                 type="button"
@@ -245,9 +284,20 @@ export function DesktopUpdateDialogs({
                 {installButtonLabel(snapshot, t)}
               </button>
             </>
+          ) : isWhatsNew ? (
+            <button
+              className="desktop-update-dialog__primary"
+              data-dialog-initial-focus
+              ref={primaryActionRef}
+              type="button"
+              onClick={closeDialog}
+            >
+              {t("close")}
+            </button>
           ) : (
             <button
               className="desktop-update-dialog__primary"
+              data-dialog-initial-focus
               disabled={busy || !client}
               ref={primaryActionRef}
               type="button"
@@ -309,20 +359,13 @@ function UpdateAvailableContent({ snapshot }: { snapshot: DesktopUpdateSnapshot 
         <strong>v{snapshot.currentVersion} → v{snapshot.availableVersion}</strong>
         {snapshot.publishedAt ? <small>{formatPublishedAt(snapshot.publishedAt, i18n.language)}</small> : null}
       </div>
-      {snapshot.displayNotes ? (
-        <aside className="desktop-update-dialog__notice">
-          <strong>{t("beforeUpdate")}</strong>
-          <AssistantMarkdown streaming={false} text={snapshot.displayNotes} />
-        </aside>
-      ) : null}
-      <section className="desktop-update-dialog__notes">
-        <h3>{t("whatsNew")}</h3>
-        {snapshot.releaseNotes ? (
-          <AssistantMarkdown streaming={false} text={snapshot.releaseNotes} />
-        ) : (
-          <p>{t("noNotes")}</p>
-        )}
-      </section>
+      <UpdateNotesContent
+        displayNotes={snapshot.displayNotes}
+        displayTitle={t("beforeUpdate")}
+        emptyText={t("noNotes")}
+        releaseNotes={snapshot.releaseNotes}
+        releaseTitle={t("whatsNew")}
+      />
       {snapshot.phase === "downloading" || snapshot.phase === "installing" ? (
         <div className="desktop-update-dialog__progress">
           <div>
@@ -333,6 +376,61 @@ function UpdateAvailableContent({ snapshot }: { snapshot: DesktopUpdateSnapshot 
         </div>
       ) : null}
     </div>
+  );
+}
+
+function WhatsNewContent({ notes }: { notes: DesktopUpdateNotes | null }) {
+  const { i18n, t } = useTranslation("updates");
+  return (
+    <div className="desktop-update-dialog__release">
+      {notes ? (
+        <div className="desktop-update-dialog__version-row">
+          <span>{t("version")}</span>
+          <strong>v{notes.version}</strong>
+          {notes.publishedAt ? <small>{formatPublishedAt(notes.publishedAt, i18n.language)}</small> : null}
+        </div>
+      ) : null}
+      <UpdateNotesContent
+        displayNotes={notes?.displayNotes ?? null}
+        displayTitle={t("releaseHighlights")}
+        emptyText={t("noSavedNotes")}
+        releaseNotes={notes?.releaseNotes ?? null}
+        releaseTitle={t("releaseNotes")}
+      />
+    </div>
+  );
+}
+
+function UpdateNotesContent({
+  displayNotes,
+  displayTitle,
+  emptyText,
+  releaseNotes,
+  releaseTitle,
+}: {
+  displayNotes: string | null;
+  displayTitle: string;
+  emptyText: string;
+  releaseNotes: string | null;
+  releaseTitle: string;
+}) {
+  return (
+    <>
+      {displayNotes ? (
+        <aside className="desktop-update-dialog__notice">
+          <strong>{displayTitle}</strong>
+          <AssistantMarkdown streaming={false} text={displayNotes} />
+        </aside>
+      ) : null}
+      <section className="desktop-update-dialog__notes">
+        <h3>{releaseTitle}</h3>
+        {releaseNotes ? (
+          <AssistantMarkdown streaming={false} text={releaseNotes} />
+        ) : (
+          <p>{emptyText}</p>
+        )}
+      </section>
+    </>
   );
 }
 
