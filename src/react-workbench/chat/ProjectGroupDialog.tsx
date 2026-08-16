@@ -1,6 +1,7 @@
 import { FolderPlus, Loader2, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { useModalDialog } from "../../components/ui/useModalDialog";
 import type { ProjectGroup } from "../services";
 import { normalizedWorkspacePathKey, sessionWorkspaceName } from "./sessionWorkspaces";
 
@@ -26,8 +27,6 @@ export function ProjectGroupDialog({
   onSave,
 }: ProjectGroupDialogProps) {
   const { t } = useTranslation("chat");
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const nameRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(group?.name ?? "");
   const [selectedIds, setSelectedIds] = useState(() => new Set(group?.workspaceIds ?? []));
   const [addedIds, setAddedIds] = useState<string[]>([]);
@@ -39,34 +38,10 @@ export function ProjectGroupDialog({
     ...availableWorkspaceIds,
     ...addedIds,
   ]), [addedIds, availableWorkspaceIds, group?.workspaceIds]);
-
-  useEffect(() => {
-    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    nameRef.current?.focus();
-    return () => previousFocus?.focus();
-  }, []);
-
-  function handleDialogKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape" && !pending) {
-      event.preventDefault();
-      onClose();
-      return;
-    }
-    if (event.key !== "Tab") return;
-    const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
-      "button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex='-1'])",
-    );
-    if (!focusable?.length) return;
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
+  const { dialogRef, onBackdropPointerDown } = useModalDialog<HTMLDivElement>({
+    closeEnabled: !pending,
+    onClose,
+  });
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -120,16 +95,13 @@ export function ProjectGroupDialog({
   return (
     <div
       className="react-project-dialog-backdrop"
-      onMouseDown={(event) => {
-        if (event.currentTarget === event.target && !pending) onClose();
-      }}
+      onPointerDown={onBackdropPointerDown}
     >
       <div
         aria-describedby="project-group-dialog-description"
         aria-labelledby="project-group-dialog-title"
         aria-modal="true"
         className="react-project-dialog"
-        onKeyDown={handleDialogKeyDown}
         ref={dialogRef}
         role="dialog"
       >
@@ -150,10 +122,10 @@ export function ProjectGroupDialog({
             <span>{t("projectGroups.name")}</span>
             <input
               autoComplete="off"
+              data-dialog-initial-focus
               id="project-group-name"
               onChange={(event) => setName(event.currentTarget.value)}
               placeholder={t("projectGroups.namePlaceholder")}
-              ref={nameRef}
               value={name}
             />
           </label>

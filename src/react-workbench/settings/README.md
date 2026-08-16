@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:47488e14930fd28ab768ad7a1e5fffd079faa46767029e8b068eac8f2329a39b -->
+<!-- tinybot-module-fingerprint: sha256:ed6b157e6f6dc1b8735b5f8257709fc0fd580ba044a8469cbd32e13f72bb2f55 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
@@ -13,3 +13,7 @@ the Settings store adapter.
 pages. App preferences, appearance fonts, Agent defaults, and fixed config
 options reuse its trigger, popover, selected state, and keyboard navigation
 instead of rendering platform-native select menus.
+
+`SettingsSheet.tsx` owns settings-specific layout and close animation while
+delegating modal focus, keyboard, dismissal, and scroll-lock behavior to the
+shared `components/ui/useModalDialog` seam.

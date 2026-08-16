@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:003829223a8e0ea6ecbbc12265ae9179313fc9b3ab1cbcb23cc12b301259c7ce -->
+<!-- tinybot-module-fingerprint: sha256:7d962e9235b50fe998805968c0cf16a31b102269454c9f0ec209968c009e6731 -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
@@ -16,3 +16,6 @@ own their more specific inner scroll regions without moving the window frame.
 The System menu links to Settings and the lazily loaded Performance Trace
 route. The shell owns only navigation; metrics, recent events, refresh, and
 export behavior remain under `performance/`.
+
+Update dialogs retain update lifecycle state in the shell and reuse
+`components/ui/useModalDialog` for desktop-level modal interaction behavior.

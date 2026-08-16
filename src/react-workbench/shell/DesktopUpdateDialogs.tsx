@@ -9,6 +9,7 @@ import {
 import type { TFunction } from "i18next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useModalDialog } from "../../components/ui/useModalDialog";
 import {
   createDesktopNativeUpdateClient,
   type DesktopUpdateClient,
@@ -118,19 +119,6 @@ export function DesktopUpdateDialogs({
     setOpenDialog(null);
   }, [openDialog, pendingAction, snapshot.availableVersion, snapshot.phase]);
 
-  useEffect(() => {
-    if (!openDialog) {
-      return;
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape" && !isUpdateBusy(snapshot.phase, pendingAction)) {
-        closeDialog();
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [closeDialog, openDialog, pendingAction, snapshot.phase]);
-
   async function checkForUpdate() {
     if (!client) {
       setActionError(t("desktopOnly"));
@@ -164,11 +152,17 @@ export function DesktopUpdateDialogs({
     }
   }
 
+  const busy = isUpdateBusy(snapshot.phase, pendingAction);
+  const { dialogRef, onBackdropPointerDown } = useModalDialog<HTMLElement>({
+    active: openDialog !== null,
+    closeEnabled: !busy,
+    onClose: closeDialog,
+  });
+
   if (!openDialog) {
     return null;
   }
 
-  const busy = isUpdateBusy(snapshot.phase, pendingAction);
   const error = actionError ?? snapshot.error;
   const isUpdatePrompt = openDialog === "update" && Boolean(snapshot.availableVersion);
   const dialogLabel = isUpdatePrompt ? t("updateAvailableLabel") : t("aboutLabel");
@@ -176,16 +170,13 @@ export function DesktopUpdateDialogs({
   return (
     <div
       className="desktop-update-overlay"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          closeDialog();
-        }
-      }}
+      onPointerDown={onBackdropPointerDown}
     >
       <section
         aria-label={dialogLabel}
         aria-modal="true"
         className="desktop-update-dialog"
+        ref={dialogRef}
         role="dialog"
       >
         <header className="desktop-update-dialog__header">
@@ -232,6 +223,7 @@ export function DesktopUpdateDialogs({
               <button disabled={busy} type="button" onClick={closeDialog}>{t("later")}</button>
               <button
                 className="desktop-update-dialog__primary"
+                data-dialog-initial-focus
                 disabled={busy}
                 ref={primaryActionRef}
                 type="button"
@@ -248,6 +240,7 @@ export function DesktopUpdateDialogs({
           ) : (
             <button
               className="desktop-update-dialog__primary"
+              data-dialog-initial-focus
               disabled={busy || !client}
               ref={primaryActionRef}
               type="button"

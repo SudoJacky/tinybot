@@ -51,7 +51,7 @@ function SettingsSheetHarness() {
             <div className="react-settings-sheet__content">
               <label>
                 Display name
-                <input data-settings-sheet-focus />
+                <input data-dialog-initial-focus />
               </label>
               <button type="button">Secondary action</button>
               <button type="button" onClick={requestClose}>Cancel</button>
