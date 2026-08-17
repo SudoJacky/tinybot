@@ -19,6 +19,8 @@
     "analyze:frontend:trace": "node tools/frontend-analysis/cli.mjs trace",
     "analyze:rust": "node -e \"const fs=require('fs');fs.rmSync('src-tauri/target/code-analysis',{recursive:true,force:true});fs.mkdirSync('src-tauri/target/code-analysis',{recursive:true})\" && rust-code-analysis-cli --metrics --paths src-tauri/src --exclude \"**/tests/**\" \"**/*_tests.rs\" --output-format json --pr --output src-tauri/target/code-analysis",
     "hooks:install": "git config core.hooksPath .githooks",
+    "docs:check": "node .github/scripts/docs-freshness.mjs check",
+    "docs:review": "node .github/scripts/docs-freshness.mjs review",
     "readme:check": "node .github/scripts/readme-freshness.mjs check",
     "readme:review": "node .github/scripts/readme-freshness.mjs review",
     "preview": "vite preview",

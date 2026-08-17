@@ -13,6 +13,57 @@ npm run hooks:install
 The hook installation is per checkout. Platform prerequisites and desktop
 runtime commands are documented in [the desktop development guide](docs/desktop.md).
 
+## Documentation system
+
+Start with the [engineering documentation map](docs/README.md). Tinybot keeps
+one authoritative home for each kind of engineering knowledge:
+
+| Change | Documentation to review |
+| --- | --- |
+| Module responsibility, interface, lifecycle, or invariant | Nearest module `README.md` |
+| Cross-module flow, seam, or authority | `docs/architecture/` |
+| Durable choice with meaningful alternatives | `docs/decisions/` |
+| Command, event, RPC, configuration, or payload shape | Reference documentation |
+| Development or recovery procedure | Guide or runbook |
+
+Maintainer documentation uses English as its canonical language. Public entry
+documentation may be translated. Formal documentation must not depend on local
+scratch notes or present archived documents as current behavior.
+
+Do not create a README for every directory. A directory needs its own module
+README only when it owns a meaningful interface, invariant, lifecycle, or
+authority. Otherwise its implementation remains documented by the nearest
+parent README.
+
+A useful module README normally covers:
+
+- the capability the module provides;
+- responsibilities and explicit non-responsibilities;
+- the interface callers and tests use;
+- invariants, failure behavior, persistence, and concurrency where relevant;
+- dependencies and adapters at its seams;
+- verification entry points and related architecture or reference links.
+
+Prefer stable contracts over file-by-file inventories. Update architecture
+only when a cross-module relationship changes; ordinary internal refactors
+should not create documentation churn.
+
+Architecture documents declare a focused `tinybot-doc-watch` list. When a
+watched interface document or orchestration file changes, review the affected
+architecture document and refresh its fingerprint:
+
+```bash
+git add <watched source files>
+npm run docs:review -- --staged docs/architecture/<document>.md
+git add docs/architecture/<document>.md
+npm run docs:check -- --staged
+```
+
+Use `npm run docs:review -- --all` only after reading every architecture
+document and its declared watch sources. `npm run docs:check` also validates
+formal local links and heading structure. It does not read local scratch notes
+or archived documentation.
+
 ## Keep module READMEs current
 
 Module READMEs under `src/` and `src-tauri/` contain a fingerprint of the

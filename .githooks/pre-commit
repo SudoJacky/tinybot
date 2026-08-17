@@ -36,12 +36,15 @@ done <<EOF
 $changed_files
 EOF
 
-if [ "$module_changed" -eq 1 ]; then
-  if ! command -v node >/dev/null 2>&1; then
-    echo "pre-commit: node is required to check module README freshness." >&2
-    exit 1
-  fi
+if ! command -v node >/dev/null 2>&1; then
+  echo "pre-commit: node is required to check engineering documentation freshness." >&2
+  exit 1
+fi
 
+echo "pre-commit: checking staged engineering documentation"
+node .github/scripts/docs-freshness.mjs check --staged
+
+if [ "$module_changed" -eq 1 ]; then
   echo "pre-commit: checking staged module README freshness"
   node .github/scripts/readme-freshness.mjs check --staged
 fi

@@ -20,7 +20,7 @@
 
 Tinybot 是一个由大语言模型和原生工具系统驱动的轻量级个人 AI 助手。
 
-一些项目中组件的设计思路文档： [Tinybot Design Docs](https://sudojacky.github.io/#/docs/tinybot)
+架构和维护文档请从 [Tinybot 工程文档地图](docs/README.md) 开始阅读。
 
 安装 Tinybot 时，请前往 [GitHub Tags](https://github.com/SudoJacky/tinybot/tags)，选择最新版本并下载适合当前平台的安装包。
 
