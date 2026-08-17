@@ -221,7 +221,8 @@ fn agent_chat_request_trims_old_messages_to_context_window() {
                 "defaults": {
                     "provider": "fixture",
                     "model": "fixture-model",
-                    "contextWindowTokens": 32
+                    "contextWindowTokens": 32,
+                    "contextWindowStrategy": "discard"
                 }
             }
         }),
@@ -271,7 +272,8 @@ fn context_window_trimming_does_not_orphan_tool_results() {
                 "defaults": {
                     "provider": "fixture",
                     "model": "fixture-model",
-                    "contextWindowTokens": 60
+                    "contextWindowTokens": 60,
+                    "contextWindowStrategy": "discard"
                 }
             }
         }),
@@ -302,7 +304,8 @@ fn system_prompt_survives_context_window_trimming() {
         json!({
             "agents": {
                 "defaults": {
-                    "contextWindowTokens": 32
+                    "contextWindowTokens": 32,
+                    "contextWindowStrategy": "discard"
                 }
             }
         }),
@@ -343,7 +346,8 @@ fn agent_turn_emits_context_trim_event_when_old_messages_are_discarded() {
                 "defaults": {
                     "provider": "fixture",
                     "model": "fixture-model",
-                    "contextWindowTokens": 32
+                    "contextWindowTokens": 32,
+                    "contextWindowStrategy": "discard"
                 }
             },
             "providers": { "fixture": { "responses": [{ "content": "fixture answer" }] } }
