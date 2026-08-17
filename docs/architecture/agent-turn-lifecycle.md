@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:0ce17ed15a0c40dbd506589f8e7afcb13f15d02fccac63db3f5bbc2c8a56441e -->
+<!-- tinybot-doc-fingerprint: sha256:549dd44b98008817edb7a4240f7e2ed5011138793a73f1ce406fa7b46755862e -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, pauses, and the terminal outcome
@@ -116,4 +116,4 @@ state.
 - [Runtime protocol](../../src-tauri/src/agent/runtime_protocol/README.md)
 - [Live runtime services](../../src-tauri/src/runtime/README.md)
 - [Agent runtime tests](../../src-tauri/src/agent/runtime/tests/README.md)
-- [Backend interface reference](../api/rust-backend-api.md)
+- [Agent runtime API](../api/agent-runtime.md)

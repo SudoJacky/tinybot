@@ -11,7 +11,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:ad4c44bfa885daebae68b2e817604d6f337904b856bcab0bb906ab406f853f80 -->
+<!-- tinybot-doc-fingerprint: sha256:e5979bea90d92fdecf0370746a70fe855ecda8e0262c3247b3c912b81e550c3a -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -100,7 +100,7 @@ and retains recent messages. Explicit `discard` remains available and keeps the
 newest messages that fit without creating a summary.
 
 Exact configuration names and defaults belong in the
-[backend interface reference](../api/rust-backend-api.md).
+[desktop command reference](../api/desktop.md#config-commands).
 
 ## Failure behavior
 

@@ -189,8 +189,7 @@ conversation authority directly to SQLite or an in-memory
   projection.
 - Surface consistency failures and recovery diagnostics instead of silently
   rebuilding or discarding state.
-- Keep external command and payload documentation in
-  `docs/api/rust-backend-api.md`; keep implementation invariants next to the
-  module that enforces them.
+- Keep external command and payload documentation in `docs/api/`; keep
+  implementation invariants next to the module that enforces them.
 - Update the relevant README when changing module ownership, a persistence
   path, a recovery rule, or the order of a cross-module flow.

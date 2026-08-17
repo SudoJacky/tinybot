@@ -83,5 +83,5 @@ Rollout store under one operation boundary.
 - `MemoryThreadStore` must not gain a journal or database.
 - Compatibility projections must not become an alternate canonical write path.
 
-For command names and frontend-visible Thread payloads, see
-[the Rust backend API reference](../../../../docs/api/rust-backend-api.md).
+For command names and frontend-visible Thread payloads, see the
+[Threads and memory API](../../../../docs/api/threads-and-memory.md).

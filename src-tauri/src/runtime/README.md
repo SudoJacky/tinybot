@@ -63,5 +63,5 @@ report.
   but unexpected divergence is a startup failure.
 
 See the [backend overview](../../README.md) for layer ownership and the
-[API reference](../../../docs/api/rust-backend-api.md) for exposed lifecycle
-and metrics shapes.
+[desktop command reference](../../../docs/api/desktop.md) for exposed
+lifecycle and metrics shapes.

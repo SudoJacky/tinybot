@@ -25,7 +25,7 @@ used as a source of truth.
 - [Context and instructions](architecture/context-and-instructions.md)
 - [Tool execution and permissions](architecture/tool-execution-and-permissions.md)
 - [Thread and Rollout persistence](architecture/thread-rollout-persistence.md)
-- [Rust backend interface reference](api/rust-backend-api.md)
+- [Rust backend API reference](api/rust-backend-api.md)
 
 ### Frontend and desktop integration
 

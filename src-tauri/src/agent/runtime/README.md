@@ -307,5 +307,6 @@ malformed arrays, or provider-name collisions fail explicitly.
 the real tool observation and resumes the same provider chain; cancellation
 clears the checkpoint and returns `form_cancelled`.
 
-For frontend-visible shapes and event names, see
-[the Rust backend API reference](../../../../docs/api/rust-backend-api.md).
+For frontend-visible shapes and event names, see the
+[Agent runtime API](../../../../docs/api/agent-runtime.md) and
+[Tauri event reference](../../../../docs/api/events.md).

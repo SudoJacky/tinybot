@@ -59,8 +59,9 @@ tools/MCP/permissions, and runtime operations.
 5. Ensure the service performs its capability check.
 6. Add router coverage for success, invalid params, capability denial, and any
    persistence behavior specific to the method.
-7. Document frontend-visible methods in
-   `docs/api/rust-backend-api.md` rather than duplicating the full payload here.
+7. Document frontend-visible methods in the
+   [WebUI and Worker RPC API](../../../docs/api/webui-and-worker-rpc.md) rather
+   than duplicating the full payload here.
 
 ## Invariants
 
