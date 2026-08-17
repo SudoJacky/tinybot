@@ -98,6 +98,12 @@ function isFormalDocument(file) {
   if (ROOT_DOCUMENTS.has(file)) {
     return true;
   }
+  if (
+    (file.startsWith("src/") || file.startsWith("src-tauri/")) &&
+    file.endsWith("/README.md")
+  ) {
+    return true;
+  }
   return (
     file.startsWith("docs/") &&
     file.endsWith(".md") &&

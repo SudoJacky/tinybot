@@ -22,7 +22,7 @@ Tinybot 是一个由大语言模型和原生工具系统驱动的轻量级个人
 
 架构和维护文档请从 [Tinybot 工程文档地图](docs/README.md) 开始阅读。
 
-安装 Tinybot 时，请前往 [GitHub Tags](https://github.com/SudoJacky/tinybot/tags)，选择最新版本并下载适合当前平台的安装包。
+安装 Tinybot 时，请前往 [GitHub Releases](https://github.com/SudoJacky/tinybot/releases)，选择最新发布版本并下载适合当前平台的安装包。
 
 如需参与开发，请参阅 [CONTRIBUTING.md](CONTRIBUTING.md)，了解开发环境初始化和仓库贡献要求。
 
@@ -42,6 +42,6 @@ Tinybot 可以提供自定义的图表。
 
 <img width="960" height="747" alt="image" src="https://github.com/user-attachments/assets/3345c7f4-65c4-4464-aebf-b5ca491edea7" />
 
-## Continue in another conversation
+## 在另一个会话中继续
 
 <img width="683" height="415" alt="image" src="https://github.com/user-attachments/assets/0af9df84-b254-469a-9ebd-2f7e866c66eb" />

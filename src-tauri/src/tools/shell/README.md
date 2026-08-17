@@ -1,9 +1,11 @@
 # Shell Tools
 <!-- tinybot-module-fingerprint: sha256:00897e4f2d30f5bd68093656adfe1664689c55847f15c8396471ca99d467d436 -->
 
-`shell` runs workspace-scoped commands for agents and RPC clients. It validates
-capabilities and working directories, then manages process input, output,
-resize, polling, cancellation, and cleanup.
+`shell` runs commands for agents and RPC clients in a validated working
+directory. Relative paths resolve from the configured workspace; an existing
+absolute directory outside it is also accepted when the active capability
+policy permits execution. The module manages process input, output, resize,
+polling, cancellation, and cleanup.
 
 Agent-facing Shell results use the shared tool-outcome projection for states
 that require a different next step. A retained process includes a structured

@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:df79dac67a10b6e0ff87df6949a4b9af99e89cdc3a3ccddacdc061581b53ef43 -->
+<!-- tinybot-doc-fingerprint: sha256:0ce17ed15a0c40dbd506589f8e7afcb13f15d02fccac63db3f5bbc2c8a56441e -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, pauses, and the terminal outcome
@@ -39,7 +39,7 @@ Thread target and Turn identity validation
     |
     v
 agent::bridge
-    |-- compose instructions and memory snapshot
+    |-- hydrate the fixed Thread memory snapshot and compose instructions
     |-- persist Turn start
     |-- hydrate canonical history
     |-- install tool, checkpoint, and trace adapters

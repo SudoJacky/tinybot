@@ -9,10 +9,10 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:2b327ecdb454f1008352dac23f17c4dae182f31913e254ec5c340084314763aa -->
+<!-- tinybot-doc-fingerprint: sha256:caec126b864c9e71659bb4f14756ae752308c9fe4156154229dfcb7dfa207f4d -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
-Thread domain provides the in-process Interface; the append-only Rollout is the
+Thread domain provides the in-process interface; the append-only Rollout is the
 durable authority from which Thread, Turn, Item, context, checkpoint, and
 timeline projections are reconstructed.
 
@@ -73,10 +73,11 @@ visible failure or explicit repair operation.
 
 ## Runtime event persistence
 
-Lossless runtime events are projected into canonical Items before diagnostic
-redaction or truncation. Blocking status boundaries and Turn exits are durable
-barriers. Ordinary events may be appended in bounded batches while preserving
-their causal order, identity, timestamp, and sequence.
+Persistable semantic runtime events are projected into canonical Items before
+diagnostic redaction or truncation. Blocking status boundaries and Turn exits
+are durable barriers. Eligible events may be appended in bounded batches while
+preserving their causal order, identity, timestamp, and sequence; streaming
+deltas and non-blocking status updates remain live-only.
 
 Live desktop patches and reloaded timeline snapshots must converge on the same
 Item identities. Renderer state is never used to reconstruct canonical

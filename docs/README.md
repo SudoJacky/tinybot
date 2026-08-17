@@ -21,7 +21,7 @@ used as a source of truth.
 
 ### Agent harness
 
-- [Agent Turn lifecycle](architecture/agent-turn-lifecycle.md)
+- [Agent turn lifecycle](architecture/agent-turn-lifecycle.md)
 - [Context and instructions](architecture/context-and-instructions.md)
 - [Tool execution and permissions](architecture/tool-execution-and-permissions.md)
 - [Thread and Rollout persistence](architecture/thread-rollout-persistence.md)
@@ -98,7 +98,8 @@ After reading an affected architecture document and its watch sources, refresh
 the review marker with `npm run docs:review -- <document>`. For staged source
 changes, use `--staged` before staging the reviewed document. The checker never
 reads local scratch notes, archived documentation, or unrelated planning
-artifacts.
+artifacts. The same structural check covers module READMEs under `src/` and
+`src-tauri/`; their source fingerprints remain owned by `readme:check`.
 
 The contribution workflow and module README review commands are documented in
 [CONTRIBUTING.md](../CONTRIBUTING.md).

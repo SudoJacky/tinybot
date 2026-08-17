@@ -51,4 +51,3 @@ What becomes easier, harder, or constrained?
 
 Accepted ADRs must be linked from the architecture or module document affected
 by the decision. An ADR is not a substitute for documenting current behavior.
-

@@ -1,6 +1,6 @@
 # Rust Backend API Reference
 
-Source snapshot: `3ed968b1`
+Code snapshot: `1950a2d8`
 
 This document describes the API surfaces exposed by the Rust/Tauri backend in `src-tauri`.
 It is intended for frontend callers and integrators who need command names, invocation
@@ -152,16 +152,16 @@ explicitly states that the current request wins when it conflicts with stored me
 snapshot is fixed when the Thread is created, so later global memory changes do not invalidate the
 stable prompt prefix of an existing Thread.
 
-The four turn fields may appear at the turn specification root or under `metadata`; snake_case aliases are also
-accepted. `selectedSkills` is an ordered array of names. Workspace `skills/<name>/SKILL.md` wins over
-the bundled `builtin-skills/<name>/SKILL.md`. Skill frontmatter is parsed as typed YAML and requires
-`name` and `description`; optional `requires.bins` and `requires.env` entries determine runtime
-availability. `skills.enabled: false` disables all skills, the legacy array form acts as an allowlist,
-`skills.disabled_skills` excludes named skills, and `skills.autoload: true` loads available skills
-with `always: true`. Invalid, disabled, unavailable, duplicate, or missing explicitly selected skill
-names fail before provider dispatch. Workspace profile and skill files have a 64 KiB per-file limit,
-while project instructions share a 64 KiB aggregate budget. Invalid UTF-8, unreadable paths, invalid
-field types, truncation, and empty sources are surfaced instead of silently disappearing.
+Turn instruction fields may appear at the turn specification root or under
+`metadata`; snake_case aliases are also accepted. `selectedSkills` is an
+ordered array of qualified Agent Plugin skill names such as
+`create-agent-plugin:migrate-agent-plugin`. The composer injects a bounded
+catalog of skills from enabled global plugins, then injects the full content
+of explicitly selected skills in array order. Missing, disabled, invalid, or
+duplicate selections fail before provider dispatch. Workspace profile files
+have a 64 KiB per-file limit, while project instructions share a 64 KiB
+aggregate budget. Invalid UTF-8, unreadable paths, invalid field types,
+truncation, and empty sources are surfaced instead of silently disappearing.
 
 ## Renderer Logging Commands
 
@@ -1102,6 +1102,7 @@ These commands belong to the legacy skills API. Native agent turns discover acti
 | `worker_plugins_list` | none | `{ plugins: PluginSummary[] }` |
 | `worker_plugin_install` | `{ input: { path } }` | installed `PluginSummary` |
 | `worker_plugin_prepare_migration` | `{ input: { path } }` | isolated `PluginMigrationJob` |
+| `worker_plugin_install_migration` | `{ input: { jobId } }` | `PluginMigrationInstallResult` |
 | `worker_plugin_set_enabled` | `{ input: { name, enabled } }` | updated `PluginSummary` |
 | `worker_plugin_uninstall` | `{ input: { name } }` | `null` |
 
@@ -1782,10 +1783,10 @@ Rust agent context-window controls are read from `agents.defaults` or the turn s
   summary request; default `1024`.
 
 `discard` keeps the newest messages that fit the window. `compact` sends older messages through an
-internal non-streaming `chat/completions` request, inserts the returned summary as a system message,
-and keeps recent messages. The summary request uses the same async timeout, cancellation, and typed
-failure path as the main provider request; failure is explicit and does not silently fall back to
-`discard`.
+internal non-streaming `chat/completions` request, stores exactly one marked assistant summary, and
+keeps recent messages. Provider adapters project that internal summary as a user continuation. The
+summary request uses the same async timeout, cancellation, and typed failure path as the main
+provider request; failure is explicit and does not silently fall back to `discard`.
 
 Tauri listeners receive the event-specific payload directly, not a
 `NativeBackendEvent` wrapper. When the runtime event has correlation data, the backend adds it as

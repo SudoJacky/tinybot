@@ -283,7 +283,7 @@ finish during cleanup are recorded before the Turn becomes cancelled.
 
 The foundational model-visible tool set contains available instances of
 `exec_command`, `write_stdin`, `apply_patch`, `request_user_input`,
-`update_plan`, `web.open`, `web.read`, `web.act`, and the
+`update_plan`, `publish_data_view`, `web.open`, `web.read`, `web.act`, and the
 `subagent.spawn`, `subagent.send_input`, `subagent.wait`, `subagent.close`, and
 `subagent.resume` lifecycle controls. MCP tools explicitly allowlisted by backend
 workspace configuration are injected after discovery. Eligible project-group

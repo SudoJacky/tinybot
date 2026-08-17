@@ -114,8 +114,18 @@ test("structural validation rejects broken links, local scratch links, bad H1s, 
   const document = "docs/architecture/runtime-flow.md";
   assert.equal(docsTool(repository, "review", "--all").status, 0);
 
-  write(repository, "docs/README.md", "# Documentation\n\n[Missing](missing.md)\n");
+  write(repository, "src/runtime/README.md", "# Runtime\n\n[Missing](missing.md)\n");
   let result = docsTool(repository, "check");
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /src\/runtime\/README\.md: broken local link: missing\.md/);
+  write(
+    repository,
+    "src/runtime/README.md",
+    "# Runtime\n<!-- tinybot-module-fingerprint: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\n\nRuntime contract.\n",
+  );
+
+  write(repository, "docs/README.md", "# Documentation\n\n[Missing](missing.md)\n");
+  result = docsTool(repository, "check");
   assert.equal(result.status, 1);
   assert.match(result.stdout, /broken local link: missing\.md/);
 
@@ -148,4 +158,3 @@ test("structural validation rejects broken links, local scratch links, bad H1s, 
   assert.equal(result.status, 1);
   assert.match(result.stdout + result.stderr, /watches an untracked or missing file/);
 });
-
