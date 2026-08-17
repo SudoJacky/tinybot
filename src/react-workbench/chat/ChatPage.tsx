@@ -2208,7 +2208,7 @@ export function ChatPage({
           </p>
         ) : null}
         <div
-          className="tinyos-composer-drop-target"
+          className="react-composer-drop-target"
           onDragOver={(event) => {
             if (!Array.from(event.dataTransfer.types).includes(TINYOS_REFERENCE_MIME)) return;
             event.preventDefault();
@@ -2282,7 +2282,7 @@ export function ChatPage({
           onSendMessage={(message, files, pastedContent, options) => handleComposerSend(message, files, pastedContent, options)}
           onStopResponding={() => activeSession && handleStopGeneration(activeSession, "chat")}
           />
-          {tinyOsDropError ? <p className="tinyos-composer-drop-error" role="alert">{tinyOsDropError}</p> : null}
+          {tinyOsDropError ? <p className="react-composer-drop-error" role="alert">{tinyOsDropError}</p> : null}
         </div>
       </main>
 

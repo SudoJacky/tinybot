@@ -682,7 +682,7 @@ describe("ChatPage", () => {
     const filesWindow = screen.getByLabelText("Files window");
     await user.click(within(filesWindow).getByRole("button", { name: "export const dragged = true;" }));
     const source = within(filesWindow).getByRole("button", { name: /Attach src\/drag\.ts/ });
-    const target = document.querySelector<HTMLElement>(".tinyos-composer-drop-target")!;
+    const target = document.querySelector<HTMLElement>(".react-composer-drop-target")!;
     const dataTransfer = dragTransfer();
 
     fireEvent.dragStart(source, { dataTransfer });
@@ -3301,7 +3301,7 @@ describe("ChatPage", () => {
 
     expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
     const queuedInputs = screen.getByLabelText("Queued inputs");
-    expect(queuedInputs.parentElement?.classList.contains("tinyos-composer-drop-target")).toBe(true);
+    expect(queuedInputs.parentElement?.classList.contains("react-composer-drop-target")).toBe(true);
     expect(queuedInputs.textContent).toContain("Summarize after this run");
     expect(queuedInputs.textContent).toContain("Waiting");
     expect(within(queuedInputs).getByRole("button", { name: "Interrupt" })).toBeTruthy();
