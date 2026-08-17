@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="500" viewBox="0 0 1440 500" role="img" aria-labelledby="title desc">
+  <title id="title">Tinybot — Personal AI. Native tools.</title>
+  <desc id="desc">README banner for Tinybot, a lightweight desktop AI assistant with native tools and plugins.</desc>
+  <defs>
+    <clipPath id="frame">
+      <rect width="1440" height="500" rx="32"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#frame)">
+    <rect width="1440" height="500" fill="#f7f6f2"/>
+    <circle cx="1127" cy="258" r="244" fill="none" stroke="#cc785c" stroke-width="2" opacity=".16"/>
+    <circle cx="1127" cy="258" r="206" fill="none" stroke="#141413" stroke-width="2" opacity=".08" stroke-dasharray="3 13"/>
+    <path d="M767 471C921 390 1056 387 1440 397v103H767Z" fill="#cc785c" opacity=".07"/>
+
+    <g transform="translate(61 30) scale(.68)">
+      <text x="42" y="166" textLength="334" lengthAdjust="spacingAndGlyphs" fill="#141413" font-family="Arial, Helvetica, sans-serif" font-size="132" font-weight="700" letter-spacing="-7">tinyb</text>
+      <circle cx="434" cy="124" r="47" fill="#141413"/>
+      <circle cx="418" cy="108" r="11" fill="#faf9f5"/>
+      <circle cx="474" cy="79" r="8" fill="#cc785c"/>
+      <text x="494" y="166" fill="#141413" font-family="Arial, Helvetica, sans-serif" font-size="132" font-weight="700" letter-spacing="-7">t</text>
+    </g>
+
+    <text x="90" y="270" fill="#141413" font-family="Arial, Helvetica, sans-serif" font-size="60" font-weight="700" letter-spacing="-2.4">Personal AI.</text>
+    <text x="90" y="338" fill="#a9583e" font-family="Arial, Helvetica, sans-serif" font-size="60" font-weight="700" letter-spacing="-2.4">Native tools.</text>
+    <text x="93" y="392" fill="#5f5d57" font-family="Arial, Helvetica, sans-serif" font-size="22">A lightweight desktop assistant built to chat, act, and extend.</text>
+    <text x="93" y="451" fill="#141413" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700" letter-spacing="2.2">CHAT   ·   TOOLS   ·   PLUGINS   ·   AUTOMATION</text>
+
+    <circle cx="1127" cy="278" r="174" fill="#141413"/>
+    <circle cx="1069" cy="220" r="40" fill="#f7f6f2"/>
+    <circle cx="1316" cy="80" r="28" fill="#cc785c"/>
+  </g>
+  <rect x="1" y="1" width="1438" height="498" rx="31" fill="none" stroke="#dedbd4" stroke-width="2"/>
+</svg>

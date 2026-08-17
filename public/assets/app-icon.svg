@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Tinybot app icon</title>
+  <desc id="desc">The Tinybot Core Dot mark on a warm light app tile.</desc>
+  <rect x="24" y="24" width="464" height="464" rx="112" fill="#f7f6f2"/>
+  <rect x="26" y="26" width="460" height="460" rx="110" fill="none" stroke="#dedbd4" stroke-width="4"/>
+  <circle cx="234" cy="278" r="154" fill="#141413"/>
+  <circle cx="184" cy="228" r="36" fill="#f7f6f2"/>
+  <circle cx="408" cy="104" r="28" fill="#cc785c"/>
+</svg>

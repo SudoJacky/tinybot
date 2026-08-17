@@ -464,8 +464,13 @@ button:disabled {
   height: 44px;
   place-items: center;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--color-primary) 11%, var(--color-panel));
-  color: var(--color-primary-active);
+  overflow: hidden;
+}
+
+.desktop-update-dialog__mark img {
+  display: block;
+  width: 44px;
+  height: 44px;
 }
 
 .desktop-update-dialog__header p,

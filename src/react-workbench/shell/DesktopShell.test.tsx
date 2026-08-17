@@ -419,6 +419,7 @@ describe("DesktopShell", () => {
 
     const dialog = await screen.findByRole("dialog", { name: "About Tinybot" });
     expect(within(dialog).getByText("v0.1.3")).toBeTruthy();
+    expect(dialog.querySelector(".desktop-update-dialog__mark img")?.getAttribute("src")).toBe("/assets/app-icon.svg");
     await user.click(within(dialog).getByRole("button", { name: "Check again" }));
 
     expect(updateClient.check).toHaveBeenCalledTimes(1);

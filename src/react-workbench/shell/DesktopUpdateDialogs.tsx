@@ -1,6 +1,5 @@
 import {
   AlertCircle,
-  Bot,
   CheckCircle2,
   Download,
   RefreshCw,
@@ -226,7 +225,7 @@ export function DesktopUpdateDialogs({
       >
         <header className="desktop-update-dialog__header">
           <span className="desktop-update-dialog__mark" aria-hidden="true">
-            <Bot size={24} strokeWidth={1.8} />
+            <img alt="" src="/assets/app-icon.svg" />
           </span>
           <div>
             <p>{isUpdatePrompt ? t("softwareUpdate") : isWhatsNew ? t("releaseNotes") : t("desktopName")}</p>
