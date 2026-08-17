@@ -64,6 +64,7 @@ describe("desktop settings and provider helpers", () => {
     expect(state.agent.model).toBe("gpt-4.1");
     expect(state.agent.provider).toBe("openai");
     expect(state.agent.temperature).toBe(0);
+    expect(state.agent.contextWindowStrategy).toBe("compact");
     expect(state.embedding.modelName).toBe("text-embedding-v3");
     expect(state.providerEditor).toMatchObject({
       selectedProvider: "openai",
@@ -387,6 +388,16 @@ describe("desktop settings and provider helpers", () => {
     expect(patch.agents).toMatchObject({ defaults: { model: "gpt-4.1" } });
     expect(patch.providers).toMatchObject({ openai: { api_key: "sk-replacement" } });
     expect(patch).not.toHaveProperty("gateway");
+  });
+
+  test("uses compact when the context window strategy is cleared", () => {
+    const state = buildDesktopSettingsFormState({
+      agents: { defaults: { model: "gpt-4.1", contextWindowStrategy: "discard" } },
+    });
+
+    const edited = applyDesktopSettingsFieldEdit(state, "contextWindowStrategy", "");
+
+    expect(edited.agent.contextWindowStrategy).toBe("compact");
   });
 
   test("generates touched-path patches for individual field edits without hidden settings", () => {

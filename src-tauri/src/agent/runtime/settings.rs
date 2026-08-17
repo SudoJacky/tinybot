@@ -109,7 +109,7 @@ impl AgentTurnSettings {
                 None
             }
         })
-        .unwrap_or(ContextWindowStrategy::Discard);
+        .unwrap_or(ContextWindowStrategy::Compact);
         let reasoning = reasoning_settings(spec, metadata, &mut validation_errors);
         let service_tier = optional_string_setting(
             spec,

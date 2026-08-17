@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:e7908557fd0147d4e7166f3fecc971501439fe387e013da7f1cd01362b6c6f3d -->
+<!-- tinybot-module-fingerprint: sha256:535cd563d2716f7edaa4255a9999fa0428df21702289d0733d4419f5dbffb5b7 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -48,6 +48,11 @@ decide which durable conversation store a caller uses.
    the next provider call.
 7. Usage and runtime events are emitted through the injected trace sink, and
    `result.rs` builds the terminal response.
+
+When a Turn does not configure a context-window strategy, the runtime defaults
+to `compact`. Explicit `discard` remains supported. Compaction failure is
+reported through the typed failure path and never silently falls back to
+discarding history.
 
 Project-group coordinator Turns receive `spawn_workspace_thread` and
 `send_thread_message`. Each call authorizes the target workspace against the

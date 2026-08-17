@@ -49,7 +49,7 @@ export function buildDesktopSettingsFormState(
       temperature: numberOrDefault(pick(defaults, "temperature"), 0.1),
       maxTokens: numberOrDefault(pick(defaults, "maxTokens", "max_tokens"), 8192),
       contextWindowTokens: numberOrDefault(pick(defaults, "contextWindowTokens", "context_window_tokens"), 128000),
-      contextWindowStrategy: stringOrDefault(pick(defaults, "contextWindowStrategy", "context_window_strategy"), "discard"),
+      contextWindowStrategy: stringOrDefault(pick(defaults, "contextWindowStrategy", "context_window_strategy"), "compact"),
       maxToolIterations: numberOrDefault(pick(defaults, "maxIterations", "max_iterations", "maxToolIterations", "max_tool_iterations"), 200),
       timezone: stringOrDefault(pick(defaults, "timezone"), "UTC"),
     },
@@ -292,7 +292,7 @@ export function applyDesktopSettingsFieldEdit(
       markDesktopSettingsTouched(nextState, "agents.defaults.context_window_tokens");
       break;
     case "contextWindowStrategy":
-      nextState.agent.contextWindowStrategy = stringOrNullInput(text) || "discard";
+      nextState.agent.contextWindowStrategy = stringOrNullInput(text) || "compact";
       markDesktopSettingsTouched(nextState, "agents.defaults.context_window_strategy");
       break;
     case "maxToolIterations":

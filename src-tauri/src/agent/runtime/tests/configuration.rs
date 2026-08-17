@@ -20,6 +20,20 @@ fn selects_rust_runtime_from_spec_or_config() {
 }
 
 #[test]
+fn defaults_context_window_strategy_to_compact() {
+    let context = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "model": "fixture-model",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({}),
+    );
+
+    assert_eq!(context.settings.context_window_strategy.as_str(), "compact");
+}
+
+#[test]
 fn normalizes_desktop_turn_spec_inputs_for_rust_turns() {
     let context = AgentTurnContext::from_spec(
         json!({

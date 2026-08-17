@@ -29,7 +29,7 @@ type JsonRecord = Record<string, unknown>;
 
 const DEFAULT_AGENT_MAX_TOKENS = 8192;
 const DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS = 128000;
-const DEFAULT_AGENT_CONTEXT_WINDOW_STRATEGY = "discard";
+const DEFAULT_AGENT_CONTEXT_WINDOW_STRATEGY = "compact";
 const DEFAULT_AGENT_MAX_TOOL_ITERATIONS = 200;
 
 export function buildAgentDefaultsSettings(config: unknown): AgentDefaultsSettingsData {
