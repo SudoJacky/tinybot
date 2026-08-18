@@ -18,6 +18,7 @@ import type { AgentDefaultsSettingsData } from "../app-core/settings/agentDefaul
 import type { DesktopChatInput, DesktopCommand } from "../app-core/chat/desktopCommand";
 import type { TinyOsCommand } from "../app-core/chat/tinyOsCommand";
 import type { TinyOsEffectiveCapabilities } from "../app-core/chat/tinyOsCapabilities";
+import type { NativeTerminalRuntimeApi } from "../app-core/native/desktopNativeTerminal";
 import type {
   ProviderModelFetchInput,
   ProviderModelFetchResult,
@@ -101,6 +102,7 @@ export type SessionStore = {
 
 export type ChatStore = {
   browserRuntime?: NativeBrowserRuntimeApi;
+  terminalRuntime?: NativeTerminalRuntimeApi;
   load(sessionId: string): Promise<ChatTimelineSnapshot>;
   loadTinyOsCapabilities(threadId: string): Promise<TinyOsEffectiveCapabilities>;
   dispatch(command: DesktopCommand): Promise<void>;

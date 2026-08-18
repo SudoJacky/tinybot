@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:00ad95c1ad30f6b39f51b11481b47df0a9e8b656175f58e4a93ac032ce0cc9d1 -->
+<!-- tinybot-module-fingerprint: sha256:f3bf784d8761fd56f603b058cc52ea99d8f2b804df3edc0068ef2bdfbf8f19e5 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App`, `DesktopShell` owns the desktop chrome, and
@@ -17,7 +17,9 @@
 The retired TinyOS desktop and its embedded files, terminal, and monitor
 applications are not renderer routes. Chat now hosts Sidecar, whose Browser
 resources attach directly to the shared native WebView2 session used by Agent
-web tools.
+web tools. Terminal resources attach to a separate user-only PTY runtime;
+switching or hiding resources preserves the process, while closing the
+Terminal tab ends it.
 
 `defaultServices.ts` exposes Performance Trace through a small route-facing
 store backed by the typed app-core native adapter. Its diagnostic export method

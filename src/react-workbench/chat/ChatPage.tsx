@@ -127,6 +127,7 @@ import {
 } from "./sessionTitle";
 import { Sidecar } from "../sidecar/Sidecar";
 import { SidecarBrowser } from "../sidecar/SidecarBrowser";
+import { SidecarTerminal } from "../sidecar/SidecarTerminal";
 import {
   activeSidecarTab,
   createInitialSidecarState,
@@ -138,6 +139,7 @@ import {
   type SidecarArtifactTab,
   type SidecarBrowserTab,
   type SidecarTab,
+  type SidecarTerminalTab,
 } from "../sidecar/sidecarModel";
 
 export type ChatPageProps = {
@@ -279,6 +281,7 @@ export function ChatPage({
   );
   const [artifactSidecarContent, setArtifactSidecarContent] = useState<Record<string, ArtifactSidecarContent>>({});
   const [browserProvisionErrors, setBrowserProvisionErrors] = useState<Record<string, string>>({});
+  const [terminalErrors, setTerminalErrors] = useState<Record<string, string>>({});
   const [browserProvisionEpoch, setBrowserProvisionEpoch] = useState(0);
   const [commandLifecycle, dispatchCommandLifecycle] = useReducer(
     reduceTinyOsCommandLifecycle,
@@ -1674,6 +1677,18 @@ export function ChatPage({
       return;
     }
 
+    if (tab.kind === "terminal") {
+      setTerminalErrors((current) => omitRecordKey(current, tab.id));
+      try {
+        await chatStore.terminalRuntime?.terminate(tab.id);
+      } catch (error) {
+        setTerminalErrors((current) => ({ ...current, [tab.id]: errorMessage(error) }));
+        return;
+      }
+      dispatchSidecar({ tabId: tab.id, type: "tab.close" });
+      return;
+    }
+
     dispatchSidecar({ tabId: tab.id, type: "tab.close" });
     if (tab.kind === "artifact") {
       setArtifactSidecarContent((current) => omitRecordKey(current, tab.id));
@@ -1710,6 +1725,17 @@ export function ChatPage({
           setBrowserProvisionEpoch((current) => current + 1);
         }}
         onSnapshot={synchronizeBrowserSnapshot}
+      />
+    );
+  }
+
+  function renderSidecarTerminal(tab: SidecarTerminalTab) {
+    return (
+      <SidecarTerminal
+        externalError={terminalErrors[tab.id]}
+        tab={tab}
+        terminalRuntime={chatStore.terminalRuntime}
+        workspaceLabel={activeWorkspaceLabel}
       />
     );
   }
@@ -2091,13 +2117,13 @@ export function ChatPage({
           presentation={sidecar.presentation}
           renderArtifact={renderSidecarArtifact}
           renderBrowser={renderSidecarBrowser}
+          renderTerminal={renderSidecarTerminal}
           tabs={sidecarTabs}
           width={sidecar.width}
-          workspaceLabel={activeWorkspaceLabel}
           onActivateTab={(tabId) => dispatchSidecar({ tabId, type: "tab.activate" })}
           onCloseTab={handleCloseSidecarTab}
           onCreateBrowser={() => dispatchSidecar({ type: "tab.newBrowser" })}
-          onCreateTerminal={() => dispatchSidecar({ type: "tab.newTerminal" })}
+          onCreateTerminal={(shell) => dispatchSidecar({ shell, type: "tab.newTerminal" })}
           onHide={() => dispatchSidecar({ type: "presentation.hide" })}
           onResize={(width, maxWidth) => dispatchSidecar({ maxWidth, type: "presentation.resize", width })}
           onToggleExpanded={() => dispatchSidecar({ type: "presentation.toggleExpanded" })}

@@ -114,6 +114,7 @@ Prefer these wrappers instead of direct command strings:
 | `createDesktopNativeUpdateClient` | `src/app-core/native/desktopNativeUpdate.ts` | Desktop update status, check, install, and status events |
 | `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread, Turn timeline, and effective-capability commands |
 | `createDesktopNativeHostCommandApi` | `src/app-core/native/desktopNativeHostCommand.ts` | Transitional Chat `operation.retry` dispatch |
+| `createDesktopNativeTerminalApi` | `src/app-core/native/desktopNativeTerminal.ts` | User-only Sidecar terminal lifecycle and PTY input/output |
 | `createDesktopNativeWebuiApi` | `src/app-core/native/desktopNativeWebui.ts` | `worker_webui_route` |
 
 ## Examples

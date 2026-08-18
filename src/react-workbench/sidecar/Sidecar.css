@@ -283,8 +283,7 @@
   font-weight: 650;
 }
 
-.react-sidecar-placeholder p,
-.react-sidecar-terminal__viewport p {
+.react-sidecar-placeholder p {
   max-width: 320px;
   margin: 0;
   line-height: 1.5;
@@ -340,27 +339,6 @@
 
 .react-sidecar-terminal__toolbar span {
   color: #aaa49a;
-}
-
-.react-sidecar-terminal__viewport {
-  display: grid;
-  align-content: center;
-  justify-items: center;
-  gap: 8px;
-  min-height: 0;
-  padding: 28px;
-  color: #aaa49a;
-  font-family: var(--font-code);
-  text-align: center;
-}
-
-.react-sidecar-terminal__viewport h2 {
-  color: #f3eee5;
-  font-family: var(--font-ui);
-}
-
-.react-sidecar-terminal__viewport p {
-  font-family: var(--font-ui);
 }
 
 .react-sidecar-terminal footer {

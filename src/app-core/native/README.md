@@ -1,9 +1,10 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:fbd248b86c71aa58c468de7aa2dc1bd10ed663625a2555a3f9715f0c13d9ab56 -->
+<!-- tinybot-module-fingerprint: sha256:7b824936f8e858445c998ccf1e387af4e2bffbc398226b5a83e27aadb92ddac4 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
-Workspace, Browser, Settings, Plugins, Memory, or Performance Trace snapshots.
+Workspace, Browser, Terminal, Settings, Plugins, Memory, or Performance Trace
+snapshots.
 
 Adapters preserve native failures and normalize only their transport contract.
 React state and product projections remain in the workbench and other app-core
@@ -13,6 +14,11 @@ modules. `nativeBackendContract` guards frontend/backend contract parity.
 Chat `operation.retry` frames. Browser sessions remain a separate native
 adapter so a later desktop surface can attach to the same WebView2 runtime used
 by Agent web tools.
+
+`desktopNativeTerminal` is the user-only Sidecar PTY adapter. It exposes only
+typed PowerShell or Command Prompt creation plus poll, input, resize, and
+terminate operations; callers cannot send an arbitrary process startup command
+or address Agent shell sessions.
 
 `rendererLogger` is the renderer-wide observability entry point. It emits
 structured `debug`, `info`, `warn`, and `error` events to the console and a

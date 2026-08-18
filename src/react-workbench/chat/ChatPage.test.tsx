@@ -12,6 +12,7 @@ import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { createTinyOsAgentCancelCommand } from "../../app-core/chat/tinyOsCommand";
 import { createTinyOsBrowserSessionSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
+import type { NativeTerminalRuntimeApi } from "../../app-core/native/desktopNativeTerminal";
 import type { TinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
 import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefaultsSettings";
 import { timelineFromReactMessages } from "./test/timelineFixtures";
@@ -31,6 +32,10 @@ vi.mock("../../app-core/native/desktopNativeFilePicker", () => ({
 
 vi.mock("../../app-core/native/desktopNativeWorkspacePicker", () => ({
   pickDesktopWorkspaceDirectory: nativeWorkspacePickerMocks.pickDesktopWorkspaceDirectory,
+}));
+
+vi.mock("../sidecar/SidecarTerminal", () => ({
+  SidecarTerminal: ({ tab }: { tab: { title: string } }) => <div>{tab.title} terminal surface</div>,
 }));
 
 afterEach(() => {
@@ -69,7 +74,11 @@ function effectiveCapabilities(threadId: string, cancelAvailable = true): TinyOs
   };
 }
 
-function createStores(options: { browserRuntime?: NativeBrowserRuntimeApi; sessions?: SessionSummary[] } = {}): { chatStore: ChatStore; sessionStore: SessionStore } {
+function createStores(options: {
+  browserRuntime?: NativeBrowserRuntimeApi;
+  sessions?: SessionSummary[];
+  terminalRuntime?: NativeTerminalRuntimeApi;
+} = {}): { chatStore: ChatStore; sessionStore: SessionStore } {
   const sessions = options.sessions ?? [
     {
       id: "s1",
@@ -120,6 +129,7 @@ function createStores(options: { browserRuntime?: NativeBrowserRuntimeApi; sessi
     },
     chatStore: {
       browserRuntime: options.browserRuntime,
+      terminalRuntime: options.terminalRuntime,
       load: vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, messages)),
       loadTinyOsCapabilities: vi.fn(async (sessionId) => effectiveCapabilities(sessionId)),
       dispatch: vi.fn(async () => undefined),
@@ -2654,6 +2664,7 @@ describe("ChatPage", () => {
     const terminal = within(menu).getByRole("menuitem", { name: /Terminal/ });
     await waitFor(() => expect(terminal.hasAttribute("disabled")).toBe(false));
     await user.click(terminal);
+    await user.click(within(sidecar).getByRole("menuitem", { name: "PowerShell" }));
     expect(within(sidecar).getByRole("tab", { name: "PowerShell" })).toBeTruthy();
 
     await user.click(within(sidecar).getByRole("button", { name: "Hide Sidecar" }));
@@ -2661,6 +2672,44 @@ describe("ChatPage", () => {
 
     await user.click(screen.getByRole("button", { name: "Show Sidecar" }));
     expect(within(screen.getByLabelText("Sidecar")).getByRole("tab", { name: "PowerShell" })).toBeTruthy();
+  });
+
+  it("terminates a user terminal only when its Sidecar resource is closed", async () => {
+    const user = userEvent.setup();
+    const terminalRuntime = {
+      create: vi.fn(),
+      poll: vi.fn(),
+      resize: vi.fn(),
+      terminate: vi.fn(async () => undefined),
+      write: vi.fn(),
+    } as unknown as NativeTerminalRuntimeApi;
+    const stores = createStores({
+      terminalRuntime,
+      sessions: [{
+        chatId: "chat-1",
+        id: "s1",
+        status: "idle",
+        title: "Planning notes",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        workingDirectory: "D:/code/tinybot",
+      }],
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    await user.click(await screen.findByRole("button", { name: "Show Sidecar" }));
+    const sidecar = screen.getByLabelText("Sidecar");
+    await user.click(within(sidecar).getAllByRole("button", { name: "New Sidecar tab" })[0]);
+    await user.click(within(sidecar).getByRole("menuitem", { name: /Terminal/ }));
+    await user.click(within(sidecar).getByRole("menuitem", { name: "Command Prompt" }));
+
+    await user.click(within(sidecar).getByRole("button", { name: "Hide Sidecar" }));
+    expect(terminalRuntime.terminate).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Show Sidecar" }));
+    await user.click(within(screen.getByLabelText("Sidecar")).getByRole("button", { name: "Close Command Prompt tab" }));
+
+    await waitFor(() => expect(terminalRuntime.terminate).toHaveBeenCalledWith("terminal:D%3A%2Fcode%2Ftinybot:1"));
+    expect(within(screen.getByLabelText("Sidecar")).queryByRole("tab", { name: "Command Prompt" })).toBeNull();
   });
 
   it("provisions and releases the shared native WebView2 session from a Browser resource", async () => {

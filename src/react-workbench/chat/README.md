@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:c457c83a9cf950c1d4e5531c63167266d370fcf9e13582f799dec44c299df125 -->
+<!-- tinybot-module-fingerprint: sha256:430564e6e12aae742d36cac24e201fe50e573ce6e55513e65a4beef98a68dd34 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -16,6 +16,12 @@ resource then drives native activation without a reverse activation feedback loo
 Creating sessions stay in the preparation state until WebView2 is ready, and
 monotonic snapshot revisions prevent stale surface responses from hiding a newer
 visible surface.
+
+Sidecar Terminal resources are workspace-scoped rather than Thread-scoped.
+Chat passes their stable resource ID, selected PowerShell or Command Prompt
+shell, and workspace path to the typed native terminal adapter. Renderer
+mounting never owns process termination: hiding Sidecar and switching tabs may
+remount the xterm.js view, while only resource close invokes native terminate.
 
 Desktop-level project and session-search dialogs keep their domain actions in
 this module while delegating modal focus, keyboard, dismissal, and scroll-lock

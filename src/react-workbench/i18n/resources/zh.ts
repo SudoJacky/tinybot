@@ -279,9 +279,9 @@ export const zh = {
     tabs: { open: "打开的会话", closeTab: "关闭 {{name}} 标签页", close: "关闭 {{name}}", newTab: "新建会话标签页", newConversation: "新建会话", menu: "打开标签页菜单", openTabs: "打开的标签页", status: { running: "运行中", failed: "失败", unread: "有未读活动" } },
     sidecar: {
       label: "侧边工作区", show: "打开侧边工作区", hide: "隐藏侧边工作区", expand: "展开侧边工作区", restore: "还原侧边工作区", resize: "调整侧边工作区宽度",
-      openTabs: "打开的侧边工作区标签页", closeTab: "关闭 {{name}} 标签页", newTab: "新建侧边工作区标签页", newTabMenu: "选择资源类型", more: "更多侧边工作区操作",
+      openTabs: "打开的侧边工作区标签页", closeTab: "关闭 {{name}} 标签页", newTab: "新建侧边工作区标签页", newTabMenu: "选择资源类型", chooseShell: "选择终端类型", resourceTypes: "返回资源类型", more: "更多侧边工作区操作",
       browser: "浏览器", browserShared: "与 Agent 共享", terminal: "终端", terminalPrivate: "仅供用户使用", workspace: "工作区",
-      powerShell: "PowerShell", commandPrompt: "命令提示符", terminalStatus: "本地终端 · 不与 Agent 共享",
+      powerShell: "PowerShell", commandPrompt: "命令提示符", terminalStatus: "本地终端 · 不与 Agent 共享", terminalViewport: "{{shell}} 终端", terminalStarting: "正在启动", terminalRunning: "运行中", terminalStopped: "已停止", terminalExited: "已退出 ({{code}})",
       emptyTitle: "打开浏览器或终端", emptyDescription: "从聊天中打开产物后，它们也会显示在这里。",
       browserAddress: "浏览器地址", browserGo: "前往", browserBack: "后退", browserForward: "前进", browserReload: "刷新", browserStop: "停止加载", browserInsecure: "不安全的 HTTP 页面",
       browserStarting: "正在启动浏览器", browserPreparing: "正在准备共享 WebView2 会话…", browserUnavailable: "浏览器不可用",
@@ -295,7 +295,7 @@ export const zh = {
       browserInterrupted: "Agent 已被中断", browserControlFailed: "浏览器失败", browserRecovering: "正在恢复",
       browserFailedStart: "浏览器启动失败", browserTabUnresponsive: "浏览器标签无响应", browserRestartDescription: "请重启原生浏览器标签后继续。",
       browserRetry: "重试", browserRestartTab: "重启标签",
-      terminalUnavailableTitle: "终端尚未接入", terminalUnavailableDescription: "本地 PTY 运行时将在终端实现阶段接入这里。",
+      terminalUnavailableTitle: "终端不可用", terminalUnavailableDescription: "当前构建未包含本地 PTY 运行时。",
     },
     formUi: { title: "Agent 表单", submit: "提交", cancel: "取消", select: "请选择…" },
     queue: {

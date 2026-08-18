@@ -29,9 +29,9 @@ function renderSidecar(overrides: Partial<Parameters<typeof Sidecar>[0]> = {}) {
     presentation: "docked",
     renderArtifact: () => <p>Artifact content</p>,
     renderBrowser: (_tab, surfaceVisible) => <p>Browser surface {surfaceVisible ? "visible" : "hidden"}</p>,
+    renderTerminal: () => <p>Terminal surface</p>,
     tabs,
     width: 480,
-    workspaceLabel: "tinybot",
     ...overrides,
   };
   return { props, ...render(<Sidecar {...props} />) };
@@ -58,9 +58,21 @@ describe("Sidecar", () => {
 
     await user.click(screen.getByRole("button", { name: "New Sidecar tab" }));
     await user.click(screen.getByRole("menuitem", { name: /Terminal/ }));
+    await user.click(screen.getByRole("menuitem", { name: "PowerShell" }));
 
-    expect(props.onCreateTerminal).toHaveBeenCalledOnce();
+    expect(props.onCreateTerminal).toHaveBeenCalledWith("powershell");
     expect(screen.queryByRole("menu", { name: "Choose a resource" })).toBeNull();
+  });
+
+  it("lets the user create a Command Prompt terminal", async () => {
+    const user = userEvent.setup();
+    const { props } = renderSidecar();
+
+    await user.click(screen.getByRole("button", { name: "New Sidecar tab" }));
+    await user.click(screen.getByRole("menuitem", { name: /Terminal/ }));
+    await user.click(screen.getByRole("menuitem", { name: "Command Prompt" }));
+
+    expect(props.onCreateTerminal).toHaveBeenCalledWith("cmd");
   });
 
   it("marks the native browser surface obscured while the New Tab menu is open", async () => {

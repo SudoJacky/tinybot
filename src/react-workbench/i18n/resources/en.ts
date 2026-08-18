@@ -600,9 +600,9 @@ export const en = {
     tabs: { open: "Open conversations", closeTab: "Close {{name}} tab", close: "Close {{name}}", newTab: "New conversation tab", newConversation: "New conversation", menu: "Open tabs menu", openTabs: "Open tabs", status: { running: "running", failed: "failed", unread: "unread activity" } },
     sidecar: {
       label: "Sidecar", show: "Show Sidecar", hide: "Hide Sidecar", expand: "Expand Sidecar", restore: "Restore Sidecar", resize: "Resize Sidecar",
-      openTabs: "Open Sidecar tabs", closeTab: "Close {{name}} tab", newTab: "New Sidecar tab", newTabMenu: "Choose a resource", more: "More Sidecar actions",
+      openTabs: "Open Sidecar tabs", closeTab: "Close {{name}} tab", newTab: "New Sidecar tab", newTabMenu: "Choose a resource", chooseShell: "Choose a terminal", resourceTypes: "Back to resource types", more: "More Sidecar actions",
       browser: "Browser", browserShared: "Shared with Agent", terminal: "Terminal", terminalPrivate: "Local user only", workspace: "Workspace",
-      powerShell: "PowerShell", commandPrompt: "Command Prompt", terminalStatus: "Local terminal · Not shared with Agent",
+      powerShell: "PowerShell", commandPrompt: "Command Prompt", terminalStatus: "Local terminal · Not shared with Agent", terminalViewport: "{{shell}} terminal", terminalStarting: "Starting", terminalRunning: "Running", terminalStopped: "Stopped", terminalExited: "Exited ({{code}})",
       emptyTitle: "Open a browser or terminal", emptyDescription: "Artifacts appear here when you open them from Chat.",
       browserAddress: "Browser address", browserGo: "Go", browserBack: "Back", browserForward: "Forward", browserReload: "Reload", browserStop: "Stop loading", browserInsecure: "Insecure HTTP page",
       browserStarting: "Starting Browser", browserPreparing: "Preparing the shared WebView2 session…", browserUnavailable: "Browser unavailable",
@@ -616,7 +616,7 @@ export const en = {
       browserInterrupted: "Agent interrupted", browserControlFailed: "Browser failed", browserRecovering: "Recovering",
       browserFailedStart: "Browser failed to start", browserTabUnresponsive: "Browser tab is unresponsive", browserRestartDescription: "Restart the native browser tab to continue.",
       browserRetry: "Retry", browserRestartTab: "Restart tab",
-      terminalUnavailableTitle: "Terminal is not connected yet", terminalUnavailableDescription: "The local PTY runtime will attach here in the Terminal implementation slice.",
+      terminalUnavailableTitle: "Terminal unavailable", terminalUnavailableDescription: "This build does not include the local PTY runtime.",
     },
     formUi: { title: "Agent form", submit: "Submit", cancel: "Cancel", select: "Select…" },
     queue: {

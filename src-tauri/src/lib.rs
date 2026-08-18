@@ -7,6 +7,7 @@ mod collaboration;
 mod config;
 mod desktop;
 pub mod desktop_commands;
+mod desktop_terminal;
 mod mcp_capability_catalog;
 mod memory;
 mod native_browser;

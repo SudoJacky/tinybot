@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:7f51e6149a39430fba78e3c4012283dbf3a54fb0a4c1a3f86a4d307c83127402 -->
+<!-- tinybot-module-fingerprint: sha256:228b908df9fa3bc8288f550b3e8c6e1a2e15d1d691b1e04bcfdc2a3c18841a77 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -14,8 +14,9 @@ For desktop setup and launch behavior, see [the desktop guide](../docs/desktop.m
 - `src/main.rs` starts the Tauri application through `tinybot_desktop_lib::run`.
 - `src/lib.rs` delegates application startup to `desktop::run`.
 - `src/desktop/bootstrap.rs` assembles shared runtime state and registers Tauri
-  commands; `src/desktop/diagnostics.rs` owns bounded Performance Trace
-  snapshots and local diagnostic ZIP export.
+  commands; `src/desktop_terminal.rs` owns the user-only Sidecar PTY runtime;
+  `src/desktop/diagnostics.rs` owns bounded Performance Trace snapshots and
+  local diagnostic ZIP export.
 - `src/desktop_commands/` adapts typed Tauri inputs to backend services.
 - `WorkerRpcRouter` handles versioned `WorkerRequest` values for internal and
   transport-backed callers.
@@ -85,8 +86,8 @@ the implementation tree.
 The main layers are:
 
 1. **Desktop boundary**
-   - `lib.rs`, `desktop_commands/`, `desktop/files.rs`, and the desktop menu,
-     logging, update, and heartbeat modules.
+   - `lib.rs`, `desktop_commands/`, `desktop_terminal.rs`, `desktop/files.rs`,
+     and the desktop menu, logging, update, and heartbeat modules.
    - Owns Tauri state, command registration, native dialogs, and frontend
      events.
 2. **Protocol and dispatch boundary**

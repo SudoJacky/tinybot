@@ -1,4 +1,5 @@
 import {
+  ChevronLeft,
   FileChartColumn,
   Globe2,
   Maximize2,
@@ -25,7 +26,9 @@ import {
   type SidecarArtifactTab,
   type SidecarBrowserTab,
   type SidecarPresentation,
+  type SidecarShell,
   type SidecarTab,
+  type SidecarTerminalTab,
 } from "./sidecarModel";
 import "./Sidecar.css";
 
@@ -36,16 +39,16 @@ export type SidecarProps = {
   presentation: Exclude<SidecarPresentation, "closed">;
   tabs: readonly SidecarTab[];
   width: number;
-  workspaceLabel: string;
   onActivateTab: (tabId: string) => void;
   onCloseTab: (tab: SidecarTab) => void;
   onCreateBrowser: () => void;
-  onCreateTerminal: () => void;
+  onCreateTerminal: (shell: SidecarShell) => void;
   onHide: () => void;
   onResize: (width: number, maxWidth: number) => void;
   onToggleExpanded: () => void;
   renderArtifact: (tab: SidecarArtifactTab) => ReactNode;
   renderBrowser: (tab: SidecarBrowserTab, surfaceVisible: boolean) => ReactNode;
+  renderTerminal: (tab: SidecarTerminalTab) => ReactNode;
 };
 
 export function Sidecar({
@@ -62,12 +65,13 @@ export function Sidecar({
   presentation,
   renderArtifact,
   renderBrowser,
+  renderTerminal,
   tabs,
   width,
-  workspaceLabel,
 }: SidecarProps) {
   const { t } = useTranslation("chat");
   const [newTabMenuOpen, setNewTabMenuOpen] = useState(false);
+  const [newTabMenuView, setNewTabMenuView] = useState<"resources" | "terminal">("resources");
   const newTabTriggerRef = useRef<HTMLButtonElement>(null);
   const newTabMenuRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
@@ -76,6 +80,7 @@ export function Sidecar({
 
   useEffect(() => {
     setNewTabMenuOpen(false);
+    setNewTabMenuView("resources");
   }, [activeTabId]);
 
   useEffect(() => {
@@ -95,19 +100,29 @@ export function Sidecar({
   }, [activeTabId]);
 
   function openNewTabMenu() {
+    setNewTabMenuView("resources");
     setNewTabMenuOpen(true);
     window.requestAnimationFrame(() => {
       newTabMenuRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
     });
   }
 
-  function createResource(kind: "browser" | "terminal") {
+  function createBrowser() {
     setNewTabMenuOpen(false);
-    if (kind === "browser") {
-      onCreateBrowser();
-    } else {
-      onCreateTerminal();
-    }
+    onCreateBrowser();
+  }
+
+  function chooseTerminalShell() {
+    setNewTabMenuView("terminal");
+    window.requestAnimationFrame(() => {
+      newTabMenuRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+    });
+  }
+
+  function createTerminal(shell: SidecarShell) {
+    setNewTabMenuOpen(false);
+    setNewTabMenuView("resources");
+    onCreateTerminal(shell);
   }
 
   function handleMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -268,20 +283,39 @@ export function Sidecar({
             </button>
             {newTabMenuOpen ? (
               <div
-                aria-label={t("sidecar.newTabMenu")}
+                aria-label={newTabMenuView === "terminal" ? t("sidecar.chooseShell") : t("sidecar.newTabMenu")}
                 className="react-sidecar-new-tab__menu"
                 ref={newTabMenuRef}
                 role="menu"
                 onKeyDown={handleMenuKeyDown}
               >
-                <button disabled={!canCreateBrowser} role="menuitem" type="button" onClick={() => createResource("browser")}>
-                  <Globe2 aria-hidden="true" size={18} />
-                  <span><strong>{t("sidecar.browser")}</strong><small>{t("sidecar.browserShared")}</small></span>
-                </button>
-                <button disabled={!canCreateTerminal} role="menuitem" type="button" onClick={() => createResource("terminal")}>
-                  <SquareTerminal aria-hidden="true" size={18} />
-                  <span><strong>{t("sidecar.terminal")}</strong><small>{t("sidecar.terminalPrivate")}</small></span>
-                </button>
+                {newTabMenuView === "resources" ? (
+                  <>
+                    <button disabled={!canCreateBrowser} role="menuitem" type="button" onClick={createBrowser}>
+                      <Globe2 aria-hidden="true" size={18} />
+                      <span><strong>{t("sidecar.browser")}</strong><small>{t("sidecar.browserShared")}</small></span>
+                    </button>
+                    <button disabled={!canCreateTerminal} role="menuitem" type="button" onClick={chooseTerminalShell}>
+                      <SquareTerminal aria-hidden="true" size={18} />
+                      <span><strong>{t("sidecar.terminal")}</strong><small>{t("sidecar.terminalPrivate")}</small></span>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button role="menuitem" type="button" onClick={() => setNewTabMenuView("resources")}>
+                      <ChevronLeft aria-hidden="true" size={18} />
+                      <span><strong>{t("sidecar.resourceTypes")}</strong></span>
+                    </button>
+                    <button role="menuitem" type="button" onClick={() => createTerminal("powershell")}>
+                      <SquareTerminal aria-hidden="true" size={18} />
+                      <span><strong>{t("sidecar.powerShell")}</strong></span>
+                    </button>
+                    <button role="menuitem" type="button" onClick={() => createTerminal("cmd")}>
+                      <SquareTerminal aria-hidden="true" size={18} />
+                      <span><strong>{t("sidecar.commandPrompt")}</strong></span>
+                    </button>
+                  </>
+                )}
               </div>
             ) : null}
           </div>
@@ -310,9 +344,7 @@ export function Sidecar({
         role="tabpanel"
       >
         {activeTab?.kind === "browser" ? renderBrowser(activeTab, !newTabMenuOpen) : null}
-        {activeTab?.kind === "terminal" ? (
-          <TerminalPlaceholder shell={activeTab.shell} workspaceLabel={workspaceLabel} />
-        ) : null}
+        {activeTab?.kind === "terminal" ? renderTerminal(activeTab) : null}
         {activeTab?.kind === "artifact" ? (
           <div className="react-sidecar__artifact">{renderArtifact(activeTab)}</div>
         ) : null}
@@ -325,27 +357,6 @@ export function Sidecar({
         ) : null}
       </div>
     </aside>
-  );
-}
-
-function TerminalPlaceholder({ shell, workspaceLabel }: {
-  shell: "powershell" | "cmd";
-  workspaceLabel: string;
-}) {
-  const { t } = useTranslation("chat");
-  return (
-    <section className="react-sidecar-terminal">
-      <div className="react-sidecar-terminal__toolbar">
-        <strong>{workspaceLabel || t("sidecar.workspace")}</strong>
-        <span>{shell === "cmd" ? t("sidecar.commandPrompt") : t("sidecar.powerShell")}</span>
-      </div>
-      <div className="react-sidecar-terminal__viewport" role="status">
-        <SquareTerminal aria-hidden="true" size={24} />
-        <h2>{t("sidecar.terminalUnavailableTitle")}</h2>
-        <p>{t("sidecar.terminalUnavailableDescription")}</p>
-      </div>
-      <footer>{t("sidecar.terminalStatus")}</footer>
-    </section>
   );
 }
 

@@ -15,6 +15,7 @@ import { createDesktopNativeHostCommandApi } from "../app-core/native/desktopNat
 import { createDesktopNativeMemoryApi } from "../app-core/native/desktopNativeMemory";
 import { createDesktopNativeProjectGroupsApi } from "../app-core/native/desktopNativeProjectGroups";
 import { createDesktopNativeBrowserApi } from "../app-core/native/desktopNativeBrowser";
+import { createDesktopNativeTerminalApi } from "../app-core/native/desktopNativeTerminal";
 import { createDesktopNativeWebuiApi } from "../app-core/native/desktopNativeWebui";
 import { createDesktopNativeWorkspaceApi } from "../app-core/native/desktopNativeWorkspace";
 import { createDesktopNativePerformanceTraceApi } from "../app-core/native/desktopNativePerformanceTrace";
@@ -55,6 +56,7 @@ export function createDesktopAppServices(): AppServices {
   const nativeMemory = nativeMode ? createDesktopNativeMemoryApi({ invoke }) : undefined;
   const nativeProjectGroups = nativeMode ? createDesktopNativeProjectGroupsApi({ invoke }) : undefined;
   const nativeBrowser = nativeMode ? createDesktopNativeBrowserApi({ invoke }) : undefined;
+  const nativeTerminal = nativeMode ? createDesktopNativeTerminalApi({ invoke }) : undefined;
   const nativeWebui = nativeMode ? createDesktopNativeWebuiApi({ invoke }) : undefined;
   const nativeWorkspace = nativeMode ? createDesktopNativeWorkspaceApi({ invoke }) : undefined;
   const nativePerformanceTrace = nativeMode ? createDesktopNativePerformanceTraceApi({ invoke }) : undefined;
@@ -418,6 +420,7 @@ export function createDesktopAppServices(): AppServices {
     },
     chatStore: {
       browserRuntime: nativeBrowser,
+      terminalRuntime: nativeTerminal,
       async load(sessionId) {
         await initialize();
         const thread = controller.state.threads.find((item) => item.threadId === sessionId);
