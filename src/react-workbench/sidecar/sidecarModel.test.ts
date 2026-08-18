@@ -31,6 +31,80 @@ describe("sidecar resource tabs", () => {
     expect(activeSidecarTab(state)).toMatchObject({ kind: "terminal", shell: "powershell" });
   });
 
+  it("binds Sidecar browser resources one-to-one to native WebView2 tabs", () => {
+    let state = scopedState();
+    state = reduceSidecarState(state, { type: "tab.newBrowser" });
+    const resourceId = state.activeTabId;
+
+    state = reduceSidecarState(state, {
+      activeNativeTabId: "native-tab-1",
+      browserSessionId: "browser-session-1",
+      tabs: [{ nativeTabId: "native-tab-1", title: "Tinybot Docs" }],
+      threadId: "thread-1",
+      type: "tab.syncBrowserSession",
+    });
+
+    expect(activeSidecarTab(state)).toMatchObject({
+      browserSessionId: "browser-session-1",
+      id: resourceId,
+      kind: "browser",
+      nativeTabId: "native-tab-1",
+      title: "Tinybot Docs",
+    });
+  });
+
+  it("adds Agent-created native tabs without nesting a second tab strip", () => {
+    let state = scopedState();
+    state = reduceSidecarState(state, { type: "tab.newBrowser" });
+    state = reduceSidecarState(state, {
+      activeNativeTabId: "native-tab-1",
+      browserSessionId: "browser-session-1",
+      tabs: [{ nativeTabId: "native-tab-1", title: "First" }],
+      threadId: "thread-1",
+      type: "tab.syncBrowserSession",
+    });
+    state = reduceSidecarState(state, {
+      activeNativeTabId: "native-tab-2",
+      browserSessionId: "browser-session-1",
+      tabs: [
+        { nativeTabId: "native-tab-1", title: "First" },
+        { nativeTabId: "native-tab-2", title: "Second" },
+      ],
+      threadId: "thread-1",
+      type: "tab.syncBrowserSession",
+    });
+
+    expect(visibleSidecarTabs(state).map((tab) => tab.title)).toEqual(["First", "Second"]);
+    expect(activeSidecarTab(state)).toMatchObject({ nativeTabId: "native-tab-2" });
+  });
+
+  it("reuses the Sidecar resource identity when a failed native session restarts", () => {
+    let state = scopedState();
+    state = reduceSidecarState(state, { type: "tab.newBrowser" });
+    const resourceId = state.activeTabId;
+    state = reduceSidecarState(state, {
+      activeNativeTabId: "native-tab-old",
+      browserSessionId: "browser-session-old",
+      tabs: [{ nativeTabId: "native-tab-old", title: "Old" }],
+      threadId: "thread-1",
+      type: "tab.syncBrowserSession",
+    });
+    state = reduceSidecarState(state, {
+      activeNativeTabId: "native-tab-new",
+      browserSessionId: "browser-session-new",
+      tabs: [{ nativeTabId: "native-tab-new", title: "New" }],
+      threadId: "thread-1",
+      type: "tab.syncBrowserSession",
+    });
+
+    expect(activeSidecarTab(state)).toMatchObject({
+      browserSessionId: "browser-session-new",
+      id: resourceId,
+      nativeTabId: "native-tab-new",
+      title: "New",
+    });
+  });
+
   it("opens one contextual artifact tab and reuses it", () => {
     let state = scopedState();
     const event = {

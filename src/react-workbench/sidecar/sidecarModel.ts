@@ -11,8 +11,15 @@ type SidecarTabBase = {
 };
 
 export type SidecarBrowserTab = SidecarTabBase & {
+  browserSessionId?: string;
   kind: "browser";
+  nativeTabId?: string;
   threadId: string;
+};
+
+export type SidecarBrowserSessionTab = {
+  nativeTabId: string;
+  title: string;
 };
 
 export type SidecarTerminalTab = SidecarTabBase & {
@@ -46,6 +53,13 @@ export type SidecarEvent =
   | { type: "presentation.toggleExpanded" }
   | { type: "presentation.resize"; width: number; maxWidth: number }
   | { type: "tab.newBrowser" }
+  | {
+    type: "tab.syncBrowserSession";
+    activeNativeTabId: string;
+    browserSessionId: string;
+    tabs: SidecarBrowserSessionTab[];
+    threadId: string;
+  }
   | { type: "tab.newTerminal"; shell?: SidecarShell }
   | { type: "tab.openArtifact"; artifactId: string; threadId: string; title: string }
   | { type: "tab.activate"; tabId: string }
@@ -98,6 +112,8 @@ export function reduceSidecarState(state: SidecarState, event: SidecarEvent): Si
       };
       return openTab(state, tab);
     }
+    case "tab.syncBrowserSession":
+      return syncBrowserSession(state, event);
     case "tab.newTerminal": {
       if (!state.currentWorkspaceId) return state;
       const sequence = state.nextResourceSequence;
@@ -148,6 +164,70 @@ export function reduceSidecarState(state: SidecarState, event: SidecarEvent): Si
       };
     }
   }
+}
+
+function syncBrowserSession(
+  state: SidecarState,
+  event: Extract<SidecarEvent, { type: "tab.syncBrowserSession" }>,
+): SidecarState {
+  const resources = state.tabs.filter((tab): tab is SidecarBrowserTab => (
+    tab.kind === "browser" && tab.threadId === event.threadId
+  ));
+  if (!resources.length) return state;
+
+  const nativeTabIds = new Set(event.tabs.map((tab) => tab.nativeTabId));
+  const assignedResourceIds = new Set<string>();
+  const synchronizedByResourceId = new Map<string, SidecarBrowserTab>();
+  const matchingByNativeTabId = new Map(
+    resources.flatMap((resource) => resource.nativeTabId && nativeTabIds.has(resource.nativeTabId)
+      ? [[resource.nativeTabId, resource] as const]
+      : []),
+  );
+  const reusableResources = resources.filter((resource) => (
+    !resource.nativeTabId || !nativeTabIds.has(resource.nativeTabId)
+  ));
+  let nextResourceSequence = state.nextResourceSequence;
+  const appended: SidecarBrowserTab[] = [];
+
+  for (const nativeTab of event.tabs) {
+    const matching = matchingByNativeTabId.get(nativeTab.nativeTabId);
+    const reusable = matching ?? reusableResources.find((resource) => !assignedResourceIds.has(resource.id));
+    const resource = reusable ?? {
+      id: `browser:${encodeURIComponent(event.threadId)}:${nextResourceSequence++}`,
+      kind: "browser" as const,
+      threadId: event.threadId,
+      title: nativeTab.title,
+    };
+    assignedResourceIds.add(resource.id);
+    const synchronized: SidecarBrowserTab = {
+      ...resource,
+      browserSessionId: event.browserSessionId,
+      nativeTabId: nativeTab.nativeTabId,
+      title: nativeTab.title,
+    };
+    synchronizedByResourceId.set(resource.id, synchronized);
+    if (!state.tabs.some((tab) => tab.id === resource.id)) appended.push(synchronized);
+  }
+
+  const tabs = state.tabs.flatMap((tab) => {
+    if (tab.kind !== "browser" || tab.threadId !== event.threadId) return [tab];
+    const synchronized = synchronizedByResourceId.get(tab.id);
+    if (synchronized) return [synchronized];
+    return tab.nativeTabId ? [] : [tab];
+  }).concat(appended);
+  let activeTabId = state.activeTabId;
+  const activeResource = state.tabs.find((tab) => tab.id === state.activeTabId);
+  if (state.currentThreadId === event.threadId && activeResource?.kind === "browser") {
+    activeTabId = [...synchronizedByResourceId.values()].find((resource) => (
+      resource.nativeTabId === event.activeNativeTabId
+    ))?.id ?? activeTabId;
+  }
+  return selectVisibleActiveTab({
+    ...state,
+    activeTabId,
+    nextResourceSequence,
+    tabs,
+  });
 }
 
 export function visibleSidecarTabs(state: SidecarState): SidecarTab[] {

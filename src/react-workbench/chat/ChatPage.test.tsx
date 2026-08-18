@@ -10,6 +10,8 @@ import type { DesktopTurnSubmitCommand } from "../../app-core/chat/desktopComman
 import type { ReactChatMessage } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { createTinyOsAgentCancelCommand } from "../../app-core/chat/tinyOsCommand";
+import { createTinyOsBrowserSessionSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
+import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
 import type { TinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
 import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefaultsSettings";
 import { timelineFromReactMessages } from "./test/timelineFixtures";
@@ -67,7 +69,7 @@ function effectiveCapabilities(threadId: string, cancelAvailable = true): TinyOs
   };
 }
 
-function createStores(options: { sessions?: SessionSummary[] } = {}): { chatStore: ChatStore; sessionStore: SessionStore } {
+function createStores(options: { browserRuntime?: NativeBrowserRuntimeApi; sessions?: SessionSummary[] } = {}): { chatStore: ChatStore; sessionStore: SessionStore } {
   const sessions = options.sessions ?? [
     {
       id: "s1",
@@ -117,6 +119,7 @@ function createStores(options: { sessions?: SessionSummary[] } = {}): { chatStor
       archive: vi.fn(async () => undefined),
     },
     chatStore: {
+      browserRuntime: options.browserRuntime,
       load: vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, messages)),
       loadTinyOsCapabilities: vi.fn(async (sessionId) => effectiveCapabilities(sessionId)),
       dispatch: vi.fn(async () => undefined),
@@ -126,6 +129,59 @@ function createStores(options: { sessions?: SessionSummary[] } = {}): { chatStor
       subscribe: vi.fn(() => () => undefined),
     },
   };
+}
+
+function sidecarBrowserRuntime() {
+  const snapshot = createTinyOsBrowserSessionSnapshot({
+    activeTabId: "native-tab-1",
+    browserSessionId: "browser-session-1",
+    contract: "browser_session_v1",
+    control: { controlEpoch: 0, state: "idle" },
+    interaction: { click: true, navigate: true, type: true },
+    kind: "browser_session",
+    lifecycle: "ready",
+    operationId: "operation-1",
+    profilePersistence: "persistent",
+    runtimeKind: "windows_webview2",
+    runtimeVersion: "test",
+    sessionId: "s1",
+    state: "running",
+    surface: { layoutRevision: 0, lifecycle: "hidden" },
+    tabs: [{
+      activeHistoryIndex: 0,
+      captures: [],
+      history: [{ title: "Example", url: "https://example.com" }],
+      loading: false,
+      rendererLifecycle: "running",
+      tabId: "native-tab-1",
+      title: "Example",
+      url: "https://example.com",
+    }],
+  }, {
+    observedAt: "2026-08-18T08:00:00Z",
+    revision: 1,
+    sourceId: "native-browser:browser-session-1",
+  });
+  return {
+    activateTab: vi.fn(async () => snapshot),
+    back: vi.fn(async () => undefined),
+    capabilities: vi.fn(),
+    closeSession: vi.fn(async () => undefined),
+    closeTab: vi.fn(async () => snapshot),
+    createSession: vi.fn(async () => snapshot),
+    createTab: vi.fn(async () => snapshot),
+    deleteProfile: vi.fn(async () => undefined),
+    forward: vi.fn(async () => undefined),
+    interact: vi.fn(async () => undefined),
+    navigate: vi.fn(async () => snapshot),
+    observe: vi.fn(),
+    reload: vi.fn(async () => undefined),
+    resolvePolicyRequest: vi.fn(async () => snapshot),
+    restartTab: vi.fn(async () => snapshot),
+    snapshot: vi.fn(async () => snapshot),
+    stop: vi.fn(async () => undefined),
+    updateSurface: vi.fn(async () => snapshot),
+  } as unknown as NativeBrowserRuntimeApi;
 }
 
 function turnSubmitCommands(chatStore: ChatStore): DesktopTurnSubmitCommand[] {
@@ -2585,6 +2641,37 @@ describe("ChatPage", () => {
 
     await user.click(screen.getByRole("button", { name: "Show Sidecar" }));
     expect(within(screen.getByLabelText("Sidecar")).getByRole("tab", { name: "PowerShell" })).toBeTruthy();
+  });
+
+  it("provisions and releases the shared native WebView2 session from a Browser resource", async () => {
+    const user = userEvent.setup();
+    const browserRuntime = sidecarBrowserRuntime();
+    const stores = createStores({
+      browserRuntime,
+      sessions: [{
+        chatId: "chat-1",
+        id: "s1",
+        status: "idle",
+        title: "Planning notes",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        workingDirectory: "D:/code/tinybot",
+      }],
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    await user.click(await screen.findByRole("button", { name: "Show Sidecar" }));
+    await user.click(within(screen.getByLabelText("Sidecar")).getAllByRole("button", { name: "New Sidecar tab" })[0]);
+    await user.click(screen.getByRole("menuitem", { name: /Browser/ }));
+
+    await waitFor(() => expect(browserRuntime.createSession).toHaveBeenCalledWith({ ownerSessionId: "s1" }));
+    const sidecar = screen.getByLabelText("Sidecar");
+    expect(await within(sidecar).findByRole("tab", { name: "Example" })).toBeTruthy();
+    expect(within(sidecar).getByRole("textbox", { name: "Browser address" })).toBeTruthy();
+
+    await user.click(within(sidecar).getByRole("button", { name: "Close Example tab" }));
+    await waitFor(() => expect(browserRuntime.closeSession).toHaveBeenCalledWith("browser-session-1"));
+    expect(within(sidecar).queryByRole("tab", { name: "Example" })).toBeNull();
   });
 
   it("places message action buttons under each message on the role side", async () => {

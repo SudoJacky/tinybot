@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:26928f6bafa2ff22fe6da6631b55785146d09c32797c82cf38ede03f7641ffcd -->
+<!-- tinybot-module-fingerprint: sha256:194a52678a1dae1aaa572981a46bf6ef12fe9164c507442a50748b4139bc45f0 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -7,8 +7,10 @@ canonical timeline presentation, the composer, and detail drawers.
 
 Chat contracts, commands, and projections live in `app-core/chat`. This folder
 owns React state and presentation. Browser runtime snapshots are retained by the
-session runtime for the native WebView2 integration; the retired TinyOS desktop
-surface is not part of this route.
+session runtime and projected into Sidecar Browser resources. Each resource tab
+maps to one native WebView2 tab in the Chat-owned shared Browser Session, so user
+input and Agent browser tools operate on the same tabs, profile, and navigation
+state without a nested browser tab strip.
 
 Desktop-level project and session-search dialogs keep their domain actions in
 this module while delegating modal focus, keyboard, dismissal, and scroll-lock

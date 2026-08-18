@@ -23,6 +23,7 @@ import { useTranslation } from "react-i18next";
 import {
   MIN_SIDECAR_WIDTH,
   type SidecarArtifactTab,
+  type SidecarBrowserTab,
   type SidecarPresentation,
   type SidecarTab,
 } from "./sidecarModel";
@@ -44,6 +45,7 @@ export type SidecarProps = {
   onResize: (width: number, maxWidth: number) => void;
   onToggleExpanded: () => void;
   renderArtifact: (tab: SidecarArtifactTab) => ReactNode;
+  renderBrowser: (tab: SidecarBrowserTab, surfaceVisible: boolean) => ReactNode;
 };
 
 export function Sidecar({
@@ -59,6 +61,7 @@ export function Sidecar({
   onToggleExpanded,
   presentation,
   renderArtifact,
+  renderBrowser,
   tabs,
   width,
   workspaceLabel,
@@ -306,7 +309,7 @@ export function Sidecar({
         id="tinybot-sidecar-panel"
         role="tabpanel"
       >
-        {activeTab?.kind === "browser" ? <BrowserPlaceholder /> : null}
+        {activeTab?.kind === "browser" ? renderBrowser(activeTab, !newTabMenuOpen) : null}
         {activeTab?.kind === "terminal" ? (
           <TerminalPlaceholder shell={activeTab.shell} workspaceLabel={workspaceLabel} />
         ) : null}
@@ -322,18 +325,6 @@ export function Sidecar({
         ) : null}
       </div>
     </aside>
-  );
-}
-
-function BrowserPlaceholder() {
-  const { t } = useTranslation("chat");
-  return (
-    <section className="react-sidecar-placeholder react-sidecar-browser" role="status">
-      <Globe2 aria-hidden="true" size={24} />
-      <h2>{t("sidecar.browserUnavailableTitle")}</h2>
-      <p>{t("sidecar.browserUnavailableDescription")}</p>
-      <small>{t("sidecar.browserShared")}</small>
-    </section>
   );
 }
 

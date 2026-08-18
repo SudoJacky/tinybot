@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { TFunction } from "i18next";
 import {
   Check,
@@ -81,6 +81,10 @@ import type {
   LoadedArtifactDetail,
 } from "../../app-core/chat/chatTurnContracts";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
+import type {
+  TinyOsNativeBrowserSession,
+  TinyOsNativeSnapshot,
+} from "../../app-core/chat/tinyOsNativeSnapshot";
 import {
   TINYOS_COMMAND_ACK_TIMEOUT_MS,
   canonicalTinyOsCommandAcknowledgement,
@@ -122,6 +126,7 @@ import {
   isDefaultSessionTitle,
 } from "./sessionTitle";
 import { Sidecar } from "../sidecar/Sidecar";
+import { SidecarBrowser } from "../sidecar/SidecarBrowser";
 import {
   activeSidecarTab,
   createInitialSidecarState,
@@ -131,6 +136,7 @@ import {
   visibleSidecarTabs,
   writePersistedSidecarWidth,
   type SidecarArtifactTab,
+  type SidecarBrowserTab,
   type SidecarTab,
 } from "../sidecar/sidecarModel";
 
@@ -162,6 +168,8 @@ type ArtifactSidecarContent = {
   error?: string;
   loading: boolean;
 };
+
+type BrowserSnapshot = TinyOsNativeSnapshot<TinyOsNativeBrowserSession>;
 
 type ConversationViewState = {
   scrollTop: number;
@@ -270,6 +278,8 @@ export function ChatPage({
     () => createInitialSidecarState(readPersistedSidecarWidth(window.localStorage)),
   );
   const [artifactSidecarContent, setArtifactSidecarContent] = useState<Record<string, ArtifactSidecarContent>>({});
+  const [browserProvisionErrors, setBrowserProvisionErrors] = useState<Record<string, string>>({});
+  const [browserProvisionEpoch, setBrowserProvisionEpoch] = useState(0);
   const [commandLifecycle, dispatchCommandLifecycle] = useReducer(
     reduceTinyOsCommandLifecycle,
     { stage: "idle" } as TinyOsCommandLifecycle,
@@ -300,6 +310,9 @@ export function ChatPage({
   const pendingConversationRestoreRef = useRef("");
   const hasActivatedSessionRef = useRef(false);
   const stickToLatestRef = useRef(true);
+  const sidecarRef = useRef(sidecar);
+  const browserProvisioningResourceIdRef = useRef("");
+  sidecarRef.current = sidecar;
   const activeSessionId = sessionTabs.activeSessionId;
   const sessionRuntime = useChatSessionRuntime({
     chatStore,
@@ -308,10 +321,15 @@ export function ChatPage({
   });
   const {
     agentUiForms,
+    browserError,
+    browserSnapshot,
     error: timelineError,
     timeline,
   } = sessionRuntime.state;
   const {
+    acceptBrowserSnapshot,
+    clearBrowserError,
+    clearBrowserSnapshot,
     clearError: clearTimelineError,
     reload: reloadSessionRuntime,
     reportError: reportTimelineError,
@@ -328,6 +346,27 @@ export function ChatPage({
   const sidecarActiveTab = useMemo(() => activeSidecarTab(sidecar), [sidecar]);
   const activeWorkspaceId = activeSession?.workingDirectory ?? "";
   const activeWorkspaceLabel = activeWorkspaceId ? sessionWorkspaceName(activeWorkspaceId) : "";
+  const unboundBrowserResource = useMemo(() => sidecar.tabs.find((tab): tab is SidecarBrowserTab => (
+    tab.kind === "browser"
+      && tab.threadId === activeSession?.id
+      && !tab.nativeTabId
+  )), [activeSession?.id, sidecar.tabs]);
+
+  const synchronizeBrowserSnapshot = useCallback((snapshot: BrowserSnapshot, acceptForActiveThread = true) => {
+    if (acceptForActiveThread && snapshot.data.sessionId === activeSessionId) {
+      acceptBrowserSnapshot(snapshot);
+    }
+    dispatchSidecar({
+      activeNativeTabId: snapshot.data.activeTabId,
+      browserSessionId: snapshot.data.browserSessionId,
+      tabs: snapshot.data.tabs.map((tab) => ({
+        nativeTabId: tab.tabId,
+        title: browserResourceTitle(tab.title, tab.url, t("sidecar.browser")),
+      })),
+      threadId: snapshot.data.sessionId,
+      type: "tab.syncBrowserSession",
+    });
+  }, [acceptBrowserSnapshot, activeSessionId, t]);
 
   useEffect(() => {
     dispatchSidecar({
@@ -336,6 +375,77 @@ export function ChatPage({
       workspaceId: activeWorkspaceId,
     });
   }, [activeSession?.id, activeWorkspaceId]);
+
+  useEffect(() => {
+    if (browserSnapshot) synchronizeBrowserSnapshot(browserSnapshot, false);
+  }, [browserSnapshot, synchronizeBrowserSnapshot]);
+
+  useEffect(() => {
+    const resource = unboundBrowserResource;
+    const browserRuntime = chatStore.browserRuntime;
+    if (!resource
+      || browserProvisionErrors[resource.id]
+      || browserProvisioningResourceIdRef.current) return;
+    browserProvisioningResourceIdRef.current = resource.id;
+    void (async () => {
+      try {
+        if (!browserRuntime) throw new Error(t("sidecar.browserBuildUnavailable"));
+        let snapshot = await browserRuntime.createSession({ ownerSessionId: resource.threadId });
+
+        const currentResources = sidecarRef.current.tabs.filter((tab): tab is SidecarBrowserTab => (
+          tab.kind === "browser" && tab.threadId === resource.threadId
+        ));
+        const resourceStillExists = currentResources.some((tab) => tab.id === resource.id);
+        const boundNativeTabIds = new Set(currentResources.flatMap((tab) => tab.nativeTabId ? [tab.nativeTabId] : []));
+        const hasUnboundNativeTab = snapshot.data.tabs.some((tab) => !boundNativeTabIds.has(tab.tabId));
+        let createdNativeTabId = "";
+        if (resourceStillExists && !hasUnboundNativeTab) {
+          const previousNativeTabIds = new Set(snapshot.data.tabs.map((tab) => tab.tabId));
+          snapshot = await browserRuntime.createTab(snapshot.data.browserSessionId);
+          createdNativeTabId = snapshot.data.tabs.find((tab) => !previousNativeTabIds.has(tab.tabId))?.tabId ?? "";
+        }
+
+        if (!sidecarRef.current.tabs.some((tab) => tab.id === resource.id)) {
+          if (createdNativeTabId && snapshot.data.tabs.length > 1) {
+            await browserRuntime.closeTab(snapshot.data.browserSessionId, createdNativeTabId);
+          }
+          return;
+        }
+        synchronizeBrowserSnapshot(snapshot);
+      } catch (error) {
+        if (sidecarRef.current.tabs.some((tab) => tab.id === resource.id)) {
+          setBrowserProvisionErrors((current) => ({ ...current, [resource.id]: errorMessage(error) }));
+        }
+      } finally {
+        if (browserProvisioningResourceIdRef.current === resource.id) {
+          browserProvisioningResourceIdRef.current = "";
+        }
+        setBrowserProvisionEpoch((current) => current + 1);
+      }
+    })();
+  }, [
+    browserProvisionEpoch,
+    browserProvisionErrors,
+    chatStore.browserRuntime,
+    synchronizeBrowserSnapshot,
+    t,
+    unboundBrowserResource,
+  ]);
+
+  useEffect(() => {
+    const resource = sidecarActiveTab?.kind === "browser" ? sidecarActiveTab : undefined;
+    const browserRuntime = chatStore.browserRuntime;
+    if (!resource?.browserSessionId
+      || !resource.nativeTabId
+      || !browserRuntime
+      || browserSnapshot?.data.browserSessionId !== resource.browserSessionId
+      || browserSnapshot.data.activeTabId === resource.nativeTabId) return;
+    void browserRuntime.activateTab(resource.browserSessionId, resource.nativeTabId)
+      .then((snapshot) => synchronizeBrowserSnapshot(snapshot))
+      .catch((error) => {
+        setBrowserProvisionErrors((current) => ({ ...current, [resource.id]: errorMessage(error) }));
+      });
+  }, [browserSnapshot, chatStore.browserRuntime, sidecarActiveTab, synchronizeBrowserSnapshot]);
 
   useEffect(() => {
     writePersistedSidecarWidth(window.localStorage, sidecar.width);
@@ -1514,15 +1624,43 @@ export function ChatPage({
     }
   }
 
-  function handleCloseSidecarTab(tab: SidecarTab) {
+  async function handleCloseSidecarTab(tab: SidecarTab) {
+    if (tab.kind === "browser") {
+      setBrowserProvisionErrors((current) => omitRecordKey(current, tab.id));
+      const browserRuntime = chatStore.browserRuntime;
+      if (!browserRuntime || !tab.browserSessionId || !tab.nativeTabId) {
+        dispatchSidecar({ tabId: tab.id, type: "tab.close" });
+        return;
+      }
+      try {
+        let snapshot = await browserRuntime.snapshot(tab.browserSessionId);
+        const remainingResources = sidecarRef.current.tabs.filter((candidate) => (
+          candidate.kind === "browser"
+            && candidate.threadId === tab.threadId
+            && candidate.id !== tab.id
+        ));
+        if (snapshot.data.tabs.length === 1 && remainingResources.length) {
+          snapshot = await browserRuntime.createTab(snapshot.data.browserSessionId);
+        }
+        if (snapshot.data.tabs.length === 1) {
+          await browserRuntime.closeSession(snapshot.data.browserSessionId);
+          clearBrowserSnapshot(snapshot.data.browserSessionId);
+          dispatchSidecar({ tabId: tab.id, type: "tab.close" });
+          return;
+        }
+        const next = await browserRuntime.closeTab(snapshot.data.browserSessionId, tab.nativeTabId);
+        dispatchSidecar({ tabId: tab.id, type: "tab.close" });
+        synchronizeBrowserSnapshot(next);
+      } catch (error) {
+        setBrowserProvisionErrors((current) => ({ ...current, [tab.id]: errorMessage(error) }));
+      }
+      return;
+    }
+
     dispatchSidecar({ tabId: tab.id, type: "tab.close" });
-    if (tab.kind !== "artifact") return;
-    setArtifactSidecarContent((current) => {
-      if (!(tab.id in current)) return current;
-      const next = { ...current };
-      delete next[tab.id];
-      return next;
-    });
+    if (tab.kind === "artifact") {
+      setArtifactSidecarContent((current) => omitRecordKey(current, tab.id));
+    }
   }
 
   function renderSidecarArtifact(tab: SidecarArtifactTab) {
@@ -1538,6 +1676,35 @@ export function ChatPage({
         loading={content.loading}
       />
     );
+  }
+
+  function renderSidecarBrowser(tab: SidecarBrowserTab, surfaceVisible: boolean) {
+    return (
+      <SidecarBrowser
+        browserRuntime={chatStore.browserRuntime}
+        externalError={browserProvisionErrors[tab.id] || browserError}
+        snapshot={browserSnapshot?.data.sessionId === tab.threadId ? browserSnapshot : undefined}
+        surfaceVisible={surfaceVisible && !drawer}
+        tab={tab}
+        onHandoffComplete={() => handleBrowserHandoffComplete(tab)}
+        onRetryProvision={() => {
+          clearBrowserError();
+          setBrowserProvisionErrors((current) => omitRecordKey(current, tab.id));
+          setBrowserProvisionEpoch((current) => current + 1);
+        }}
+        onSnapshot={synchronizeBrowserSnapshot}
+      />
+    );
+  }
+
+  async function handleBrowserHandoffComplete(tab: SidecarBrowserTab) {
+    if (!activeSession || activeSession.id !== tab.threadId) return;
+    try {
+      await dispatchTurn(activeSession.id, { text: t("browserHandoffContinue") }, "browser-handoff-complete");
+      await handleSessionStoreRefresh(activeSession);
+    } catch (error) {
+      reportTimelineError(t("sidecar.browserHandoffFailed", { message: errorMessage(error) }));
+    }
   }
 
   async function handleSubmitAgentUiForm(
@@ -1906,6 +2073,7 @@ export function ChatPage({
           canCreateTerminal={Boolean(activeWorkspaceId)}
           presentation={sidecar.presentation}
           renderArtifact={renderSidecarArtifact}
+          renderBrowser={renderSidecarBrowser}
           tabs={sidecarTabs}
           width={sidecar.width}
           workspaceLabel={activeWorkspaceLabel}
@@ -2250,4 +2418,28 @@ function formatDetailLines(rows: Array<[string, string | undefined]>): string {
     .filter(([, value]) => Boolean(value?.trim()))
     .map(([label, value]) => `${label}: ${value}`)
     .join("\n");
+}
+
+function browserResourceTitle(title: string, url: string, fallback: string): string {
+  const normalizedTitle = title.trim();
+  if (normalizedTitle && normalizedTitle !== "about:blank" && normalizedTitle !== "New tab") {
+    return normalizedTitle;
+  }
+  if (!url || url === "about:blank") return fallback;
+  try {
+    return new URL(url).hostname || url;
+  } catch {
+    return url;
+  }
+}
+
+function omitRecordKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in record)) return record;
+  const next = { ...record };
+  delete next[key];
+  return next;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

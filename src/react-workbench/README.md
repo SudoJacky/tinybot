@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:03d522b129942473a0622c3992044dbb80414bbab62690f50697a585023ce8fd -->
+<!-- tinybot-module-fingerprint: sha256:e50eaef5b6e1a8d5184c4ea6c2f3939af138bf46e50f617f18a35c72c9678474 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App`, `DesktopShell` owns the desktop chrome, and
@@ -9,13 +9,15 @@
 
 - `services.ts` defines the interface consumed by routes.
 - `adapters/` connects those interfaces to native and app-core modules.
+- `sidecar/` owns the docked resource shell and its Browser, Terminal, and
+  Artifact resource presentations.
 - Route folders own their React state, presentation, and route-scoped styles.
 - Framework-independent contracts and projections belong in `app-core/`.
 
-The retired TinyOS desktop and its embedded files, terminal, monitor, and
-browser applications are not renderer routes. Chat retains only normal
-conversation controls and the native browser-session bridge needed by a future
-desktop browser surface.
+The retired TinyOS desktop and its embedded files, terminal, and monitor
+applications are not renderer routes. Chat now hosts Sidecar, whose Browser
+resources attach directly to the shared native WebView2 session used by Agent
+web tools.
 
 `defaultServices.ts` exposes Performance Trace through a small route-facing
 store backed by the typed app-core native adapter. Its diagnostic export method

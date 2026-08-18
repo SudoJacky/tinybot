@@ -28,6 +28,7 @@ function renderSidecar(overrides: Partial<Parameters<typeof Sidecar>[0]> = {}) {
     onToggleExpanded: vi.fn(),
     presentation: "docked",
     renderArtifact: () => <p>Artifact content</p>,
+    renderBrowser: (_tab, surfaceVisible) => <p>Browser surface {surfaceVisible ? "visible" : "hidden"}</p>,
     tabs,
     width: 480,
     workspaceLabel: "tinybot",
@@ -60,6 +61,15 @@ describe("Sidecar", () => {
 
     expect(props.onCreateTerminal).toHaveBeenCalledOnce();
     expect(screen.queryByRole("menu", { name: "Choose a resource" })).toBeNull();
+  });
+
+  it("marks the native browser surface obscured while the New Tab menu is open", async () => {
+    const user = userEvent.setup();
+    renderSidecar({ activeTabId: "browser-1" });
+
+    expect(screen.getByText("Browser surface visible")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "New Sidecar tab" }));
+    expect(screen.getByText("Browser surface hidden")).toBeTruthy();
   });
 
   it("supports arrow-key tab navigation and Delete to close", async () => {
