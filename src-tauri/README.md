@@ -85,7 +85,7 @@ the implementation tree.
 The main layers are:
 
 1. **Desktop boundary**
-   - `lib.rs`, `desktop_commands/`, `desktop_files.rs`, and the desktop menu,
+   - `lib.rs`, `desktop_commands/`, `desktop/files.rs`, and the desktop menu,
      logging, update, and heartbeat modules.
    - Owns Tauri state, command registration, native dialogs, and frontend
      events.
@@ -153,7 +153,8 @@ roles:
 
 | Path | Owner | Role |
 | --- | --- | --- |
-| `~/.tinybot/threads/<year>/<month>/<day>/*.jsonl` | `threads::rollout::store` | Canonical append-only Rollouts |
+| `~/.tinybot/threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | `threads::rollout::store` | Active canonical Rollouts |
+| `~/.tinybot/archived_threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | `threads::rollout::store` | Archived canonical Rollouts |
 | `~/.tinybot/project-groups.json` | `project_groups` | Named groups and their workspace memberships |
 
 Thread metadata, checkpoint pointers, and Rollout heads are rebuilt into a
@@ -184,12 +185,11 @@ data root without overwriting conflicts, then rebuilds the in-memory index.
 - Preserve Thread, Turn, Item, request, trace, tool-call, and client-event IDs
   across layers. Do not introduce a second Run identity for a Turn.
 - Append durable conversation state through the Rollout writer; never write
-  conversation authority directly to the SQLite index or an in-memory
+conversation authority directly to SQLite or an in-memory
   projection.
 - Surface consistency failures and recovery diagnostics instead of silently
   rebuilding or discarding state.
-- Keep external command and payload documentation in
-  `docs/api/rust-backend-api.md`; keep implementation invariants next to the
-  module that enforces them.
+- Keep external command and payload documentation in `docs/api/`; keep
+  implementation invariants next to the module that enforces them.
 - Update the relevant README when changing module ownership, a persistence
   path, a recovery rule, or the order of a cross-module flow.

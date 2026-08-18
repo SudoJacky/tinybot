@@ -15,6 +15,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const scriptPath = fileURLToPath(new URL("./readme-freshness.mjs", import.meta.url));
+const docsScriptPath = fileURLToPath(new URL("./docs-freshness.mjs", import.meta.url));
 const hookPath = fileURLToPath(new URL("../../.githooks/pre-commit", import.meta.url));
 
 function run(command, arguments_, cwd) {
@@ -162,10 +163,12 @@ test("staged review fingerprints the index instead of unrelated working-tree con
 test("the tracked pre-commit hook blocks an unreviewed staged module", (t) => {
   const repository = fixture(t);
   const repositoryScript = join(repository, ".github/scripts/readme-freshness.mjs");
+  const repositoryDocsScript = join(repository, ".github/scripts/docs-freshness.mjs");
   const repositoryHook = join(repository, ".githooks/pre-commit");
   mkdirSync(dirname(repositoryScript), { recursive: true });
   mkdirSync(dirname(repositoryHook), { recursive: true });
   copyFileSync(scriptPath, repositoryScript);
+  copyFileSync(docsScriptPath, repositoryDocsScript);
   copyFileSync(hookPath, repositoryHook);
   chmodSync(repositoryHook, 0o755);
   git(repository, "config", "core.hooksPath", ".githooks");

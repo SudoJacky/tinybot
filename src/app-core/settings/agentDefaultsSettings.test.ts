@@ -51,7 +51,7 @@ describe("agent defaults settings", () => {
     expect(settings.values).toMatchObject({
       maxTokens: "8192",
       contextWindowTokens: "128000",
-      contextWindowStrategy: "discard",
+      contextWindowStrategy: "compact",
       maxToolIterations: "200",
     });
   });

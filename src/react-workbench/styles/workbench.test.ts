@@ -48,13 +48,16 @@ describe("workbench CSS interaction contracts", () => {
   });
 
   test("floats queued inputs above the composer without consuming conversation layout", () => {
+    const composerTargetRule = chatStylesheet.match(/\.react-composer-drop-target\s*\{([^}]+)\}/);
     const queueRule = chatStylesheet.match(/\.react-queued-inputs\s*\{([^}]+)\}/);
     const queueListRule = chatStylesheet.match(/\.react-queued-inputs ol\s*\{([^}]+)\}/);
 
+    expect(composerTargetRule?.[1]).toContain("position: relative");
     expect(queueRule?.[1]).toContain("position: absolute");
     expect(queueRule?.[1]).toContain("bottom: calc(100% - 8px)");
     expect(queueRule?.[1]).toContain("max-height: min(160px, 32vh)");
     expect(queueListRule?.[1]).toContain("overflow-y: auto");
+    expect(tinyOsStylesheet).not.toContain("composer-drop-target");
   });
 
   test("keeps tool activity rows compact without shrinking their action controls", () => {

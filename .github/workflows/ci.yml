@@ -33,6 +33,12 @@ jobs:
       - name: Check module README freshness
         run: npm run readme:check
 
+      - name: Test engineering documentation freshness tooling
+        run: node --test .github/scripts/docs-freshness.test.mjs
+
+      - name: Check engineering documentation freshness
+        run: npm run docs:check
+
       - name: Run frontend analysis gate
         run: npm run analyze:frontend:ci
 

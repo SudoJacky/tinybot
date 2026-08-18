@@ -20,9 +20,10 @@
 
 A lightweight personal AI assistant powered by Large Language Models and a native tool system.
 
-Some design documents (in Chinese): [Tinybot Design Docs](https://sudojacky.github.io/#/docs/tinybot)
+Architecture and maintainer documentation starts at the
+[Tinybot engineering documentation map](docs/README.md).
 
-To install Tinybot, open [GitHub Tags](https://github.com/SudoJacky/tinybot/tags), select the latest version, and download the installer for your platform.
+To install Tinybot, open [GitHub Releases](https://github.com/SudoJacky/tinybot/releases), select the latest release, and download the installer for your platform.
 
 For development setup and repository contribution requirements, see
 [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -37,7 +38,7 @@ Starting with v0.2.3, Tinybot supports the [Agent Plugins 1.0.0 standard](https:
 
 <img width="681" height="445" alt="image" src="https://github.com/user-attachments/assets/efe401da-826b-4203-a158-d3d0c30293b3" />
 
-## AI gen Charts
+## Generated charts
 
 Tinybot can provide custom charts.
 

@@ -2702,28 +2702,6 @@ button.tinyos-overlay-backdrop:focus-visible {
   }
 }
 
-.tinyos-composer-drop-target {
-  position: relative;
-  display: grid;
-  width: 100%;
-  min-width: 0;
-}
-
-.tinyos-composer-drop-error {
-  position: absolute;
-  right: max(24px, calc((100% - 860px) / 2));
-  bottom: 8px;
-  left: max(24px, calc((100% - 860px) / 2));
-  z-index: 2;
-  margin: 0;
-  border: 1px solid color-mix(in srgb, var(--color-error) 30%, var(--color-hairline));
-  border-radius: 8px;
-  background: var(--color-panel);
-  padding: 6px 8px;
-  color: var(--color-error);
-  font-size: 10px;
-}
-
 @media (prefers-reduced-motion: reduce) {
 
   .tinyos-overlay-backdrop {

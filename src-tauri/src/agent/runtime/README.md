@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:e7908557fd0147d4e7166f3fecc971501439fe387e013da7f1cd01362b6c6f3d -->
+<!-- tinybot-module-fingerprint: sha256:535cd563d2716f7edaa4255a9999fa0428df21702289d0733d4419f5dbffb5b7 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -48,6 +48,11 @@ decide which durable conversation store a caller uses.
    the next provider call.
 7. Usage and runtime events are emitted through the injected trace sink, and
    `result.rs` builds the terminal response.
+
+When a Turn does not configure a context-window strategy, the runtime defaults
+to `compact`. Explicit `discard` remains supported. Compaction failure is
+reported through the typed failure path and never silently falls back to
+discarding history.
 
 Project-group coordinator Turns receive `spawn_workspace_thread` and
 `send_thread_message`. Each call authorizes the target workspace against the
@@ -278,7 +283,7 @@ finish during cleanup are recorded before the Turn becomes cancelled.
 
 The foundational model-visible tool set contains available instances of
 `exec_command`, `write_stdin`, `apply_patch`, `request_user_input`,
-`update_plan`, `web.open`, `web.read`, `web.act`, and the
+`update_plan`, `publish_data_view`, `web.open`, `web.read`, `web.act`, and the
 `subagent.spawn`, `subagent.send_input`, `subagent.wait`, `subagent.close`, and
 `subagent.resume` lifecycle controls. MCP tools explicitly allowlisted by backend
 workspace configuration are injected after discovery. Eligible project-group
@@ -302,5 +307,6 @@ malformed arrays, or provider-name collisions fail explicitly.
 the real tool observation and resumes the same provider chain; cancellation
 clears the checkpoint and returns `form_cancelled`.
 
-For frontend-visible shapes and event names, see
-[the Rust backend API reference](../../../../docs/api/rust-backend-api.md).
+For frontend-visible shapes and event names, see the
+[Agent runtime API](../../../../docs/api/agent-runtime.md) and
+[Tauri event reference](../../../../docs/api/events.md).

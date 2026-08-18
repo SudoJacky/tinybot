@@ -70,7 +70,7 @@ are not implemented in Rust return explicit errors.
 - Desktop shell: `src-tauri/`
 - Runtime backend: Rust native backend
 - Desktop chat contract: typed Thread commands plus `agent.timeline.patch` and `agent.awaiting_form` Tauri events
-- Primary UI source: repository `index.html` plus `src/native-workbench/`
+- Primary UI source: repository `index.html` plus `src/react-workbench/`
 - Static assets and docs: repository `public/`
 - Browser mode: external browser only
 
@@ -128,6 +128,11 @@ The desktop route keeps the Rust backend contract as the source of truth and lay
 - OS notifications observe native approval and task progress surfaces;
 - external links open through the operating system.
 
-## External Browser Policy
+## Browser Policy
 
-The desktop package does not bundle Chromium. The app UI uses the platform WebView. Browser automation, browser snapshots, and browser bridge status are optional runtime capabilities and should not block native backend startup or the native workbench shell.
+The desktop package does not bundle Chromium. The app UI uses the platform
+WebView, and external links open through the operating system. The default
+Windows build also provides a managed WebView2 session shared by TinyOS and
+the Agent's `web.*` tools. Builds without that feature and non-Windows builds
+report browser unavailability explicitly; browser startup must not block the
+native backend or workbench shell.

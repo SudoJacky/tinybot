@@ -283,9 +283,8 @@ prompt construction
 - Malformed model output must not cause partial memory writes.
 - A model request must not start until the new Thread's memory snapshot,
   including an intentionally empty snapshot, has been persisted successfully.
-- Failure to build the latest view may fall back to an empty snapshot only
-  when the fallback is explicit, persisted, and reported through runtime
-  diagnostics.
+- Failure to build the latest view or a new Thread snapshot fails explicitly;
+  it does not silently substitute an empty snapshot.
 
 ## Out of scope
 
