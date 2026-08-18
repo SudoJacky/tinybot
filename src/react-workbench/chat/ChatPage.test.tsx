@@ -131,9 +131,9 @@ function createStores(options: { browserRuntime?: NativeBrowserRuntimeApi; sessi
   };
 }
 
-function sidecarBrowserRuntime() {
-  const snapshot = createTinyOsBrowserSessionSnapshot({
-    activeTabId: "native-tab-1",
+function sidecarBrowserSnapshot(activeTabId = "native-tab-1", includeSecondTab = false, revision = 1) {
+  return createTinyOsBrowserSessionSnapshot({
+    activeTabId,
     browserSessionId: "browser-session-1",
     contract: "browser_session_v1",
     control: { controlEpoch: 0, state: "idle" },
@@ -147,21 +147,36 @@ function sidecarBrowserRuntime() {
     sessionId: "s1",
     state: "running",
     surface: { layoutRevision: 0, lifecycle: "hidden" },
-    tabs: [{
-      activeHistoryIndex: 0,
-      captures: [],
-      history: [{ title: "Example", url: "https://example.com" }],
-      loading: false,
-      rendererLifecycle: "running",
-      tabId: "native-tab-1",
-      title: "Example",
-      url: "https://example.com",
-    }],
+    tabs: [
+      {
+        activeHistoryIndex: 0,
+        captures: [],
+        history: [{ title: "Example", url: "https://example.com" }],
+        loading: false,
+        rendererLifecycle: "running",
+        tabId: "native-tab-1",
+        title: "Example",
+        url: "https://example.com",
+      },
+      ...(includeSecondTab ? [{
+        activeHistoryIndex: 0,
+        captures: [],
+        history: [{ title: "Second", url: "https://second.example.com" }],
+        loading: false,
+        rendererLifecycle: "running" as const,
+        tabId: "native-tab-2",
+        title: "Second",
+        url: "https://second.example.com",
+      }] : []),
+    ],
   }, {
     observedAt: "2026-08-18T08:00:00Z",
-    revision: 1,
+    revision,
     sourceId: "native-browser:browser-session-1",
   });
+}
+
+function sidecarBrowserRuntime(snapshot = sidecarBrowserSnapshot()) {
   return {
     activateTab: vi.fn(async () => snapshot),
     back: vi.fn(async () => undefined),
@@ -2672,6 +2687,65 @@ describe("ChatPage", () => {
     await user.click(within(sidecar).getByRole("button", { name: "Close Example tab" }));
     await waitFor(() => expect(browserRuntime.closeSession).toHaveBeenCalledWith("browser-session-1"));
     expect(within(sidecar).queryByRole("tab", { name: "Example" })).toBeNull();
+  });
+
+  it("does not bounce or repeat native activation while stale Browser snapshots settle", async () => {
+    const user = userEvent.setup();
+    const initialSnapshot = sidecarBrowserSnapshot("native-tab-1", true);
+    const settledSnapshot = sidecarBrowserSnapshot("native-tab-2", true, 4);
+    const browserRuntime = sidecarBrowserRuntime(initialSnapshot);
+    let resolveActivation: (snapshot: typeof settledSnapshot) => void = () => undefined;
+    const activation = new Promise<typeof settledSnapshot>((resolve) => {
+      resolveActivation = resolve;
+    });
+    vi.mocked(browserRuntime.activateTab).mockReturnValue(activation);
+    let browserListener: ((event: ChatEvent) => void) | undefined;
+    const stores = createStores({
+      browserRuntime,
+      sessions: [{
+        chatId: "chat-1",
+        id: "s1",
+        status: "idle",
+        title: "Planning notes",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        workingDirectory: "D:/code/tinybot",
+      }],
+    });
+    stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
+      browserListener = listener;
+      return () => undefined;
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    await user.click(await screen.findByRole("button", { name: "Show Sidecar" }));
+    const sidecar = screen.getByLabelText("Sidecar");
+    await user.click(within(sidecar).getAllByRole("button", { name: "New Sidecar tab" })[0]);
+    await user.click(screen.getByRole("menuitem", { name: /Browser/ }));
+    await user.click(await within(sidecar).findByRole("tab", { name: "Second" }));
+    await waitFor(() => expect(browserRuntime.activateTab).toHaveBeenCalledTimes(1));
+
+    act(() => browserListener?.({
+      browserSnapshot: sidecarBrowserSnapshot("native-tab-1", true, 2),
+      type: "browser.snapshot",
+    }));
+    await waitFor(() => expect(
+      within(sidecar).getByRole("tab", { name: "Second" }).getAttribute("aria-selected"),
+    ).toBe("true"));
+    act(() => browserListener?.({
+      browserSnapshot: sidecarBrowserSnapshot("native-tab-1", true, 3),
+      type: "browser.snapshot",
+    }));
+
+    expect(browserRuntime.activateTab).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolveActivation(settledSnapshot);
+      await activation;
+    });
+    await waitFor(() => expect(
+      within(sidecar).getByRole("tab", { name: "Second" }).getAttribute("aria-selected"),
+    ).toBe("true"));
+    expect(browserRuntime.activateTab).toHaveBeenCalledTimes(1);
   });
 
   it("places message action buttons under each message on the role side", async () => {

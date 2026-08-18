@@ -55,7 +55,6 @@ export type SidecarEvent =
   | { type: "tab.newBrowser" }
   | {
     type: "tab.syncBrowserSession";
-    activeNativeTabId: string;
     browserSessionId: string;
     tabs: SidecarBrowserSessionTab[];
     threadId: string;
@@ -215,16 +214,8 @@ function syncBrowserSession(
     if (synchronized) return [synchronized];
     return tab.nativeTabId ? [] : [tab];
   }).concat(appended);
-  let activeTabId = state.activeTabId;
-  const activeResource = state.tabs.find((tab) => tab.id === state.activeTabId);
-  if (state.currentThreadId === event.threadId && activeResource?.kind === "browser") {
-    activeTabId = [...synchronizedByResourceId.values()].find((resource) => (
-      resource.nativeTabId === event.activeNativeTabId
-    ))?.id ?? activeTabId;
-  }
   return selectVisibleActiveTab({
     ...state,
-    activeTabId,
     nextResourceSequence,
     tabs,
   });

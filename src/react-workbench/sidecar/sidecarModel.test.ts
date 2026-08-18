@@ -37,7 +37,6 @@ describe("sidecar resource tabs", () => {
     const resourceId = state.activeTabId;
 
     state = reduceSidecarState(state, {
-      activeNativeTabId: "native-tab-1",
       browserSessionId: "browser-session-1",
       tabs: [{ nativeTabId: "native-tab-1", title: "Tinybot Docs" }],
       threadId: "thread-1",
@@ -57,14 +56,12 @@ describe("sidecar resource tabs", () => {
     let state = scopedState();
     state = reduceSidecarState(state, { type: "tab.newBrowser" });
     state = reduceSidecarState(state, {
-      activeNativeTabId: "native-tab-1",
       browserSessionId: "browser-session-1",
       tabs: [{ nativeTabId: "native-tab-1", title: "First" }],
       threadId: "thread-1",
       type: "tab.syncBrowserSession",
     });
     state = reduceSidecarState(state, {
-      activeNativeTabId: "native-tab-2",
       browserSessionId: "browser-session-1",
       tabs: [
         { nativeTabId: "native-tab-1", title: "First" },
@@ -75,6 +72,36 @@ describe("sidecar resource tabs", () => {
     });
 
     expect(visibleSidecarTabs(state).map((tab) => tab.title)).toEqual(["First", "Second"]);
+    expect(activeSidecarTab(state)).toMatchObject({ nativeTabId: "native-tab-1" });
+  });
+
+  it("keeps the user's browser selection while a stale native snapshot settles", () => {
+    let state = scopedState();
+    state = reduceSidecarState(state, { type: "tab.newBrowser" });
+    state = reduceSidecarState(state, {
+      browserSessionId: "browser-session-1",
+      tabs: [
+        { nativeTabId: "native-tab-1", title: "First" },
+        { nativeTabId: "native-tab-2", title: "Second" },
+      ],
+      threadId: "thread-1",
+      type: "tab.syncBrowserSession",
+    });
+    const secondResource = visibleSidecarTabs(state).find((tab) => (
+      tab.kind === "browser" && tab.nativeTabId === "native-tab-2"
+    ));
+
+    state = reduceSidecarState(state, { tabId: secondResource?.id ?? "", type: "tab.activate" });
+    state = reduceSidecarState(state, {
+      browserSessionId: "browser-session-1",
+      tabs: [
+        { nativeTabId: "native-tab-1", title: "First" },
+        { nativeTabId: "native-tab-2", title: "Second" },
+      ],
+      threadId: "thread-1",
+      type: "tab.syncBrowserSession",
+    });
+
     expect(activeSidecarTab(state)).toMatchObject({ nativeTabId: "native-tab-2" });
   });
 
@@ -83,14 +110,12 @@ describe("sidecar resource tabs", () => {
     state = reduceSidecarState(state, { type: "tab.newBrowser" });
     const resourceId = state.activeTabId;
     state = reduceSidecarState(state, {
-      activeNativeTabId: "native-tab-old",
       browserSessionId: "browser-session-old",
       tabs: [{ nativeTabId: "native-tab-old", title: "Old" }],
       threadId: "thread-1",
       type: "tab.syncBrowserSession",
     });
     state = reduceSidecarState(state, {
-      activeNativeTabId: "native-tab-new",
       browserSessionId: "browser-session-new",
       tabs: [{ nativeTabId: "native-tab-new", title: "New" }],
       threadId: "thread-1",

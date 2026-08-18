@@ -312,6 +312,7 @@ export function ChatPage({
   const stickToLatestRef = useRef(true);
   const sidecarRef = useRef(sidecar);
   const browserProvisioningResourceIdRef = useRef("");
+  const browserActivationTargetRef = useRef("");
   sidecarRef.current = sidecar;
   const activeSessionId = sessionTabs.activeSessionId;
   const sessionRuntime = useChatSessionRuntime({
@@ -357,7 +358,6 @@ export function ChatPage({
       acceptBrowserSnapshot(snapshot);
     }
     dispatchSidecar({
-      activeNativeTabId: snapshot.data.activeTabId,
       browserSessionId: snapshot.data.browserSessionId,
       tabs: snapshot.data.tabs.map((tab) => ({
         nativeTabId: tab.tabId,
@@ -438,11 +438,22 @@ export function ChatPage({
     if (!resource?.browserSessionId
       || !resource.nativeTabId
       || !browserRuntime
-      || browserSnapshot?.data.browserSessionId !== resource.browserSessionId
-      || browserSnapshot.data.activeTabId === resource.nativeTabId) return;
+      || browserSnapshot?.data.browserSessionId !== resource.browserSessionId) return;
+    const activationTarget = `${resource.browserSessionId}:${resource.nativeTabId}`;
+    if (browserSnapshot.data.activeTabId === resource.nativeTabId) {
+      if (browserActivationTargetRef.current === activationTarget) {
+        browserActivationTargetRef.current = "";
+      }
+      return;
+    }
+    if (browserActivationTargetRef.current === activationTarget) return;
+    browserActivationTargetRef.current = activationTarget;
     void browserRuntime.activateTab(resource.browserSessionId, resource.nativeTabId)
       .then((snapshot) => synchronizeBrowserSnapshot(snapshot))
       .catch((error) => {
+        if (browserActivationTargetRef.current === activationTarget) {
+          browserActivationTargetRef.current = "";
+        }
         setBrowserProvisionErrors((current) => ({ ...current, [resource.id]: errorMessage(error) }));
       });
   }, [browserSnapshot, chatStore.browserRuntime, sidecarActiveTab, synchronizeBrowserSnapshot]);
