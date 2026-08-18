@@ -1,13 +1,14 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:d09c9260c6fab1cb46a4b3bb6e55c2c6edcf3ed7f5b84d104abcb8d0783348ed -->
+<!-- tinybot-module-fingerprint: sha256:26928f6bafa2ff22fe6da6631b55785146d09c32797c82cf38ede03f7641ffcd -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
-canonical timeline presentation, the composer, and the optional TinyOS canvas.
+canonical timeline presentation, the composer, and detail drawers.
 `ChatPage.tsx` is the route-level composition module.
 
-Chat and TinyOS contracts, commands, and projections live in `app-core/chat`.
-This folder owns React state and presentation. `TinyOsShell` and its stylesheet
-remain behind the Live Canvas lazy-loading seam.
+Chat contracts, commands, and projections live in `app-core/chat`. This folder
+owns React state and presentation. Browser runtime snapshots are retained by the
+session runtime for the native WebView2 integration; the retired TinyOS desktop
+surface is not part of this route.
 
 Desktop-level project and session-search dialogs keep their domain actions in
 this module while delegating modal focus, keyboard, dismissal, and scroll-lock

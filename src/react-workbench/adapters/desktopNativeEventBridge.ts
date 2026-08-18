@@ -7,7 +7,6 @@ import {
 } from "../../app-core/agent-ui/agentUiEvents";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import type { DesktopChatSessionController } from "../../app-core/chat/desktopChatSessionController";
-import type { TinyOsDirectHostCommand } from "../../app-core/chat/tinyOsCommand";
 import { normalizeNativeBrowserSnapshot } from "../../app-core/native/desktopNativeBrowser";
 import { logDesktopNativeDebug } from "../../app-core/native/desktopNativeChatDebug";
 import { logRendererEvent } from "../../app-core/native/rendererLogger";
@@ -30,17 +29,8 @@ const NATIVE_EVENT_NAMES = [
   toDesktopNativeTauriEventName("agent.timeline.patch"),
   toDesktopNativeTauriEventName("agent.awaiting_form"),
   "tinyos:browser-snapshot",
-  "tinyos:host-operation",
 ] as const;
 const MAX_LOGGED_ERROR_LENGTH = 500;
-
-type TinyOsHostOperationUpdate = {
-  commandId: string;
-  error?: string;
-  operationId: string;
-  sessionId: string;
-  status: "running" | "completed" | "failed" | "cancelled";
-};
 
 export function createDesktopNativeEventBridge({
   controller,
@@ -204,30 +194,6 @@ export function createDesktopNativeEventBridge({
     }
   }
 
-  function handleHostOperation(event: NativeEvent): void {
-    const update = normalizeTinyOsHostOperationUpdate(event.payload);
-    if (!update) {
-      const error = "Native host operation event is missing commandId, operationId, sessionId, or status.";
-      reportNativeEventBridgeError("hostOperation", error, summarizeHostOperation(event.payload));
-      notifyAll({ type: "host.operation.error", error });
-      return;
-    }
-    logDesktopNativeDebug("nativeEventBridge.hostOperation.accepted", {
-      commandId: update.commandId,
-      hasError: Boolean(update.error),
-      operationId: update.operationId,
-      sessionId: update.sessionId,
-      status: update.status,
-    });
-    notifySession(update.sessionId, {
-      commandId: update.commandId,
-      error: update.error,
-      operationId: update.operationId,
-      operationStatus: update.status,
-      type: "host.operation",
-    });
-  }
-
   return {
     async register() {
       const startedAt = readMonotonicNow();
@@ -239,7 +205,6 @@ export function createDesktopNativeEventBridge({
           listen(NATIVE_EVENT_NAMES[0], handleTimelinePatch),
           listen(NATIVE_EVENT_NAMES[1], handleAgentForm),
           listen(NATIVE_EVENT_NAMES[2], handleBrowserSnapshot),
-          listen(NATIVE_EVENT_NAMES[3], handleHostOperation),
         ]);
         logDesktopNativeDebug("nativeEventBridge.register.complete", {
           durationMs: roundedDuration(readMonotonicNow() - startedAt),
@@ -257,20 +222,6 @@ export function createDesktopNativeEventBridge({
       return Array.from(agentUiState.forms.values()).filter((form) => formMatchesSession(form, sessionId));
     },
     notifyTerminalTimelineState,
-    hostOperationUpdateFromDispatch(
-      command: TinyOsDirectHostCommand,
-      value: unknown,
-    ): Pick<TinyOsHostOperationUpdate, "error" | "status"> {
-      const root = isRecord(value) ? value : {};
-      const operation = isRecord(root.operation) ? root.operation : {};
-      if (command.kind === "terminal.cancel") return { status: "cancelled" };
-      const status = normalizeTinyOsHostOperationStatus(operation.status);
-      if (status) {
-        const error = stringValue(operation.error ?? operation.reason);
-        return { status, ...(error ? { error } : {}) };
-      }
-      return { status: "completed" };
-    },
   };
 }
 
@@ -280,34 +231,6 @@ function formMatchesSession(form: AgentUiForm, sessionId: string): boolean {
   return sessionKey === sessionId
     || chatId === sessionId
     || (Boolean(chatId) && sessionId.endsWith(`:${chatId}`));
-}
-
-function normalizeTinyOsHostOperationUpdate(value: unknown): TinyOsHostOperationUpdate | undefined {
-  if (!isRecord(value)) return undefined;
-  const commandId = stringValue(value.commandId);
-  const operationId = stringValue(value.operationId);
-  const sessionId = stringValue(value.sessionId);
-  const status = normalizeTinyOsHostOperationStatus(value.status);
-  if (!commandId || !operationId || !sessionId || !status) return undefined;
-  const error = stringValue(value.error);
-  return {
-    commandId,
-    operationId,
-    sessionId,
-    status,
-    ...(error ? { error } : {}),
-  };
-}
-
-function normalizeTinyOsHostOperationStatus(
-  value: unknown,
-): TinyOsHostOperationUpdate["status"] | undefined {
-  const status = stringValue(value);
-  if (status === "running" || status === "completed" || status === "failed" || status === "cancelled") {
-    return status;
-  }
-  if (status === "user_required") return "completed";
-  return undefined;
 }
 
 function errorMessage(error: unknown): string {
@@ -344,16 +267,6 @@ function summarizeTimelinePatch(payload: unknown): Record<string, unknown> {
     sessionId: stringValue(root.sessionId),
     snapshotRevision: numberValue(root.snapshotRevision),
     turnId: stringValue(root.turnId),
-  });
-}
-
-function summarizeHostOperation(payload: unknown): Record<string, unknown> {
-  const root = isRecord(payload) ? payload : {};
-  return compactDebugDetails({
-    commandId: stringValue(root.commandId),
-    operationId: stringValue(root.operationId),
-    sessionId: stringValue(root.sessionId),
-    status: stringValue(root.status),
   });
 }
 

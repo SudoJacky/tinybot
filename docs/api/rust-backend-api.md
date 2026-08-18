@@ -17,7 +17,7 @@ entire backend inventory.
 | Agent turns, provider behavior, cancellation, and checkpoints | [Agent runtime](agent-runtime.md) |
 | Timeline queries, memory, persistence, project groups, and Threads | [Threads and memory](threads-and-memory.md) |
 | Skills, Agent Plugins, and workspace operations | [Workspace and extensions](workspace-and-extensions.md) |
-| Shell sessions, background work, subagents, host operations, and browser sessions | [Tools and processes](tools-and-processes.md) |
+| Shell sessions, background work, subagents, Chat retry compatibility, and browser sessions | [Tools and processes](tools-and-processes.md) |
 | Rust-owned WebUI routes and Worker/MCP RPC methods | [WebUI and Worker RPC](webui-and-worker-rpc.md) |
 | Live runtime events emitted through Tauri | [Tauri events](events.md) |
 
@@ -113,7 +113,7 @@ Prefer these wrappers instead of direct command strings:
 | `createDesktopNativeConfigApi` | `src/app-core/native/desktopNativeConfig.ts` | Config snapshot |
 | `createDesktopNativeUpdateClient` | `src/app-core/native/desktopNativeUpdate.ts` | Desktop update status, check, install, and status events |
 | `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread, Turn timeline, and effective-capability commands |
-| `createDesktopNativeHostCommandApi` | `src/app-core/native/desktopNativeHostCommand.ts` | Remaining non-chat TinyOS host commands |
+| `createDesktopNativeHostCommandApi` | `src/app-core/native/desktopNativeHostCommand.ts` | Transitional Chat `operation.retry` dispatch |
 | `createDesktopNativeWebuiApi` | `src/app-core/native/desktopNativeWebui.ts` | `worker_webui_route` |
 
 ## Examples

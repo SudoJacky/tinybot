@@ -3,30 +3,10 @@ import { describe, expect, test } from "vitest";
 
 const shellStylesheet = readFileSync(new URL("./workbench.css", import.meta.url), "utf8");
 const chatStylesheet = readFileSync(new URL("../chat/ChatPage.css", import.meta.url), "utf8");
-const tinyOsStylesheet = readFileSync(new URL("../chat/TinyOsShell.css", import.meta.url), "utf8");
 const settingsStylesheet = readFileSync(new URL("../settings/SettingsRoute.css", import.meta.url), "utf8");
 const memoryStylesheet = readFileSync(new URL("../memory/MemoryRoute.css", import.meta.url), "utf8");
 
 describe("workbench CSS interaction contracts", () => {
-  test("keeps the TinyOS backdrop translucent while it is hovered or focused", () => {
-    const backdropInteractionRule = tinyOsStylesheet.match(
-      /button\.tinyos-overlay-backdrop:hover,\s*button\.tinyos-overlay-backdrop:focus-visible\s*\{([^}]+)\}/,
-    );
-
-    expect(backdropInteractionRule?.[1]).toContain("background: rgb(20 20 19 / 18%)");
-  });
-
-  test("keeps TinyOS shell overlays compact and preserves gentle reduced-motion fades", () => {
-    expect(tinyOsStylesheet).toContain("@container (max-width: 520px)");
-    expect(tinyOsStylesheet).toContain(".tinyos-shell-overlay");
-    expect(tinyOsStylesheet).toContain("max-height: calc(100% - 8px)");
-    expect(tinyOsStylesheet).toContain("grid-template-columns: minmax(0, 1fr)");
-    expect(tinyOsStylesheet).toContain("@media (prefers-reduced-motion: reduce)");
-    expect(shellStylesheet).toContain("animation-duration: 1ms !important");
-    expect(tinyOsStylesheet).toContain("transition-duration: 140ms");
-    expect(tinyOsStylesheet).not.toContain("transition-duration: 0ms !important");
-  });
-
   test("keeps conversation rows intrinsic and scopes drawer header layout", () => {
     const conversationRule = chatStylesheet.match(/\.react-conversation-view\s*\{([^}]+)\}/);
     const drawerHeaderRule = chatStylesheet.match(
@@ -57,7 +37,6 @@ describe("workbench CSS interaction contracts", () => {
     expect(queueRule?.[1]).toContain("bottom: calc(100% - 8px)");
     expect(queueRule?.[1]).toContain("max-height: min(160px, 32vh)");
     expect(queueListRule?.[1]).toContain("overflow-y: auto");
-    expect(tinyOsStylesheet).not.toContain("composer-drop-target");
   });
 
   test("keeps tool activity rows compact without shrinking their action controls", () => {
@@ -85,8 +64,6 @@ describe("workbench CSS interaction contracts", () => {
   test("keeps route styles with their lazy-loaded owners", () => {
     expect(shellStylesheet).not.toMatch(/\.(?:tinyos|react-settings|react-memory)-/);
     expect(chatStylesheet).not.toMatch(/\.(?:tinyos|react-settings|react-memory)-/);
-    expect(tinyOsStylesheet).toContain(".tinyos-workspace");
-    expect(tinyOsStylesheet).toContain("@keyframes react-spin");
     expect(settingsStylesheet).toContain(".react-settings-layout");
     expect(settingsStylesheet).toContain("@keyframes react-settings-spin");
     expect(memoryStylesheet).toContain(".react-memory-page");

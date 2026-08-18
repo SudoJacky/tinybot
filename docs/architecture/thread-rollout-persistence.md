@@ -9,7 +9,7 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:25ee2e6372eb9cdd2c62c3cd8f6787fbd4c5ae1cd83e6c92208a07dbbfd16c72 -->
+<!-- tinybot-doc-fingerprint: sha256:dbcd84eea1ab90023b377d0e776854357cb91653faefb95df4ffcfbd5a7a2e8d -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
@@ -25,8 +25,8 @@ Thread
 ```
 
 - A Thread is the durable conversation container.
-- A Turn begins with one user request and owns the resulting work until pause
-  or terminal state.
+- A Turn begins with one user request and owns the resulting work until it
+  waits for typed user input or reaches a terminal state.
 - An Item is one ordered input or output within a Turn. Messages, reasoning,
   tool calls, tool results, plans, forms, and usage are distinct Item kinds.
 - A Message is only model-visible conversational content; it is not a synonym

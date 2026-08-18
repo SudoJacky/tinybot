@@ -11,9 +11,7 @@ import type { ReactChatMessage } from "./messageActions";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import { createTinyOsAgentCancelCommand } from "../../app-core/chat/tinyOsCommand";
 import type { TinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
-import { createTinyOsBrowserSessionSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
 import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefaultsSettings";
-import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
 import { timelineFromReactMessages } from "./test/timelineFixtures";
 import { i18n } from "../i18n";
 
@@ -53,20 +51,9 @@ function readWorkbenchCss(): string {
   return [
     "src/react-workbench/styles/workbench.css",
     "src/react-workbench/chat/ChatPage.css",
-    "src/react-workbench/chat/TinyOsShell.css",
   ].map((path) => readFileSync(path, "utf8")).join("\n");
 }
 
-function dragTransfer(): DataTransfer {
-  const values = new Map<string, string>();
-  return {
-    dropEffect: "none",
-    effectAllowed: "none",
-    getData: (type: string) => values.get(type) ?? "",
-    setData: (type: string, value: string) => values.set(type, value),
-    get types() { return [...values.keys()]; },
-  } as unknown as DataTransfer;
-}
 
 function effectiveCapabilities(threadId: string, cancelAvailable = true): TinyOsEffectiveCapabilities {
   const unavailable = { available: false, reasonCode: "runtime_unsupported", reason: "Not supported." };
@@ -75,24 +62,7 @@ function effectiveCapabilities(threadId: string, cancelAvailable = true): TinyOs
     schemaVersion: "tinybot.effective_capabilities.v2",
     threadId,
     capabilities: {
-      agent: { pause: unavailable, resume: unavailable, cancel: cancelAvailable ? available : unavailable, retry: unavailable },
-      files: { read: available, requestChange: unavailable, directEdit: unavailable, save: unavailable },
-      terminal: {
-        contract: "retained_execution_v1",
-        persistentPty: false,
-        inspect: available,
-        execute: unavailable,
-        cancel: unavailable,
-      },
-      browser: {
-        interactionRequires: "current_real_capture",
-        structured: available,
-        projectionContract: "structured_projection_v1",
-        realCapture: unavailable,
-        sessionContract: "browser_session_v1",
-        sessionSnapshot: false,
-        interact: unavailable,
-      },
+      agent: { cancel: cancelAvailable ? available : unavailable, retry: unavailable },
     },
   };
 }
@@ -196,52 +166,6 @@ function mockTurnSubmit(
   });
 }
 
-function handoffBrowserSnapshot(state: "idle" | "user_required", controlEpoch: number) {
-  return createTinyOsBrowserSessionSnapshot({
-    activeTabId: "tab-handoff",
-    browserSessionId: "browser-handoff",
-    contract: "browser_session_v1",
-    control: {
-      controlEpoch,
-      ...(state === "user_required" ? { reason: "Complete the login verification" } : {}),
-      state,
-    },
-    interaction: {
-      click: state === "idle",
-      key: state === "idle",
-      navigate: state === "idle",
-      scroll: state === "idle",
-      semantic: true,
-      type: state === "idle",
-      wait: state === "idle",
-    },
-    kind: "browser_session",
-    lifecycle: "ready",
-    operationId: "operation-browser-handoff",
-    profileId: "profile-browser-handoff",
-    profilePersistence: "persistent",
-    runtimeKind: "windows_webview2",
-    runtimeVersion: "test-webview2",
-    sessionId: "s1",
-    state: "running",
-    tabs: [{
-      activeHistoryIndex: 0,
-      captures: [{ captureId: "capture-handoff", observedAt: "2026-07-29T00:00:00Z", stale: false }],
-      currentCaptureId: "capture-handoff",
-      history: [{ captureId: "capture-handoff", title: "Login", url: "https://example.com/login" }],
-      loading: false,
-      observationRevision: 4,
-      rendererLifecycle: "running",
-      tabId: "tab-handoff",
-      title: "Login",
-      url: "https://example.com/login",
-    }],
-  }, {
-    observedAt: "2026-07-29T00:00:00Z",
-    revision: controlEpoch,
-    sourceId: "browser.handoff",
-  });
-}
 
 function failedPlanTimeline(sessionId = "s1") {
   const timeline = timelineFromReactMessages(sessionId, [{
@@ -431,7 +355,7 @@ describe("ChatPage", () => {
     expect(getComputedStyle(executionContent).paddingLeft).toBe("0px");
   });
 
-  it("renders the React chat layout without legacy header actions", async () => {
+  it("renders the React chat layout without legacy header actions or the retired TinyOS entry", async () => {
     const stores = createStores();
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -443,348 +367,8 @@ describe("ChatPage", () => {
     expect(screen.getByRole("button", { name: "Select model" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Tools" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /delete session/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /TinyOS/i })).toBeNull();
     expect(screen.queryByText(/Agent · rust/i)).toBeNull();
-  });
-
-  it("opens and closes TinyOS from the Chat header with focus restoration", async () => {
-    const stores = createStores();
-    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
-
-    const openButton = await screen.findByRole("button", { name: /^Open TinyOS/ });
-    expect(openButton.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByLabelText("TinyOS shared desktop")).toBeNull();
-
-    fireEvent.click(openButton);
-
-    const canvas = screen.getByLabelText("TinyOS shared desktop");
-    mountWorkbenchCss();
-    const canvasHeading = within(canvas).getByRole("heading", { name: "TinyOS" });
-    expect(openButton.getAttribute("aria-expanded")).toBe("true");
-    expect(getComputedStyle(openButton).minWidth).toBe("44px");
-    expect(document.querySelector(".react-chat-page")?.getAttribute("data-live-canvas-open")).toBe("true");
-    await waitFor(() => expect(canvas.querySelector('[aria-label="Terminal window"]')).toBeTruthy());
-    expect(canvas.querySelector(".tinyos-system-bar__status")).toBeNull();
-    expect(document.activeElement).toBe(canvasHeading);
-
-    const closeButton = canvas.querySelector<HTMLButtonElement>('[aria-label="Close TinyOS desktop"]')!;
-    expect(getComputedStyle(closeButton).minWidth).toBe("44px");
-    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
-    fireEvent.click(closeButton);
-
-    const closeTimerIndex = setTimeoutSpy.mock.calls.findIndex(([, delay]) => delay === 160);
-    const closeTimer = setTimeoutSpy.mock.calls[closeTimerIndex]?.[0];
-    window.clearTimeout(setTimeoutSpy.mock.results[closeTimerIndex]?.value);
-    setTimeoutSpy.mockRestore();
-    expect(closeTimerIndex).toBeGreaterThanOrEqual(0);
-    expect(canvas.isConnected).toBe(true);
-    expect(canvas.getAttribute("data-state")).toBe("closing");
-    await act(async () => {
-      expect(closeTimer).toEqual(expect.any(Function));
-      (closeTimer as () => void)();
-    });
-    expect(canvas.isConnected).toBe(false);
-    expect(openButton.getAttribute("aria-label")).toMatch(/^Open TinyOS/);
-    expect(document.activeElement).toBe(openButton);
-  }, 10_000);
-
-  it("does not create a browser session until TinyOS or an Agent web tool needs it", async () => {
-    const user = userEvent.setup();
-    const stores = createStores();
-    const createSession = vi.fn(async () => handoffBrowserSnapshot("idle", 0));
-    stores.chatStore.browserRuntime = {
-      createSession,
-      updateSurface: vi.fn(async () => handoffBrowserSnapshot("idle", 0)),
-    } as unknown as NativeBrowserRuntimeApi;
-
-    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 29, 0, 0, 0)} sessionStore={stores.sessionStore} />);
-
-    await screen.findByText("Can you help?");
-    expect(createSession).not.toHaveBeenCalled();
-    expect(screen.queryByLabelText("TinyOS shared desktop")).toBeNull();
-    await user.click(screen.getByRole("button", { name: /^Open TinyOS/ }));
-    await waitFor(() => expect(createSession).toHaveBeenCalledWith({ ownerSessionId: "s1" }));
-  });
-
-  it("releases the TinyOS browser session on explicit exit and recreates it when reopened", async () => {
-    const user = userEvent.setup();
-    const stores = createStores();
-    const snapshot = handoffBrowserSnapshot("idle", 0);
-    const createSession = vi.fn(async () => snapshot);
-    const closeSession = vi.fn(async () => undefined);
-    stores.chatStore.browserRuntime = {
-      closeSession,
-      createSession,
-      updateSurface: vi.fn(async () => snapshot),
-    } as unknown as NativeBrowserRuntimeApi;
-
-    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 29, 0, 0, 0)} sessionStore={stores.sessionStore} />);
-
-    await screen.findByText("Can you help?");
-    expect(createSession).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: /^Open TinyOS/ }));
-    await waitFor(() => expect(createSession).toHaveBeenCalledTimes(1));
-    await user.click(await screen.findByRole("button", { name: "Exit TinyOS and release browser" }));
-
-    await waitFor(() => expect(closeSession).toHaveBeenCalledWith("browser-handoff"));
-    await waitFor(() => expect(screen.queryByLabelText("TinyOS shared desktop")).toBeNull());
-    await user.click(screen.getByRole("button", { name: /^Open TinyOS/ }));
-    await waitFor(() => expect(createSession).toHaveBeenCalledTimes(2));
-  });
-
-  it("opens the handed-off browser and continues the Agent after explicit completion", async () => {
-    const stores = createStores();
-    const handoff = handoffBrowserSnapshot("user_required", 7);
-    const idle = handoffBrowserSnapshot("idle", 8);
-    let currentSnapshot = handoff;
-    let listener: ((event: ChatEvent) => void) | undefined;
-    stores.chatStore.subscribe = vi.fn((_sessionId, nextListener) => {
-      listener = nextListener;
-      return () => undefined;
-    });
-    const interact = vi.fn(async () => {
-      currentSnapshot = idle;
-      listener?.({ browserSnapshot: idle, type: "browser.snapshot" });
-    });
-    stores.chatStore.browserRuntime = {
-      createSession: vi.fn(async () => currentSnapshot),
-      interact,
-      snapshot: vi.fn(async () => currentSnapshot),
-      updateSurface: vi.fn(async () => currentSnapshot),
-    } as unknown as NativeBrowserRuntimeApi;
-    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 29, 0, 0, 0)} sessionStore={stores.sessionStore} />);
-
-    await waitFor(() => expect(listener).toBeTruthy());
-    act(() => listener?.({ browserSnapshot: handoff, type: "browser.snapshot" }));
-
-    const canvas = await screen.findByLabelText("TinyOS shared desktop");
-    const browser = await within(canvas).findByLabelText("Browser window");
-    expect(browser.getAttribute("data-active")).toBe("true");
-    await userEvent.click(within(browser).getByRole("button", { name: "Hand control back to Agent" }));
-
-    expect(interact).toHaveBeenCalledWith(expect.objectContaining({
-      action: { type: "resume" },
-      browserSessionId: "browser-handoff",
-      controlEpoch: 7,
-      tabId: "tab-handoff",
-    }));
-    await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
-      text: "I completed the required action in the browser. Read the current page again and continue from where control was handed off.",
-    }));
-  });
-
-  it("does not continue the Agent from an idle snapshot without explicit user hand-back", async () => {
-    const stores = createStores();
-    const handoff = handoffBrowserSnapshot("user_required", 7);
-    const idle = handoffBrowserSnapshot("idle", 8);
-    let listener: ((event: ChatEvent) => void) | undefined;
-    stores.chatStore.subscribe = vi.fn((_sessionId, nextListener) => {
-      listener = nextListener;
-      return () => undefined;
-    });
-    stores.chatStore.browserRuntime = {
-      createSession: vi.fn(async () => handoff),
-      updateSurface: vi.fn(async () => handoff),
-    } as unknown as NativeBrowserRuntimeApi;
-    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 29, 0, 0, 0)} sessionStore={stores.sessionStore} />);
-
-    await waitFor(() => expect(listener).toBeTruthy());
-    act(() => listener?.({ browserSnapshot: handoff, type: "browser.snapshot" }));
-    act(() => listener?.({ browserSnapshot: idle, type: "browser.snapshot" }));
-
-    await waitFor(() => expect(screen.getByLabelText("TinyOS shared desktop")).toBeTruthy());
-    expect(turnSubmitCommands(stores.chatStore)).toEqual([]);
-  });
-
-  it("attaches a TinyOS file range as a visible composer chip and structured chat reference", async () => {
-    const user = userEvent.setup();
-    const stores = createStores();
-    const timeline = timelineFromReactMessages("s1", [{
-      id: "u-tinyos-reference",
-      role: "user" as const,
-      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
-      text: "Inspect this file",
-      status: "complete" as const,
-    }]);
-    timeline.turns[0].steps = [{
-      agentContext: { id: "main", title: "Tinybot", type: "main" },
-      id: "file-reference",
-      kind: "tool_call",
-      sequence: 1,
-      status: "completed",
-      title: "workspace.read_file",
-      toolCall: {
-        argsJson: { path: "src/main.ts", revision: "rev-1" },
-        id: "file-reference",
-        name: "workspace.read_file",
-        resultPreview: "const value = 1;\nexport { value };",
-      },
-    }];
-    timeline.turns[0].executionItems = timeline.turns[0].steps;
-    timeline.turns[0].status = "completed";
-    stores.chatStore.load = vi.fn(async () => timeline);
-    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
-
-    await user.click(await screen.findByRole("button", { name: /^Open TinyOS/ }));
-    const filesWindow = screen.getByLabelText("Files window");
-    await user.click(within(filesWindow).getByRole("button", { name: "const value = 1;" }));
-    await user.click(within(filesWindow).getByRole("button", { name: "Attach src/main.ts · L1" }));
-
-    const attachments = screen.getByLabelText("Composer attachments");
-    expect(within(attachments).getByText("src/main.ts · L1")).toBeTruthy();
-    await user.type(screen.getByRole("textbox", { name: "Message" }), "Explain this line");
-    await user.click(screen.getByRole("button", { name: "Send message" }));
-
-    await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", expect.objectContaining({
-      references: [expect.objectContaining({
-        evidenceId: "file-reference",
-        sourceLine: 1,
-        sourceEndLine: 1,
-        sourcePath: "src/main.ts",
-        sourceText: "const value = 1;",
-        title: "src/main.ts · L1",
-        type: "tinyos.file",
-        revision: "rev-1",
-      })],
-      text: "Explain this line",
-    })));
-    expect(screen.queryByText("src/main.ts · L1")).toBeNull();
-  });
-
-  it("attaches a dragged TinyOS file reference to the Chat composer", async () => {
-    const user = userEvent.setup();
-    const stores = createStores();
-    const timeline = timelineFromReactMessages("s1", [{
-      id: "u-tinyos-drag-reference",
-      role: "user" as const,
-      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
-      text: "Inspect this file",
-      status: "complete" as const,
-    }]);
-    timeline.turns[0].steps = [{
-      agentContext: { id: "main", title: "Tinybot", type: "main" },
-      id: "file-drag-reference",
-      kind: "tool_call",
-      sequence: 1,
-      status: "completed",
-      title: "workspace.read_file",
-      toolCall: {
-        argsJson: { path: "src/drag.ts" },
-        id: "file-drag-reference",
-        name: "workspace.read_file",
-        resultPreview: "export const dragged = true;",
-      },
-    }];
-    timeline.turns[0].executionItems = timeline.turns[0].steps;
-    stores.chatStore.load = vi.fn(async () => timeline);
-    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
-
-    await user.click(await screen.findByRole("button", { name: /^Open TinyOS/ }));
-    const filesWindow = screen.getByLabelText("Files window");
-    await user.click(within(filesWindow).getByRole("button", { name: "export const dragged = true;" }));
-    const source = within(filesWindow).getByRole("button", { name: /Attach src\/drag\.ts/ });
-    const target = document.querySelector<HTMLElement>(".react-composer-drop-target")!;
-    const dataTransfer = dragTransfer();
-
-    fireEvent.dragStart(source, { dataTransfer });
-    fireEvent.dragOver(target, { dataTransfer });
-    fireEvent.drop(target, { dataTransfer });
-
-    expect(within(screen.getByLabelText("Composer attachments")).getByText("src/drag.ts · L1")).toBeTruthy();
-  });
-
-  it("opens exact timeline items in history and returns to the latest live frame", async () => {
-    const user = userEvent.setup();
-    const stores = createStores();
-    let listener: ((event: ChatEvent) => void) | undefined;
-    stores.chatStore.subscribe = vi.fn((_sessionId, nextListener) => {
-      listener = nextListener;
-      return () => undefined;
-    });
-    const timeline = timelineFromReactMessages("s1", [{
-      id: "u-live-canvas",
-      role: "user" as const,
-      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
-      text: "Inspect the project",
-      status: "complete" as const,
-    }]);
-    const turn = timeline.turns[0];
-    turn.status = "running";
-    turn.steps = [
-      {
-        agentContext: { id: "main", title: "Tinybot", type: "main" },
-        id: "canvas-file",
-        kind: "tool_call",
-        sequence: 1,
-        status: "completed",
-        title: "workspace.read_file",
-        toolCall: {
-          argsJson: { path: "src/main.ts" },
-          id: "canvas-file-call",
-          name: "workspace.read_file",
-          resultPreview: "export const ready = true;",
-        },
-      },
-      {
-        agentContext: { id: "main", title: "Tinybot", type: "main" },
-        id: "canvas-plan",
-        kind: "plan",
-        plan: {
-          completed: 1,
-          currentStep: "Verify output",
-          steps: [
-            { status: "completed", step: "Inspect files" },
-            { status: "in_progress", step: "Verify output" },
-          ],
-          total: 2,
-        },
-        sequence: 2,
-        status: "running",
-        title: "Execution plan",
-      },
-    ];
-    turn.executionItems = turn.steps;
-    stores.chatStore.load = vi.fn(async () => timeline);
-
-    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
-
-    await user.click(await screen.findByRole("button", { name: /^Open TinyOS/ }));
-    let canvas = screen.getByLabelText("TinyOS shared desktop");
-    expect(canvas.querySelector(".tinyos-system-bar__status")).toBeNull();
-    expect(within(canvas).getByRole("heading", { name: "Execution plan" })).toBeTruthy();
-    expect(within(canvas).getByText("Verify output")).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "Open details for Inspected main.ts" }));
-    canvas = screen.getByLabelText("TinyOS shared desktop");
-    expect(canvas.querySelector(".tinyos-system-bar__status")).toBeNull();
-    expect(within(canvas).getByRole("article", { name: "Files window" })).toBeTruthy();
-    expect(within(canvas).getAllByText("workspace.read_file").length).toBeGreaterThan(0);
-    expect(within(canvas).getAllByText("src/main.ts").length).toBeGreaterThan(0);
-    expect(within(canvas).getByText("export const ready = true;")).toBeTruthy();
-
-    const terminalStep = {
-      agentContext: { id: "main", title: "Tinybot", type: "main" } as const,
-      id: "canvas-terminal",
-      kind: "tool_call" as const,
-      sequence: 3,
-      status: "running" as const,
-      summary: "Running verification",
-      title: "shell.execute",
-      toolCall: { argsJson: { command: "npm test" }, id: "canvas-terminal-call", name: "shell.execute" },
-    };
-    const nextSteps = [...turn.steps, terminalStep];
-    const nextTimeline = {
-      ...timeline,
-      turns: [{ ...turn, executionItems: nextSteps, steps: nextSteps }],
-    };
-    act(() => listener?.({ timeline: nextTimeline, type: "agent_timeline_updated" } as ChatEvent));
-    expect(canvas.querySelector(".tinyos-system-bar__status")).toBeNull();
-    expect(within(canvas).getAllByText("src/main.ts").length).toBeGreaterThan(0);
-
-    await user.click(within(canvas).getByRole("button", { name: "Return to live desktop" }));
-    expect(within(canvas).queryByRole("button", { name: "Return to live desktop" })).toBeNull();
-    expect(within(canvas).getByRole("article", { name: "Terminal window" })).toBeTruthy();
-    expect(within(canvas).getAllByText("shell.execute").length).toBeGreaterThan(0);
-    expect(within(canvas).getByRole("heading", { name: "TinyOS" })).toBeTruthy();
   });
 
   it("collapses and expands the session sidebar without losing session access", async () => {
@@ -1472,7 +1056,7 @@ describe("ChatPage", () => {
     expectTurnSubmit(stores.chatStore, "s1", {
       reasoningEffort: "medium",
       references: [{
-        detail: "TinyOS conversation snapshot",
+        detail: "Conversation snapshot",
         kind: "reference",
         revision: String(Date.UTC(2026, 6, 4, 11, 59, 0)),
         scope: "s2",
@@ -4280,7 +3864,6 @@ describe("ChatPage", () => {
     vi.mocked(stores.chatStore.load).mockResolvedValue(runningTimeline);
     const capabilities = effectiveCapabilities("s1");
     capabilities.evaluatedTurnId = run.id;
-    capabilities.capabilities.agent.pause = { available: true };
     vi.mocked(stores.chatStore.loadTinyOsCapabilities).mockResolvedValue(capabilities);
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);

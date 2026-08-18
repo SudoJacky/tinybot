@@ -1,10 +1,10 @@
 # Native Browser Runtime
 <!-- tinybot-module-fingerprint: sha256:9db1c068d76da4e23c1965b54f23a4df1f27672d23fa6e0d0da5bf0dc72daf97 -->
 
-`native_browser` owns the managed WebView2 session used by TinyOS and native
-Agent browser tools. Direct user input and Agent actions operate the same child
-WebView and profile, so tabs, navigation, cookies, and authenticated state stay
-synchronized.
+`native_browser` owns the managed WebView2 session used by native Agent browser
+tools and attachable desktop browser surfaces. Direct user input and Agent
+actions can operate the same child WebView and profile, so tabs, navigation,
+cookies, and authenticated state stay synchronized.
 
 The runtime is included in the default Windows desktop build. Builds without
 the feature report `feature_disabled`; other platforms report
@@ -30,13 +30,13 @@ epoch and invalidates pending Agent work with `user_interrupted`.
 
 Agent cancellation is forwarded to the matching in-flight browser command.
 Capture bytes remain available for native Agent observation but are not
-returned in model tool results or rendered as a TinyOS fallback.
+returned in model tool results.
 
-Agent observation does not require the TinyOS surface to be open. On Windows,
+Agent observation does not require a desktop browser surface to be open. On Windows,
 detached tabs are rendered offscreen only for the duration of a serialized
 observation and return to the hidden state before the tool call continues.
 Surface updates and background observations share the same presentation lock,
-so opening or closing TinyOS cannot race screenshot capture.
+so attaching or detaching a surface cannot race screenshot capture.
 
 See [`tools::web`](../tools/web/README.md) for the model-facing snapshot and
 action contract.
@@ -50,8 +50,9 @@ epoch; profile persistence; bounded semantic targets; and at most one pending
 popup or external-protocol policy request.
 
 Opening or switching to a Chat does not preheat a native browser session. The
-session is created lazily when the Agent first invokes a `web.*` tool or the
-user opens TinyOS, so chats that never browse do not retain WebView2 processes.
+session is created lazily when the Agent first invokes a `web.*` tool or a
+desktop surface explicitly requests one, so chats that never browse do not
+retain WebView2 processes.
 
 Calling `browser_create_session` again with the same owner identity rehydrates
 the existing session. Agent actions include navigation, coordinate or semantic
@@ -96,7 +97,7 @@ silently discarded.
 
 ## Verification
 
-React Browser chrome has DOM coverage. WebView2 process lifecycle, DPI, focus,
+Desktop browser chrome requires renderer coverage. WebView2 process lifecycle, DPI, focus,
 native-surface stacking, remote-page IPC isolation, and real capture require
 Windows integration coverage.
 

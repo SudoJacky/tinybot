@@ -58,7 +58,6 @@ pub(crate) struct TurnExecutionStatus {
     pub(crate) active: bool,
     pub(crate) cancellation_requested: bool,
     pub(crate) cancellation_reason: Option<String>,
-    pub(crate) pause_requested: bool,
     pub(crate) checkpoint_ref: Option<String>,
     pub(crate) terminal_outcome: Option<String>,
     pub(crate) late_results_ignored: usize,
@@ -72,14 +71,6 @@ pub(crate) struct CancelOutcome {
     pub(crate) reason: String,
     pub(crate) active_task_removed: bool,
     pub(crate) cleanup_pending: bool,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PauseOutcome {
-    pub(crate) turn_id: String,
-    pub(crate) state: String,
-    pub(crate) command_id: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -138,25 +129,10 @@ struct OwnedTurnExecution {
     request: StartAgentTurn,
     generation: u64,
     cancellation: CancellationToken,
-    pause: Arc<TurnPauseControl>,
     completion: Arc<TurnExecutionCompletion>,
     execution: OwnedExecutionHandle,
     prior_waiting_phase: Option<String>,
     prior_checkpoint_ref: Option<String>,
-}
-
-#[derive(Default)]
-struct TurnPauseControl {
-    state: Mutex<AgentPauseState>,
-    changed: Notify,
-}
-
-#[derive(Default)]
-struct AgentPauseState {
-    requested: bool,
-    paused: bool,
-    pause_command_id: Option<String>,
-    resume_command_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -481,202 +457,6 @@ impl TurnExecutionRuntime {
             generation,
             completion: task.completion,
         })
-    }
-
-    pub(crate) fn request_pause(
-        &self,
-        turn_id: &str,
-        command_id: &str,
-    ) -> Result<PauseOutcome, TurnExecutionError> {
-        let turn_id = turn_id.trim();
-        let command_id = command_id.trim();
-        if command_id.is_empty() {
-            return Err(TurnExecutionError::new(
-                "agent pause command ID must not be empty",
-            ));
-        }
-        let mut state = self
-            .inner
-            .state
-            .lock()
-            .expect("agent task runtime state lock should not be poisoned");
-        let pause = state
-            .active
-            .get(turn_id)
-            .map(|task| task.pause.clone())
-            .ok_or_else(|| {
-                TurnExecutionError::new(format!("active agent turn `{turn_id}` was not found"))
-            })?;
-        let status = state.statuses.get_mut(turn_id).ok_or_else(|| {
-            TurnExecutionError::new(format!("agent turn `{turn_id}` status disappeared"))
-        })?;
-        if !status.active {
-            return Err(TurnExecutionError::new(format!(
-                "agent turn `{turn_id}` completed before pause could be requested"
-            )));
-        }
-        if status.cancellation_requested {
-            return Err(TurnExecutionError::new(format!(
-                "agent turn `{turn_id}` is already cancelling"
-            )));
-        }
-        let mut pause_state = pause
-            .state
-            .lock()
-            .expect("agent pause state lock should not be poisoned");
-        if pause_state.requested {
-            return Err(TurnExecutionError::new(format!(
-                "agent turn `{turn_id}` already has a pending pause"
-            )));
-        }
-        pause_state.requested = true;
-        pause_state.pause_command_id = Some(command_id.to_string());
-        pause_state.resume_command_id = None;
-        status.phase = "pause_requested".to_string();
-        status.pause_requested = true;
-        Ok(PauseOutcome {
-            turn_id: turn_id.to_string(),
-            state: "pause_requested".to_string(),
-            command_id: command_id.to_string(),
-        })
-    }
-
-    pub(crate) fn request_resume(
-        &self,
-        turn_id: &str,
-        command_id: &str,
-    ) -> Result<PauseOutcome, TurnExecutionError> {
-        let turn_id = turn_id.trim();
-        let command_id = command_id.trim();
-        if command_id.is_empty() {
-            return Err(TurnExecutionError::new(
-                "agent resume command ID must not be empty",
-            ));
-        }
-        let pause = {
-            let state = self
-                .inner
-                .state
-                .lock()
-                .expect("agent task runtime state lock should not be poisoned");
-            state
-                .active
-                .get(turn_id)
-                .map(|task| task.pause.clone())
-                .ok_or_else(|| {
-                    TurnExecutionError::new(format!("paused agent turn `{turn_id}` was not found"))
-                })?
-        };
-        {
-            let mut pause_state = pause
-                .state
-                .lock()
-                .expect("agent pause state lock should not be poisoned");
-            if !pause_state.requested || !pause_state.paused {
-                return Err(TurnExecutionError::new(format!(
-                    "agent turn `{turn_id}` has not reached a paused boundary"
-                )));
-            }
-            pause_state.requested = false;
-            pause_state.resume_command_id = Some(command_id.to_string());
-        }
-        let mut state = self
-            .inner
-            .state
-            .lock()
-            .expect("agent task runtime state lock should not be poisoned");
-        let status = state.statuses.get_mut(turn_id).ok_or_else(|| {
-            TurnExecutionError::new(format!("agent turn `{turn_id}` status disappeared"))
-        })?;
-        status.phase = "resuming".to_string();
-        status.pause_requested = false;
-        pause.changed.notify_waiters();
-        Ok(PauseOutcome {
-            turn_id: turn_id.to_string(),
-            state: "resume_requested".to_string(),
-            command_id: command_id.to_string(),
-        })
-    }
-
-    pub(crate) fn begin_pause(&self, turn_id: &str) -> Option<String> {
-        let pause = self
-            .inner
-            .state
-            .lock()
-            .expect("agent task runtime state lock should not be poisoned")
-            .active
-            .get(turn_id)
-            .map(|task| task.pause.clone())?;
-        let command_id = {
-            let mut pause_state = pause
-                .state
-                .lock()
-                .expect("agent pause state lock should not be poisoned");
-            if !pause_state.requested || pause_state.paused {
-                return None;
-            }
-            pause_state.paused = true;
-            pause_state.pause_command_id.clone()?
-        };
-        if let Some(status) = self
-            .inner
-            .state
-            .lock()
-            .expect("agent task runtime state lock should not be poisoned")
-            .statuses
-            .get_mut(turn_id)
-        {
-            status.phase = "paused".to_string();
-            status.pause_requested = true;
-        }
-        Some(command_id)
-    }
-
-    pub(crate) async fn wait_for_resume(
-        &self,
-        turn_id: &str,
-    ) -> Result<String, TurnExecutionError> {
-        let pause = self
-            .inner
-            .state
-            .lock()
-            .expect("agent task runtime state lock should not be poisoned")
-            .active
-            .get(turn_id)
-            .map(|task| task.pause.clone())
-            .ok_or_else(|| {
-                TurnExecutionError::new(format!("paused agent turn `{turn_id}` was not found"))
-            })?;
-        loop {
-            let changed = pause.changed.notified();
-            if let Some(command_id) = {
-                let mut pause_state = pause
-                    .state
-                    .lock()
-                    .expect("agent pause state lock should not be poisoned");
-                if pause_state.requested {
-                    None
-                } else {
-                    pause_state.paused = false;
-                    pause_state.pause_command_id = None;
-                    pause_state.resume_command_id.take()
-                }
-            } {
-                if let Some(status) = self
-                    .inner
-                    .state
-                    .lock()
-                    .expect("agent task runtime state lock should not be poisoned")
-                    .statuses
-                    .get_mut(turn_id)
-                {
-                    status.phase = "running".to_string();
-                    status.pause_requested = false;
-                }
-                return Ok(command_id);
-            }
-            changed.await;
-        }
     }
 
     pub(crate) fn request_cancel(&self, turn_id: &str, reason: AgentCancelReason) -> CancelOutcome {
@@ -1065,7 +845,6 @@ fn register_turn_execution(
         request: request.clone(),
         generation,
         cancellation: CancellationToken::new(),
-        pause: Arc::new(TurnPauseControl::default()),
         completion: Arc::new(TurnExecutionCompletion::new()),
         execution,
         prior_waiting_phase,
@@ -1081,7 +860,6 @@ fn register_turn_execution(
             active: true,
             cancellation_requested: false,
             cancellation_reason: None,
-            pause_requested: false,
             checkpoint_ref: None,
             terminal_outcome: None,
             late_results_ignored: prior_late_results,

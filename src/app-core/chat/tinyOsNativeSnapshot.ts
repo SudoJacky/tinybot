@@ -1,54 +1,19 @@
-import type {
-  TinyOsProcessState,
-  TinyOsProvenance,
-  TinyOsResourceAccess,
-} from "./tinyOsKernelContracts";
-
-export type TinyOsNativeWorkspaceResource = {
-  access: TinyOsResourceAccess;
-  kind: "workspace_resource";
-  path: string;
-  resourceKind: "directory" | "file";
-  workspaceKey: string;
+type TinyOsProvenance = {
+  kind: "native_query" | "real_capture";
+  observedAt?: string;
+  revision?: number | string;
+  sourceId: string;
 };
 
-export type TinyOsNativeTerminalProcess = {
-  command?: string;
-  droppedBytes?: number;
-  durationMs?: number;
-  executionContract: "retained_execution_v1";
-  exitCode?: number;
-  kind: "terminal_process";
-  networkMode?: "denied" | "unavailable";
-  nativeProcessId: string;
-  outputTruncated?: boolean;
-  operationId: string;
-  sandboxMode?: "read_only" | "unavailable";
-  sessionId: string;
-  state: TinyOsProcessState;
-  stderrBytes?: number;
-  stdoutBytes?: number;
-  toolCallId?: string;
-  workingDirectory?: string;
-};
-
-export type TinyOsRetainedTerminalCapabilityV1 = {
-  cancel: boolean;
-  contract: "retained_execution_v1";
-  persistentPty: false;
-  start: boolean;
-};
-
-export type TinyOsNativeBrowserCapture = {
-  browserSessionId?: string;
-  captureId: string;
-  kind: "browser_capture";
-  realCapture: boolean;
-  stale?: boolean;
-  tabId?: string;
-  title?: string;
-  url?: string;
-};
+type TinyOsProcessState =
+  | "queued"
+  | "running"
+  | "waiting_for_user"
+  | "blocked"
+  | "paused"
+  | "completed"
+  | "failed"
+  | "cancelled";
 
 export type TinyOsBrowserNavigationEntryV1 = {
   captureId?: string;
@@ -150,11 +115,7 @@ export type TinyOsNativeBrowserSession = {
   tabs: TinyOsBrowserTabV1[];
 };
 
-export type TinyOsNativeSnapshotData =
-  | TinyOsNativeWorkspaceResource
-  | TinyOsNativeTerminalProcess
-  | TinyOsNativeBrowserCapture
-  | TinyOsNativeBrowserSession;
+export type TinyOsNativeSnapshotData = TinyOsNativeBrowserSession;
 
 export type TinyOsNativeSnapshot<T extends TinyOsNativeSnapshotData = TinyOsNativeSnapshotData> = {
   data: T;
@@ -170,44 +131,6 @@ type NativeSnapshotMetadata = {
   revision: number | string;
   sourceId: string;
 };
-
-export function createTinyOsWorkspaceResourceSnapshot(
-  data: TinyOsNativeWorkspaceResource,
-  metadata: NativeSnapshotMetadata,
-): TinyOsNativeSnapshot<TinyOsNativeWorkspaceResource> {
-  return createTinyOsNativeSnapshot({
-    ...data,
-    path: requiredText(data.path, "Workspace resource path"),
-    workspaceKey: requiredText(data.workspaceKey, "Workspace key"),
-  }, metadata, "native_query");
-}
-
-export function createTinyOsTerminalProcessSnapshot(
-  data: Omit<TinyOsNativeTerminalProcess, "executionContract"> & { executionContract?: "retained_execution_v1" },
-  metadata: NativeSnapshotMetadata,
-): TinyOsNativeSnapshot<TinyOsNativeTerminalProcess> {
-  return createTinyOsNativeSnapshot({
-    ...data,
-    executionContract: data.executionContract ?? "retained_execution_v1",
-    nativeProcessId: requiredText(data.nativeProcessId, "Native process id"),
-    operationId: requiredText(data.operationId, "Terminal operation id"),
-    sessionId: requiredText(data.sessionId, "Terminal session id"),
-    ...optionalNonNegative(data.droppedBytes, "Terminal dropped bytes", "droppedBytes"),
-    ...optionalNonNegative(data.durationMs, "Terminal duration", "durationMs"),
-    ...optionalNonNegative(data.stderrBytes, "Terminal stderr bytes", "stderrBytes"),
-    ...optionalNonNegative(data.stdoutBytes, "Terminal stdout bytes", "stdoutBytes"),
-  }, metadata, "native_query");
-}
-
-export function createTinyOsBrowserCaptureSnapshot(
-  data: TinyOsNativeBrowserCapture,
-  metadata: NativeSnapshotMetadata,
-): TinyOsNativeSnapshot<TinyOsNativeBrowserCapture> {
-  return createTinyOsNativeSnapshot({
-    ...data,
-    captureId: requiredText(data.captureId, "Browser capture id"),
-  }, metadata, data.realCapture ? "real_capture" : "native_query");
-}
 
 export function createTinyOsBrowserSessionSnapshot(
   data: TinyOsNativeBrowserSession,
@@ -315,14 +238,4 @@ function requiredRevision(value: number | string): number | string {
     return value;
   }
   return requiredText(value, "Native snapshot revision");
-}
-
-function optionalNonNegative<TName extends "droppedBytes" | "durationMs" | "stderrBytes" | "stdoutBytes">(
-  value: number | undefined,
-  label: string,
-  name: TName,
-): Partial<Record<TName, number>> {
-  if (value === undefined) return {};
-  if (!Number.isFinite(value) || value < 0) throw new Error(`${label} must be non-negative.`);
-  return { [name]: value } as Partial<Record<TName, number>>;
 }

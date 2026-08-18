@@ -132,7 +132,8 @@ The desktop route keeps the Rust backend contract as the source of truth and lay
 
 The desktop package does not bundle Chromium. The app UI uses the platform
 WebView, and external links open through the operating system. The default
-Windows build also provides a managed WebView2 session shared by TinyOS and
-the Agent's `web.*` tools. Builds without that feature and non-Windows builds
+Windows build also provides a managed WebView2 session that can be shared by a
+desktop browser surface and the Agent's `web.*` tools. Builds without that
+feature and non-Windows builds
 report browser unavailability explicitly; browser startup must not block the
 native backend or workbench shell.

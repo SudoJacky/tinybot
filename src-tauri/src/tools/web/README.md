@@ -23,11 +23,11 @@ not exposed directly to the Agent.
 
 ## Browser lifecycle
 
-Closing the TinyOS panel hides the surface but keeps its browser session for
-later use. Choosing **Exit TinyOS and release browser**, or deleting the owning
-chat Thread, closes every tab in that session. On Windows, Tinybot calls the
-WebView's `close()` operation and releases its handles. Opening TinyOS again
-creates a session on demand.
+Detaching a desktop browser surface does not implicitly destroy the Agent's
+session. `browser_close_session`, or deleting the owning chat Thread, closes
+every tab in that session. On Windows, Tinybot calls the WebView's `close()`
+operation and releases its handles. A later Agent tool or desktop surface can
+create a new session on demand.
 
 ## Layers
 
@@ -179,13 +179,12 @@ information, file pickers, or similar protected steps for the user. It calls:
 }
 ```
 
-The browser enters `user_required`, and the frontend displays the current page
-and reason. User input, tab switching, and popup or external-protocol handling
-remain under user control and invalidate old snapshots when appropriate. Only
-after the user chooses **Hand control back to Agent** does the frontend read
-the latest control epoch, perform the internal `resume`, and start a short
-continuation turn in the same chat. The Agent then uses `web.read` to obtain a
-new `snapshotId`.
+The browser enters `user_required`. An attached desktop browser surface may
+display the current page and reason, and trusted user input invalidates old
+snapshots when appropriate. Returning control requires the surface to read the
+latest control epoch and perform the internal `resume`; the Agent then uses
+`web.read` to obtain a new `snapshotId`. The current Chat route does not mount
+that surface, so protected handoff remains pending the replacement Sidecar UI.
 
 While `user_required`, the Agent may observe but not act. `resume` is not an
 Agent-visible action. Popup and external-protocol requests keep their separate

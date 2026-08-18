@@ -678,7 +678,6 @@ impl<'a> NativeAgentTurnExecution<'a> {
         if turn_context_is_cancelled(&self.context) {
             return Ok(ExecutionStage::Finished(self.finish_cancelled(iteration)?));
         }
-        honor_pause_request(self.dependencies, &self.context, &mut self.state, iteration).await?;
         if turn_context_is_cancelled(&self.context) {
             return Ok(ExecutionStage::Finished(self.finish_cancelled(iteration)?));
         }
@@ -958,7 +957,6 @@ impl<'a> NativeAgentTurnExecution<'a> {
         mut completed: CompletedProviderIteration,
     ) -> Result<IterationOutcome, String> {
         let iteration = completed.attempt.iteration;
-        honor_pause_request(self.dependencies, &self.context, &mut self.state, iteration).await?;
         let provider_phase_conflict = match completed.attempt.stream.message_phase {
             AgentAssistantMessagePhase::FinalAnswer
                 if !completed.response.tool_calls.is_empty() =>
@@ -1292,64 +1290,6 @@ async fn run_native_agent_turn_with_instructions_async(
         workspace_root,
     )
     .await
-}
-
-async fn honor_pause_request(
-    services: &NativeAgentRuntimeServices,
-    context: &AgentTurnContext,
-    state: &mut AgentTurnState,
-    iteration: i64,
-) -> Result<(), String> {
-    let Some(cancellation) = context.cancellation.as_ref() else {
-        return Ok(());
-    };
-    let Some(pause_command_id) = cancellation.begin_pause() else {
-        return Ok(());
-    };
-    let previous_phase = state.phase.clone();
-    state.transition_phase(
-        AgentRuntimePhase::Paused,
-        iteration,
-        AgentEventKind::Paused.wire_name(),
-    )?;
-    save_phase_checkpoint(
-        services,
-        context,
-        "paused",
-        state.active_checkpoint_payload("waiting"),
-    );
-    state.emit(PendingAgentEvent::new(
-        AgentEventKind::Paused,
-        serde_json::json!({
-            "commandId": pause_command_id,
-            "status": "completed",
-            "message": "Agent turn paused at a safe boundary",
-        }),
-    ))?;
-    let resume_command_id = tokio::select! {
-        result = cancellation.wait_for_resume() => result?,
-        _ = cancellation.cancelled() => return Ok(()),
-    };
-    state.transition_phase(
-        previous_phase,
-        iteration,
-        AgentEventKind::Resumed.wire_name(),
-    )?;
-    save_phase_checkpoint(
-        services,
-        context,
-        state.phase.as_str(),
-        state.active_checkpoint_payload("running"),
-    );
-    state.emit(PendingAgentEvent::new(
-        AgentEventKind::Resumed,
-        serde_json::json!({
-            "commandId": resume_command_id,
-            "status": "completed",
-            "message": "Agent turn resumed",
-        }),
-    ))?;
-    Ok(())
 }
 
 fn append_response_tool_outputs(

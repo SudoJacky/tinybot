@@ -4,10 +4,6 @@ import type { DesktopChatInput } from "../../app-core/chat/desktopCommand";
 import { submitComposerText } from "../../app-core/chat/chatInputState";
 import type { QueuedInput } from "../../app-core/chat/chatUiProjection";
 import type {
-  TinyOsAgentRequestReference,
-  TinyOsContextReference,
-} from "../../app-core/chat/tinyOsUiState";
-import type {
   ComposerFileReference,
   ComposerSendOptions,
   PastedContent,
@@ -46,7 +42,6 @@ export type PrepareChatSubmissionInput = {
   selectedSessionIds: readonly string[];
   sessions: readonly ComposerMentionedSession[];
   t: TFunction<"chat">;
-  tinyOsReferences: readonly TinyOsContextReference[];
 };
 
 export async function prepareChatSubmission(
@@ -57,7 +52,6 @@ export async function prepareChatSubmission(
     if (
       input.files.length
       || input.pastedContent.length
-      || input.tinyOsReferences.length
       || input.selectedSessionIds.length
     ) {
       throw new Error(input.t("errors.compactWithAttachments"));
@@ -74,7 +68,6 @@ export async function prepareChatSubmission(
   });
   const references = [
     ...input.files.map(nativeReferenceFromComposerFile),
-    ...input.tinyOsReferences.map((reference) => nativeReferenceFromTinyOs(reference, input.t)),
     ...await nativeReferencesFromComposerSessions(
       mentionedSessions,
       input.loadSessionTranscript,
@@ -85,9 +78,7 @@ export async function prepareChatSubmission(
     ? input.t("composer.attachedFilesPrompt")
     : mentionedSessions.length
       ? input.t("composer.sessionMention.attachedPrompt")
-      : references.length
-        ? input.t("composer.attachedContextPrompt")
-        : "";
+      : "";
   const visibleText = formatComposerMessage(
     input.message || fallbackMessage,
     input.pastedContent,
@@ -116,56 +107,6 @@ export async function prepareChatSubmission(
     };
   }
   return { kind: "send_message", turnInput, visibleText };
-}
-
-export function tinyOsReferenceLabel(
-  reference: TinyOsContextReference,
-  t: TFunction<"chat">,
-): string {
-  const lineRange = reference.startLine
-    ? `L${reference.startLine}${reference.endLine && reference.endLine !== reference.startLine ? `–${reference.endLine}` : ""}`
-    : t("references.selection");
-  return reference.kind === "file"
-    ? `${reference.path} · ${lineRange}`
-    : `${reference.command} · ${lineRange}`;
-}
-
-export function nativeReferenceFromTinyOs(
-  reference: TinyOsAgentRequestReference,
-  t: TFunction<"chat">,
-): AgentInputReference {
-  const canonical = reference.kind === "file"
-    ? reference.provenance.kind === "canonical" ? reference.provenance : undefined
-    : { sourceItemId: reference.sourceItemId, turnId: reference.turnId };
-  const scope = canonical?.turnId
-    ?? (reference.kind === "file" && reference.provenance.kind === "workspace_read"
-      ? reference.provenance.workspaceKey
-      : undefined);
-  const detail = reference.kind === "file"
-    ? t("references.fileSelection")
-    : reference.kind === "terminal"
-      ? t("references.terminalSelection")
-      : t("references.planSnapshot");
-  const title = reference.kind === "plan"
-    ? t("references.executionPlan")
-    : tinyOsReferenceLabel(reference, t);
-  return {
-    detail,
-    evidenceId: canonical?.sourceItemId,
-    kind: "reference",
-    scope,
-    sourceEndLine: reference.kind === "plan" ? undefined : reference.endLine,
-    sourceLine: reference.kind === "plan" ? undefined : reference.startLine,
-    sourceText: reference.kind === "plan" ? reference.snapshotText : reference.selectedText,
-    title,
-    type: `tinyos.${reference.kind}`,
-    ...(reference.kind === "file" ? {
-      rawLine: reference.startLine,
-      rawPath: reference.path,
-      revision: reference.revision,
-      sourcePath: reference.path,
-    } : {}),
-  };
 }
 
 function createComposerChatInput(

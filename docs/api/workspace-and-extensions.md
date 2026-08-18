@@ -74,8 +74,9 @@ Lower-level workspace RPC also supports:
 }
 ```
 
-TinyOS Files uses revision-bound, paginated read commands instead of loading an unbounded workspace
-tree or file. `worker_workspace_directory` returns a Worker response whose `result` has this shape:
+Workspace browsing uses paginated read commands instead of loading an unbounded
+tree or file. `worker_workspace_directory` returns a Worker response whose
+`result` has this shape:
 
 ```json
 {

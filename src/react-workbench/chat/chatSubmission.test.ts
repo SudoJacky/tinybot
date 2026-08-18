@@ -1,14 +1,13 @@
 import type { TFunction } from "i18next";
 import { describe, expect, test, vi } from "vitest";
 import type { QueuedInput } from "../../app-core/chat/chatUiProjection";
-import type { TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
 import {
   prepareChatSubmission,
   type PrepareChatSubmissionInput,
 } from "./chatSubmission";
 
 describe("prepareChatSubmission", () => {
-  test("builds one canonical input from files, paste, TinyOS context, and bounded session transcripts", async () => {
+  test("builds one canonical input from files, paste, and bounded session transcripts", async () => {
     const longTranscript = "前".repeat(30_000);
     const prepared = await prepareChatSubmission(input({
       files: [{ id: "file-1", mimeType: "text/plain", name: "notes.txt", path: "D:\\notes.txt", sizeBytes: 12 }],
@@ -17,7 +16,6 @@ describe("prepareChatSubmission", () => {
       options: { model: "gpt-5", provider: "openai", reasoningEffort: "high" },
       pastedContent: [{ content: "pasted detail", id: "paste-1", timestamp: new Date(0), wordCount: 2 }],
       selectedSessionIds: ["session-2"],
-      tinyOsReferences: [fileReference()],
     }));
 
     expect(prepared.kind).toBe("send_message");
@@ -30,10 +28,9 @@ describe("prepareChatSubmission", () => {
     });
     expect(prepared.turnInput.references).toEqual([
       expect.objectContaining({ rawPath: "D:\\notes.txt", type: "tinyos.file" }),
-      expect.objectContaining({ sourcePath: "README.md", type: "tinyos.file" }),
       expect.objectContaining({ scope: "session-2", title: "Architecture review", type: "tinyos.thread" }),
     ]);
-    const transcript = prepared.turnInput.references?.[2]?.sourceText ?? "";
+    const transcript = prepared.turnInput.references?.[1]?.sourceText ?? "";
     expect(transcript).toContain("middle conversation content omitted");
     expect(new TextEncoder().encode(transcript).byteLength).toBeLessThanOrEqual(48 * 1024);
   });
@@ -102,13 +99,11 @@ function input(overrides: Partial<PrepareChatSubmissionInput> = {}): PrepareChat
     selectedSessionIds: [],
     sessions: [{ id: "session-2", title: "Architecture review", updatedAtMs: 42 }],
     t,
-    tinyOsReferences: [],
     ...overrides,
   };
 }
 
 const t = ((key: string) => ({
-  "composer.attachedContextPrompt": "Review attached context",
   "composer.attachedFilesPrompt": "Review attached files",
   "composer.pastedContentLabel": "Pasted content",
   "composer.sessionMention.attachedPrompt": "Review attached sessions",
@@ -116,22 +111,7 @@ const t = ((key: string) => ({
   "composer.sessionMention.referenceDetail": "Referenced conversation",
   "composer.sessionMention.unavailable": "Session mention unavailable",
   "errors.compactWithAttachments": "Compact cannot include attachments",
-  "references.executionPlan": "Execution plan",
-  "references.fileSelection": "File selection",
-  "references.planSnapshot": "Plan snapshot",
-  "references.selection": "Selection",
-  "references.terminalSelection": "Terminal selection",
 }[key] ?? key)) as TFunction<"chat">;
-
-function fileReference(): TinyOsContextReference {
-  return {
-    kind: "file",
-    path: "README.md",
-    provenance: { kind: "canonical", sourceItemId: "item-1", turnId: "turn-1" },
-    selectedText: "# Tinybot",
-    startLine: 1,
-  };
-}
 
 function queuedInput(index: number): QueuedInput {
   return {

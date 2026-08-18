@@ -116,7 +116,7 @@ and shutdown terminate descendant processes as well as the root process.
 | Background subagent input | `worker_background_subagent_enqueue_input` |
 | Subagent manager | `worker_subagent_spawn`, `worker_subagent_list`, `worker_subagent_query`, `worker_subagent_send_input`, `worker_subagent_wait`, `worker_subagent_cancel`, `worker_subagent_close`, `worker_subagent_resume` |
 | Task plans | `worker_task_plan_list`, `worker_task_plan_get`, `worker_task_plan_save`, `worker_task_plan_delete` |
-| TinyOS host operations | `worker_dispatch_tinyos_host_command` |
+| Chat retry compatibility | `worker_dispatch_tinyos_host_command` |
 | WebUI proxy | `worker_webui_route` |
 
 ### Subagent lifecycle
@@ -149,21 +149,27 @@ or terminal boundary, the timeout expires, or the parent request is cancelled. T
 to 30 seconds and is capped at 30 seconds. Waiting does not write polling snapshots into thread
 history.
 
-Host command input example:
+Retry command input example:
 
 ```ts
 await invoke("worker_dispatch_tinyos_host_command", {
   input: {
     clientId: "client-1",
-    frame: { type: "command", command_kind: "file.save", path: "notes.txt", content: "hello" },
+    frame: {
+      type: "command",
+      command_kind: "operation.retry",
+      turn_id: "turn-retry-1",
+      source_turn_id: "turn-failed-1",
+      item_id: "turn-failed-1:error"
+    },
     attachedChatId: "thread-1",
-    turnId: "turn-1",
   }
 });
 ```
 
-This dispatcher accepts TinyOS host operations. Chat turns, interruption, and forms use the typed
-Thread commands.
+This transitional dispatcher accepts only `operation.retry`. Chat turns,
+interruption, and forms use the typed Thread commands. Retired desktop file,
+terminal, browser-control, pause/resume, and request-change frames fail closed.
 
 ## Native Browser session runtime
 

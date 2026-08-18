@@ -1,5 +1,5 @@
 # Native Runtime Services
-<!-- tinybot-module-fingerprint: sha256:dfa80cebc5215478cc749a6e2162fe657d13748bb2c6934c899a1f48a8c476c2 -->
+<!-- tinybot-module-fingerprint: sha256:520ec1b871a352cb137f16e65508d08915aa7bf9001261bda38156df2d37bff0 -->
 
 `runtime` owns process-local services that must outlive an individual backend
 request: turn execution ownership, shared MCP connections, startup/shutdown
@@ -10,7 +10,7 @@ desktop or Worker RPC boundaries.
 
 ## Components
 
-- `turn_execution.rs`: ownership and state for active, paused, draining,
+- `turn_execution.rs`: ownership and state for active, waiting, draining,
   cancelled, and terminal agent turns.
 - `mcp.rs`: shared MCP server connections, discovered tools, status, and
   reconciliation.
@@ -22,12 +22,12 @@ desktop or Worker RPC boundaries.
 ## Agent task ownership
 
 `TurnExecutionRuntime` is the authority for live turn execution. A turn has a
-generation, cancellation token, pause control, completion state, and a single
-owned execution handle. Replacing or terminating a generation moves old work
-to draining state so late results cannot become the current terminal result.
+generation, cancellation token, completion state, and a single owned execution
+handle. Replacing or terminating a generation moves old work to draining state
+so late results cannot become the current terminal result.
 
-Callers should use this service for cancellation and pause/resume rather than
-maintaining a parallel map of spawned tasks.
+Callers should use this service for cancellation rather than maintaining a
+parallel map of spawned tasks.
 
 ## Startup and shutdown
 
@@ -50,8 +50,8 @@ report.
 - New work is not accepted before startup reconciliation succeeds or while
   shutdown is in progress.
 - At most one current generation owns the terminal result for a turn ID.
-- Cancellation and pause are cooperative; state changes remain observable
-  while the task reaches a safe boundary.
+- Cancellation is cooperative; state changes remain observable while the task
+  reaches a safe boundary.
 - Late results from replaced or cancelled generations cannot overwrite the
   current turn outcome.
 - MCP state is shared across requests and agent turns; do not create a new MCP

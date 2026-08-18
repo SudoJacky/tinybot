@@ -77,8 +77,6 @@ export type ChatEvent = {
   eventType?: string;
   error?: string;
   message?: ReactChatMessage;
-  operationId?: string;
-  operationStatus?: "running" | "completed" | "failed" | "cancelled";
   timeline?: ChatTimelineSnapshot;
 };
 

@@ -142,17 +142,6 @@ impl NativeAgentCancellationContext {
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
     }
-
-    fn begin_pause(&self) -> Option<String> {
-        self.task_runtime.begin_pause(&self.turn_id)
-    }
-
-    async fn wait_for_resume(&self) -> Result<String, String> {
-        self.task_runtime
-            .wait_for_resume(&self.turn_id)
-            .await
-            .map_err(|error| error.to_string())
-    }
 }
 
 impl fmt::Debug for NativeAgentCancellationContext {
