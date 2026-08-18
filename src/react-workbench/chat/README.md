@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:430564e6e12aae742d36cac24e201fe50e573ce6e55513e65a4beef98a68dd34 -->
+<!-- tinybot-module-fingerprint: sha256:6ed6fef69d09b0b1ed066fd3f392d09e362fff724658b63448d61233ad5e528b -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -22,6 +22,9 @@ Chat passes their stable resource ID, selected PowerShell or Command Prompt
 shell, and workspace path to the typed native terminal adapter. Renderer
 mounting never owns process termination: hiding Sidecar and switching tabs may
 remount the xterm.js view, while only resource close invokes native terminate.
+Regular chats share a stable default-workspace Sidecar scope; they omit the
+terminal working-directory argument so Rust resolves the same configured
+native default used by Agent turns.
 
 Desktop-level project and session-search dialogs keep their domain actions in
 this module while delegating modal focus, keyboard, dismissal, and scroll-lock

@@ -8,7 +8,10 @@ import type {
   NativeTerminalRuntimeApi,
   NativeTerminalSnapshot,
 } from "../../app-core/native/desktopNativeTerminal";
-import type { SidecarTerminalTab } from "./sidecarModel";
+import {
+  DEFAULT_SIDECAR_WORKSPACE_ID,
+  type SidecarTerminalTab,
+} from "./sidecarModel";
 import "./SidecarTerminal.css";
 
 export type SidecarTerminalProps = {
@@ -121,7 +124,9 @@ export function SidecarTerminal({
           rows: terminal.rows,
           shell: tab.shell,
           terminalId: tab.id,
-          workingDirectory: tab.workspaceId,
+          ...(tab.workspaceId === DEFAULT_SIDECAR_WORKSPACE_ID
+            ? {}
+            : { workingDirectory: tab.workspaceId }),
         }));
         if (disposed) return;
         connected = true;

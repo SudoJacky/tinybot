@@ -131,6 +131,7 @@ import { SidecarTerminal } from "../sidecar/SidecarTerminal";
 import {
   activeSidecarTab,
   createInitialSidecarState,
+  DEFAULT_SIDECAR_WORKSPACE_ID,
   readPersistedSidecarWidth,
   reduceSidecarState,
   sidecarArtifactTabId,
@@ -348,8 +349,13 @@ export function ChatPage({
   );
   const sidecarTabs = useMemo(() => visibleSidecarTabs(sidecar), [sidecar]);
   const sidecarActiveTab = useMemo(() => activeSidecarTab(sidecar), [sidecar]);
-  const activeWorkspaceId = activeSession?.workingDirectory ?? "";
-  const activeWorkspaceLabel = activeWorkspaceId ? sessionWorkspaceName(activeWorkspaceId) : "";
+  const explicitWorkspaceId = activeSession?.workingDirectory?.trim() ?? "";
+  const activeWorkspaceId = activeSession
+    ? explicitWorkspaceId || DEFAULT_SIDECAR_WORKSPACE_ID
+    : "";
+  const activeWorkspaceLabel = explicitWorkspaceId
+    ? sessionWorkspaceName(explicitWorkspaceId)
+    : activeSession ? t("shell.generalSessions") : "";
   const unboundBrowserResource = useMemo(() => sidecar.tabs.find((tab): tab is SidecarBrowserTab => (
     tab.kind === "browser"
       && tab.threadId === activeSession?.id

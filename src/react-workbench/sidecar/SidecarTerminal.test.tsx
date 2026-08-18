@@ -7,6 +7,7 @@ import type {
   NativeTerminalSnapshot,
 } from "../../app-core/native/desktopNativeTerminal";
 import { SidecarTerminal } from "./SidecarTerminal";
+import { DEFAULT_SIDECAR_WORKSPACE_ID } from "./sidecarModel";
 
 const xtermMocks = vi.hoisted(() => ({
   terminals: [] as Array<{
@@ -54,6 +55,33 @@ afterEach(() => {
 });
 
 describe("SidecarTerminal", () => {
+  it("lets native resolve the working directory for the default workspace", async () => {
+    vi.stubGlobal("ResizeObserver", undefined);
+    const runtime = terminalRuntime();
+    vi.mocked(runtime.create).mockResolvedValue(snapshot({ running: false, status: "completed" }));
+
+    render(
+      <SidecarTerminal
+        tab={{
+          id: "terminal:default:1",
+          kind: "terminal",
+          shell: "powershell",
+          title: "PowerShell",
+          workspaceId: DEFAULT_SIDECAR_WORKSPACE_ID,
+        }}
+        terminalRuntime={runtime}
+        workspaceLabel="General chats"
+      />,
+    );
+
+    await waitFor(() => expect(runtime.create).toHaveBeenCalledWith({
+      cols: 80,
+      rows: 24,
+      shell: "powershell",
+      terminalId: "terminal:default:1",
+    }));
+  });
+
   it("connects the PTY, serializes terminal input after polling, and leaves termination to the resource owner", async () => {
     vi.stubGlobal("ResizeObserver", undefined);
     let releasePoll: (snapshot: NativeTerminalSnapshot) => void = () => undefined;

@@ -28,7 +28,7 @@ error leaves the task runtime non-accepting, sets `last_error`, and appends a
 
 | Command | Args | Response |
 | --- | --- | --- |
-| `terminal_create` | `{ input: { terminalId, shell: "powershell" \| "cmd", workingDirectory, rows, cols } }` | `DesktopTerminalSnapshot` |
+| `terminal_create` | `{ input: { terminalId, shell: "powershell" \| "cmd", workingDirectory?, rows, cols } }` | `DesktopTerminalSnapshot` |
 | `terminal_poll` | `{ input: { terminalId, cursor, yieldTimeMs? } }` | `DesktopTerminalSnapshot` |
 | `terminal_write` | `{ input: { terminalId, cursor, input } }` | `DesktopTerminalSnapshot` |
 | `terminal_resize` | `{ input: { terminalId, rows, cols } }` | `void` |
@@ -40,7 +40,9 @@ requested cursor, the next cursor, process status, exit code, truncation
 metadata, and an optional failure. These commands use a dedicated process
 manager that is not shared with Agent shell tools. Switching or hiding a
 Sidecar tab does not invoke termination; closing the resource terminates and
-releases its PTY record.
+releases its PTY record. When `workingDirectory` is omitted, the command uses
+the same configured native backend workspace as an ordinary Thread, falling
+back to `~/.tinybot/workspace`.
 
 ## File Dialog Commands
 

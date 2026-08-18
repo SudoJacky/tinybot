@@ -2674,6 +2674,23 @@ describe("ChatPage", () => {
     expect(within(screen.getByLabelText("Sidecar")).getByRole("tab", { name: "PowerShell" })).toBeTruthy();
   });
 
+  it("allows a regular chat to create a Terminal in the native default workspace", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    await user.click(await screen.findByRole("button", { name: "Show Sidecar" }));
+    const sidecar = screen.getByLabelText("Sidecar");
+    await user.click(within(sidecar).getAllByRole("button", { name: "New Sidecar tab" })[0]);
+    const terminal = within(sidecar).getByRole("menuitem", { name: /Terminal/ });
+
+    expect(terminal.hasAttribute("disabled")).toBe(false);
+    await user.click(terminal);
+    await user.click(within(sidecar).getByRole("menuitem", { name: "PowerShell" }));
+    expect(within(sidecar).getByRole("tab", { name: "PowerShell" })).toBeTruthy();
+  });
+
   it("terminates a user terminal only when its Sidecar resource is closed", async () => {
     const user = userEvent.setup();
     const terminalRuntime = {

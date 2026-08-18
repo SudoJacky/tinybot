@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:7b824936f8e858445c998ccf1e387af4e2bffbc398226b5a83e27aadb92ddac4 -->
+<!-- tinybot-module-fingerprint: sha256:97ccb402256a2831645262385ae9c716ac05ce450e5a7de0e8ba8cb47f1db792 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -18,7 +18,8 @@ by Agent web tools.
 `desktopNativeTerminal` is the user-only Sidecar PTY adapter. It exposes only
 typed PowerShell or Command Prompt creation plus poll, input, resize, and
 terminate operations; callers cannot send an arbitrary process startup command
-or address Agent shell sessions.
+or address Agent shell sessions. Its create contract leaves the working
+directory optional so a regular chat can use Rust's configured native default.
 
 `rendererLogger` is the renderer-wide observability entry point. It emits
 structured `debug`, `info`, `warn`, and `error` events to the console and a

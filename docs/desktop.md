@@ -147,4 +147,6 @@ Prompt in the active conversation workspace. The terminal is an interactive
 user surface only: it does not share process IDs, input, output, or lifecycle
 state with Agent shell tools. Hiding the Sidecar or switching tabs preserves
 the PTY. Closing its resource terminates and releases the process, and closing
-the desktop app terminates all remaining Sidecar terminal processes.
+the desktop app terminates all remaining Sidecar terminal processes. A regular
+chat without explicit workspace metadata uses the configured Tinybot default
+workspace, matching the native Agent runtime fallback.

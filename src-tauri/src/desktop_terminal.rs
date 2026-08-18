@@ -1,3 +1,4 @@
+use crate::config::application::native_backend_workspace_root;
 use crate::protocol::capability::{CapabilityPolicy, WorkerCapability};
 use crate::tools::shell::{
     ShellProcessIdParams, ShellProcessInputParams, ShellProcessOutput, ShellProcessPollParams,
@@ -39,7 +40,7 @@ pub(crate) enum DesktopTerminalShell {
 pub(crate) struct DesktopTerminalCreateInput {
     terminal_id: String,
     shell: DesktopTerminalShell,
-    working_directory: String,
+    working_directory: Option<String>,
     rows: u16,
     cols: u16,
 }
@@ -100,16 +101,33 @@ impl DesktopTerminalRuntime {
         }
     }
 
-    fn create(&self, input: DesktopTerminalCreateInput) -> Result<DesktopTerminalSnapshot, String> {
-        let terminal_id = required_terminal_id(&input.terminal_id)?;
-        let working_directory = PathBuf::from(&input.working_directory);
+    fn create(
+        &self,
+        input: DesktopTerminalCreateInput,
+        default_working_directory: PathBuf,
+    ) -> Result<DesktopTerminalSnapshot, String> {
+        let DesktopTerminalCreateInput {
+            terminal_id,
+            shell,
+            working_directory,
+            rows,
+            cols,
+        } = input;
+        let terminal_id = required_terminal_id(&terminal_id)?;
+        let working_directory = match working_directory {
+            Some(path) if !path.trim().is_empty() => PathBuf::from(path.trim()),
+            Some(_) => {
+                return Err("Sidecar terminal working directory must not be empty".to_string())
+            }
+            None => default_working_directory,
+        };
         let mut terminals = self
             .terminals
             .lock()
             .map_err(|_| "Sidecar terminal registry lock was poisoned".to_string())?;
 
         if let Some(record) = terminals.get(&terminal_id) {
-            if record.shell != input.shell || record.working_directory != working_directory {
+            if record.shell != shell || record.working_directory != working_directory {
                 return Err(format!(
                     "Sidecar terminal {terminal_id} already exists with a different configuration"
                 ));
@@ -132,16 +150,16 @@ impl DesktopTerminalRuntime {
         }
 
         let owner_id = format!("sidecar-terminal:{terminal_id}");
-        let record_shell = input.shell;
+        let record_shell = shell;
         let rpc = terminal_rpc_for(&working_directory, self.processes.clone());
         let output = rpc
             .start(ShellStartParams {
-                command: terminal_shell_command(input.shell)?.to_string(),
+                command: terminal_shell_command(shell)?.to_string(),
                 working_dir: Some(".".to_string()),
                 tty: Some(true),
                 yield_time_ms: Some(20),
-                rows: Some(input.rows.max(1)),
-                cols: Some(input.cols.max(1)),
+                rows: Some(rows.max(1)),
+                cols: Some(cols.max(1)),
                 owner_id: Some(owner_id.clone()),
                 tool_call_id: Some(owner_id.clone()),
                 cancellation: None,
@@ -304,7 +322,8 @@ pub(crate) async fn terminal_create(
     runtime: State<'_, SharedDesktopTerminalRuntime>,
 ) -> Result<DesktopTerminalSnapshot, String> {
     let runtime = runtime.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || runtime.create(input))
+    let default_working_directory = native_backend_workspace_root();
+    tauri::async_runtime::spawn_blocking(move || runtime.create(input, default_working_directory))
         .await
         .map_err(|error| format!("Sidecar terminal create task failed: {error}"))?
 }
@@ -426,20 +445,21 @@ mod tests {
         let input = DesktopTerminalCreateInput {
             terminal_id: "terminal:test:1".to_string(),
             shell: DesktopTerminalShell::Cmd,
-            working_directory: std::env::temp_dir().to_string_lossy().into_owned(),
+            working_directory: None,
             rows: 24,
             cols: 80,
         };
 
         let first = runtime
-            .create(input.clone())
+            .create(input.clone(), std::env::temp_dir())
             .expect("terminal should start");
         let second = runtime
-            .create(input)
+            .create(input, std::env::temp_dir())
             .expect("terminal create should be idempotent");
 
         assert_eq!(first.process_id, second.process_id);
         assert_eq!(first.terminal_id, "terminal:test:1");
+        assert_eq!(PathBuf::from(first.working_directory), std::env::temp_dir());
         runtime
             .terminate(DesktopTerminalIdInput {
                 terminal_id: "terminal:test:1".to_string(),

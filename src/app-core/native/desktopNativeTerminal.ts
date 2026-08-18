@@ -21,7 +21,7 @@ export type NativeTerminalRuntimeApi = {
     rows: number;
     shell: NativeTerminalShell;
     terminalId: string;
-    workingDirectory: string;
+    workingDirectory?: string;
   }): Promise<NativeTerminalSnapshot>;
   poll(input: {
     cursor: number;

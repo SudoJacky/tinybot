@@ -1,6 +1,7 @@
 export const DEFAULT_SIDECAR_WIDTH = 480;
 export const MIN_SIDECAR_WIDTH = 380;
 export const SIDECAR_WIDTH_STORAGE_KEY = "tinybot.ui.sidecar.width.v1";
+export const DEFAULT_SIDECAR_WORKSPACE_ID = "sidecar-workspace:default";
 
 export type SidecarPresentation = "closed" | "docked" | "expanded";
 export type SidecarShell = "powershell" | "cmd";
