@@ -142,7 +142,11 @@ export function SidecarBrowser({
   if (externalError) {
     return <BrowserUnavailable message={externalError} onRetry={onRetryProvision} />;
   }
-  if (!resource.browserSessionId || !resource.nativeTabId || !session) {
+  if (!resource.browserSessionId
+    || !resource.nativeTabId
+    || !session
+    || session.lifecycle === "creating"
+    || tab?.rendererLifecycle === "starting") {
     return (
       <div aria-live="polite" className="react-sidecar-browser-state" role="status">
         <Globe2 aria-hidden="true" size={24} />

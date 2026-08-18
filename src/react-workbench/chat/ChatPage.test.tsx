@@ -131,7 +131,12 @@ function createStores(options: { browserRuntime?: NativeBrowserRuntimeApi; sessi
   };
 }
 
-function sidecarBrowserSnapshot(activeTabId = "native-tab-1", includeSecondTab = false, revision = 1) {
+function sidecarBrowserSnapshot(
+  activeTabId = "native-tab-1",
+  includeSecondTab = false,
+  revision = 1,
+  lifecycle: "creating" | "ready" = "ready",
+) {
   return createTinyOsBrowserSessionSnapshot({
     activeTabId,
     browserSessionId: "browser-session-1",
@@ -139,7 +144,7 @@ function sidecarBrowserSnapshot(activeTabId = "native-tab-1", includeSecondTab =
     control: { controlEpoch: 0, state: "idle" },
     interaction: { click: true, navigate: true, type: true },
     kind: "browser_session",
-    lifecycle: "ready",
+    lifecycle,
     operationId: "operation-1",
     profilePersistence: "persistent",
     runtimeKind: "windows_webview2",
@@ -152,8 +157,8 @@ function sidecarBrowserSnapshot(activeTabId = "native-tab-1", includeSecondTab =
         activeHistoryIndex: 0,
         captures: [],
         history: [{ title: "Example", url: "https://example.com" }],
-        loading: false,
-        rendererLifecycle: "running",
+        loading: lifecycle === "creating",
+        rendererLifecycle: lifecycle === "creating" ? "starting" : "running",
         tabId: "native-tab-1",
         title: "Example",
         url: "https://example.com",
@@ -2687,6 +2692,44 @@ describe("ChatPage", () => {
     await user.click(within(sidecar).getByRole("button", { name: "Close Example tab" }));
     await waitFor(() => expect(browserRuntime.closeSession).toHaveBeenCalledWith("browser-session-1"));
     expect(within(sidecar).queryByRole("tab", { name: "Example" })).toBeNull();
+  });
+
+  it("does not create a second native tab when the Creating event binds the new resource first", async () => {
+    const user = userEvent.setup();
+    const creatingSnapshot = sidecarBrowserSnapshot("native-tab-1", false, 1, "creating");
+    const readySnapshot = sidecarBrowserSnapshot("native-tab-1", false, 2);
+    const twoTabSnapshot = sidecarBrowserSnapshot("native-tab-2", true, 3);
+    const browserRuntime = sidecarBrowserRuntime(readySnapshot);
+    let resolveCreation: (snapshot: typeof readySnapshot) => void = () => undefined;
+    const creation = new Promise<typeof readySnapshot>((resolve) => {
+      resolveCreation = resolve;
+    });
+    vi.mocked(browserRuntime.createSession).mockReturnValue(creation);
+    vi.mocked(browserRuntime.createTab).mockResolvedValue(twoTabSnapshot);
+    let browserListener: ((event: ChatEvent) => void) | undefined;
+    const stores = createStores({ browserRuntime });
+    stores.chatStore.subscribe = vi.fn((_sessionId, listener) => {
+      browserListener = listener;
+      return () => undefined;
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    await user.click(await screen.findByRole("button", { name: "Show Sidecar" }));
+    const sidecar = screen.getByLabelText("Sidecar");
+    await user.click(within(sidecar).getAllByRole("button", { name: "New Sidecar tab" })[0]);
+    await user.click(screen.getByRole("menuitem", { name: /Browser/ }));
+    await waitFor(() => expect(browserRuntime.createSession).toHaveBeenCalledOnce());
+    act(() => browserListener?.({ browserSnapshot: creatingSnapshot, type: "browser.snapshot" }));
+    await waitFor(() => expect(within(sidecar).getAllByRole("tab")).toHaveLength(1));
+
+    await act(async () => {
+      resolveCreation(readySnapshot);
+      await creation;
+    });
+
+    await waitFor(() => expect(browserRuntime.createTab).not.toHaveBeenCalled());
+    expect(within(sidecar).getAllByRole("tab")).toHaveLength(1);
   });
 
   it("does not bounce or repeat native activation while stale Browser snapshots settle", async () => {

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createTinyOsBrowserSessionSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
@@ -11,9 +11,13 @@ import type { SidecarBrowserTab } from "./sidecarModel";
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
-function browserSnapshot(controlState: "idle" | "user_required" = "idle") {
+function browserSnapshot(
+  controlState: "idle" | "user_required" = "idle",
+  lifecycle: "creating" | "ready" = "ready",
+) {
   return createTinyOsBrowserSessionSnapshot({
     activeTabId: "native-tab-1",
     browserSessionId: "browser-session-1",
@@ -21,7 +25,7 @@ function browserSnapshot(controlState: "idle" | "user_required" = "idle") {
     control: { controlEpoch: 3, state: controlState },
     interaction: { click: true, navigate: true, type: true },
     kind: "browser_session",
-    lifecycle: "ready",
+    lifecycle,
     operationId: "operation-1",
     profilePersistence: "persistent",
     runtimeKind: "windows_webview2",
@@ -35,8 +39,8 @@ function browserSnapshot(controlState: "idle" | "user_required" = "idle") {
       canGoForward: false,
       captures: [],
       history: [{ title: "Example", url: "https://example.com" }],
-      loading: false,
-      rendererLifecycle: "running",
+      loading: lifecycle === "creating",
+      rendererLifecycle: lifecycle === "creating" ? "starting" : "running",
       tabId: "native-tab-1",
       title: "Example",
       url: "https://example.com",
@@ -157,5 +161,24 @@ describe("SidecarBrowser", () => {
       tabId: "native-tab-1",
       visible: true,
     })), { timeout: 800 });
+  });
+
+  it("waits for a Creating native session before attaching its visible surface", async () => {
+    vi.useFakeTimers();
+    const creatingSnapshot = browserSnapshot("idle", "creating");
+    const readySnapshot = browserSnapshot();
+    const runtime = browserRuntime(readySnapshot);
+    const rendered = renderBrowser({
+      browserRuntime: runtime,
+      snapshot: creatingSnapshot,
+      surfaceVisible: true,
+    });
+
+    await act(() => vi.advanceTimersByTimeAsync(100));
+    expect(runtime.updateSurface).not.toHaveBeenCalled();
+
+    rendered.rerender(<SidecarBrowser {...rendered.props} snapshot={readySnapshot} />);
+    await act(() => vi.advanceTimersByTimeAsync(100));
+    expect(runtime.updateSurface).toHaveBeenCalledWith(expect.objectContaining({ visible: true }));
   });
 });

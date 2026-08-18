@@ -395,11 +395,17 @@ export function ChatPage({
         const currentResources = sidecarRef.current.tabs.filter((tab): tab is SidecarBrowserTab => (
           tab.kind === "browser" && tab.threadId === resource.threadId
         ));
-        const resourceStillExists = currentResources.some((tab) => tab.id === resource.id);
+        const currentResource = currentResources.find((tab) => tab.id === resource.id);
+        const resourceStillExists = Boolean(currentResource);
+        const resourceAlreadyBound = Boolean(
+          currentResource?.browserSessionId === snapshot.data.browserSessionId
+            && currentResource.nativeTabId
+            && snapshot.data.tabs.some((tab) => tab.tabId === currentResource.nativeTabId),
+        );
         const boundNativeTabIds = new Set(currentResources.flatMap((tab) => tab.nativeTabId ? [tab.nativeTabId] : []));
         const hasUnboundNativeTab = snapshot.data.tabs.some((tab) => !boundNativeTabIds.has(tab.tabId));
         let createdNativeTabId = "";
-        if (resourceStillExists && !hasUnboundNativeTab) {
+        if (resourceStillExists && !resourceAlreadyBound && !hasUnboundNativeTab) {
           const previousNativeTabIds = new Set(snapshot.data.tabs.map((tab) => tab.tabId));
           snapshot = await browserRuntime.createTab(snapshot.data.browserSessionId);
           createdNativeTabId = snapshot.data.tabs.find((tab) => !previousNativeTabIds.has(tab.tabId))?.tabId ?? "";

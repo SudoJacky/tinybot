@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:620236d3a4b3ad6cff7e08f9e2ccf385f8dc9b1d2022627dbb4479df806523cd -->
+<!-- tinybot-module-fingerprint: sha256:c457c83a9cf950c1d4e5531c63167266d370fcf9e13582f799dec44c299df125 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -13,6 +13,9 @@ input and Agent browser tools operate on the same tabs, profile, and navigation
 state without a nested browser tab strip. Sidecar owns the user's selected
 resource while native snapshots synchronize tab identity and content; the selected
 resource then drives native activation without a reverse activation feedback loop.
+Creating sessions stay in the preparation state until WebView2 is ready, and
+monotonic snapshot revisions prevent stale surface responses from hiding a newer
+visible surface.
 
 Desktop-level project and session-search dialogs keep their domain actions in
 this module while delegating modal focus, keyboard, dismissal, and scroll-lock
