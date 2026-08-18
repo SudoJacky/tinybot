@@ -2550,9 +2550,41 @@ describe("ChatPage", () => {
 
     await user.click(await screen.findByRole("button", { name: "Preview chart.png" }));
     expect(loadArtifact).toHaveBeenCalledWith({ artifactId: "image-1", sessionKey: "s1" });
-    const drawer = await screen.findByLabelText("Details drawer");
-    const image = await within(drawer).findByRole("img", { name: "chart.png" });
+    const sidecar = await screen.findByLabelText("Sidecar");
+    const image = await within(sidecar).findByRole("img", { name: "chart.png" });
     expect(image.getAttribute("src")).toBe("data:image/png;base64,aGVsbG8=");
+  });
+
+  it("creates only Browser or Terminal resource tabs and restores hidden Sidecar resources", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({ sessions: [{
+      chatId: "chat-1",
+      id: "s1",
+      status: "idle",
+      title: "Planning notes",
+      updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+      workingDirectory: "D:/code/tinybot",
+    }] });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    await user.click(await screen.findByRole("button", { name: "Show Sidecar" }));
+    const sidecar = screen.getByLabelText("Sidecar");
+    await user.click(within(sidecar).getAllByRole("button", { name: "New Sidecar tab" })[0]);
+    const menu = within(sidecar).getByRole("menu", { name: "Choose a resource" });
+    expect(within(menu).getAllByRole("menuitem")).toHaveLength(2);
+    expect(within(menu).queryByText("Artifacts")).toBeNull();
+
+    const terminal = within(menu).getByRole("menuitem", { name: /Terminal/ });
+    await waitFor(() => expect(terminal.hasAttribute("disabled")).toBe(false));
+    await user.click(terminal);
+    expect(within(sidecar).getByRole("tab", { name: "PowerShell" })).toBeTruthy();
+
+    await user.click(within(sidecar).getByRole("button", { name: "Hide Sidecar" }));
+    expect(screen.queryByLabelText("Sidecar")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Show Sidecar" }));
+    expect(within(screen.getByLabelText("Sidecar")).getByRole("tab", { name: "PowerShell" })).toBeTruthy();
   });
 
   it("places message action buttons under each message on the role side", async () => {

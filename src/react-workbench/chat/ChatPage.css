@@ -17,6 +17,23 @@
   transition: grid-template-columns var(--motion-duration-medium) var(--motion-ease-standard);
 }
 
+.react-chat-workspace {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.react-chat-workspace[data-sidecar-presentation="docked"] {
+  grid-template-columns: minmax(320px, 1fr) var(--react-sidecar-width, 480px);
+}
+
+.react-chat-workspace[data-sidecar-presentation="expanded"] {
+  grid-template-columns: minmax(280px, 0.58fr) minmax(560px, 1fr);
+}
+
 .react-chat-header h1,
 .react-command-palette h2,
 .react-right-drawer h2 {
@@ -3329,6 +3346,13 @@
 
   .react-chat-page {
     grid-template-columns: minmax(150px, 210px) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1100px) {
+  .react-chat-workspace[data-sidecar-presentation="docked"],
+  .react-chat-workspace[data-sidecar-presentation="expanded"] {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

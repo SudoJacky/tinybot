@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useMemo, useReducer, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useEffectEvent, useMemo, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { TFunction } from "i18next";
 import {
   Check,
@@ -6,6 +6,8 @@ import {
   FolderOpen,
   Loader2,
   MoreHorizontal,
+  PanelRightClose,
+  PanelRightOpen,
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -65,6 +67,7 @@ import {
 } from "./sessionTabWorkspace";
 import {
   groupSessionsByWorkspace,
+  sessionWorkspaceName,
 } from "./sessionWorkspaces";
 import {
   applyLoadedDelegatedAgentTrace,
@@ -118,6 +121,18 @@ import {
   displaySessionTitle,
   isDefaultSessionTitle,
 } from "./sessionTitle";
+import { Sidecar } from "../sidecar/Sidecar";
+import {
+  activeSidecarTab,
+  createInitialSidecarState,
+  readPersistedSidecarWidth,
+  reduceSidecarState,
+  sidecarArtifactTabId,
+  visibleSidecarTabs,
+  writePersistedSidecarWidth,
+  type SidecarArtifactTab,
+  type SidecarTab,
+} from "../sidecar/sidecarModel";
 
 export type ChatPageProps = {
   chatStore: ChatStore;
@@ -138,9 +153,15 @@ export type ChatPageProps = {
 type DrawerState =
   | { kind: "tool"; title: string; toolCall: ToolCallSummary }
   | { kind: "subagent"; title: string; delegate: DelegatedAgentState; loading: boolean; error?: string }
-  | { kind: "artifact"; title: string; artifact: ArtifactRef; detail?: LoadedArtifactDetail; loading: boolean; error?: string }
   | { kind: "error"; title: string; step: ChatStep; turn: ChatTurn }
   | null;
+
+type ArtifactSidecarContent = {
+  artifact: ArtifactRef;
+  detail?: LoadedArtifactDetail;
+  error?: string;
+  loading: boolean;
+};
 
 type ConversationViewState = {
   scrollTop: number;
@@ -243,6 +264,12 @@ export function ChatPage({
   const [sessionCreatePending, setSessionCreatePending] = useState(false);
   const [localSessionSidebarCollapsed, setLocalSessionSidebarCollapsed] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
+  const [sidecar, dispatchSidecar] = useReducer(
+    reduceSidecarState,
+    undefined,
+    () => createInitialSidecarState(readPersistedSidecarWidth(window.localStorage)),
+  );
+  const [artifactSidecarContent, setArtifactSidecarContent] = useState<Record<string, ArtifactSidecarContent>>({});
   const [commandLifecycle, dispatchCommandLifecycle] = useReducer(
     reduceTinyOsCommandLifecycle,
     { stage: "idle" } as TinyOsCommandLifecycle,
@@ -297,6 +324,23 @@ export function ChatPage({
     () => sessions.find((session) => session.id === activeSessionId),
     [activeSessionId, sessions],
   );
+  const sidecarTabs = useMemo(() => visibleSidecarTabs(sidecar), [sidecar]);
+  const sidecarActiveTab = useMemo(() => activeSidecarTab(sidecar), [sidecar]);
+  const activeWorkspaceId = activeSession?.workingDirectory ?? "";
+  const activeWorkspaceLabel = activeWorkspaceId ? sessionWorkspaceName(activeWorkspaceId) : "";
+
+  useEffect(() => {
+    dispatchSidecar({
+      threadId: activeSession?.id ?? "",
+      type: "scope.changed",
+      workspaceId: activeWorkspaceId,
+    });
+  }, [activeSession?.id, activeWorkspaceId]);
+
+  useEffect(() => {
+    writePersistedSidecarWidth(window.localStorage, sidecar.width);
+  }, [sidecar.width]);
+
   useEffect(() => {
     setMigrationInstallError("");
   }, [activeSessionId]);
@@ -1427,18 +1471,29 @@ export function ChatPage({
     if (!activeSession) {
       return;
     }
+    const tabId = sidecarArtifactTabId(activeSession.id, artifact.id);
+    dispatchSidecar({
+      artifactId: artifact.id,
+      threadId: activeSession.id,
+      title: artifact.title,
+      type: "tab.openArtifact",
+    });
     if (artifact.kind === "data_view") {
-      setDrawer({
-        kind: "artifact",
-        title: artifact.title,
-        artifact,
-        ...(artifact.dataView ? { detail: { id: artifact.id, title: artifact.title, mimeType: artifact.mimeType, dataView: artifact.dataView } } : {}),
-        loading: false,
-        ...(artifact.dataViewError ? { error: artifact.dataViewError } : {}),
-      });
+      setArtifactSidecarContent((current) => ({
+        ...current,
+        [tabId]: {
+          artifact,
+          ...(artifact.dataView ? { detail: { id: artifact.id, title: artifact.title, mimeType: artifact.mimeType, dataView: artifact.dataView } } : {}),
+          loading: false,
+          ...(artifact.dataViewError ? { error: artifact.dataViewError } : {}),
+        },
+      }));
       return;
     }
-    setDrawer({ kind: "artifact", title: artifact.title, artifact, loading: Boolean(chatStore.loadArtifact) });
+    setArtifactSidecarContent((current) => ({
+      ...current,
+      [tabId]: { artifact, loading: Boolean(chatStore.loadArtifact) },
+    }));
     if (!chatStore.loadArtifact) {
       return;
     }
@@ -1448,15 +1503,41 @@ export function ChatPage({
         sessionKey: activeSession.id,
       });
       const detail = projectLoadedArtifactDetail(artifact, payload);
-      setDrawer((current) => current?.kind === "artifact" && current.artifact.id === artifact.id
-        ? { ...current, detail, loading: false }
+      setArtifactSidecarContent((current) => current[tabId]
+        ? { ...current, [tabId]: { ...current[tabId], detail, loading: false } }
         : current);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setDrawer((current) => current?.kind === "artifact" && current.artifact.id === artifact.id
-        ? { ...current, error: message, loading: false }
+      setArtifactSidecarContent((current) => current[tabId]
+        ? { ...current, [tabId]: { ...current[tabId], error: message, loading: false } }
         : current);
     }
+  }
+
+  function handleCloseSidecarTab(tab: SidecarTab) {
+    dispatchSidecar({ tabId: tab.id, type: "tab.close" });
+    if (tab.kind !== "artifact") return;
+    setArtifactSidecarContent((current) => {
+      if (!(tab.id in current)) return current;
+      const next = { ...current };
+      delete next[tab.id];
+      return next;
+    });
+  }
+
+  function renderSidecarArtifact(tab: SidecarArtifactTab) {
+    const content = artifactSidecarContent[tab.id];
+    if (!content) {
+      return <p className="react-empty-state">{t("details.noPreview")}</p>;
+    }
+    return (
+      <ArtifactDetails
+        artifact={content.artifact}
+        detail={content.detail}
+        error={content.error}
+        loading={content.loading}
+      />
+    );
   }
 
   async function handleSubmitAgentUiForm(
@@ -1597,7 +1678,11 @@ export function ChatPage({
         projectGroupStore={projectGroupStore}
         sessions={sessions}
       >
-
+      <div
+        className="react-chat-workspace"
+        data-sidecar-presentation={sidecar.presentation}
+        style={{ "--react-sidecar-width": `${sidecar.width}px` } as CSSProperties}
+      >
       <main className="react-chat-surface" data-empty-session={emptyActiveSession ? "true" : undefined}>
         <header className="react-chat-header">
           <h1 className="react-chat-header__title">{headerTitle}</h1>
@@ -1609,6 +1694,19 @@ export function ChatPage({
             onCreate={() => void handleCreateSession()}
           />
           <div className="react-chat-header__actions">
+            <button
+              aria-label={sidecar.presentation === "closed" ? t("sidecar.show") : t("sidecar.hide")}
+              aria-pressed={sidecar.presentation !== "closed"}
+              title={sidecar.presentation === "closed" ? t("sidecar.show") : t("sidecar.hide")}
+              type="button"
+              onClick={() => dispatchSidecar({
+                type: sidecar.presentation === "closed" ? "presentation.show" : "presentation.hide",
+              })}
+            >
+              {sidecar.presentation === "closed"
+                ? <PanelRightOpen aria-hidden="true" size={17} />
+                : <PanelRightClose aria-hidden="true" size={17} />}
+            </button>
             <button
               aria-label={t("shell.conversationMenu")}
               title={t("shell.conversationMenu")}
@@ -1801,6 +1899,26 @@ export function ChatPage({
         </div>
       </main>
 
+      {sidecar.presentation !== "closed" ? (
+        <Sidecar
+          activeTabId={sidecarActiveTab?.id ?? ""}
+          canCreateBrowser={Boolean(activeSession)}
+          canCreateTerminal={Boolean(activeWorkspaceId)}
+          presentation={sidecar.presentation}
+          renderArtifact={renderSidecarArtifact}
+          tabs={sidecarTabs}
+          width={sidecar.width}
+          workspaceLabel={activeWorkspaceLabel}
+          onActivateTab={(tabId) => dispatchSidecar({ tabId, type: "tab.activate" })}
+          onCloseTab={handleCloseSidecarTab}
+          onCreateBrowser={() => dispatchSidecar({ type: "tab.newBrowser" })}
+          onCreateTerminal={() => dispatchSidecar({ type: "tab.newTerminal" })}
+          onHide={() => dispatchSidecar({ type: "presentation.hide" })}
+          onResize={(width, maxWidth) => dispatchSidecar({ maxWidth, type: "presentation.resize", width })}
+          onToggleExpanded={() => dispatchSidecar({ type: "presentation.toggleExpanded" })}
+        />
+      ) : null}
+
       {drawer ? (
         <aside className="react-right-drawer" aria-label={t("shell.detailsDrawer")} data-motion="fade-content" data-state="open">
           <div className="react-right-drawer__header">
@@ -1814,14 +1932,13 @@ export function ChatPage({
               <ToolCallDetails toolCall={drawer.toolCall} />
             ) : drawer.kind === "subagent" ? (
               <SubagentDetails delegate={drawer.delegate} error={drawer.error} loading={drawer.loading} />
-            ) : drawer.kind === "artifact" ? (
-              <ArtifactDetails artifact={drawer.artifact} detail={drawer.detail} error={drawer.error} loading={drawer.loading} />
             ) : (
               <ChatErrorDetails step={drawer.step} turn={drawer.turn} />
             )}
           </div>
         </aside>
       ) : null}
+      </div>
       </ChatSessionWorkspace>
     </section>
   );

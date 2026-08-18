@@ -598,6 +598,15 @@ export const en = {
     search: { label: "Chat search", placeholder: "Search chats or run a command", chats: "Chats", noMatches: "No matching chats.", regular: "General chat", suggested: "Suggested", start: "Start a new chat", openFolder: "Open folder", settings: "Settings", noDate: "No date" },
     empty: { title: "What do you want Tinybot to do?", description: "Choose a suggestion or describe your task below.", suggestions: "Prompt suggestions" },
     tabs: { open: "Open conversations", closeTab: "Close {{name}} tab", close: "Close {{name}}", newTab: "New conversation tab", newConversation: "New conversation", menu: "Open tabs menu", openTabs: "Open tabs", status: { running: "running", failed: "failed", unread: "unread activity" } },
+    sidecar: {
+      label: "Sidecar", show: "Show Sidecar", hide: "Hide Sidecar", expand: "Expand Sidecar", restore: "Restore Sidecar", resize: "Resize Sidecar",
+      openTabs: "Open Sidecar tabs", closeTab: "Close {{name}} tab", newTab: "New Sidecar tab", newTabMenu: "Choose a resource", more: "More Sidecar actions",
+      browser: "Browser", browserShared: "Shared with Agent", terminal: "Terminal", terminalPrivate: "Local user only", workspace: "Workspace",
+      powerShell: "PowerShell", commandPrompt: "Command Prompt", terminalStatus: "Local terminal · Not shared with Agent",
+      emptyTitle: "Open a browser or terminal", emptyDescription: "Artifacts appear here when you open them from Chat.",
+      browserUnavailableTitle: "Browser is not connected yet", browserUnavailableDescription: "The shared WebView2 surface will attach here in the Browser implementation slice.",
+      terminalUnavailableTitle: "Terminal is not connected yet", terminalUnavailableDescription: "The local PTY runtime will attach here in the Terminal implementation slice.",
+    },
     formUi: { title: "Agent form", submit: "Submit", cancel: "Cancel", select: "Select…" },
     queue: {
       label: "Queued inputs", title: "Inputs while running", pending: "Pending {{pending}}/{{max}}", resume: "Resume queue", clearInterrupt: "Clear interrupt state",

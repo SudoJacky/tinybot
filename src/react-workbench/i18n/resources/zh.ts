@@ -277,6 +277,15 @@ export const zh = {
     search: { label: "会话搜索", placeholder: "搜索会话或运行命令", chats: "会话", noMatches: "没有符合条件的会话。", regular: "常规会话", suggested: "推荐", start: "开始新会话", openFolder: "打开文件夹", settings: "设置", noDate: "无日期" },
     empty: { title: "想让 Tinybot 做什么？", description: "选择一个建议，或直接在下方描述你的任务。", suggestions: "任务建议" },
     tabs: { open: "打开的会话", closeTab: "关闭 {{name}} 标签页", close: "关闭 {{name}}", newTab: "新建会话标签页", newConversation: "新建会话", menu: "打开标签页菜单", openTabs: "打开的标签页", status: { running: "运行中", failed: "失败", unread: "有未读活动" } },
+    sidecar: {
+      label: "侧边工作区", show: "打开侧边工作区", hide: "隐藏侧边工作区", expand: "展开侧边工作区", restore: "还原侧边工作区", resize: "调整侧边工作区宽度",
+      openTabs: "打开的侧边工作区标签页", closeTab: "关闭 {{name}} 标签页", newTab: "新建侧边工作区标签页", newTabMenu: "选择资源类型", more: "更多侧边工作区操作",
+      browser: "浏览器", browserShared: "与 Agent 共享", terminal: "终端", terminalPrivate: "仅供用户使用", workspace: "工作区",
+      powerShell: "PowerShell", commandPrompt: "命令提示符", terminalStatus: "本地终端 · 不与 Agent 共享",
+      emptyTitle: "打开浏览器或终端", emptyDescription: "从聊天中打开产物后，它们也会显示在这里。",
+      browserUnavailableTitle: "浏览器尚未接入", browserUnavailableDescription: "共享 WebView2 界面将在浏览器实现阶段接入这里。",
+      terminalUnavailableTitle: "终端尚未接入", terminalUnavailableDescription: "本地 PTY 运行时将在终端实现阶段接入这里。",
+    },
     formUi: { title: "Agent 表单", submit: "提交", cancel: "取消", select: "请选择…" },
     queue: {
       label: "排队输入", title: "运行中输入", pending: "待处理 {{pending}}/{{max}}", resume: "恢复队列", clearInterrupt: "清除插入状态",
