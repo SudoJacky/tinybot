@@ -2760,6 +2760,49 @@ describe("ChatPage", () => {
     expect(within(sidecar).queryByRole("tab", { name: "Example" })).toBeNull();
   });
 
+  it("reattaches a retained Browser snapshot when returning to its Thread", async () => {
+    const user = userEvent.setup();
+    const browserRuntime = sidecarBrowserRuntime();
+    const stores = createStores({
+      browserRuntime,
+      sessions: [
+        {
+          chatId: "chat-1",
+          id: "s1",
+          status: "idle",
+          title: "Planning notes",
+          updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+          workingDirectory: "D:/code/tinybot",
+        },
+        {
+          chatId: "chat-2",
+          id: "s2",
+          status: "idle",
+          title: "Knowledge review",
+          updatedAtMs: Date.UTC(2026, 6, 4, 11, 50, 0),
+          workingDirectory: "D:/code/tinybot",
+        },
+      ],
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    await user.click(await screen.findByRole("button", { name: "Show Sidecar" }));
+    await user.click(within(screen.getByLabelText("Sidecar")).getAllByRole("button", { name: "New Sidecar tab" })[0]);
+    await user.click(screen.getByRole("menuitem", { name: /Browser/ }));
+    expect(await within(screen.getByLabelText("Sidecar")).findByRole("textbox", { name: "Browser address" })).toBeTruthy();
+
+    const sidebar = screen.getByLabelText("Sessions");
+    await user.click(within(sidebar).getByRole("button", { name: "Knowledge review" }));
+    await screen.findByRole("heading", { name: "Knowledge review" });
+    await user.click(within(sidebar).getByRole("button", { name: "Planning notes" }));
+
+    await waitFor(() => expect(browserRuntime.snapshot).toHaveBeenCalledWith("browser-session-1"));
+    expect(await within(screen.getByLabelText("Sidecar")).findByRole("textbox", { name: "Browser address" })).toBeTruthy();
+    expect(browserRuntime.createSession).toHaveBeenCalledTimes(1);
+    expect(browserRuntime.createTab).not.toHaveBeenCalled();
+  });
+
   it("does not create a second native tab when the Creating event binds the new resource first", async () => {
     const user = userEvent.setup();
     const creatingSnapshot = sidecarBrowserSnapshot("native-tab-1", false, 1, "creating");

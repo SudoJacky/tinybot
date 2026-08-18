@@ -361,6 +361,12 @@ export function ChatPage({
       && tab.threadId === activeSession?.id
       && !tab.nativeTabId
   )), [activeSession?.id, sidecar.tabs]);
+  const retainedBrowserResource = useMemo(() => sidecar.tabs.find((tab): tab is SidecarBrowserTab => (
+    tab.kind === "browser"
+      && tab.threadId === activeSession?.id
+      && Boolean(tab.browserSessionId)
+      && Boolean(tab.nativeTabId)
+  )), [activeSession?.id, sidecar.tabs]);
 
   const synchronizeBrowserSnapshot = useCallback((snapshot: BrowserSnapshot, acceptForActiveThread = true) => {
     if (acceptForActiveThread && snapshot.data.sessionId === activeSessionId) {
@@ -388,6 +394,39 @@ export function ChatPage({
   useEffect(() => {
     if (browserSnapshot) synchronizeBrowserSnapshot(browserSnapshot, false);
   }, [browserSnapshot, synchronizeBrowserSnapshot]);
+
+  useEffect(() => {
+    const resource = retainedBrowserResource;
+    const browserRuntime = chatStore.browserRuntime;
+    if (!resource?.browserSessionId
+      || !browserRuntime
+      || browserSnapshot?.data.browserSessionId === resource.browserSessionId) return;
+    let cancelled = false;
+    void browserRuntime.snapshot(resource.browserSessionId)
+      .then((snapshot) => {
+        if (cancelled) return;
+        if (snapshot.data.sessionId !== resource.threadId) {
+          throw new Error(
+            `Browser snapshot session ${snapshot.data.sessionId} does not match resource thread ${resource.threadId}.`,
+          );
+        }
+        synchronizeBrowserSnapshot(snapshot);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setBrowserProvisionErrors((current) => ({ ...current, [resource.id]: errorMessage(error) }));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    browserProvisionEpoch,
+    browserSnapshot?.data.browserSessionId,
+    chatStore.browserRuntime,
+    retainedBrowserResource,
+    synchronizeBrowserSnapshot,
+  ]);
 
   useEffect(() => {
     const resource = unboundBrowserResource;
