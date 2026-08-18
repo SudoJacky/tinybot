@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:274c74c07d58ed346145fde9c2ced8def0bcea1196dec206dd829ddb47914a45 -->
+<!-- tinybot-module-fingerprint: sha256:f7ef7c0e5cbaaf159a71eb99725e197c9c529904ceaa2831764b36998e0efa78 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App`, `DesktopShell` owns the desktop chrome, and
@@ -21,6 +21,9 @@ web tools. Terminal resources attach to a separate user-only PTY runtime;
 switching or hiding resources preserves the process, while closing the
 Terminal tab ends it. Regular chats share the native default-workspace Sidecar
 scope even though their Thread metadata has no explicit working directory.
+Docked Sidecar widths are measured against the Chat workspace so persisted
+sizes and live resizing cannot displace the resource surface beyond its
+container; narrow windows retain the overlay gutter instead.
 
 `defaultServices.ts` exposes Performance Trace through a small route-facing
 store backed by the typed app-core native adapter. Its diagnostic export method

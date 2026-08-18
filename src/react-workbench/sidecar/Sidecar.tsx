@@ -22,6 +22,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import {
+  maxSidecarWidthForWorkspace,
   MIN_SIDECAR_WIDTH,
   type SidecarArtifactTab,
   type SidecarBrowserTab,
@@ -74,7 +75,13 @@ export function Sidecar({
   const [newTabMenuView, setNewTabMenuView] = useState<"resources" | "terminal">("resources");
   const newTabTriggerRef = useRef<HTMLButtonElement>(null);
   const newTabMenuRef = useRef<HTMLDivElement>(null);
+  const onResizeRef = useRef(onResize);
+  const sidecarRef = useRef<HTMLElement>(null);
   const tabRefs = useRef(new Map<string, HTMLButtonElement>());
+  const widthRef = useRef(width);
+  const [maxWidth, setMaxWidth] = useState(() => maxSidecarWidthForWorkspace(window.innerWidth, window.innerWidth));
+  onResizeRef.current = onResize;
+  widthRef.current = width;
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
   const expanded = presentation === "expanded";
 
@@ -98,6 +105,32 @@ export function Sidecar({
   useLayoutEffect(() => {
     tabRefs.current.get(activeTabId)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [activeTabId]);
+
+  useLayoutEffect(() => {
+    const workspace = sidecarRef.current?.parentElement;
+    if (!workspace) return;
+    const updateMaximum = () => {
+      const measuredWidth = workspace.getBoundingClientRect().width;
+      const nextMaximum = maxSidecarWidthForWorkspace(
+        measuredWidth > 0 ? measuredWidth : window.innerWidth,
+        window.innerWidth,
+      );
+      setMaxWidth((current) => current === nextMaximum ? current : nextMaximum);
+      if (widthRef.current > nextMaximum) {
+        onResizeRef.current(widthRef.current, nextMaximum);
+      }
+    };
+    updateMaximum();
+    const observer = typeof ResizeObserver === "undefined"
+      ? undefined
+      : new ResizeObserver(updateMaximum);
+    observer?.observe(workspace);
+    window.addEventListener("resize", updateMaximum);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateMaximum);
+    };
+  }, []);
 
   function openNewTabMenu() {
     setNewTabMenuView("resources");
@@ -176,7 +209,7 @@ export function Sidecar({
     const startX = event.clientX;
     const startWidth = width;
     const resize = (pointerEvent: PointerEvent) => {
-      onResize(startWidth + startX - pointerEvent.clientX, sidecarMaxWidth());
+      onResize(startWidth + startX - pointerEvent.clientX, maxWidth);
     };
     const stop = () => {
       window.removeEventListener("pointermove", resize);
@@ -197,11 +230,11 @@ export function Sidecar({
     } else if (event.key === "Home") {
       nextWidth = MIN_SIDECAR_WIDTH;
     } else if (event.key === "End") {
-      nextWidth = sidecarMaxWidth();
+      nextWidth = maxWidth;
     }
     if (nextWidth === undefined) return;
     event.preventDefault();
-    onResize(nextWidth, sidecarMaxWidth());
+    onResize(nextWidth, maxWidth);
   }
 
   return (
@@ -209,13 +242,14 @@ export function Sidecar({
       aria-label={t("sidecar.label")}
       className="react-sidecar"
       data-presentation={presentation}
+      ref={sidecarRef}
       style={{ "--react-sidecar-width": `${width}px` } as CSSProperties}
     >
       <div
         aria-disabled={expanded || undefined}
         aria-label={t("sidecar.resize")}
         aria-orientation="vertical"
-        aria-valuemax={sidecarMaxWidth()}
+        aria-valuemax={maxWidth}
         aria-valuemin={MIN_SIDECAR_WIDTH}
         aria-valuenow={width}
         className="react-sidecar__resize"
@@ -394,8 +428,4 @@ function sidecarTabIcon(tab: SidecarTab) {
 
 function sidecarTabDomId(tabId: string): string {
   return `tinybot-sidecar-tab-${tabId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
-}
-
-function sidecarMaxWidth(): number {
-  return Math.max(MIN_SIDECAR_WIDTH, window.innerWidth - 420);
 }

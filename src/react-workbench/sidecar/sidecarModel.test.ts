@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_SIDECAR_WIDTH,
+  maxSidecarWidthForWorkspace,
   MIN_SIDECAR_WIDTH,
   SIDECAR_WIDTH_STORAGE_KEY,
   activeSidecarTab,
@@ -220,5 +221,11 @@ describe("sidecar resource tabs", () => {
     expect(values.get(SIDECAR_WIDTH_STORAGE_KEY)).toBe("512");
     expect(readPersistedSidecarWidth({ getItem: (key) => values.get(key) ?? null })).toBe(512);
     expect(readPersistedSidecarWidth({ getItem: () => "invalid" })).toBe(DEFAULT_SIDECAR_WIDTH);
+  });
+
+  it("derives the Sidecar maximum from its workspace and responsive presentation", () => {
+    expect(maxSidecarWidthForWorkspace(840, 1116)).toBe(520);
+    expect(maxSidecarWidthForWorkspace(744, 1024)).toBe(696);
+    expect(maxSidecarWidthForWorkspace(360, 1024)).toBe(MIN_SIDECAR_WIDTH);
   });
 });

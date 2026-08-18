@@ -1,5 +1,8 @@
 export const DEFAULT_SIDECAR_WIDTH = 480;
+export const MIN_DOCKED_CHAT_WIDTH = 320;
 export const MIN_SIDECAR_WIDTH = 380;
+export const SIDECAR_OVERLAY_BREAKPOINT = 1100;
+export const SIDECAR_OVERLAY_GUTTER = 48;
 export const SIDECAR_WIDTH_STORAGE_KEY = "tinybot.ui.sidecar.width.v1";
 export const DEFAULT_SIDECAR_WORKSPACE_ID = "sidecar-workspace:default";
 
@@ -249,6 +252,13 @@ export function writePersistedSidecarWidth(
   width: number,
 ): void {
   storage.setItem(SIDECAR_WIDTH_STORAGE_KEY, String(Math.round(width)));
+}
+
+export function maxSidecarWidthForWorkspace(workspaceWidth: number, viewportWidth: number): number {
+  const reservedWidth = viewportWidth <= SIDECAR_OVERLAY_BREAKPOINT
+    ? SIDECAR_OVERLAY_GUTTER
+    : MIN_DOCKED_CHAT_WIDTH;
+  return Math.max(MIN_SIDECAR_WIDTH, Math.floor(workspaceWidth) - reservedWidth);
 }
 
 function openTab(state: SidecarState, tab: SidecarTab): SidecarState {

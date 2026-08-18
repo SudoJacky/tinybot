@@ -19,6 +19,11 @@ Creating sessions stay in the preparation state until WebView2 is ready, and
 monotonic snapshot revisions prevent stale surface responses from hiding a newer
 visible surface.
 
+Docked Sidecar widths are persisted, then re-clamped against the measured Chat
+workspace when the resource mounts or its container changes size. Desktop mode
+preserves the minimum Chat column; narrow-window overlay mode preserves its
+viewport gutter instead.
+
 Sidecar Terminal resources are workspace-scoped rather than Thread-scoped.
 Chat passes their stable resource ID, selected PowerShell or Command Prompt
 shell, and workspace path to the typed native terminal adapter. Renderer

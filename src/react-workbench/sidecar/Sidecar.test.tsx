@@ -1,12 +1,16 @@
 // @vitest-environment happy-dom
 
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sidecar } from "./Sidecar";
 import type { SidecarTab } from "./sidecarModel";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 const tabs: SidecarTab[] = [
   { id: "browser-1", kind: "browser", threadId: "thread-1", title: "Tinybot Docs" },
@@ -35,6 +39,23 @@ function renderSidecar(overrides: Partial<Parameters<typeof Sidecar>[0]> = {}) {
     ...overrides,
   };
   return { props, ...render(<Sidecar {...props} />) };
+}
+
+function mockWorkspaceWidth(readWidth: () => number) {
+  return vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function getBoundingClientRect(this: HTMLElement) {
+    const width = this.firstElementChild?.classList.contains("react-sidecar") ? readWidth() : 0;
+    return {
+      bottom: 0,
+      height: 0,
+      left: 0,
+      right: width,
+      toJSON: () => ({}),
+      top: 0,
+      width,
+      x: 0,
+      y: 0,
+    };
+  });
 }
 
 describe("Sidecar", () => {
@@ -109,5 +130,34 @@ describe("Sidecar", () => {
 
     rerender(<Sidecar {...props} presentation="expanded" />);
     expect(screen.getByRole("separator", { name: "Resize Sidecar" }).getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("uses the actual workspace width while dragging", () => {
+    vi.stubGlobal("innerWidth", 1116);
+    mockWorkspaceWidth(() => 840);
+    const { props } = renderSidecar();
+    const separator = screen.getByRole("separator", { name: "Resize Sidecar" });
+
+    fireEvent.pointerDown(separator, { button: 0, clientX: 600 });
+    fireEvent.pointerMove(window, { clientX: 0 });
+    fireEvent.pointerUp(window);
+
+    expect(props.onResize).toHaveBeenLastCalledWith(1080, 520);
+  });
+
+  it("reclamps a restored width when the workspace mounts or narrows", () => {
+    vi.stubGlobal("innerWidth", 1116);
+    let workspaceWidth = 840;
+    mockWorkspaceWidth(() => workspaceWidth);
+    const { props, rerender } = renderSidecar({ width: 900 });
+
+    expect(props.onResize).toHaveBeenCalledWith(900, 520);
+
+    vi.mocked(props.onResize).mockClear();
+    rerender(<Sidecar {...props} width={520} />);
+    workspaceWidth = 700;
+    fireEvent(window, new Event("resize"));
+
+    expect(props.onResize).toHaveBeenCalledWith(520, 380);
   });
 });
