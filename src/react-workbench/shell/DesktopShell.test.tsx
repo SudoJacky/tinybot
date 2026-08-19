@@ -944,7 +944,7 @@ describe("DesktopShell", () => {
     await user.click(within(settingsNavigation).getByRole("button", { name: "App" }));
     await user.click(screen.getByRole("button", { name: "Language: English" }));
     await user.click(within(screen.getByRole("menu", { name: "Language options" }))
-      .getByRole("menuitemradio", { name: /Simplified Chinese/ }));
+      .getByRole("menuitemradio", { name: /简体中文/ }));
 
     expect(await screen.findByRole("heading", { name: "应用偏好设置" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "设置" })).toBeTruthy();
