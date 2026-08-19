@@ -1,10 +1,16 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:97ccb402256a2831645262385ae9c716ac05ce450e5a7de0e8ba8cb47f1db792 -->
+<!-- tinybot-module-fingerprint: sha256:b84497d833e3e17efdf6233ea5b918fda44abb2e776175da7daa68f2c279400e -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
 Workspace, Browser, Terminal, Settings, Plugins, Memory, or Performance Trace
 snapshots.
+
+`desktopNativeHooks` exposes the workspace-aware hook catalog and
+exact-definition trust mutation. It sends only a workspace path, definition
+hash, and requested trust state; command parsing and changed-definition checks
+remain native responsibilities. Catalog snapshots also expose the generated,
+never-overwritten commented configuration and script-template paths.
 
 Adapters preserve native failures and normalize only their transport contract.
 React state and product projections remain in the workbench and other app-core

@@ -1,5 +1,6 @@
 pub(crate) mod agent;
 pub(crate) mod config;
+pub(crate) mod hooks;
 pub(crate) mod memory;
 pub(crate) mod plugins;
 pub(crate) mod project_groups;

@@ -1,0 +1,50 @@
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+
+type TauriInvoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
+
+export type NativeCommandHookSource = "global" | "workspace";
+
+export type NativeCommandHookSummary = {
+  hash: string;
+  event: "UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PostCompact";
+  matcher?: string;
+  command: string;
+  statusMessage?: string;
+  timeout: number;
+  source: NativeCommandHookSource;
+  sourcePath: string;
+  trusted: boolean;
+};
+
+export type NativeCommandHookDiagnostic = {
+  level: "warning" | "error";
+  code: string;
+  message: string;
+  path: string;
+};
+
+export type NativeCommandHookSnapshot = {
+  globalConfigPath: string;
+  workspaceConfigPath: string;
+  trustStorePath: string;
+  templateConfigPath: string;
+  templateScriptsPath: string;
+  workspaceRoot: string;
+  hooks: NativeCommandHookSummary[];
+  diagnostics: NativeCommandHookDiagnostic[];
+};
+
+export type NativeHooksApi = {
+  snapshot(workspacePath?: string): Promise<NativeCommandHookSnapshot>;
+  setTrusted(input: { workspacePath?: string; hash: string; trusted: boolean }): Promise<NativeCommandHookSnapshot>;
+};
+
+export function createDesktopNativeHooksApi(options: { invoke?: TauriInvoke } = {}): NativeHooksApi {
+  const invoke = options.invoke ?? tauriInvoke;
+  return {
+    snapshot: (workspacePath) => invoke("worker_hooks_snapshot", {
+      input: { ...(workspacePath ? { workspacePath } : {}) },
+    }) as Promise<NativeCommandHookSnapshot>,
+    setTrusted: (input) => invoke("worker_hook_set_trusted", { input }) as Promise<NativeCommandHookSnapshot>,
+  };
+}

@@ -221,6 +221,8 @@ pub(crate) fn run() {
             crate::desktop_commands::plugins::worker_plugin_install_migration,
             crate::desktop_commands::plugins::worker_plugin_set_enabled,
             crate::desktop_commands::plugins::worker_plugin_uninstall,
+            crate::desktop_commands::hooks::worker_hooks_snapshot,
+            crate::desktop_commands::hooks::worker_hook_set_trusted,
             crate::desktop_commands::memory::worker_memory_snapshot,
             crate::desktop_commands::project_groups::worker_project_groups_list,
             crate::desktop_commands::project_groups::worker_project_group_save,

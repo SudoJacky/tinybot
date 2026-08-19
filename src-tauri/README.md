@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:5f8b4bd259f8514e4533c095df2e99dabff6ee7b84607a5e13c45f285b81dbbf -->
+<!-- tinybot-module-fingerprint: sha256:1c24592c1bc034220d37b3717171c5c7cc1520d51cc995968728b9d5d835f11e -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -106,6 +106,8 @@ The main layers are:
      complete Turn execution.
    - `agent/provider.rs` and `agent/runtime_protocol.rs` keep provider and
      runtime-event boundary types beside the agent subsystem.
+   - [`command_hooks/`](src/command_hooks/README.md) discovers and runs trusted
+     user commands for selected Agent lifecycle stages.
 4. **Conversation domain and persistence**
    - [`threads/domain/`](src/threads/domain/README.md) owns typed Thread state
      and in-process projections.
@@ -160,6 +162,9 @@ roles:
 | `~/.tinybot/threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | `threads::rollout::store` | Active canonical Rollouts |
 | `~/.tinybot/archived_threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | `threads::rollout::store` | Archived canonical Rollouts |
 | `~/.tinybot/project-groups.json` | `project_groups` | Named groups and their workspace memberships |
+| `~/.tinybot/hooks.json` | `command_hooks` | Global user command-hook definitions |
+| `~/.tinybot/hook-trust.json` | `command_hooks` | Trusted exact-definition hashes |
+| `<workspace>/.tinybot/hooks.json` | `command_hooks` | Workspace-scoped command-hook definitions |
 
 Thread metadata, checkpoint pointers, and Rollout heads are rebuilt into a
 process-local index from the Rollouts. Project-group membership is loaded from

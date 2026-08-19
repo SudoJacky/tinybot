@@ -3,7 +3,7 @@ use super::continuations::restore_activated_tools_for_continuation;
 use super::hooks::AgentHookEvaluation;
 use super::provider_protocol::ProviderProtocolAdapter;
 use super::result::{cancelled_result, cancelled_turn_result, error_result};
-use super::state::AgentTurnState;
+use super::state::{current_user_message, user_message_text, AgentTurnState};
 use super::tool_runtime::{execute_tool_calls_for_iteration, NativeAgentToolExecutionOutcome};
 use super::usage::{
     context_window_action_payload, context_window_projection_async,
@@ -609,12 +609,14 @@ impl<'a> NativeAgentTurnExecution<'a> {
             0,
             AgentEventKind::TurnStarted.wire_name(),
         )?;
+        let is_continuation = continuation_resume.is_some();
         let start_iteration = match continuation_resume {
             Some(resume) => {
-                let iteration = resume.apply(&context, &mut state)?;
+                let iteration = resume.apply(&mut context, &mut state).await?;
                 if let Some(result) = state.completed_tool_results.last() {
                     append_response_tool_outputs(&mut context, std::slice::from_ref(result))?;
                 }
+                context.flush_deferred_hook_response_items();
                 iteration
             }
             None => {
@@ -625,6 +627,33 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 0
             }
         };
+        if !is_continuation && !manual_context_compaction_requested(&context.spec) {
+            let prompt = current_user_message(&context.messages)
+                .as_ref()
+                .map(user_message_text)
+                .unwrap_or_default();
+            let invocation = AgentHookInvocation::user_prompt(
+                context.trace_context.clone(),
+                context.session_id.clone(),
+                context.model.clone(),
+                context.hook_permission_mode(),
+                prompt,
+            );
+            let evaluation = context.evaluate_command_hook(invocation.clone()).await?;
+            state.apply_hook_evaluation(&mut context, &evaluation)?;
+            state.emit_hook_evaluation(&invocation, &evaluation)?;
+            if let Some(reason) = evaluation.denied_reason {
+                return Ok(PreparedNativeAgentTurnExecution::Finished(
+                    hook_denied_result(
+                        dependencies,
+                        &context,
+                        &mut state,
+                        start_iteration,
+                        reason,
+                    )?,
+                ));
+            }
+        }
         let turn_start_invocation = AgentHookInvocation::lifecycle(
             AgentHookStage::TurnStart,
             context.trace_context.clone(),
@@ -690,7 +719,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         let prompt_messages = self.state.history.for_prompt()?;
         self.context.messages = prompt_messages.clone();
         self.context.spec["messages"] = Value::Array(prompt_messages);
-        let projection = match context_window_projection_async(&self.context).await {
+        let mut projection = match context_window_projection_async(&self.context).await {
             Ok(projection) => projection,
             Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
                 return Ok(ExecutionStage::Finished(self.finish_cancelled(iteration)?));
@@ -773,12 +802,37 @@ impl<'a> NativeAgentTurnExecution<'a> {
             self.state
                 .emit(PendingAgentEvent::new(action.event_kind, payload))?;
             if action.event_kind == AgentEventKind::ContextCompacted {
-                let invocation = AgentHookInvocation::lifecycle(
-                    AgentHookStage::CompactionComplete,
+                let trigger = if manual_context_compaction_requested(&self.context.spec) {
+                    "manual"
+                } else {
+                    "auto"
+                };
+                let invocation = AgentHookInvocation::post_compact(
                     self.context.trace_context.clone(),
+                    self.context.session_id.clone(),
+                    self.context.model.clone(),
+                    self.context.hook_permission_mode(),
+                    trigger.to_string(),
                 );
-                let evaluation = self.context.evaluate_hook(invocation.clone())?;
+                let evaluation = self
+                    .context
+                    .evaluate_command_hook(invocation.clone())
+                    .await?;
+                self.state
+                    .apply_hook_evaluation(&mut self.context, &evaluation)?;
                 self.state.emit_hook_evaluation(&invocation, &evaluation)?;
+                if let Some(reason) = evaluation.denied_reason {
+                    return Ok(ExecutionStage::Finished(hook_denied_result(
+                        self.dependencies,
+                        &self.context,
+                        &mut self.state,
+                        iteration,
+                        reason,
+                    )?));
+                }
+                projection.messages = self.state.history.for_prompt()?;
+                self.context.messages = projection.messages.clone();
+                self.context.spec["messages"] = Value::Array(projection.messages.clone());
             }
         }
 
@@ -1104,6 +1158,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             &mut self.context,
             &self.state.completed_tool_results[completed_result_count..],
         )?;
+        self.context.flush_deferred_hook_response_items();
 
         if let Some(message) = self.state.drain_pending_guidance()? {
             self.state.emit(PendingAgentEvent::new(

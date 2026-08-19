@@ -175,6 +175,18 @@ impl DerefMut for NativeToolResultEnvelope {
 }
 
 impl NativeAgentToolResult {
+    pub(crate) fn denied(tool_call: &NativeAgentToolCall, message: String) -> Self {
+        let mut result = Self::generic_error(tool_call, message);
+        result.envelope["status"] = Value::String("denied".to_string());
+        result
+    }
+
+    pub(crate) fn replace_model_content(&mut self, feedback: String) {
+        self.content = Value::String(feedback.clone());
+        self.envelope["summary"] = Value::String(feedback.clone());
+        self.envelope["modelContent"] = Value::String(feedback);
+    }
+
     pub fn generic_success(tool_call: &NativeAgentToolCall, raw_content: Value) -> Self {
         let envelope = NativeToolResultEnvelope::generic_success(tool_call, raw_content);
         let model_content = envelope

@@ -112,9 +112,171 @@
 .react-shortcuts-settings,
 .react-agent-defaults-settings,
 .react-personalization-settings,
+.react-hooks-settings,
 .react-config-settings {
   display: grid;
   gap: 26px;
+}
+
+.react-hooks-settings__workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.react-hooks-settings__workspace label {
+  display: grid;
+  gap: 7px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.react-hooks-settings__workspace input {
+  min-height: 40px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 0 11px;
+  color: var(--color-ink);
+  font: inherit;
+  font-weight: 500;
+}
+
+.react-hooks-settings__workspace button,
+.react-hooks-settings__hook button {
+  min-height: 40px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 0 14px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.react-hooks-settings__paths,
+.react-hooks-settings__diagnostics {
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: var(--color-surface-soft);
+  padding: 14px;
+}
+
+.react-hooks-settings__paths > p,
+.react-hooks-settings__diagnostics p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.react-hooks-settings__paths dl {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 0;
+}
+
+.react-hooks-settings__paths dl > div {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.react-hooks-settings__paths dt,
+.react-hooks-settings__paths dd {
+  min-width: 0;
+  margin: 0;
+  font-size: 11px;
+}
+
+.react-hooks-settings__paths dd code,
+.react-hooks-settings__diagnostics code {
+  overflow-wrap: anywhere;
+}
+
+.react-hooks-settings__diagnostics {
+  display: grid;
+  gap: 8px;
+  border-color: color-mix(in srgb, var(--color-warning) 48%, var(--color-hairline));
+}
+
+.react-hooks-settings__list {
+  display: grid;
+  gap: 12px;
+}
+
+.react-hooks-settings__hook {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: var(--color-panel);
+  padding: 15px;
+}
+
+.react-hooks-settings__hook > header,
+.react-hooks-settings__hook > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.react-hooks-settings__hook > header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.react-hooks-settings__hook > header span,
+.react-hooks-settings__hook > small,
+.react-hooks-settings__hook > footer > code {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.react-hooks-settings__trust {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-warning) 16%, transparent);
+  padding: 4px 8px;
+}
+
+.react-hooks-settings__trust[data-trusted="true"] {
+  background: color-mix(in srgb, var(--color-success) 16%, transparent);
+  color: var(--color-success);
+}
+
+.react-hooks-settings__command {
+  overflow-x: auto;
+  border-radius: 7px;
+  background: var(--color-surface-soft);
+  padding: 10px;
+  color: var(--color-ink);
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.react-hooks-settings__hook > footer > code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .react-hooks-settings__workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .react-hooks-settings__paths dl > div,
+  .react-hooks-settings__hook > header,
+  .react-hooks-settings__hook > footer {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
 }
 
 .react-personalization-settings .react-config-settings__field textarea {

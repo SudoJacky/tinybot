@@ -1,0 +1,75 @@
+// Tinybot command hook templates (documentation only; this file is never loaded).
+//
+// 1. Copy hook-template.ps1 or hook-template.sh from the adjacent
+//    hook-templates directory to <workspace>/.tinybot/hooks/ and customize it.
+// 2. Copy one or more commented event properties below into the "hooks" object
+//    in ~/.tinybot/hooks.json or <workspace>/.tinybot/hooks.json.
+// 3. Remove the leading // markers, reload Settings > Hooks, review the command,
+//    and trust its exact definition hash.
+//
+// An active hooks.json starts like this:
+// {
+//   "description": "My Tinybot hooks",
+//   "hooks": {
+//     ...paste event properties here...
+//   }
+// }
+
+// "UserPromptSubmit": [
+//   {
+//     "hooks": [
+//       {
+//         "type": "command",
+//         "command": "sh .tinybot/hooks/hook-template.sh",
+//         "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -File .tinybot/hooks/hook-template.ps1",
+//         "timeout": 30,
+//         "statusMessage": "Checking user prompt"
+//       }
+//     ]
+//   }
+// ]
+
+// "PreToolUse": [
+//   {
+//     "matcher": "^(workspace\\.|shell_command$)",
+//     "hooks": [
+//       {
+//         "type": "command",
+//         "command": "sh .tinybot/hooks/hook-template.sh",
+//         "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -File .tinybot/hooks/hook-template.ps1",
+//         "timeout": 30,
+//         "statusMessage": "Reviewing tool input"
+//       }
+//     ]
+//   }
+// ]
+
+// "PostToolUse": [
+//   {
+//     "matcher": "*",
+//     "hooks": [
+//       {
+//         "type": "command",
+//         "command": "sh .tinybot/hooks/hook-template.sh",
+//         "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -File .tinybot/hooks/hook-template.ps1",
+//         "timeout": 30,
+//         "statusMessage": "Reviewing tool result"
+//       }
+//     ]
+//   }
+// ]
+
+// "PostCompact": [
+//   {
+//     "matcher": "^(manual|auto)$",
+//     "hooks": [
+//       {
+//         "type": "command",
+//         "command": "sh .tinybot/hooks/hook-template.sh",
+//         "commandWindows": "powershell -NoProfile -ExecutionPolicy Bypass -File .tinybot/hooks/hook-template.ps1",
+//         "timeout": 30,
+//         "statusMessage": "Restoring context after compaction"
+//       }
+//     ]
+//   }
+// ]

@@ -7,10 +7,12 @@ src-tauri/src/desktop/logging.rs
 src-tauri/src/desktop/update.rs
 src-tauri/src/desktop_terminal.rs
 src-tauri/src/desktop_commands/config.rs
+src-tauri/src/desktop_commands/hooks.rs
 src-tauri/src/desktop_commands/plugins.rs
+src/app-core/native/desktopNativeHooks.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:27af7cf065798ac5d5d8f4924181e572efeca63114853c0b52f38f9d7f528187 -->
+<!-- tinybot-doc-fingerprint: sha256:173b15a87ddc01ab963317c3206d057e36fa072504508c0501916344799769ca -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -194,6 +196,84 @@ launch are reachable only through `desktop_install_update`; the command rejects 
 The updater endpoint's standard `notes` value becomes `releaseNotes`. An endpoint may also add a
 top-level `display_notes` string (`displayNotes` is accepted as an alias) for a separate highlighted
 instruction in the update dialog. Blank values are omitted rather than rendered.
+
+## Command Hook Commands
+
+| Command | Args | Response |
+| --- | --- | --- |
+| `worker_hooks_snapshot` | `{ input: { workspacePath?: string } }` | `CommandHookCatalogSnapshot` |
+| `worker_hook_set_trusted` | `{ input: { workspacePath?: string, hash: string, trusted: boolean } }` | `CommandHookCatalogSnapshot` |
+
+Tinybot loads additive command-hook definitions from `~/.tinybot/hooks.json`
+and `<workspace>/.tinybot/hooks.json`. The first supported events are
+`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, and `PostCompact`. Matchers are
+regular expressions over tool names for tool events and `manual` or `auto` for
+`PostCompact`; an omitted matcher or `"*"` matches every invocation.
+
+Opening Settings > Hooks also creates non-destructive starter material under
+the global Tinybot data directory when it is missing:
+
+- `hooks.example.jsonc` contains separately commented definitions for all four
+  events. It is documentation only and is never loaded as configuration.
+- `hook-templates/hook-template.ps1` and `hook-template.sh` consume the JSON
+  stdin contract, default to a no-op `{}` response, and include commented
+  event-specific output examples.
+
+Existing template files are never overwritten. The snapshot returns
+`templateConfigPath` and `templateScriptsPath`, which Settings > Hooks displays
+next to the active configuration paths. Copy a script into the workspace and
+copy/uncomment only the required event properties into an active `hooks.json`.
+
+```json
+{
+  "description": "Workspace policy hooks",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(workspace\\.|shell_command$)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./scripts/review-tool.sh",
+            "commandWindows": "powershell -File scripts/review-tool.ps1",
+            "timeout": 30,
+            "statusMessage": "Reviewing tool input"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Only synchronous `type: "command"` handlers are currently supported. `async:
+true`, prompt handlers, agent handlers, and unsupported events are skipped with
+catalog diagnostics. Commands run in the active working directory, receive one
+JSON object on stdin, and must write either event-specific JSON or no output to
+stdout. `UserPromptSubmit` additionally accepts plain stdout as developer
+context. The runner bounds input and output, defaults to a 600-second timeout,
+accepts at most 600 seconds, and terminates the process tree on timeout.
+
+Common input fields are `session_id`, `turn_id`, `cwd`, `hook_event_name`,
+`model`, and `permission_mode`. Event inputs add `prompt`, or
+`tool_name`/`tool_use_id`/`tool_input`, plus `tool_response` for `PostToolUse`,
+or `trigger` for `PostCompact`.
+
+`PreToolUse` may deny a call with `permissionDecision: "deny"`, or replace its
+arguments with `permissionDecision: "allow"` plus an object-valued
+`updatedInput`. `PostToolUse` may replace only the model-visible result and does
+not roll back completed side effects. `PostCompact` may stop the turn after the
+new compacted history has been installed. `additionalContext` is inserted as a
+developer message; `systemMessage` is included in `agent.hook.decision` for the
+UI and trace.
+
+Every handler is disabled until the exact hash of its source path, event,
+matcher, and complete definition is trusted. Trust is stored in
+`~/.tinybot/hook-trust.json`. Editing a definition changes the hash and requires
+another review. The Settings > Hooks page calls these commands to show both
+configuration sources, diagnostics, definitions, and their trust status. Hook
+commands inherit the desktop user's operating-system authority and are not
+sandboxed by the Agent tool capability policy.
 
 ## Config Commands
 

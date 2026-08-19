@@ -10,8 +10,8 @@ use super::tool_dispatcher::{
 use super::tool_loop_guard::ToolLoopBlock;
 use super::tool_projection::{assistant_tool_calls_message, commit_tool_observation};
 use super::{
-    AgentTurnContext, NativeAgentRuntimeServices, NativeAgentToolCall, NativeToolOutcome,
-    NativeToolRetry, PreparedToolCall,
+    AgentHookInvocation, AgentHookStage, AgentTurnContext, NativeAgentRuntimeServices,
+    NativeAgentToolCall, NativeToolOutcome, NativeToolRetry, PreparedToolCall,
 };
 use crate::agent::runtime_protocol::{
     AgentEventKind, AgentRuntimePhase, PendingAgentEvent, TerminalEvent, ToolLifecycleEvent,
@@ -234,6 +234,23 @@ pub(super) async fn execute_tool_calls_for_iteration(
         .into_iter()
         .map(PreparedToolCall::prepare)
         .collect::<Result<Vec<_>, _>>()?;
+    let tool_calls = evaluate_pre_tool_hooks(context, state, iteration, tool_calls).await?;
+    if tool_calls.is_empty() {
+        state.apply_pending_tool_hook_context(context)?;
+        state.clear_pending_tool_calls();
+        state.transition_phase(
+            AgentRuntimePhase::Planning,
+            iteration,
+            AgentEventKind::ToolResult.wire_name(),
+        )?;
+        save_phase_checkpoint(
+            services,
+            context,
+            state.phase.as_str(),
+            state.active_checkpoint_payload("tool_hook_denied"),
+        );
+        return Ok(NativeAgentToolExecutionOutcome::Continue);
+    }
 
     if tool_calls
         .iter()
@@ -247,13 +264,15 @@ pub(super) async fn execute_tool_calls_for_iteration(
                 .iter()
                 .map(|tool_call| (&**tool_call, error.clone()))
                 .collect();
-            return tool_batch_error_result(services, context, state, iteration, failures);
+            let outcome = tool_batch_error_result(services, context, state, iteration, failures)?;
+            state.apply_pending_tool_hook_context(context)?;
+            return Ok(outcome);
         }
         let tool_call = tool_calls
             .into_iter()
             .next()
             .expect("single update_plan call should exist");
-        return execute_update_plan(services, context, state, iteration, tool_call);
+        return execute_update_plan(services, context, state, iteration, tool_call).await;
     }
 
     if tool_calls
@@ -268,7 +287,9 @@ pub(super) async fn execute_tool_calls_for_iteration(
                 .iter()
                 .map(|tool_call| (&**tool_call, error.clone()))
                 .collect();
-            return tool_batch_error_result(services, context, state, iteration, failures);
+            let outcome = tool_batch_error_result(services, context, state, iteration, failures)?;
+            state.apply_pending_tool_hook_context(context)?;
+            return Ok(outcome);
         }
         let tool_call = tool_calls
             .into_iter()
@@ -308,15 +329,83 @@ pub(super) async fn execute_tool_calls_for_iteration(
             }
             return execute_tool_batch(services, context, state, iteration, other_tool_calls).await;
         }
-        return execute_publish_data_views(services, context, state, iteration, tool_calls);
+        return execute_publish_data_views(services, context, state, iteration, tool_calls).await;
     }
 
     execute_tool_batch(services, context, state, iteration, tool_calls).await
 }
 
-fn execute_publish_data_views(
+async fn evaluate_pre_tool_hooks(
+    context: &mut AgentTurnContext,
+    state: &mut AgentTurnState,
+    iteration: i64,
+    tool_calls: Vec<PreparedToolCall>,
+) -> Result<Vec<PreparedToolCall>, String> {
+    let mut allowed = Vec::with_capacity(tool_calls.len());
+    for mut tool_call in tool_calls {
+        let invocation = AgentHookInvocation::tool(
+            AgentHookStage::BeforeToolUse,
+            context.trace_context.clone(),
+            context.session_id.clone(),
+            context.model.clone(),
+            context.hook_permission_mode(),
+            tool_call.id.clone(),
+            tool_call.name.clone(),
+            tool_call.arguments_value(),
+            None,
+        );
+        let evaluation = context.evaluate_command_hook(invocation.clone()).await?;
+        context.queue_tool_hook_context(&evaluation);
+        state.emit_hook_evaluation(&invocation, &evaluation)?;
+        if let Some(reason) = evaluation.denied_reason {
+            let result = super::NativeAgentToolResult::denied(&tool_call, reason);
+            commit_tool_observation(context, state, iteration, tool_call.into_original(), result)?;
+            continue;
+        }
+        if evaluation.input_replaced {
+            let replacement = evaluation.normalized_input.ok_or_else(|| {
+                "PreToolUse hook marked tool input as replaced without providing input".to_string()
+            })?;
+            tool_call.replace_arguments(replacement)?;
+        }
+        allowed.push(tool_call);
+    }
+    Ok(allowed)
+}
+
+async fn commit_executed_tool_observation(
+    context: &mut AgentTurnContext,
+    state: &mut AgentTurnState,
+    iteration: i64,
+    tool_call: PreparedToolCall,
+    mut result: super::NativeAgentToolResult,
+) -> Result<(), String> {
+    let invocation = AgentHookInvocation::tool(
+        AgentHookStage::AfterToolUse,
+        context.trace_context.clone(),
+        context.session_id.clone(),
+        context.model.clone(),
+        context.hook_permission_mode(),
+        tool_call.id.clone(),
+        tool_call.name.clone(),
+        tool_call.arguments_value(),
+        Some(serde_json::json!({
+            "content": result.content,
+            "envelope": result.envelope,
+        })),
+    );
+    let evaluation = context.evaluate_command_hook(invocation.clone()).await?;
+    context.queue_tool_hook_context(&evaluation);
+    state.emit_hook_evaluation(&invocation, &evaluation)?;
+    if !evaluation.tool_feedback.is_empty() {
+        result.replace_model_content(evaluation.tool_feedback.join("\n"));
+    }
+    commit_tool_observation(context, state, iteration, tool_call.into_original(), result)
+}
+
+async fn execute_publish_data_views(
     services: &NativeAgentRuntimeServices,
-    context: &AgentTurnContext,
+    context: &mut AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
     tool_calls: Vec<PreparedToolCall>,
@@ -355,9 +444,10 @@ fn execute_publish_data_views(
         };
 
         let result = publish_data_view_result(context, state, &tool_call);
-        commit_tool_observation(context, state, iteration, tool_call.into_original(), result)?;
+        commit_executed_tool_observation(context, state, iteration, tool_call, result).await?;
     }
 
+    state.apply_pending_tool_hook_context(context)?;
     state.clear_pending_tool_calls();
     state.transition_phase(
         AgentRuntimePhase::Planning,
@@ -451,9 +541,9 @@ fn publish_data_view_result(
     result
 }
 
-fn execute_update_plan(
+async fn execute_update_plan(
     services: &NativeAgentRuntimeServices,
-    context: &AgentTurnContext,
+    context: &mut AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
     tool_call: PreparedToolCall,
@@ -467,9 +557,11 @@ fn execute_update_plan(
                 .metrics()
                 .record_duration("tool.durationMs", tool_started_at.elapsed());
             context.metrics().increment("tool.failed");
-            return recoverable_update_plan_error(
+            let outcome = recoverable_update_plan_error(
                 services, context, state, iteration, tool_call, error,
-            );
+            )?;
+            state.apply_pending_tool_hook_context(context)?;
+            return Ok(outcome);
         }
     };
     let derived = super::validate_and_normalize_plan_steps(&mut plan.plan)
@@ -513,7 +605,8 @@ fn execute_update_plan(
         .record_duration("tool.durationMs", tool_started_at.elapsed());
     context.metrics().increment("tool.completed");
 
-    commit_tool_observation(context, state, iteration, tool_call.into_original(), result)?;
+    commit_executed_tool_observation(context, state, iteration, tool_call, result).await?;
+    state.apply_pending_tool_hook_context(context)?;
     state.clear_pending_tool_calls();
     state.transition_phase(
         AgentRuntimePhase::Planning,
@@ -757,7 +850,7 @@ async fn execute_tool_wave(
 
 async fn execute_tool_batch(
     services: &NativeAgentRuntimeServices,
-    context: &AgentTurnContext,
+    context: &mut AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
     tool_calls: Vec<PreparedToolCall>,
@@ -765,6 +858,7 @@ async fn execute_tool_batch(
     let (tool_calls, blocked_calls) = partition_repeated_no_progress_calls(state, tool_calls);
     commit_loop_blocked_calls(context, state, iteration, blocked_calls)?;
     if tool_calls.is_empty() {
+        state.apply_pending_tool_hook_context(context)?;
         state.clear_pending_tool_calls();
         state.transition_phase(
             AgentRuntimePhase::Planning,
@@ -815,13 +909,14 @@ async fn execute_tool_batch(
 
         let decision = reduce_wave_outcomes(execute_tool_wave(services, context, wave).await);
         for completed in decision.completed {
-            commit_tool_observation(
+            commit_executed_tool_observation(
                 context,
                 state,
                 iteration,
-                completed.tool_call.into_original(),
+                completed.tool_call,
                 completed.result,
-            )?;
+            )
+            .await?;
         }
 
         if let Some(terminal) = decision.terminal {
@@ -833,6 +928,7 @@ async fn execute_tool_batch(
                 terminal_reason,
                 decision.ignored,
             )?;
+            state.apply_pending_tool_hook_context(context)?;
             state.clear_pending_tool_calls();
             return finish_wave_terminal(services, context, state, iteration, terminal);
         }
@@ -843,6 +939,7 @@ async fn execute_tool_batch(
         }
     }
 
+    state.apply_pending_tool_hook_context(context)?;
     state.clear_pending_tool_calls();
     state.transition_phase(
         AgentRuntimePhase::Planning,

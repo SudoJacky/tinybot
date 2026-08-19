@@ -4,6 +4,7 @@ mod adapters;
 mod agent;
 mod automation;
 mod collaboration;
+mod command_hooks;
 mod config;
 mod desktop;
 pub mod desktop_commands;

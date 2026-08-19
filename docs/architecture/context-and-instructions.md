@@ -11,7 +11,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:ad7983418c8ba8bb21d302465c22be3751a6335a2ccf75655306798d59810727 -->
+<!-- tinybot-doc-fingerprint: sha256:54bce37ce898086f522146772d262cd24ef4e54985da2b7476e4602cd61786fa -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -92,6 +92,14 @@ After instruction composition, the runtime combines:
 Context contributors add evidence after composed instructions. They do not
 receive instruction precedence and must emit bounded provenance rather than
 unbounded prompt text in diagnostics.
+
+Trusted lifecycle command hooks may add bounded developer context after static
+instruction composition: at initial prompt submission, around a completed tool
+observation, or after context compaction. Tool-stage context is held until the
+matching tool result is recorded so provider protocol call/result ordering is
+not broken. These dynamic messages belong to live Turn context and resumable
+checkpoints; they do not become another project-instruction source or appear as
+raw text in hook diagnostic events.
 
 The runtime estimates the provider request against the effective context
 window. When no strategy is configured, the strategy is `compact`. Compaction

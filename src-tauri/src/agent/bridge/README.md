@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:cefb1139bc72361de59a9b0769ab8301294d2642de12eaf7f6f639319f4348a9 -->
+<!-- tinybot-module-fingerprint: sha256:1cd8d46d7993a0f90e9f3ca6921689e1a3094699c4d328d234491c7fa81a65ed -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -28,8 +28,8 @@ Thread data model. Those belong to `agent::runtime` and `threads::domain`.
    instruction diagnostics to the persisted spec.
 3. Persist the turn start before history loading or provider work begins.
 4. Hydrate the runtime history from the canonical Thread projection.
-5. Build tool, context-checkpoint, and trace services, selecting the
-   Thread-owned or direct-session trace path.
+5. Build tool, context-checkpoint, trace, and workspace command-hook services,
+   selecting the Thread-owned or direct-session trace path.
 6. Execute the native agent loop and flush the trace sink.
 7. Persist the terminal boundary or resumable checkpoint as applicable.
 8. Schedule memory extraction only after a completed turn is durably persisted.

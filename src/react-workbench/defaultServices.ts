@@ -13,6 +13,7 @@ import {
 } from "../app-core/native/desktopNativeThreads";
 import { createDesktopNativeHostCommandApi } from "../app-core/native/desktopNativeHostCommand";
 import { createDesktopNativeMemoryApi } from "../app-core/native/desktopNativeMemory";
+import { createDesktopNativeHooksApi } from "../app-core/native/desktopNativeHooks";
 import { createDesktopNativeProjectGroupsApi } from "../app-core/native/desktopNativeProjectGroups";
 import { createDesktopNativeBrowserApi } from "../app-core/native/desktopNativeBrowser";
 import { createDesktopNativeTerminalApi } from "../app-core/native/desktopNativeTerminal";
@@ -54,6 +55,7 @@ export function createDesktopAppServices(): AppServices {
   const nativeThreads = nativeMode ? createDesktopNativeThreadsApi({ invoke }) : undefined;
   const nativeHostCommands = nativeMode ? createDesktopNativeHostCommandApi({ invoke }) : undefined;
   const nativeMemory = nativeMode ? createDesktopNativeMemoryApi({ invoke }) : undefined;
+  const nativeHooks = nativeMode ? createDesktopNativeHooksApi({ invoke }) : undefined;
   const nativeProjectGroups = nativeMode ? createDesktopNativeProjectGroupsApi({ invoke }) : undefined;
   const nativeBrowser = nativeMode ? createDesktopNativeBrowserApi({ invoke }) : undefined;
   const nativeTerminal = nativeMode ? createDesktopNativeTerminalApi({ invoke }) : undefined;
@@ -535,6 +537,16 @@ export function createDesktopAppServices(): AppServices {
       },
     },
     toolsStore: createDesktopToolsStore({ initialize, nativePlugins, nativeWebui }),
+    hooksStore: nativeHooks ? {
+      async load(workspacePath) {
+        await initialize();
+        return nativeHooks.snapshot(workspacePath);
+      },
+      async setTrusted(input) {
+        await initialize();
+        return nativeHooks.setTrusted(input);
+      },
+    } : undefined,
     settingsStore: createDesktopSettingsStore({
       initialize,
       nativeConfig,

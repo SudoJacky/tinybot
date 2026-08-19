@@ -35,6 +35,7 @@ import type {
   DiagnosticBundleExportResult,
   PerformanceTraceSnapshot,
 } from "../app-core/native/desktopNativePerformanceTrace";
+import type { NativeCommandHookSnapshot } from "../app-core/native/desktopNativeHooks";
 
 export type SessionSummary = {
   id: string;
@@ -140,6 +141,15 @@ export type MemorySnapshot = {
 
 export type MemoryStore = {
   load(): Promise<MemorySnapshot>;
+};
+
+export type HooksStore = {
+  load(workspacePath?: string): Promise<NativeCommandHookSnapshot>;
+  setTrusted(input: {
+    workspacePath?: string;
+    hash: string;
+    trusted: boolean;
+  }): Promise<NativeCommandHookSnapshot>;
 };
 
 export type PluginSummary = {
@@ -269,6 +279,7 @@ export type AppServices = {
   projectGroupStore: ProjectGroupStore;
   workspaceStore: WorkspaceStore;
   toolsStore: ToolsStore;
+  hooksStore?: HooksStore;
   settingsStore: SettingsStore;
   performanceStore?: PerformanceStore;
 };
