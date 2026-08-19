@@ -1,11 +1,13 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:542bddd060a302e90b653295f8ea25e078deb1403e2a36e2c9a530c770b94478 -->
+<!-- tinybot-module-fingerprint: sha256:ff0d5d06160982d9623f1b71cba3ed1862f8eab6eaa3fa967b5860dbd3de6b66 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
 
 User-visible copy belongs in `resources/`. Domain identifiers, persisted
 values, protocol fields, and diagnostic codes must remain language-neutral.
+Language-picker option names and descriptions use each target language's own
+copy (endonyms) instead of following the currently active interface language.
 The retired TinyOS application namespace is intentionally absent. Sidecar copy
 lives under the owning `chat` route namespace, including Terminal shell
 selection, process state, availability, and user-only ownership labels.
