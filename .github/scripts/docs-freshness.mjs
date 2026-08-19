@@ -10,7 +10,7 @@ import { dirname, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const ROOT_DOCUMENTS = new Set(["README.md", "README_ZH.md", "CONTRIBUTING.md"]);
-const ARCHITECTURE_PREFIX = "docs/architecture/";
+const WATCHED_DOCUMENT_PREFIXES = ["docs/architecture/", "docs/api/"];
 const EXCLUDED_PREFIXES = ["docs/archive/", "docs/local/"];
 const WATCH_MARKER_PATTERN = /^<!-- tinybot-doc-watch:\r?\n([\s\S]*?)\r?\n-->$/m;
 const FINGERPRINT_NAME = "tinybot-doc-fingerprint";
@@ -115,9 +115,9 @@ function formalDocuments(files) {
   return [...new Set(files.filter(isFormalDocument))].sort();
 }
 
-function architectureDocuments(files) {
+function watchedDocuments(files) {
   return files.filter(
-    (file) => file.startsWith(ARCHITECTURE_PREFIX) && file.endsWith(".md"),
+    (file) => WATCHED_DOCUMENT_PREFIXES.some((prefix) => file.startsWith(prefix)) && file.endsWith(".md"),
   );
 }
 
@@ -193,18 +193,18 @@ function watchedSources(root, document, contents, indexFileSet) {
     .filter(Boolean)
     .map((source) => normalizeRepositoryTarget(root, source, `watch source in ${document}`));
   if (sources.length === 0) {
-    fail(`architecture document has an empty watch list: ${document}`);
+    fail(`watched document has an empty watch list: ${document}`);
   }
   const unique = new Set(sources);
   if (unique.size !== sources.length) {
-    fail(`architecture document has duplicate watch sources: ${document}`);
+    fail(`watched document has duplicate watch sources: ${document}`);
   }
   for (const source of sources) {
     if (source.startsWith("docs/local/") || source.startsWith("openspec/")) {
-      fail(`architecture document watches excluded content: ${document} -> ${source}`);
+      fail(`watched document watches excluded content: ${document} -> ${source}`);
     }
     if (!indexFileSet.has(source)) {
-      fail(`architecture document watches an untracked or missing file: ${document} -> ${source}`);
+      fail(`watched document watches an untracked or missing file: ${document} -> ${source}`);
     }
   }
   return { kind: "valid", sources: [...unique].sort() };
@@ -223,7 +223,7 @@ function stagedCheckReader(root, documents, entries) {
   const indexFileSet = new Set(entries.keys());
   const contents = readIndexContents(root, documents, entries);
   const watched = new Set();
-  for (const document of architectureDocuments(documents)) {
+  for (const document of watchedDocuments(documents)) {
     try {
       const watch = watchedSources(root, document, contents.get(document), indexFileSet);
       if (watch.kind === "valid") {
@@ -250,7 +250,7 @@ function stagedReviewReader(root, documents, entries) {
       indexFileSet,
     );
     if (watch.kind !== "valid") {
-      fail(`architecture document has no watch marker: ${document}`);
+      fail(`watched document has no watch marker: ${document}`);
     }
     watch.sources.forEach((source) => watched.add(source));
   }
@@ -448,11 +448,11 @@ function checkFreshness(root, documents, indexFileSet, readFile, staged) {
     console.log(`CURRENT     ${document}`);
     current += 1;
   }
-  console.log(`Architecture freshness: ${current} current, ${needsReview} requiring review`);
+  console.log(`Documentation freshness: ${current} current, ${needsReview} requiring review`);
   return needsReview === 0;
 }
 
-function selectedArchitectureDocuments(root, targets, documents) {
+function selectedWatchedDocuments(root, targets, documents) {
   if (targets.length === 0 || (targets.length === 1 && targets[0] === "--all")) {
     return documents;
   }
@@ -460,9 +460,9 @@ function selectedArchitectureDocuments(root, targets, documents) {
     fail("--all cannot be combined with document targets");
   }
   return [...new Set(targets.map((target) => {
-    const document = normalizeRepositoryTarget(root, target, "architecture document target");
+    const document = normalizeRepositoryTarget(root, target, "watched document target");
     if (!documents.includes(document)) {
-      fail(`no architecture document found for: ${target}`);
+      fail(`no watched document found for: ${target}`);
     }
     return document;
   }))];
@@ -473,13 +473,13 @@ function review(root, selected, indexFileSet, readSource) {
     const contents = readWorkingFile(root, document);
     const watch = watchedSources(root, document, contents, indexFileSet);
     if (watch.kind !== "valid") {
-      fail(`architecture document has no watch marker: ${document}`);
+      fail(`watched document has no watch marker: ${document}`);
     }
     const value = fingerprint(watch.sources, readSource);
     writeFileSync(resolve(root, document), withFingerprint(contents, value), "utf8");
     console.log(`REVIEWED    ${document}`);
   }
-  console.log(`Updated ${selected.length} architecture document fingerprint${selected.length === 1 ? "" : "s"}.`);
+  console.log(`Updated ${selected.length} documentation fingerprint${selected.length === 1 ? "" : "s"}.`);
 }
 
 function usage() {
@@ -488,9 +488,9 @@ function usage() {
   node .github/scripts/docs-freshness.mjs review [--staged] <document ... | --all>
 
 The check command validates formal documentation outside docs/archive and
-docs/local, then verifies every docs/architecture fingerprint. Review updates
-fingerprints after a human has read the document and its declared watch
-sources. Neither command reads openspec or docs/local content.`);
+docs/local, then verifies every docs/architecture and docs/api fingerprint.
+Review updates fingerprints after a human has read the document and its
+declared watch sources. Neither command reads openspec or docs/local content.`);
 }
 
 function main() {
@@ -521,7 +521,7 @@ function main() {
     const structureCurrent = validateDocuments(root, documents, new Set(files), readFile);
     const freshnessCurrent = checkFreshness(
       root,
-      architectureDocuments(documents),
+      watchedDocuments(documents),
       indexFileSet,
       readFile,
       staged,
@@ -533,10 +533,10 @@ function main() {
   }
 
   if (command === "review") {
-    const workingDocuments = architectureDocuments(formalDocuments(workingFiles(root)));
-    const selected = selectedArchitectureDocuments(root, targets, workingDocuments);
+    const workingDocuments = watchedDocuments(formalDocuments(workingFiles(root)));
+    const selected = selectedWatchedDocuments(root, targets, workingDocuments);
     if (selected.length === 0) {
-      fail("no architecture documents found to review");
+      fail("no watched documents found to review");
     }
     const readSource = staged
       ? stagedReviewReader(root, selected, entries)

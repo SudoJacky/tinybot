@@ -86,18 +86,19 @@ tables across documents.
 - Link important behavior to the tests that verify it whenever a stable test
   entry point exists.
 
-Architecture documents declare focused `tinybot-doc-watch` sources and record
-a content fingerprint after human review. Check the complete formal
-documentation set with:
+Architecture and API documents declare focused `tinybot-doc-watch` sources and
+record a content fingerprint after human review. API watch lists should prefer
+public contract definitions and contract tests over internal implementation
+details. Check the complete formal documentation set with:
 
 ```bash
 npm run docs:check
 ```
 
-After reading an affected architecture document and its watch sources, refresh
-the review marker with `npm run docs:review -- <document>`. For staged source
-changes, use `--staged` before staging the reviewed document. The checker never
-reads local scratch notes, archived documentation, or unrelated planning
+After reading an affected architecture or API document and its watch sources,
+refresh the review marker with `npm run docs:review -- <document>`. For staged
+source changes, use `--staged` before staging the reviewed document. The checker
+never reads local scratch notes, archived documentation, or unrelated planning
 artifacts. The same structural check covers module READMEs under `src/` and
 `src-tauri/`; their source fingerprints remain owned by `readme:check`.
 

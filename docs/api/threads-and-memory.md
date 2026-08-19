@@ -1,9 +1,21 @@
 # Threads and Memory API
+<!-- tinybot-doc-watch:
+src-tauri/src/desktop_commands/memory.rs
+src-tauri/src/desktop_commands/project_groups.rs
+src-tauri/src/desktop_commands/thread.rs
+src-tauri/src/memory/model.rs
+src-tauri/src/threads/domain/types/events.rs
+src-tauri/src/threads/domain/types/items.rs
+src-tauri/src/threads/domain/types/records.rs
+src-tauri/src/threads/domain/types/requests.rs
+src-tauri/tests/crate/threads.rs
+-->
+<!-- tinybot-doc-fingerprint: sha256:14fba07c2b89b249048fabd2c90c08f1d92430b30e2b441b28c105b86c2c0896 -->
 
 This document covers Thread queries, memory, persistence, and project grouping.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
-records the code snapshot and shared invocation conventions for this reference
-set.
+defines the shared invocation conventions and source-backed freshness policy
+for this reference set.
 
 ## Thread Timeline Queries
 

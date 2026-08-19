@@ -1,9 +1,21 @@
 # Desktop Commands
+<!-- tinybot-doc-watch:
+src-tauri/src/desktop/bootstrap.rs
+src-tauri/src/desktop/diagnostics.rs
+src-tauri/src/desktop/files.rs
+src-tauri/src/desktop/logging.rs
+src-tauri/src/desktop/update.rs
+src-tauri/src/desktop_terminal.rs
+src-tauri/src/desktop_commands/config.rs
+src-tauri/src/desktop_commands/plugins.rs
+src/app-core/native/nativeBackendContract.test.ts
+-->
+<!-- tinybot-doc-fingerprint: sha256:27af7cf065798ac5d5d8f4924181e572efeca63114853c0b52f38f9d7f528187 -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
-which records the code snapshot and shared invocation conventions for this
-reference set.
+which defines the shared invocation conventions and source-backed freshness
+policy for this reference set.
 
 ## Native Runtime Lifecycle
 

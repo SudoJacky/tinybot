@@ -1,8 +1,17 @@
 # Tauri Events
+<!-- tinybot-doc-watch:
+src-tauri/src/agent/runtime_protocol/event_catalog.rs
+src-tauri/src/agent/runtime_protocol/timeline_projection.rs
+src/app-core/chat/chatTurnContracts.ts
+src/app-core/native/desktopNativeTauriEvents.ts
+src/app-core/native/desktopNativeTauriEvents.test.ts
+-->
+<!-- tinybot-doc-fingerprint: sha256:ffd1c9d255cf0a664375aaea18d8ed8227aa3c095077c513af4865ca311501a8 -->
 
 This document lists frontend-visible events emitted by the native runtime. It
-is part of the [Rust backend API reference](rust-backend-api.md), which records
-the code snapshot and shared invocation conventions for this reference set.
+is part of the [Rust backend API reference](rust-backend-api.md), which defines
+the shared invocation conventions and source-backed freshness policy for this
+reference set.
 
 ## Tauri Event Names
 
