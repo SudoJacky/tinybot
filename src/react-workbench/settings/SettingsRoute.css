@@ -2044,9 +2044,9 @@
 
 .react-settings-choice-item {
   grid-template-columns: minmax(0, 1fr) 18px;
-  min-height: 42px;
+  min-height: 36px;
   gap: 10px;
-  padding: 7px 10px;
+  padding: 4px 10px;
 }
 
 .react-settings-choice-item .react-top-menu__menu-label {
