@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:5d97a9a4af1ed5b795cf13475fa4996f5c0ff233f24f2a0d1613a0687138e1c8 -->
+<!-- tinybot-module-fingerprint: sha256:542bddd060a302e90b653295f8ea25e078deb1403e2a36e2c9a530c770b94478 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
@@ -16,3 +16,5 @@ The Hooks settings copy translates trust state and safety guidance while
 retaining event names, hashes, paths, commands, and diagnostic codes verbatim.
 Managed-hook form, test-result, and recoverable-remove copy follows the same
 boundary, as do inline script-editor status and conflict instructions.
+Editor shortcut hints use the platform modifier label while persisted script
+content, event names, paths, and trust identifiers remain untranslated.

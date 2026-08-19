@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { NativeCommandHookSnapshot } from "../../app-core/native/desktopNativeHooks";
@@ -151,8 +151,8 @@ describe("HooksSettingsPage", () => {
         sessionStore={sessionStore}
       />,
     );
-    await screen.findByRole("option", { name: "work — D:\\work" });
-    expect(screen.getByRole("option", { name: "project — D:\\project" })).toBeTruthy();
+    await user.click(await screen.findByRole("button", { name: /Workspace directory: work/ }));
+    expect(screen.getByRole("menuitemradio", { name: /project.*D:\\project/ })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "New hook" }));
     await user.type(screen.getByRole("textbox", { name: "Hook name" }), "Protect files");
     await user.click(screen.getByRole("button", { name: "Create script" }));
@@ -227,9 +227,15 @@ describe("HooksSettingsPage", () => {
     await user.click(await screen.findByRole("button", { name: "Edit script" }));
     const scriptEditor = await screen.findByRole("textbox", { name: "Script contents" });
     expect((scriptEditor as HTMLTextAreaElement).value).toBe("# original\n");
+    (scriptEditor as HTMLTextAreaElement).setSelectionRange(0, 10);
+    fireEvent.keyDown(scriptEditor, { code: "Slash", ctrlKey: true, key: "/" });
+    await waitFor(() => expect((scriptEditor as HTMLTextAreaElement).value).toBe("original\n"));
+    (scriptEditor as HTMLTextAreaElement).setSelectionRange(0, 8);
+    await user.click(screen.getByRole("button", { name: /Toggle comment/ }));
+    await waitFor(() => expect((scriptEditor as HTMLTextAreaElement).value).toBe("# original\n"));
     await user.clear(scriptEditor);
     await user.type(scriptEditor, "# edited");
-    await user.click(screen.getByRole("button", { name: "Save script" }));
+    fireEvent.keyDown(scriptEditor, { ctrlKey: true, key: "s" });
     await waitFor(() => expect(hooksStore.saveManagedScript).toHaveBeenCalledWith({
       workspacePath: "D:\\work",
       id: "protect-files",

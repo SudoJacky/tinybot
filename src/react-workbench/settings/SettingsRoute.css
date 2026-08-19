@@ -125,40 +125,26 @@
   gap: 12px;
 }
 
-.react-hooks-settings__workspace label {
-  display: grid;
-  gap: 7px;
-  color: var(--color-ink);
-  font-size: 12px;
-  font-weight: 700;
+.react-hooks-settings__workspace > .react-settings-choice {
+  min-width: 0;
 }
 
 .react-hooks-settings__script-picker {
-  display: flex;
-  align-items: end;
-  gap: 12px;
+  min-width: 0;
 }
 
-.react-hooks-settings__script-picker label {
-  display: grid;
-  flex: 1 1 auto;
-  gap: 7px;
-  color: var(--color-ink);
-  font-size: 12px;
-  font-weight: 700;
+.react-hooks-settings__script-picker > .react-settings-choice {
+  width: 100%;
 }
 
 .react-hooks-settings__script-picker > span {
-  padding-bottom: 11px;
+  display: block;
+  margin-top: 7px;
   color: var(--color-muted);
   font-size: 11px;
 }
 
-.react-hooks-settings__workspace input,
-.react-hooks-settings__workspace select,
-.react-hooks-settings__script-picker select,
-.react-hooks-settings__editor input,
-.react-hooks-settings__editor select {
+.react-hooks-settings__editor input {
   min-height: 40px;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
@@ -169,16 +155,10 @@
   font-weight: 500;
 }
 
-.react-hooks-settings__workspace select,
-.react-hooks-settings__script-picker select,
-.react-hooks-settings__editor select {
-  appearance: none;
-}
-
 .react-hooks-settings__create,
-.react-hooks-settings__workspace button,
+.react-hooks-settings__workspace > button,
 .react-hooks-settings__hook button,
-.react-hooks-settings__editor button {
+.react-hooks-settings__editor > footer button {
   min-height: 40px;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
@@ -246,12 +226,53 @@
   color: #8a5b12;
 }
 
-.react-hooks-settings__script-editor > label {
+.react-hooks-settings__script-field {
   display: grid;
   gap: 7px;
+}
+
+.react-hooks-settings__script-toolbar,
+.react-hooks-settings__script-toolbar > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.react-hooks-settings__script-toolbar {
+  justify-content: space-between;
+}
+
+.react-hooks-settings__script-toolbar > label {
   color: var(--color-ink);
   font-size: 11px;
   font-weight: 700;
+}
+
+.react-hooks-settings__script-editor .react-hooks-settings__script-toolbar button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 7px;
+  border-color: transparent;
+  background: transparent;
+  padding: 0 8px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-hooks-settings__script-editor .react-hooks-settings__script-toolbar button:hover,
+.react-hooks-settings__script-editor .react-hooks-settings__script-toolbar button:focus-visible {
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+}
+
+.react-hooks-settings__script-toolbar kbd {
+  border: 1px solid var(--color-hairline);
+  border-radius: 5px;
+  background: var(--color-panel);
+  padding: 2px 5px;
+  color: var(--color-muted);
+  font: 600 9px/1 var(--font-code);
 }
 
 .react-hooks-settings__script-editor textarea {
@@ -329,6 +350,10 @@
   font-weight: 700;
 }
 
+.react-hooks-settings__editor-grid > .react-settings-choice {
+  align-content: start;
+}
+
 .react-hooks-settings__editor-wide {
   grid-column: 1 / -1;
 }
@@ -351,6 +376,37 @@
   border: 1px solid var(--color-hairline);
   border-radius: 10px;
   background: var(--color-surface-soft);
+  padding: 14px;
+}
+
+.react-hooks-settings__paths {
+  padding: 0;
+  overflow: hidden;
+}
+
+.react-hooks-settings__paths > summary {
+  padding: 13px 14px;
+  cursor: pointer;
+  color: var(--color-body);
+  font-size: 12px;
+  font-weight: 650;
+  list-style-position: inside;
+}
+
+.react-hooks-settings__paths > summary:hover,
+.react-hooks-settings__paths > summary:focus-visible {
+  background: color-mix(in srgb, var(--color-panel) 58%, transparent);
+}
+
+.react-hooks-settings__paths > summary:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 28%, transparent);
+  outline-offset: -2px;
+}
+
+.react-hooks-settings__paths-content {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--color-hairline);
   padding: 14px;
 }
 
@@ -379,7 +435,7 @@
   grid-column: 1 / -1;
 }
 
-.react-hooks-settings__paths > p,
+.react-hooks-settings__paths-content > p,
 .react-hooks-settings__diagnostics p {
   margin: 0;
   color: var(--color-muted);
@@ -435,8 +491,15 @@
 .react-hooks-settings__hook > footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 16px;
+}
+
+.react-hooks-settings__hook > header {
+  justify-content: space-between;
+}
+
+.react-hooks-settings__hook > footer {
+  justify-content: flex-end;
 }
 
 .react-hooks-settings__hook > header > div {
@@ -445,8 +508,7 @@
 }
 
 .react-hooks-settings__hook > header span,
-.react-hooks-settings__hook > small,
-.react-hooks-settings__hook > footer > code {
+.react-hooks-settings__hook > small {
   color: var(--color-muted);
   font-size: 10px;
 }
@@ -491,13 +553,6 @@
   overflow-wrap: anywhere;
 }
 
-.react-hooks-settings__hook > footer > code {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 @media (max-width: 760px) {
   .react-hooks-settings__workspace {
     grid-template-columns: 1fr;
@@ -515,6 +570,14 @@
 
   .react-hooks-settings__script-picker {
     display: grid;
+  }
+
+  .react-hooks-settings__script-toolbar {
+    display: grid;
+  }
+
+  .react-hooks-settings__script-toolbar > div {
+    flex-wrap: wrap;
   }
 
   .react-hooks-settings__editor-grid {

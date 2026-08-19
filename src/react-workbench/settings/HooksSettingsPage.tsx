@@ -1,5 +1,12 @@
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import { useTranslation } from "react-i18next";
 import type {
   NativeCommandHookSnapshot,
@@ -9,6 +16,13 @@ import type {
   NativeManagedHookTestResult,
 } from "../../app-core/native/desktopNativeHooks";
 import type { HooksStore, ProjectGroupStore, SessionStore } from "../services";
+import { SettingsChoiceList } from "./SettingsChoiceList";
+import {
+  indentScriptLines,
+  outdentScriptLines,
+  toggleScriptLineComments,
+  type ScriptTextEdit,
+} from "./hookScriptEditing";
 
 type HookEvent = NativeCommandHookSummary["event"];
 type MatcherTranslationKey =
@@ -60,6 +74,7 @@ export function HooksSettingsPage({
   const [loadingScriptId, setLoadingScriptId] = useState<string | null>(null);
   const [savingScript, setSavingScript] = useState(false);
   const [scriptSaved, setScriptSaved] = useState(false);
+  const scriptTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -300,6 +315,54 @@ export function HooksSettingsPage({
     return !scriptDirty || window.confirm(t("hooks.managed.confirmDiscardScript"));
   }
 
+  function hookAppliesTo(hook: NativeCommandHookSummary): string {
+    if (hook.event === "UserPromptSubmit") return t("hooks.managed.matchers.everyPrompt");
+    const option = hookMatcherOptions(hook.event)
+      .find((candidate) => candidate.value === (hook.matcher || "*"));
+    return option ? t(option.label) : hook.matcher || "*";
+  }
+
+  function applyScriptTextEdit(edit: ScriptTextEdit) {
+    if (!scriptEditor) return;
+    setScriptSaved(false);
+    setScriptEditor({ ...scriptEditor, contents: edit.contents });
+    window.requestAnimationFrame(() => {
+      scriptTextareaRef.current?.focus();
+      scriptTextareaRef.current?.setSelectionRange(edit.selectionStart, edit.selectionEnd);
+    });
+  }
+
+  function editScriptSelection(
+    edit: (contents: string, selectionStart: number, selectionEnd: number) => ScriptTextEdit,
+  ) {
+    if (!scriptEditor) return;
+    const selectionStart = scriptTextareaRef.current?.selectionStart ?? 0;
+    const selectionEnd = scriptTextareaRef.current?.selectionEnd ?? selectionStart;
+    applyScriptTextEdit(edit(
+      scriptEditor.contents,
+      selectionStart,
+      selectionEnd,
+    ));
+  }
+
+  function onScriptEditorKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    const commandKey = event.ctrlKey || event.metaKey;
+    if (commandKey && (event.key === "/" || event.code === "Slash")) {
+      event.preventDefault();
+      editScriptSelection(toggleScriptLineComments);
+      return;
+    }
+    if (commandKey && event.key.toLocaleLowerCase("en-US") === "s") {
+      event.preventDefault();
+      if (scriptDirty && !savingScript) event.currentTarget.form?.requestSubmit();
+      return;
+    }
+    if (event.key === "Tab") {
+      event.preventDefault();
+      editScriptSelection(event.shiftKey ? outdentScriptLines : indentScriptLines);
+    }
+  }
+
   async function testManaged(hook: NativeCommandHookSummary) {
     if (!hook.managed || !selectedWorkspace) return;
     setTestingManagedId(hook.managed.id);
@@ -358,25 +421,20 @@ export function HooksSettingsPage({
       </div>
 
       <div className="react-hooks-settings__workspace">
-        <label>
-          <span>{t("hooks.workspace")}</span>
-          <select
-            aria-label={t("hooks.workspace")}
-            disabled={!workspaceCatalogReady || !workspaceOptions.length}
-            onChange={(event) => {
-              if (!selectWorkspace(event.target.value)) {
-                event.currentTarget.value = selectedWorkspace || "";
-              }
-            }}
-            value={selectedWorkspace || ""}
-          >
-            {workspaceOptions.map((path) => (
-              <option key={workspacePathKey(path)} value={path}>
-                {workspaceName(path)} — {path}
-              </option>
-            ))}
-          </select>
-        </label>
+        <SettingsChoiceList
+          ariaLabel={t("hooks.workspace")}
+          description={t("hooks.workspaceDescription")}
+          disabled={!workspaceCatalogReady || !workspaceOptions.length}
+          label={t("hooks.workspace")}
+          onChange={selectWorkspace}
+          options={workspaceOptions.map((path) => ({
+            description: path,
+            label: workspaceName(path),
+            value: path,
+          }))}
+          optionsAriaLabel={t("hooks.workspaceOptions")}
+          value={selectedWorkspace || ""}
+        />
         <button onClick={reloadHooks} type="button">
           {t("hooks.reload")}
         </button>
@@ -384,32 +442,32 @@ export function HooksSettingsPage({
 
       {snapshot ? (
         <div className="react-hooks-settings__script-picker">
-          <label>
-            <span>{t("hooks.managed.scripts")}</span>
-            <select
-              aria-label={t("hooks.managed.scripts")}
-              disabled={!managedHooks.length || loadingScriptId !== null}
-              onChange={(event) => {
-                const hook = managedHooks.find((candidate) => candidate.managed?.id === event.target.value);
-                if (!hook) return;
-                if (scriptDirty && !confirmDiscardScript()) {
-                  event.currentTarget.value = scriptEditor?.id || "";
-                  return;
-                }
-                void openScript(hook, true);
-              }}
-              value={scriptEditor?.id || ""}
-            >
-              <option value="">
-                {t(managedHooks.length ? "hooks.managed.chooseScript" : "hooks.managed.noScripts")}
-              </option>
-              {managedHooks.map((hook) => (
-                <option key={hook.managed!.id} value={hook.managed!.id}>
-                  {hook.managed!.name} — {fileName(hook.managed!.scriptPath)}
-                </option>
-              ))}
-            </select>
-          </label>
+          <SettingsChoiceList
+            ariaLabel={t("hooks.managed.scripts")}
+            badge={managedHooks.length ? String(managedHooks.length) : undefined}
+            description={t(managedHooks.length ? "hooks.managed.chooseScript" : "hooks.managed.noScripts")}
+            disabled={!managedHooks.length || loadingScriptId !== null}
+            label={t("hooks.managed.scripts")}
+            onChange={(id) => {
+              const hook = managedHooks.find((candidate) => candidate.managed?.id === id);
+              if (!hook || (scriptDirty && !confirmDiscardScript())) return;
+              void openScript(hook, true);
+            }}
+            options={[
+              {
+                disabled: true,
+                label: t(managedHooks.length ? "hooks.managed.chooseScript" : "hooks.managed.noScripts"),
+                value: "",
+              },
+              ...managedHooks.map((hook) => ({
+                description: `${fileName(hook.managed!.scriptPath)} · ${managedLanguageLabel(hook.managed!.language)}`,
+                label: hook.managed!.name,
+                value: hook.managed!.id,
+              })),
+            ]}
+            optionsAriaLabel={t("hooks.managed.scriptOptions")}
+            value={scriptEditor?.id || ""}
+          />
           {loadingScriptId ? <span role="status">{t("hooks.managed.loadingScript")}</span> : null}
         </div>
       ) : null}
@@ -427,22 +485,43 @@ export function HooksSettingsPage({
                 : scriptDirty ? t("hooks.managed.unsavedScript") : t("hooks.managed.scriptCurrent")}
             </span>
           </header>
-          <label>
-            <span>{t("hooks.managed.scriptContents")}</span>
+          <div className="react-hooks-settings__script-field">
+            <div className="react-hooks-settings__script-toolbar">
+              <label htmlFor="managed-hook-script-contents">{t("hooks.managed.scriptContents")}</label>
+              <div>
+                <button
+                  onClick={() => editScriptSelection(toggleScriptLineComments)}
+                  title={t("hooks.managed.toggleCommentShortcut", { modifier: shortcutModifier() })}
+                  type="button"
+                >
+                  {t("hooks.managed.toggleComment")}
+                  <kbd>{shortcutModifier()}+/</kbd>
+                </button>
+                <button onClick={() => editScriptSelection(outdentScriptLines)} type="button">
+                  {t("hooks.managed.outdent")}
+                </button>
+                <button onClick={() => editScriptSelection(indentScriptLines)} type="button">
+                  {t("hooks.managed.indent")}
+                </button>
+              </div>
+            </div>
             <textarea
               aria-label={t("hooks.managed.scriptContents")}
               autoCapitalize="off"
               autoCorrect="off"
+              id="managed-hook-script-contents"
+              onKeyDown={onScriptEditorKeyDown}
               onChange={(event) => {
                 setScriptSaved(false);
                 setScriptEditor({ ...scriptEditor, contents: event.target.value });
               }}
+              ref={scriptTextareaRef}
               spellCheck={false}
               value={scriptEditor.contents}
             />
-          </label>
+          </div>
           <footer>
-            <small>{t("hooks.managed.scriptEditorHint")}</small>
+            <small>{t("hooks.managed.scriptEditorHint", { modifier: shortcutModifier() })}</small>
             <div>
               <button disabled={savingScript} onClick={closeScriptEditor} type="button">
                 {t("hooks.managed.closeScript")}
@@ -475,57 +554,50 @@ export function HooksSettingsPage({
                 value={managedEditor.name}
               />
             </label>
-            <label>
-              <span>{t("hooks.managed.event")}</span>
-              <select
-                onChange={(event) => {
-                  const nextEvent = event.target.value as HookEvent;
-                  setManagedEditor({
-                    ...managedEditor,
-                    event: nextEvent,
-                    matcher: defaultMatcher(nextEvent),
-                    customMatcher: false,
-                  });
-                }}
-                value={managedEditor.event}
-              >
-                {HOOK_EVENTS.map((event) => <option key={event} value={event}>{event}</option>)}
-              </select>
-            </label>
-            {managedEditor.event !== "UserPromptSubmit" ? (
-              <label>
-                <span>{t("hooks.managed.appliesTo")}</span>
-                <select
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setManagedEditor({
-                      ...managedEditor,
-                      customMatcher: value === CUSTOM_MATCHER,
-                      matcher: value === CUSTOM_MATCHER ? "" : value,
-                    });
-                  }}
-                  value={managedEditor.customMatcher ? CUSTOM_MATCHER : managedEditor.matcher}
-                >
-                  {matcherOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{t(option.label)}</option>
-                  ))}
-                  <option value={CUSTOM_MATCHER}>{t("hooks.managed.matchers.custom")}</option>
-                </select>
-              </label>
-            ) : null}
-            <label>
-              <span>{t("hooks.managed.language")}</span>
-              <select
-                onChange={(event) => setManagedEditor({
+            <SettingsChoiceList
+              label={t("hooks.managed.event")}
+              onChange={(value) => {
+                const nextEvent = value as HookEvent;
+                setManagedEditor({
                   ...managedEditor,
-                  language: event.target.value as NativeManagedHookLanguage,
+                  event: nextEvent,
+                  matcher: defaultMatcher(nextEvent),
+                  customMatcher: false,
+                });
+              }}
+              options={HOOK_EVENTS.map((event) => ({ label: event, value: event }))}
+              value={managedEditor.event}
+            />
+            {managedEditor.event !== "UserPromptSubmit" ? (
+              <SettingsChoiceList
+                label={t("hooks.managed.appliesTo")}
+                onChange={(value) => setManagedEditor({
+                  ...managedEditor,
+                  customMatcher: value === CUSTOM_MATCHER,
+                  matcher: value === CUSTOM_MATCHER ? "" : value,
                 })}
-                value={managedEditor.language}
-              >
-                <option value="powershell">PowerShell</option>
-                <option value="shell">POSIX shell</option>
-              </select>
-            </label>
+                options={[
+                  ...matcherOptions.map((option) => ({
+                    label: t(option.label),
+                    value: option.value,
+                  })),
+                  { label: t("hooks.managed.matchers.custom"), value: CUSTOM_MATCHER },
+                ]}
+                value={managedEditor.customMatcher ? CUSTOM_MATCHER : managedEditor.matcher}
+              />
+            ) : null}
+            <SettingsChoiceList
+              label={t("hooks.managed.language")}
+              onChange={(value) => setManagedEditor({
+                  ...managedEditor,
+                  language: value as NativeManagedHookLanguage,
+              })}
+              options={[
+                { label: "PowerShell", value: "powershell" },
+                { label: "POSIX shell", value: "shell" },
+              ]}
+              value={managedEditor.language}
+            />
             {managedEditor.customMatcher ? (
               <label className="react-hooks-settings__editor-wide">
                 <span>{t("hooks.managed.matcher")}</span>
@@ -578,18 +650,6 @@ export function HooksSettingsPage({
         <p className="react-empty-state">{t("hooks.loading")}</p>
       ) : (
         <>
-          <div className="react-hooks-settings__paths">
-            <p>{t("hooks.configHint")}</p>
-            <dl>
-              <div><dt>{t("hooks.globalConfig")}</dt><dd><code>{snapshot.globalConfigPath}</code></dd></div>
-              <div><dt>{t("hooks.workspaceConfig")}</dt><dd><code>{snapshot.workspaceConfigPath}</code></dd></div>
-              <div><dt>{t("hooks.trustStore")}</dt><dd><code>{snapshot.trustStorePath}</code></dd></div>
-              <div><dt>{t("hooks.templateConfig")}</dt><dd><code>{snapshot.templateConfigPath}</code></dd></div>
-              <div><dt>{t("hooks.templateScripts")}</dt><dd><code>{snapshot.templateScriptsPath}</code></dd></div>
-            </dl>
-            <p>{t("hooks.templateHint")}</p>
-          </div>
-
           {snapshot.diagnostics.length ? (
             <div className="react-hooks-settings__diagnostics" role="status">
               {snapshot.diagnostics.map((diagnostic, index) => (
@@ -609,7 +669,7 @@ export function HooksSettingsPage({
                   <header>
                     <div>
                       <strong>{hook.managed?.name || hook.statusMessage || hook.event}</strong>
-                      <span>{hook.event} · {t(`hooks.source.${hook.source}`)} · {hook.matcher || "*"} · {t("hooks.timeout", { seconds: hook.timeout })}</span>
+                      <span>{hook.event} · {t(`hooks.source.${hook.source}`)} · {hookAppliesTo(hook)} · {t("hooks.timeout", { seconds: hook.timeout })}</span>
                     </div>
                     <div className="react-hooks-settings__badges">
                       <span className="react-hooks-settings__enabled" data-enabled={hook.enabled}>
@@ -621,9 +681,8 @@ export function HooksSettingsPage({
                     </div>
                   </header>
                   {hook.managed ? <code className="react-hooks-settings__command">{hook.managed.scriptPath}</code> : <code className="react-hooks-settings__command">{hook.command}</code>}
-                  <small>{hook.managed?.manifestPath || hook.sourcePath}</small>
+                  {!hook.managed ? <small>{hook.sourcePath}</small> : null}
                   <footer>
-                    <code>{hook.hash}</code>
                     <div className="react-hooks-settings__actions">
                       {hook.managed ? (
                         <>
@@ -676,6 +735,20 @@ export function HooksSettingsPage({
               ))}
             </div>
           )}
+          <details className="react-hooks-settings__paths">
+            <summary>{t("hooks.advancedFiles")}</summary>
+            <div className="react-hooks-settings__paths-content">
+              <p>{t("hooks.configHint")}</p>
+              <dl>
+                <div><dt>{t("hooks.globalConfig")}</dt><dd><code>{snapshot.globalConfigPath}</code></dd></div>
+                <div><dt>{t("hooks.workspaceConfig")}</dt><dd><code>{snapshot.workspaceConfigPath}</code></dd></div>
+                <div><dt>{t("hooks.trustStore")}</dt><dd><code>{snapshot.trustStorePath}</code></dd></div>
+                <div><dt>{t("hooks.templateConfig")}</dt><dd><code>{snapshot.templateConfigPath}</code></dd></div>
+                <div><dt>{t("hooks.templateScripts")}</dt><dd><code>{snapshot.templateScriptsPath}</code></dd></div>
+              </dl>
+              <p>{t("hooks.templateHint")}</p>
+            </div>
+          </details>
         </>
       )}
     </section>
@@ -738,6 +811,14 @@ function workspaceName(path: string): string {
 function fileName(path: string): string {
   const parts = path.split(/[\\/]+/).filter(Boolean);
   return parts[parts.length - 1] || path;
+}
+
+function managedLanguageLabel(language: NativeManagedHookLanguage): string {
+  return language === "powershell" ? "PowerShell" : "POSIX shell";
+}
+
+function shortcutModifier(): string {
+  return navigator.userAgent.includes("Mac") ? "⌘" : "Ctrl";
 }
 
 function errorMessage(error: unknown): string {
