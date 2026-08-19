@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:1483e7e074929c711af00eca59f450267d34c39e6390dc74c8a8445901d07a07 -->
+<!-- tinybot-module-fingerprint: sha256:c0dcf73671c71709ba9c2a9dcba523e32fd19ef8c5122a25733c4439484b98e0 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -39,3 +39,9 @@ behavior to `components/ui/useModalDialog`.
 
 See the [Sidecar module contract](../sidecar/README.md) for resource scoping,
 renderer ownership, native lifecycle boundaries, and verification entry points.
+
+`ChatPage` behavior tests are grouped by interface area in
+`ChatPage.<area>.test.tsx`: sessions, composer, Turn lifecycle, timeline,
+messages, Sidecar, and styles. Shared route setup, native fakes, and stable
+timeline builders live in `test/ChatPageTestHarness.tsx`; assertions and
+behavior-specific fixtures remain in the owning test file.
