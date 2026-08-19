@@ -1,9 +1,11 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:ebe564f5f6232c95905cbe8866c1422a763f5305b302998373b47e105574c1cb -->
+<!-- tinybot-module-fingerprint: sha256:a918dd7b13b1f6beb5fdea9d6e84978985fa296da434a6b0391ff479a9006065 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
-an optional desktop route together with `SettingsRoute.css`.
+an optional desktop route together with `SettingsRoute.css`. The route's content
+row grows to its minimum content height so long forms retain the shared bottom
+inset instead of overflowing across it.
 
 Settings contracts, metadata, validation, value semantics, and persistence
 patches live in `app-core/settings`. Native reads and writes are exposed through

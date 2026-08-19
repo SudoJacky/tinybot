@@ -6,6 +6,10 @@
   align-items: start;
 }
 
+.react-workbench-page--settings {
+  grid-template-rows: auto minmax(min-content, 1fr);
+}
+
 .react-workbench-page--settings > .react-settings-layout {
   padding: 28px 30px 48px;
 }
