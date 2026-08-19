@@ -12,7 +12,7 @@ src-tauri/src/desktop_commands/plugins.rs
 src/app-core/native/desktopNativeHooks.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:20bb0635990624bb0175dffe03d69ef389e7e2ec84c4e2c38b5a2e72a0d549eb -->
+<!-- tinybot-doc-fingerprint: sha256:3d0d8ca6849f62ac8c30f394ccb4f14a26cf415056f89c8a40e9044209a5b05a -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -206,6 +206,8 @@ instruction in the update dialog. Blank values are omitted rather than rendered.
 | `worker_managed_hook_save` | `{ input: { workspacePath: string, id?: string, name: string, event: string, matcher?: string, language: "powershell" | "shell", enabled: boolean, timeout: number } }` | `CommandHookCatalogSnapshot` |
 | `worker_managed_hook_test` | `{ input: { workspacePath: string, id: string } }` | `ManagedHookTestResult` |
 | `worker_managed_hook_archive` | `{ input: { workspacePath: string, id: string } }` | `CommandHookCatalogSnapshot` |
+| `worker_managed_hook_script_read` | `{ input: { workspacePath: string, id: string } }` | `ManagedHookScript` |
+| `worker_managed_hook_script_save` | `{ input: { workspacePath: string, id: string, contents: string, expectedRevision: string } }` | `ManagedHookScript` |
 
 Tinybot loads additive command-hook definitions from `~/.tinybot/hooks.json`
 and `<workspace>/.tinybot/hooks.json`. The first supported events are
@@ -244,6 +246,12 @@ decision, duration, structured feedback, and failure summary without exposing
 raw process output. Removing a managed hook is recoverable: Tinybot moves its
 directory to `<workspace>/.tinybot/hooks-archive/<id>-<timestamp>` and returns
 the refreshed catalog.
+
+Settings can also edit a selected managed script inline. The native boundary
+accepts only a workspace and managed-hook ID, derives the script path from the
+validated manifest, rejects scripts outside the workspace or above 256 KiB,
+and saves atomically. `expectedRevision` is the SHA-256 revision returned by the
+read command; a stale revision fails instead of overwriting an external edit.
 
 ```json
 {

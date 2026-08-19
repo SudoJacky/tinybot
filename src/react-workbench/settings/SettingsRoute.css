@@ -133,8 +133,30 @@
   font-weight: 700;
 }
 
+.react-hooks-settings__script-picker {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+}
+
+.react-hooks-settings__script-picker label {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 7px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.react-hooks-settings__script-picker > span {
+  padding-bottom: 11px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
 .react-hooks-settings__workspace input,
 .react-hooks-settings__workspace select,
+.react-hooks-settings__script-picker select,
 .react-hooks-settings__editor input,
 .react-hooks-settings__editor select {
   min-height: 40px;
@@ -148,6 +170,7 @@
 }
 
 .react-hooks-settings__workspace select,
+.react-hooks-settings__script-picker select,
 .react-hooks-settings__editor select {
   appearance: none;
 }
@@ -173,6 +196,106 @@
   border-radius: 10px;
   background: var(--color-panel);
   padding: 16px;
+}
+
+.react-hooks-settings__script-editor {
+  display: grid;
+  gap: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 32%, var(--color-hairline));
+  border-radius: 10px;
+  background: var(--color-panel);
+  padding: 16px;
+}
+
+.react-hooks-settings__script-editor > header,
+.react-hooks-settings__script-editor > footer,
+.react-hooks-settings__script-editor > footer > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.react-hooks-settings__script-editor > header,
+.react-hooks-settings__script-editor > footer {
+  justify-content: space-between;
+}
+
+.react-hooks-settings__script-editor h3 {
+  margin: 0 0 5px;
+  color: var(--color-ink);
+  font-size: 15px;
+}
+
+.react-hooks-settings__script-editor header code {
+  color: var(--color-muted);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.react-hooks-settings__script-editor header > span {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  padding: 4px 8px;
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.react-hooks-settings__script-editor header > span[data-dirty="true"] {
+  background: color-mix(in srgb, var(--color-warning) 16%, transparent);
+  color: #8a5b12;
+}
+
+.react-hooks-settings__script-editor > label {
+  display: grid;
+  gap: 7px;
+  color: var(--color-ink);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.react-hooks-settings__script-editor textarea {
+  min-height: 320px;
+  resize: vertical;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-surface-soft);
+  padding: 12px;
+  color: var(--color-ink);
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 1.55;
+  tab-size: 2;
+}
+
+.react-hooks-settings__script-editor textarea:focus-visible {
+  border-color: color-mix(in srgb, var(--color-primary) 70%, var(--color-hairline));
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 22%, transparent);
+  outline-offset: 1px;
+}
+
+.react-hooks-settings__script-editor footer small {
+  max-width: 620px;
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.react-hooks-settings__script-editor button {
+  min-height: 36px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 0 12px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.react-hooks-settings__script-editor button[type="submit"] {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
 }
 
 .react-hooks-settings__editor header h3,
@@ -383,9 +506,15 @@
   .react-hooks-settings__paths dl > div,
   .react-hooks-settings__hook > header,
   .react-hooks-settings__hook > footer,
-  .react-hooks-settings__editor footer {
+  .react-hooks-settings__editor footer,
+  .react-hooks-settings__script-editor > header,
+  .react-hooks-settings__script-editor > footer {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .react-hooks-settings__script-picker {
+    display: grid;
   }
 
   .react-hooks-settings__editor-grid {

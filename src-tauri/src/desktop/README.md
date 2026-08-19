@@ -1,5 +1,5 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:c98814a070a828bdf37a314eeb2881d269e0c35114f3881b7d0b352e60deba2d -->
+<!-- tinybot-module-fingerprint: sha256:484f1b3c64aee77c8d57713ff5a34b8af0b112eda11e6b1dfd0797559ece840c -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
@@ -10,8 +10,9 @@ before the native runtime and desktop window are destroyed.
 
 Frontend-facing command handlers live separately in `desktop_commands/`.
 Bootstrap registers the hook catalog, managed save/test/archive, and
-exact-definition trust commands with the rest of that typed Tauri surface;
-hook behavior remains owned by `command_hooks` and the Agent runtime.
+constrained managed-script editing commands with the rest of that typed Tauri
+surface, alongside exact-definition trust. Hook behavior remains owned by
+`command_hooks` and the Agent runtime.
 
 `logging` owns the `tinybot.native_log.v1` record, severity levels, context
 redaction and bounds, the platform log path, and 5 MiB single-backup rotation.

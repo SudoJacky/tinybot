@@ -39,6 +39,7 @@ import type {
   NativeCommandHookSnapshot,
   NativeCommandHookSummary,
   NativeManagedHookLanguage,
+  NativeManagedHookScript,
   NativeManagedHookTestResult,
 } from "../app-core/native/desktopNativeHooks";
 
@@ -167,6 +168,13 @@ export type HooksStore = {
   }): Promise<NativeCommandHookSnapshot>;
   testManaged(input: { workspacePath: string; id: string }): Promise<NativeManagedHookTestResult>;
   archiveManaged(input: { workspacePath: string; id: string }): Promise<NativeCommandHookSnapshot>;
+  readManagedScript(input: { workspacePath: string; id: string }): Promise<NativeManagedHookScript>;
+  saveManagedScript(input: {
+    workspacePath: string;
+    id: string;
+    contents: string;
+    expectedRevision: string;
+  }): Promise<NativeManagedHookScript>;
 };
 
 export type PluginSummary = {

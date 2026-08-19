@@ -1,5 +1,5 @@
 # Command Hooks
-<!-- tinybot-module-fingerprint: sha256:eeb46813f23bf22b26d2fc28f3513ff1423ef4d413e5408f07eea668abb860f9 -->
+<!-- tinybot-module-fingerprint: sha256:6a345c534983cc092723ea0be135540fd2cb7cdb3cf946afc51a5d9ea8c7ab34 -->
 
 `command_hooks` discovers, validates, reviews, and runs user-defined lifecycle
 commands. Tinybot loads `hooks.json` from the global data directory and the
@@ -29,6 +29,12 @@ The backend builds a bounded sample for the hook's event, executes only that
 definition, and returns structured decision and feedback fields without raw
 stdout or stderr. Removal archives the complete managed-hook directory below
 `.tinybot/hooks-archive` instead of deleting it.
+
+The same module owns inline managed-script editing. Callers identify a script
+by workspace and managed ID rather than an arbitrary path. Reads validate the
+manifest and filesystem containment and are limited to 256 KiB of UTF-8 text;
+writes are atomic and require the exact content revision returned by the read,
+so an external edit cannot be overwritten silently.
 
 Every handler is identified by a hash of its source path, event, matcher, and
 complete command definition. Commands are skipped until that exact hash is

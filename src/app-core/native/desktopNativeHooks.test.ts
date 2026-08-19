@@ -23,6 +23,13 @@ describe("desktop native hooks API", () => {
     });
     await api.testManaged({ workspacePath: "D:\\work", id: "protect-files" });
     await api.archiveManaged({ workspacePath: "D:\\work", id: "protect-files" });
+    await api.readManagedScript({ workspacePath: "D:\\work", id: "protect-files" });
+    await api.saveManagedScript({
+      workspacePath: "D:\\work",
+      id: "protect-files",
+      contents: "# edited\n",
+      expectedRevision: "sha256:before",
+    });
 
     expect(invoke.mock.calls).toEqual([
       ["worker_hooks_snapshot", { input: { workspacePath: "D:\\work" } }],
@@ -45,6 +52,17 @@ describe("desktop native hooks API", () => {
       }],
       ["worker_managed_hook_archive", {
         input: { workspacePath: "D:\\work", id: "protect-files" },
+      }],
+      ["worker_managed_hook_script_read", {
+        input: { workspacePath: "D:\\work", id: "protect-files" },
+      }],
+      ["worker_managed_hook_script_save", {
+        input: {
+          workspacePath: "D:\\work",
+          id: "protect-files",
+          contents: "# edited\n",
+          expectedRevision: "sha256:before",
+        },
       }],
     ]);
   });

@@ -41,6 +41,8 @@ export const NATIVE_BACKEND_COMMAND_NAMES = [
   "worker_managed_hook_save",
   "worker_managed_hook_test",
   "worker_managed_hook_archive",
+  "worker_managed_hook_script_read",
+  "worker_managed_hook_script_save",
   "worker_memory_snapshot",
   "worker_project_groups_list",
   "worker_project_group_save",

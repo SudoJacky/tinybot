@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 pub(crate) use self::config::{load_catalog_snapshot, CommandHookCatalogSnapshot};
 use self::config::{load_resolved_hooks, ResolvedCommandHook};
 pub(crate) use self::managed::{
-    archive_managed_hook, save_managed_hook, test_managed_hook, ManagedHookDraft,
-    ManagedHookTestResult,
+    archive_managed_hook, read_managed_hook_script, save_managed_hook, test_managed_hook,
+    write_managed_hook_script, ManagedHookDraft, ManagedHookScript, ManagedHookTestResult,
 };
 use self::runner::run_hook;
 pub(crate) use self::trust::set_hook_trusted;

@@ -1,6 +1,7 @@
 use crate::command_hooks::{
-    archive_managed_hook, load_catalog_snapshot, save_managed_hook, set_hook_trusted,
-    test_managed_hook, CommandHookCatalogSnapshot, ManagedHookDraft, ManagedHookTestResult,
+    archive_managed_hook, load_catalog_snapshot, read_managed_hook_script, save_managed_hook,
+    set_hook_trusted, test_managed_hook, write_managed_hook_script, CommandHookCatalogSnapshot,
+    ManagedHookDraft, ManagedHookScript, ManagedHookTestResult,
 };
 use crate::config::application::{native_backend_workspace_root, tinybot_data_root};
 use serde::Deserialize;
@@ -35,6 +36,15 @@ pub(crate) struct WorkerManagedHookSaveInput {
 pub(crate) struct WorkerManagedHookIdInput {
     workspace_path: String,
     id: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkerManagedHookScriptSaveInput {
+    workspace_path: String,
+    id: String,
+    contents: String,
+    expected_revision: String,
 }
 
 #[tauri::command]
@@ -83,6 +93,27 @@ pub(crate) fn worker_managed_hook_archive(
     let workspace_root = resolve_workspace_root(Some(&input.workspace_path))?;
     archive_managed_hook(&workspace_root, input.id.trim())?;
     load_catalog_snapshot(&tinybot_data_root(), &workspace_root)
+}
+
+#[tauri::command]
+pub(crate) fn worker_managed_hook_script_read(
+    input: WorkerManagedHookIdInput,
+) -> Result<ManagedHookScript, String> {
+    let workspace_root = resolve_workspace_root(Some(&input.workspace_path))?;
+    read_managed_hook_script(&workspace_root, input.id.trim())
+}
+
+#[tauri::command]
+pub(crate) fn worker_managed_hook_script_save(
+    input: WorkerManagedHookScriptSaveInput,
+) -> Result<ManagedHookScript, String> {
+    let workspace_root = resolve_workspace_root(Some(&input.workspace_path))?;
+    write_managed_hook_script(
+        &workspace_root,
+        input.id.trim(),
+        &input.contents,
+        &input.expected_revision,
+    )
 }
 
 fn resolve_workspace_root(workspace_path: Option<&str>) -> Result<PathBuf, String> {

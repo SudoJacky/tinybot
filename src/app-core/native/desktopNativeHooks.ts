@@ -26,6 +26,15 @@ export type NativeManagedHookTestResult = {
   failure?: string;
 };
 
+export type NativeManagedHookScript = {
+  id: string;
+  name: string;
+  language: NativeManagedHookLanguage;
+  path: string;
+  contents: string;
+  revision: string;
+};
+
 export type NativeCommandHookSummary = {
   hash: string;
   event: "UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "PostCompact";
@@ -73,6 +82,13 @@ export type NativeHooksApi = {
   }): Promise<NativeCommandHookSnapshot>;
   testManaged(input: { workspacePath: string; id: string }): Promise<NativeManagedHookTestResult>;
   archiveManaged(input: { workspacePath: string; id: string }): Promise<NativeCommandHookSnapshot>;
+  readManagedScript(input: { workspacePath: string; id: string }): Promise<NativeManagedHookScript>;
+  saveManagedScript(input: {
+    workspacePath: string;
+    id: string;
+    contents: string;
+    expectedRevision: string;
+  }): Promise<NativeManagedHookScript>;
 };
 
 export function createDesktopNativeHooksApi(options: { invoke?: TauriInvoke } = {}): NativeHooksApi {
@@ -85,5 +101,7 @@ export function createDesktopNativeHooksApi(options: { invoke?: TauriInvoke } = 
     saveManaged: (input) => invoke("worker_managed_hook_save", { input }) as Promise<NativeCommandHookSnapshot>,
     testManaged: (input) => invoke("worker_managed_hook_test", { input }) as Promise<NativeManagedHookTestResult>,
     archiveManaged: (input) => invoke("worker_managed_hook_archive", { input }) as Promise<NativeCommandHookSnapshot>,
+    readManagedScript: (input) => invoke("worker_managed_hook_script_read", { input }) as Promise<NativeManagedHookScript>,
+    saveManagedScript: (input) => invoke("worker_managed_hook_script_save", { input }) as Promise<NativeManagedHookScript>,
   };
 }

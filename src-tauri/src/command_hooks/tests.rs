@@ -2,9 +2,9 @@ use super::config::{load_catalog_snapshot, load_resolved_hooks};
 use super::managed::ManagedHookLanguage;
 use super::runner::apply_json_output;
 use super::{
-    archive_managed_hook, compile_matcher, save_managed_hook, set_hook_trusted, test_managed_hook,
-    CommandHookEngine, CommandHookEvent, CommandHookRequest, CommandHookRunResult,
-    ManagedHookDraft,
+    archive_managed_hook, compile_matcher, read_managed_hook_script, save_managed_hook,
+    set_hook_trusted, test_managed_hook, write_managed_hook_script, CommandHookEngine,
+    CommandHookEvent, CommandHookRequest, CommandHookRunResult, ManagedHookDraft,
 };
 use serde_json::json;
 use std::fs;
@@ -193,6 +193,26 @@ fn managed_hook_save_owns_configuration_but_preserves_the_user_script() {
     assert_eq!(updated.hooks[0].event, "PostToolUse");
     assert!(!updated.hooks[0].enabled);
     assert_eq!(updated.hooks[0].timeout, 45);
+    let script = read_managed_hook_script(&workspace_root, "protect-files")
+        .expect("managed script should open in the editor");
+    assert_eq!(script.contents, "# user-owned script");
+    let saved = write_managed_hook_script(
+        &workspace_root,
+        "protect-files",
+        "# edited in Tinybot\n",
+        &script.revision,
+    )
+    .expect("managed script should save through the editor");
+    assert_eq!(saved.contents, "# edited in Tinybot\n");
+    assert_ne!(saved.revision, script.revision);
+    let conflict = write_managed_hook_script(
+        &workspace_root,
+        "protect-files",
+        "# stale edit\n",
+        &script.revision,
+    )
+    .expect_err("stale editor content must not overwrite a newer script");
+    assert!(conflict.contains("changed on disk"));
     set_hook_trusted(&data_root, &workspace_root, &updated.hooks[0].hash, true)
         .expect("disabled definition may retain trust for later re-enabling");
     let evaluation = tauri::async_runtime::block_on(

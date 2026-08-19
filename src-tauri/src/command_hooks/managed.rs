@@ -6,14 +6,17 @@ use super::runner::run_hook;
 use super::templates::{powershell_script_template, shell_script_template};
 use super::trust::HookTrustStore;
 use super::{compile_matcher, CommandHookEvent, CommandHookRequest};
+use crate::storage::atomic::{write_text_atomic, AtomicWriteOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MANAGED_HOOK_SCHEMA: &str = "tinybot.managed_hook.v1";
 const MANIFEST_FILE_NAME: &str = "hook.json";
+const MANAGED_SCRIPT_SIZE_LIMIT: u64 = 256 * 1024;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -61,6 +64,17 @@ pub(crate) struct ManagedHookTestResult {
     pub system_message: Option<String>,
     pub tool_feedback: Option<String>,
     pub failure: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ManagedHookScript {
+    pub id: String,
+    pub name: String,
+    pub language: ManagedHookLanguage,
+    pub path: PathBuf,
+    pub contents: String,
+    pub revision: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -140,6 +154,51 @@ pub(crate) fn save_managed_hook(
         )
     })?;
     Ok(id)
+}
+
+pub(crate) fn read_managed_hook_script(
+    workspace_root: &Path,
+    id: &str,
+) -> Result<ManagedHookScript, String> {
+    let (manifest, script_path) = managed_script_target(workspace_root, id)?;
+    let contents = read_bounded_script(&script_path)?;
+    Ok(ManagedHookScript {
+        id: id.to_string(),
+        name: required_name(&manifest.name)?,
+        language: manifest.language,
+        path: script_path,
+        revision: script_revision(&contents),
+        contents,
+    })
+}
+
+pub(crate) fn write_managed_hook_script(
+    workspace_root: &Path,
+    id: &str,
+    contents: &str,
+    expected_revision: &str,
+) -> Result<ManagedHookScript, String> {
+    if contents.len() as u64 > MANAGED_SCRIPT_SIZE_LIMIT {
+        return Err(format!(
+            "managed hook script must be at most {} KiB",
+            MANAGED_SCRIPT_SIZE_LIMIT / 1024
+        ));
+    }
+    let (_, script_path) = managed_script_target(workspace_root, id)?;
+    let current_contents = read_bounded_script(&script_path)?;
+    let current_revision = script_revision(&current_contents);
+    if expected_revision.trim() != current_revision {
+        return Err(format!(
+            "managed hook script `{id}` changed on disk; reload it before saving"
+        ));
+    }
+    write_text_atomic(
+        &script_path,
+        contents,
+        AtomicWriteOptions::default().preserve_target_permissions(),
+    )
+    .map_err(|error| format!("failed to save managed hook script `{id}`: {error}"))?;
+    read_managed_hook_script(workspace_root, id)
 }
 
 pub(crate) async fn test_managed_hook(
@@ -336,6 +395,106 @@ fn load_manifest(
             script_path,
         }),
     })
+}
+
+fn managed_script_target(
+    workspace_root: &Path,
+    id: &str,
+) -> Result<(ManagedHookManifest, PathBuf), String> {
+    validate_id(id)?;
+    let canonical_workspace = workspace_root.canonicalize().map_err(|error| {
+        format!(
+            "failed to resolve managed hook workspace `{}`: {error}",
+            workspace_root.display()
+        )
+    })?;
+    let hook_root = managed_hooks_root(&canonical_workspace).join(id);
+    let canonical_hook_root = hook_root.canonicalize().map_err(|error| {
+        format!(
+            "failed to resolve managed hook directory `{}`: {error}",
+            hook_root.display()
+        )
+    })?;
+    if !canonical_hook_root.starts_with(&canonical_workspace) || !canonical_hook_root.is_dir() {
+        return Err(format!(
+            "managed hook `{id}` directory is outside its workspace"
+        ));
+    }
+    let manifest_path = canonical_hook_root.join(MANIFEST_FILE_NAME);
+    let canonical_manifest = manifest_path.canonicalize().map_err(|error| {
+        format!(
+            "failed to resolve managed hook manifest `{}`: {error}",
+            manifest_path.display()
+        )
+    })?;
+    if !canonical_manifest.starts_with(&canonical_hook_root) || !canonical_manifest.is_file() {
+        return Err(format!(
+            "managed hook `{id}` manifest is not a regular workspace file"
+        ));
+    }
+    let encoded = fs::read_to_string(&canonical_manifest).map_err(|error| {
+        format!(
+            "failed to read managed hook manifest `{}`: {error}",
+            canonical_manifest.display()
+        )
+    })?;
+    let manifest = serde_json::from_str::<ManagedHookManifest>(&encoded)
+        .map_err(|error| format!("failed to parse managed hook manifest `{id}`: {error}"))?;
+    if manifest.schema_version != MANAGED_HOOK_SCHEMA {
+        return Err(format!(
+            "unsupported managed hook schema `{}`",
+            manifest.schema_version
+        ));
+    }
+    let script_path = canonical_hook_root.join(script_file_name(manifest.language));
+    let canonical_script = script_path.canonicalize().map_err(|error| {
+        format!(
+            "failed to resolve managed hook script `{}`: {error}",
+            script_path.display()
+        )
+    })?;
+    if !canonical_script.starts_with(&canonical_hook_root) || !canonical_script.is_file() {
+        return Err(format!(
+            "managed hook `{id}` script is not a regular workspace file"
+        ));
+    }
+    Ok((manifest, canonical_script))
+}
+
+fn read_bounded_script(path: &Path) -> Result<String, String> {
+    let size = fs::metadata(path)
+        .map_err(|error| {
+            format!(
+                "failed to inspect managed hook script `{}`: {error}",
+                path.display()
+            )
+        })?
+        .len();
+    if size > MANAGED_SCRIPT_SIZE_LIMIT {
+        return Err(format!(
+            "managed hook script `{}` exceeds the {} KiB editor limit",
+            path.display(),
+            MANAGED_SCRIPT_SIZE_LIMIT / 1024
+        ));
+    }
+    let contents = fs::read_to_string(path).map_err(|error| {
+        format!(
+            "failed to read managed hook script `{}` as UTF-8 text: {error}",
+            path.display()
+        )
+    })?;
+    if contents.len() as u64 > MANAGED_SCRIPT_SIZE_LIMIT {
+        return Err(format!(
+            "managed hook script `{}` exceeds the {} KiB editor limit",
+            path.display(),
+            MANAGED_SCRIPT_SIZE_LIMIT / 1024
+        ));
+    }
+    Ok(contents)
+}
+
+fn script_revision(contents: &str) -> String {
+    format!("sha256:{:x}", Sha256::digest(contents.as_bytes()))
 }
 
 fn sample_request(event: CommandHookEvent) -> CommandHookRequest {

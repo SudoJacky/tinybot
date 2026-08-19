@@ -12,7 +12,7 @@ src/app-core/native/README.md
 src/react-workbench/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:eaba233fcfbeed8cf88ce485f662c09a58cb8410cf1678f23c78d7cb1a9e6fa8 -->
+<!-- tinybot-doc-fingerprint: sha256:38c660eed0e7942b84dec92f814b91a7e98df364160c99c366d525c116ebcfc7 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -54,7 +54,7 @@ Desktop Commands / Desktop Host
 | `desktop_terminal` | User-only Sidecar PTY lifecycle and resource ownership | Agent shell sessions or renderer presentation |
 | `agent::bridge` | Complete Turn orchestration and persistence coordination | Provider iteration or the Thread data model |
 | `agent::runtime` | Provider-and-tool loop, context, checkpoints, and runtime events | Tauri state or durable-store selection |
-| `command_hooks` | Hand-written and managed Hook discovery, managed manifest/script generation, exact-definition trust, bounded command execution, and event output parsing | Agent capability policy or renderer state |
+| `command_hooks` | Hand-written and managed Hook discovery, managed manifest/script generation and constrained editing, exact-definition trust, bounded command execution, and event output parsing | Agent capability policy or renderer state |
 | `threads::domain` | Typed Thread, Turn, and Item behavior | Canonical durable storage |
 | `threads::rollout::store` | Canonical append-only conversation storage and reconstruction | Live task ownership |
 | `runtime` | Startup, shutdown, live Turn generations, MCP, and metrics | Conversation authority |

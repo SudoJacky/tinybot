@@ -71,6 +71,22 @@ describe("HooksSettingsPage", () => {
         durationMs: 2,
       })),
       archiveManaged: vi.fn(async () => snapshot),
+      readManagedScript: vi.fn(async () => ({
+        id: "protect-files",
+        name: "Protect files",
+        language: "powershell" as const,
+        path: "D:\\work\\.tinybot\\hooks\\protect-files\\hook.ps1",
+        contents: "# script\n",
+        revision: "sha256:before",
+      })),
+      saveManagedScript: vi.fn(async (input) => ({
+        id: input.id,
+        name: "Protect files",
+        language: "powershell" as const,
+        path: "D:\\work\\.tinybot\\hooks\\protect-files\\hook.ps1",
+        contents: input.contents,
+        revision: "sha256:after",
+      })),
     };
     Object.defineProperty(window, "confirm", {
       configurable: true,
@@ -110,6 +126,22 @@ describe("HooksSettingsPage", () => {
         durationMs: 2,
       })),
       archiveManaged: vi.fn(async () => snapshot),
+      readManagedScript: vi.fn(async () => ({
+        id: "protect-files",
+        name: "Protect files",
+        language: "powershell" as const,
+        path: "D:\\work\\.tinybot\\hooks\\protect-files\\hook.ps1",
+        contents: "# script\n",
+        revision: "sha256:before",
+      })),
+      saveManagedScript: vi.fn(async (input) => ({
+        id: input.id,
+        name: "Protect files",
+        language: "powershell" as const,
+        path: "D:\\work\\.tinybot\\hooks\\protect-files\\hook.ps1",
+        contents: input.contents,
+        revision: "sha256:after",
+      })),
     };
 
     render(
@@ -163,6 +195,22 @@ describe("HooksSettingsPage", () => {
         durationMs: 2,
       })),
       archiveManaged: vi.fn(async () => ({ ...managedSnapshot, hooks: [] })),
+      readManagedScript: vi.fn(async () => ({
+        id: "protect-files",
+        name: "Protect files",
+        language: "powershell" as const,
+        path: "D:\\work\\.tinybot\\hooks\\protect-files\\hook.ps1",
+        contents: "# original\n",
+        revision: "sha256:before",
+      })),
+      saveManagedScript: vi.fn(async (input) => ({
+        id: input.id,
+        name: "Protect files",
+        language: "powershell" as const,
+        path: "D:\\work\\.tinybot\\hooks\\protect-files\\hook.ps1",
+        contents: input.contents,
+        revision: "sha256:after",
+      })),
     };
     Object.defineProperty(window, "confirm", {
       configurable: true,
@@ -176,6 +224,19 @@ describe("HooksSettingsPage", () => {
         sessionStore={sessionStore}
       />,
     );
+    await user.click(await screen.findByRole("button", { name: "Edit script" }));
+    const scriptEditor = await screen.findByRole("textbox", { name: "Script contents" });
+    expect((scriptEditor as HTMLTextAreaElement).value).toBe("# original\n");
+    await user.clear(scriptEditor);
+    await user.type(scriptEditor, "# edited");
+    await user.click(screen.getByRole("button", { name: "Save script" }));
+    await waitFor(() => expect(hooksStore.saveManagedScript).toHaveBeenCalledWith({
+      workspacePath: "D:\\work",
+      id: "protect-files",
+      contents: "# edited",
+      expectedRevision: "sha256:before",
+    }));
+    expect(await screen.findByText("Script saved")).toBeTruthy();
     await user.click(await screen.findByRole("button", { name: "Test" }));
     expect(await screen.findByText("Test decision: continue")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Remove" }));
