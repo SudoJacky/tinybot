@@ -1,9 +1,17 @@
 # Agent Runtime API
+<!-- tinybot-doc-watch:
+src-tauri/src/agent/runtime_protocol.rs
+src-tauri/src/agent/runtime_protocol/event_catalog.rs
+src-tauri/src/agent/runtime_protocol_tests.rs
+src-tauri/src/desktop_commands/runtime.rs
+src-tauri/src/desktop_commands/runtime_tests.rs
+-->
+<!-- tinybot-doc-fingerprint: sha256:fc52958f7e26d13d5ecaf33bdea76d2bb93fdf0ca00c3e1cb1911f832bd7f497 -->
 
 This document covers native Agent turn execution and provider-facing behavior.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
-records the code snapshot and shared invocation conventions for this reference
-set.
+defines the shared invocation conventions and source-backed freshness policy
+for this reference set.
 
 ## Agent Runtime
 

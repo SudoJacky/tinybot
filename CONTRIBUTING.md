@@ -48,18 +48,19 @@ Prefer stable contracts over file-by-file inventories. Update architecture
 only when a cross-module relationship changes; ordinary internal refactors
 should not create documentation churn.
 
-Architecture documents declare a focused `tinybot-doc-watch` list. When a
-watched interface document or orchestration file changes, review the affected
-architecture document and refresh its fingerprint:
+Architecture and API documents declare a focused `tinybot-doc-watch` list.
+Architecture watches follow cross-module seams; API watches prefer public
+contract definitions and contract tests. When a watched source changes, review
+the affected document and refresh its fingerprint:
 
 ```bash
 git add <watched source files>
-npm run docs:review -- --staged docs/architecture/<document>.md
-git add docs/architecture/<document>.md
+npm run docs:review -- --staged docs/<architecture-or-api>/<document>.md
+git add docs/<architecture-or-api>/<document>.md
 npm run docs:check -- --staged
 ```
 
-Use `npm run docs:review -- --all` only after reading every architecture
+Use `npm run docs:review -- --all` only after reading every architecture and API
 document and its declared watch sources. `npm run docs:check` also validates
 formal local links and heading structure. It does not read local scratch notes
 or archived documentation.

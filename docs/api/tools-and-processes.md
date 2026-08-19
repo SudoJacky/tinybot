@@ -1,9 +1,20 @@
 # Tools and Processes API
+<!-- tinybot-doc-watch:
+src-tauri/src/native_browser/commands.rs
+src-tauri/src/native_browser/model.rs
+src-tauri/src/rpc/background_dispatch.rs
+src-tauri/src/rpc/subagent_dispatch.rs
+src-tauri/src/rpc/tool_dispatch.rs
+src-tauri/src/tools/shell/mod.rs
+src-tauri/src/tools/shell/process_manager.rs
+src-tauri/src/rpc/tests/threads_and_tools.rs
+-->
+<!-- tinybot-doc-fingerprint: sha256:742abc2ac50cbf1bbc6cdb9fbf0c8bd949dcb29ddecbf56faa5d58fc3aedf52e -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),
-which records the code snapshot and shared invocation conventions for this
-reference set.
+which defines the shared invocation conventions and source-backed freshness
+policy for this reference set.
 
 ## Owned Shell Processes
 

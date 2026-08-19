@@ -1,10 +1,23 @@
 # Rust Backend API Reference
-
-Code snapshot: `1950a2d8`
+<!-- tinybot-doc-watch:
+src-tauri/src/desktop/bootstrap.rs
+src/app-core/native/desktopNativeConfig.ts
+src/app-core/native/desktopNativeHostCommand.ts
+src/app-core/native/desktopNativeTerminal.ts
+src/app-core/native/desktopNativeThreads.ts
+src/app-core/native/desktopNativeUpdate.ts
+src/app-core/native/desktopNativeWebui.ts
+src/app-core/native/nativeBackendContract.test.ts
+-->
+<!-- tinybot-doc-fingerprint: sha256:58a3f9e40dabf8a7243228f2c1b2c37e1836c199e37a27b603a244b2b57d903d -->
 
 This document describes the API surfaces exposed by the Rust/Tauri backend in `src-tauri`.
 It is intended for frontend callers and integrators who need command names, invocation
 patterns, response envelopes, and the current Rust-owned route inventory.
+
+The documentation fingerprint above records the reviewed public contract
+definitions and frontend contract tests. A watched-source change requires this
+reference set to be reviewed before CI accepts it.
 
 ## API Documents
 

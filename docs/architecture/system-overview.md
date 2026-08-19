@@ -10,8 +10,9 @@ src-tauri/src/threads/rollout/store/README.md
 src/app-core/chat/README.md
 src/app-core/native/README.md
 src/react-workbench/README.md
+src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:8dfc03821ae6916ec5f11255cd5dc4584b4809289082918d5fd0f3248beeffa2 -->
+<!-- tinybot-doc-fingerprint: sha256:632c1ec9d058ee697f4ca64ccf31068c2721b7110c351f8a3c03a060ca8f2fe5 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -46,6 +47,7 @@ Desktop Commands / Desktop Host
 | Module | Owns | Does not own |
 | --- | --- | --- |
 | `react-workbench` | React routes, presentation, route state | Native transport or durable domain state |
+| `react-workbench/sidecar` | Resource tabs, scope filtering, and Sidecar presentation | Native Browser or Terminal lifecycle |
 | `app-core` | Framework-independent contracts, validation, commands, and projections | React rendering or Tauri invocation |
 | `app-core/native` | Typed renderer adapters for native commands and events | Product state or backend behavior |
 | `desktop_commands` | Thin Tauri input/output adaptation | Reusable domain behavior |
@@ -98,6 +100,7 @@ instead of choosing desktop persistence or transport internally.
 
 - [Rust backend map](../../src-tauri/README.md)
 - [React workbench](../../src/react-workbench/README.md)
+- [Sidecar resource shell](../../src/react-workbench/sidecar/README.md)
 - [Application core chat contracts](../../src/app-core/chat/README.md)
 - [Native renderer adapters](../../src/app-core/native/README.md)
 - [Desktop runtime](../../src-tauri/src/desktop/README.md)

@@ -59,6 +59,9 @@ Build a desktop package from the repository root:
 npm run tauri -- build
 ```
 
+After changing desktop startup, Sidecar, WebView2, PTY, or window layout, run
+the relevant sections of the [Windows desktop smoke test](guides/desktop-smoke-test.md).
+
 The desktop shell starts the Rust native backend in-process. Tauri mode does not bind a local HTTP
 or WebSocket listener. Chat uses typed Thread commands and typed Tauri events directly; the native WebUI
 route wrapper remains available only for non-chat HTTP-compatible surfaces. Routes or commands that

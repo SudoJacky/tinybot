@@ -41,7 +41,7 @@ function fixture(t) {
   write(
     repository,
     "docs/README.md",
-    "# Documentation\n\n[Runtime flow](architecture/runtime-flow.md)\n",
+    "# Documentation\n\n[Runtime flow](architecture/runtime-flow.md)\n\n[Runtime API](api/runtime.md)\n",
   );
   write(
     repository,
@@ -54,6 +54,12 @@ function fixture(t) {
     "# Runtime\n<!-- tinybot-module-fingerprint: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa -->\n\nRuntime contract.\n",
   );
   write(repository, "src/runtime/loop.rs", "pub fn run() {}\n");
+  write(repository, "src/runtime/contract.test.rs", "runtime_contract_is_stable();\n");
+  write(
+    repository,
+    "docs/api/runtime.md",
+    "# Runtime API\n<!-- tinybot-doc-watch:\nsrc/runtime/contract.test.rs\n-->\n\nRuntime API.\n",
+  );
   git(repository, "add", ".");
   git(repository, "commit", "-m", "test: create fixture");
   return repository;
@@ -72,7 +78,7 @@ test("freshness review covers working-tree, staged, and normalized module README
   assert.equal(unreviewed.status, 1);
   assert.match(unreviewed.stdout, /UNREVIEWED\s+docs\/architecture\/runtime-flow\.md/);
 
-  assert.equal(docsTool(repository, "review", document).status, 0);
+  assert.equal(docsTool(repository, "review", "--all").status, 0);
   assert.match(
     readFileSync(join(repository, document), "utf8"),
     /^<!-- tinybot-doc-fingerprint: sha256:[a-f0-9]{64} -->$/m,
@@ -93,8 +99,8 @@ test("freshness review covers working-tree, staged, and normalized module README
   assert.match(stale.stdout, /changed: src\/runtime\/loop\.rs/);
 
   assert.equal(docsTool(repository, "review", "--all").status, 0);
-  git(repository, "add", document, source, "src/runtime/README.md");
-  git(repository, "commit", "-m", "docs: review current architecture");
+  git(repository, "add", document, "docs/api/runtime.md", source, "src/runtime/README.md");
+  git(repository, "commit", "-m", "docs: review current documentation");
 
   write(repository, source, "pub fn run() { println!(\"staged\"); }\n");
   git(repository, "add", source);
@@ -107,6 +113,24 @@ test("freshness review covers working-tree, staged, and normalized module README
   write(repository, source, "pub fn run() { println!(\"unstaged\"); }\n");
   assert.equal(docsTool(repository, "check", "--staged").status, 0);
   assert.equal(docsTool(repository, "check").status, 1);
+});
+
+test("API documentation becomes stale when its declared contract test changes", (t) => {
+  const repository = fixture(t);
+  const document = "docs/api/runtime.md";
+  const source = "src/runtime/contract.test.rs";
+
+  assert.equal(docsTool(repository, "review", "--all").status, 0);
+  assert.equal(docsTool(repository, "check").status, 0);
+
+  write(repository, source, "runtime_contract_rejects_drift();\n");
+  const stale = docsTool(repository, "check");
+  assert.equal(stale.status, 1);
+  assert.match(stale.stdout, /STALE\s+docs\/api\/runtime\.md/);
+  assert.match(stale.stdout, /changed: src\/runtime\/contract\.test\.rs/);
+
+  assert.equal(docsTool(repository, "review", document).status, 0);
+  assert.equal(docsTool(repository, "check").status, 0);
 });
 
 test("structural validation rejects broken links, local scratch links, bad H1s, and invalid watches", (t) => {

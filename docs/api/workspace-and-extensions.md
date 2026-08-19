@@ -1,9 +1,20 @@
 # Workspace and Extensions API
+<!-- tinybot-doc-watch:
+src-tauri/src/desktop_commands/plugins.rs
+src-tauri/src/desktop_commands/skills.rs
+src-tauri/src/desktop_commands/workspace.rs
+src-tauri/src/plugins/manifest.rs
+src-tauri/src/plugins/manifest_tests.rs
+src-tauri/src/skills/definition.rs
+src-tauri/src/workspace/types.rs
+src-tauri/src/rpc/tests/workspace_and_shell.rs
+-->
+<!-- tinybot-doc-fingerprint: sha256:7156e6845e2b09a03549d86f23adf107bf0c8102c07b1ad2a6523c3f56b3e140 -->
 
 This document covers workspace operations and the extension catalogs available
 to Agents. It is part of the [Rust backend API reference](rust-backend-api.md),
-which records the code snapshot and shared invocation conventions for this
-reference set.
+which defines the shared invocation conventions and source-backed freshness
+policy for this reference set.
 
 ## Skills Commands
 
