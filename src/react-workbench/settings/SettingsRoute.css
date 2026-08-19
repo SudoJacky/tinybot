@@ -129,6 +129,17 @@
   min-width: 0;
 }
 
+.react-hooks-settings__workspace .react-settings-choice-trigger > span {
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.react-hooks-settings__workspace .react-settings-choice-trigger small {
+  justify-self: stretch;
+  text-align: right;
+}
+
 .react-hooks-settings__script-picker {
   min-width: 0;
 }
