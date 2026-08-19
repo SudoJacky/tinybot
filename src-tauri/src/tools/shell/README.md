@@ -1,5 +1,5 @@
 # Shell Tools
-<!-- tinybot-module-fingerprint: sha256:74913b0a9d34422a318c10ee6d514be3f1708904b915b00f35d5734a10fbc8a3 -->
+<!-- tinybot-module-fingerprint: sha256:a8fd144ee79393f641e5a6b9c57e9b1a7c66c0b3ef2b7942a269f54fd90346e0 -->
 
 `shell` runs commands for agents and RPC clients in a validated working
 directory. Relative paths resolve from the configured workspace; an existing
@@ -14,6 +14,8 @@ process failure, and truncated output carry explicit retry guidance. Ordinary
 successful commands keep the generic result projection.
 
 Platform-specific process containment is implemented separately where needed.
+On Windows, the Job Object helper is also reused by trusted subprocess runners
+such as command hooks so closing the job terminates inherited descendants.
 `WorkerShellRuntime` instances have independent process registries. The desktop
 Sidecar uses its own instance for user-only interactive terminals, reuses the
 PTY input/output implementation, and releases each terminal record immediately
