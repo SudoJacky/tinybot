@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useId, useMemo, useReducer, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { TFunction } from "i18next";
 import {
   Check,
@@ -24,7 +24,6 @@ import type { QueuedInput } from "../../app-core/chat/chatUiProjection";
 import {
   ClaudeStyleAiInput,
   type ComposerFileReference,
-  type ComposerContextReference,
   type ComposerSendOptions,
   type ComposerSessionMentionOption,
   type ComposerSlashCommand,
@@ -58,13 +57,6 @@ import {
   projectLatestContextUsage,
   type ContextUsageDefaults,
 } from "./chatContextUsage";
-import { LiveCanvas } from "./LiveCanvas";
-import {
-  clampTinyOsWidth,
-  INITIAL_LIVE_CANVAS_STATE,
-  reduceLiveCanvasState,
-  type LiveCanvasEntry,
-} from "./liveCanvasModel";
 import { SessionTabStrip, type SessionTabItem } from "./SessionTabStrip";
 import {
   INITIAL_SESSION_TAB_WORKSPACE,
@@ -75,6 +67,7 @@ import {
 } from "./sessionTabWorkspace";
 import {
   groupSessionsByWorkspace,
+  sessionWorkspaceName,
 } from "./sessionWorkspaces";
 import {
   applyLoadedDelegatedAgentTrace,
@@ -82,37 +75,28 @@ import {
 } from "../../app-core/chat/chatProjection";
 import type {
   ArtifactRef,
-  BackendAgentTurnItem,
   ChatStep,
   ChatTurn,
   DelegatedAgentState,
   LoadedArtifactDetail,
 } from "../../app-core/chat/chatTurnContracts";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
-import type { TinyOsAgentRequestIntent, TinyOsAgentRequestReference, TinyOsContextReference } from "../../app-core/chat/tinyOsUiState";
-import { readTinyOsReferenceTransfer, tinyOsReferenceAcceptedBy, TINYOS_REFERENCE_MIME } from "../../app-core/chat/tinyOsReferenceTransfer";
-import { useTinyOsFilesController } from "./useTinyOsFilesController";
+import type {
+  TinyOsNativeBrowserSession,
+  TinyOsNativeSnapshot,
+} from "../../app-core/chat/tinyOsNativeSnapshot";
 import {
   TINYOS_COMMAND_ACK_TIMEOUT_MS,
   canonicalTinyOsCommandAcknowledgement,
   canonicalTinyOsCommandCompletion,
   createTinyOsAgentCancelCommand,
-  createTinyOsAgentRequestChangeCommand,
-  createTinyOsAgentTurnControlCommand,
-  createTinyOsBrowserInteractCommand,
-  createTinyOsFileDeleteCommand,
-  createTinyOsFileMoveCommand,
-  createTinyOsFileSaveCommand,
   createTinyOsFormCancelCommand,
   createTinyOsFormSubmitCommand,
   createTinyOsOperationRetryCommand,
-  createTinyOsTerminalCancelCommand,
-  createTinyOsTerminalExecuteCommand,
   isTinyOsCommandInFlight,
   reduceTinyOsCommandLifecycle,
   type TinyOsCommandLifecycle,
   type TinyOsCommand,
-  type TinyOsBrowserAction,
 } from "../../app-core/chat/tinyOsCommand";
 import {
   unavailableTinyOsEffectiveCapabilities,
@@ -124,9 +108,7 @@ import {
 } from "./useChatSessionRuntime";
 import {
   MAX_COMPOSER_SESSION_REFERENCES,
-  nativeReferenceFromTinyOs,
   prepareChatSubmission,
-  tinyOsReferenceLabel,
   type QueuedComposerInput,
 } from "./chatSubmission";
 import {
@@ -143,6 +125,23 @@ import {
   displaySessionTitle,
   isDefaultSessionTitle,
 } from "./sessionTitle";
+import { Sidecar } from "../sidecar/Sidecar";
+import { SidecarBrowser } from "../sidecar/SidecarBrowser";
+import { SidecarTerminal } from "../sidecar/SidecarTerminal";
+import {
+  activeSidecarTab,
+  createInitialSidecarState,
+  DEFAULT_SIDECAR_WORKSPACE_ID,
+  readPersistedSidecarWidth,
+  reduceSidecarState,
+  sidecarArtifactTabId,
+  visibleSidecarTabs,
+  writePersistedSidecarWidth,
+  type SidecarArtifactTab,
+  type SidecarBrowserTab,
+  type SidecarTab,
+  type SidecarTerminalTab,
+} from "../sidecar/sidecarModel";
 
 export type ChatPageProps = {
   chatStore: ChatStore;
@@ -163,32 +162,22 @@ export type ChatPageProps = {
 type DrawerState =
   | { kind: "tool"; title: string; toolCall: ToolCallSummary }
   | { kind: "subagent"; title: string; delegate: DelegatedAgentState; loading: boolean; error?: string }
-  | { kind: "artifact"; title: string; artifact: ArtifactRef; detail?: LoadedArtifactDetail; loading: boolean; error?: string }
   | { kind: "error"; title: string; step: ChatStep; turn: ChatTurn }
   | null;
+
+type ArtifactSidecarContent = {
+  artifact: ArtifactRef;
+  detail?: LoadedArtifactDetail;
+  error?: string;
+  loading: boolean;
+};
+
+type BrowserSnapshot = TinyOsNativeSnapshot<TinyOsNativeBrowserSession>;
 
 type ConversationViewState = {
   scrollTop: number;
   stickToLatest: boolean;
 };
-
-function lastCanonicalEventIndex(
-  items: readonly BackendAgentTurnItem[],
-  turnId: string,
-  itemId: string,
-): number {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    if (item.turnId === turnId && item.itemId === itemId) return index;
-  }
-  return -1;
-}
-
-function readStoredTinyOsWidth(): number {
-  if (typeof window === "undefined") return 480;
-  const stored = Number(window.localStorage.getItem(TINYOS_WIDTH_STORAGE_KEY));
-  return Number.isFinite(stored) && stored > 0 ? clampTinyOsWidth(stored) : 480;
-}
 
 function resolveComposerModel(
   models: readonly ModelOption[],
@@ -246,9 +235,7 @@ function composerSlashCommands(t: TFunction<"chat">): readonly ComposerSlashComm
   ];
 }
 
-const LIVE_CANVAS_CLOSE_MS = 160;
 const SESSION_DELETE_DISSOLVE_MS = 180;
-const TINYOS_WIDTH_STORAGE_KEY = "tinybot.ui.tinyos.width";
 const EMPTY_OPTIMISTIC_MESSAGES: ReactChatMessage[] = [];
 
 export function ChatPage({
@@ -264,11 +251,9 @@ export function ChatPage({
   projectGroupStore,
   settingsStore,
   toolsStore,
-  workspaceStore,
 }: ChatPageProps) {
   const { i18n, t } = useTranslation("chat");
   const slashCommands = useMemo(() => composerSlashCommands(t), [t]);
-  const tinyOsUiScope = useId();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [sessionTabs, dispatchSessionTabs] = useReducer(
@@ -290,18 +275,23 @@ export function ChatPage({
   const [sessionCreatePending, setSessionCreatePending] = useState(false);
   const [localSessionSidebarCollapsed, setLocalSessionSidebarCollapsed] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
-  const [liveCanvas, dispatchLiveCanvas] = useReducer(reduceLiveCanvasState, INITIAL_LIVE_CANVAS_STATE);
+  const [sidecar, dispatchSidecar] = useReducer(
+    reduceSidecarState,
+    undefined,
+    () => createInitialSidecarState(readPersistedSidecarWidth(window.localStorage)),
+  );
+  const [artifactSidecarContent, setArtifactSidecarContent] = useState<Record<string, ArtifactSidecarContent>>({});
+  const [browserProvisionErrors, setBrowserProvisionErrors] = useState<Record<string, string>>({});
+  const [terminalErrors, setTerminalErrors] = useState<Record<string, string>>({});
+  const [browserProvisionEpoch, setBrowserProvisionEpoch] = useState(0);
   const [commandLifecycle, dispatchCommandLifecycle] = useReducer(
     reduceTinyOsCommandLifecycle,
     { stage: "idle" } as TinyOsCommandLifecycle,
   );
   const [compactingSessionId, setCompactingSessionId] = useState("");
-  const [tinyOsWidth, setTinyOsWidth] = useState(readStoredTinyOsWidth);
   const [queuedInputsBySession, setQueuedInputsBySession] = useState<Map<string, QueuedComposerInput[]>>(() => new Map());
   const [queueMessage, setQueueMessage] = useState("");
-  const [tinyOsContextReferences, setTinyOsContextReferences] = useState<TinyOsContextReference[]>([]);
   const [composerSessionMentionIds, setComposerSessionMentionIds] = useState<string[]>([]);
-  const [tinyOsDropError, setTinyOsDropError] = useState("");
   const [recoveringTurnId, setRecoveringTurnId] = useState("");
   const [installingMigrationJobId, setInstallingMigrationJobId] = useState("");
   const [migrationInstallError, setMigrationInstallError] = useState("");
@@ -323,10 +313,11 @@ export function ChatPage({
   const conversationViewBySessionRef = useRef<Map<string, ConversationViewState>>(new Map());
   const pendingConversationRestoreRef = useRef("");
   const hasActivatedSessionRef = useRef(false);
-  const liveCanvasHeadingRef = useRef<HTMLHeadingElement | null>(null);
-  const liveCanvasToggleRef = useRef<HTMLButtonElement | null>(null);
-  const liveCanvasPreviousVisibilityRef = useRef(liveCanvas.visibility);
   const stickToLatestRef = useRef(true);
+  const sidecarRef = useRef(sidecar);
+  const browserProvisioningResourceIdRef = useRef("");
+  const browserActivationTargetRef = useRef("");
+  sidecarRef.current = sidecar;
   const activeSessionId = sessionTabs.activeSessionId;
   const sessionRuntime = useChatSessionRuntime({
     chatStore,
@@ -335,7 +326,7 @@ export function ChatPage({
   });
   const {
     agentUiForms,
-    browserError: browserRuntimeError,
+    browserError,
     browserSnapshot,
     error: timelineError,
     timeline,
@@ -346,23 +337,185 @@ export function ChatPage({
     clearBrowserSnapshot,
     clearError: clearTimelineError,
     reload: reloadSessionRuntime,
-    reportBrowserError,
     reportError: reportTimelineError,
   } = sessionRuntime.actions;
   const composerDraft = sessionTabDraft(sessionTabs, activeSessionId);
   const optimisticMessages = optimisticMessagesBySession.get(activeSessionId) ?? EMPTY_OPTIMISTIC_MESSAGES;
-
-  useEffect(() => {
-    const clampWidthToViewport = () => setTinyOsWidth((current) => clampTinyOsWidth(current));
-    window.addEventListener("resize", clampWidthToViewport);
-    return () => window.removeEventListener("resize", clampWidthToViewport);
-  }, []);
 
   const resolvedSessionSidebarCollapsed = sessionSidebarCollapsed ?? localSessionSidebarCollapsed;
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId),
     [activeSessionId, sessions],
   );
+  const sidecarTabs = useMemo(() => visibleSidecarTabs(sidecar), [sidecar]);
+  const sidecarActiveTab = useMemo(() => activeSidecarTab(sidecar), [sidecar]);
+  const explicitWorkspaceId = activeSession?.workingDirectory?.trim() ?? "";
+  const activeWorkspaceId = activeSession
+    ? explicitWorkspaceId || DEFAULT_SIDECAR_WORKSPACE_ID
+    : "";
+  const activeWorkspaceLabel = explicitWorkspaceId
+    ? sessionWorkspaceName(explicitWorkspaceId)
+    : activeSession ? t("shell.generalSessions") : "";
+  const unboundBrowserResource = useMemo(() => sidecar.tabs.find((tab): tab is SidecarBrowserTab => (
+    tab.kind === "browser"
+      && tab.threadId === activeSession?.id
+      && !tab.nativeTabId
+  )), [activeSession?.id, sidecar.tabs]);
+  const retainedBrowserResource = useMemo(() => sidecar.tabs.find((tab): tab is SidecarBrowserTab => (
+    tab.kind === "browser"
+      && tab.threadId === activeSession?.id
+      && Boolean(tab.browserSessionId)
+      && Boolean(tab.nativeTabId)
+  )), [activeSession?.id, sidecar.tabs]);
+
+  const synchronizeBrowserSnapshot = useCallback((snapshot: BrowserSnapshot, acceptForActiveThread = true) => {
+    if (acceptForActiveThread && snapshot.data.sessionId === activeSessionId) {
+      acceptBrowserSnapshot(snapshot);
+    }
+    dispatchSidecar({
+      browserSessionId: snapshot.data.browserSessionId,
+      tabs: snapshot.data.tabs.map((tab) => ({
+        nativeTabId: tab.tabId,
+        title: browserResourceTitle(tab.title, tab.url, t("sidecar.browser")),
+      })),
+      threadId: snapshot.data.sessionId,
+      type: "tab.syncBrowserSession",
+    });
+  }, [acceptBrowserSnapshot, activeSessionId, t]);
+
+  useEffect(() => {
+    dispatchSidecar({
+      threadId: activeSession?.id ?? "",
+      type: "scope.changed",
+      workspaceId: activeWorkspaceId,
+    });
+  }, [activeSession?.id, activeWorkspaceId]);
+
+  useEffect(() => {
+    if (browserSnapshot) synchronizeBrowserSnapshot(browserSnapshot, false);
+  }, [browserSnapshot, synchronizeBrowserSnapshot]);
+
+  useEffect(() => {
+    const resource = retainedBrowserResource;
+    const browserRuntime = chatStore.browserRuntime;
+    if (!resource?.browserSessionId
+      || !browserRuntime
+      || browserSnapshot?.data.browserSessionId === resource.browserSessionId) return;
+    let cancelled = false;
+    void browserRuntime.snapshot(resource.browserSessionId)
+      .then((snapshot) => {
+        if (cancelled) return;
+        if (snapshot.data.sessionId !== resource.threadId) {
+          throw new Error(
+            `Browser snapshot session ${snapshot.data.sessionId} does not match resource thread ${resource.threadId}.`,
+          );
+        }
+        synchronizeBrowserSnapshot(snapshot);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setBrowserProvisionErrors((current) => ({ ...current, [resource.id]: errorMessage(error) }));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    browserProvisionEpoch,
+    browserSnapshot?.data.browserSessionId,
+    chatStore.browserRuntime,
+    retainedBrowserResource,
+    synchronizeBrowserSnapshot,
+  ]);
+
+  useEffect(() => {
+    const resource = unboundBrowserResource;
+    const browserRuntime = chatStore.browserRuntime;
+    if (!resource
+      || browserProvisionErrors[resource.id]
+      || browserProvisioningResourceIdRef.current) return;
+    browserProvisioningResourceIdRef.current = resource.id;
+    void (async () => {
+      try {
+        if (!browserRuntime) throw new Error(t("sidecar.browserBuildUnavailable"));
+        let snapshot = await browserRuntime.createSession({ ownerSessionId: resource.threadId });
+
+        const currentResources = sidecarRef.current.tabs.filter((tab): tab is SidecarBrowserTab => (
+          tab.kind === "browser" && tab.threadId === resource.threadId
+        ));
+        const currentResource = currentResources.find((tab) => tab.id === resource.id);
+        const resourceStillExists = Boolean(currentResource);
+        const resourceAlreadyBound = Boolean(
+          currentResource?.browserSessionId === snapshot.data.browserSessionId
+            && currentResource.nativeTabId
+            && snapshot.data.tabs.some((tab) => tab.tabId === currentResource.nativeTabId),
+        );
+        const boundNativeTabIds = new Set(currentResources.flatMap((tab) => tab.nativeTabId ? [tab.nativeTabId] : []));
+        const hasUnboundNativeTab = snapshot.data.tabs.some((tab) => !boundNativeTabIds.has(tab.tabId));
+        let createdNativeTabId = "";
+        if (resourceStillExists && !resourceAlreadyBound && !hasUnboundNativeTab) {
+          const previousNativeTabIds = new Set(snapshot.data.tabs.map((tab) => tab.tabId));
+          snapshot = await browserRuntime.createTab(snapshot.data.browserSessionId);
+          createdNativeTabId = snapshot.data.tabs.find((tab) => !previousNativeTabIds.has(tab.tabId))?.tabId ?? "";
+        }
+
+        if (!sidecarRef.current.tabs.some((tab) => tab.id === resource.id)) {
+          if (createdNativeTabId && snapshot.data.tabs.length > 1) {
+            await browserRuntime.closeTab(snapshot.data.browserSessionId, createdNativeTabId);
+          }
+          return;
+        }
+        synchronizeBrowserSnapshot(snapshot);
+      } catch (error) {
+        if (sidecarRef.current.tabs.some((tab) => tab.id === resource.id)) {
+          setBrowserProvisionErrors((current) => ({ ...current, [resource.id]: errorMessage(error) }));
+        }
+      } finally {
+        if (browserProvisioningResourceIdRef.current === resource.id) {
+          browserProvisioningResourceIdRef.current = "";
+        }
+        setBrowserProvisionEpoch((current) => current + 1);
+      }
+    })();
+  }, [
+    browserProvisionEpoch,
+    browserProvisionErrors,
+    chatStore.browserRuntime,
+    synchronizeBrowserSnapshot,
+    t,
+    unboundBrowserResource,
+  ]);
+
+  useEffect(() => {
+    const resource = sidecarActiveTab?.kind === "browser" ? sidecarActiveTab : undefined;
+    const browserRuntime = chatStore.browserRuntime;
+    if (!resource?.browserSessionId
+      || !resource.nativeTabId
+      || !browserRuntime
+      || browserSnapshot?.data.browserSessionId !== resource.browserSessionId) return;
+    const activationTarget = `${resource.browserSessionId}:${resource.nativeTabId}`;
+    if (browserSnapshot.data.activeTabId === resource.nativeTabId) {
+      if (browserActivationTargetRef.current === activationTarget) {
+        browserActivationTargetRef.current = "";
+      }
+      return;
+    }
+    if (browserActivationTargetRef.current === activationTarget) return;
+    browserActivationTargetRef.current = activationTarget;
+    void browserRuntime.activateTab(resource.browserSessionId, resource.nativeTabId)
+      .then((snapshot) => synchronizeBrowserSnapshot(snapshot))
+      .catch((error) => {
+        if (browserActivationTargetRef.current === activationTarget) {
+          browserActivationTargetRef.current = "";
+        }
+        setBrowserProvisionErrors((current) => ({ ...current, [resource.id]: errorMessage(error) }));
+      });
+  }, [browserSnapshot, chatStore.browserRuntime, sidecarActiveTab, synchronizeBrowserSnapshot]);
+
+  useEffect(() => {
+    writePersistedSidecarWidth(window.localStorage, sidecar.width);
+  }, [sidecar.width]);
+
   useEffect(() => {
     setMigrationInstallError("");
   }, [activeSessionId]);
@@ -395,7 +548,6 @@ export function ChatPage({
         label: displaySessionTitle(session.title, t),
       }));
   }, [activeSession, allSessionWorkspaces, i18n.language, now, t]);
-  const tinyOsFiles = useTinyOsFilesController(activeSession?.id ?? "draft", workspaceStore, liveCanvas.visibility === "open");
   const draftNewSession = sessionsLoaded && !activeSession;
   const timelineLoaded = Boolean(activeSession) && timeline?.sessionId === activeSession?.id;
   const emptyActiveSession = draftNewSession || (timelineLoaded && timeline?.turns.length === 0 && optimisticMessages.length === 0);
@@ -431,65 +583,10 @@ export function ChatPage({
   const cancelUnavailableReason = !capabilityTargetsActiveTurn
     ? t("runtime.staleCapabilities")
     : cancelCapability.reason || t("runtime.cancelUnavailable");
-  const pauseCapability = tinyOsCapabilities.capabilities.agent.pause;
-  const resumeCapability = tinyOsCapabilities.capabilities.agent.resume;
-  const canPauseTurn = Boolean(
-    activeSession
-    && activeTurn
-    && tinyOsCapabilities.threadId === activeSession.id
-    && capabilityTargetsActiveTurn
-    && pauseCapability.available
-  );
-  const canResumeTurn = Boolean(
-    activeSession
-    && activeTurn
-    && tinyOsCapabilities.threadId === activeSession.id
-    && capabilityTargetsActiveTurn
-    && resumeCapability.available
-  );
-  const pauseUnavailableReason = !capabilityTargetsActiveTurn
-    ? t("runtime.staleCapabilities")
-    : pauseCapability.reason || t("runtime.pauseUnavailable");
-  const resumeUnavailableReason = !capabilityTargetsActiveTurn
-    ? t("runtime.staleCapabilities")
-    : resumeCapability.reason || t("runtime.resumeUnavailable");
   const cancelInFlight = isTinyOsCommandInFlight(commandLifecycle);
   const compactingActiveSession = Boolean(activeSession && compactingSessionId === activeSession.id);
   const showCommandLifecycleStatus = commandLifecycle.stage !== "idle"
     && commandLifecycle.command.kind !== "agent.cancel";
-  const requestChangeCapability = tinyOsCapabilities.capabilities.files.requestChange;
-  const canRequestChange = Boolean(
-    activeSession
-    && tinyOsCapabilities.threadId === activeSession.id
-    && requestChangeCapability.available
-    && !cancelInFlight
-  );
-  const requestChangeUnavailableReason = cancelInFlight
-    ? t("runtime.agentCommandInFlight")
-    : requestChangeCapability.reason || t("runtime.agentRequestsUnavailable");
-  const directEditCapability = tinyOsCapabilities.capabilities.files.directEdit;
-  const saveFileCapability = tinyOsCapabilities.capabilities.files.save;
-  const terminalExecuteCapability = tinyOsCapabilities.capabilities.terminal.execute;
-  const browserInteractCapability = tinyOsCapabilities.capabilities.browser.interact;
-  const canDirectEdit = Boolean(activeSession && directEditCapability.available && !cancelInFlight);
-  const canSaveFile = Boolean(activeSession && saveFileCapability.available && !cancelInFlight);
-  const canExecuteTerminal = Boolean(activeSession && terminalExecuteCapability.available && !cancelInFlight);
-  const canInteractBrowser = Boolean(activeSession && browserInteractCapability.available && !cancelInFlight);
-  const directEditUnavailableReason = cancelInFlight ? t("runtime.tinyOsCommandInFlight") : directEditCapability.reason;
-  const saveFileUnavailableReason = cancelInFlight ? t("runtime.tinyOsCommandInFlight") : saveFileCapability.reason;
-  const terminalExecuteUnavailableReason = cancelInFlight ? t("runtime.tinyOsCommandInFlight") : terminalExecuteCapability.reason;
-  const browserInteractUnavailableReason = cancelInFlight
-    ? t("runtime.tinyOsCommandInFlight")
-    : browserInteractCapability.reason || t("runtime.browserUnavailable");
-  const runningTerminalOperationId = commandLifecycle.stage !== "idle"
-    && commandLifecycle.stage !== "completed"
-    && commandLifecycle.command.kind === "terminal.execute"
-    ? commandLifecycle.command.target.operationId
-    : undefined;
-  const canCancelTerminal = Boolean(activeSession && runningTerminalOperationId);
-  const terminalCancelUnavailableReason = runningTerminalOperationId
-    ? undefined
-    : t("runtime.noRunningTerminal");
   const submittingFormId = commandLifecycle.stage !== "idle"
     && (commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
     && isTinyOsCommandInFlight(commandLifecycle)
@@ -511,237 +608,6 @@ export function ChatPage({
   const latestFailedTurnId = useMemo(() => (
     [...(timeline?.turns ?? [])].reverse().find((turn) => turn.status === "failed" || turn.status === "interrupted")?.id ?? ""
   ), [timeline]);
-  const retryCapability = tinyOsCapabilities.capabilities.agent.retry;
-  const canRetryTurn = Boolean(
-    activeSession
-    && latestFailedTurnId
-    && tinyOsCapabilities.threadId === activeSession.id
-    && tinyOsCapabilities.evaluatedTurnId === latestFailedTurnId
-    && retryCapability.available
-  );
-  const retryUnavailableReason = retryCapability.reason || t("runtime.retryUnavailable");
-  const liveCanvasOpen = liveCanvas.visibility === "open";
-  const liveCanvasPresent = liveCanvas.visibility !== "closed";
-
-  useEffect(() => {
-    if (liveCanvas.visibility !== "closing") return;
-    const timer = window.setTimeout(
-      () => dispatchLiveCanvas({ type: "close_complete" }),
-      LIVE_CANVAS_CLOSE_MS,
-    );
-    return () => window.clearTimeout(timer);
-  }, [liveCanvas.visibility]);
-
-  const browserSessionId = browserSnapshot?.data.browserSessionId;
-  const browserControlState = browserSnapshot?.data.control?.state;
-  useEffect(() => {
-    if (!browserSessionId) return;
-    if (browserControlState === "user_required") {
-      dispatchLiveCanvas({ type: "return_live" });
-    }
-  }, [browserControlState, browserSessionId]);
-
-  useEffect(() => {
-    if (liveCanvas.visibility !== "open"
-      || browserSnapshot
-      || !activeSession?.id
-      || !chatStore.browserRuntime) {
-      return;
-    }
-    let cancelled = false;
-    void chatStore.browserRuntime.createSession({ ownerSessionId: activeSession.id }).then((snapshot) => {
-      if (!cancelled) {
-        acceptBrowserSnapshot(snapshot);
-      }
-    }).catch((error) => {
-      if (!cancelled) reportBrowserError(error);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [acceptBrowserSnapshot, activeSession?.id, browserSnapshot, chatStore, liveCanvas.visibility, reportBrowserError]);
-  const liveCanvasEntries = useMemo<LiveCanvasEntry[]>(() => (
-    (timelineLoaded ? timeline?.turns ?? [] : []).flatMap((turn) => (
-      (turn.executionItems ?? turn.steps).map((step) => ({ step, turnId: turn.id }))
-    ))
-  ), [timeline, timelineLoaded]);
-  const liveCanvasCanonicalItems = useMemo(() => (
-    (timelineLoaded ? timeline?.turns ?? [] : []).flatMap((turn) => turn.canonicalItems ?? [])
-  ), [timeline, timelineLoaded]);
-  const latestLiveCanvasEntry = liveCanvasEntries[liveCanvasEntries.length - 1];
-  const latestLiveCanvasAttention = useMemo(() => [...liveCanvasEntries].reverse().find(({ step }) => (
-    step.kind === "error"
-      || step.status === "failed"
-      || step.status === "cancelled"
-      || (step.kind === "form" && step.status !== "completed")
-  )), [liveCanvasEntries]);
-  const selectedLiveCanvasEntry = liveCanvas.mode === "live_follow"
-    ? latestLiveCanvasEntry
-    : liveCanvasEntries.find((entry) => entry.turnId === liveCanvas.selection?.turnId && entry.step.id === liveCanvas.selection.itemId);
-
-  const openLiveCanvasItem = (turnId: string, step: ChatStep) => {
-    const eventIndex = lastCanonicalEventIndex(liveCanvasCanonicalItems, turnId, step.id);
-    const boundary = eventIndex >= 0 ? liveCanvasCanonicalItems[eventIndex] : undefined;
-    dispatchLiveCanvas({
-      ...(eventIndex >= 0 ? { eventIndex } : {}),
-      itemId: step.id,
-      ...(boundary?.turnId ? { turnId: boundary.turnId } : {}),
-      turnId,
-      type: "select",
-    });
-  };
-
-  const handleAttachTinyOsContext = (reference: TinyOsContextReference) => {
-    const id = tinyOsContextReferenceId(reference);
-    setTinyOsContextReferences((current) => [
-      ...current.filter((candidate) => tinyOsContextReferenceId(candidate) !== id),
-      reference,
-    ]);
-  };
-
-  const handleTinyOsComposerDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const parsed = readTinyOsReferenceTransfer(event.dataTransfer);
-    if (parsed.status === "rejected") {
-      setTinyOsDropError(parsed.reason);
-      return;
-    }
-    const accepted = tinyOsReferenceAcceptedBy(parsed.reference, "chat");
-    if (accepted.status === "rejected") {
-      setTinyOsDropError(accepted.reason);
-      return;
-    }
-    setTinyOsDropError("");
-    handleAttachTinyOsContext(accepted.reference.reference);
-  };
-
-  async function handleTinyOsAgentRequest(
-    reference: TinyOsAgentRequestReference,
-    intent: TinyOsAgentRequestIntent,
-    fromHistory: boolean,
-  ): Promise<void> {
-    if (!activeSession || isTinyOsCommandInFlight(commandLifecycle)) return;
-    if (tinyOsCapabilities.threadId !== activeSession.id || !requestChangeCapability.available) {
-      reportTimelineError(requestChangeUnavailableReason);
-      return;
-    }
-    const command = createTinyOsAgentRequestChangeCommand({
-      instruction: tinyOsAgentRequestInstruction(reference, intent, t),
-      observedTurnId: tinyOsCapabilities.evaluatedTurnId,
-      references: [nativeReferenceFromTinyOs(reference, t)],
-      sessionId: activeSession.id,
-      source: { control: `${fromHistory ? "history-" : ""}${tinyOsAgentRequestControl(reference, intent)}`, surface: "tinyos" },
-    });
-    clearTimelineError();
-    dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
-    if (fromHistory) dispatchLiveCanvas({ type: "return_live" });
-    try {
-      await chatStore.dispatch(command);
-    } catch (error) {
-      dispatchCommandLifecycle({
-        commandId: command.commandId,
-        error: error instanceof Error ? error.message : String(error),
-        type: "rejected",
-      });
-    }
-  }
-
-  async function dispatchTinyOsHostCommand(command: TinyOsCommand, allowDuringTerminalExecution = false): Promise<void> {
-    if (!activeSession) throw new Error(t("runtime.selectSessionHostOperation"));
-    const terminalExecutionInFlight = commandLifecycle.stage !== "idle"
-      && commandLifecycle.command.kind === "terminal.execute"
-      && commandLifecycle.stage === "acknowledged";
-    if (isTinyOsCommandInFlight(commandLifecycle) && !(allowDuringTerminalExecution && terminalExecutionInFlight)) {
-      throw new Error(t("runtime.tinyOsCommandAlreadyInFlight"));
-    }
-    clearTimelineError();
-    dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
-    try {
-      await chatStore.dispatch(command);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      dispatchCommandLifecycle({ commandId: command.commandId, error: message, type: "rejected" });
-      const commandError = new Error(message);
-      (commandError as Error & { cause?: unknown }).cause = error;
-      throw commandError;
-    }
-  }
-
-  async function handleSaveTinyOsFile(input: { baseRevision?: string; content: string; createOnly: boolean; path: string }): Promise<void> {
-    if (!activeSession || !saveFileCapability.available) throw new Error(saveFileUnavailableReason || t("runtime.fileSavingUnavailable"));
-    await dispatchTinyOsHostCommand(createTinyOsFileSaveCommand({
-      ...input,
-      sessionId: activeSession.id,
-      source: { control: input.createOnly ? "files-create" : "files-save", surface: "tinyos" },
-    }));
-  }
-
-  async function handleMoveTinyOsFile(input: { baseRevision: string; path: string; targetPath: string }): Promise<void> {
-    if (!activeSession || !saveFileCapability.available) throw new Error(saveFileUnavailableReason || t("runtime.fileMovingUnavailable"));
-    await dispatchTinyOsHostCommand(createTinyOsFileMoveCommand({
-      ...input,
-      sessionId: activeSession.id,
-      source: { control: "files-move", surface: "tinyos" },
-    }));
-  }
-
-  async function handleDeleteTinyOsFile(input: { baseRevision: string; path: string }): Promise<void> {
-    if (!activeSession || !saveFileCapability.available) throw new Error(saveFileUnavailableReason || t("runtime.fileDeletionUnavailable"));
-    await dispatchTinyOsHostCommand(createTinyOsFileDeleteCommand({
-      ...input,
-      sessionId: activeSession.id,
-      source: { control: "files-delete", surface: "tinyos" },
-    }));
-  }
-
-  async function handleExecuteTinyOsTerminal(input: { command: string; cwd?: string }): Promise<void> {
-    if (!activeSession || !terminalExecuteCapability.available) throw new Error(terminalExecuteUnavailableReason || t("runtime.terminalExecutionUnavailable"));
-    await dispatchTinyOsHostCommand(createTinyOsTerminalExecuteCommand({
-      ...input,
-      sessionId: activeSession.id,
-      source: { control: "terminal-execute", surface: "tinyos" },
-    }));
-  }
-
-  async function handleCancelTinyOsTerminal(): Promise<void> {
-    if (!activeSession || !runningTerminalOperationId) {
-      throw new Error(terminalCancelUnavailableReason || t("runtime.terminalCancellationUnavailable"));
-    }
-    await dispatchTinyOsHostCommand(createTinyOsTerminalCancelCommand({
-      operationId: runningTerminalOperationId,
-      sessionId: activeSession.id,
-      source: { control: "terminal-cancel", surface: "tinyos" },
-    }), true);
-  }
-
-  async function handleInteractTinyOsBrowser(input: {
-    action: TinyOsBrowserAction;
-    browserSessionId: string;
-    captureId: string;
-    controlEpoch: number;
-    observationRevision: number;
-    tabId: string;
-  }): Promise<void> {
-    if (!activeSession || !browserInteractCapability.available) {
-      throw new Error(browserInteractUnavailableReason);
-    }
-    await dispatchTinyOsHostCommand(createTinyOsBrowserInteractCommand({
-      ...input,
-      sessionId: activeSession.id,
-      source: { control: `browser-${input.action.type}`, surface: "tinyos" },
-    }));
-  }
-
-  useEffect(() => {
-    const previousVisibility = liveCanvasPreviousVisibilityRef.current;
-    if (liveCanvas.visibility === "open" && previousVisibility !== "open") {
-      liveCanvasHeadingRef.current?.focus();
-    } else if (liveCanvas.visibility === "closed" && previousVisibility !== "closed") {
-      liveCanvasToggleRef.current?.focus();
-    }
-    liveCanvasPreviousVisibilityRef.current = liveCanvas.visibility;
-  }, [liveCanvas.visibility]);
-
   useEffect(() => {
     sessionsRef.current = sessions;
   }, [sessions]);
@@ -774,7 +640,6 @@ export function ChatPage({
   }, [activeTurn?.id, activeTurn?.status, activeSessionId, chatStore, t]);
 
   useEffect(() => {
-    setTinyOsContextReferences([]);
     setComposerSessionMentionIds([]);
     dispatchCommandLifecycle({ type: "reset" });
   }, [activeSession?.id]);
@@ -824,24 +689,9 @@ export function ChatPage({
       reportTimelineError(`Retry failed: ${commandLifecycle.error}`);
       return;
     }
-    if (commandLifecycle.command.kind === "agent.request_change"
-      && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
-      reportTimelineError(`Agent request failed: ${commandLifecycle.error}`);
-      return;
-    }
-    if ((commandLifecycle.command.kind === "agent.pause" || commandLifecycle.command.kind === "agent.resume")
-      && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
-      reportTimelineError(`Agent ${commandLifecycle.command.kind === "agent.pause" ? "pause" : "resume"} failed: ${commandLifecycle.error}`);
-      return;
-    }
     if ((commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
       && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
       reportTimelineError(`Form ${commandLifecycle.command.kind === "form.cancel" ? "cancellation" : "submission"} failed: ${commandLifecycle.error}`);
-      return;
-    }
-    if (["file.save", "file.move", "file.delete", "terminal.execute", "terminal.cancel", "browser.interact"].includes(commandLifecycle.command.kind)
-      && (commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out")) {
-      reportTimelineError(`TinyOS host operation failed: ${commandLifecycle.error}`);
     }
   }, [commandLifecycle, reportTimelineError]);
 
@@ -1264,38 +1114,6 @@ export function ChatPage({
     }));
   }
 
-  async function handleBrowserHandoffComplete(session: SessionSummary): Promise<void> {
-    try {
-      await dispatchTurn(session.id, { text: t("browserHandoffContinue") }, "browser-handoff-complete");
-      await handleSessionStoreRefresh(session);
-    } catch (error) {
-      reportTimelineError(t("runtime.browserHandoffFailed", { message: error instanceof Error ? error.message : String(error) }));
-    }
-  }
-
-  async function handleExitTinyOs(): Promise<void> {
-    const browserSession = browserSnapshot?.data;
-    const browserRuntime = chatStore.browserRuntime;
-    if (browserSession && browserRuntime && browserSession.sessionId === activeSession?.id) {
-      try {
-        await browserRuntime.closeSession(browserSession.browserSessionId);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        reportBrowserError(message);
-        reportTimelineError(t("runtime.browserReleaseFailed", { message }));
-        console.error("[tinyos] browser.session.close.failed", {
-          browserSessionId: browserSession.browserSessionId,
-          error: message,
-          ownerSessionId: browserSession.sessionId,
-        });
-        return;
-      }
-      clearBrowserSnapshot(browserSession.browserSessionId);
-      clearBrowserError();
-    }
-    dispatchLiveCanvas({ type: "close" });
-  }
-
   async function handleComposerSend(
     message: string,
     files: ComposerFileReference[],
@@ -1320,7 +1138,6 @@ export function ChatPage({
         updatedAtMs: session.updatedAtMs,
       })),
       t,
-      tinyOsReferences: tinyOsContextReferences,
     });
     if (prepared.kind === "compact") {
       if (!activeSession) {
@@ -1379,7 +1196,6 @@ export function ChatPage({
     turn: ChatTurn,
     action: RecoveryAction,
     retryItemId?: string,
-    surface: "chat" | "tinyos" = "chat",
   ): Promise<void> {
     if (!activeSession || recoveringTurnId || isTinyOsCommandInFlight(commandLifecycle)) {
       return;
@@ -1403,7 +1219,7 @@ export function ChatPage({
         const command = createTinyOsOperationRetryCommand({
           itemId: failedItem.id,
           sessionId: activeSession.id,
-          source: { control: surface === "tinyos" ? "operation-shelf" : "error-recovery", surface },
+          source: { control: "error-recovery", surface: "chat" },
           threadId: turn.canonicalItems?.find((item) => item.threadId)?.threadId,
           turnId: turn.id,
         });
@@ -1605,7 +1421,7 @@ export function ChatPage({
     });
   }
 
-  async function handleStopGeneration(session: SessionSummary, surface: "chat" | "tinyos") {
+  async function handleStopGeneration(session: SessionSummary) {
     if (cancelInFlight) return;
     if (!canCancelTurn) {
       reportTimelineError(`Cannot cancel: ${cancelUnavailableReason}`);
@@ -1617,7 +1433,7 @@ export function ChatPage({
     }
     const command = createTinyOsAgentCancelCommand({
       sessionId: session.id,
-      source: { control: surface === "tinyos" ? "system-bar-cancel" : "stop-response", surface },
+      source: { control: "stop-response", surface: "chat" },
       threadId: activeTurn.canonicalItems?.find((item) => item.threadId)?.threadId,
       turnId: activeTurn.id,
     });
@@ -1685,17 +1501,6 @@ export function ChatPage({
     if (event.command && event.type === "command.dispatched") {
       pauseQueuedInputsForSession(event.command.target.sessionId);
       dispatchCommandLifecycle({ command: event.command, nowMs: now(), type: "dispatch" });
-      return;
-    }
-    if (event.commandId && event.operationId && event.operationStatus && event.type === "host.operation") {
-      dispatchCommandLifecycle({
-        commandId: event.commandId,
-        error: event.error,
-        nowMs: now(),
-        operationId: event.operationId,
-        status: event.operationStatus,
-        type: "host_operation_updated",
-      });
       return;
     }
     if (event.commandId && event.type === "command.accepted") {
@@ -1841,18 +1646,29 @@ export function ChatPage({
     if (!activeSession) {
       return;
     }
+    const tabId = sidecarArtifactTabId(activeSession.id, artifact.id);
+    dispatchSidecar({
+      artifactId: artifact.id,
+      threadId: activeSession.id,
+      title: artifact.title,
+      type: "tab.openArtifact",
+    });
     if (artifact.kind === "data_view") {
-      setDrawer({
-        kind: "artifact",
-        title: artifact.title,
-        artifact,
-        ...(artifact.dataView ? { detail: { id: artifact.id, title: artifact.title, mimeType: artifact.mimeType, dataView: artifact.dataView } } : {}),
-        loading: false,
-        ...(artifact.dataViewError ? { error: artifact.dataViewError } : {}),
-      });
+      setArtifactSidecarContent((current) => ({
+        ...current,
+        [tabId]: {
+          artifact,
+          ...(artifact.dataView ? { detail: { id: artifact.id, title: artifact.title, mimeType: artifact.mimeType, dataView: artifact.dataView } } : {}),
+          loading: false,
+          ...(artifact.dataViewError ? { error: artifact.dataViewError } : {}),
+        },
+      }));
       return;
     }
-    setDrawer({ kind: "artifact", title: artifact.title, artifact, loading: Boolean(chatStore.loadArtifact) });
+    setArtifactSidecarContent((current) => ({
+      ...current,
+      [tabId]: { artifact, loading: Boolean(chatStore.loadArtifact) },
+    }));
     if (!chatStore.loadArtifact) {
       return;
     }
@@ -1862,21 +1678,126 @@ export function ChatPage({
         sessionKey: activeSession.id,
       });
       const detail = projectLoadedArtifactDetail(artifact, payload);
-      setDrawer((current) => current?.kind === "artifact" && current.artifact.id === artifact.id
-        ? { ...current, detail, loading: false }
+      setArtifactSidecarContent((current) => current[tabId]
+        ? { ...current, [tabId]: { ...current[tabId], detail, loading: false } }
         : current);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      setDrawer((current) => current?.kind === "artifact" && current.artifact.id === artifact.id
-        ? { ...current, error: message, loading: false }
+      setArtifactSidecarContent((current) => current[tabId]
+        ? { ...current, [tabId]: { ...current[tabId], error: message, loading: false } }
         : current);
+    }
+  }
+
+  async function handleCloseSidecarTab(tab: SidecarTab) {
+    if (tab.kind === "browser") {
+      setBrowserProvisionErrors((current) => omitRecordKey(current, tab.id));
+      const browserRuntime = chatStore.browserRuntime;
+      if (!browserRuntime || !tab.browserSessionId || !tab.nativeTabId) {
+        dispatchSidecar({ tabId: tab.id, type: "tab.close" });
+        return;
+      }
+      try {
+        let snapshot = await browserRuntime.snapshot(tab.browserSessionId);
+        const remainingResources = sidecarRef.current.tabs.filter((candidate) => (
+          candidate.kind === "browser"
+            && candidate.threadId === tab.threadId
+            && candidate.id !== tab.id
+        ));
+        if (snapshot.data.tabs.length === 1 && remainingResources.length) {
+          snapshot = await browserRuntime.createTab(snapshot.data.browserSessionId);
+        }
+        if (snapshot.data.tabs.length === 1) {
+          await browserRuntime.closeSession(snapshot.data.browserSessionId);
+          clearBrowserSnapshot(snapshot.data.browserSessionId);
+          dispatchSidecar({ tabId: tab.id, type: "tab.close" });
+          return;
+        }
+        const next = await browserRuntime.closeTab(snapshot.data.browserSessionId, tab.nativeTabId);
+        dispatchSidecar({ tabId: tab.id, type: "tab.close" });
+        synchronizeBrowserSnapshot(next);
+      } catch (error) {
+        setBrowserProvisionErrors((current) => ({ ...current, [tab.id]: errorMessage(error) }));
+      }
+      return;
+    }
+
+    if (tab.kind === "terminal") {
+      setTerminalErrors((current) => omitRecordKey(current, tab.id));
+      try {
+        await chatStore.terminalRuntime?.terminate(tab.id);
+      } catch (error) {
+        setTerminalErrors((current) => ({ ...current, [tab.id]: errorMessage(error) }));
+        return;
+      }
+      dispatchSidecar({ tabId: tab.id, type: "tab.close" });
+      return;
+    }
+
+    dispatchSidecar({ tabId: tab.id, type: "tab.close" });
+    if (tab.kind === "artifact") {
+      setArtifactSidecarContent((current) => omitRecordKey(current, tab.id));
+    }
+  }
+
+  function renderSidecarArtifact(tab: SidecarArtifactTab) {
+    const content = artifactSidecarContent[tab.id];
+    if (!content) {
+      return <p className="react-empty-state">{t("details.noPreview")}</p>;
+    }
+    return (
+      <ArtifactDetails
+        artifact={content.artifact}
+        detail={content.detail}
+        error={content.error}
+        loading={content.loading}
+      />
+    );
+  }
+
+  function renderSidecarBrowser(tab: SidecarBrowserTab, surfaceVisible: boolean) {
+    return (
+      <SidecarBrowser
+        browserRuntime={chatStore.browserRuntime}
+        externalError={browserProvisionErrors[tab.id] || browserError}
+        snapshot={browserSnapshot?.data.sessionId === tab.threadId ? browserSnapshot : undefined}
+        surfaceVisible={surfaceVisible && !drawer}
+        tab={tab}
+        onHandoffComplete={() => handleBrowserHandoffComplete(tab)}
+        onRetryProvision={() => {
+          clearBrowserError();
+          setBrowserProvisionErrors((current) => omitRecordKey(current, tab.id));
+          setBrowserProvisionEpoch((current) => current + 1);
+        }}
+        onSnapshot={synchronizeBrowserSnapshot}
+      />
+    );
+  }
+
+  function renderSidecarTerminal(tab: SidecarTerminalTab) {
+    return (
+      <SidecarTerminal
+        externalError={terminalErrors[tab.id]}
+        tab={tab}
+        terminalRuntime={chatStore.terminalRuntime}
+        workspaceLabel={activeWorkspaceLabel}
+      />
+    );
+  }
+
+  async function handleBrowserHandoffComplete(tab: SidecarBrowserTab) {
+    if (!activeSession || activeSession.id !== tab.threadId) return;
+    try {
+      await dispatchTurn(activeSession.id, { text: t("browserHandoffContinue") }, "browser-handoff-complete");
+      await handleSessionStoreRefresh(activeSession);
+    } catch (error) {
+      reportTimelineError(t("sidecar.browserHandoffFailed", { message: errorMessage(error) }));
     }
   }
 
   async function handleSubmitAgentUiForm(
     form: AgentUiForm,
     values: Record<string, unknown>,
-    surface: "chat" | "tinyos",
   ) {
     if (!activeSession || isTinyOsCommandInFlight(commandLifecycle)) {
       return;
@@ -1893,7 +1814,7 @@ export function ChatPage({
     const command = createTinyOsFormSubmitCommand({
       formId: form.form_id,
       sessionId: activeSession.id,
-      source: { control: surface === "tinyos" ? "system-form" : "chat-form", surface },
+      source: { control: "chat-form", surface: "chat" },
       threadId: agentUiFormCorrelationString(form, "thread_id")
         || activeTurn.canonicalItems?.find((item) => item.threadId)?.threadId,
       turnId: activeTurn.id,
@@ -1912,7 +1833,7 @@ export function ChatPage({
     }
   }
 
-  async function handleCancelAgentUiForm(form: AgentUiForm, surface: "chat" | "tinyos") {
+  async function handleCancelAgentUiForm(form: AgentUiForm) {
     if (!activeSession || isTinyOsCommandInFlight(commandLifecycle)) {
       return;
     }
@@ -1928,41 +1849,9 @@ export function ChatPage({
     const command = createTinyOsFormCancelCommand({
       formId: form.form_id,
       sessionId: activeSession.id,
-      source: { control: surface === "tinyos" ? "system-form" : "chat-form", surface },
+      source: { control: "chat-form", surface: "chat" },
       threadId: agentUiFormCorrelationString(form, "thread_id")
         || activeTurn.canonicalItems?.find((item) => item.threadId)?.threadId,
-      turnId: activeTurn.id,
-    });
-    clearTimelineError();
-    dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
-    try {
-      await chatStore.dispatch(command);
-    } catch (error) {
-      dispatchCommandLifecycle({
-        commandId: command.commandId,
-        error: error instanceof Error ? error.message : String(error),
-        type: "rejected",
-      });
-    }
-  }
-
-  async function handleAgentTurnControl(kind: "agent.pause" | "agent.resume", surface: "chat" | "tinyos") {
-    if (!activeSession || isTinyOsCommandInFlight(commandLifecycle)) return;
-    const available = kind === "agent.pause" ? canPauseTurn : canResumeTurn;
-    const unavailableReason = kind === "agent.pause" ? pauseUnavailableReason : resumeUnavailableReason;
-    if (!available) {
-      reportTimelineError(t(kind === "agent.pause" ? "runtime.cannotPause" : "runtime.cannotResume", { reason: unavailableReason }));
-      return;
-    }
-    if (!activeTurn) {
-      reportTimelineError(t(kind === "agent.pause" ? "runtime.pauseTurnUnavailable" : "runtime.resumeTurnUnavailable"));
-      return;
-    }
-    const command = createTinyOsAgentTurnControlCommand({
-      kind,
-      sessionId: activeSession.id,
-      source: { control: surface === "tinyos" ? `system-bar-${kind.slice("agent.".length)}` : `chat-${kind.slice("agent.".length)}`, surface },
-      threadId: activeTurn.canonicalItems?.find((item) => item.threadId)?.threadId,
       turnId: activeTurn.id,
     });
     clearTimelineError();
@@ -2011,7 +1900,7 @@ export function ChatPage({
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest('[role="dialog"], [role="menu"], [role="listbox"]')) return;
     event.preventDefault();
-    void handleStopGeneration(activeSession, "chat");
+    void handleStopGeneration(activeSession);
   }
 
   const visibleAgentUiForms = agentUiForms.filter(isVisibleAgentUiForm);
@@ -2020,11 +1909,8 @@ export function ChatPage({
   return (
     <section
       className="react-chat-page"
-      data-live-canvas-expanded={liveCanvasPresent && liveCanvas.surface === "expanded" ? "true" : undefined}
       aria-label={t("shell.label")}
-      data-live-canvas-open={liveCanvasPresent ? "true" : undefined}
       data-session-sidebar-collapsed={resolvedSessionSidebarCollapsed}
-      style={{ "--tinyos-width": `${tinyOsWidth}px` } as CSSProperties}
       onKeyDown={handleChatPageKeyDown}
     >
       <ChatSessionWorkspace
@@ -2047,7 +1933,11 @@ export function ChatPage({
         projectGroupStore={projectGroupStore}
         sessions={sessions}
       >
-
+      <div
+        className="react-chat-workspace"
+        data-sidecar-presentation={sidecar.presentation}
+        style={{ "--react-sidecar-width": `${sidecar.width}px` } as CSSProperties}
+      >
       <main className="react-chat-surface" data-empty-session={emptyActiveSession ? "true" : undefined}>
         <header className="react-chat-header">
           <h1 className="react-chat-header__title">{headerTitle}</h1>
@@ -2060,26 +1950,17 @@ export function ChatPage({
           />
           <div className="react-chat-header__actions">
             <button
-              ref={liveCanvasToggleRef}
-              aria-controls="tinybot-live-canvas"
-              aria-expanded={liveCanvasOpen}
-              aria-label={liveCanvasOpen
-                ? t("shell.closeTinyOs")
-                : latestLiveCanvasAttention
-                  ? t("shell.openTinyOsAttention")
-                  : liveCanvasEntries.length
-                    ? t("shell.openTinyOsActivity")
-                    : t("shell.openTinyOs")}
-              className="react-live-canvas-toggle"
-              data-active={liveCanvasOpen ? "true" : undefined}
-              data-attention={latestLiveCanvasAttention ? "true" : undefined}
-              data-has-activity={liveCanvasEntries.length ? "true" : undefined}
-              title={liveCanvasOpen ? t("shell.closeTinyOs") : t("shell.openTinyOs")}
+              aria-label={sidecar.presentation === "closed" ? t("sidecar.show") : t("sidecar.hide")}
+              aria-pressed={sidecar.presentation !== "closed"}
+              title={sidecar.presentation === "closed" ? t("sidecar.show") : t("sidecar.hide")}
               type="button"
-              onClick={() => dispatchLiveCanvas({ type: "toggle" })}
+              onClick={() => dispatchSidecar({
+                type: sidecar.presentation === "closed" ? "presentation.show" : "presentation.hide",
+              })}
             >
-              {liveCanvasOpen ? <PanelRightClose aria-hidden="true" size={18} /> : <PanelRightOpen aria-hidden="true" size={18} />}
-              {!liveCanvasOpen && liveCanvasEntries.length ? <span aria-hidden="true" className="react-live-canvas-toggle__status" /> : null}
+              {sidecar.presentation === "closed"
+                ? <PanelRightOpen aria-hidden="true" size={17} />
+                : <PanelRightClose aria-hidden="true" size={17} />}
             </button>
             <button
               aria-label={t("shell.conversationMenu")}
@@ -2120,7 +2001,6 @@ export function ChatPage({
               onBranch: (messageId) => activeSession && void handleBranchFromMessage(activeSession, messageId),
               onOpenArtifact: (artifact) => void handleOpenArtifact(artifact),
               onOpenError: (turn, step) => setDrawer({ kind: "error", title: t("shell.errorDetails"), step, turn }),
-              onOpenLiveCanvas: (turn, step) => openLiveCanvasItem(turn.id, step),
               onOpenSubagent: (delegate) => void handleOpenSubagent(delegate),
               onOpenTool: (toolCall) => setDrawer({ kind: "tool", title: toolCall.name, toolCall }),
               onRecover: (turn, action) => void handleRecoverTurn(turn, action),
@@ -2177,8 +2057,8 @@ export function ChatPage({
                   form={form}
                   key={form.form_id}
                   submitting={submittingFormId === form.form_id}
-                  onCancel={() => void handleCancelAgentUiForm(form, "chat")}
-                  onSubmit={(values) => void handleSubmitAgentUiForm(form, values, "chat")}
+                  onCancel={() => void handleCancelAgentUiForm(form)}
+                  onSubmit={(values) => void handleSubmitAgentUiForm(form, values)}
                 />
               ))}
             </div>
@@ -2207,15 +2087,7 @@ export function ChatPage({
             {tinyOsCommandLifecycleLabel(commandLifecycle, t)}
           </p>
         ) : null}
-        <div
-          className="react-composer-drop-target"
-          onDragOver={(event) => {
-            if (!Array.from(event.dataTransfer.types).includes(TINYOS_REFERENCE_MIME)) return;
-            event.preventDefault();
-            event.dataTransfer.dropEffect = "copy";
-          }}
-          onDrop={handleTinyOsComposerDrop}
-        >
+        <div className="react-composer-drop-target">
           {activeSession && activeQueuedInputs.length ? (
             <QueuedInputsPanel
               canInterrupt={canInterruptQueuedInput}
@@ -2227,7 +2099,6 @@ export function ChatPage({
           ) : null}
           <ClaudeStyleAiInput
             className={["react-composer", emptyActiveSession ? "react-composer--raised" : ""].filter(Boolean).join(" ")}
-          contextReferences={tinyOsContextReferences.map((reference) => composerReferenceFromTinyOs(reference, t))}
           disabled={!activeSession && !draftNewSession}
           disabledReason={!sessionsLoaded ? t("shell.loadingSessions") : !activeSession && !draftNewSession ? t("shell.createOrSelect") : undefined}
           defaultModel={defaultComposerModel}
@@ -2275,88 +2146,32 @@ export function ChatPage({
           stopUnavailableReason={cancelUnavailableReason}
           placeholder={emptyActiveSession ? t("shell.taskPlaceholder") : t("shell.messagePlaceholder")}
           value={composerDraft}
-          onClearContextReferences={() => setTinyOsContextReferences([])}
-          onRemoveContextReference={(id) => setTinyOsContextReferences((current) => current.filter((reference) => tinyOsContextReferenceId(reference) !== id))}
           onSelectFiles={pickDesktopChatFiles}
           onValueChange={handleComposerDraftChange}
           onSendMessage={(message, files, pastedContent, options) => handleComposerSend(message, files, pastedContent, options)}
-          onStopResponding={() => activeSession && handleStopGeneration(activeSession, "chat")}
+          onStopResponding={() => activeSession && handleStopGeneration(activeSession)}
           />
-          {tinyOsDropError ? <p className="react-composer-drop-error" role="alert">{tinyOsDropError}</p> : null}
         </div>
       </main>
 
-      {liveCanvasPresent ? (
-        <LiveCanvas
-          activeTurnId={activeTurn?.id}
-          agentUiForms={visibleAgentUiForms}
-          canonicalItems={liveCanvasCanonicalItems}
-          canCancelTerminal={canCancelTerminal}
-          canInteractBrowser={canInteractBrowser}
-          canDirectEdit={canDirectEdit}
-          canExecuteTerminal={canExecuteTerminal}
-          entries={liveCanvasEntries}
-          nativeSnapshots={browserSnapshot ? [browserSnapshot] : []}
-          browserRuntime={chatStore.browserRuntime}
-          closing={liveCanvas.visibility === "closing"}
-          expanded={liveCanvas.surface === "expanded"}
-          headingRef={liveCanvasHeadingRef}
-          mode={liveCanvas.mode}
-          canCancelTurn={canCancelTurn}
-          canPauseTurn={canPauseTurn}
-          canRequestChange={canRequestChange}
-          canResumeTurn={canResumeTurn}
-          canRetryTurn={canRetryTurn}
-          canSaveFile={canSaveFile}
-          cancelUnavailableReason={activeTurn && !canCancelTurn ? cancelUnavailableReason : undefined}
-          pauseUnavailableReason={activeTurn && !canPauseTurn ? pauseUnavailableReason : undefined}
-          commandLifecycle={commandLifecycle}
-          selection={selectedLiveCanvasEntry}
-          selectionEventIndex={liveCanvas.selection?.eventIndex}
-          sessionKey={`${tinyOsUiScope}:${activeSession?.id ?? "draft"}`}
-          widthPx={tinyOsWidth}
-          filesController={tinyOsFiles}
-          directEditUnavailableReason={directEditUnavailableReason}
-          browserInteractUnavailableReason={browserRuntimeError || browserInteractUnavailableReason}
-          onAttachContext={handleAttachTinyOsContext}
-          onCancelForm={(form) => void handleCancelAgentUiForm(form, "tinyos")}
-          onCancelTurn={() => activeSession && void handleStopGeneration(activeSession, "tinyos")}
-          onPauseTurn={() => void handleAgentTurnControl("agent.pause", "tinyos")}
-          onClose={() => dispatchLiveCanvas({ type: "close" })}
-          onExit={handleExitTinyOs}
-          onExpandedChange={() => dispatchLiveCanvas({ type: "expand_toggle" })}
-          onOpenArtifact={(artifact) => void handleOpenArtifact(artifact)}
-          onAgentRequest={(reference, intent, fromHistory) => void handleTinyOsAgentRequest(reference, intent, fromHistory)}
-          onCancelTerminal={handleCancelTinyOsTerminal}
-          onBrowserHandoffComplete={({ browserSessionId, ownerSessionId }) => {
-            if (activeSession?.id !== ownerSessionId || browserSnapshot?.data.browserSessionId !== browserSessionId) return;
-            void handleBrowserHandoffComplete(activeSession);
-          }}
-          onBrowserInteract={handleInteractTinyOsBrowser}
-          onDeleteFile={handleDeleteTinyOsFile}
-          onExecuteTerminal={handleExecuteTinyOsTerminal}
-          onMoveFile={handleMoveTinyOsFile}
-          onRetryOperation={(entry) => {
-            const turn = timeline?.turns.find((candidate) => candidate.id === entry.turnId);
-            if (turn) void handleRecoverTurn(turn, "retry", entry.step.id, "tinyos");
-          }}
-          onReturnToLive={() => dispatchLiveCanvas({ type: "return_live" })}
-          onResumeTurn={() => void handleAgentTurnControl("agent.resume", "tinyos")}
-          onSelectEntry={(entry) => openLiveCanvasItem(entry.turnId, entry.step)}
-          onSubmitForm={(form, values) => void handleSubmitAgentUiForm(form, values, "tinyos")}
-          onSaveFile={handleSaveTinyOsFile}
-          requestChangeUnavailableReason={requestChangeUnavailableReason}
-          retryTurnId={latestFailedTurnId || undefined}
-          retryUnavailableReason={retryUnavailableReason}
-          runningTerminalOperationId={runningTerminalOperationId}
-          saveFileUnavailableReason={saveFileUnavailableReason}
-          terminalCancelUnavailableReason={terminalCancelUnavailableReason}
-          terminalExecuteUnavailableReason={terminalExecuteUnavailableReason}
-          resumeUnavailableReason={activeTurn && !canResumeTurn ? resumeUnavailableReason : undefined}
-          onWidthChange={(widthPx) => {
-            setTinyOsWidth(widthPx);
-            window.localStorage.setItem(TINYOS_WIDTH_STORAGE_KEY, String(widthPx));
-          }}
+      {sidecar.presentation !== "closed" ? (
+        <Sidecar
+          activeTabId={sidecarActiveTab?.id ?? ""}
+          canCreateBrowser={Boolean(activeSession)}
+          canCreateTerminal={Boolean(activeWorkspaceId)}
+          presentation={sidecar.presentation}
+          renderArtifact={renderSidecarArtifact}
+          renderBrowser={renderSidecarBrowser}
+          renderTerminal={renderSidecarTerminal}
+          tabs={sidecarTabs}
+          width={sidecar.width}
+          onActivateTab={(tabId) => dispatchSidecar({ tabId, type: "tab.activate" })}
+          onCloseTab={handleCloseSidecarTab}
+          onCreateBrowser={() => dispatchSidecar({ type: "tab.newBrowser" })}
+          onCreateTerminal={(shell) => dispatchSidecar({ shell, type: "tab.newTerminal" })}
+          onHide={() => dispatchSidecar({ type: "presentation.hide" })}
+          onResize={(width, maxWidth) => dispatchSidecar({ maxWidth, type: "presentation.resize", width })}
+          onToggleExpanded={() => dispatchSidecar({ type: "presentation.toggleExpanded" })}
         />
       ) : null}
 
@@ -2373,14 +2188,13 @@ export function ChatPage({
               <ToolCallDetails toolCall={drawer.toolCall} />
             ) : drawer.kind === "subagent" ? (
               <SubagentDetails delegate={drawer.delegate} error={drawer.error} loading={drawer.loading} />
-            ) : drawer.kind === "artifact" ? (
-              <ArtifactDetails artifact={drawer.artifact} detail={drawer.detail} error={drawer.error} loading={drawer.loading} />
             ) : (
               <ChatErrorDetails step={drawer.step} turn={drawer.turn} />
             )}
           </div>
         </aside>
       ) : null}
+      </div>
       </ChatSessionWorkspace>
     </section>
   );
@@ -2411,38 +2225,13 @@ function toChatInput(input: QueuedComposerInput): ChatInput {
   return input.turnInput;
 }
 
-function tinyOsContextReferenceId(reference: TinyOsContextReference): string {
-  const scope = reference.kind === "terminal"
-    ? `${reference.turnId}:${reference.sourceItemId}`
-    : reference.provenance.kind === "canonical"
-      ? `${reference.provenance.turnId}:${reference.provenance.sourceItemId}`
-      : reference.provenance.workspaceKey;
-  return [
-    reference.kind,
-    scope,
-    reference.kind === "file" ? reference.path : reference.command,
-    reference.startLine ?? "",
-    reference.endLine ?? "",
-    reference.kind === "file" ? reference.revision ?? "" : "",
-  ].join(":");
-}
-
 function tinyOsCommandLifecycleLabel(lifecycle: TinyOsCommandLifecycle, t: TFunction<"chat">): string {
   const commandKind = lifecycle.stage === "idle" ? "agent.cancel" : lifecycle.command.kind;
   const operation = ({
     "agent.cancel": t("lifecycle.operation.cancel"),
-    "agent.pause": t("lifecycle.operation.pause"),
-    "agent.request_change": t("lifecycle.operation.agentRequest"),
-    "agent.resume": t("lifecycle.operation.resume"),
-    "browser.interact": t("lifecycle.operation.browserInteraction"),
-    "file.delete": t("lifecycle.operation.fileDeletion"),
-    "file.move": t("lifecycle.operation.fileMove"),
-    "file.save": t("lifecycle.operation.fileSave"),
     "form.cancel": t("lifecycle.operation.formCancellation"),
     "form.submit": t("lifecycle.operation.formSubmission"),
     "operation.retry": t("lifecycle.operation.retry"),
-    "terminal.cancel": t("lifecycle.operation.terminalCancellation"),
-    "terminal.execute": t("lifecycle.operation.terminalExecution"),
   } satisfies Record<TinyOsCommand["kind"], string>)[commandKind];
   const completionOperation = commandKind === "agent.cancel" ? t("lifecycle.operation.cancellation") : operation;
   switch (lifecycle.stage) {
@@ -2465,37 +2254,6 @@ function tinyOsCommandLifecycleLabel(lifecycle: TinyOsCommandLifecycle, t: TFunc
 function agentUiFormCorrelationString(form: AgentUiForm, key: string): string {
   const value = form.correlation[key];
   return typeof value === "string" ? value : "";
-}
-
-function composerReferenceFromTinyOs(reference: TinyOsContextReference, t: TFunction<"chat">): ComposerContextReference {
-  return {
-    detail: reference.kind === "file" ? t("references.fileSelection") : t("references.terminalOutput"),
-    id: tinyOsContextReferenceId(reference),
-    kind: reference.kind,
-    label: tinyOsReferenceLabel(reference, t),
-  };
-}
-
-function tinyOsAgentRequestControl(reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent): string {
-  return `${reference.kind}-${intent.replace(/_/g, "-")}`;
-}
-
-function tinyOsAgentRequestInstruction(reference: TinyOsAgentRequestReference, intent: TinyOsAgentRequestIntent, t: TFunction<"chat">): string {
-  if (intent === "explain") {
-    return reference.kind === "file"
-      ? t("agentRequests.explainFile")
-      : t("agentRequests.explainTerminal");
-  }
-  if (intent === "modify" && reference.kind === "file") {
-    return t("agentRequests.modifyFile");
-  }
-  if (intent === "follow_up" && reference.kind === "terminal") {
-    return t("agentRequests.followTerminal");
-  }
-  if (intent === "adjust_plan" && reference.kind === "plan") {
-    return t("agentRequests.adjustPlan", { adjustment: reference.adjustment });
-  }
-  throw new Error(`Unsupported TinyOS Agent request: ${reference.kind}/${intent}`);
 }
 
 function isVisibleAgentUiForm(form: AgentUiForm): boolean {
@@ -2748,4 +2506,28 @@ function formatDetailLines(rows: Array<[string, string | undefined]>): string {
     .filter(([, value]) => Boolean(value?.trim()))
     .map(([label, value]) => `${label}: ${value}`)
     .join("\n");
+}
+
+function browserResourceTitle(title: string, url: string, fallback: string): string {
+  const normalizedTitle = title.trim();
+  if (normalizedTitle && normalizedTitle !== "about:blank" && normalizedTitle !== "New tab") {
+    return normalizedTitle;
+  }
+  if (!url || url === "about:blank") return fallback;
+  try {
+    return new URL(url).hostname || url;
+  } catch {
+    return url;
+  }
+}
+
+function omitRecordKey<T>(record: Record<string, T>, key: string): Record<string, T> {
+  if (!(key in record)) return record;
+  const next = { ...record };
+  delete next[key];
+  return next;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

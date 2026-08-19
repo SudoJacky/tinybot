@@ -11,19 +11,19 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:549dd44b98008817edb7a4240f7e2ed5011138793a73f1ce406fa7b46755862e -->
+<!-- tinybot-doc-fingerprint: sha256:5df4f7aad840a88145e38d968c3576db1df761355a00c549b9956a5c7d7a5e40 -->
 
 A Turn begins with one user request and contains all provider iterations,
-reasoning records, tool calls, tool results, pauses, and the terminal outcome
-that follow. Resuming a form or pause continues the same Turn identity.
+reasoning records, tool calls, tool results, form checkpoints, and the terminal
+outcome that follow. Resolving a form continues the same Turn identity.
 
 ## Ownership
 
 - `threads::domain` owns typed Thread, Turn, and Item semantics.
 - `agent::bridge` owns complete desktop and Thread-backed Turn orchestration.
 - `agent::runtime` owns the provider-and-tool execution loop.
-- `TurnExecutionRuntime` owns the current live generation, cancellation, pause,
-  and terminal-result publication for a Turn ID.
+- `TurnExecutionRuntime` owns the current live generation, cancellation, and
+  terminal-result publication for a Turn ID.
 - `threads::rollout::store` owns canonical durability and reconstruction.
 
 ## Execution flow
@@ -49,7 +49,7 @@ agent::runtime
     |-- call provider
     |-- append assistant items
     |-- dispatch and record tool calls when requested
-    |-- repeat until pause, failure, cancellation, or completion
+    |-- repeat until form wait, failure, cancellation, or completion
     v
 flush trace -> persist terminal state or checkpoint
     |
@@ -77,9 +77,9 @@ Provider protocols adapt at one seam. Chat Completions and Responses encode
 different wire formats but share the same provider/tool loop, permission
 checks, cancellation, trace, and result construction.
 
-## Pauses, continuation, and cancellation
+## Continuation and cancellation
 
-- A Turn awaiting user input or explicit resume is paused, not terminal.
+- A Turn awaiting typed form input is waiting, not terminal.
 - Checkpoints contain the canonical resumable runtime state and correlation
   identities.
 - Continuation must preserve Thread, Turn, request, trace, and pending-call
@@ -106,7 +106,7 @@ state.
 - Do not append the same user, assistant, or tool item again during terminal
   persistence.
 - Keep provider failures, tool failures, trace failures, cancellation, and
-  pauses distinguishable.
+  typed waiting states distinguishable.
 - Do not create another durable Run identity for a Turn.
 
 ## Source modules and verification

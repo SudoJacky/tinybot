@@ -90,9 +90,10 @@ Canonical `user_message` data also carries optional `clientEventId`. The desktop
 `worker_submit_thread_turn`, and the runtime echoes it in the canonical user item. It is a
 reconciliation identity and does not replace the durable `messageId`.
 
-Typed Thread turn input may carry an optional `references` array for structured user-attached
-context. TinyOS uses the existing canonical reference shape rather than embedding selected file or
-terminal evidence into the visible message text:
+Typed Thread turn input may carry an optional `references` array for structured
+user-attached context. The desktop composer uses the canonical reference shape
+for file attachments and referenced conversations rather than embedding that
+evidence into the visible message text:
 
 ```json
 {
@@ -100,18 +101,14 @@ terminal evidence into the visible message text:
   "input": {
     "role": "user",
     "clientEventId": "client-message-1",
-    "content": "Explain this selection",
+    "content": "Review this file",
     "references": [
     {
       "kind": "reference",
-      "title": "src/main.ts · L2–3",
-      "detail": "TinyOS file selection",
+      "title": "notes.md",
+      "detail": "text/markdown · 1.2 KB",
       "type": "tinyos.file",
-      "sourcePath": "src/main.ts",
-      "sourceLine": 2,
-      "sourceText": "let value = 1;\nreturn value;",
-      "evidenceId": "item-file-1",
-      "scope": "turn-1"
+      "rawPath": "D:/work/notes.md"
     }
     ]
   },
@@ -126,11 +123,14 @@ terminal evidence into the visible message text:
 
 The Thread command preserves `references` in the Agent input and turn metadata. The thread runtime
 persists them on the canonical `user_message`, so reloads keep the same visible
-reference chips. Immediately before a provider request, references whose `type` starts with
-`tinyos.` are appended to the provider-only user content inside an explicit untrusted-evidence
-block; the stored and user-visible message content remains unchanged. Provider injection accepts at
-most 16 TinyOS references and 64 KiB of serialized reference data per message. Exceeding either
-limit fails the provider request visibly rather than dropping context.
+reference chips. Immediately before a provider request, references whose `type`
+starts with the retained `tinyos.` wire prefix are appended to the provider-only
+user content inside an explicit untrusted-evidence block; the prefix is a
+compatibility identifier and no longer denotes a mounted TinyOS application.
+The stored and user-visible message content remains unchanged. Provider
+injection accepts at most 16 such references and 64 KiB of serialized reference
+data per message. Exceeding either limit fails the provider request visibly
+rather than dropping context.
 
 Composer `@` mentions use the same reference contract with `type: "tinyos.thread"`. The desktop
 limits suggestions to persisted Threads in the active Thread's normalized workspace, excludes the
@@ -144,28 +144,15 @@ Desktop chat controls call `worker_thread_interrupt` and `worker_submit_thread_f
 canonical Thread timeline updates are delivered directly through typed Tauri events; no secondary
 transport-frame projection is part of the desktop contract.
 
-Pause/resume, retry, request-change, historical projection, and TinyOS reference behavior are
-documented with controlled-host actions, revision guards, retained terminal execution, and shared
-browser-session rules in `src/app-core/chat/tinyOs/README.md`.
-
 The native `thread_get_effective_capabilities` command returns
 `tinybot.effective_capabilities.v2` decisions keyed by `threadId`.
 Unavailable decisions include both `reasonCode` and a user-facing `reason`; the response identifies
-the evaluated turn used for the decision when present. Retry is available only when that latest turn
-is failed and no active turn supersedes it. `files.requestChange` is available when workspace read
-access is granted, the workspace root is available, and no turn is active.
-The `terminal` capability group also declares `contract: "retained_execution_v1"` and
-`persistentPty: false`; clients reject a different or missing execution contract instead of
-silently treating it as the delivered retained-execution model.
-`files.directEdit`, `files.save`, and `terminal.execute` additionally require their corresponding
-desktop capability, an available workspace, and no active turn. The current native shell backend
-cannot enforce denied-network execution, so `terminal.execute` fails closed with
-`reasonCode: "network_enforcement_unavailable"` instead of starting a less restricted process.
-`terminal.cancel` is available only
-for a running `tinyos-host-terminal-*` operation. The generic Agent cancel control remains unavailable
-for host operations so the owning TinyOS application remains the single control surface.
-`agent.pause` is available for a running turn; `agent.resume` is available only when the evaluated
-turn has `status: "waiting"` and `phase: "paused"`.
+the evaluated turn used for the decision when present. The response contains
+only the Chat controls `agent.cancel` and `agent.retry`. Retry is available only
+when the latest turn failed and no active turn supersedes it; cancellation is
+available for a running turn and for a paused legacy turn that still appears in
+persisted state. Filesystem, terminal, browser, pause/resume, and request-change
+capabilities are not projected through this Chat contract.
 
 Product-facing canonical item data includes the following lifecycle details:
 
@@ -180,7 +167,7 @@ Product-facing canonical item data includes the following lifecycle details:
   associates the reference with its owning Tool, Form, or Subagent item.
 - `subagent_lifecycle`: stable `agentId`, `action`, and `status`; optional `childTurnId`,
   `childThreadId`, `parentAgentId`, `parentTurnId`, `name`, `task`, `message`, and `traceRef` retain
-  the backend-authored parent and assigned-work correlation used by TinyOS Agent process groups.
+  the backend-authored parent and assigned-work correlation used by Agent process groups.
   Missing relationships remain absent and are not inferred from labels.
 - `error`: `code`, `message`, and `cancelled`. An error with `parentItemId` is scoped to its owner;
   errors without a parent remain terminal timeline rows.

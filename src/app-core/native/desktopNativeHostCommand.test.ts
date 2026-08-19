@@ -9,7 +9,13 @@ describe("desktop native host command API", () => {
     const request = {
       clientId: "desktop-native",
       attachedChatId: "thread-1",
-      frame: { type: "command", command_kind: "file.save", operation_id: "operation-1" },
+      frame: {
+        type: "command",
+        command_kind: "operation.retry",
+        turn_id: "turn-retry-1",
+        source_turn_id: "turn-failed-1",
+        item_id: "turn-failed-1:error",
+      },
     };
 
     await expect(api.dispatch(request)).resolves.toEqual({ ok: true });

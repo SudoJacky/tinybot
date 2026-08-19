@@ -1,13 +1,25 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:b5114ed7e7d36cc2e9a775fca95d7da02c6e93ba4073724d90ea39650af990f6 -->
+<!-- tinybot-module-fingerprint: sha256:97ccb402256a2831645262385ae9c716ac05ce450e5a7de0e8ba8cb47f1db792 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
-Workspace, Browser, Settings, Plugins, Memory, or Performance Trace snapshots.
+Workspace, Browser, Terminal, Settings, Plugins, Memory, or Performance Trace
+snapshots.
 
 Adapters preserve native failures and normalize only their transport contract.
 React state and product projections remain in the workbench and other app-core
 modules. `nativeBackendContract` guards frontend/backend contract parity.
+
+`desktopNativeHostCommand` is a transitional retry adapter: it dispatches only
+Chat `operation.retry` frames. Browser sessions remain a separate native
+adapter so a later desktop surface can attach to the same WebView2 runtime used
+by Agent web tools.
+
+`desktopNativeTerminal` is the user-only Sidecar PTY adapter. It exposes only
+typed PowerShell or Command Prompt creation plus poll, input, resize, and
+terminate operations; callers cannot send an arbitrary process startup command
+or address Agent shell sessions. Its create contract leaves the working
+directory optional so a regular chat can use Rust's configured native default.
 
 `rendererLogger` is the renderer-wide observability entry point. It emits
 structured `debug`, `info`, `warn`, and `error` events to the console and a

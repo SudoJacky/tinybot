@@ -45,7 +45,6 @@ export type ChatTimelineActions = {
   onBranch: (messageId: string) => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
   onOpenError: (turn: ChatTurn, step: ChatStep) => void;
-  onOpenLiveCanvas: (turn: ChatTurn, step: ChatStep) => void;
   onOpenSubagent: (delegate: DelegatedAgentState) => void;
   onOpenTool: (toolCall: ToolCallSummary) => void;
   onRecover: (turn: ChatTurn, action: RecoveryAction) => void;
@@ -83,7 +82,6 @@ export function ChatTimeline({
           onBranch={actions.onBranch}
           onOpenArtifact={actions.onOpenArtifact}
           onOpenError={(step) => actions.onOpenError(turn, step)}
-          onOpenLiveCanvas={(step) => actions.onOpenLiveCanvas(turn, step)}
           onOpenSubagent={actions.onOpenSubagent}
           onOpenTool={actions.onOpenTool}
           onRecover={(action) => actions.onRecover(turn, action)}
@@ -113,7 +111,6 @@ function CanonicalChatTurn({
   onBranch,
   onOpenError,
   onOpenArtifact,
-  onOpenLiveCanvas,
   onRecover,
   onOpenSubagent,
   onOpenTool,
@@ -125,7 +122,6 @@ function CanonicalChatTurn({
   onBranch: (messageId: string) => void;
   onOpenError: (step: ChatStep) => void;
   onOpenArtifact: (artifact: ArtifactRef) => void;
-  onOpenLiveCanvas: (step: ChatStep) => void;
   onRecover: (action: RecoveryAction) => void;
   onOpenSubagent: (delegate: DelegatedAgentState) => void;
   onOpenTool: (toolCall: ToolCallSummary) => void;
@@ -165,7 +161,6 @@ function CanonicalChatTurn({
           focusError={focusError}
           onOpenArtifact={onOpenArtifact}
           onOpenError={onOpenError}
-          onOpenLiveCanvas={onOpenLiveCanvas}
           onOpenSubagent={onOpenSubagent}
           onOpenTool={onOpenTool}
           onRecover={onRecover}
@@ -253,7 +248,6 @@ function ExecutionTimeline({
   focusError,
   onOpenArtifact,
   onOpenError,
-  onOpenLiveCanvas,
   onOpenSubagent,
   onOpenTool,
   onRecover,
@@ -264,7 +258,6 @@ function ExecutionTimeline({
   focusError: boolean;
   onOpenArtifact: (artifact: ArtifactRef) => void;
   onOpenError: (step: ChatStep) => void;
-  onOpenLiveCanvas: (step: ChatStep) => void;
   onOpenSubagent: (delegate: DelegatedAgentState) => void;
   onOpenTool: (toolCall: ToolCallSummary) => void;
   onRecover: (action: RecoveryAction) => void;
@@ -339,17 +332,6 @@ function ExecutionTimeline({
       <div className="react-execution-timeline__content" hidden={!open} id={contentId}>
         {visibleExecutionItems.map((step) => (
           <div className="react-execution-timeline__item" data-kind={step.kind} data-status={step.status} key={step.id}>
-            {step.kind === "tool_call" ? null : (
-              <button
-                aria-label={t("turn.viewTinyOs", { name: step.title })}
-                className="react-execution-timeline__canvas-button"
-                title={t("turn.viewInTinyOs")}
-                type="button"
-                onClick={() => onOpenLiveCanvas(step)}
-              >
-                <PanelRightOpen aria-hidden="true" size={15} />
-              </button>
-            )}
             {step.kind === "error" ? (
               <ErrorRecoveryCard
                 focusOnMount={focusError && step.id === errorItems[errorItems.length - 1]?.id}
@@ -362,7 +344,6 @@ function ExecutionTimeline({
             ) : (
               <CanonicalChatStep
                 onOpenArtifact={onOpenArtifact}
-                onOpenLiveCanvas={onOpenLiveCanvas}
                 onOpenSubagent={onOpenSubagent}
                 onOpenTool={onOpenTool}
                 step={step}
@@ -464,13 +445,11 @@ function CanonicalMessage({
 
 function CanonicalChatStep({
   onOpenArtifact,
-  onOpenLiveCanvas,
   onOpenSubagent,
   onOpenTool,
   step,
 }: {
   onOpenArtifact: (artifact: ArtifactRef) => void;
-  onOpenLiveCanvas?: (step: ChatStep) => void;
   onOpenSubagent: (delegate: DelegatedAgentState) => void;
   onOpenTool: (toolCall: ToolCallSummary) => void;
   step: ChatStep;
@@ -505,9 +484,7 @@ function CanonicalChatStep({
         fallbackSummary={step.summary}
         status={step.status}
         toolCall={step.toolCall}
-        onOpenDetails={onOpenLiveCanvas
-          ? () => onOpenLiveCanvas(step)
-          : () => onOpenTool(toolCallSummaryFromStep(step, step.toolCall!, t))}
+        onOpenDetails={() => onOpenTool(toolCallSummaryFromStep(step, step.toolCall!, t))}
       />
     );
   }

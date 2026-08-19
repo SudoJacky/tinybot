@@ -1,0 +1,229 @@
+.react-sidecar-browser-runtime {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--color-panel);
+}
+
+.react-sidecar-browser-bar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 0 7px;
+  background: var(--color-panel);
+  color: var(--color-muted);
+  flex: 0 0 42px;
+}
+
+.react-sidecar-browser-bar > button {
+  display: grid;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+.react-sidecar-browser-bar > button:hover:not(:disabled) {
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+}
+
+.react-sidecar-browser-bar > button:disabled {
+  opacity: 0.35;
+}
+
+.react-sidecar-browser-bar > svg {
+  flex: none;
+}
+
+.react-sidecar-browser-bar__insecure {
+  color: var(--color-warning, #a26317);
+}
+
+.react-sidecar-browser-bar form {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 80px;
+  height: 29px;
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--color-hairline);
+  border-radius: 7px;
+  background: var(--color-canvas);
+}
+
+.react-sidecar-browser-bar form:focus-within {
+  border-color: color-mix(in srgb, var(--color-primary) 68%, var(--color-hairline));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 13%, transparent);
+}
+
+.react-sidecar-browser-bar input {
+  min-width: 0;
+  flex: 1 1 auto;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  padding: 0 7px;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 12px;
+}
+
+.react-sidecar-browser-bar form button {
+  align-self: stretch;
+  border: 0;
+  border-left: 1px solid var(--color-hairline);
+  background: transparent;
+  padding: 0 8px;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 11px;
+}
+
+.react-sidecar-browser-bar form button:hover:not(:disabled) {
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+}
+
+.react-sidecar-browser-bar__control {
+  flex: none;
+  max-width: 112px;
+  overflow: hidden;
+  color: var(--color-primary);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-sidecar-browser-bar__control[data-state="failed"],
+.react-sidecar-browser-bar__control[data-state="interrupted"] {
+  color: var(--color-danger);
+}
+
+.react-sidecar-browser-notice {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-primary) 26%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-panel));
+  padding: 8px 10px;
+  color: var(--color-ink);
+  font-size: 11px;
+  flex: none;
+}
+
+.react-sidecar-browser-notice > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+}
+
+.react-sidecar-browser-notice > div > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.react-sidecar-browser-notice code {
+  overflow: hidden;
+  color: var(--color-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-sidecar-browser-notice button,
+.react-sidecar-browser-state button {
+  min-height: 30px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 7px;
+  background: var(--color-panel);
+  padding: 0 9px;
+  color: var(--color-ink);
+  font: inherit;
+}
+
+.react-sidecar-browser-notice > div:last-child {
+  flex: none;
+}
+
+.react-sidecar-browser-surface {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--color-canvas);
+  flex: 1 1 auto;
+}
+
+.react-sidecar-browser-surface > span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--color-muted-soft);
+  font-size: 12px;
+}
+
+.react-sidecar-browser-surface[data-live="true"] > span {
+  opacity: 0;
+}
+
+.react-sidecar-browser-state {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 28px;
+  color: var(--color-muted);
+  text-align: center;
+}
+
+.react-sidecar-browser-state strong {
+  color: var(--color-ink);
+  font-size: 15px;
+}
+
+.react-sidecar-browser-state span {
+  max-width: 360px;
+  line-height: 1.5;
+}
+
+.react-sidecar-browser-error {
+  position: absolute;
+  z-index: 3;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, var(--color-hairline));
+  border-radius: 8px;
+  background: var(--color-panel);
+  box-shadow: 0 10px 28px rgb(20 20 19 / 12%);
+  padding: 9px 11px;
+  color: var(--color-danger);
+  font-size: 11px;
+}
+
+@media (max-width: 760px) {
+  .react-sidecar-browser-bar__control {
+    display: none;
+  }
+}

@@ -82,7 +82,16 @@ export function useChatSessionRuntime({
         `Browser snapshot session ${snapshot.data.sessionId} does not match active session ${activeSessionId}.`,
       );
     }
-    setState((current) => ({ ...current, browserError: "", browserSnapshot: snapshot }));
+    setState((current) => {
+      const previous = current.browserSnapshot;
+      if (previous?.sourceId === snapshot.sourceId
+        && typeof previous.revision === "number"
+        && typeof snapshot.revision === "number"
+        && snapshot.revision < previous.revision) {
+        return current;
+      }
+      return { ...current, browserError: "", browserSnapshot: snapshot };
+    });
   }, []);
   const clearBrowserSnapshot = useCallback((browserSessionId?: string) => {
     setState((current) => {
@@ -290,7 +299,6 @@ function shouldFrameBatchTimeline(timeline: ChatTimelineSnapshot): boolean {
 function isCommandRuntimeEvent(event: ChatEvent): boolean {
   return Boolean(
     (event.command && event.type === "command.dispatched")
-      || (event.commandId && event.operationId && event.operationStatus && event.type === "host.operation")
       || (event.commandId && event.type === "command.accepted")
       || (event.commandId && event.type === "command.canonical-updated")
       || (event.commandId && event.type === "error"),

@@ -17,6 +17,23 @@
   transition: grid-template-columns var(--motion-duration-medium) var(--motion-ease-standard);
 }
 
+.react-chat-workspace {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.react-chat-workspace[data-sidecar-presentation="docked"] {
+  grid-template-columns: minmax(320px, 1fr) var(--react-sidecar-width, 480px);
+}
+
+.react-chat-workspace[data-sidecar-presentation="expanded"] {
+  grid-template-columns: minmax(280px, 0.58fr) minmax(560px, 1fr);
+}
+
 .react-chat-header h1,
 .react-command-palette h2,
 .react-right-drawer h2 {
@@ -77,45 +94,6 @@
   min-height: 44px;
 }
 
-.react-chat-header__actions > button.react-live-canvas-toggle {
-  position: relative;
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
-  min-height: 44px;
-  border-radius: 8px;
-  color: var(--color-muted);
-  cursor: pointer;
-  transition: background-color 180ms ease, color 180ms ease;
-}
-
-.react-live-canvas-toggle__status {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 7px;
-  height: 7px;
-  border: 2px solid var(--color-canvas);
-  border-radius: 50%;
-  background: #4c9d68;
-}
-
-.react-live-canvas-toggle[data-attention="true"] .react-live-canvas-toggle__status {
-  background: #c75b45;
-  animation: react-stepper-current 900ms var(--motion-ease-standard) infinite alternate;
-}
-
-.react-chat-header__actions > button.react-live-canvas-toggle:hover,
-.react-chat-header__actions > button.react-live-canvas-toggle:focus-visible,
-.react-chat-header__actions > button.react-live-canvas-toggle[data-active="true"] {
-  background: var(--color-surface-soft);
-  color: var(--color-ink);
-}
-
-.react-chat-header__actions > button.react-live-canvas-toggle:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-}
 
 .react-conversation-view {
   display: grid;
@@ -201,570 +179,6 @@
   cursor: pointer;
 }
 
-.react-live-canvas {
-  position: fixed;
-  top: 42px;
-  right: 0;
-  bottom: 0;
-  z-index: 20;
-  display: grid;
-  grid-template-rows: 56px minmax(0, 1fr);
-  width: min(var(--tinyos-width, 480px), calc(100vw - 64px));
-  min-width: 0;
-  overflow: hidden;
-  border-left: 1px solid var(--color-hairline);
-  background: var(--color-canvas);
-  box-shadow: -18px 0 44px rgb(20 20 19 / 10%);
-  opacity: 1;
-  transform: translateX(0);
-  transition:
-    opacity var(--motion-duration-medium) var(--motion-ease-standard),
-    transform var(--motion-duration-medium) var(--motion-ease-standard);
-}
-
-.react-live-canvas[data-state="closing"] {
-  pointer-events: none;
-  opacity: 0;
-  transform: translateX(18px);
-  transition-duration: var(--motion-duration-fast);
-}
-
-@starting-style {
-  .react-live-canvas {
-    opacity: 0;
-    transform: translateX(18px);
-  }
-}
-
-.react-live-canvas__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid var(--color-hairline);
-  padding: 0 16px;
-}
-
-.react-live-canvas__header > div:first-child {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.react-live-canvas__header h2,
-.react-live-canvas__empty h3 {
-  margin: 0;
-  color: var(--color-ink);
-}
-
-.react-live-canvas__header h2 {
-  border-radius: 4px;
-  font-size: 15px;
-  line-height: 1.25;
-}
-
-.react-live-canvas__header h2:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 3px;
-}
-
-.react-live-canvas__header span {
-  color: var(--color-muted);
-  font-size: 11px;
-}
-
-.react-live-canvas__header-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.react-live-canvas__header-actions > button {
-  display: inline-flex;
-  min-width: 44px;
-  height: 44px;
-  min-height: 44px;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  border-radius: 8px;
-  color: var(--color-muted);
-  cursor: pointer;
-}
-
-.react-live-canvas__header-actions > button:first-child:not(:last-child) {
-  padding: 0 10px;
-}
-
-.react-live-canvas__header-actions > button span {
-  color: inherit;
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-.react-live-canvas__header-actions > button:last-child {
-  display: inline-grid;
-  width: 44px;
-  place-items: center;
-}
-
-.react-live-canvas__header-actions > button:hover,
-.react-live-canvas__header-actions > button:focus-visible {
-  background: var(--color-surface-soft);
-  color: var(--color-ink);
-}
-
-.react-live-canvas__empty {
-  display: grid;
-  align-content: center;
-  justify-items: center;
-  gap: 10px;
-  width: min(340px, calc(100% - 40px));
-  margin: 0 auto;
-  color: var(--color-muted);
-  text-align: center;
-}
-
-.react-live-canvas__empty-icon {
-  display: inline-grid;
-  width: 48px;
-  height: 48px;
-  place-items: center;
-  border: 1px solid var(--color-hairline);
-  border-radius: 12px;
-  background: var(--color-surface-card);
-  color: var(--color-body);
-}
-
-.react-live-canvas__empty h3 {
-  font-size: 16px;
-}
-
-.react-live-canvas__empty p,
-.react-live-canvas__empty small {
-  margin: 0;
-  line-height: 1.55;
-}
-
-.react-live-canvas__empty small {
-  font-size: 11px;
-}
-
-.react-live-canvas__body {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto auto;
-  min-height: 0;
-  overflow: auto;
-}
-
-.react-live-canvas__stage {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  min-height: 0;
-  padding: 18px;
-}
-
-.react-live-canvas__stage-header {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  padding-bottom: 14px;
-}
-
-.react-live-canvas__stage-icon {
-  display: inline-grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border: 1px solid var(--color-hairline);
-  border-radius: 9px;
-  background: var(--color-surface-card);
-  color: var(--color-body);
-}
-
-.react-live-canvas__stage-header small,
-.react-live-canvas__stage-header h3 {
-  display: block;
-  margin: 0;
-}
-
-.react-live-canvas__stage-header small {
-  color: var(--color-muted);
-  font-size: 10px;
-  letter-spacing: .04em;
-  text-transform: uppercase;
-}
-
-.react-live-canvas__stage-header h3 {
-  overflow: hidden;
-  color: var(--color-ink);
-  font-size: 14px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.react-live-canvas__status {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  border-radius: 999px;
-  background: var(--color-surface-soft);
-  padding: 5px 8px;
-  color: var(--color-muted);
-  font-size: 10px;
-  text-transform: capitalize;
-  white-space: nowrap;
-}
-
-.react-live-canvas__status[data-status="completed"] {
-  background: color-mix(in srgb, var(--color-success) 10%, var(--color-panel));
-  color: var(--color-success);
-}
-
-.react-live-canvas__status[data-status="failed"],
-.react-live-canvas__status[data-status="blocked"],
-.react-live-canvas__status[data-status="cancelled"] {
-  background: color-mix(in srgb, var(--color-error) 10%, var(--color-panel));
-  color: #a13b2b;
-}
-
-.react-live-canvas__surface {
-  min-height: 220px;
-  overflow: auto;
-  border: 1px solid var(--color-hairline);
-  border-radius: 12px;
-  background: var(--color-surface-card);
-}
-
-.react-live-canvas__file,
-.react-live-canvas__terminal,
-.react-live-canvas__browser {
-  min-height: 100%;
-}
-
-.react-live-canvas__file-bar,
-.react-live-canvas__browser > div:first-child {
-  display: flex;
-  min-height: 38px;
-  align-items: center;
-  gap: 8px;
-  border-bottom: 1px solid var(--color-hairline);
-  padding: 0 12px;
-  color: var(--color-muted);
-  font-size: 11px;
-}
-
-.react-live-canvas__file pre,
-.react-live-canvas__terminal pre,
-.react-live-canvas__search pre,
-.react-live-canvas__structured-block pre {
-  margin: 0;
-  overflow: auto;
-  padding: 14px;
-  font: 11px/1.65 ui-monospace, SFMono-Regular, Consolas, monospace;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.react-live-canvas__terminal {
-  background: #181a1f;
-  color: #d8dbe2;
-}
-
-.react-live-canvas__terminal-bar {
-  display: flex;
-  min-height: 38px;
-  align-items: center;
-  gap: 6px;
-  border-bottom: 1px solid #2b2e35;
-  padding: 0 12px;
-}
-
-.react-live-canvas__terminal-bar > span {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #6a6e78;
-}
-
-.react-live-canvas__terminal-bar strong {
-  margin-left: 4px;
-  color: #aeb3bd;
-  font-size: 10px;
-  font-weight: 500;
-}
-
-.react-live-canvas__prompt {
-  color: #71d49b;
-}
-
-.react-live-canvas__search,
-.react-live-canvas__plan,
-.react-live-canvas__request,
-.react-live-canvas__subagent,
-.react-live-canvas__artifacts,
-.react-live-canvas__error,
-.react-live-canvas__structured,
-.react-live-canvas__browser > :not(:first-child) {
-  padding: 16px;
-}
-
-.react-live-canvas__search > div:first-child {
-  display: flex;
-  min-height: 38px;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  padding: 0 10px;
-  color: var(--color-body);
-}
-
-.react-live-canvas__plan > p,
-.react-live-canvas__request > p,
-.react-live-canvas__structured p,
-.react-live-canvas__browser p {
-  margin: 0 0 14px;
-  color: var(--color-body);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.react-live-canvas__plan ol {
-  display: grid;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.react-live-canvas__plan li {
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  border-bottom: 1px solid var(--color-hairline);
-  color: var(--color-body);
-  font-size: 12px;
-}
-
-.react-live-canvas__plan li[data-status="completed"] > svg {
-  color: #2f9c5d;
-}
-
-.react-live-canvas__plan li small {
-  color: var(--color-muted);
-  font-size: 10px;
-  text-transform: capitalize;
-}
-
-.react-live-canvas__request dl,
-.react-live-canvas__subagent dl {
-  display: grid;
-  gap: 8px;
-  margin: 0 0 14px;
-}
-
-.react-live-canvas__request dl > div,
-.react-live-canvas__subagent dl > div {
-  display: grid;
-  grid-template-columns: 84px minmax(0, 1fr);
-  gap: 10px;
-  font-size: 11px;
-}
-
-.react-live-canvas__request dt,
-.react-live-canvas__subagent dt {
-  color: var(--color-muted);
-}
-
-.react-live-canvas__request dd,
-.react-live-canvas__subagent dd {
-  margin: 0;
-  color: var(--color-body);
-  overflow-wrap: anywhere;
-}
-
-.react-live-canvas__subagent-node {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-bottom: 10px;
-}
-
-.react-live-canvas__subagent-node .react-live-canvas__status {
-  margin-left: auto;
-}
-
-.react-live-canvas__artifacts {
-  display: grid;
-  gap: 8px;
-}
-
-.react-live-canvas__artifacts article {
-  display: grid;
-  grid-template-columns: 24px minmax(0, 1fr);
-  gap: 8px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 9px;
-  padding: 12px;
-}
-
-.react-live-canvas__artifacts small {
-  display: block;
-  color: var(--color-muted);
-  font-size: 10px;
-}
-
-.react-live-canvas__artifacts p {
-  grid-column: 1 / -1;
-  margin: 4px 0 0;
-  color: var(--color-body);
-  font-size: 11px;
-}
-
-.react-live-canvas__error {
-  display: flex;
-  gap: 12px;
-  color: #a13b2b;
-}
-
-.react-live-canvas__error p {
-  margin: 5px 0 0;
-  color: var(--color-body);
-  font-size: 12px;
-  line-height: 1.55;
-}
-
-.react-live-canvas__empty-copy {
-  color: var(--color-muted) !important;
-  font-style: italic;
-}
-
-.react-live-canvas__evidence {
-  margin: 0 18px 14px;
-  border-top: 1px solid var(--color-hairline);
-  padding-top: 10px;
-}
-
-.react-live-canvas__evidence summary {
-  min-height: 34px;
-  color: var(--color-muted);
-  cursor: pointer;
-  font-size: 11px;
-}
-
-.react-live-canvas__structured-block > strong,
-.react-live-canvas__evidence > p strong {
-  color: var(--color-body);
-  font-size: 10px;
-  text-transform: uppercase;
-}
-
-.react-live-canvas__structured-block pre {
-  margin-top: 6px;
-  border-radius: 8px;
-  background: var(--color-surface-soft);
-}
-
-.react-live-canvas__artifact-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.react-live-canvas__artifact-links button {
-  display: inline-flex;
-  min-height: 34px;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  padding: 0 10px;
-  color: var(--color-body);
-  cursor: pointer;
-}
-
-.react-live-canvas__provenance {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  border-top: 1px solid var(--color-hairline);
-  padding: 10px 18px;
-  color: var(--color-muted);
-  font-size: 10px;
-}
-
-.react-live-canvas__provenance span:last-child {
-  margin-left: auto;
-}
-
-.react-chat-page[data-live-canvas-expanded="true"] {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.react-chat-page[data-live-canvas-expanded="true"] > .react-chat-surface {
-  display: none;
-}
-
-.react-chat-page[data-live-canvas-expanded="true"] > .react-live-canvas[data-expanded="true"] {
-  position: relative;
-  inset: auto;
-  z-index: auto;
-  grid-column: 1;
-  grid-row: 1;
-  width: 100%;
-  height: 100%;
-  border-left: 0;
-  box-shadow: none;
-}
-
-@media (min-width: 1280px) {
-
-  .react-chat-page[data-live-canvas-open="true"] {
-    grid-template-columns: auto minmax(0, 1fr) min(var(--tinyos-width, 480px), calc(100vw - 520px));
-  }
-
-  .react-live-canvas {
-    position: relative;
-    top: auto;
-    right: auto;
-    bottom: auto;
-    z-index: auto;
-    grid-column: 3;
-    grid-row: 1;
-    width: auto;
-    height: 100%;
-    box-shadow: none;
-  }
-
-}
-
-@media (max-width: 899px) {
-
-  .react-live-canvas {
-    width: calc(100vw - 58px);
-    max-width: none;
-  }
-}
-
-@container (max-width: 720px) {
-  .react-live-canvas__header-actions > button > span {
-    display: none;
-  }
-
-  .react-live-canvas__header-actions > button:disabled {
-    display: none;
-  }
-
-  .react-live-canvas__header-actions > button:first-child:not(:last-child) {
-    width: 44px;
-    padding: 0;
-  }
-}
 
 .react-prompt-cycle {
   display: grid;
@@ -3559,20 +2973,6 @@
   min-width: 0;
 }
 
-.react-composer-drop-error {
-  position: absolute;
-  right: max(24px, calc((100% - 860px) / 2));
-  bottom: 8px;
-  left: max(24px, calc((100% - 860px) / 2));
-  z-index: 2;
-  margin: 0;
-  border: 1px solid color-mix(in srgb, var(--color-error) 30%, var(--color-hairline));
-  border-radius: 8px;
-  background: var(--color-panel);
-  padding: 6px 8px;
-  color: var(--color-error);
-  font-size: 10px;
-}
 
 .react-queued-inputs {
   position: absolute;
@@ -3819,13 +3219,11 @@
 }
 
 .react-empty-chat-prompts button,
-.react-live-canvas-toggle,
 .claude-ai-input__send {
   transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
 .react-empty-chat-prompts button:active:not(:disabled),
-.react-live-canvas-toggle:active:not(:disabled),
 .claude-ai-input__send:active:not(:disabled) {
   transform: scale(.97);
 }
@@ -3951,6 +3349,13 @@
   }
 }
 
+@media (max-width: 1100px) {
+  .react-chat-workspace[data-sidecar-presentation="docked"],
+  .react-chat-workspace[data-sidecar-presentation="expanded"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
 
   .react-agent-step-item[aria-current="step"] .react-agent-step-item__marker,
@@ -3966,13 +3371,8 @@
     transition-duration: 0ms;
   }
 
-  .react-live-canvas {
-    transform: none;
-    transition-duration: 140ms;
-  }
 
   .react-empty-chat-prompts button:active:not(:disabled),
-.react-live-canvas-toggle:active:not(:disabled),
 .claude-ai-input__send:active:not(:disabled) {
     transform: none;
   }

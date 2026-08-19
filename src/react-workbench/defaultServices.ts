@@ -15,6 +15,7 @@ import { createDesktopNativeHostCommandApi } from "../app-core/native/desktopNat
 import { createDesktopNativeMemoryApi } from "../app-core/native/desktopNativeMemory";
 import { createDesktopNativeProjectGroupsApi } from "../app-core/native/desktopNativeProjectGroups";
 import { createDesktopNativeBrowserApi } from "../app-core/native/desktopNativeBrowser";
+import { createDesktopNativeTerminalApi } from "../app-core/native/desktopNativeTerminal";
 import { createDesktopNativeWebuiApi } from "../app-core/native/desktopNativeWebui";
 import { createDesktopNativeWorkspaceApi } from "../app-core/native/desktopNativeWorkspace";
 import { createDesktopNativePerformanceTraceApi } from "../app-core/native/desktopNativePerformanceTrace";
@@ -37,7 +38,6 @@ import {
   createTinyOsAgentCancelCommand,
   toNativeTinyOsHostCommandFrame,
   type TinyOsCommand,
-  type TinyOsDirectHostCommand,
   type TinyOsHostCommand,
 } from "../app-core/chat/tinyOsCommand";
 import {
@@ -56,6 +56,7 @@ export function createDesktopAppServices(): AppServices {
   const nativeMemory = nativeMode ? createDesktopNativeMemoryApi({ invoke }) : undefined;
   const nativeProjectGroups = nativeMode ? createDesktopNativeProjectGroupsApi({ invoke }) : undefined;
   const nativeBrowser = nativeMode ? createDesktopNativeBrowserApi({ invoke }) : undefined;
+  const nativeTerminal = nativeMode ? createDesktopNativeTerminalApi({ invoke }) : undefined;
   const nativeWebui = nativeMode ? createDesktopNativeWebuiApi({ invoke }) : undefined;
   const nativeWorkspace = nativeMode ? createDesktopNativeWorkspaceApi({ invoke }) : undefined;
   const nativePerformanceTrace = nativeMode ? createDesktopNativePerformanceTraceApi({ invoke }) : undefined;
@@ -164,22 +165,11 @@ export function createDesktopAppServices(): AppServices {
       });
     } else {
       const hostCommand = command as TinyOsHostCommand;
-      const result = await requireNative(nativeHostCommands, "Host command").dispatch({
+      await requireNative(nativeHostCommands, "Host command").dispatch({
         clientId: "desktop-native",
         attachedChatId: command.target.sessionId,
         frame: toNativeTinyOsHostCommandFrame(command.target.sessionId, hostCommand),
       });
-      if ("operationId" in hostCommand.target) {
-        const directHostCommand = hostCommand as TinyOsDirectHostCommand;
-        const update = nativeEvents.hostOperationUpdateFromDispatch(directHostCommand, result);
-        notifySession(command.target.sessionId, {
-          commandId: command.commandId,
-          error: update.error,
-          operationId: directHostCommand.target.operationId,
-          operationStatus: update.status,
-          type: "host.operation",
-        });
-      }
     }
     notifySession(command.target.sessionId, { commandId: command.commandId, type: "command.accepted" });
     notifySession(command.target.sessionId, { commandId: command.commandId, type: "command.canonical-updated" });
@@ -430,6 +420,7 @@ export function createDesktopAppServices(): AppServices {
     },
     chatStore: {
       browserRuntime: nativeBrowser,
+      terminalRuntime: nativeTerminal,
       async load(sessionId) {
         await initialize();
         const thread = controller.state.threads.find((item) => item.threadId === sessionId);

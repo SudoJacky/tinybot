@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:6351082a8ec73bb1a9bf22a88038f8161feda633ffbcdb3f7aa83d3c95b4eabf -->
+<!-- tinybot-module-fingerprint: sha256:5f8b4bd259f8514e4533c095df2e99dabff6ee7b84607a5e13c45f285b81dbbf -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -14,8 +14,12 @@ For desktop setup and launch behavior, see [the desktop guide](../docs/desktop.m
 - `src/main.rs` starts the Tauri application through `tinybot_desktop_lib::run`.
 - `src/lib.rs` delegates application startup to `desktop::run`.
 - `src/desktop/bootstrap.rs` assembles shared runtime state and registers Tauri
-  commands; `src/desktop/diagnostics.rs` owns bounded Performance Trace
-  snapshots and local diagnostic ZIP export.
+  commands; `src/desktop_terminal.rs` owns the user-only Sidecar PTY runtime;
+  `src/desktop/diagnostics.rs` owns bounded Performance Trace snapshots and
+  local diagnostic ZIP export.
+
+Sidecar terminals with no explicit Thread working directory resolve through
+the same configured native backend workspace used by ordinary Agent turns.
 - `src/desktop_commands/` adapts typed Tauri inputs to backend services.
 - `WorkerRpcRouter` handles versioned `WorkerRequest` values for internal and
   transport-backed callers.
@@ -35,9 +39,9 @@ Use these terms consistently in backend code and documentation:
   an optional long-lived goal. A goal is metadata on a Thread, not the
   definition of a Thread.
 - **Turn** starts with one user request and includes all agent work that follows
-  until the Turn completes, fails, or is interrupted. Provider iterations,
-  reasoning, tool calls and results, and approval or form pauses all belong to
-  the same Turn. Resuming a pause does not create a new Turn.
+  until the Turn completes, fails, is interrupted, or waits for typed user
+  input. Provider iterations, reasoning, tool calls and results, and form
+  continuations all belong to the same Turn.
 - **Item** is one ordered input or output within a Turn, such as a user message,
   agent message, reasoning entry, tool call, tool result, or approval request.
   Not every Item is a model-visible message. Every durable Item has its own
@@ -47,8 +51,8 @@ Use these terms consistently in backend code and documentation:
   is narrower than Item and must not be used as a generic name for runtime
   events, approvals, or persistence records.
 - **Agent loop** is the internal Turn execution algorithm that repeats Provider
-  and tool iterations until the Turn pauses or reaches a terminal state. It is
-  not a separate durable conversation identity.
+  and tool iterations until the Turn waits for typed user input or reaches a
+  terminal state. It is not a separate durable conversation identity.
 - **TurnExecution** is the process-local object currently advancing a Turn. It
   is addressed by `turnId`; an internal generation prevents obsolete tasks from
   publishing late results. It is not a separate durable conversation identity.
@@ -85,8 +89,8 @@ the implementation tree.
 The main layers are:
 
 1. **Desktop boundary**
-   - `lib.rs`, `desktop_commands/`, `desktop/files.rs`, and the desktop menu,
-     logging, update, and heartbeat modules.
+   - `lib.rs`, `desktop_commands/`, `desktop_terminal.rs`, `desktop/files.rs`,
+     and the desktop menu, logging, update, and heartbeat modules.
    - Owns Tauri state, command registration, native dialogs, and frontend
      events.
 2. **Protocol and dispatch boundary**

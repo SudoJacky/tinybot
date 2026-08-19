@@ -11,7 +11,7 @@ src/app-core/chat/README.md
 src/app-core/native/README.md
 src/react-workbench/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:8ad4d88956133d6559edb415eef60e9de175ab50b29e610dcf0947c025fa0217 -->
+<!-- tinybot-doc-fingerprint: sha256:8dfc03821ae6916ec5f11255cd5dc4584b4809289082918d5fd0f3248beeffa2 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -49,6 +49,7 @@ Desktop Commands / Desktop Host
 | `app-core` | Framework-independent contracts, validation, commands, and projections | React rendering or Tauri invocation |
 | `app-core/native` | Typed renderer adapters for native commands and events | Product state or backend behavior |
 | `desktop_commands` | Thin Tauri input/output adaptation | Reusable domain behavior |
+| `desktop_terminal` | User-only Sidecar PTY lifecycle and resource ownership | Agent shell sessions or renderer presentation |
 | `agent::bridge` | Complete Turn orchestration and persistence coordination | Provider iteration or the Thread data model |
 | `agent::runtime` | Provider-and-tool loop, context, checkpoints, and runtime events | Tauri state or durable-store selection |
 | `threads::domain` | Typed Thread, Turn, and Item behavior | Canonical durable storage |
@@ -67,6 +68,9 @@ Desktop Commands / Desktop Host
 - Renderer product state: route stores composed through the React workbench
   interfaces.
 - Exact frontend/backend command and event shapes: the Rust backend reference.
+- Sidecar Terminal process ownership: the dedicated desktop terminal runtime;
+  Agent shell processes remain owned by the Agent runtime's independent shell
+  registry.
 
 An adapter may translate at a seam, but it must not become a second authority.
 

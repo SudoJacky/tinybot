@@ -190,24 +190,6 @@ test("the tracked pre-commit hook blocks an unreviewed staged module", (t) => {
   assert.equal(accepted.status, 0, accepted.stdout + accepted.stderr);
 });
 
-test("an explicit prefix scope covers TinyOS sibling modules", (t) => {
-  const repository = fixture(t);
-  const module = "src/app-core/chat/tinyOs";
-  const source = "src/app-core/chat/tinyOsKernelModel.ts";
-  write(repository, `${module}/README.md`, "# TinyOS\n\nRuntime contract.\n");
-  write(repository, source, "export const state = 'current';\n");
-  git(repository, "add", ".");
-  git(repository, "commit", "-m", "test: add TinyOS module");
-
-  assert.equal(readmeTool(repository, "review", module).status, 0);
-  assert.equal(readmeTool(repository, "check", module).status, 0);
-
-  write(repository, source, "export const state = 'changed';\n");
-  const stale = readmeTool(repository, "check", module);
-  assert.equal(stale.status, 1);
-  assert.match(stale.stdout, /changed: src\/app-core\/chat\/tinyOsKernelModel\.ts/);
-});
-
 test("review fails when a module README owns no tracked files", (t) => {
   const repository = fixture(t);
   write(repository, "src/empty/README.md", "# Empty module\n");

@@ -1,5 +1,5 @@
 # Desktop Adapters
-<!-- tinybot-module-fingerprint: sha256:a20a6cabee5d223246ca65ceb2c9ec145b2ca8577a9c7738a736b52a246f24fb -->
+<!-- tinybot-module-fingerprint: sha256:2cef19ce5399a987599dd347706885f5f567cbf8c97401a6ed55ae313ddd1597 -->
 
 `adapters` implements renderer store interfaces over Tinybot's native and
 app-core modules. It owns event projection and the Settings, Tools, and
@@ -15,3 +15,6 @@ revisions, counts, statuses, durations, and bounded error messages. Native
 payload content is never copied into the debug ring; malformed events and
 listener failures also emit an always-visible structured renderer error, which
 is persisted by the native backend when Tauri is available.
+
+The bridge listens for native browser snapshots and diagnostics but no longer
+projects the retired `tinyos:host-operation` event into Chat state.

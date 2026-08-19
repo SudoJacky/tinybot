@@ -11,6 +11,7 @@ use crate::config::store::ConfigDiagnosticCode;
 use crate::desktop_commands::runtime::{
     shutdown_native_runtime_for_window_close, start_native_runtime_with_workspace_root,
 };
+use crate::desktop_terminal;
 use crate::native_browser;
 use crate::system_prompt::{load_or_create_system_prompt, SYSTEM_PROMPT_FILE_NAME};
 use crate::tool_notes::{create_default_tool_notes_if_missing, TOOL_NOTES_FILE_NAME};
@@ -93,6 +94,8 @@ pub(crate) fn run() {
     let runtime_state = Arc::new(Mutex::new(NativeRuntimeState::default()));
     let update_state = super::update::new_shared_desktop_update_state(env!("CARGO_PKG_VERSION"));
     let close_state = runtime_state.clone();
+    let terminal_runtime = desktop_terminal::create_runtime();
+    let close_terminal_runtime = terminal_runtime.clone();
     let setup_state = runtime_state.clone();
     let setup_update_state = update_state.clone();
     let close_started = Arc::new(AtomicBool::new(false));
@@ -102,6 +105,7 @@ pub(crate) fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(runtime_state)
+        .manage(terminal_runtime)
         .manage(update_state)
         .setup(move |app| {
             let browser_runtime = native_browser::create_runtime(app.handle())?;
@@ -297,6 +301,11 @@ pub(crate) fn run() {
             crate::native_browser::commands::browser_interact,
             crate::native_browser::commands::browser_resolve_policy_request,
             crate::native_browser::commands::browser_delete_profile,
+            crate::desktop_terminal::terminal_create,
+            crate::desktop_terminal::terminal_poll,
+            crate::desktop_terminal::terminal_write,
+            crate::desktop_terminal::terminal_resize,
+            crate::desktop_terminal::terminal_terminate,
         ])
         .on_window_event(move |window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
@@ -309,6 +318,7 @@ pub(crate) fn run() {
                         .inner()
                         .clone();
                     let close_state = close_state.clone();
+                    let terminal_runtime = close_terminal_runtime.clone();
                     let close_started = close_started.clone();
                     let window = window.clone();
                     tauri::async_runtime::spawn(async move {
@@ -316,6 +326,21 @@ pub(crate) fn run() {
                             eprintln!("desktop_window_close_browser_cleanup_failed error={error}");
                         } else {
                             eprintln!("desktop_window_close_browser_cleanup_completed");
+                        }
+                        match tauri::async_runtime::spawn_blocking(move || {
+                            terminal_runtime.shutdown()
+                        })
+                        .await
+                        {
+                            Ok(Ok(())) => {
+                                eprintln!("desktop_window_close_terminal_cleanup_completed")
+                            }
+                            Ok(Err(error)) => eprintln!(
+                                "desktop_window_close_terminal_cleanup_failed error={error}"
+                            ),
+                            Err(error) => eprintln!(
+                                "desktop_window_close_terminal_cleanup_task_failed error={error}"
+                            ),
                         }
                         if let Err(error) =
                             shutdown_native_runtime_for_window_close(close_state, false).await

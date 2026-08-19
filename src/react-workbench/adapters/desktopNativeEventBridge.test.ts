@@ -2,10 +2,6 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
-import {
-  createTinyOsTerminalCancelCommand,
-  createTinyOsTerminalExecuteCommand,
-} from "../../app-core/chat/tinyOsCommand";
 import type { NativeThreadRecord } from "../../app-core/native/desktopNativeThreads";
 import { createDesktopNativeEventBridge } from "./desktopNativeEventBridge";
 
@@ -116,7 +112,6 @@ describe("desktop native event bridge", () => {
       "agent:timeline:patch",
       "agent:awaiting_form",
       "tinyos:browser-snapshot",
-      "tinyos:host-operation",
     ]);
     const timelineHandler = harness.handlers.get("agent:timeline:patch");
     await timelineHandler?.({ payload: { sessionId: "thread-1", turnId: "turn-1" } });
@@ -164,7 +159,7 @@ describe("desktop native event bridge", () => {
     });
   });
 
-  it("projects browser and host-operation events with explicit error events", async () => {
+  it("projects browser snapshots with explicit error events", async () => {
     const harness = createHarness();
     await harness.bridge.register();
 
@@ -180,51 +175,6 @@ describe("desktop native event bridge", () => {
       error: "Native browser snapshot must be an object.",
     });
 
-    await harness.handlers.get("tinyos:host-operation")?.({
-      payload: {
-        commandId: "command-1",
-        operationId: "operation-1",
-        sessionId: "thread-1",
-        status: "user_required",
-      },
-    });
-    expect(harness.notifySession).toHaveBeenCalledWith("thread-1", {
-      commandId: "command-1",
-      error: undefined,
-      operationId: "operation-1",
-      operationStatus: "completed",
-      type: "host.operation",
-    });
-
-    await harness.handlers.get("tinyos:host-operation")?.({ payload: { operationId: "operation-2" } });
-    expect(harness.notifyAll).toHaveBeenCalledWith({
-      type: "host.operation.error",
-      error: "Native host operation event is missing commandId, operationId, sessionId, or status.",
-    });
-  });
-
-  it("uses the same host-operation status projection for dispatch results", () => {
-    const bridge = createHarness().bridge;
-    const source = { control: "test", surface: "tinyos" } as const;
-    const cancel = createTinyOsTerminalCancelCommand({
-      commandId: "cancel-1",
-      issuedAt: "2026-08-15T00:00:00.000Z",
-      operationId: "terminal-1",
-      sessionId: "thread-1",
-      source,
-    });
-    const execute = createTinyOsTerminalExecuteCommand({
-      command: "npm test",
-      commandId: "execute-1",
-      issuedAt: "2026-08-15T00:00:00.000Z",
-      sessionId: "thread-1",
-      source,
-    });
-
-    expect(bridge.hostOperationUpdateFromDispatch(cancel, {})).toEqual({ status: "cancelled" });
-    expect(bridge.hostOperationUpdateFromDispatch(execute, {
-      operation: { status: "failed", reason: "process exited" },
-    })).toEqual({ status: "failed", error: "process exited" });
   });
 
   it("records correlated lifecycle stages without logging native payload content", async () => {

@@ -4,75 +4,63 @@ import {
   unavailableTinyOsEffectiveCapabilities,
 } from "./tinyOsCapabilities";
 
-function payload() {
-  const unavailable = { available: false, reasonCode: "runtime_unsupported", reason: "Not supported." };
-  const available = { available: true };
+function backendCapabilities() {
   return {
     schemaVersion: "tinybot.effective_capabilities.v2",
-    threadId: "websocket:chat-1",
+    threadId: "thread-1",
     evaluatedTurnId: "turn-1",
     capabilities: {
-      agent: { pause: unavailable, resume: unavailable, cancel: available, retry: unavailable },
-      files: { read: available, requestChange: unavailable, directEdit: unavailable, save: unavailable },
-      terminal: {
-        contract: "retained_execution_v1",
-        persistentPty: false,
-        inspect: available,
-        execute: unavailable,
-        cancel: unavailable,
+      agent: {
+        cancel: { available: true },
+        retry: {
+          available: false,
+          reason: "The active turn is not failed.",
+          reasonCode: "turn_not_failed",
+        },
       },
-      browser: {
-        interactionRequires: "current_real_capture",
-        structured: available,
-        projectionContract: "structured_projection_v1",
-        realCapture: unavailable,
-        sessionContract: "browser_session_v1",
-        sessionSnapshot: false,
-        interact: unavailable,
-      },
+      futureCapabilityGroup: { available: true },
     },
   };
 }
 
-describe("TinyOS effective capabilities", () => {
-  test("normalizes a backend-authored per-thread decision", () => {
-    expect(normalizeTinyOsEffectiveCapabilities(payload(), "websocket:chat-1")).toMatchObject({
+describe("chat runtime capabilities", () => {
+  test("normalizes only the decisions used by Chat", () => {
+    expect(normalizeTinyOsEffectiveCapabilities(backendCapabilities(), "thread-1")).toEqual({
+      schemaVersion: "tinybot.effective_capabilities.v2",
+      threadId: "thread-1",
       evaluatedTurnId: "turn-1",
       capabilities: {
-        agent: { cancel: { available: true } },
-        terminal: { contract: "retained_execution_v1", persistentPty: false },
+        agent: {
+          cancel: { available: true },
+          retry: {
+            available: false,
+            reason: "The active turn is not failed.",
+            reasonCode: "turn_not_failed",
+          },
+        },
       },
     });
   });
 
-  test("rejects unsupported terminal execution contracts", () => {
-    const invalid = payload();
-    invalid.capabilities.terminal.contract = "pty_v1" as "retained_execution_v1";
-    expect(() => normalizeTinyOsEffectiveCapabilities(invalid, "websocket:chat-1")).toThrow("unsupported execution contract");
-  });
-
-  test("normalizes browser projection truth without advertising a native session", () => {
-    expect(normalizeTinyOsEffectiveCapabilities(payload(), "websocket:chat-1").capabilities.browser).toMatchObject({
-      interactionRequires: "current_real_capture",
-      projectionContract: "structured_projection_v1",
-      sessionContract: "browser_session_v1",
-      sessionSnapshot: false,
-    });
-  });
-
   test("rejects mismatched threads and unavailable decisions without reasons", () => {
-    expect(() => normalizeTinyOsEffectiveCapabilities(payload(), "websocket:chat-2")).toThrow("thread mismatch");
-    const invalid = payload();
-    invalid.capabilities.agent.pause = { available: false } as typeof invalid.capabilities.agent.pause;
-    expect(() => normalizeTinyOsEffectiveCapabilities(invalid, "websocket:chat-1")).toThrow("without a reason");
+    expect(() => normalizeTinyOsEffectiveCapabilities(backendCapabilities(), "thread-other"))
+      .toThrow(/thread mismatch/i);
+    const invalid = backendCapabilities();
+    invalid.capabilities.agent.retry = { available: false } as typeof invalid.capabilities.agent.retry;
+    expect(() => normalizeTinyOsEffectiveCapabilities(invalid, "thread-1"))
+      .toThrow(/without a reason/i);
   });
 
-  test("creates a fail-closed state while backend capability truth is unavailable", () => {
-    const unavailable = unavailableTinyOsEffectiveCapabilities("websocket:chat-1", "loading", "Loading capabilities.");
-    expect(unavailable.capabilities.agent.cancel).toEqual({
-      available: false,
-      reason: "Loading capabilities.",
-      reasonCode: "loading",
+  test("creates a fail-closed state while capability truth is unavailable", () => {
+    expect(unavailableTinyOsEffectiveCapabilities("thread-1", "loading", "Loading")).toEqual({
+      schemaVersion: "tinybot.effective_capabilities.v2",
+      threadId: "thread-1",
+      capabilities: {
+        agent: {
+          cancel: { available: false, reason: "Loading", reasonCode: "loading" },
+          retry: { available: false, reason: "Loading", reasonCode: "loading" },
+        },
+      },
     });
   });
 });

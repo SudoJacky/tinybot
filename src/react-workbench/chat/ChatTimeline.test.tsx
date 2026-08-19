@@ -62,7 +62,6 @@ function createActions(): ChatTimelineActions {
     onBranch: vi.fn(),
     onOpenArtifact: vi.fn(),
     onOpenError: vi.fn(),
-    onOpenLiveCanvas: vi.fn(),
     onOpenSubagent: vi.fn(),
     onOpenTool: vi.fn(),
     onRecover: vi.fn(),

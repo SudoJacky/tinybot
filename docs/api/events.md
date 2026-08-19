@@ -12,7 +12,7 @@ normalized to colon-separated Tauri listener names; for example, `agent.delta` i
 
 | Category | Source event names |
 | --- | --- |
-| Turn and control | `agent.turn.started`, `agent.phase.changed`, `agent.status`, `agent.guidance`, `agent.paused`, `agent.resumed`, `agent.command.acknowledged` |
+| Turn and control | `agent.turn.started`, `agent.phase.changed`, `agent.status`, `agent.guidance`, `agent.command.acknowledged` |
 | Context and hooks | `agent.context.hydrated`, `agent.context.compacted`, `agent.context.trimmed`, `agent.context.compaction_failed`, `agent.hook.decision`, `agent.checkpoint` |
 | Model output | `agent.reasoning_delta`, `agent.reasoning.completed`, `agent.delta`, `agent.message.phase`, `agent.message.classified`, `agent.message.completed`, `agent.model_call.completed`, `agent.token_count`, `agent.usage` |
 | Tools and product items | `agent.tool_call.delta`, `agent.tool.start`, `agent.tool.result`, `agent.tool.debug`, `agent.tool.cleanup_timeout`, `agent.plan.progress`, `agent.task_progress`, `agent.awaiting_form`, `agent.form.resolution`, `agent.file.reference` |
@@ -26,9 +26,11 @@ The desktop shell also emits:
 | --- | --- |
 | `desktop-menu-command` | `{ id: string }` for a native application-menu command |
 | `desktop-update-status` | `DesktopUpdateSnapshot` after each update phase or download-progress change |
-| `tinyos:host-operation` | Asynchronous TinyOS host-operation status |
 | `tinyos:browser-snapshot` | `BrowserNativeSnapshot` |
 | `tinyos:browser-diagnostic` | `BrowserRuntimeDiagnostic` |
+
+The `tinyos:` prefix on browser events is a retained native compatibility name;
+it does not imply that the retired TinyOS desktop surface is mounted.
 
 Semantic runtime events retain their existing compatibility fields and also include a typed
 `payload.agentItem` object. The discriminator is `type`. Current production projections cover

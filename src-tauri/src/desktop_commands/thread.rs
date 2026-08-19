@@ -1,9 +1,6 @@
 use crate::config::application::{native_backend_workspace_root, native_config_snapshot};
 use crate::desktop::{lock_runtime, SharedNativeRuntime};
 use crate::native_browser::SharedBrowserRuntime;
-use crate::protocol::capability::{
-    default_desktop_capability_policy, CapabilityPolicy, WorkerCapability,
-};
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
@@ -129,7 +126,6 @@ pub(crate) async fn worker_thread_delete(
 pub(crate) fn thread_get_effective_capabilities(
     input: WorkerThreadRequestInput,
     state: State<'_, SharedNativeRuntime>,
-    browser_runtime: State<'_, SharedBrowserRuntime>,
 ) -> Result<serde_json::Value, String> {
     let thread_id = input
         .body
@@ -145,25 +141,16 @@ pub(crate) fn thread_get_effective_capabilities(
         "thread-turn-list",
         "thread.turn.list",
         serde_json::json!({ "threadId": thread_id.clone() }),
-        workspace_root.clone(),
+        workspace_root,
         native_config_snapshot(),
         Duration::from_secs(10),
     )?;
-    let mut capabilities = build_thread_effective_capabilities(
-        &thread_id,
-        &turns,
-        workspace_root.is_dir(),
-        &default_desktop_capability_policy(),
-    );
-    project_browser_capabilities(&mut capabilities, browser_runtime.inner())?;
-    Ok(capabilities)
+    Ok(build_thread_effective_capabilities(&thread_id, &turns))
 }
 
 pub(crate) fn build_thread_effective_capabilities(
     thread_id: &str,
     turns: &serde_json::Value,
-    workspace_available: bool,
-    policy: &CapabilityPolicy,
 ) -> serde_json::Value {
     let evaluated_turn = turns
         .get("turns")
@@ -196,20 +183,6 @@ pub(crate) fn build_thread_effective_capabilities(
         ),
         _ => unavailable_capability("no_active_turn", "The thread has no active Agent turn."),
     };
-    let pause = if evaluated_turn_status == Some("running") {
-        available_capability()
-    } else {
-        unavailable_capability(
-            "turn_not_running",
-            "Only a running Agent turn can be paused.",
-        )
-    };
-    let resume =
-        if evaluated_turn_status == Some("waiting") && evaluated_turn_phase == Some("paused") {
-            available_capability()
-        } else {
-            unavailable_capability("turn_not_paused", "The Agent turn is not paused.")
-        };
     let retry = match evaluated_turn_status {
         Some("failed") => available_capability(),
         Some("running" | "waiting") => unavailable_capability(
@@ -221,114 +194,14 @@ pub(crate) fn build_thread_effective_capabilities(
             "The thread has no latest failed Agent turn to retry.",
         ),
     };
-    let files_read = if policy.allows(&WorkerCapability::FsWorkspaceRead) && workspace_available {
-        available_capability()
-    } else if !workspace_available {
-        unavailable_capability(
-            "workspace_unavailable",
-            "The configured workspace root is unavailable.",
-        )
-    } else {
-        unavailable_capability(
-            "permission_denied",
-            "Workspace read permission is not granted.",
-        )
-    };
-    let request_change = if matches!(evaluated_turn_status, Some("running" | "waiting")) {
-        unavailable_capability(
-            "turn_active",
-            "Agent requests are unavailable while a turn is active.",
-        )
-    } else if policy.allows(&WorkerCapability::FsWorkspaceRead) && workspace_available {
-        available_capability()
-    } else if !workspace_available {
-        unavailable_capability(
-            "workspace_unavailable",
-            "The configured workspace root is unavailable.",
-        )
-    } else {
-        unavailable_capability(
-            "permission_denied",
-            "Workspace read permission is not granted.",
-        )
-    };
-    let turn_active = matches!(evaluated_turn_status, Some("running" | "waiting"));
-    let workspace_write = if turn_active {
-        unavailable_capability(
-            "turn_active",
-            "Direct file operations are unavailable while another turn is active.",
-        )
-    } else if policy.allows(&WorkerCapability::FsWorkspaceWrite) && workspace_available {
-        available_capability()
-    } else if !workspace_available {
-        unavailable_capability(
-            "workspace_unavailable",
-            "The configured workspace root is unavailable.",
-        )
-    } else {
-        unavailable_capability(
-            "permission_denied",
-            "Workspace write permission is not granted.",
-        )
-    };
-    let terminal_execute = if turn_active {
-        unavailable_capability(
-            "turn_active",
-            "Terminal execution is unavailable while another turn is active.",
-        )
-    } else if !workspace_available {
-        unavailable_capability(
-            "workspace_unavailable",
-            "The configured workspace root is unavailable.",
-        )
-    } else if !policy.allows(&WorkerCapability::ShellExecute) {
-        unavailable_capability(
-            "permission_denied",
-            "Shell execution permission is not granted.",
-        )
-    } else {
-        unavailable_capability(
-            "network_enforcement_unavailable",
-            "Terminal execution requires denied-network enforcement, which is unavailable in the current native shell backend.",
-        )
-    };
-    let terminal_cancel = unavailable_capability(
-        "no_active_terminal",
-        "There is no running TinyOS terminal process to cancel.",
-    );
-
     serde_json::json!({
         "schemaVersion": "tinybot.effective_capabilities.v2",
         "threadId": thread_id,
         "evaluatedTurnId": evaluated_turn_id,
         "capabilities": {
             "agent": {
-                "pause": pause,
-                "resume": resume,
                 "cancel": cancel,
                 "retry": retry,
-            },
-            "files": {
-                "read": files_read,
-                "requestChange": request_change,
-                "directEdit": workspace_write.clone(),
-                "save": workspace_write,
-            },
-            "terminal": {
-                "contract": "retained_execution_v1",
-                "persistentPty": false,
-                "inspect": available_capability(),
-                "execute": terminal_execute,
-                "cancel": terminal_cancel,
-            },
-            "browser": {
-                "interactionRequires": "current_real_capture",
-                "structured": available_capability(),
-                "projectionContract": "structured_projection_v1",
-                "realCapture": unavailable_capability("backend_unavailable", "No real browser capture backend is configured."),
-                "sessionContract": "browser_session_v1",
-                "sessionSnapshot": false,
-                "interact": unavailable_capability("backend_unavailable", "No real browser interaction backend is configured."),
             },
         },
     })
@@ -397,33 +270,4 @@ pub(crate) fn worker_thread_request_with_options(
         }
     }
     Ok(result)
-}
-
-fn project_browser_capabilities(
-    capabilities: &mut serde_json::Value,
-    browser_runtime: &SharedBrowserRuntime,
-) -> Result<(), String> {
-    let browser = browser_runtime.capabilities();
-    if let Some(target) = capabilities
-        .pointer_mut("/capabilities/browser")
-        .and_then(serde_json::Value::as_object_mut)
-    {
-        target.insert(
-            "sessionSnapshot".to_string(),
-            serde_json::Value::Bool(browser.session_snapshot.available),
-        );
-        target.insert(
-            "realCapture".to_string(),
-            serde_json::to_value(&browser.real_capture).map_err(|error| error.to_string())?,
-        );
-        target.insert(
-            "interact".to_string(),
-            serde_json::to_value(&browser.agent_interaction).map_err(|error| error.to_string())?,
-        );
-        target.insert(
-            "runtime".to_string(),
-            serde_json::to_value(browser).map_err(|error| error.to_string())?,
-        );
-    }
-    Ok(())
 }

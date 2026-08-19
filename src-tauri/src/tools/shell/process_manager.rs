@@ -344,8 +344,12 @@ impl ShellProcessManager {
         outputs
     }
 
-    pub(super) fn release(&self, process_id: &str) -> Result<(), WorkerProtocolError> {
-        let record = self.lookup(process_id, None)?;
+    pub(super) fn release(
+        &self,
+        process_id: &str,
+        owner_id: Option<&str>,
+    ) -> Result<(), WorkerProtocolError> {
+        let record = self.lookup(process_id, owner_id)?;
         if record.is_running() {
             return Err(shell_error(
                 "running shell process cannot be released",

@@ -6,9 +6,6 @@ import { dirname, relative, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const MODULE_ROOTS = ["src", "src-tauri"];
-const MODULE_PREFIX_SCOPES = new Map([
-  ["src/app-core/chat/tinyOs/README.md", ["src/app-core/chat/tinyOs"]],
-]);
 const MARKER_NAME = "tinybot-module-fingerprint";
 const VALID_MARKER_PATTERN = new RegExp(
   `^<!-- ${MARKER_NAME}: sha256:([a-f0-9]{64}) -->$`,
@@ -120,12 +117,6 @@ function ownerOf(file, readmes) {
   let owner = null;
   let ownerLength = -1;
   for (const readme of readmes) {
-    for (const prefix of MODULE_PREFIX_SCOPES.get(readme) ?? []) {
-      if (file.startsWith(prefix) && prefix.length > ownerLength) {
-        owner = readme;
-        ownerLength = prefix.length;
-      }
-    }
     const directory = moduleDirectory(readme);
     if (isInside(file, directory) && directory.length > ownerLength) {
       owner = readme;
@@ -231,12 +222,8 @@ function changedFilesSinceReadme(root, readme, readmes) {
   if (!baseline) {
     return [];
   }
-  const prefixes = MODULE_PREFIX_SCOPES.get(readme) ?? [];
-  const scopes = prefixes.length
-    ? prefixes.map((prefix) => dirname(prefix).replaceAll("\\", "/"))
-    : [moduleDirectory(readme)];
   const changed = splitNullTerminated(
-    runGit(["diff", "--name-only", "-z", baseline, "--", ...new Set(scopes)], root),
+    runGit(["diff", "--name-only", "-z", baseline, "--", moduleDirectory(readme)], root),
   );
   return changed.filter((file) => !isReadme(file) && ownerOf(file, readmes) === readme);
 }

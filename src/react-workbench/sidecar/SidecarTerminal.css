@@ -1,0 +1,68 @@
+.react-sidecar-terminal__viewport {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.react-sidecar-terminal__surface {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 8px 6px 5px 10px;
+  text-align: left;
+}
+
+.react-sidecar-terminal__surface .xterm {
+  height: 100%;
+}
+
+.react-sidecar-terminal__surface .xterm-viewport {
+  scrollbar-color: #68635b transparent;
+  scrollbar-width: thin;
+}
+
+.react-sidecar-terminal__unavailable {
+  display: grid;
+  height: 100%;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  padding: 28px;
+  color: #aaa49a;
+  text-align: center;
+}
+
+.react-sidecar-terminal__unavailable h2 {
+  color: #f3eee5;
+  font-family: var(--font-ui);
+}
+
+.react-sidecar-terminal__unavailable p {
+  max-width: 320px;
+  margin: 0;
+  color: #aaa49a;
+  font-family: var(--font-ui);
+  line-height: 1.5;
+}
+
+.react-sidecar-terminal__error {
+  position: absolute;
+  right: 10px;
+  bottom: 9px;
+  left: 10px;
+  z-index: 2;
+  margin: 0;
+  border: 1px solid rgb(255 150 140 / 40%);
+  border-radius: 6px;
+  background: rgb(82 30 28 / 94%);
+  padding: 8px 10px;
+  color: #ffd6d1;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.react-sidecar-terminal footer {
+  justify-content: space-between;
+  gap: 12px;
+}

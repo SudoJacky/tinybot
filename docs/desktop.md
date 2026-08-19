@@ -72,7 +72,8 @@ are not implemented in Rust return explicit errors.
 - Desktop chat contract: typed Thread commands plus `agent.timeline.patch` and `agent.awaiting_form` Tauri events
 - Primary UI source: repository `index.html` plus `src/react-workbench/`
 - Static assets and docs: repository `public/`
-- Browser mode: external browser only
+- Sidecar browser: managed WebView2 session shared with Agent on supported Windows builds
+- Sidecar terminal: local PowerShell or Command Prompt PTY for the user only
 
 ## Launch Flow
 
@@ -127,12 +128,25 @@ The desktop route keeps the Rust backend contract as the source of truth and lay
 - native file picking feeds native workbench upload actions;
 - OS notifications observe native approval and task progress surfaces;
 - external links open through the operating system.
+- Sidecar terminals use a dedicated native PTY runtime that is not exposed to Agent tools.
 
 ## Browser Policy
 
 The desktop package does not bundle Chromium. The app UI uses the platform
 WebView, and external links open through the operating system. The default
-Windows build also provides a managed WebView2 session shared by TinyOS and
-the Agent's `web.*` tools. Builds without that feature and non-Windows builds
+Windows build also provides a managed WebView2 session that can be shared by a
+desktop browser surface and the Agent's `web.*` tools. Builds without that
+feature and non-Windows builds
 report browser unavailability explicitly; browser startup must not block the
 native backend or workbench shell.
+
+## Sidecar Terminal Policy
+
+On Windows, each Sidecar terminal resource starts either PowerShell or Command
+Prompt in the active conversation workspace. The terminal is an interactive
+user surface only: it does not share process IDs, input, output, or lifecycle
+state with Agent shell tools. Hiding the Sidecar or switching tabs preserves
+the PTY. Closing its resource terminates and releases the process, and closing
+the desktop app terminates all remaining Sidecar terminal processes. A regular
+chat without explicit workspace metadata uses the configured Tinybot default
+workspace, matching the native Agent runtime fallback.

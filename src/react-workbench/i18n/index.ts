@@ -11,7 +11,7 @@ void i18n
     fallbackLng: "en",
     interpolation: { escapeValue: false },
     lng: typeof window === "undefined" ? "en" : loadAppLanguage(),
-    ns: ["common", "settings", "memory", "updates", "chat", "tinyos"],
+    ns: ["common", "settings", "memory", "updates", "chat"],
     react: { useSuspense: false },
     resources: { en, zh },
     supportedLngs: ["en", "zh"],

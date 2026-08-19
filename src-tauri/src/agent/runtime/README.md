@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:535cd563d2716f7edaa4255a9999fa0428df21702289d0733d4419f5dbffb5b7 -->
+<!-- tinybot-module-fingerprint: sha256:1babc90a67e9a751caadec3885ff4e7a500b277757cd76685553bdafa5b59e08 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -22,8 +22,7 @@ to [`agent::bridge`](../bridge/README.md).
 - Evaluate hooks around provider, turn, thread, and context-compaction stages.
 - Emit correlated runtime events and project typed items for compatibility
   consumers.
-- Track token usage, cancellation, pause/resume continuations, and resumable
-  form checkpoints.
+- Track token usage, cancellation, and resumable form checkpoints.
 
 This module does **not** choose the desktop transport, mutate Tauri state, or
 decide which durable conversation store a caller uses.
@@ -43,9 +42,9 @@ decide which durable conversation store a caller uses.
    the request and decode provider output into runtime concepts.
 5. Assistant items are appended. Tool calls are routed through
    `tool_router.rs`, `tool_dispatcher.rs`, and `tool_runtime.rs`.
-6. Tools dispatch directly after validation. Forms and pause boundaries use
-   their dedicated resumable mechanisms. A tool batch is fully recorded before
-   the next provider call.
+6. Tools dispatch directly after validation. Forms use their dedicated
+   resumable mechanism. A tool batch is fully recorded before the next provider
+   call.
 7. Usage and runtime events are emitted through the injected trace sink, and
    `result.rs` builds the terminal response.
 
@@ -135,8 +134,8 @@ conditionals throughout those shared runtime modules.
 - `tool_projection.rs`, `tool_result.rs`: normalized tool lifecycle output.
 - `hooks.rs`, `events.rs`, `trace_commit.rs`: runtime hooks, event construction,
   and ordered trace commits.
-- `checkpoint.rs`, `continuations.rs`, `stores.rs`: resumable form and pause
-  boundaries plus default in-memory services.
+- `checkpoint.rs`, `continuations.rs`, `stores.rs`: resumable form boundaries
+  plus default in-memory services.
 - `settings.rs`, `state.rs`, `user_input.rs`, `result.rs`: validated turn state
   and result construction.
 
@@ -145,7 +144,7 @@ conditionals throughout those shared runtime modules.
 - `AgentItem` is the runtime domain history. Legacy message JSON is a boundary
   representation, not the internal source of truth.
 - Model-visible additions must be bounded and should retain provenance.
-- A turn that is awaiting form input or resume is not terminal.
+- A turn that is awaiting form input is not terminal.
 - Cancellation is cooperative and must be checked at provider and tool
   boundaries; late work must not overwrite a terminal outcome.
 - Tool execution goes through the dispatcher so capability, ownership, trace,

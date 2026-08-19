@@ -1819,10 +1819,6 @@ button:disabled {
   text-align: left;
 }
 
-.react-chat-page[data-live-canvas-expanded="true"] > .react-session-list {
-  display: none;
-}
-
 .react-empty-state {
   min-height: 1.5em;
 }

@@ -48,6 +48,14 @@ impl WorkerShellRuntime {
         self.processes.shutdown()
     }
 
+    pub(crate) fn release(
+        &self,
+        process_id: &str,
+        owner_id: Option<&str>,
+    ) -> Result<(), WorkerProtocolError> {
+        self.processes.release(process_id, owner_id)
+    }
+
     #[cfg(test)]
     pub(crate) fn active_process_count(&self) -> usize {
         self.processes.active_count()
@@ -223,7 +231,7 @@ impl WorkerShellRpc {
                 .poll(&process_id, None, output.cursor, yield_time_ms)?;
         }
         let output = self.processes.poll(&process_id, None, 0, 0)?;
-        self.processes.release(&process_id)?;
+        self.processes.release(&process_id, None)?;
         if let Some(failure) = output.failure.clone() {
             return Err(shell_error(
                 "shell process failed",
