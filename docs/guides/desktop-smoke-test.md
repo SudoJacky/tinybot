@@ -160,4 +160,5 @@ data, Terminal secrets, or complete prompts in an issue or diagnostic sample.
 - [Desktop development and runtime boundaries](../desktop.md)
 - [System architecture](../architecture/system-overview.md)
 - [Native Browser runtime](../../src-tauri/src/native_browser/README.md)
+- [Sidecar module](../../src/react-workbench/sidecar/README.md)
 - [Desktop command reference](../api/desktop.md)

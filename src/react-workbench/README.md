@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:f7ef7c0e5cbaaf159a71eb99725e197c9c529904ceaa2831764b36998e0efa78 -->
+<!-- tinybot-module-fingerprint: sha256:519e7ef2b1705cfeba3016a9dd75902541176628c9d2ab8187032940200bb6fb -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App`, `DesktopShell` owns the desktop chrome, and
@@ -9,8 +9,8 @@
 
 - `services.ts` defines the interface consumed by routes.
 - `adapters/` connects those interfaces to native and app-core modules.
-- `sidecar/` owns the docked resource shell and its Browser, Terminal, and
-  Artifact resource presentations.
+- [`sidecar/`](sidecar/README.md) owns the docked resource shell and its Browser,
+  Terminal, and Artifact resource presentations.
 - Route folders own their React state, presentation, and route-scoped styles.
 - Framework-independent contracts and projections belong in `app-core/`.
 

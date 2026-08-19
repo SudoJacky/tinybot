@@ -36,3 +36,6 @@ native default used by Agent turns.
 Desktop-level project and session-search dialogs keep their domain actions in
 this module while delegating modal focus, keyboard, dismissal, and scroll-lock
 behavior to `components/ui/useModalDialog`.
+
+See the [Sidecar module contract](../sidecar/README.md) for resource scoping,
+renderer ownership, native lifecycle boundaries, and verification entry points.
