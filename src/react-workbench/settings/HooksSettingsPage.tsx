@@ -111,7 +111,7 @@ export function HooksSettingsPage({
         if (cancelled) return;
         setSnapshot(next);
         setWorkspaceOptions((current) => uniqueWorkspacePaths([...current, next.workspaceRoot]));
-        setWorkspacePath((current) => current || next.workspaceRoot);
+        setWorkspacePath((current) => current || workspaceDisplayPath(next.workspaceRoot));
       })
       .catch((cause: unknown) => {
         if (!cancelled) setError(errorMessage(cause));
@@ -787,7 +787,7 @@ function defaultManagedHookLanguage(): NativeManagedHookLanguage {
 function uniqueWorkspacePaths(paths: string[]): string[] {
   const seen = new Set<string>();
   return paths.flatMap((path) => {
-    const normalized = path.trim().replace(/[\\/]+$/, "");
+    const normalized = workspaceDisplayPath(path);
     if (!normalized) return [];
     const key = workspacePathKey(normalized);
     if (seen.has(key)) return [];
@@ -797,15 +797,28 @@ function uniqueWorkspacePaths(paths: string[]): string[] {
 }
 
 function workspacePathKey(path: string): string {
-  const normalized = path.replace(/\\/g, "/");
+  const normalized = workspaceDisplayPath(path).replace(/\\/g, "/");
   return /^[a-zA-Z]:\//.test(normalized) || normalized.startsWith("//")
     ? normalized.toLocaleLowerCase("en-US")
     : normalized;
 }
 
+function workspaceDisplayPath(path: string): string {
+  const trimmed = path.trim();
+  const verbatimUnc = trimmed.match(/^[\\/]{2}\?[\\/]UNC[\\/](.*)$/i);
+  const withoutVerbatimPrefix = verbatimUnc
+    ? `\\\\${verbatimUnc[1]}`
+    : trimmed.replace(/^[\\/]{2}\?[\\/]/, "");
+  if (/^[a-zA-Z]:[\\/]$/.test(withoutVerbatimPrefix)) {
+    return withoutVerbatimPrefix;
+  }
+  return withoutVerbatimPrefix.replace(/[\\/]+$/, "") || withoutVerbatimPrefix;
+}
+
 function workspaceName(path: string): string {
-  const parts = path.split(/[\\/]+/).filter(Boolean);
-  return parts[parts.length - 1] || path;
+  const displayPath = workspaceDisplayPath(path);
+  const parts = displayPath.split(/[\\/]+/).filter(Boolean);
+  return parts[parts.length - 1] || displayPath;
 }
 
 function fileName(path: string): string {

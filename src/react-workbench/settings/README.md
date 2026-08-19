@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:20e3383de44cc6329a7fe1d64f1d5afb83e744270d82c3a32d846de36427a65b -->
+<!-- tinybot-module-fingerprint: sha256:829a1eb3fc8ff93d9c07708aad8f3ec936729eec33f2888369ee8fcf36dcfac7 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
@@ -21,7 +21,8 @@ For managed hooks, the page derives workspace choices from the same session and
 project-group stores used by Chat. The form asks only for name, lifecycle event,
 an applicable-tool/compaction preset, language, and timeout. Tinybot creates the
 manifest and safe script, while the card exposes reveal, edit, enable/disable,
-isolated sample test, recoverable remove, and exact-hash trust actions.
+isolated sample test, recoverable remove, and definition trust actions. Windows
+verbatim path prefixes are normalized before workspace choices are deduplicated.
 The workspace's managed scripts also appear in a selector and open in a
 monospace inline editor. Unsaved changes require confirmation before switching,
 and version-conflict handling remains native. Hand-written hooks remain visible

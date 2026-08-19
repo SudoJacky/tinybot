@@ -55,6 +55,32 @@ const projectGroupStore: ProjectGroupStore = {
 };
 
 describe("HooksSettingsPage", () => {
+  test("deduplicates Windows verbatim and display workspace paths", async () => {
+    const user = userEvent.setup();
+    const hooksStore: HooksStore = {
+      load: vi.fn(async () => ({ ...snapshot, workspaceRoot: "\\\\?\\D:\\work" })),
+      setTrusted: vi.fn(async () => snapshot),
+      saveManaged: vi.fn(async () => snapshot),
+      testManaged: vi.fn(),
+      archiveManaged: vi.fn(async () => snapshot),
+      readManagedScript: vi.fn(),
+      saveManagedScript: vi.fn(),
+    };
+
+    render(
+      <HooksSettingsPage
+        hooksStore={hooksStore}
+        projectGroupStore={projectGroupStore}
+        sessionStore={sessionStore}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: /Workspace directory: work/ }));
+
+    expect(screen.queryByText("\\\\?\\D:\\work")).toBeNull();
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(2);
+  });
+
   test("requires confirmation before trusting an exact command definition", async () => {
     const user = userEvent.setup();
     const hooksStore: HooksStore = {
