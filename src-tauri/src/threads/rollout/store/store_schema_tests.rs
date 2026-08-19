@@ -260,6 +260,48 @@ fn legacy_responses_history_uses_replay_order_across_mixed_source_sequences() {
 }
 
 #[test]
+fn responses_tool_outputs_reuse_turn_local_sequences_without_identity_collision() {
+    let thread_id = "thread-reused-tool-sequence";
+    let tool_output = |ordinal, turn_id: &str, call_id: &str| ThreadLogLine {
+        timestamp: "2026-08-19T10:11:45Z".to_string(),
+        ordinal: Some(ordinal),
+        item: ThreadLogItem::ResponseItem(
+            typed_response_item(
+                serde_json::json!({
+                    "type": "function_call_output",
+                    "call_id": call_id,
+                    "turnId": turn_id,
+                    "threadItemSequence": 14,
+                    "status": "ok",
+                    "output": "done"
+                }),
+                "reused tool sequence test output",
+            )
+            .unwrap(),
+        ),
+    };
+    let lines = vec![
+        tool_output(87, "turn-1", "call-1"),
+        tool_output(104, "turn-2", "call-2"),
+    ];
+
+    let items = thread_items_from_effective_rollout(&lines, &[0, 1], thread_id)
+        .expect("turn-local tool sequences must not collide across turns");
+
+    assert_eq!(items.len(), 2);
+    assert_eq!(
+        items
+            .iter()
+            .map(|item| item.item_id.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "rollout:thread-reused-tool-sequence:turn-1:14",
+            "rollout:thread-reused-tool-sequence:turn-2:14",
+        ]
+    );
+}
+
+#[test]
 fn repeated_identical_thread_record_does_not_append_metadata_snapshot() {
     let root = std::env::temp_dir().join(format!(
         "tinybot-thread-metadata-noop-{}-{}",
