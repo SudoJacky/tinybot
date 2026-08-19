@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:c0dcf73671c71709ba9c2a9dcba523e32fd19ef8c5122a25733c4439484b98e0 -->
+<!-- tinybot-module-fingerprint: sha256:9a0ebaf609b5f4ad08bf32c6a7656c3ab85728a3cb928fbb8dd9b077716de55e -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.

@@ -505,6 +505,7 @@ describe("ChatPage", () => {
     vi.mocked(stores.chatStore.load).mockResolvedValue(runningTimeline);
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
+    await waitFor(() => expect(vi.mocked(stores.chatStore.loadTinyOsCapabilities).mock.calls.length).toBeGreaterThanOrEqual(2));
     await screen.findByRole("button", { name: "Stop generation" });
     fireEvent.keyDown(await screen.findByRole("textbox", { name: /message/i }), { key: "Escape" });
 
