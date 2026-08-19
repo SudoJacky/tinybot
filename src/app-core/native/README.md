@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:c447eb691d52fe4b1d5f2f9166dce4a972b2ab2220c74f78b11782a7cfb32eb1 -->
+<!-- tinybot-module-fingerprint: sha256:2cc1718d6cdfd51d9de89ae08ecdd489c3b3e2f3c5e2484f38f018bc0afbf4e7 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -12,7 +12,9 @@ hash, and requested trust state; command parsing and changed-definition checks
 remain native responsibilities. Catalog snapshots also expose the generated,
 never-overwritten commented configuration and script-template paths. Its
 managed-hook save method sends the compact form draft and receives the refreshed
-catalog; filesystem layout and command generation stay native responsibilities.
+catalog. Test and archive methods address only the managed ID; sample creation,
+execution policy, filesystem layout, and recoverable removal stay native
+responsibilities.
 
 Adapters preserve native failures and normalize only their transport contract.
 React state and product projections remain in the workbench and other app-core

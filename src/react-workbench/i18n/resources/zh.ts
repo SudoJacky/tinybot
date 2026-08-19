@@ -124,6 +124,9 @@ export const zh = {
         scriptHint: "保存会创建 manifest 和默认无操作脚本，已有脚本修改不会被覆盖。",
         save: "创建脚本", saving: "正在保存…", cancel: "取消", edit: "设置", reveal: "显示脚本",
         enable: "启用", disable: "停用", enabled: "已启用", disabled: "已停用",
+        test: "测试", testing: "正在测试…", testResult: "测试结果：{{decision}}", testDuration: "{{duration}} 毫秒",
+        archive: "移除", archiving: "正在移除…",
+        confirmArchive: "从 Tinybot 中移除 {{name}}？其 manifest 和脚本会移动到 .tinybot/hooks-archive，仍可恢复。",
         matchers: {
           allTools: "所有工具", workspaceTools: "工作区工具", shellCommand: "Shell 命令",
           allCompaction: "手动及自动压缩", manualCompaction: "仅手动压缩", autoCompaction: "仅自动压缩",

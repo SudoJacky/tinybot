@@ -256,6 +256,13 @@ export const en = {
         disable: "Disable",
         enabled: "Enabled",
         disabled: "Disabled",
+        test: "Test",
+        testing: "Testing…",
+        testResult: "Test decision: {{decision}}",
+        testDuration: "{{duration}} ms",
+        archive: "Remove",
+        archiving: "Removing…",
+        confirmArchive: "Remove {{name}} from Tinybot? Its manifest and script will be moved to .tinybot/hooks-archive so they can be recovered.",
         matchers: {
           allTools: "All tools",
           workspaceTools: "Workspace tools",

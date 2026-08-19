@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:09b0f11e4676ff4dc358f70db18bc8173b9fc2f4499c923bc2b2b7c4b9efc85a -->
+<!-- tinybot-module-fingerprint: sha256:5ba9e76552f8fab05762ed5fb1b23bd660b5c04d80dd9dc589d13b3b0814fda2 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
@@ -14,3 +14,5 @@ privacy warning follow the same English and Simplified Chinese resource
 boundary; metric and event identifiers remain untranslated.
 The Hooks settings copy translates trust state and safety guidance while
 retaining event names, hashes, paths, commands, and diagnostic codes verbatim.
+Managed-hook form, test-result, and recoverable-remove copy follows the same
+boundary.

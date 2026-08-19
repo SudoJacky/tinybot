@@ -1,13 +1,16 @@
 use super::config::{
-    diagnostic, hook_hash, CommandHookDiagnostic, CommandHookHandler, CommandHookSource,
-    ResolvedCommandHook,
+    diagnostic, hook_hash, load_resolved_hooks, CommandHookDiagnostic, CommandHookHandler,
+    CommandHookSource, ResolvedCommandHook,
 };
+use super::runner::run_hook;
 use super::templates::{powershell_script_template, shell_script_template};
 use super::trust::HookTrustStore;
-use super::{compile_matcher, CommandHookEvent};
+use super::{compile_matcher, CommandHookEvent, CommandHookRequest};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const MANAGED_HOOK_SCHEMA: &str = "tinybot.managed_hook.v1";
 const MANIFEST_FILE_NAME: &str = "hook.json";
@@ -43,6 +46,21 @@ pub(crate) struct ManagedHookMetadata {
     pub language: ManagedHookLanguage,
     pub manifest_path: PathBuf,
     pub script_path: PathBuf,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ManagedHookTestResult {
+    pub id: String,
+    pub event: String,
+    pub decision: String,
+    pub duration_ms: u64,
+    pub denied_reason: Option<String>,
+    pub updated_input: Option<Value>,
+    pub additional_context: Option<String>,
+    pub system_message: Option<String>,
+    pub tool_feedback: Option<String>,
+    pub failure: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -122,6 +140,86 @@ pub(crate) fn save_managed_hook(
         )
     })?;
     Ok(id)
+}
+
+pub(crate) async fn test_managed_hook(
+    data_root: &Path,
+    workspace_root: &Path,
+    id: &str,
+) -> Result<ManagedHookTestResult, String> {
+    validate_id(id)?;
+    let hook = load_resolved_hooks(data_root, workspace_root)?
+        .hooks
+        .into_iter()
+        .find(|hook| {
+            hook.managed
+                .as_ref()
+                .is_some_and(|managed| managed.id == id)
+        })
+        .ok_or_else(|| format!("managed hook `{id}` does not exist"))?;
+    if !hook.enabled {
+        return Err(format!("managed hook `{id}` is disabled"));
+    }
+    if !hook.trusted {
+        return Err(format!(
+            "managed hook `{id}` must be trusted before its script can be tested"
+        ));
+    }
+    let event = hook.event;
+    let request = sample_request(event);
+    let run = run_hook(hook, request, workspace_root.to_path_buf()).await;
+    Ok(ManagedHookTestResult {
+        id: id.to_string(),
+        event: event.as_str().to_string(),
+        decision: run.decision,
+        duration_ms: run.duration_ms,
+        denied_reason: run.denied_reason,
+        updated_input: run.updated_input,
+        additional_context: run.additional_context,
+        system_message: run.system_message,
+        tool_feedback: run.tool_feedback,
+        failure: run.failure,
+    })
+}
+
+pub(crate) fn archive_managed_hook(workspace_root: &Path, id: &str) -> Result<PathBuf, String> {
+    validate_id(id)?;
+    let hooks_root = managed_hooks_root(workspace_root);
+    let hook_root = hooks_root.join(id);
+    if !hook_root.join(MANIFEST_FILE_NAME).is_file() {
+        return Err(format!("managed hook `{id}` does not exist"));
+    }
+    let archive_root = workspace_root.join(".tinybot").join("hooks-archive");
+    fs::create_dir_all(&archive_root).map_err(|error| {
+        format!(
+            "failed to create managed hook archive `{}`: {error}",
+            archive_root.display()
+        )
+    })?;
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| format!("failed to create managed hook archive timestamp: {error}"))?
+        .as_secs();
+    let mut destination = archive_root.join(format!("{id}-{timestamp}"));
+    for suffix in 2..=9_999 {
+        if !destination.exists() {
+            break;
+        }
+        destination = archive_root.join(format!("{id}-{timestamp}-{suffix}"));
+    }
+    if destination.exists() {
+        return Err(format!(
+            "failed to allocate an archive path for managed hook `{id}`"
+        ));
+    }
+    fs::rename(&hook_root, &destination).map_err(|error| {
+        format!(
+            "failed to archive managed hook `{}` to `{}`: {error}",
+            hook_root.display(),
+            destination.display()
+        )
+    })?;
+    Ok(destination)
 }
 
 pub(super) fn load_managed_hooks(
@@ -238,6 +336,44 @@ fn load_manifest(
             script_path,
         }),
     })
+}
+
+fn sample_request(event: CommandHookEvent) -> CommandHookRequest {
+    CommandHookRequest {
+        event,
+        session_id: "managed-hook-test".to_string(),
+        turn_id: "managed-hook-test".to_string(),
+        model: "managed-hook-test".to_string(),
+        permission_mode: "managed-hook-test".to_string(),
+        prompt: (event == CommandHookEvent::UserPromptSubmit)
+            .then(|| "Tinybot managed hook test prompt".to_string()),
+        tool_name: matches!(
+            event,
+            CommandHookEvent::PreToolUse | CommandHookEvent::PostToolUse
+        )
+        .then(|| "workspace.read_file".to_string()),
+        tool_match_names: if matches!(
+            event,
+            CommandHookEvent::PreToolUse | CommandHookEvent::PostToolUse
+        ) {
+            vec!["workspace.read_file".to_string()]
+        } else {
+            Vec::new()
+        },
+        tool_use_id: matches!(
+            event,
+            CommandHookEvent::PreToolUse | CommandHookEvent::PostToolUse
+        )
+        .then(|| "managed-hook-test-call".to_string()),
+        tool_input: matches!(
+            event,
+            CommandHookEvent::PreToolUse | CommandHookEvent::PostToolUse
+        )
+        .then(|| serde_json::json!({ "path": "README.md" })),
+        tool_response: (event == CommandHookEvent::PostToolUse)
+            .then(|| serde_json::json!({ "status": "ok", "content": "Tinybot hook test result" })),
+        trigger: (event == CommandHookEvent::PostCompact).then(|| "manual".to_string()),
+    }
 }
 
 fn handler_for(

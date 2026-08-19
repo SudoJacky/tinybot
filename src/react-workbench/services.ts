@@ -39,6 +39,7 @@ import type {
   NativeCommandHookSnapshot,
   NativeCommandHookSummary,
   NativeManagedHookLanguage,
+  NativeManagedHookTestResult,
 } from "../app-core/native/desktopNativeHooks";
 
 export type SessionSummary = {
@@ -164,6 +165,8 @@ export type HooksStore = {
     enabled: boolean;
     timeout: number;
   }): Promise<NativeCommandHookSnapshot>;
+  testManaged(input: { workspacePath: string; id: string }): Promise<NativeManagedHookTestResult>;
+  archiveManaged(input: { workspacePath: string; id: string }): Promise<NativeCommandHookSnapshot>;
 };
 
 export type PluginSummary = {

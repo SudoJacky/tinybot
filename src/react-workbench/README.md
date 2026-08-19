@@ -1,14 +1,17 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:749c488710e2dfddedb0c20058d933377f4ba49770c4bf83700a73b50355cec2 -->
+<!-- tinybot-module-fingerprint: sha256:ba7775e9fd4e4052c9bed54dfd1ebf452891931c0a4bb11f8fc4508d8a6033fd -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App`, `DesktopShell` owns the desktop chrome, and
 `defaultServices.ts` composes the renderer-facing stores.
 
 The optional `hooksStore` backs Settings > Hooks in the native desktop. The
-page selects a workspace, displays global and workspace definitions plus parse
-diagnostics, and requires explicit confirmation before trusting an exact
-command hash. It does not edit `hooks.json` or execute commands itself.
+page derives its workspace selector from Chat sessions and project groups,
+displays global and workspace definitions plus parse diagnostics, and requires
+explicit confirmation before trusting an exact command hash. Its managed form
+sends compact drafts and IDs through the store for save, isolated sample test,
+and recoverable archive operations; filesystem and execution policy stay in
+the backend. Hand-written `hooks.json` remains read-only in the renderer.
 
 ## Module seams
 

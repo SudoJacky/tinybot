@@ -64,6 +64,13 @@ describe("HooksSettingsPage", () => {
         hooks: snapshot.hooks.map((hook) => ({ ...hook, trusted: true })),
       })),
       saveManaged: vi.fn(async () => snapshot),
+      testManaged: vi.fn(async () => ({
+        id: "protect-files",
+        event: "PreToolUse" as const,
+        decision: "continue",
+        durationMs: 2,
+      })),
+      archiveManaged: vi.fn(async () => snapshot),
     };
     Object.defineProperty(window, "confirm", {
       configurable: true,
@@ -96,6 +103,13 @@ describe("HooksSettingsPage", () => {
       load: vi.fn(async () => ({ ...snapshot, hooks: [] })),
       setTrusted: vi.fn(async () => snapshot),
       saveManaged: vi.fn(async () => snapshot),
+      testManaged: vi.fn(async () => ({
+        id: "protect-files",
+        event: "PreToolUse" as const,
+        decision: "continue",
+        durationMs: 2,
+      })),
+      archiveManaged: vi.fn(async () => snapshot),
     };
 
     render(
@@ -120,5 +134,56 @@ describe("HooksSettingsPage", () => {
       enabled: true,
       timeout: 30,
     }));
+  });
+
+  test("tests trusted scripts and archives removed managed hooks", async () => {
+    const user = userEvent.setup();
+    const managedSnapshot: NativeCommandHookSnapshot = {
+      ...snapshot,
+      hooks: [{
+        ...snapshot.hooks[0],
+        trusted: true,
+        managed: {
+          id: "protect-files",
+          name: "Protect files",
+          language: "powershell",
+          manifestPath: "D:\\work\\.tinybot\\hooks\\protect-files\\hook.json",
+          scriptPath: "D:\\work\\.tinybot\\hooks\\protect-files\\hook.ps1",
+        },
+      }],
+    };
+    const hooksStore: HooksStore = {
+      load: vi.fn(async () => managedSnapshot),
+      setTrusted: vi.fn(async () => managedSnapshot),
+      saveManaged: vi.fn(async () => managedSnapshot),
+      testManaged: vi.fn(async () => ({
+        id: "protect-files",
+        event: "PreToolUse" as const,
+        decision: "continue",
+        durationMs: 2,
+      })),
+      archiveManaged: vi.fn(async () => ({ ...managedSnapshot, hooks: [] })),
+    };
+    Object.defineProperty(window, "confirm", {
+      configurable: true,
+      value: vi.fn(() => true),
+    });
+
+    render(
+      <HooksSettingsPage
+        hooksStore={hooksStore}
+        projectGroupStore={projectGroupStore}
+        sessionStore={sessionStore}
+      />,
+    );
+    await user.click(await screen.findByRole("button", { name: "Test" }));
+    expect(await screen.findByText("Test decision: continue")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+
+    await waitFor(() => expect(hooksStore.archiveManaged).toHaveBeenCalledWith({
+      workspacePath: "D:\\work",
+      id: "protect-files",
+    }));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("hooks-archive"));
   });
 });

@@ -1,6 +1,6 @@
 use crate::command_hooks::{
-    load_catalog_snapshot, save_managed_hook, set_hook_trusted, CommandHookCatalogSnapshot,
-    ManagedHookDraft,
+    archive_managed_hook, load_catalog_snapshot, save_managed_hook, set_hook_trusted,
+    test_managed_hook, CommandHookCatalogSnapshot, ManagedHookDraft, ManagedHookTestResult,
 };
 use crate::config::application::{native_backend_workspace_root, tinybot_data_root};
 use serde::Deserialize;
@@ -28,6 +28,13 @@ pub(crate) struct WorkerManagedHookSaveInput {
     workspace_path: String,
     #[serde(flatten)]
     hook: ManagedHookDraft,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkerManagedHookIdInput {
+    workspace_path: String,
+    id: String,
 }
 
 #[tauri::command]
@@ -58,6 +65,23 @@ pub(crate) fn worker_managed_hook_save(
 ) -> Result<CommandHookCatalogSnapshot, String> {
     let workspace_root = resolve_workspace_root(Some(&input.workspace_path))?;
     save_managed_hook(&workspace_root, input.hook)?;
+    load_catalog_snapshot(&tinybot_data_root(), &workspace_root)
+}
+
+#[tauri::command]
+pub(crate) async fn worker_managed_hook_test(
+    input: WorkerManagedHookIdInput,
+) -> Result<ManagedHookTestResult, String> {
+    let workspace_root = resolve_workspace_root(Some(&input.workspace_path))?;
+    test_managed_hook(&tinybot_data_root(), &workspace_root, input.id.trim()).await
+}
+
+#[tauri::command]
+pub(crate) fn worker_managed_hook_archive(
+    input: WorkerManagedHookIdInput,
+) -> Result<CommandHookCatalogSnapshot, String> {
+    let workspace_root = resolve_workspace_root(Some(&input.workspace_path))?;
+    archive_managed_hook(&workspace_root, input.id.trim())?;
     load_catalog_snapshot(&tinybot_data_root(), &workspace_root)
 }
 

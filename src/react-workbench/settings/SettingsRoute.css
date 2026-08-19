@@ -231,6 +231,31 @@
   padding: 14px;
 }
 
+.react-hooks-settings__test-result {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 14px;
+  border: 1px solid color-mix(in srgb, var(--color-success) 40%, var(--color-hairline));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-success) 8%, var(--color-panel));
+  padding: 12px 14px;
+  color: var(--color-ink);
+  font-size: 11px;
+}
+
+.react-hooks-settings__test-result span,
+.react-hooks-settings__test-result code,
+.react-hooks-settings__test-result p {
+  margin: 0;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+
+.react-hooks-settings__test-result p {
+  grid-column: 1 / -1;
+}
+
 .react-hooks-settings__paths > p,
 .react-hooks-settings__diagnostics p {
   margin: 0;
@@ -364,6 +389,10 @@
   }
 
   .react-hooks-settings__editor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .react-hooks-settings__test-result {
     grid-template-columns: 1fr;
   }
 }

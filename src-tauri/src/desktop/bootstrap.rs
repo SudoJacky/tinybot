@@ -224,6 +224,8 @@ pub(crate) fn run() {
             crate::desktop_commands::hooks::worker_hooks_snapshot,
             crate::desktop_commands::hooks::worker_hook_set_trusted,
             crate::desktop_commands::hooks::worker_managed_hook_save,
+            crate::desktop_commands::hooks::worker_managed_hook_test,
+            crate::desktop_commands::hooks::worker_managed_hook_archive,
             crate::desktop_commands::memory::worker_memory_snapshot,
             crate::desktop_commands::project_groups::worker_project_groups_list,
             crate::desktop_commands::project_groups::worker_project_group_save,

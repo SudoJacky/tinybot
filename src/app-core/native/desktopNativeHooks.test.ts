@@ -21,6 +21,8 @@ describe("desktop native hooks API", () => {
       enabled: true,
       timeout: 30,
     });
+    await api.testManaged({ workspacePath: "D:\\work", id: "protect-files" });
+    await api.archiveManaged({ workspacePath: "D:\\work", id: "protect-files" });
 
     expect(invoke.mock.calls).toEqual([
       ["worker_hooks_snapshot", { input: { workspacePath: "D:\\work" } }],
@@ -37,6 +39,12 @@ describe("desktop native hooks API", () => {
           enabled: true,
           timeout: 30,
         },
+      }],
+      ["worker_managed_hook_test", {
+        input: { workspacePath: "D:\\work", id: "protect-files" },
+      }],
+      ["worker_managed_hook_archive", {
+        input: { workspacePath: "D:\\work", id: "protect-files" },
       }],
     ]);
   });

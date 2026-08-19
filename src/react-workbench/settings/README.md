@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:3d5e1dc180284bb1d83741d8eb815480e4246de8b1582fbd8984553d7aa32407 -->
+<!-- tinybot-module-fingerprint: sha256:b2e50deceabcd81500aea530ce5ceb601b8b1fc238fcdaec072a312822ddcd0a -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
@@ -21,8 +21,8 @@ For managed hooks, the page derives workspace choices from the same session and
 project-group stores used by Chat. The form asks only for name, lifecycle event,
 an applicable-tool/compaction preset, language, and timeout. Tinybot creates the
 manifest and safe script, while the card exposes reveal, edit, enable/disable,
-and exact-hash trust actions. Hand-written hooks remain visible as advanced,
-read-only catalog entries.
+isolated sample test, recoverable remove, and exact-hash trust actions.
+Hand-written hooks remain visible as advanced, read-only catalog entries.
 
 `SettingsChoiceList.tsx` is the canonical fixed-choice control for settings
 pages. App preferences, appearance fonts, Agent defaults, and fixed config

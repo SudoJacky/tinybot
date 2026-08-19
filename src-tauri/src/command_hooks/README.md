@@ -1,5 +1,5 @@
 # Command Hooks
-<!-- tinybot-module-fingerprint: sha256:911a22fe3abf1ee6b0c1b989299fec7187366b7fdaf82001b3c8991c03846e16 -->
+<!-- tinybot-module-fingerprint: sha256:eeb46813f23bf22b26d2fc28f3513ff1423ef4d413e5408f07eea668abb860f9 -->
 
 `command_hooks` discovers, validates, reviews, and runs user-defined lifecycle
 commands. Tinybot loads `hooks.json` from the global data directory and the
@@ -23,6 +23,12 @@ projection, and enabled-state filtering. It stores each definition at
 `.tinybot/hooks/<id>/hook.json` beside `hook.ps1` or `hook.sh`. Updating the
 manifest never overwrites an existing user script. Managed and hand-written
 definitions converge before trust evaluation and command execution.
+
+Managed hooks can be tested individually after they are enabled and trusted.
+The backend builds a bounded sample for the hook's event, executes only that
+definition, and returns structured decision and feedback fields without raw
+stdout or stderr. Removal archives the complete managed-hook directory below
+`.tinybot/hooks-archive` instead of deleting it.
 
 Every handler is identified by a hash of its source path, event, matcher, and
 complete command definition. Commands are skipped until that exact hash is

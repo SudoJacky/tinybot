@@ -12,7 +12,7 @@ src-tauri/src/desktop_commands/plugins.rs
 src/app-core/native/desktopNativeHooks.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:90bf243bcb2988a654f9c68c1583d3fa01a2a1b25876bd7a2b1cf5c01c9b9a39 -->
+<!-- tinybot-doc-fingerprint: sha256:20bb0635990624bb0175dffe03d69ef389e7e2ec84c4e2c38b5a2e72a0d549eb -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -204,6 +204,8 @@ instruction in the update dialog. Blank values are omitted rather than rendered.
 | `worker_hooks_snapshot` | `{ input: { workspacePath?: string } }` | `CommandHookCatalogSnapshot` |
 | `worker_hook_set_trusted` | `{ input: { workspacePath?: string, hash: string, trusted: boolean } }` | `CommandHookCatalogSnapshot` |
 | `worker_managed_hook_save` | `{ input: { workspacePath: string, id?: string, name: string, event: string, matcher?: string, language: "powershell" | "shell", enabled: boolean, timeout: number } }` | `CommandHookCatalogSnapshot` |
+| `worker_managed_hook_test` | `{ input: { workspacePath: string, id: string } }` | `ManagedHookTestResult` |
+| `worker_managed_hook_archive` | `{ input: { workspacePath: string, id: string } }` | `CommandHookCatalogSnapshot` |
 
 Tinybot loads additive command-hook definitions from `~/.tinybot/hooks.json`
 and `<workspace>/.tinybot/hooks.json`. The first supported events are
@@ -235,6 +237,13 @@ definitions and hand-written global/workspace `hooks.json` definitions are
 additive and appear in the same catalog. A managed summary sets `enabled` and
 adds `managed` metadata containing `id`, `name`, `language`, `manifestPath`, and
 `scriptPath`.
+
+The managed test command requires the selected hook to be enabled and trusted,
+runs only that hook with a bounded event-specific sample, and returns its
+decision, duration, structured feedback, and failure summary without exposing
+raw process output. Removing a managed hook is recoverable: Tinybot moves its
+directory to `<workspace>/.tinybot/hooks-archive/<id>-<timestamp>` and returns
+the refreshed catalog.
 
 ```json
 {

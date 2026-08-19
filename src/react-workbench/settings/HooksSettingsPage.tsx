@@ -5,6 +5,7 @@ import type {
   NativeCommandHookSnapshot,
   NativeCommandHookSummary,
   NativeManagedHookLanguage,
+  NativeManagedHookTestResult,
 } from "../../app-core/native/desktopNativeHooks";
 import type { HooksStore, ProjectGroupStore, SessionStore } from "../services";
 
@@ -47,6 +48,9 @@ export function HooksSettingsPage({
   const [updatingHash, setUpdatingHash] = useState<string | null>(null);
   const [managedEditor, setManagedEditor] = useState<ManagedHookEditor | null>(null);
   const [savingManaged, setSavingManaged] = useState(false);
+  const [testingManagedId, setTestingManagedId] = useState<string | null>(null);
+  const [archivingManagedId, setArchivingManagedId] = useState<string | null>(null);
+  const [managedTestResult, setManagedTestResult] = useState<NativeManagedHookTestResult | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,6 +105,7 @@ export function HooksSettingsPage({
 
   function selectWorkspace(path: string) {
     setManagedEditor(null);
+    setManagedTestResult(null);
     setSnapshot(null);
     setWorkspacePath(path);
   }
@@ -213,6 +218,41 @@ export function HooksSettingsPage({
       await revealItemInDir(hook.managed.scriptPath);
     } catch (cause) {
       setError(errorMessage(cause));
+    }
+  }
+
+  async function testManaged(hook: NativeCommandHookSummary) {
+    if (!hook.managed || !selectedWorkspace) return;
+    setTestingManagedId(hook.managed.id);
+    setManagedTestResult(null);
+    setError(null);
+    try {
+      setManagedTestResult(await hooksStore.testManaged({
+        workspacePath: selectedWorkspace,
+        id: hook.managed.id,
+      }));
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setTestingManagedId(null);
+    }
+  }
+
+  async function archiveManaged(hook: NativeCommandHookSummary) {
+    if (!hook.managed || !selectedWorkspace) return;
+    if (!window.confirm(t("hooks.managed.confirmArchive", { name: hook.managed.name }))) return;
+    setArchivingManagedId(hook.managed.id);
+    setManagedTestResult(null);
+    setError(null);
+    try {
+      setSnapshot(await hooksStore.archiveManaged({
+        workspacePath: selectedWorkspace,
+        id: hook.managed.id,
+      }));
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setArchivingManagedId(null);
     }
   }
 
@@ -364,6 +404,16 @@ export function HooksSettingsPage({
       ) : null}
 
       {error ? <p className="react-settings-alert" role="alert">{error}</p> : null}
+      {managedTestResult ? (
+        <div className="react-hooks-settings__test-result" role="status">
+          <strong>{t("hooks.managed.testResult", { decision: managedTestResult.decision })}</strong>
+          <span>{t("hooks.managed.testDuration", { duration: managedTestResult.durationMs })}</span>
+          {managedTestResult.failure ? <code>{managedTestResult.failure}</code> : null}
+          {managedTestResult.deniedReason || managedTestResult.toolFeedback || managedTestResult.additionalContext ? (
+            <p>{managedTestResult.deniedReason || managedTestResult.toolFeedback || managedTestResult.additionalContext}</p>
+          ) : null}
+        </div>
+      ) : null}
       {!snapshot ? (
         <p className="react-empty-state">{t("hooks.loading")}</p>
       ) : (
@@ -420,11 +470,25 @@ export function HooksSettingsPage({
                           <button onClick={() => void revealScript(hook)} type="button">{t("hooks.managed.reveal")}</button>
                           <button onClick={() => startEditManaged(hook)} type="button">{t("hooks.managed.edit")}</button>
                           <button
+                            disabled={!hook.enabled || !hook.trusted || testingManagedId === hook.managed.id}
+                            onClick={() => void testManaged(hook)}
+                            type="button"
+                          >
+                            {testingManagedId === hook.managed.id ? t("hooks.managed.testing") : t("hooks.managed.test")}
+                          </button>
+                          <button
                             disabled={savingManaged}
                             onClick={() => void setManagedEnabled(hook, !hook.enabled)}
                             type="button"
                           >
                             {t(hook.enabled ? "hooks.managed.disable" : "hooks.managed.enable")}
+                          </button>
+                          <button
+                            disabled={archivingManagedId === hook.managed.id}
+                            onClick={() => void archiveManaged(hook)}
+                            type="button"
+                          >
+                            {archivingManagedId === hook.managed.id ? t("hooks.managed.archiving") : t("hooks.managed.archive")}
                           </button>
                         </>
                       ) : null}

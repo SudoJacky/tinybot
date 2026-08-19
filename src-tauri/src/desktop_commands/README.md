@@ -1,5 +1,5 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:a0ee0f1a5eb1af36eb9dabe634682ce8de30ed18e7308d57315ac9b413a1caf8 -->
+<!-- tinybot-module-fingerprint: sha256:8d23a884e505bdc1aaa205c1ace992be392fbd159919025ba650d5e6917682ea -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,
@@ -12,9 +12,9 @@ backend module.
 Hook commands resolve an existing workspace directory, return the additive
 global/workspace catalog, and mutate trust only after the backend confirms the
 requested exact-definition hash is still configured. They never execute a
-hook from the Tauri command boundary. The managed-hook save command delegates
-ID, manifest, script-template, and validation behavior to `command_hooks` and
-returns the refreshed catalog.
+hook implicitly from the Tauri command boundary. Managed-hook commands delegate
+save, isolated sample testing, and recoverable archive behavior to
+`command_hooks`; the command layer only resolves and validates the workspace.
 
 Chat creation, cancellation, and form resolution use the typed Thread commands.
 The transitional `worker_dispatch_tinyos_host_command` boundary accepts only

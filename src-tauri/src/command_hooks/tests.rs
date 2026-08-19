@@ -2,8 +2,9 @@ use super::config::{load_catalog_snapshot, load_resolved_hooks};
 use super::managed::ManagedHookLanguage;
 use super::runner::apply_json_output;
 use super::{
-    compile_matcher, save_managed_hook, set_hook_trusted, CommandHookEngine, CommandHookEvent,
-    CommandHookRequest, CommandHookRunResult, ManagedHookDraft,
+    archive_managed_hook, compile_matcher, save_managed_hook, set_hook_trusted, test_managed_hook,
+    CommandHookEngine, CommandHookEvent, CommandHookRequest, CommandHookRunResult,
+    ManagedHookDraft,
 };
 use serde_json::json;
 use std::fs;
@@ -160,6 +161,13 @@ fn managed_hook_save_owns_configuration_but_preserves_the_user_script() {
     assert_eq!(managed.id, id);
     assert_eq!(managed.name, "Protect files");
     assert!(managed.script_path.ends_with("hook.ps1"));
+    set_hook_trusted(&data_root, &workspace_root, &hook.hash, true)
+        .expect("managed hook should be trusted for testing");
+    let tested =
+        tauri::async_runtime::block_on(test_managed_hook(&data_root, &workspace_root, &id))
+            .expect("trusted managed script should run with sample input");
+    assert_eq!(tested.decision, "continue");
+    assert!(tested.failure.is_none());
 
     fs::write(&managed.script_path, "# user-owned script")
         .expect("managed script should be editable");
@@ -207,6 +215,15 @@ fn managed_hook_save_owns_configuration_but_preserves_the_user_script() {
         evaluation.runs.is_empty(),
         "disabled hooks must not execute"
     );
+    let archived =
+        archive_managed_hook(&workspace_root, "protect-files").expect("hook should be archived");
+    assert!(archived.starts_with(workspace_root.join(".tinybot").join("hooks-archive")));
+    assert!(archived.join("hook.json").is_file());
+    assert!(!workspace_root
+        .join(".tinybot")
+        .join("hooks")
+        .join("protect-files")
+        .exists());
 }
 
 #[test]
