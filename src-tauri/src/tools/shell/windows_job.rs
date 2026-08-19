@@ -1,7 +1,6 @@
 use std::io;
 use std::mem::size_of;
-use std::os::windows::io::AsRawHandle;
-use std::process::Child;
+use std::os::windows::io::{AsRawHandle, RawHandle};
 use std::ptr::null;
 
 use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, HANDLE};
@@ -11,7 +10,7 @@ use windows_sys::Win32::System::JobObjects::{
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
 
-pub(in crate::tools::shell) struct WindowsProcessJob {
+pub(crate) struct WindowsProcessJob {
     job: HANDLE,
 }
 
@@ -20,7 +19,7 @@ pub(in crate::tools::shell) struct WindowsProcessJob {
 unsafe impl Send for WindowsProcessJob {}
 
 impl WindowsProcessJob {
-    pub(in crate::tools::shell) fn new() -> io::Result<Self> {
+    pub(crate) fn new() -> io::Result<Self> {
         let job = unsafe { CreateJobObjectW(null(), null()) };
         if job.is_null() {
             return Err(last_error("CreateJobObjectW"));
@@ -45,15 +44,19 @@ impl WindowsProcessJob {
         Ok(Self { job })
     }
 
-    pub(in crate::tools::shell) fn assign(&self, child: &Child) -> io::Result<()> {
-        let process = child.as_raw_handle() as HANDLE;
+    pub(crate) fn assign<T: AsRawHandle>(&self, child: &T) -> io::Result<()> {
+        self.assign_raw_handle(child.as_raw_handle())
+    }
+
+    pub(crate) fn assign_raw_handle(&self, process: RawHandle) -> io::Result<()> {
+        let process = process as HANDLE;
         if unsafe { AssignProcessToJobObject(self.job, process) } == 0 {
             return Err(last_error("AssignProcessToJobObject"));
         }
         Ok(())
     }
 
-    pub(in crate::tools::shell) fn terminate(&self) -> io::Result<()> {
+    pub(crate) fn terminate(&self) -> io::Result<()> {
         if unsafe { TerminateJobObject(self.job, 1) } == 0 {
             return Err(last_error("TerminateJobObject"));
         }

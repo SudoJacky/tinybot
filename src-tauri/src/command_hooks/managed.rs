@@ -49,6 +49,8 @@ pub(crate) struct ManagedHookMetadata {
     pub language: ManagedHookLanguage,
     pub manifest_path: PathBuf,
     pub script_path: PathBuf,
+    #[serde(skip_serializing)]
+    pub script_revision: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -376,7 +378,16 @@ fn load_manifest(
     );
     let script_path = workspace_root.join(&relative_script);
     let handler = handler_for(manifest.language, &relative_script, manifest.timeout, &name);
-    let hash = hook_hash(manifest_path, event, matcher_text.as_deref(), &handler);
+    let contents = read_bounded_script(&script_path)
+        .map_err(|message| ("managed_hook_script_read_failed", message))?;
+    let script_revision = script_revision(&contents);
+    let hash = managed_hook_hash(
+        manifest_path,
+        event,
+        matcher_text.as_deref(),
+        &handler,
+        &script_revision,
+    );
     Ok(ResolvedCommandHook {
         event,
         matcher,
@@ -393,6 +404,7 @@ fn load_manifest(
             language: manifest.language,
             manifest_path: manifest_path.to_path_buf(),
             script_path,
+            script_revision,
         }),
     })
 }
@@ -461,7 +473,7 @@ fn managed_script_target(
     Ok((manifest, canonical_script))
 }
 
-fn read_bounded_script(path: &Path) -> Result<String, String> {
+pub(super) fn read_bounded_script(path: &Path) -> Result<String, String> {
     let size = fs::metadata(path)
         .map_err(|error| {
             format!(
@@ -493,8 +505,28 @@ fn read_bounded_script(path: &Path) -> Result<String, String> {
     Ok(contents)
 }
 
-fn script_revision(contents: &str) -> String {
+pub(super) fn script_revision(contents: &str) -> String {
     format!("sha256:{:x}", Sha256::digest(contents.as_bytes()))
+}
+
+fn managed_hook_hash(
+    manifest_path: &Path,
+    event: CommandHookEvent,
+    matcher: Option<&str>,
+    handler: &CommandHookHandler,
+    script_revision: &str,
+) -> String {
+    let canonical_manifest = manifest_path
+        .canonicalize()
+        .unwrap_or_else(|_| manifest_path.to_path_buf());
+    let definition_hash = hook_hash(&canonical_manifest, event, matcher, handler);
+    let canonical = serde_json::json!({
+        "schemaVersion": "tinybot.managed_hook.trust.v1",
+        "definitionHash": definition_hash,
+        "scriptRevision": script_revision,
+    });
+    let encoded = serde_json::to_vec(&canonical).unwrap_or_default();
+    format!("sha256:{:x}", Sha256::digest(encoded))
 }
 
 fn sample_request(event: CommandHookEvent) -> CommandHookRequest {

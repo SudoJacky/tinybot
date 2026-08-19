@@ -17,6 +17,8 @@ mod process_manager;
 mod process_manager_tests;
 #[cfg(target_os = "windows")]
 mod windows_job;
+#[cfg(target_os = "windows")]
+pub(crate) use self::windows_job::WindowsProcessJob;
 
 use self::process_manager::{ShellProcessManager, ValidatedShellStart};
 

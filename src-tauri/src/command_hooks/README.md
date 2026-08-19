@@ -38,10 +38,13 @@ so an external edit cannot be overwritten silently.
 
 Every handler is identified by a hash of its source path, event, matcher, and
 complete command definition. Commands are skipped until that exact hash is
-trusted in the global trust store. Editing a definition changes its hash and
-requires another review. Hook processes inherit the desktop user's authority;
-the Agent capability policy does not sandbox them.
+trusted in the global trust store. A managed hook's script revision also
+participates in this hash, and the runner revalidates that revision immediately
+before execution. Editing either the definition or script therefore requires
+another review. Hook processes inherit the desktop user's authority; the Agent
+capability policy does not sandbox them.
 
-The runner bounds stdin, stdout, and stderr, applies a timeout, and terminates
-the process tree on timeout. Runtime events expose decisions and bounded
-diagnostics without serializing command text or hook output.
+The runner bounds stdin, stdout, and stderr and applies one deadline to process
+execution and pipe draining. It terminates the complete process tree on timeout,
+including through a Windows Job Object. Runtime events expose decisions and
+bounded diagnostics without serializing command text or hook output.

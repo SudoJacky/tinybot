@@ -1,4 +1,5 @@
 use super::config::ResolvedCommandHook;
+use super::managed::{read_bounded_script, script_revision};
 use super::{CommandHookEvent, CommandHookRequest, CommandHookRunResult};
 use serde_json::Value;
 use std::path::PathBuf;
@@ -27,6 +28,24 @@ pub(super) async fn run_hook(
         source_path: hook.source_path.clone(),
         ..CommandHookRunResult::default()
     };
+    if let Some(managed) = hook.managed.as_ref() {
+        let current_revision = match read_bounded_script(&managed.script_path) {
+            Ok(contents) => script_revision(&contents),
+            Err(error) => {
+                result.failure = Some(format!("failed to validate managed hook script: {error}"));
+                result.decision = "failed".to_string();
+                return finish(result, started);
+            }
+        };
+        if current_revision != managed.script_revision {
+            result.failure = Some(format!(
+                "managed hook script `{}` changed after it was trusted",
+                managed.id
+            ));
+            result.decision = "failed".to_string();
+            return finish(result, started);
+        }
+    }
     let payload = hook_input_payload(&request, &workspace_root);
     let stdin = match serde_json::to_vec(&payload) {
         Ok(stdin) if stdin.len() <= MAX_STDIN_BYTES => stdin,
@@ -50,6 +69,15 @@ pub(super) async fn run_hook(
         .kill_on_drop(true);
     configure_hidden_window(&mut command);
     configure_process_group(&mut command);
+    #[cfg(windows)]
+    let process_job = match crate::tools::shell::WindowsProcessJob::new() {
+        Ok(job) => job,
+        Err(error) => {
+            result.failure = Some(format!("failed to create hook process job: {error}"));
+            result.decision = "failed".to_string();
+            return finish(result, started);
+        }
+    };
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
@@ -58,31 +86,54 @@ pub(super) async fn run_hook(
             return finish(result, started);
         }
     };
+    #[cfg(windows)]
+    if let Err(error) = child
+        .raw_handle()
+        .ok_or_else(|| "hook process exited before job assignment".to_string())
+        .and_then(|handle| {
+            process_job
+                .assign_raw_handle(handle)
+                .map_err(|error| error.to_string())
+        })
+    {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        result.failure = Some(format!("failed to assign hook process job: {error}"));
+        result.decision = "failed".to_string();
+        return finish(result, started);
+    }
     let process_id = child.id();
-    let stdin_task = child.stdin.take().map(|mut pipe| {
+    let mut stdin_task = child.stdin.take().map(|mut pipe| {
         tokio::spawn(async move {
             let _ = pipe.write_all(&stdin).await;
             let _ = pipe.shutdown().await;
         })
     });
-    let stdout_task = child
+    let mut stdout_task = child
         .stdout
         .take()
         .map(|pipe| tokio::spawn(read_bounded(pipe, MAX_STDOUT_BYTES)));
-    let stderr_task = child
+    let mut stderr_task = child
         .stderr
         .take()
         .map(|pipe| tokio::spawn(read_bounded(pipe, MAX_STDERR_BYTES)));
     let timeout = Duration::from_secs(hook.handler.timeout_seconds());
-    let status = match tokio::time::timeout(timeout, child.wait()).await {
+    let deadline = tokio::time::Instant::now() + timeout;
+    let status = match tokio::time::timeout_at(deadline, child.wait()).await {
         Ok(Ok(status)) => status,
         Ok(Err(error)) => {
             result.failure = Some(format!("failed to wait for hook command: {error}"));
             result.decision = "failed".to_string();
+            abort_io_tasks(&mut stdin_task, &mut stdout_task, &mut stderr_task);
+            #[cfg(windows)]
+            let _ = process_job.terminate();
             let _ = terminate_process_tree(&mut child, process_id).await;
             return finish(result, started);
         }
         Err(_) => {
+            abort_io_tasks(&mut stdin_task, &mut stdout_task, &mut stderr_task);
+            #[cfg(windows)]
+            let _ = process_job.terminate();
             let _ = terminate_process_tree(&mut child, process_id).await;
             result.failure = Some(format!(
                 "hook command timed out after {} seconds",
@@ -92,11 +143,30 @@ pub(super) async fn run_hook(
             return finish(result, started);
         }
     };
-    if let Some(task) = stdin_task {
-        let _ = task.await;
-    }
-    let (stdout, stdout_truncated) = join_output(stdout_task).await;
-    let (stderr, stderr_truncated) = join_output(stderr_task).await;
+    let drained = tokio::time::timeout_at(deadline, async {
+        if let Some(task) = stdin_task.as_mut() {
+            let _ = task.await;
+        }
+        let stdout = join_output(&mut stdout_task).await;
+        let stderr = join_output(&mut stderr_task).await;
+        (stdout, stderr)
+    })
+    .await;
+    let ((stdout, stdout_truncated), (stderr, stderr_truncated)) = match drained {
+        Ok(output) => output,
+        Err(_) => {
+            abort_io_tasks(&mut stdin_task, &mut stdout_task, &mut stderr_task);
+            #[cfg(windows)]
+            let _ = process_job.terminate();
+            let _ = terminate_process_tree(&mut child, process_id).await;
+            result.failure = Some(format!(
+                "hook command timed out after {} seconds",
+                hook.handler.timeout_seconds()
+            ));
+            result.decision = "failed".to_string();
+            return finish(result, started);
+        }
+    };
     let stdout = String::from_utf8_lossy(&stdout).trim().to_string();
     let stderr = String::from_utf8_lossy(&stderr).trim().to_string();
     if stdout_truncated || stderr_truncated {
@@ -379,10 +449,28 @@ where
     (output, truncated)
 }
 
-async fn join_output(task: Option<tokio::task::JoinHandle<(Vec<u8>, bool)>>) -> (Vec<u8>, bool) {
-    match task {
+async fn join_output(
+    task: &mut Option<tokio::task::JoinHandle<(Vec<u8>, bool)>>,
+) -> (Vec<u8>, bool) {
+    match task.as_mut() {
         Some(task) => task.await.unwrap_or_default(),
         None => (Vec::new(), false),
+    }
+}
+
+fn abort_io_tasks(
+    stdin: &mut Option<tokio::task::JoinHandle<()>>,
+    stdout: &mut Option<tokio::task::JoinHandle<(Vec<u8>, bool)>>,
+    stderr: &mut Option<tokio::task::JoinHandle<(Vec<u8>, bool)>>,
+) {
+    if let Some(task) = stdin.take() {
+        task.abort();
+    }
+    if let Some(task) = stdout.take() {
+        task.abort();
+    }
+    if let Some(task) = stderr.take() {
+        task.abort();
     }
 }
 
@@ -429,19 +517,14 @@ fn configure_process_group(command: &mut Command) {
 fn configure_process_group(_command: &mut Command) {}
 
 async fn terminate_process_tree(child: &mut Child, process_id: Option<u32>) -> Result<(), String> {
-    #[cfg(windows)]
-    if let Some(process_id) = process_id {
-        let mut taskkill = Command::new("taskkill");
-        taskkill.args(["/PID", &process_id.to_string(), "/T", "/F"]);
-        configure_hidden_window(&mut taskkill);
-        let _ = taskkill.status().await;
-    }
     #[cfg(unix)]
     if let Some(process_id) = process_id {
         unsafe {
             libc::kill(-(process_id as i32), libc::SIGKILL);
         }
     }
+    #[cfg(not(unix))]
+    let _ = process_id;
     child
         .kill()
         .await

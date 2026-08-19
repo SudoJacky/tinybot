@@ -9,7 +9,7 @@ use super::{
 use serde_json::json;
 use std::fs;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 struct TestDirectory(PathBuf);
 
@@ -213,7 +213,10 @@ fn managed_hook_save_owns_configuration_but_preserves_the_user_script() {
     )
     .expect_err("stale editor content must not overwrite a newer script");
     assert!(conflict.contains("changed on disk"));
-    set_hook_trusted(&data_root, &workspace_root, &updated.hooks[0].hash, true)
+    let edited = load_catalog_snapshot(&data_root, &workspace_root)
+        .expect("edited managed hook should reload before trusting");
+    assert_ne!(edited.hooks[0].hash, updated.hooks[0].hash);
+    set_hook_trusted(&data_root, &workspace_root, &edited.hooks[0].hash, true)
         .expect("disabled definition may retain trust for later re-enabling");
     let evaluation = tauri::async_runtime::block_on(
         CommandHookEngine::load(&data_root, &workspace_root).evaluate(&CommandHookRequest {
@@ -244,6 +247,71 @@ fn managed_hook_save_owns_configuration_but_preserves_the_user_script() {
         .join("hooks")
         .join("protect-files")
         .exists());
+}
+
+#[test]
+fn managed_script_changes_invalidate_trust_and_the_loaded_engine() {
+    let root = TestDirectory::new("managed-script-trust");
+    let data_root = root.path().join("data");
+    let workspace_root = root.path().join("workspace");
+    fs::create_dir_all(&workspace_root).expect("workspace root should be created");
+
+    let id = save_managed_hook(
+        &workspace_root,
+        ManagedHookDraft {
+            id: None,
+            name: "Guard tools".to_string(),
+            event: "PreToolUse".to_string(),
+            matcher: Some("*".to_string()),
+            language: ManagedHookLanguage::Shell,
+            enabled: true,
+            timeout: 30,
+        },
+    )
+    .expect("managed hook should be saved");
+    let initial = load_catalog_snapshot(&data_root, &workspace_root)
+        .expect("managed hook should appear in the catalog");
+    let original_hash = initial.hooks[0].hash.clone();
+    let script_path = initial.hooks[0]
+        .managed
+        .as_ref()
+        .expect("hook should be managed")
+        .script_path
+        .clone();
+    set_hook_trusted(&data_root, &workspace_root, &original_hash, true)
+        .expect("managed hook should be trusted");
+    let engine = CommandHookEngine::load(&data_root, &workspace_root);
+    assert_eq!(engine.hooks.len(), 1);
+    assert!(engine.hooks[0].trusted);
+    assert_eq!(engine.hooks[0].event, CommandHookEvent::PreToolUse);
+
+    fs::write(&script_path, "# changed after trust\n").expect("managed script should change");
+    let changed = load_catalog_snapshot(&data_root, &workspace_root)
+        .expect("changed managed hook should remain readable");
+    assert_ne!(changed.hooks[0].hash, original_hash);
+    assert!(!changed.hooks[0].trusted);
+
+    let evaluation = tauri::async_runtime::block_on(engine.evaluate(&CommandHookRequest {
+        event: CommandHookEvent::PreToolUse,
+        session_id: "session-managed-trust".to_string(),
+        turn_id: "turn-managed-trust".to_string(),
+        model: "test-model".to_string(),
+        permission_mode: "local-worker".to_string(),
+        prompt: None,
+        tool_name: Some("workspace.read_file".to_string()),
+        tool_match_names: vec!["workspace.read_file".to_string()],
+        tool_use_id: Some("call-managed-trust".to_string()),
+        tool_input: Some(json!({ "path": "README.md" })),
+        tool_response: None,
+        trigger: None,
+    }));
+    assert_eq!(evaluation.runs.len(), 1);
+    assert_eq!(evaluation.runs[0].decision, "failed");
+    assert!(evaluation.runs[0]
+        .failure
+        .as_deref()
+        .is_some_and(|failure| failure.contains("changed after it was trusted")));
+    assert_eq!(id, "guard-tools");
 }
 
 #[test]
@@ -398,6 +466,61 @@ fn trusted_command_hook_runs_with_json_input_and_output() {
     );
     assert_eq!(evaluation.runs[0].decision, "replace_input");
     assert!(evaluation.runs[0].failure.is_none());
+}
+
+#[test]
+fn hook_timeout_covers_inherited_output_pipe_lifetime() {
+    let root = TestDirectory::new("runner-pipe-timeout");
+    let data_root = root.path().join("data");
+    let workspace_root = root.path().join("workspace");
+    fs::create_dir_all(&data_root).expect("data root should be created");
+    fs::create_dir_all(&workspace_root).expect("workspace root should be created");
+    fs::write(
+        data_root.join("hooks.json"),
+        serde_json::to_vec_pretty(&json!({
+            "hooks": {
+                "UserPromptSubmit": [{
+                    "hooks": [{
+                        "type": "command",
+                        "command": "sleep 7 & printf '{}'",
+                        "commandWindows": "start /B ping.exe 127.0.0.1 -n 8",
+                        "timeout": 2
+                    }]
+                }]
+            }
+        }))
+        .expect("hook config should serialize"),
+    )
+    .expect("hook config should be written");
+    let loaded = load_resolved_hooks(&data_root, &workspace_root)
+        .expect("hook config should load before trusting");
+    set_hook_trusted(&data_root, &workspace_root, &loaded.hooks[0].hash, true)
+        .expect("configured hook should be trusted");
+    let engine = CommandHookEngine::load(&data_root, &workspace_root);
+
+    let started = Instant::now();
+    let evaluation = tauri::async_runtime::block_on(engine.evaluate(&CommandHookRequest {
+        event: CommandHookEvent::UserPromptSubmit,
+        session_id: "session-pipe-timeout".to_string(),
+        turn_id: "turn-pipe-timeout".to_string(),
+        model: "test-model".to_string(),
+        permission_mode: "local-worker".to_string(),
+        prompt: Some("test".to_string()),
+        tool_name: None,
+        tool_match_names: Vec::new(),
+        tool_use_id: None,
+        tool_input: None,
+        tool_response: None,
+        trigger: None,
+    }));
+
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert_eq!(evaluation.runs.len(), 1);
+    assert_eq!(evaluation.runs[0].decision, "failed");
+    assert!(evaluation.runs[0]
+        .failure
+        .as_deref()
+        .is_some_and(|failure| failure.contains("timed out after 2 seconds")));
 }
 
 #[test]
