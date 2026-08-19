@@ -33,6 +33,7 @@ used as a source of truth.
 - [Framework-independent application core](../src/app-core/chat/README.md)
 - [Native renderer adapters](../src/app-core/native/README.md)
 - [Desktop host guide](desktop.md)
+- [Windows desktop smoke test](guides/desktop-smoke-test.md)
 
 ## Document classes
 
