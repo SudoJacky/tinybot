@@ -347,6 +347,11 @@ export const zh = {
       agentResponding: "Agent 正在回复", copyMessage: "复制消息", branchHere: "从此处分支", formErrors: "表单错误", agentForms: "Agent 表单",
       openDetails: "打开 {{name}} 的详情", contextCompacted: "上下文已压缩", compactionDetails: "压缩详情",
     },
+    hook: {
+      results: "Hook 执行结果", duration: "{{duration}} 毫秒",
+      stage: { userPromptSubmit: "提交用户提示词后", preToolUse: "工具调用前", postToolUse: "工具调用后", postCompact: "上下文压缩后" },
+      decision: { continue: "已继续", deny: "已阻止", replaceInput: "已更新输入", additionalContext: "已补充上下文", replaceToolResult: "已替换工具结果", systemMessage: "系统消息", failed: "执行失败" },
+    },
     execution: {
       actionCount: "{{count}} 个操作", plan: "计划 {{completed}}/{{total}}", attention: "需要处理",
       status: { completed: "已完成", failed: "失败", interrupted: "已中断", awaiting: "等待输入", running: "执行中" },

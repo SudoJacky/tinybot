@@ -329,6 +329,7 @@ export function ChatPage({
     browserError,
     browserSnapshot,
     error: timelineError,
+    hookResults,
     timeline,
   } = sessionRuntime.state;
   const {
@@ -2006,6 +2007,7 @@ export function ChatPage({
               onRecover: (turn, action) => void handleRecoverTurn(turn, action),
             }}
             error={timelineError}
+            hookResults={hookResults}
             interactiveFormIds={interactiveFormIds}
             latestFailedTurnId={latestFailedTurnId}
             optimisticMessages={optimisticMessages}

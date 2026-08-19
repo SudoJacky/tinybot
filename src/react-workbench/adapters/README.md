@@ -1,5 +1,5 @@
 # Desktop Adapters
-<!-- tinybot-module-fingerprint: sha256:2cef19ce5399a987599dd347706885f5f567cbf8c97401a6ed55ae313ddd1597 -->
+<!-- tinybot-module-fingerprint: sha256:810a0125f5642f6bfb0d3fcdac1ece46d6cbfd07c57325217bd1658f6afdec63 -->
 
 `adapters` implements renderer store interfaces over Tinybot's native and
 app-core modules. It owns event projection and the Settings, Tools, and

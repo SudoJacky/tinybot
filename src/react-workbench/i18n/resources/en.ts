@@ -718,6 +718,11 @@ export const en = {
       agentResponding: "Agent is responding", copyMessage: "Copy message", branchHere: "Branch from here", formErrors: "Form errors", agentForms: "Agent forms",
       openDetails: "Open details for {{name}}", contextCompacted: "Context compacted", compactionDetails: "Compaction details",
     },
+    hook: {
+      results: "Hook results", duration: "{{duration}} ms",
+      stage: { userPromptSubmit: "User prompt", preToolUse: "Before tool use", postToolUse: "After tool use", postCompact: "After compaction" },
+      decision: { continue: "Continued", deny: "Blocked", replaceInput: "Updated input", additionalContext: "Added context", replaceToolResult: "Replaced tool result", systemMessage: "System message", failed: "Failed" },
+    },
     execution: {
       actionCount: "{{count}} actions", plan: "plan {{completed}}/{{total}}", attention: "attention required",
       status: { completed: "Completed", failed: "Failed", interrupted: "Interrupted", awaiting: "Awaiting input", running: "Running" },

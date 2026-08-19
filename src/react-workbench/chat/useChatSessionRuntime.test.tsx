@@ -154,6 +154,44 @@ describe("useChatSessionRuntime", () => {
     expect(result.current.state.browserSnapshot?.data.surface?.lifecycle).toBe("visible");
     expect(result.current.state.browserSnapshot?.revision).toBe(3);
   });
+
+  test("keeps a live hook result when the initial timeline finishes loading later", async () => {
+    let listener: ((event: ChatEvent) => void) | undefined;
+    let resolveTimeline: ((value: ChatTimelineSnapshot) => void) | undefined;
+    const store = runtimeStore({
+      load: vi.fn(() => new Promise<ChatTimelineSnapshot>((resolve) => {
+        resolveTimeline = resolve;
+      })),
+      subscribe: vi.fn((_sessionId, nextListener) => {
+        listener = nextListener;
+        return vi.fn();
+      }),
+    });
+    const { result } = renderHook(() => useChatSessionRuntime({
+      chatStore: store,
+      sessionId: "session-1",
+    }));
+    await waitFor(() => expect(listener).toBeDefined());
+
+    act(() => listener?.({
+      hookResults: [{
+        decision: "continue",
+        durationMs: 42,
+        hookName: "Reviewing tool input",
+        id: "hook-result-1",
+        stage: "PreToolUse",
+        toolCallId: "tool-1",
+        turnId: "turn-1",
+      }],
+      type: "hook.completed",
+    }));
+    act(() => resolveTimeline?.(timeline("session-1")));
+
+    await waitFor(() => expect(result.current.state.status).toBe("ready"));
+    expect(result.current.state.hookResults).toEqual([
+      expect.objectContaining({ id: "hook-result-1", hookName: "Reviewing tool input" }),
+    ]);
+  });
 });
 
 function runtimeStore(overrides: Partial<RuntimeStore> = {}): RuntimeStore {

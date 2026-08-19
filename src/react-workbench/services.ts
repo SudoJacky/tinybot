@@ -1,5 +1,6 @@
 import type { ReactChatMessage } from "./chat/messageActions";
 import type { ChatTimelineSnapshot } from "../app-core/chat/agentTimelineModel";
+import type { HookExecutionResult } from "../app-core/chat/hookExecutionResult";
 import type { AgentUiForm } from "../app-core/agent-ui/agentUiEvents";
 import type {
   WorkspaceDirectoryPage,
@@ -84,6 +85,7 @@ export type ChatEvent = {
   commandId?: string;
   eventType?: string;
   error?: string;
+  hookResults?: HookExecutionResult[];
   message?: ReactChatMessage;
   timeline?: ChatTimelineSnapshot;
 };

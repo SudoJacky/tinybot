@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AgentInputReference } from "../../app-core/chat/agentInputReference";
+import type { HookExecutionResult } from "../../app-core/chat/hookExecutionResult";
 import type {
   ArtifactRef,
   ChatStep,
@@ -53,6 +54,7 @@ export type ChatTimelineActions = {
 export function ChatTimeline({
   actions,
   error,
+  hookResults,
   interactiveFormIds,
   latestFailedTurnId,
   optimisticMessages,
@@ -62,6 +64,7 @@ export function ChatTimeline({
 }: {
   actions: ChatTimelineActions;
   error?: string;
+  hookResults: readonly HookExecutionResult[];
   interactiveFormIds: ReadonlySet<string>;
   latestFailedTurnId: string;
   optimisticMessages: readonly ReactChatMessage[];
@@ -77,6 +80,7 @@ export function ChatTimeline({
           focusError={turn.id === latestFailedTurnId}
           interactiveFormIds={interactiveFormIds}
           key={turn.id}
+          hookResults={hookResults.filter((result) => result.turnId === turn.id)}
           recovering={recoveringTurnId === turn.id}
           turn={turn}
           onBranch={actions.onBranch}
@@ -107,6 +111,7 @@ async function writeClipboardText(value: string): Promise<void> {
 
 function CanonicalChatTurn({
   focusError,
+  hookResults,
   interactiveFormIds,
   onBranch,
   onOpenError,
@@ -118,6 +123,7 @@ function CanonicalChatTurn({
   turn,
 }: {
   focusError: boolean;
+  hookResults: readonly HookExecutionResult[];
   interactiveFormIds: ReadonlySet<string>;
   onBranch: (messageId: string) => void;
   onOpenError: (step: ChatStep) => void;
@@ -196,6 +202,7 @@ function CanonicalChatTurn({
           ))}
         </>
       ) : null}
+      {hookResults.length ? <HookExecutionResults results={hookResults} /> : null}
       {finalAnswer ? (
         <CanonicalMessage
           allowActions={turn.status === "completed"}
@@ -222,6 +229,56 @@ function CanonicalChatTurn({
       ))}
     </section>
   );
+}
+
+function HookExecutionResults({ results }: { results: readonly HookExecutionResult[] }) {
+  const { t } = useTranslation("chat");
+  return (
+    <ul aria-label={t("hook.results")} className="react-hook-results">
+      {results.map((result) => {
+        const status = result.failure || result.decision === "failed"
+          ? "error"
+          : result.decision === "deny" ? "warning" : "success";
+        return (
+          <li className="react-hook-result" data-status={status} key={result.id}>
+            <span aria-hidden="true" className="react-hook-result__icon">
+              {status === "success" ? <Check size={14} /> : <AlertTriangle size={14} />}
+            </span>
+            <span className="react-hook-result__copy">
+              <strong>{result.hookName}</strong>
+              <small>
+                {hookStageLabel(result.stage, t)} · {hookDecisionLabel(result.decision, t)} · {t("hook.duration", { duration: result.durationMs })}
+              </small>
+              {result.failure ? <small className="react-hook-result__failure">{result.failure}</small> : null}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function hookStageLabel(stage: string, t: TFunction<"chat">): string {
+  switch (stage) {
+    case "UserPromptSubmit": return t("hook.stage.userPromptSubmit");
+    case "PreToolUse": return t("hook.stage.preToolUse");
+    case "PostToolUse": return t("hook.stage.postToolUse");
+    case "PostCompact": return t("hook.stage.postCompact");
+    default: return stage;
+  }
+}
+
+function hookDecisionLabel(decision: string, t: TFunction<"chat">): string {
+  switch (decision) {
+    case "continue": return t("hook.decision.continue");
+    case "deny": return t("hook.decision.deny");
+    case "replace_input": return t("hook.decision.replaceInput");
+    case "additional_context": return t("hook.decision.additionalContext");
+    case "replace_tool_result": return t("hook.decision.replaceToolResult");
+    case "system_message": return t("hook.decision.systemMessage");
+    case "failed": return t("hook.decision.failed");
+    default: return decision;
+  }
 }
 
 function groupCanonicalSteps(steps: ChatStep[]): Array<ChatStep | ChatStep[]> {

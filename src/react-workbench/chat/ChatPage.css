@@ -1554,6 +1554,68 @@
   display: contents;
 }
 
+.react-hook-results {
+  display: grid;
+  width: min(820px, 100%);
+  gap: 4px;
+  margin: 4px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.react-hook-result {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-surface-soft) 68%, transparent);
+  padding: 7px 9px;
+}
+
+.react-hook-result__icon {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  color: color-mix(in srgb, var(--color-success) 82%, #245b31);
+}
+
+.react-hook-result[data-status="warning"] .react-hook-result__icon {
+  color: var(--color-warning);
+}
+
+.react-hook-result[data-status="error"] .react-hook-result__icon {
+  color: var(--color-error);
+}
+
+.react-hook-result__copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.react-hook-result__copy strong {
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-hook-result__copy small {
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.react-hook-result__copy .react-hook-result__failure {
+  color: var(--color-error);
+}
+
 .react-execution-timeline {
   align-self: start;
   width: min(820px, 100%);

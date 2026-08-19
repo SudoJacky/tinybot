@@ -97,6 +97,44 @@ describe("canonical agent timeline model", () => {
     });
   });
 
+  test("restores completed command hook results from persisted runtime events", () => {
+    const model = createAgentTimelineModel();
+    const snapshot = model.load(sessionId, [runtimeState(1, [item()], {
+      runtimeEvents: [{
+        eventName: "agent.hook.decision",
+        payload: {
+          commandRuns: [{
+            decision: "failed",
+            durationMs: 17,
+            failure: "Script exited with code 1",
+            hookHash: "sha256:hidden",
+            hookName: "Validate tool call",
+            sourcePath: "D:\\workspace\\.tinybot\\hooks\\validate.ps1",
+          }],
+          requestId: "request-1",
+          stage: "before_tool_use",
+          threadId: sessionId,
+          toolCallId: "tool-1",
+          traceId: "trace-1",
+          turnId,
+        },
+      }],
+    })]);
+
+    expect(snapshot.hookResults).toEqual([{
+      decision: "failed",
+      durationMs: 17,
+      failure: "Script exited with code 1",
+      hookName: "Validate tool call",
+      id: `trace-1:request-1:${turnId}:PreToolUse:tool-1:0:Validate tool call`,
+      stage: "PreToolUse",
+      toolCallId: "tool-1",
+      turnId,
+    }]);
+    expect(JSON.stringify(snapshot.hookResults)).not.toContain("sha256:hidden");
+    expect(JSON.stringify(snapshot.hookResults)).not.toContain("validate.ps1");
+  });
+
   test("applies live item deltas without advancing the durable snapshot revision", () => {
     const model = createAgentTimelineModel();
     model.load(sessionId, [runtimeState(1, [item({ revision: 2 })])]);
