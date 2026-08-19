@@ -1,4 +1,5 @@
 mod config;
+mod managed;
 mod runner;
 mod templates;
 mod trust;
@@ -12,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 pub(crate) use self::config::{load_catalog_snapshot, CommandHookCatalogSnapshot};
 use self::config::{load_resolved_hooks, ResolvedCommandHook};
+pub(crate) use self::managed::{save_managed_hook, ManagedHookDraft};
 use self::runner::run_hook;
 pub(crate) use self::trust::set_hook_trusted;
 
@@ -116,7 +118,7 @@ impl CommandHookEngine {
         let matching = self
             .hooks
             .iter()
-            .filter(|hook| hook.trusted && hook.event == request.event)
+            .filter(|hook| hook.enabled && hook.trusted && hook.event == request.event)
             .filter(|hook| hook_matches(hook, request))
             .cloned()
             .collect::<Vec<_>>();

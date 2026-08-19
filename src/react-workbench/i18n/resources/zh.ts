@@ -116,6 +116,20 @@ export const zh = {
       trusted: "已信任", untrusted: "未信任", trust: "信任该定义", revoke: "撤销信任", updating: "正在更新…",
       timeout: "超时 {{seconds}} 秒", confirmTrust: "是否信任这个 {{event}} Hook，并允许它以你的桌面权限运行？\n\n{{command}}",
       source: { global: "全局", workspace: "工作区" },
+      managed: {
+        create: "新建 Hook", createTitle: "创建托管 Hook", editTitle: "编辑托管 Hook",
+        description: "Tinybot 负责配置；你只需选择运行时机，然后专注于生成的脚本。",
+        name: "Hook 名称", namePlaceholder: "保护工作区文件", event: "运行阶段", appliesTo: "作用对象",
+        language: "脚本语言", matcher: "自定义 matcher（正则表达式）", timeout: "超时秒数",
+        scriptHint: "保存会创建 manifest 和默认无操作脚本，已有脚本修改不会被覆盖。",
+        save: "创建脚本", saving: "正在保存…", cancel: "取消", edit: "设置", reveal: "显示脚本",
+        enable: "启用", disable: "停用", enabled: "已启用", disabled: "已停用",
+        matchers: {
+          allTools: "所有工具", workspaceTools: "工作区工具", shellCommand: "Shell 命令",
+          allCompaction: "手动及自动压缩", manualCompaction: "仅手动压缩", autoCompaction: "仅自动压缩",
+          custom: "自定义正则表达式",
+        },
+      },
     },
     appearance: {
       eyebrow: "个性化", title: "外观", description: "选择 Tinybot 在这台设备上的显示方式，并调整全局界面样式。",

@@ -1,8 +1,9 @@
 use super::config::{load_catalog_snapshot, load_resolved_hooks};
+use super::managed::ManagedHookLanguage;
 use super::runner::apply_json_output;
 use super::{
-    compile_matcher, set_hook_trusted, CommandHookEngine, CommandHookEvent, CommandHookRequest,
-    CommandHookRunResult,
+    compile_matcher, save_managed_hook, set_hook_trusted, CommandHookEngine, CommandHookEvent,
+    CommandHookRequest, CommandHookRunResult, ManagedHookDraft,
 };
 use serde_json::json;
 use std::fs;
@@ -122,6 +123,89 @@ fn catalog_creates_commented_templates_without_overwriting_user_edits() {
         fs::read_to_string(&snapshot.template_config_path)
             .expect("template should remain readable"),
         "user-owned template"
+    );
+}
+
+#[test]
+fn managed_hook_save_owns_configuration_but_preserves_the_user_script() {
+    let root = TestDirectory::new("managed");
+    let data_root = root.path().join("data");
+    let workspace_root = root.path().join("workspace");
+    fs::create_dir_all(&workspace_root).expect("workspace root should be created");
+
+    let id = save_managed_hook(
+        &workspace_root,
+        ManagedHookDraft {
+            id: None,
+            name: "Protect files".to_string(),
+            event: "PreToolUse".to_string(),
+            matcher: Some("^workspace\\.".to_string()),
+            language: ManagedHookLanguage::Powershell,
+            enabled: true,
+            timeout: 30,
+        },
+    )
+    .expect("managed hook should be saved");
+    assert_eq!(id, "protect-files");
+
+    let snapshot = load_catalog_snapshot(&data_root, &workspace_root)
+        .expect("managed hook should appear in the catalog");
+    assert_eq!(snapshot.hooks.len(), 1);
+    let hook = &snapshot.hooks[0];
+    assert!(hook.enabled);
+    assert!(!hook.trusted);
+    assert_eq!(hook.event, "PreToolUse");
+    assert_eq!(hook.matcher.as_deref(), Some("^workspace\\."));
+    let managed = hook.managed.as_ref().expect("hook should be managed");
+    assert_eq!(managed.id, id);
+    assert_eq!(managed.name, "Protect files");
+    assert!(managed.script_path.ends_with("hook.ps1"));
+
+    fs::write(&managed.script_path, "# user-owned script")
+        .expect("managed script should be editable");
+    save_managed_hook(
+        &workspace_root,
+        ManagedHookDraft {
+            id: Some(id),
+            name: "Protect workspace files".to_string(),
+            event: "PostToolUse".to_string(),
+            matcher: Some("*".to_string()),
+            language: ManagedHookLanguage::Powershell,
+            enabled: false,
+            timeout: 45,
+        },
+    )
+    .expect("managed hook should be updated");
+    assert_eq!(
+        fs::read_to_string(&managed.script_path).expect("script should remain readable"),
+        "# user-owned script"
+    );
+    let updated = load_catalog_snapshot(&data_root, &workspace_root)
+        .expect("updated managed hook should load");
+    assert_eq!(updated.hooks[0].event, "PostToolUse");
+    assert!(!updated.hooks[0].enabled);
+    assert_eq!(updated.hooks[0].timeout, 45);
+    set_hook_trusted(&data_root, &workspace_root, &updated.hooks[0].hash, true)
+        .expect("disabled definition may retain trust for later re-enabling");
+    let evaluation = tauri::async_runtime::block_on(
+        CommandHookEngine::load(&data_root, &workspace_root).evaluate(&CommandHookRequest {
+            event: CommandHookEvent::PostToolUse,
+            session_id: "session-managed".to_string(),
+            turn_id: "turn-managed".to_string(),
+            model: "test-model".to_string(),
+            permission_mode: "local-worker".to_string(),
+            prompt: None,
+            tool_name: Some("workspace.read_file".to_string()),
+            tool_match_names: vec!["workspace.read_file".to_string()],
+            tool_use_id: Some("call-managed".to_string()),
+            tool_input: Some(json!({ "path": "README.md" })),
+            tool_response: Some(json!({ "content": "test" })),
+            trigger: None,
+        }),
+    );
+    assert!(
+        evaluation.runs.is_empty(),
+        "disabled hooks must not execute"
     );
 }
 

@@ -3,6 +3,15 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 type TauriInvoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
 
 export type NativeCommandHookSource = "global" | "workspace";
+export type NativeManagedHookLanguage = "powershell" | "shell";
+
+export type NativeManagedHookMetadata = {
+  id: string;
+  name: string;
+  language: NativeManagedHookLanguage;
+  manifestPath: string;
+  scriptPath: string;
+};
 
 export type NativeCommandHookSummary = {
   hash: string;
@@ -14,6 +23,8 @@ export type NativeCommandHookSummary = {
   source: NativeCommandHookSource;
   sourcePath: string;
   trusted: boolean;
+  enabled: boolean;
+  managed?: NativeManagedHookMetadata;
 };
 
 export type NativeCommandHookDiagnostic = {
@@ -37,6 +48,16 @@ export type NativeCommandHookSnapshot = {
 export type NativeHooksApi = {
   snapshot(workspacePath?: string): Promise<NativeCommandHookSnapshot>;
   setTrusted(input: { workspacePath?: string; hash: string; trusted: boolean }): Promise<NativeCommandHookSnapshot>;
+  saveManaged(input: {
+    workspacePath: string;
+    id?: string;
+    name: string;
+    event: NativeCommandHookSummary["event"];
+    matcher?: string;
+    language: NativeManagedHookLanguage;
+    enabled: boolean;
+    timeout: number;
+  }): Promise<NativeCommandHookSnapshot>;
 };
 
 export function createDesktopNativeHooksApi(options: { invoke?: TauriInvoke } = {}): NativeHooksApi {
@@ -46,5 +67,6 @@ export function createDesktopNativeHooksApi(options: { invoke?: TauriInvoke } = 
       input: { ...(workspacePath ? { workspacePath } : {}) },
     }) as Promise<NativeCommandHookSnapshot>,
     setTrusted: (input) => invoke("worker_hook_set_trusted", { input }) as Promise<NativeCommandHookSnapshot>,
+    saveManaged: (input) => invoke("worker_managed_hook_save", { input }) as Promise<NativeCommandHookSnapshot>,
   };
 }

@@ -12,11 +12,31 @@ describe("desktop native hooks API", () => {
       hash: "sha256:abc",
       trusted: true,
     });
+    await api.saveManaged({
+      workspacePath: "D:\\work",
+      name: "Protect files",
+      event: "PreToolUse",
+      matcher: "^workspace\\.",
+      language: "powershell",
+      enabled: true,
+      timeout: 30,
+    });
 
     expect(invoke.mock.calls).toEqual([
       ["worker_hooks_snapshot", { input: { workspacePath: "D:\\work" } }],
       ["worker_hook_set_trusted", {
         input: { workspacePath: "D:\\work", hash: "sha256:abc", trusted: true },
+      }],
+      ["worker_managed_hook_save", {
+        input: {
+          workspacePath: "D:\\work",
+          name: "Protect files",
+          event: "PreToolUse",
+          matcher: "^workspace\\.",
+          language: "powershell",
+          enabled: true,
+          timeout: 30,
+        },
       }],
     ]);
   });

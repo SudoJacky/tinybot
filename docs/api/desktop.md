@@ -12,7 +12,7 @@ src-tauri/src/desktop_commands/plugins.rs
 src/app-core/native/desktopNativeHooks.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:173b15a87ddc01ab963317c3206d057e36fa072504508c0501916344799769ca -->
+<!-- tinybot-doc-fingerprint: sha256:90bf243bcb2988a654f9c68c1583d3fa01a2a1b25876bd7a2b1cf5c01c9b9a39 -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -203,6 +203,7 @@ instruction in the update dialog. Blank values are omitted rather than rendered.
 | --- | --- | --- |
 | `worker_hooks_snapshot` | `{ input: { workspacePath?: string } }` | `CommandHookCatalogSnapshot` |
 | `worker_hook_set_trusted` | `{ input: { workspacePath?: string, hash: string, trusted: boolean } }` | `CommandHookCatalogSnapshot` |
+| `worker_managed_hook_save` | `{ input: { workspacePath: string, id?: string, name: string, event: string, matcher?: string, language: "powershell" | "shell", enabled: boolean, timeout: number } }` | `CommandHookCatalogSnapshot` |
 
 Tinybot loads additive command-hook definitions from `~/.tinybot/hooks.json`
 and `<workspace>/.tinybot/hooks.json`. The first supported events are
@@ -223,6 +224,17 @@ Existing template files are never overwritten. The snapshot returns
 `templateConfigPath` and `templateScriptsPath`, which Settings > Hooks displays
 next to the active configuration paths. Copy a script into the workspace and
 copy/uncomment only the required event properties into an active `hooks.json`.
+
+Settings > Hooks obtains its workspace choices from the same Chat state: thread
+`workingDirectory` values plus project-group `workspaceIds`. The managed-hook
+form owns configuration below `<workspace>/.tinybot/hooks/<id>/hook.json` and
+creates `hook.ps1` or `hook.sh` beside it. Users edit the script while Tinybot
+maintains the event, matcher, interpreter command, timeout, and enabled state.
+Saving an existing managed hook never overwrites an existing script. Managed
+definitions and hand-written global/workspace `hooks.json` definitions are
+additive and appear in the same catalog. A managed summary sets `enabled` and
+adds `managed` metadata containing `id`, `name`, `language`, `manifestPath`, and
+`scriptPath`.
 
 ```json
 {

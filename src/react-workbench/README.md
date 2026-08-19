@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:182c1383b1038b51040acc76b7ce2d302fecea2d3bacd063cd435c2b3d2210c7 -->
+<!-- tinybot-module-fingerprint: sha256:749c488710e2dfddedb0c20058d933377f4ba49770c4bf83700a73b50355cec2 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App`, `DesktopShell` owns the desktop chrome, and

@@ -6,6 +6,14 @@ const CONFIG_TEMPLATE: &str = include_str!("templates/hooks.example.jsonc");
 const POWERSHELL_TEMPLATE: &str = include_str!("templates/hook-template.ps1");
 const SHELL_TEMPLATE: &str = include_str!("templates/hook-template.sh");
 
+pub(super) fn powershell_script_template() -> &'static str {
+    POWERSHELL_TEMPLATE
+}
+
+pub(super) fn shell_script_template() -> &'static str {
+    SHELL_TEMPLATE
+}
+
 pub(super) struct HookTemplatePaths {
     pub config_path: PathBuf,
     pub scripts_path: PathBuf,

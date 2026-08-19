@@ -1,4 +1,7 @@
-use crate::command_hooks::{load_catalog_snapshot, set_hook_trusted, CommandHookCatalogSnapshot};
+use crate::command_hooks::{
+    load_catalog_snapshot, save_managed_hook, set_hook_trusted, CommandHookCatalogSnapshot,
+    ManagedHookDraft,
+};
 use crate::config::application::{native_backend_workspace_root, tinybot_data_root};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -17,6 +20,14 @@ pub(crate) struct WorkerHookTrustInput {
     workspace_path: Option<String>,
     hash: String,
     trusted: bool,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkerManagedHookSaveInput {
+    workspace_path: String,
+    #[serde(flatten)]
+    hook: ManagedHookDraft,
 }
 
 #[tauri::command]
@@ -39,6 +50,15 @@ pub(crate) fn worker_hook_set_trusted(
     let data_root = tinybot_data_root();
     set_hook_trusted(&data_root, &workspace_root, hash, input.trusted)?;
     load_catalog_snapshot(&data_root, &workspace_root)
+}
+
+#[tauri::command]
+pub(crate) fn worker_managed_hook_save(
+    input: WorkerManagedHookSaveInput,
+) -> Result<CommandHookCatalogSnapshot, String> {
+    let workspace_root = resolve_workspace_root(Some(&input.workspace_path))?;
+    save_managed_hook(&workspace_root, input.hook)?;
+    load_catalog_snapshot(&tinybot_data_root(), &workspace_root)
 }
 
 fn resolve_workspace_root(workspace_path: Option<&str>) -> Result<PathBuf, String> {

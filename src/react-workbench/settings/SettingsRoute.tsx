@@ -58,7 +58,11 @@ export default function SettingsRoute({ services }: { services: AppServices }) {
               settingsStore={services.settingsStore}
             />
           ) : activeModuleId === "hooks" && services.hooksStore ? (
-            <HooksSettingsPage hooksStore={services.hooksStore} />
+            <HooksSettingsPage
+              hooksStore={services.hooksStore}
+              projectGroupStore={services.projectGroupStore}
+              sessionStore={services.sessionStore}
+            />
           ) : activeModuleId === "tools-mcp" || activeModuleId === "channels" ? (
             <ConfigSettingsPage
               groupId={activeModuleId}

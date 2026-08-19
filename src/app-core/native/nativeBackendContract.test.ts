@@ -36,6 +36,7 @@ describe("native backend contract", () => {
       "worker_plugin_uninstall",
       "worker_hooks_snapshot",
       "worker_hook_set_trusted",
+      "worker_managed_hook_save",
       "worker_memory_snapshot",
       "worker_project_groups_list",
       "worker_project_group_save",

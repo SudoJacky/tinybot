@@ -546,6 +546,10 @@ export function createDesktopAppServices(): AppServices {
         await initialize();
         return nativeHooks.setTrusted(input);
       },
+      async saveManaged(input) {
+        await initialize();
+        return nativeHooks.saveManaged(input);
+      },
     } : undefined,
     settingsStore: createDesktopSettingsStore({
       initialize,

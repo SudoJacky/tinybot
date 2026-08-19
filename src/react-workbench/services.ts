@@ -35,7 +35,11 @@ import type {
   DiagnosticBundleExportResult,
   PerformanceTraceSnapshot,
 } from "../app-core/native/desktopNativePerformanceTrace";
-import type { NativeCommandHookSnapshot } from "../app-core/native/desktopNativeHooks";
+import type {
+  NativeCommandHookSnapshot,
+  NativeCommandHookSummary,
+  NativeManagedHookLanguage,
+} from "../app-core/native/desktopNativeHooks";
 
 export type SessionSummary = {
   id: string;
@@ -149,6 +153,16 @@ export type HooksStore = {
     workspacePath?: string;
     hash: string;
     trusted: boolean;
+  }): Promise<NativeCommandHookSnapshot>;
+  saveManaged(input: {
+    workspacePath: string;
+    id?: string;
+    name: string;
+    event: NativeCommandHookSummary["event"];
+    matcher?: string;
+    language: NativeManagedHookLanguage;
+    enabled: boolean;
+    timeout: number;
   }): Promise<NativeCommandHookSnapshot>;
 };
 

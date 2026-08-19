@@ -1,5 +1,5 @@
 # Command Hooks
-<!-- tinybot-module-fingerprint: sha256:01596ba4be742274be9ea787e918667933f7bebcd868376d1c8eae57afb0b437 -->
+<!-- tinybot-module-fingerprint: sha256:911a22fe3abf1ee6b0c1b989299fec7187366b7fdaf82001b3c8991c03846e16 -->
 
 `command_hooks` discovers, validates, reviews, and runs user-defined lifecycle
 commands. Tinybot loads `hooks.json` from the global data directory and the
@@ -15,6 +15,14 @@ and POSIX shell skeletons under the global data directory. The example file is
 never loaded, every response example is commented, and existing template files
 are never overwritten. Their paths are returned to the desktop settings page
 so users can copy only the examples they intend to activate.
+
+`managed` is the configuration-owning module behind the desktop form. Its small
+interface accepts a workspace and a managed-hook draft, then owns ID creation,
+manifest validation, interpreter commands, safe no-op script creation, catalog
+projection, and enabled-state filtering. It stores each definition at
+`.tinybot/hooks/<id>/hook.json` beside `hook.ps1` or `hook.sh`. Updating the
+manifest never overwrites an existing user script. Managed and hand-written
+definitions converge before trust evaluation and command execution.
 
 Every handler is identified by a hash of its source path, event, matcher, and
 complete command definition. Commands are skipped until that exact hash is

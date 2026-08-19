@@ -1,4 +1,5 @@
 use super::compile_matcher;
+use super::managed::{load_managed_hooks, ManagedHookMetadata};
 use super::templates::{ensure_hook_templates, hook_template_paths};
 use super::trust::HookTrustStore;
 use super::CommandHookEvent;
@@ -68,6 +69,8 @@ pub(super) struct ResolvedCommandHook {
     pub source_path: PathBuf,
     pub source: CommandHookSource,
     pub trusted: bool,
+    pub enabled: bool,
+    pub managed: Option<ManagedHookMetadata>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -89,6 +92,8 @@ pub(crate) struct CommandHookSummary {
     pub source: CommandHookSource,
     pub source_path: PathBuf,
     pub trusted: bool,
+    pub enabled: bool,
+    pub managed: Option<ManagedHookMetadata>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -164,6 +169,8 @@ pub(crate) fn load_catalog_snapshot(
             source: hook.source,
             source_path: hook.source_path.clone(),
             trusted: hook.trusted,
+            enabled: hook.enabled,
+            managed: hook.managed.clone(),
         })
         .collect();
     Ok(CommandHookCatalogSnapshot {
@@ -204,6 +211,7 @@ pub(super) fn load_resolved_hooks(
             &mut diagnostics,
         );
     }
+    load_managed_hooks(workspace_root, &trust_store, &mut hooks, &mut diagnostics);
     Ok(LoadedCommandHooks {
         hooks,
         diagnostics,
@@ -328,13 +336,15 @@ fn load_source(
                     hash,
                     source_path: path.to_path_buf(),
                     source,
+                    enabled: true,
+                    managed: None,
                 });
             }
         }
     }
 }
 
-fn hook_hash(
+pub(super) fn hook_hash(
     source_path: &Path,
     event: CommandHookEvent,
     matcher: Option<&str>,
@@ -351,7 +361,11 @@ fn hook_hash(
     format!("sha256:{:x}", Sha256::digest(encoded))
 }
 
-fn diagnostic(code: &'static str, message: String, path: &Path) -> CommandHookDiagnostic {
+pub(super) fn diagnostic(
+    code: &'static str,
+    message: String,
+    path: &Path,
+) -> CommandHookDiagnostic {
     CommandHookDiagnostic {
         level: "warning",
         code,
