@@ -80,8 +80,8 @@ Artifact domain state does not live in this module.
   handoff, and Browser failure states.
 - `SidecarTerminal.test.tsx` covers PTY creation, ordered input and polling,
   reattachment, resize, and renderer disposal without termination.
-- `../chat/ChatPage.test.tsx` covers Chat-owned provisioning, Browser activation,
-  session reattachment, workspace fallback, and close-time cleanup.
+- `../chat/ChatPage.sidecar.test.tsx` covers Chat-owned provisioning, Browser
+  activation, session reattachment, workspace fallback, and close-time cleanup.
 - Run the [Windows desktop smoke test](../../../docs/guides/desktop-smoke-test.md)
   for real WebView2, PTY, process cleanup, and native geometry behavior.
 
