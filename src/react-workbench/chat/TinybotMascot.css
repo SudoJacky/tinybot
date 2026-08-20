@@ -1,0 +1,221 @@
+.react-tinybot-mascot {
+  display: grid;
+  place-items: center;
+  width: var(--tinybot-mascot-size, 44px);
+  min-width: var(--tinybot-mascot-size, 44px);
+  height: var(--tinybot-mascot-size, 44px);
+  overflow: visible;
+  cursor: default;
+  transition:
+    width 260ms cubic-bezier(.2, .8, .2, 1),
+    min-width 260ms cubic-bezier(.2, .8, .2, 1),
+    height 260ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.react-tinybot-mascot svg {
+  width: 86.36%;
+  height: 86.36%;
+  overflow: visible;
+}
+
+.react-tinybot-mascot__rim {
+  fill: #faf9f5;
+}
+
+.react-tinybot-mascot__core {
+  fill: #141413;
+}
+
+.react-tinybot-mascot__eye-motion {
+  fill: #faf9f5;
+}
+
+.react-tinybot-mascot__satellite-motion {
+  fill: #cc785c;
+}
+
+.react-tinybot-mascot__body-pose,
+.react-tinybot-mascot__body-motion,
+.react-tinybot-mascot__eye-pose,
+.react-tinybot-mascot__eye-motion,
+.react-tinybot-mascot__satellite-pose,
+.react-tinybot-mascot__satellite-motion {
+  transform-box: view-box;
+  transform-origin: 22.8px 25.5px;
+}
+
+.react-tinybot-mascot__body-pose,
+.react-tinybot-mascot__eye-pose,
+.react-tinybot-mascot__satellite-pose {
+  transition: transform 360ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.react-tinybot-mascot__eye-motion {
+  transform-origin: 17.7px 20.4px;
+}
+
+.react-tinybot-mascot__eye-pose {
+  transform-origin: 17.7px 20.4px;
+}
+
+.react-tinybot-mascot__satellite-motion {
+  transform-origin: 40.6px 8px;
+}
+
+.react-tinybot-mascot[data-mood="calm"] .react-tinybot-mascot__body-motion {
+  animation: react-tinybot-calm-breathe 3.8s ease-in-out infinite;
+}
+
+.react-tinybot-mascot[data-mood="calm"] .react-tinybot-mascot__eye-motion {
+  animation: react-tinybot-calm-blink 5.6s ease-in-out infinite;
+}
+
+.react-tinybot-mascot[data-mood="calm"] .react-tinybot-mascot__satellite-motion {
+  animation: react-tinybot-calm-satellite 3.8s ease-in-out infinite;
+}
+
+.react-tinybot-mascot[data-mood="curious"] .react-tinybot-mascot__body-pose {
+  transform: rotate(5deg) translate(1px, -1px);
+}
+
+.react-tinybot-mascot[data-mood="curious"] .react-tinybot-mascot__eye-pose {
+  transform: translate(1px, -1px) scale(.92, 1.28);
+}
+
+.react-tinybot-mascot[data-mood="curious"] .react-tinybot-mascot__eye-motion {
+  animation: react-tinybot-curious-look 2.4s ease-in-out infinite;
+}
+
+.react-tinybot-mascot[data-mood="curious"] .react-tinybot-mascot__satellite-pose {
+  transform: rotate(-14deg) scale(1.08);
+}
+
+.react-tinybot-mascot[data-mood="curious"] .react-tinybot-mascot__satellite-motion {
+  animation: react-tinybot-curious-satellite 1.2s ease-in-out infinite alternate;
+}
+
+.react-tinybot-mascot[data-mood="working"] .react-tinybot-mascot__body-pose {
+  transform: rotate(-2deg) scale(1.02, .98);
+}
+
+.react-tinybot-mascot[data-mood="working"] .react-tinybot-mascot__body-motion {
+  animation: react-tinybot-working-pulse .78s ease-in-out infinite alternate;
+}
+
+.react-tinybot-mascot[data-mood="working"] .react-tinybot-mascot__eye-pose {
+  transform: translate(1.5px, 1px) rotate(-12deg) scale(1.16, .55);
+}
+
+.react-tinybot-mascot[data-mood="working"] .react-tinybot-mascot__eye-motion {
+  animation: react-tinybot-working-eye .78s ease-in-out infinite alternate;
+}
+
+.react-tinybot-mascot[data-mood="working"] .react-tinybot-mascot__satellite-motion {
+  animation: react-tinybot-working-satellite .78s ease-in-out infinite alternate;
+}
+
+.react-tinybot-mascot[data-mood="angry"] .react-tinybot-mascot__body-pose {
+  transform: rotate(-4deg) scale(1.02);
+}
+
+.react-tinybot-mascot[data-mood="angry"] .react-tinybot-mascot__body-motion {
+  animation: react-tinybot-angry-shake 180ms ease-in-out 4;
+}
+
+.react-tinybot-mascot[data-mood="angry"] .react-tinybot-mascot__eye-pose {
+  transform: translate(1px, 2px) rotate(-24deg) scale(1.3, .48);
+}
+
+.react-tinybot-mascot[data-mood="angry"] .react-tinybot-mascot__satellite-pose {
+  transform: translate(-2px, 2px) scale(1.2);
+}
+
+.react-tinybot-mascot[data-mood="angry"] .react-tinybot-mascot__satellite-motion {
+  animation: react-tinybot-angry-satellite 180ms ease-in-out 4;
+}
+
+.react-tinybot-mascot[data-mood="pleased"] .react-tinybot-mascot__body-pose {
+  transform: translateY(-1px) scale(1.015);
+}
+
+.react-tinybot-mascot[data-mood="pleased"] .react-tinybot-mascot__body-motion {
+  animation: react-tinybot-pleased-settle 600ms cubic-bezier(.2, .8, .2, 1);
+}
+
+.react-tinybot-mascot[data-mood="pleased"] .react-tinybot-mascot__eye-pose {
+  transform: translate(0, 1px) rotate(8deg) scale(1.18, .62);
+}
+
+.react-tinybot-mascot[data-mood="pleased"] .react-tinybot-mascot__satellite-pose {
+  transform: translate(-1px, 1px) scale(.92);
+}
+
+@keyframes react-tinybot-calm-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.012, .988); }
+}
+
+@keyframes react-tinybot-calm-blink {
+  0%, 45%, 49%, 100% { transform: scaleY(1); }
+  47% { transform: scaleY(.12); }
+}
+
+@keyframes react-tinybot-calm-satellite {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(1px); }
+}
+
+@keyframes react-tinybot-curious-look {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(1.2px); }
+}
+
+@keyframes react-tinybot-curious-satellite {
+  from { transform: translateY(-.5px); }
+  to { transform: translateY(1px); }
+}
+
+@keyframes react-tinybot-working-pulse {
+  from { transform: scale(1, 1.015); }
+  to { transform: scale(1.025, .975); }
+}
+
+@keyframes react-tinybot-working-eye {
+  from { transform: translateX(-.5px); }
+  to { transform: translateX(1px); }
+}
+
+@keyframes react-tinybot-working-satellite {
+  from { transform: translate(-1px, 1px) scale(.94); }
+  to { transform: translate(1px, -1px) scale(1.08); }
+}
+
+@keyframes react-tinybot-angry-shake {
+  0%, 100% { transform: translateX(0); }
+  35% { transform: translateX(-1.2px); }
+  70% { transform: translateX(1.2px); }
+}
+
+@keyframes react-tinybot-angry-satellite {
+  0%, 100% { transform: translate(0); }
+  50% { transform: translate(1px, -1px); }
+}
+
+@keyframes react-tinybot-pleased-settle {
+  0% { transform: scale(.98, 1.02); }
+  55% { transform: scale(1.025, .975); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-tinybot-mascot,
+  .react-tinybot-mascot__body-pose,
+  .react-tinybot-mascot__body-motion,
+  .react-tinybot-mascot__eye-pose,
+  .react-tinybot-mascot__eye-motion,
+  .react-tinybot-mascot__satellite-pose,
+  .react-tinybot-mascot__satellite-motion {
+    animation: none !important;
+    transition-duration: 140ms;
+  }
+}

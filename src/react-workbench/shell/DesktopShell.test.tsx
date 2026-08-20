@@ -15,6 +15,7 @@ import type { DesktopUpdateClient, DesktopUpdateSnapshot } from "../../app-core/
 import { pickDesktopPluginMigrationDirectory } from "../../app-core/native/desktopNativePluginPicker";
 import { APPEARANCE_STORAGE_KEY } from "../../app-core/settings/appAppearance";
 import { SHORTCUTS_STORAGE_KEY } from "../../app-core/settings/appShortcuts";
+import { DESKTOP_PET_STORAGE_KEY } from "./desktopPetState";
 
 vi.mock("../../app-core/native/desktopNativePluginPicker", () => ({
   pickDesktopPluginDirectory: vi.fn(),
@@ -346,6 +347,7 @@ describe("DesktopShell", () => {
     const systemMenu = screen.getByRole("menu", { name: "System menu" });
     expect(within(systemMenu).getByRole("menuitem", { name: "Settings (Ctrl+,)" })).toBeTruthy();
     expect(within(systemMenu).getByRole("menuitem", { name: "What's New" })).toBeTruthy();
+    expect(within(systemMenu).getByRole("menuitem", { name: "Hide Desktop Pet" })).toBeTruthy();
     expect(within(systemMenu).getByRole("menuitem", { name: "Performance Trace" })).toBeTruthy();
     expect(within(systemMenu).queryByRole("menuitem", { name: /Runtime Status/ })).toBeNull();
 
@@ -373,6 +375,37 @@ describe("DesktopShell", () => {
     for (const item of ["Shortcut Help", "Page Help", "Backend Logs", "Open native workbench", "Tinybot repo"]) {
       expect(within(moreHelpMenu).getByRole("menuitem", { name: new RegExp(item) })).toBeTruthy();
     }
+  });
+
+  it("drags the desktop pet and persists its bounded position", () => {
+    render(<DesktopShell services={createServices()} />);
+    const moveSurface = screen.getByRole("group", { name: "Move Tinybot desktop pet. Drag it or use the arrow keys." });
+
+    fireEvent.pointerDown(moveSurface, { button: 0, clientX: 900, clientY: 700, pointerId: 1 });
+    fireEvent.pointerMove(moveSurface, { clientX: 500, clientY: 400, pointerId: 1 });
+    fireEvent.pointerUp(moveSurface, { clientX: 500, clientY: 400, pointerId: 1 });
+
+    const stored = JSON.parse(window.localStorage.getItem(DESKTOP_PET_STORAGE_KEY) ?? "{}");
+    expect(stored.position).toEqual({ x: 574, y: 418 });
+  });
+
+  it("resizes, hides, and restores the desktop pet from the System menu", async () => {
+    const user = userEvent.setup();
+    render(<DesktopShell services={createServices()} />);
+
+    expect(screen.getByRole("img", { name: "Tinybot is calm" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Make Tinybot larger" }));
+    expect(JSON.parse(window.localStorage.getItem(DESKTOP_PET_STORAGE_KEY) ?? "{}").size).toBe("large");
+
+    await user.click(screen.getByRole("button", { name: "Hide Tinybot desktop pet" }));
+    expect(screen.queryByRole("img", { name: "Tinybot is calm" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "System" }));
+    const systemMenu = screen.getByRole("menu", { name: "System menu" });
+    await user.click(within(systemMenu).getByRole("menuitem", { name: "Show Desktop Pet" }));
+
+    expect(await screen.findByRole("img", { name: "Tinybot is calm" })).toBeTruthy();
+    expect(screen.getByRole("toolbar", { name: "Tinybot size: Large" })).toBeTruthy();
   });
 
   it("persists the App menu theme command through the shared appearance preference", async () => {

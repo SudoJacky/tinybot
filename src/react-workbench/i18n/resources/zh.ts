@@ -6,7 +6,7 @@ export const zh = {
     menu: {
       app: "应用", resources: "资源", system: "系统", help: "帮助", applicationLabel: "应用菜单", resourcesLabel: "资源菜单",
       systemLabel: "系统菜单", helpLabel: "帮助菜单", newChat: "新建会话", searchSessions: "搜索会话", stopGeneration: "停止生成",
-      toggleTheme: "切换主题", toggleSidebar: "切换侧栏", about: "关于 Tinybot", whatsNew: "更新内容", documentation: "使用文档", more: "更多",
+      toggleTheme: "切换主题", toggleSidebar: "切换侧栏", about: "关于 Tinybot", whatsNew: "更新内容", showDesktopPet: "显示桌面宠物", hideDesktopPet: "隐藏桌面宠物", documentation: "使用文档", more: "更多",
       moreHelpLabel: "更多帮助选项", shortcutHelp: "快捷键帮助", pageHelp: "页面帮助", backendLogs: "后端日志",
       openNativeWorkbench: "打开原生工作台", tinybotRepo: "Tinybot 仓库",
     },
@@ -14,6 +14,11 @@ export const zh = {
       frame: "Tinybot 桌面窗口框架", pageHistory: "页面历史", back: "后退", goBack: "返回上一页", forward: "前进", goForward: "前往下一页",
       windowControls: "窗口控制", minimize: "最小化", minimizeWindow: "最小化窗口", maximize: "最大化", maximizeWindow: "最大化窗口",
       close: "关闭", closeWindow: "关闭窗口",
+    },
+    desktopPet: {
+      move: "移动 Tinybot 桌面宠物。拖动它，或使用方向键。", sizeControls: "Tinybot 尺寸：{{size}}", smaller: "缩小 Tinybot", larger: "放大 Tinybot", hide: "隐藏 Tinybot 桌面宠物",
+      sizes: { small: "小", medium: "中", large: "大" },
+      status: { calm: "Tinybot 很平静", curious: "Tinybot 正疑惑地等你", working: "Tinybot 正在努力", angry: "Tinybot 有点生气", pleased: "Tinybot 满意地完成了任务" },
     },
     files: { empty: "没有找到工作区文件。", sizeUnavailable: "大小不可用" },
     tools: {
