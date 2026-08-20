@@ -44,6 +44,23 @@ describe("AgentGraphsRoute", () => {
     expect(screen.getByText("No graphs yet")).toBeTruthy();
   });
 
+  it("keeps canvas actions outside the horizontally scrolling graph surface", async () => {
+    const user = userEvent.setup();
+    render(<AgentGraphsRoute services={createServices()} />);
+    await screen.findByRole("button", { name: "Definition workspace: tinybot" });
+    await user.click(screen.getByRole("button", { name: "Create first graph" }));
+
+    const canvas = screen.getByRole("region", { name: "Graph canvas" });
+    const scrollSurface = canvas.closest(".react-agent-graph-canvas-scroll");
+    const deleteButton = screen.getByRole("button", { name: "Delete selected" });
+    const toolbar = deleteButton.closest(".react-agent-graph-canvas__toolbar");
+
+    expect(scrollSurface).toBeTruthy();
+    expect(toolbar).toBeTruthy();
+    expect(scrollSurface?.contains(toolbar)).toBe(false);
+    expect(toolbar?.parentElement?.classList.contains("react-agent-graph-canvas-frame")).toBe(true);
+  });
+
   it("supports palette drag, keyboard movement, connections, and deletion", async () => {
     const user = userEvent.setup();
     render(<AgentGraphsRoute services={createServices()} />);

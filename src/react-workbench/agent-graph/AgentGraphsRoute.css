@@ -324,17 +324,26 @@
   font-weight: 650;
 }
 
-.react-agent-graph-canvas-scroll {
-  overflow-x: auto;
+.react-agent-graph-canvas-frame {
+  position: relative;
+  height: 400px;
+  min-width: 0;
+  overflow: hidden;
   border: 1px solid var(--color-hairline);
   border-radius: 12px;
   background-color: var(--color-canvas);
 }
 
+.react-agent-graph-canvas-scroll {
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
 .react-agent-graph-canvas {
   position: relative;
   width: max(760px, 100%);
-  height: 400px;
+  height: 100%;
   overflow: hidden;
   background-image: radial-gradient(var(--color-hairline-strong) .8px, transparent .8px);
   background-size: 18px 18px;
@@ -360,6 +369,8 @@
 }
 
 .react-agent-graph-canvas__toolbar p {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   color: var(--color-muted);
   font-size: 11px;
@@ -369,6 +380,7 @@
 
 .react-agent-graph-canvas__toolbar > span {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   gap: 6px;
 }

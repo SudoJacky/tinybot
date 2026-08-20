@@ -192,48 +192,50 @@ export function AgentGraphCanvas({
   }
 
   return (
-    <div className="react-agent-graph-canvas-scroll">
-      <div
-        aria-label={t("graphs.canvas")}
-        className="react-agent-graph-canvas"
-        onClick={(event) => {
-          if (event.currentTarget === event.target) {
-            setSelection(null);
-            onSelectionChange(null);
-          }
-        }}
-        onDragOver={(event) => {
-          if (!readOnly) event.preventDefault();
-        }}
-        onDrop={dropNode}
-        ref={canvasRef}
-        role="region"
-      >
-        <div className="react-agent-graph-canvas__toolbar">
-          <p aria-live="polite">
-            {pendingSourceNode
-              ? t("graphs.connectingFrom", { kind: t(`graphs.nodes.${pendingSourceNode.kind}`) })
-              : t(readOnly ? "graphs.canvasViewHint" : "graphs.canvasHint")}
-          </p>
-          {!readOnly ? <span>
-            {pendingSourceNode ? (
-              <button type="button" onClick={() => setPendingSource(null)}>
-                <X aria-hidden="true" size={14} />
-                {t("graphs.cancelConnection")}
-              </button>
-            ) : null}
-            <button
-              aria-label={t("graphs.deleteSelected")}
-              disabled={!canDeleteSelection}
-              onClick={removeSelection}
-              title={selectedNode && !canDeleteSelection ? t("graphs.boundaryNodeProtected") : undefined}
-              type="button"
-            >
-              <Trash2 aria-hidden="true" size={14} />
-              {t("graphs.deleteSelected")}
+    <div className="react-agent-graph-canvas-frame">
+      <div className="react-agent-graph-canvas__toolbar">
+        <p aria-live="polite">
+          {pendingSourceNode
+            ? t("graphs.connectingFrom", { kind: t(`graphs.nodes.${pendingSourceNode.kind}`) })
+            : t(readOnly ? "graphs.canvasViewHint" : "graphs.canvasHint")}
+        </p>
+        {!readOnly ? <span>
+          {pendingSourceNode ? (
+            <button type="button" onClick={() => setPendingSource(null)}>
+              <X aria-hidden="true" size={14} />
+              {t("graphs.cancelConnection")}
             </button>
-          </span> : null}
-        </div>
+          ) : null}
+          <button
+            aria-label={t("graphs.deleteSelected")}
+            disabled={!canDeleteSelection}
+            onClick={removeSelection}
+            title={selectedNode && !canDeleteSelection ? t("graphs.boundaryNodeProtected") : undefined}
+            type="button"
+          >
+            <Trash2 aria-hidden="true" size={14} />
+            {t("graphs.deleteSelected")}
+          </button>
+        </span> : null}
+      </div>
+
+      <div className="react-agent-graph-canvas-scroll">
+        <div
+          aria-label={t("graphs.canvas")}
+          className="react-agent-graph-canvas"
+          onClick={(event) => {
+            if (event.currentTarget === event.target) {
+              setSelection(null);
+              onSelectionChange(null);
+            }
+          }}
+          onDragOver={(event) => {
+            if (!readOnly) event.preventDefault();
+          }}
+          onDrop={dropNode}
+          ref={canvasRef}
+          role="region"
+        >
 
         <svg aria-label={t("graphs.connections")} className="react-agent-graph-canvas__edges" role="group">
           <defs>
@@ -355,6 +357,7 @@ export function AgentGraphCanvas({
             </article>
           );
         })}
+        </div>
       </div>
     </div>
   );
