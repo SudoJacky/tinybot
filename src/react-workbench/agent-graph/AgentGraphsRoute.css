@@ -1,7 +1,9 @@
 .react-agent-graphs-page {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 480px);
+  grid-template-rows: auto;
+  align-content: start;
+  gap: 20px clamp(20px, 3vw, 32px);
   width: min(1180px, 100%);
   min-height: 100%;
   margin: 0 auto;
@@ -19,6 +21,7 @@
 .react-agent-graphs-page__heading {
   display: grid;
   gap: 5px;
+  min-width: 0;
   max-width: 680px;
 }
 
@@ -87,7 +90,9 @@
 }
 
 .react-agent-graph-workspace {
-  width: min(720px, 100%);
+  align-self: end;
+  width: 100%;
+  min-width: 0;
 }
 
 .react-agent-graph-workspace__error,
@@ -115,6 +120,13 @@
   border-radius: 16px;
   background: color-mix(in srgb, var(--color-panel) 72%, transparent);
   text-align: center;
+}
+
+.react-agent-graph-library,
+.react-agent-graph-library__status,
+.react-agent-graphs-empty,
+.react-agent-graph-draft {
+  grid-column: 1 / -1;
 }
 
 .react-agent-graph-library {
@@ -210,9 +222,9 @@
 
 .react-agent-graph-draft {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 300px);
   align-items: start;
-  gap: 16px;
+  gap: 18px;
 }
 
 .react-agent-graph-editor,
@@ -229,10 +241,15 @@
   padding: 18px;
 }
 
+.react-agent-graph-editor__header {
+  flex-wrap: wrap;
+}
+
 .react-agent-graph-editor__header label {
   display: grid;
   flex: 1;
   gap: 6px;
+  min-width: min(280px, 100%);
   color: var(--color-muted);
   font-size: 11px;
   font-weight: 650;
@@ -326,7 +343,7 @@
 
 .react-agent-graph-canvas-frame {
   position: relative;
-  height: 400px;
+  height: clamp(400px, 48vh, 520px);
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--color-hairline);
@@ -576,9 +593,14 @@
 }
 
 .react-agent-graph-node-catalog {
+  position: sticky;
+  top: 18px;
   display: grid;
   gap: 7px;
+  max-height: calc(100vh - 78px);
   padding: 16px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
 .react-agent-graph-node-config {
@@ -992,13 +1014,26 @@
   }
 }
 
+@media (max-width: 980px) {
+  .react-agent-graphs-page {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .react-agent-graph-workspace {
+    width: min(720px, 100%);
+  }
+}
+
 @media (max-width: 820px) {
   .react-agent-graph-draft {
     grid-template-columns: 1fr;
   }
 
   .react-agent-graph-node-catalog {
-    order: -1;
+    position: static;
+    max-height: none;
+    overflow-y: visible;
+    scrollbar-gutter: auto;
   }
 }
 
