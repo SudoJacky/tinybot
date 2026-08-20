@@ -125,6 +125,7 @@ import {
   displaySessionTitle,
   isDefaultSessionTitle,
 } from "./sessionTitle";
+import { projectTinybotMascotMood, type TinybotMascotMood } from "./TinybotMascot";
 import { Sidecar } from "../sidecar/Sidecar";
 import { SidecarBrowser } from "../sidecar/SidecarBrowser";
 import { SidecarTerminal } from "../sidecar/SidecarTerminal";
@@ -154,6 +155,7 @@ export type ChatPageProps = {
   sessionSidebarCollapsed?: boolean;
   onSessionSidebarCollapsedChange?: (collapsed: boolean) => void;
   onStopGenerationTargetChange?: (sessionId: string) => void;
+  onMascotMoodChange?: (mood: TinybotMascotMood) => void;
   onOpenFiles?: () => void;
   onOpenSettings?: () => void;
   now?: () => number;
@@ -244,6 +246,7 @@ export function ChatPage({
   now = Date.now,
   onOpenFiles,
   onOpenSettings,
+  onMascotMoodChange,
   onSessionSidebarCollapsedChange,
   onStopGenerationTargetChange,
   sessionSidebarCollapsed,
@@ -1907,6 +1910,14 @@ export function ChatPage({
   const visibleAgentUiForms = agentUiForms.filter(isVisibleAgentUiForm);
   const interactiveFormIds = new Set(visibleAgentUiForms.map((form) => form.form_id));
   const headerTitle = activeSession ? displaySessionTitle(activeSession.title, t) : draftNewSession ? t("shell.newChat") : t("shell.noSelection");
+  const mascotMood = projectTinybotMascotMood({
+    responding: sessionResponding,
+    sessionStatus: activeSession?.status,
+    turnStatus: latestTurnStatus,
+  });
+  useEffect(() => {
+    onMascotMoodChange?.(mascotMood);
+  }, [mascotMood, onMascotMoodChange]);
   return (
     <section
       className="react-chat-page"

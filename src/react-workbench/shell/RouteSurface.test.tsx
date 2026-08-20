@@ -26,6 +26,7 @@ describe("RouteSurface", () => {
         chat={{
           createSessionSignal: 0,
           sessionSidebarCollapsed: false,
+          onMascotMoodChange: vi.fn(),
           onSessionSidebarCollapsedChange: vi.fn(),
           onStopGenerationTargetChange: vi.fn(),
         }}
