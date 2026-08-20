@@ -1,5 +1,5 @@
 # Agent Graph Application Core
-<!-- tinybot-module-fingerprint: sha256:9abdc5d84e436cdef4401602a4ee7baa5117ca14c0000ff95f55bd9a5ae3ff28 -->
+<!-- tinybot-module-fingerprint: sha256:a00fc20c1c4476415571fc97a07b4fadc7a651a37ec681f30f6d414857f7e754 -->
 
 `agent-graph` owns the framework-independent, versioned Agent Graph definition,
 its structural validation, and immutable edit operations. The definition
@@ -14,7 +14,8 @@ translates gestures and settings changes into these operations instead of
 duplicating topology rules. This module does not render React, depend on Chat
 state, perform filesystem I/O, or execute an Agent Turn. `AgentGraphStore`
 defines the small list/save/delete persistence Interface, while
-`AgentGraphRuntime` defines Run history and start operations. Native storage
+`AgentGraphRuntime` defines Run history, including the original Run input, and
+start operations. Native storage
 and execution remain Adapters at Graph seams rather than implicit dependencies
 of the definition model.
 

@@ -58,6 +58,8 @@ pub(crate) struct AgentGraphRun {
     graph_revision: String,
     definition_workspace_path: String,
     status: AgentGraphRunStatus,
+    #[serde(default)]
+    input: String,
     node_runs: Vec<AgentGraphNodeRun>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     output: Option<String>,
@@ -164,6 +166,7 @@ pub(crate) async fn start(
         graph_revision: stored.revision.clone(),
         definition_workspace_path,
         status: AgentGraphRunStatus::Running,
+        input: input.input.clone(),
         node_runs: steps
             .iter()
             .enumerate()
@@ -630,6 +633,7 @@ mod tests {
                 &canonical_workspace(&fixture.first_workspace).unwrap(),
             ),
             status: AgentGraphRunStatus::Completed,
+            input: "start".to_string(),
             node_runs: Vec::new(),
             output: Some("done".to_string()),
             error: None,
@@ -659,6 +663,23 @@ mod tests {
     }
 
     #[test]
+    fn legacy_run_without_input_remains_readable() {
+        let run: AgentGraphRun = serde_json::from_value(serde_json::json!({
+            "schemaVersion": AGENT_GRAPH_RUN_SCHEMA_VERSION,
+            "id": "run-legacy",
+            "graphId": "graph-1",
+            "graphRevision": "sha256:test",
+            "definitionWorkspacePath": "workspace",
+            "status": "completed",
+            "nodeRuns": [],
+            "output": "done"
+        }))
+        .unwrap();
+
+        assert!(run.input.is_empty());
+    }
+
+    #[test]
     fn graph_nodes_create_standard_parentless_threads_with_origin_metadata() {
         let fixture = Fixture::new();
         let thread_store =
@@ -678,6 +699,7 @@ mod tests {
             graph_revision: "sha256:test".to_string(),
             definition_workspace_path: step.workspace_path.clone(),
             status: AgentGraphRunStatus::Running,
+            input: "start".to_string(),
             node_runs: vec![AgentGraphNodeRun {
                 id: "run-thread-test-node-1".to_string(),
                 node_id: step.node_id.clone(),

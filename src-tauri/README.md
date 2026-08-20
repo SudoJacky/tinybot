@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:b45b766239ed161b56ba613f1509a2a465c95fab76333091079a4433213e90aa -->
+<!-- tinybot-module-fingerprint: sha256:5c940f80fa54f494866233057024c8706f176862c464e5bacebc54efa12639d7 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -164,7 +164,7 @@ roles:
 | `~/.tinybot/archived_threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | `threads::rollout::store` | Archived canonical Rollouts |
 | `~/.tinybot/project-groups.json` | `project_groups` | Named groups and their workspace memberships |
 | `<workspace>/.tinybot/graphs/<graph-id>.json` | `agent_graphs` | Versioned Agent Graph definitions |
-| `~/.tinybot/graph-runs/<graph-id>/<run-id>.json` | `graph_runs` | Graph execution and node-to-Thread status |
+| `~/.tinybot/graph-runs/<graph-id>/<run-id>.json` | `graph_runs` | Graph input, execution, output, and node-to-Thread status |
 | `~/.tinybot/hooks.json` | `command_hooks` | Global user command-hook definitions |
 | `~/.tinybot/hook-trust.json` | `command_hooks` | Trusted exact-definition hashes |
 | `<workspace>/.tinybot/hooks.json` | `command_hooks` | Workspace-scoped command-hook definitions |

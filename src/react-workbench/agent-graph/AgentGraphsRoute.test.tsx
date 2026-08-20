@@ -137,6 +137,7 @@ describe("AgentGraphsRoute", () => {
       graphRevision: "sha256:before",
       definitionWorkspacePath: "D:\\code\\tinybot",
       status: "completed",
+      input: "Review this repository",
       nodeRuns: [{
         id: "run-1-node-1",
         nodeId: "agent",

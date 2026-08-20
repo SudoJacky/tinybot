@@ -15,7 +15,7 @@ src-tauri/src/skills/definition.rs
 src-tauri/src/workspace/types.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:b3ee043b4417300596361ec2f3a3cdcf0ebc719f4e3e3d3d75420c26042ab049 -->
+<!-- tinybot-doc-fingerprint: sha256:6be9d5b248a1c4cf2ed6fcce1275165dac3c83383a4bdd9f000920bb242d46bf -->
 
 This document covers workspace operations and the extension catalogs available
 to Agents. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -73,7 +73,9 @@ without one. Listing rejects invalid Graph files rather than hiding them.
 | `worker_agent_graph_run` | `{ input: { graphId, graphRevision, definitionWorkspacePath, input } }` | `AgentGraphRun` |
 
 Runs live at `~/.tinybot/graph-runs/<graph-id>/<run-id>.json` and are atomically
-updated as nodes transition. Start reloads the requested saved revision,
+updated as nodes transition. A Run keeps its original input so the Input node
+can be inspected later; older v1 records without it remain readable as an empty
+input. Start reloads the requested saved revision,
 canonicalizes every Agent workspace, and accepts only a single linear
 Input-to-Output path. Condition nodes, branches, cycles, disconnected nodes,
 and missing workspaces fail preflight. Each Agent node creates a fresh standard

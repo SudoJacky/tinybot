@@ -16,6 +16,7 @@ export type AgentGraphRun = {
   graphRevision: string;
   definitionWorkspacePath: string;
   status: AgentGraphRunStatus;
+  input: string;
   nodeRuns: AgentGraphNodeRun[];
   output?: string;
   error?: string;
