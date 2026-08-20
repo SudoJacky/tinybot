@@ -7,7 +7,7 @@ import { createAgentGraphDraft } from "../../app-core/agent-graph/agentGraphDefi
 import type { AgentGraphStore, StoredAgentGraph } from "../../app-core/agent-graph/agentGraphStore";
 import type { AgentGraphRun, AgentGraphRuntime } from "../../app-core/agent-graph/agentGraphRuntime";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
-import type { AppServices } from "../services";
+import type { AppServices, ChatModelOption } from "../services";
 import { timelineFromReactMessages } from "../chat/test/timelineFixtures";
 import AgentGraphsRoute from "./AgentGraphsRoute";
 
@@ -98,6 +98,51 @@ describe("AgentGraphsRoute", () => {
 
     expect(screen.getByRole("button", { name: "Execution workspace: payments" })).toBeTruthy();
     expect(screen.getByLabelText("Agent node").textContent).toContain("payments");
+  });
+
+  it("configures node instructions, model, and reasoning effort independently", async () => {
+    const user = userEvent.setup();
+    const services = createServices({
+      chatModels: [{
+        id: "gpt-5.6-sol",
+        label: "gpt-5.6-sol",
+        providerId: "openai",
+        providerLabel: "OpenAI",
+      }],
+    });
+    render(<AgentGraphsRoute services={services} />);
+
+    await screen.findByRole("button", { name: "Definition workspace: tinybot" });
+    await user.click(screen.getByRole("button", { name: "Create first graph" }));
+    await user.click(screen.getByLabelText("Agent node"));
+    await user.click(screen.getByRole("button", { name: "Close node details" }));
+
+    await user.type(
+      screen.getByRole("textbox", { name: /Node instructions/ }),
+      "Research the topic and return a sourced report.",
+    );
+    await user.click(screen.getByRole("button", { name: "Model: Inherit application default" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: /gpt-5\.6-sol/ }));
+    await user.click(screen.getByRole("button", { name: "Reasoning effort: Provider default" }));
+    await user.click(screen.getByRole("menuitemradio", { name: /^High\b/ }));
+    await user.click(screen.getByRole("button", { name: "Save Graph" }));
+
+    expect(services.agentGraphStore.save).toHaveBeenCalledWith(expect.objectContaining({
+      definition: expect.objectContaining({
+        nodes: expect.arrayContaining([expect.objectContaining({
+          id: "agent",
+          config: {
+            instructions: "Research the topic and return a sourced report.",
+            model: {
+              modelId: "gpt-5.6-sol",
+              providerId: "openai",
+              reasoningEffort: "high",
+            },
+            workspacePath: "D:\\code\\tinybot",
+          },
+        })]),
+      }),
+    }));
   });
 
   it("loads and saves workspace-owned Graph definitions with revisions", async () => {
@@ -199,11 +244,13 @@ describe("AgentGraphsRoute", () => {
 });
 
 function createServices({
+  chatModels = [],
   projectWorkspaces = [],
   storedGraphs = [],
   completedRun,
   nodeTimeline,
 }: {
+  chatModels?: ChatModelOption[];
   projectWorkspaces?: string[];
   storedGraphs?: StoredAgentGraph[];
   completedRun?: AgentGraphRun;
@@ -242,6 +289,9 @@ function createServices({
         name: "Services",
         workspaceIds: projectWorkspaces,
       }] : []),
+    },
+    settingsStore: {
+      loadChatModels: vi.fn().mockResolvedValue(chatModels),
     },
   } as unknown as AppServices & {
     agentGraphStore: {

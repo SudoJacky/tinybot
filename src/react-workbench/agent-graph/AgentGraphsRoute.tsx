@@ -2,6 +2,10 @@ import { useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "r
 import { GripVertical, Play, Plus, Save, Trash2, Workflow, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
+  isReasoningEffort,
+  REASONING_EFFORT_VALUES,
+} from "../../app-core/chat/reasoningEffort";
+import {
   addAgentGraphNode,
   configureAgentGraphNode,
   connectAgentGraphNodes,
@@ -18,12 +22,13 @@ import {
   type AgentGraphNodeKind,
   type AgentGraphNodePosition,
   type AgentGraphValidationIssue,
+  type AgentLoopNodeConfig,
 } from "../../app-core/agent-graph/agentGraphDefinition";
 import type { StoredAgentGraph } from "../../app-core/agent-graph/agentGraphStore";
 import type { AgentGraphRun } from "../../app-core/agent-graph/agentGraphRuntime";
 import { normalizedWorkspacePathKey, sessionWorkspaceName } from "../chat/sessionWorkspaces";
-import type { AppServices } from "../services";
-import { SettingsChoiceList } from "../settings/SettingsChoiceList";
+import type { AppServices, ChatModelOption } from "../services";
+import { SettingsChoiceList, type SettingsChoiceOption } from "../settings/SettingsChoiceList";
 import {
   AGENT_GRAPH_NODE_DRAG_TYPE,
   AgentGraphCanvas,
@@ -42,6 +47,8 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   const [definitionWorkspacePath, setDefinitionWorkspacePath] = useState("");
   const [workspaceCatalogError, setWorkspaceCatalogError] = useState<string | null>(null);
   const [workspaceCatalogReady, setWorkspaceCatalogReady] = useState(false);
+  const [chatModels, setChatModels] = useState<ChatModelOption[]>([]);
+  const [modelCatalogError, setModelCatalogError] = useState<string | null>(null);
   const [storedGraphs, setStoredGraphs] = useState<StoredAgentGraph[]>([]);
   const [graphListLoading, setGraphListLoading] = useState(false);
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
@@ -65,6 +72,14 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   ));
   const inspectedNode = draft?.nodes.find((node) => node.id === inspectedNodeId);
   const selectedRun = runs.find((run) => run.id === selectedRunId) ?? runs[0];
+  const selectedModelValue = selectedAgentNode?.config.model
+    ? agentGraphModelValue(selectedAgentNode.config.model)
+    : "";
+  const modelChoices = agentGraphModelChoices(chatModels, selectedAgentNode?.config.model, {
+    inheritDescription: t("graphs.inheritModelDescription"),
+    inheritLabel: t("graphs.inheritModel"),
+    unavailableDescription: t("graphs.modelUnavailableDescription"),
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +107,25 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
       cancelled = true;
     };
   }, [services.projectGroupStore, services.sessionStore]);
+
+  useEffect(() => {
+    if (!services.settingsStore.loadChatModels) return;
+    let cancelled = false;
+    setModelCatalogError(null);
+    void services.settingsStore.loadChatModels()
+      .then((models) => {
+        if (!cancelled) setChatModels(models);
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) {
+          setChatModels([]);
+          setModelCatalogError(errorMessage(cause));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [services.settingsStore]);
 
   useEffect(() => {
     if (!workspaceCatalogReady || !definitionWorkspacePath) {
@@ -203,6 +237,44 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     setDraft(result.definition);
     setEditError(null);
     return true;
+  }
+
+  function updateSelectedAgentConfig(config: AgentLoopNodeConfig) {
+    if (!draft || !selectedAgentNode) return;
+    applyEdit(configureAgentGraphNode(draft, selectedAgentNode.id, config));
+  }
+
+  function selectAgentModel(value: string) {
+    if (!selectedAgentNode) return;
+    if (!value) {
+      updateSelectedAgentConfig({
+        instructions: selectedAgentNode.config.instructions ?? "",
+        workspacePath: selectedAgentNode.config.workspacePath,
+      });
+      return;
+    }
+    const selectedModel = chatModels.find((model) => agentGraphModelValue(model) === value);
+    if (!selectedModel) return;
+    updateSelectedAgentConfig({
+      ...selectedAgentNode.config,
+      model: {
+        modelId: selectedModel.id,
+        ...(selectedModel.providerId ? { providerId: selectedModel.providerId } : {}),
+      },
+    });
+  }
+
+  function selectAgentReasoningEffort(value: string) {
+    const model = selectedAgentNode?.config.model;
+    if (!selectedAgentNode || !model) return;
+    updateSelectedAgentConfig({
+      ...selectedAgentNode.config,
+      model: {
+        modelId: model.modelId,
+        ...(model.providerId ? { providerId: model.providerId } : {}),
+        ...(isReasoningEffort(value) ? { reasoningEffort: value } : {}),
+      },
+    });
   }
 
   function addNode(kind: AgentGraphNodeKind, position: AgentGraphNodePosition): boolean {
@@ -499,11 +571,10 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                   description={t("graphs.executionWorkspaceDescription")}
                   disabled={!workspaceOptions.length}
                   label={t("graphs.executionWorkspace")}
-                  onChange={(workspacePath) => applyEdit(configureAgentGraphNode(
-                    draft,
-                    selectedAgentNode.id,
-                    { ...selectedAgentNode.config, workspacePath },
-                  ))}
+                  onChange={(workspacePath) => updateSelectedAgentConfig({
+                    ...selectedAgentNode.config,
+                    workspacePath,
+                  })}
                   options={workspaceOptions.map((path) => ({
                     description: path,
                     label: sessionWorkspaceName(path),
@@ -512,6 +583,58 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                   optionsAriaLabel={t("graphs.workspaceOptions")}
                   value={selectedAgentNode.config.workspacePath}
                 />
+                <label className="react-agent-graph-node-config__instructions">
+                  <span>
+                    <strong>{t("graphs.nodeInstructions")}</strong>
+                    <small id={`agent-graph-instructions-help-${selectedAgentNode.id}`}>
+                      {t("graphs.nodeInstructionsDescription")}
+                    </small>
+                  </span>
+                  <textarea
+                    aria-describedby={`agent-graph-instructions-help-${selectedAgentNode.id}`}
+                    onChange={(event) => updateSelectedAgentConfig({
+                      ...selectedAgentNode.config,
+                      instructions: event.currentTarget.value,
+                    })}
+                    placeholder={t("graphs.nodeInstructionsPlaceholder")}
+                    rows={5}
+                    value={selectedAgentNode.config.instructions ?? ""}
+                  />
+                </label>
+                <SettingsChoiceList
+                  ariaLabel={t("graphs.nodeModel")}
+                  description={t("graphs.nodeModelDescription")}
+                  error={modelCatalogError
+                    ? t("graphs.modelLoadFailed", { message: modelCatalogError })
+                    : undefined}
+                  label={t("graphs.nodeModel")}
+                  onChange={selectAgentModel}
+                  options={modelChoices}
+                  optionsAriaLabel={t("graphs.modelOptions")}
+                  value={selectedModelValue}
+                />
+                {selectedAgentNode.config.model ? (
+                  <SettingsChoiceList
+                    ariaLabel={t("graphs.reasoningEffort")}
+                    description={t("graphs.reasoningEffortDescription")}
+                    label={t("graphs.reasoningEffort")}
+                    onChange={selectAgentReasoningEffort}
+                    options={[
+                      {
+                        description: t("graphs.reasoningDefaultDescription"),
+                        label: t("graphs.reasoningDefault"),
+                        value: "",
+                      },
+                      ...REASONING_EFFORT_VALUES.map((effort) => ({
+                        description: t(`graphs.reasoningOptions.${effort}.description`),
+                        label: t(`graphs.reasoningOptions.${effort}.label`),
+                        value: effort,
+                      })),
+                    ]}
+                    optionsAriaLabel={t("graphs.reasoningOptionsLabel")}
+                    value={selectedAgentNode.config.model.reasoningEffort ?? ""}
+                  />
+                ) : null}
               </section>
             ) : null}
             <section
@@ -565,6 +688,45 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
       ) : null}
     </main>
   );
+}
+
+function agentGraphModelValue(model: ChatModelOption | NonNullable<AgentLoopNodeConfig["model"]>): string {
+  const modelId = "modelId" in model ? model.modelId : model.id;
+  return `${model.providerId ?? ""}\u001f${modelId}`;
+}
+
+function agentGraphModelChoices(
+  models: ChatModelOption[],
+  current: AgentLoopNodeConfig["model"] | undefined,
+  labels: {
+    inheritDescription: string;
+    inheritLabel: string;
+    unavailableDescription: string;
+  },
+): SettingsChoiceOption[] {
+  const choices: SettingsChoiceOption[] = [
+    {
+      description: labels.inheritDescription,
+      label: labels.inheritLabel,
+      value: "",
+    },
+    ...models.map((model) => ({
+      description: model.providerLabel ?? model.description ?? model.providerId,
+      label: model.label,
+      value: agentGraphModelValue(model),
+    })),
+  ];
+  if (current && !models.some((model) => agentGraphModelValue(model) === agentGraphModelValue(current))) {
+    choices.splice(1, 0, {
+      description: current.providerId
+        ? `${current.providerId} · ${labels.unavailableDescription}`
+        : labels.unavailableDescription,
+      disabled: true,
+      label: current.modelId,
+      value: agentGraphModelValue(current),
+    });
+  }
+  return choices;
 }
 
 function uniqueWorkspacePaths(paths: string[]): string[] {
