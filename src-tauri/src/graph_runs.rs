@@ -1,6 +1,10 @@
 use crate::agent::bridge::{execute_thread_turn_with_services, SubmitThreadTurnInput};
 use crate::agent::runtime::NativeAgentRuntimeServices;
-use crate::agent_graphs::{self, validate_graph_id, AgentGraphDefinition, AgentGraphNodeKind};
+#[cfg(test)]
+use crate::agent_graphs::AgentLoopReasoningEffort;
+use crate::agent_graphs::{
+    self, validate_graph_id, AgentGraphDefinition, AgentGraphNodeKind, AgentLoopModelConfig,
+};
 use crate::project_groups::{canonical_workspace, workspace_id};
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
@@ -87,6 +91,8 @@ pub(crate) struct StartAgentGraphRunInput {
 struct AgentStep {
     node_id: String,
     workspace_path: String,
+    instructions: String,
+    model: Option<AgentLoopModelConfig>,
 }
 
 pub(crate) fn list(
@@ -214,12 +220,7 @@ pub(crate) async fn start(
                     "content": current_input,
                     "clientEventId": format!("graph-{run_id}-{}", index + 1),
                 }),
-                spec: serde_json::json!({
-                    "runtime": "rust",
-                    "stream": true,
-                    "turnId": turn_id,
-                    "metadata": graph_turn_metadata(&run, step, &node_run_id),
-                }),
+                spec: agent_turn_spec(&run, step, &node_run_id, &turn_id),
             },
             workspace_root.clone(),
             config_snapshot.clone(),
@@ -353,6 +354,8 @@ fn linear_agent_plan(definition: &AgentGraphDefinition) -> Result<Vec<AgentStep>
                 steps.push(AgentStep {
                     node_id: node.id.clone(),
                     workspace_path: workspace_id(&canonical),
+                    instructions: workspace.instructions.clone(),
+                    model: workspace.model.clone(),
                 });
             }
             AgentGraphNodeKind::Input | AgentGraphNodeKind::Condition => {
@@ -425,6 +428,37 @@ fn graph_turn_metadata(
     let mut metadata = graph_origin_metadata(run, step, node_run_id);
     metadata["workingDirectory"] = serde_json::Value::String(step.workspace_path.clone());
     metadata
+}
+
+fn agent_turn_spec(
+    run: &AgentGraphRun,
+    step: &AgentStep,
+    node_run_id: &str,
+    turn_id: &str,
+) -> serde_json::Value {
+    let mut spec = serde_json::json!({
+        "runtime": "rust",
+        "stream": true,
+        "turnId": turn_id,
+        "metadata": graph_turn_metadata(run, step, node_run_id),
+    });
+    if !step.instructions.trim().is_empty() {
+        spec["agentRole"] = serde_json::Value::String(format!(
+            "# Agent Graph node instructions\n\n{}",
+            step.instructions.trim()
+        ));
+    }
+    if let Some(model) = &step.model {
+        spec["model"] = serde_json::Value::String(model.model_id.trim().to_string());
+        if let Some(provider_id) = &model.provider_id {
+            spec["provider"] = serde_json::Value::String(provider_id.trim().to_string());
+        }
+        if let Some(reasoning_effort) = model.reasoning_effort {
+            spec["reasoningEffort"] =
+                serde_json::Value::String(reasoning_effort.as_str().to_string());
+        }
+    }
+    spec
 }
 
 fn finish_failed_run(
@@ -592,15 +626,87 @@ mod tests {
                     workspace_path: workspace_id(
                         &canonical_workspace(&fixture.first_workspace).unwrap()
                     ),
+                    instructions: String::new(),
+                    model: None,
                 },
                 AgentStep {
                     node_id: "agent-2".to_string(),
                     workspace_path: workspace_id(
                         &canonical_workspace(&fixture.second_workspace).unwrap()
                     ),
+                    instructions: String::new(),
+                    model: None,
                 },
             ]
         );
+    }
+
+    #[test]
+    fn maps_agent_node_instructions_and_model_to_the_turn_spec() {
+        let fixture = Fixture::new();
+        let step = AgentStep {
+            node_id: "agent-1".to_string(),
+            workspace_path: workspace_id(&canonical_workspace(&fixture.first_workspace).unwrap()),
+            instructions: "  Research the topic and return a sourced report.  ".to_string(),
+            model: Some(AgentLoopModelConfig {
+                model_id: " gpt-5.6-sol ".to_string(),
+                provider_id: Some(" openai ".to_string()),
+                reasoning_effort: Some(AgentLoopReasoningEffort::High),
+            }),
+        };
+        let run = AgentGraphRun {
+            schema_version: AGENT_GRAPH_RUN_SCHEMA_VERSION.to_string(),
+            id: "run-spec-test".to_string(),
+            graph_id: "graph-1".to_string(),
+            graph_revision: "sha256:test".to_string(),
+            definition_workspace_path: step.workspace_path.clone(),
+            status: AgentGraphRunStatus::Running,
+            input: "start".to_string(),
+            node_runs: Vec::new(),
+            output: None,
+            error: None,
+        };
+
+        let spec = agent_turn_spec(&run, &step, "node-run-1", "turn-1");
+
+        assert_eq!(
+            spec["agentRole"],
+            "# Agent Graph node instructions\n\nResearch the topic and return a sourced report."
+        );
+        assert_eq!(spec["model"], "gpt-5.6-sol");
+        assert_eq!(spec["provider"], "openai");
+        assert_eq!(spec["reasoningEffort"], "high");
+        assert_eq!(spec["metadata"]["graphNodeId"], "agent-1");
+    }
+
+    #[test]
+    fn inherited_agent_settings_leave_turn_overrides_absent() {
+        let fixture = Fixture::new();
+        let step = AgentStep {
+            node_id: "agent-1".to_string(),
+            workspace_path: workspace_id(&canonical_workspace(&fixture.first_workspace).unwrap()),
+            instructions: String::new(),
+            model: None,
+        };
+        let run = AgentGraphRun {
+            schema_version: AGENT_GRAPH_RUN_SCHEMA_VERSION.to_string(),
+            id: "run-defaults-test".to_string(),
+            graph_id: "graph-1".to_string(),
+            graph_revision: "sha256:test".to_string(),
+            definition_workspace_path: step.workspace_path.clone(),
+            status: AgentGraphRunStatus::Running,
+            input: "start".to_string(),
+            node_runs: Vec::new(),
+            output: None,
+            error: None,
+        };
+
+        let spec = agent_turn_spec(&run, &step, "node-run-1", "turn-1");
+
+        assert!(spec.get("agentRole").is_none());
+        assert!(spec.get("model").is_none());
+        assert!(spec.get("provider").is_none());
+        assert!(spec.get("reasoningEffort").is_none());
     }
 
     #[test]
@@ -691,6 +797,8 @@ mod tests {
         let step = AgentStep {
             node_id: "agent-1".to_string(),
             workspace_path: workspace_id(&canonical_workspace(&fixture.first_workspace).unwrap()),
+            instructions: String::new(),
+            model: None,
         };
         let run = AgentGraphRun {
             schema_version: AGENT_GRAPH_RUN_SCHEMA_VERSION.to_string(),

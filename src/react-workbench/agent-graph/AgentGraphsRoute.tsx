@@ -3,12 +3,12 @@ import { GripVertical, Play, Plus, Save, Trash2, Workflow, X } from "lucide-reac
 import { useTranslation } from "react-i18next";
 import {
   addAgentGraphNode,
+  configureAgentGraphNode,
   connectAgentGraphNodes,
   createAgentGraphDraft,
   moveAgentGraphNode,
   removeAgentGraphEdge,
   removeAgentGraphNode,
-  setAgentGraphNodeWorkspace,
   validateAgentGraphDefinition,
   type AgentGraphDefinition,
   type AgentGraphAgentNode,
@@ -217,7 +217,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
           id: nodeId,
           kind,
           position,
-          config: { workspacePath: definitionWorkspacePath },
+          config: { workspacePath: definitionWorkspacePath, instructions: "" },
         }
       : { id: nodeId, kind, position };
     return applyEdit(addAgentGraphNode(draft, node));
@@ -499,10 +499,10 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                   description={t("graphs.executionWorkspaceDescription")}
                   disabled={!workspaceOptions.length}
                   label={t("graphs.executionWorkspace")}
-                  onChange={(workspacePath) => applyEdit(setAgentGraphNodeWorkspace(
+                  onChange={(workspacePath) => applyEdit(configureAgentGraphNode(
                     draft,
                     selectedAgentNode.id,
-                    workspacePath,
+                    { ...selectedAgentNode.config, workspacePath },
                   ))}
                   options={workspaceOptions.map((path) => ({
                     description: path,

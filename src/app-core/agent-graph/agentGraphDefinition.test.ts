@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   AGENT_GRAPH_SCHEMA_VERSION,
   addAgentGraphNode,
+  configureAgentGraphNode,
   connectAgentGraphNodes,
   createAgentGraphDraft,
   moveAgentGraphNode,
   removeAgentGraphEdge,
   removeAgentGraphNode,
-  setAgentGraphNodeWorkspace,
   validateAgentGraphDefinition,
 } from "./agentGraphDefinition";
 
@@ -20,7 +20,10 @@ describe("agentGraphDefinition", () => {
     expect(definition.schemaVersion).toBe(AGENT_GRAPH_SCHEMA_VERSION);
     expect(definition.nodes.map((node) => node.kind)).toEqual(["input", "agent", "output"]);
     expect(definition.nodes.map((node) => node.position.x)).toEqual([72, 300, 528]);
-    expect(definition.nodes.find((node) => node.kind === "agent")?.config.workspacePath).toBe(WORKSPACE_PATH);
+    expect(definition.nodes.find((node) => node.kind === "agent")?.config).toEqual({
+      instructions: "",
+      workspacePath: WORKSPACE_PATH,
+    });
     expect(definition.edges.map((edge) => [edge.source, edge.target])).toEqual([
       ["input", "agent"],
       ["agent", "output"],
@@ -114,15 +117,34 @@ describe("agentGraphDefinition", () => {
     })).toEqual({ ok: false, reason: "unique_node_kind" });
   });
 
-  it("updates only Agent node workspace configuration", () => {
+  it("updates only Agent node configuration", () => {
     const definition = createAgentGraphDraft({ id: "graph-1", name: "Flow", workspacePath: WORKSPACE_PATH });
-    const updated = setAgentGraphNodeWorkspace(definition, "agent", " E:\\services\\payments ");
+    const updated = configureAgentGraphNode(definition, "agent", {
+      instructions: "Review the previous report.",
+      model: {
+        modelId: "gpt-5.6-sol",
+        providerId: "openai",
+        reasoningEffort: "high",
+      },
+      workspacePath: " E:\\services\\payments ",
+    });
 
     expect(updated).toMatchObject({ ok: true });
     if (!updated.ok) return;
     expect(definition.nodes.find((node) => node.kind === "agent")?.config.workspacePath).toBe(WORKSPACE_PATH);
-    expect(updated.definition.nodes.find((node) => node.kind === "agent")?.config.workspacePath).toBe("E:\\services\\payments");
-    expect(setAgentGraphNodeWorkspace(definition, "input", WORKSPACE_PATH)).toEqual({
+    expect(updated.definition.nodes.find((node) => node.kind === "agent")?.config).toEqual({
+      instructions: "Review the previous report.",
+      model: {
+        modelId: "gpt-5.6-sol",
+        providerId: "openai",
+        reasoningEffort: "high",
+      },
+      workspacePath: "E:\\services\\payments",
+    });
+    expect(configureAgentGraphNode(definition, "input", {
+      instructions: "",
+      workspacePath: WORKSPACE_PATH,
+    })).toEqual({
       ok: false,
       reason: "node_not_configurable",
     });

@@ -1,3 +1,5 @@
+import type { ReasoningEffort } from "../chat/reasoningEffort";
+
 export const AGENT_GRAPH_SCHEMA_VERSION = "tinybot.agent_graph.v1" as const;
 
 export type AgentGraphNodeKind = "input" | "agent" | "condition" | "output";
@@ -14,6 +16,12 @@ type AgentGraphBaseNode = {
 
 export type AgentLoopNodeConfig = {
   workspacePath: string;
+  instructions: string;
+  model?: {
+    modelId: string;
+    providerId?: string;
+    reasoningEffort?: ReasoningEffort;
+  };
 };
 
 export type AgentGraphAgentNode = AgentGraphBaseNode & {
@@ -81,7 +89,7 @@ export function createAgentGraphDraft(input: {
         id: "agent",
         kind: "agent",
         position: { x: 300, y: 124 },
-        config: { workspacePath: input.workspacePath },
+        config: { workspacePath: input.workspacePath, instructions: "" },
       },
       { id: "output", kind: "output", position: { x: 528, y: 124 } },
     ],
@@ -190,10 +198,10 @@ export function moveAgentGraphNode(
   };
 }
 
-export function setAgentGraphNodeWorkspace(
+export function configureAgentGraphNode(
   definition: AgentGraphDefinition,
   nodeId: string,
-  workspacePath: string,
+  config: AgentLoopNodeConfig,
 ): AgentGraphEditResult {
   const node = definition.nodes.find((candidate) => candidate.id === nodeId);
   if (!node) {
@@ -209,7 +217,13 @@ export function setAgentGraphNodeWorkspace(
       ...definition,
       nodes: definition.nodes.map((candidate) => (
         candidate.id === nodeId
-          ? { ...candidate, config: { workspacePath: workspacePath.trim() } }
+          ? {
+              ...candidate,
+              config: {
+                ...config,
+                workspacePath: config.workspacePath.trim(),
+              },
+            }
           : candidate
       )),
     },

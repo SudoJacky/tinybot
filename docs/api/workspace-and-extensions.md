@@ -15,7 +15,7 @@ src-tauri/src/skills/definition.rs
 src-tauri/src/workspace/types.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:6be9d5b248a1c4cf2ed6fcce1275165dac3c83383a4bdd9f000920bb242d46bf -->
+<!-- tinybot-doc-fingerprint: sha256:7c0f72c85dd2114a410a0f627f838e1dda45f55e773520ae83da9906405e42a5 -->
 
 This document covers workspace operations and the extension catalogs available
 to Agents. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -63,7 +63,11 @@ the versioned definition and atomically replaces one file. The returned
 `revision` is the SHA-256 hash of the exact persisted bytes; updates and deletes
 must provide it so external edits fail visibly instead of being overwritten.
 The first save omits `expectedRevision`, and an existing file cannot be replaced
-without one. Listing rejects invalid Graph files rather than hiding them.
+without one. Listing rejects invalid Graph files rather than hiding them. An
+Agent node stores its execution `workspacePath`, additional `instructions`, and
+an optional `model` tuple containing `modelId`, optional `providerId`, and
+optional `reasoningEffort`. Older v1 definitions that omit the additive fields
+inherit empty instructions and the application model defaults.
 
 ## Agent Graph Run Commands
 
@@ -80,7 +84,9 @@ canonicalizes every Agent workspace, and accepts only a single linear
 Input-to-Output path. Condition nodes, branches, cycles, disconnected nodes,
 and missing workspaces fail preflight. Each Agent node creates a fresh standard
 parentless Thread with `source: "agent_graph"`; final output becomes the next
-Agent input and the Output value. Agent terminal failures produce a failed Run
+Agent input and the Output value. Node instructions enter the existing
+turn-scoped agent-role instruction source, while an optional node model tuple
+sets the Turn's model, provider, and reasoning effort. Agent terminal failures produce a failed Run
 rather than a successful empty result. Cancellation and crash recovery are not
 implemented in this first slice.
 

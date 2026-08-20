@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:5c940f80fa54f494866233057024c8706f176862c464e5bacebc54efa12639d7 -->
+<!-- tinybot-module-fingerprint: sha256:95a19e0843e66e7e4cc2ace494bff2255427b6236d0ec5caf4884df16a722e89 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -173,7 +173,10 @@ Thread metadata, checkpoint pointers, and Rollout heads are rebuilt into a
 process-local index from the Rollouts. Project-group membership is loaded from
 its own atomic JSON store and authorizes coordinator-created workspace Threads.
 Agent Graph definitions use one atomically replaced JSON file per Graph and an
-exact-byte SHA-256 revision for optimistic saves and deletes.
+exact-byte SHA-256 revision for optimistic saves and deletes. Agent nodes may
+store additional role instructions plus a provider/model/reasoning override;
+the Graph runtime maps them onto the existing Turn instruction and settings
+interfaces, while omitted overrides inherit application defaults.
 Graph Runs use separate atomically replaced status files. Every Agent node
 invocation creates a canonical parentless Thread with `source: "agent_graph"`;
 its Rollout remains under the standard Thread root.

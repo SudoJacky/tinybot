@@ -52,6 +52,42 @@ struct AgentGraphNodePosition {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct AgentLoopNodeConfig {
     pub(crate) workspace_path: String,
+    #[serde(default)]
+    pub(crate) instructions: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) model: Option<AgentLoopModelConfig>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct AgentLoopModelConfig {
+    pub(crate) model_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) provider_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) reasoning_effort: Option<AgentLoopReasoningEffort>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum AgentLoopReasoningEffort {
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
+}
+
+impl AgentLoopReasoningEffort {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+            Self::Xhigh => "xhigh",
+            Self::Max => "max",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -227,6 +263,18 @@ fn validate_definition(definition: &AgentGraphDefinition) -> Result<(), String> 
                         "Agent node `{}` requires a workspace path",
                         node.id
                     ));
+                }
+                if let Some(model) = &config.model {
+                    if model.model_id.trim().is_empty() {
+                        return Err(format!("Agent node `{}` has an empty model id", node.id));
+                    }
+                    if model
+                        .provider_id
+                        .as_ref()
+                        .is_some_and(|provider_id| provider_id.trim().is_empty())
+                    {
+                        return Err(format!("Agent node `{}` has an empty provider id", node.id));
+                    }
                 }
             }
             AgentGraphNodeKind::Condition => {}
@@ -433,6 +481,12 @@ mod tests {
                         position: AgentGraphNodePosition { x: 100, y: 0 },
                         config: Some(AgentLoopNodeConfig {
                             workspace_path: self.workspace.display().to_string(),
+                            instructions: "Research and return a concise report.".to_string(),
+                            model: Some(AgentLoopModelConfig {
+                                model_id: "gpt-5.6-sol".to_string(),
+                                provider_id: Some("openai".to_string()),
+                                reasoning_effort: Some(AgentLoopReasoningEffort::High),
+                            }),
                         }),
                     },
                     AgentGraphNode {
@@ -509,6 +563,36 @@ mod tests {
         })
         .unwrap()
         .is_empty());
+    }
+
+    #[test]
+    fn legacy_agent_config_inherits_prompt_and_model_defaults() {
+        let fixture = Fixture::new();
+        let definition: AgentGraphDefinition = serde_json::from_value(serde_json::json!({
+            "schemaVersion": AGENT_GRAPH_SCHEMA_VERSION,
+            "id": "graph-legacy",
+            "name": "Legacy",
+            "nodes": [
+                { "id": "input", "kind": "input", "position": { "x": 0, "y": 0 } },
+                {
+                    "id": "agent",
+                    "kind": "agent",
+                    "position": { "x": 100, "y": 0 },
+                    "config": { "workspacePath": fixture.workspace }
+                },
+                { "id": "output", "kind": "output", "position": { "x": 200, "y": 0 } }
+            ],
+            "edges": [
+                { "id": "input-agent", "source": "input", "target": "agent" },
+                { "id": "agent-output", "source": "agent", "target": "output" }
+            ]
+        }))
+        .unwrap();
+        let config = definition.nodes[1].config.as_ref().unwrap();
+
+        assert!(config.instructions.is_empty());
+        assert!(config.model.is_none());
+        validate_definition(&definition).unwrap();
     }
 
     #[test]

@@ -42,6 +42,12 @@ Agent node separately owns an **execution workspace**:
 ```ts
 type AgentLoopNodeConfig = {
   workspacePath: string;
+  instructions: string;
+  model?: {
+    providerId?: string;
+    modelId: string;
+    reasoningEffort?: "low" | "medium" | "high" | "xhigh" | "max";
+  };
 };
 
 type AgentGraphAgentNode = {
@@ -59,13 +65,20 @@ depend on Chat route state or a Chat session identity.
 
 A missing or moved execution workspace does not make the definition
 uneditable. Run preflight canonicalizes and validates every Agent workspace and
-reports a node-specific error before starting work. The first persisted schema
-stores no per-node model, provider, permission, or runtime override; Agent
-execution inherits normal application defaults.
+reports a node-specific error before starting work. Node instructions are
+appended through the existing turn-scoped agent-role instruction source; they
+do not replace Tinybot's base, workspace, project, memory, or runtime
+instructions. The preceding node's final output remains ordinary Turn input.
 
-The existing `tinybot.agent_graph.v1` schema will gain this Agent configuration
-before persistence ships. Because there are no durable Graphs to migrate, this
-does not require a second schema version or a migration framework.
+The optional model tuple pins a node to a configured provider and model, with
+an optional reasoning effort. When it is absent, execution inherits normal
+application defaults. Display labels and credentials remain configuration
+concerns and are not copied into the Graph. Existing v1 definitions that omit
+`instructions` and `model` load them as empty/inherited defaults.
+
+These additive optional/defaulted fields remain in
+`tinybot.agent_graph.v1`; no migration framework or second schema version is
+needed.
 
 ### Definition persistence Interface
 

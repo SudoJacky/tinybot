@@ -1,5 +1,5 @@
 # Agent Graph Application Core
-<!-- tinybot-module-fingerprint: sha256:a00fc20c1c4476415571fc97a07b4fadc7a651a37ec681f30f6d414857f7e754 -->
+<!-- tinybot-module-fingerprint: sha256:26f001a7e97f48d87fa38ecb3f6e384a3f1f25856088e2574211804fd9bf49c6 -->
 
 `agent-graph` owns the framework-independent, versioned Agent Graph definition,
 its structural validation, and immutable edit operations. The definition
@@ -21,8 +21,11 @@ of the definition model.
 
 The accepted persistence contract keeps a workspace-owned Graph definition
 separate from application-owned Graph Runs and canonical Agent Threads. Agent
-nodes currently configure only an execution `workspacePath`; model and runtime
-settings continue to inherit application defaults. The first runtime accepts
+nodes configure an execution `workspacePath`, optional node instructions, and
+an optional provider/model/reasoning override. Node instructions use the
+existing turn-scoped agent-role instruction source, so Tinybot's base and
+workspace instructions remain intact. Nodes without a model override inherit
+application defaults. The first runtime accepts
 only a single linear Input-to-Output path and rejects Condition nodes, branches,
 cycles, disconnected nodes, or missing execution workspaces before creating a
 Run. See
