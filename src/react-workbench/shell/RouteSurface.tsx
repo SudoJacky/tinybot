@@ -59,7 +59,7 @@ export function RouteSurface({
         />
       );
     case "graphs":
-      return <DeferredSurface load={loadAgentGraphsRoute} name={routeName} surfaceProps={{}} />;
+      return <DeferredSurface load={loadAgentGraphsRoute} name={routeName} surfaceProps={{ services }} />;
     case "files":
       return <FilesPage services={services} title={routeName} />;
     case "memory":

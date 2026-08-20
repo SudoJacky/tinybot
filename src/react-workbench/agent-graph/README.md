@@ -1,13 +1,15 @@
 # Agent Graph Workbench
-<!-- tinybot-module-fingerprint: sha256:173a28032e9fa9ce06034abd6f9ce0d2475f35d9b33bd17377269b321517b2fa -->
+<!-- tinybot-module-fingerprint: sha256:f6f0a388c2bd6c2e1ab88a54e9bae7c0736a771e55d6b03c96f7add9137eab4c -->
 
 `agent-graph` owns the standalone Agent Graph route and its React presentation.
 The page creates one honest in-memory starter draft and exposes a small canvas
 editor: palette nodes can be dragged or clicked into the canvas, positioned by
 pointer or keyboard, connected through accessible handles, selected, and
-removed. Input and Output remain unique protected boundaries. Structural
-validation stays visible without pretending that workspace persistence or
-runtime execution already exists.
+removed. The route selects a definition workspace from workspaces already known
+to Chat and project groups. Each Agent node defaults to that workspace and can
+select a different execution workspace. Input and Output remain unique
+protected boundaries. Structural validation stays visible without pretending
+that workspace persistence or runtime execution already exists.
 
 This module does not import `ChatPage`, consume Chat route state, or treat a
 Graph as a Chat mode. It consumes the framework-independent definition in

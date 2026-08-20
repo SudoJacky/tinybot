@@ -293,6 +293,7 @@ describe("DesktopShell", () => {
       "src/react-workbench/styles/workbench.css",
       "src/react-workbench/chat/ChatPage.css",
       "src/react-workbench/settings/SettingsRoute.css",
+      "src/react-workbench/settings/SettingsChoiceList.css",
     ].map((path) => readFileSync(path, "utf8")).join("\n");
 
     expect(css).toMatch(/\.react-window-frame__history button\s*{[^}]*width:\s*32px;[^}]*height:\s*32px;/s);

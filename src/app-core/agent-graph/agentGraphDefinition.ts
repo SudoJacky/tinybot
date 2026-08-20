@@ -7,11 +7,23 @@ export type AgentGraphNodePosition = {
   y: number;
 };
 
-export type AgentGraphNode = {
+type AgentGraphBaseNode = {
   id: string;
-  kind: AgentGraphNodeKind;
   position: AgentGraphNodePosition;
 };
+
+export type AgentLoopNodeConfig = {
+  workspacePath: string;
+};
+
+export type AgentGraphAgentNode = AgentGraphBaseNode & {
+  kind: "agent";
+  config: AgentLoopNodeConfig;
+};
+
+export type AgentGraphNode = AgentGraphAgentNode | (AgentGraphBaseNode & {
+  kind: Exclude<AgentGraphNodeKind, "agent">;
+});
 
 export type AgentGraphEdge = {
   id: string;
@@ -44,6 +56,7 @@ export type AgentGraphEditError =
   | "node_not_found"
   | "edge_not_found"
   | "protected_node_kind"
+  | "node_not_configurable"
   | "self_edge"
   | "duplicate_edge"
   | "input_cannot_be_target"
@@ -53,14 +66,23 @@ export type AgentGraphEditResult =
   | { ok: true; definition: AgentGraphDefinition }
   | { ok: false; reason: AgentGraphEditError };
 
-export function createAgentGraphDraft(input: { id: string; name: string }): AgentGraphDefinition {
+export function createAgentGraphDraft(input: {
+  id: string;
+  name: string;
+  workspacePath: string;
+}): AgentGraphDefinition {
   return {
     schemaVersion: AGENT_GRAPH_SCHEMA_VERSION,
     id: input.id,
     name: input.name,
     nodes: [
       { id: "input", kind: "input", position: { x: 72, y: 124 } },
-      { id: "agent", kind: "agent", position: { x: 300, y: 124 } },
+      {
+        id: "agent",
+        kind: "agent",
+        position: { x: 300, y: 124 },
+        config: { workspacePath: input.workspacePath },
+      },
       { id: "output", kind: "output", position: { x: 528, y: 124 } },
     ],
     edges: [
@@ -163,6 +185,32 @@ export function moveAgentGraphNode(
       ...definition,
       nodes: definition.nodes.map((node) => (
         node.id === nodeId ? { ...node, position: normalizePosition(position) } : node
+      )),
+    },
+  };
+}
+
+export function setAgentGraphNodeWorkspace(
+  definition: AgentGraphDefinition,
+  nodeId: string,
+  workspacePath: string,
+): AgentGraphEditResult {
+  const node = definition.nodes.find((candidate) => candidate.id === nodeId);
+  if (!node) {
+    return { ok: false, reason: "node_not_found" };
+  }
+  if (node.kind !== "agent") {
+    return { ok: false, reason: "node_not_configurable" };
+  }
+
+  return {
+    ok: true,
+    definition: {
+      ...definition,
+      nodes: definition.nodes.map((candidate) => (
+        candidate.id === nodeId
+          ? { ...candidate, config: { workspacePath: workspacePath.trim() } }
+          : candidate
       )),
     },
   };

@@ -19,8 +19,12 @@ export const zh = {
     graphs: {
       title: "Agent Graph", eyebrow: "自动化", description: "独立于聊天设计可复用的 Agent 工作流。", new: "新建 Graph", createFirst: "创建第一个 Graph",
       emptyTitle: "还没有 Graph", emptyDescription: "先创建一个仅存在于当前页面的起始草稿。工作区保存和执行将在独立 Graph 接口中实现。",
-      untitled: "未命名 Graph", name: "Graph 名称", unsaved: "未保存草稿", discard: "丢弃草稿", editor: "Graph 草稿编辑器", canvas: "Graph 画布",
+      untitled: "未命名 Graph", name: "Graph 名称", definitionWorkspace: "定义工作区", definitionWorkspaceDescription: "用于保存这个 Graph 定义的工作区。",
+      workspaceOptions: "可用工作区", workspaceEmpty: "请先在 Chat 中创建工作区，再新建 Graph。", workspaceLoadFailed: "无法加载工作区：{{message}}",
+      unsaved: "未保存草稿", discard: "丢弃草稿", editor: "Graph 草稿编辑器", canvas: "Graph 画布",
       node: "节点", nodeLabel: "{{kind}}节点", availableNodes: "可用节点", availableNodesDescription: "将节点拖入画布，或点击直接添加。",
+      agentSettings: "Agent 设置", agentSettingsDescription: "配置当前选中的 Agent Loop。", executionWorkspace: "执行工作区",
+      executionWorkspaceDescription: "这个 Agent Loop 将在所选工作区中运行。",
       canvasHint: "拖动节点调整位置，使用两侧端点创建连接。", addNode: "添加{{kind}}节点", dragNode: "将{{kind}}节点拖入画布",
       nodeAlreadyExists: "{{kind}}节点已存在", deleteSelected: "删除所选项", boundaryNodeProtected: "输入和输出节点不可删除",
       connectionSource: "从{{kind}}节点开始连接", connectionTarget: "请先选择来源，再连接到{{kind}}节点",
@@ -38,6 +42,7 @@ export const zh = {
       editErrors: {
         duplicate_node_id: "该节点 ID 已被使用。", unique_node_kind: "一个 Graph 只能包含一个输入节点和一个输出节点。",
         node_not_found: "该节点已不存在。", edge_not_found: "该连接已不存在。", protected_node_kind: "输入和输出节点不可删除。",
+        node_not_configurable: "只有 Agent 节点具有执行设置。",
         self_edge: "节点不能连接到自身。", duplicate_edge: "这两个节点已连接。", input_cannot_be_target: "输入节点不能接收入边。",
         output_cannot_be_source: "输出节点不能创建出边。",
       },

@@ -76,6 +76,29 @@
   background: var(--color-primary-active);
 }
 
+.react-agent-graphs-page__primary:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+.react-agent-graph-workspace {
+  width: min(720px, 100%);
+}
+
+.react-agent-graph-workspace__error,
+.react-agent-graph-workspace__empty {
+  margin-top: 7px !important;
+  font-size: 12px;
+}
+
+.react-agent-graph-workspace__error {
+  color: var(--color-danger);
+}
+
+.react-agent-graph-workspace__empty {
+  color: var(--color-muted);
+}
+
 .react-agent-graphs-empty {
   display: grid;
   align-content: center;
@@ -411,6 +434,39 @@
   display: grid;
   gap: 7px;
   padding: 16px;
+}
+
+.react-agent-graph-node-config {
+  display: grid;
+  gap: 7px;
+  margin-top: 9px;
+  padding-top: 15px;
+  border-top: 1px solid var(--color-hairline);
+}
+
+.react-agent-graph-node-config h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-agent-graph-node-config > p {
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.react-agent-graph-node-config > .react-settings-choice {
+  margin-top: 6px;
+}
+
+.react-agent-graph-node-config .react-settings-choice-item .react-top-menu__menu-label {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1px;
+}
+
+.react-agent-graph-node-config .react-settings-choice-item small {
+  justify-self: start;
 }
 
 .react-agent-graph-node-catalog ul {

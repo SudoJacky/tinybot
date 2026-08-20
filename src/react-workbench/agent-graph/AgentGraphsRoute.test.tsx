@@ -2,7 +2,8 @@
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import type { AppServices } from "../services";
 import AgentGraphsRoute from "./AgentGraphsRoute";
 
 afterEach(cleanup);
@@ -10,10 +11,11 @@ afterEach(cleanup);
 describe("AgentGraphsRoute", () => {
   it("creates and discards an isolated in-memory graph draft", async () => {
     const user = userEvent.setup();
-    render(<AgentGraphsRoute />);
+    render(<AgentGraphsRoute services={createServices()} />);
 
     expect(screen.getByRole("heading", { name: "Agent Graphs" })).toBeTruthy();
     expect(screen.getByText("No graphs yet")).toBeTruthy();
+    await screen.findByRole("button", { name: "Definition workspace: tinybot" });
 
     await user.click(screen.getByRole("button", { name: "Create first graph" }));
 
@@ -32,7 +34,8 @@ describe("AgentGraphsRoute", () => {
 
   it("supports palette drag, keyboard movement, connections, and deletion", async () => {
     const user = userEvent.setup();
-    render(<AgentGraphsRoute />);
+    render(<AgentGraphsRoute services={createServices()} />);
+    await screen.findByRole("button", { name: "Definition workspace: tinybot" });
     await user.click(screen.getByRole("button", { name: "Create first graph" }));
 
     const canvas = screen.getByRole("region", { name: "Graph canvas" });
@@ -71,7 +74,46 @@ describe("AgentGraphsRoute", () => {
     await user.keyboard("{Delete}");
     expect(screen.queryByLabelText("Condition node")).toBeNull();
   });
+
+  it("configures each Agent node with a workspace known to Chat", async () => {
+    const user = userEvent.setup();
+    render(<AgentGraphsRoute services={createServices({
+      projectWorkspaces: ["\\\\?\\D:\\code\\tinybot", "E:\\services\\payments"],
+    })} />);
+
+    await screen.findByRole("button", { name: "Definition workspace: tinybot" });
+    await user.click(screen.getByRole("button", { name: "Create first graph" }));
+    await user.click(screen.getByLabelText("Agent node"));
+
+    const workspaceChoice = screen.getByRole("button", { name: "Execution workspace: tinybot" });
+    await user.click(workspaceChoice);
+    expect(screen.getAllByRole("menuitemradio")).toHaveLength(2);
+    await user.click(screen.getByRole("menuitemradio", { name: /payments/i }));
+
+    expect(screen.getByRole("button", { name: "Execution workspace: payments" })).toBeTruthy();
+    expect(screen.getByLabelText("Agent node").textContent).toContain("payments");
+  });
 });
+
+function createServices({ projectWorkspaces = [] }: { projectWorkspaces?: string[] } = {}): AppServices {
+  return {
+    sessionStore: {
+      list: vi.fn().mockResolvedValue([{
+        id: "thread-1",
+        title: "Tinybot",
+        updatedAtMs: 1,
+        workingDirectory: "D:\\code\\tinybot",
+      }]),
+    },
+    projectGroupStore: {
+      list: vi.fn().mockResolvedValue(projectWorkspaces.length ? [{
+        projectGroupId: "project-1",
+        name: "Services",
+        workspaceIds: projectWorkspaces,
+      }] : []),
+    },
+  } as unknown as AppServices;
+}
 
 function createDataTransfer(): DataTransfer {
   const values = new Map<string, string>();

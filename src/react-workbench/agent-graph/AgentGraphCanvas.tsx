@@ -40,6 +40,7 @@ type AgentGraphCanvasProps = {
   onConnectNodes: (source: string, target: string) => boolean;
   onRemoveNode: (nodeId: string) => boolean;
   onRemoveEdge: (edgeId: string) => boolean;
+  onSelectionChange: (nodeId: string | null) => void;
 };
 
 export function AgentGraphCanvas({
@@ -49,6 +50,7 @@ export function AgentGraphCanvas({
   onConnectNodes,
   onRemoveNode,
   onRemoveEdge,
+  onSelectionChange,
 }: AgentGraphCanvasProps) {
   const { t } = useTranslation("common");
   const canvasRef = useRef<HTMLDivElement | null>(null);
@@ -64,6 +66,7 @@ export function AgentGraphCanvas({
 
   function selectNode(nodeId: string) {
     setSelection({ type: "node", id: nodeId });
+    onSelectionChange(nodeId);
   }
 
   function removeSelection() {
@@ -76,6 +79,7 @@ export function AgentGraphCanvas({
         setPendingSource(null);
       }
       setSelection(null);
+      onSelectionChange(null);
     }
   }
 
@@ -136,6 +140,7 @@ export function AgentGraphCanvas({
       event.preventDefault();
       if (onRemoveNode(node.id)) {
         setSelection(null);
+        onSelectionChange(null);
         if (pendingSource === node.id) setPendingSource(null);
       }
     }
@@ -165,7 +170,10 @@ export function AgentGraphCanvas({
         aria-label={t("graphs.canvas")}
         className="react-agent-graph-canvas"
         onClick={(event) => {
-          if (event.currentTarget === event.target) setSelection(null);
+          if (event.currentTarget === event.target) {
+            setSelection(null);
+            onSelectionChange(null);
+          }
         }}
         onDragOver={(event) => event.preventDefault()}
         onDrop={dropNode}
@@ -224,11 +232,13 @@ export function AgentGraphCanvas({
                   onClick={(event) => {
                     event.stopPropagation();
                     setSelection({ type: "edge", id: edge.id });
+                    onSelectionChange(null);
                   }}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
                       setSelection({ type: "edge", id: edge.id });
+                      onSelectionChange(null);
                     }
                   }}
                   role="button"
@@ -283,7 +293,9 @@ export function AgentGraphCanvas({
               ) : null}
               <NodeIcon kind={node.kind} />
               <span>
-                <small>{t("graphs.node")}</small>
+                <small title={node.kind === "agent" ? node.config.workspacePath : undefined}>
+                  {node.kind === "agent" ? workspaceName(node.config.workspacePath) : t("graphs.node")}
+                </small>
                 <strong>{t(`graphs.nodes.${node.kind}`)}</strong>
               </span>
               {node.kind !== "output" ? (
@@ -334,4 +346,9 @@ function createEdgePath(source: AgentGraphNode, target: AgentGraphNode): string 
 
 function isNodeKind(value: string): value is AgentGraphNodeKind {
   return value === "input" || value === "agent" || value === "condition" || value === "output";
+}
+
+function workspaceName(path: string): string {
+  const parts = path.split(/[\\/]+/).filter(Boolean);
+  return parts[parts.length - 1] || path;
 }

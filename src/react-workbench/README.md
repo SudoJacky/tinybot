@@ -7,8 +7,9 @@
 
 The standalone [`agent-graph/`](agent-graph/README.md) route owns the in-memory
 Agent Graph canvas editor without importing `ChatPage` or consuming Chat route
-state. Its first slice is deliberately in-memory until a dedicated Graph
-persistence interface exists.
+state. It receives the shared stores only to derive definition and per-Agent
+execution workspace choices. Graph definitions remain in memory until a
+dedicated persistence interface exists.
 
 The optional `hooksStore` backs Settings > Hooks in the native desktop. The
 page derives its workspace selector from Chat sessions and project groups,

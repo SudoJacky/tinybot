@@ -1,4 +1,4 @@
-import { useRef, useState, type DragEvent as ReactDragEvent } from "react";
+import { useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "react";
 import { GripVertical, Plus, Workflow, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
@@ -8,14 +8,20 @@ import {
   moveAgentGraphNode,
   removeAgentGraphEdge,
   removeAgentGraphNode,
+  setAgentGraphNodeWorkspace,
   validateAgentGraphDefinition,
   type AgentGraphDefinition,
+  type AgentGraphAgentNode,
   type AgentGraphEditError,
   type AgentGraphEditResult,
+  type AgentGraphNode,
   type AgentGraphNodeKind,
   type AgentGraphNodePosition,
   type AgentGraphValidationIssue,
 } from "../../app-core/agent-graph/agentGraphDefinition";
+import { normalizedWorkspacePathKey, sessionWorkspaceName } from "../chat/sessionWorkspaces";
+import type { AppServices } from "../services";
+import { SettingsChoiceList } from "../settings/SettingsChoiceList";
 import {
   AGENT_GRAPH_NODE_DRAG_TYPE,
   AgentGraphCanvas,
@@ -25,21 +31,59 @@ import "./AgentGraphsRoute.css";
 
 const NODE_KINDS: AgentGraphNodeKind[] = ["input", "agent", "condition", "output"];
 
-export default function AgentGraphsRoute() {
+export default function AgentGraphsRoute({ services }: { services: AppServices }) {
   const { t } = useTranslation("common");
   const draftSequence = useRef(0);
   const nodeSequence = useRef(0);
+  const [workspaceOptions, setWorkspaceOptions] = useState<string[]>([]);
+  const [definitionWorkspacePath, setDefinitionWorkspacePath] = useState("");
+  const [workspaceCatalogError, setWorkspaceCatalogError] = useState<string | null>(null);
+  const [workspaceCatalogReady, setWorkspaceCatalogReady] = useState(false);
   const [draft, setDraft] = useState<AgentGraphDefinition | null>(null);
+  const [selectedAgentNodeId, setSelectedAgentNodeId] = useState<string | null>(null);
   const [editError, setEditError] = useState<AgentGraphEditError | null>(null);
   const issues = draft ? validateAgentGraphDefinition(draft) : [];
+  const selectedAgentNode = draft?.nodes.find((node): node is AgentGraphAgentNode => (
+    node.id === selectedAgentNodeId && node.kind === "agent"
+  ));
+
+  useEffect(() => {
+    let cancelled = false;
+    setWorkspaceCatalogReady(false);
+    setWorkspaceCatalogError(null);
+    void Promise.all([services.sessionStore.list(), services.projectGroupStore.list()])
+      .then(([sessions, groups]) => {
+        if (cancelled) return;
+        const paths = uniqueWorkspacePaths([
+          ...sessions.flatMap((session) => (
+            session.workingDirectory && !session.pluginMigration ? [session.workingDirectory] : []
+          )),
+          ...groups.flatMap((group) => group.workspaceIds),
+        ]);
+        setWorkspaceOptions(paths);
+        setDefinitionWorkspacePath((current) => current || paths[0] || "");
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setWorkspaceCatalogError(errorMessage(cause));
+      })
+      .finally(() => {
+        if (!cancelled) setWorkspaceCatalogReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [services.projectGroupStore, services.sessionStore]);
 
   function createDraft() {
+    if (!definitionWorkspacePath) return;
     draftSequence.current += 1;
     nodeSequence.current = 0;
     setEditError(null);
+    setSelectedAgentNodeId(null);
     setDraft(createAgentGraphDraft({
       id: `draft-${draftSequence.current}`,
       name: t("graphs.untitled"),
+      workspacePath: definitionWorkspacePath,
     }));
   }
 
@@ -56,11 +100,15 @@ export default function AgentGraphsRoute() {
   function addNode(kind: AgentGraphNodeKind, position: AgentGraphNodePosition): boolean {
     if (!draft) return false;
     nodeSequence.current += 1;
-    return applyEdit(addAgentGraphNode(draft, {
-      id: `${kind}-${nodeSequence.current}`,
-      kind,
-      position,
-    }));
+    const node: AgentGraphNode = kind === "agent"
+      ? {
+          id: `${kind}-${nodeSequence.current}`,
+          kind,
+          position,
+          config: { workspacePath: definitionWorkspacePath },
+        }
+      : { id: `${kind}-${nodeSequence.current}`, kind, position };
+    return applyEdit(addAgentGraphNode(draft, node));
   }
 
   function addNodeAtDefaultPosition(kind: AgentGraphNodeKind) {
@@ -86,19 +134,44 @@ export default function AgentGraphsRoute() {
           <p>{t("graphs.description")}</p>
         </span>
         {!draft ? (
-          <button className="react-agent-graphs-page__primary" type="button" onClick={createDraft}>
+          <button disabled={!definitionWorkspacePath} className="react-agent-graphs-page__primary" type="button" onClick={createDraft}>
             <Plus aria-hidden="true" size={16} />
             {t("graphs.new")}
           </button>
         ) : null}
       </header>
 
+      <section className="react-agent-graph-workspace" aria-label={t("graphs.definitionWorkspace")}>
+        <SettingsChoiceList
+          ariaLabel={t("graphs.definitionWorkspace")}
+          description={t("graphs.definitionWorkspaceDescription")}
+          disabled={!workspaceCatalogReady || !workspaceOptions.length || draft !== null}
+          label={t("graphs.definitionWorkspace")}
+          onChange={setDefinitionWorkspacePath}
+          options={workspaceOptions.map((path) => ({
+            description: path,
+            label: sessionWorkspaceName(path),
+            value: path,
+          }))}
+          optionsAriaLabel={t("graphs.workspaceOptions")}
+          value={definitionWorkspacePath}
+        />
+        {workspaceCatalogError ? (
+          <p className="react-agent-graph-workspace__error" role="alert">
+            {t("graphs.workspaceLoadFailed", { message: workspaceCatalogError })}
+          </p>
+        ) : null}
+        {workspaceCatalogReady && !workspaceCatalogError && !workspaceOptions.length ? (
+          <p className="react-agent-graph-workspace__empty" role="status">{t("graphs.workspaceEmpty")}</p>
+        ) : null}
+      </section>
+
       {!draft ? (
         <section className="react-agent-graphs-empty" aria-labelledby="agent-graphs-empty-title">
           <span aria-hidden="true" className="react-agent-graphs-empty__icon"><Workflow size={25} /></span>
           <h2 id="agent-graphs-empty-title">{t("graphs.emptyTitle")}</h2>
           <p>{t("graphs.emptyDescription")}</p>
-          <button className="react-agent-graphs-page__primary" type="button" onClick={createDraft}>
+          <button disabled={!definitionWorkspacePath} className="react-agent-graphs-page__primary" type="button" onClick={createDraft}>
             <Plus aria-hidden="true" size={16} />
             {t("graphs.createFirst")}
           </button>
@@ -134,6 +207,10 @@ export default function AgentGraphsRoute() {
               onMoveNode={(nodeId, position) => applyEdit(moveAgentGraphNode(draft, nodeId, position))}
               onRemoveEdge={(edgeId) => applyEdit(removeAgentGraphEdge(draft, edgeId))}
               onRemoveNode={(nodeId) => applyEdit(removeAgentGraphNode(draft, nodeId))}
+              onSelectionChange={(nodeId) => {
+                const node = draft.nodes.find((candidate) => candidate.id === nodeId);
+                setSelectedAgentNodeId(node?.kind === "agent" ? node.id : null);
+              }}
             />
 
             {editError ? <p className="react-agent-graph-edit-error" role="alert">{t(`graphs.editErrors.${editError}`)}</p> : null}
@@ -168,11 +245,63 @@ export default function AgentGraphsRoute() {
                 </li>
               ))}
             </ul>
+            {selectedAgentNode ? (
+              <section className="react-agent-graph-node-config" aria-labelledby="agent-graph-node-config-title">
+                <h3 id="agent-graph-node-config-title">{t("graphs.agentSettings")}</h3>
+                <p>{t("graphs.agentSettingsDescription")}</p>
+                <SettingsChoiceList
+                  ariaLabel={t("graphs.executionWorkspace")}
+                  description={t("graphs.executionWorkspaceDescription")}
+                  disabled={!workspaceOptions.length}
+                  label={t("graphs.executionWorkspace")}
+                  onChange={(workspacePath) => applyEdit(setAgentGraphNodeWorkspace(
+                    draft,
+                    selectedAgentNode.id,
+                    workspacePath,
+                  ))}
+                  options={workspaceOptions.map((path) => ({
+                    description: path,
+                    label: sessionWorkspaceName(path),
+                    value: path,
+                  }))}
+                  optionsAriaLabel={t("graphs.workspaceOptions")}
+                  value={selectedAgentNode.config.workspacePath}
+                />
+              </section>
+            ) : null}
           </aside>
         </div>
       )}
     </main>
   );
+}
+
+function uniqueWorkspacePaths(paths: string[]): string[] {
+  const seen = new Set<string>();
+  return paths.flatMap((path) => {
+    const normalized = workspaceDisplayPath(path);
+    if (!normalized) return [];
+    const key = normalizedWorkspacePathKey(normalized);
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [normalized];
+  });
+}
+
+function workspaceDisplayPath(path: string): string {
+  const trimmed = path.trim();
+  const verbatimUnc = trimmed.match(/^[\\/]{2}\?[\\/]UNC[\\/](.*)$/i);
+  const withoutVerbatimPrefix = verbatimUnc
+    ? `\\\\${verbatimUnc[1]}`
+    : trimmed.replace(/^[\\/]{2}\?[\\/]/, "");
+  if (/^[a-zA-Z]:[\\/]$/.test(withoutVerbatimPrefix)) {
+    return withoutVerbatimPrefix;
+  }
+  return withoutVerbatimPrefix.replace(/[\\/]+$/, "") || withoutVerbatimPrefix;
+}
+
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
 }
 
 function GraphValidation({ issues }: { issues: AgentGraphValidationIssue[] }) {
