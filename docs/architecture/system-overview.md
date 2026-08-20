@@ -14,7 +14,7 @@ src/react-workbench/README.md
 src/react-workbench/agent-graph/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:a813171c94c4f163e5bef3a472e9fb67e55daf31996d51bcf9bc756d815066bc -->
+<!-- tinybot-doc-fingerprint: sha256:a35095d6c3f674b39d044c634802595a61720fae9385de456191f43bac425373 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -75,7 +75,9 @@ Desktop Commands / Desktop Host
 - Renderer product state: route stores composed through the React workbench
   interfaces.
 - Agent Graph drafts: versioned `app-core/agent-graph` values held only by the
-  standalone Graph route until a durable Graph interface is introduced.
+  standalone Graph route. The accepted persistence and execution direction
+  keeps Graph definitions, Graph Runs, and Agent Threads as separate
+  authorities; its adapters are not implemented yet.
 - Exact frontend/backend command and event shapes: the Rust backend reference.
 - Command-hook definitions: additive global/workspace `hooks.json` files and
   Tinybot-managed workspace manifests under `.tinybot/hooks/<id>/hook.json`;
@@ -106,6 +108,8 @@ instead of choosing desktop persistence or transport internally.
 - Model-visible instructions follow [Context and instructions](context-and-instructions.md).
 - Model-requested actions follow [Tool execution and permissions](tool-execution-and-permissions.md).
 - Durable conversation state follows [Thread and Rollout persistence](thread-rollout-persistence.md).
+- The accepted Agent Graph persistence and execution seams are recorded in
+  [Agent Graph definitions, runs, and Threads](../decisions/0001-agent-graph-definitions-runs-and-threads.md).
 
 ## Maintainer entry points
 

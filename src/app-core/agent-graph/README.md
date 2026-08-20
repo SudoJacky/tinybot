@@ -13,3 +13,10 @@ topology rules. This module does not render React, depend on Chat state, persist
 definitions, or execute an Agent Turn. Persistence and runtime execution remain
 future adapters at the Graph interface rather than implicit dependencies of the
 definition model.
+
+The accepted persistence contract keeps a workspace-owned Graph definition
+separate from application-owned Graph Runs and canonical Agent Threads. Before
+persistence ships, Agent nodes will gain only an execution `workspacePath`;
+model and runtime settings continue to inherit application defaults. See
+[ADR 0001](../../../docs/decisions/0001-agent-graph-definitions-runs-and-threads.md)
+for the store Interface, revision rules, and runtime boundary.
