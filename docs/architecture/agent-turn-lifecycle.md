@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:46821a9f9492a42fa8d660a4eaeea5601d433b396324e6de8817f05c753fcd53 -->
+<!-- tinybot-doc-fingerprint: sha256:9a6b2d15d2f8272d1bc28c5d85501f9f4c77cb6bf2d4de2fe3bc576280e1722b -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -108,7 +108,8 @@ Runtime events drive live desktop updates and canonical persistence. Live
 presentation may use bounded diagnostics, but model-visible messages, tool
 calls, and tool results are materialized before diagnostic truncation. Reloaded
 timeline state is reconstructed from the Rollout rather than from renderer
-state.
+state. Legacy response records without an explicit Item ID derive one from the
+Thread, Turn, and sequence so Turn-local sequence reuse remains distinct.
 
 ## Invariants
 

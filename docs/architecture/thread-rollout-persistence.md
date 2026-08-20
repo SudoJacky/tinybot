@@ -9,7 +9,7 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:c77364c1364d97eceb7ec795bcea18c92933274c58ba04f60513f6482b3a01b1 -->
+<!-- tinybot-doc-fingerprint: sha256:a39e61dfe398867538348be7119ba0c27c6a2c64f2c67dc349042fe8fc51707b -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
@@ -81,7 +81,9 @@ deltas and non-blocking status updates remain live-only.
 
 Live desktop patches and reloaded timeline snapshots must converge on the same
 Item identities. Renderer state is never used to reconstruct canonical
-conversation history.
+conversation history. Legacy response records without an explicit Item ID use
+a fallback containing the Thread, Turn, and sequence so equal Turn-local
+sequences cannot collapse across Turns.
 
 Provider API modes share the same Rollout envelope. A Thread pins its provider
 mode so configuration changes do not silently reinterpret existing history.
