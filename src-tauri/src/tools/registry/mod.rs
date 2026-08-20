@@ -537,7 +537,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "shell.start",
             "shell",
             "Start shell command",
-            "Start a shell command with the current user's permissions and retain it when it remains active.",
+            "Start a shell command with the current user's permissions. Set workingDir explicitly when needed and use yieldTimeMs for a short initial wait. If the process remains active, continue it with write_stdin using the returned processId. Check the exit status and output before reporting success.",
             ToolExposure::Model,
             false,
             runtime_policy(false, ToolCancellationMode::TerminateProcess, true, false),
