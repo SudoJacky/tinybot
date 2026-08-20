@@ -1,5 +1,5 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:925c9335188768d72a3e1b01f5df5124d779a3941e63e03f36ebd3863afeaf82 -->
+<!-- tinybot-module-fingerprint: sha256:0c56d4958ec8cce9e608475d848ec28744aeed629de241ca159e35776d9fa078 -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,
@@ -12,6 +12,9 @@ backend module.
 Agent Graph commands pass workspace-scoped list, save, and delete requests to
 `agent_graphs`. Schema checks, path containment, atomic writes, and optimistic
 revision conflicts stay out of the Tauri boundary.
+Graph Run commands pass history and start requests to `graph_runs`; the command
+layer only supplies the shared Agent services, application data root, and
+runtime configuration.
 
 Hook commands resolve an existing workspace directory, return the additive
 global/workspace catalog, and mutate trust only after the backend confirms the

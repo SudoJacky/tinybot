@@ -212,6 +212,8 @@ pub(crate) fn run() {
             crate::desktop_commands::agent_graphs::worker_agent_graphs_list,
             crate::desktop_commands::agent_graphs::worker_agent_graph_save,
             crate::desktop_commands::agent_graphs::worker_agent_graph_delete,
+            crate::desktop_commands::graph_runs::worker_agent_graph_runs_list,
+            crate::desktop_commands::graph_runs::worker_agent_graph_run,
             crate::desktop_commands::skills::worker_skills_list,
             crate::desktop_commands::skills::worker_skills_detail,
             crate::desktop_commands::skills::worker_skills_create,

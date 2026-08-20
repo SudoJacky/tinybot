@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "react";
-import { GripVertical, Plus, Save, Trash2, Workflow, X } from "lucide-react";
+import { GripVertical, Play, Plus, Save, Trash2, Workflow, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   addAgentGraphNode,
@@ -20,6 +20,7 @@ import {
   type AgentGraphValidationIssue,
 } from "../../app-core/agent-graph/agentGraphDefinition";
 import type { StoredAgentGraph } from "../../app-core/agent-graph/agentGraphStore";
+import type { AgentGraphRun } from "../../app-core/agent-graph/agentGraphRuntime";
 import { normalizedWorkspacePathKey, sessionWorkspaceName } from "../chat/sessionWorkspaces";
 import type { AppServices } from "../services";
 import { SettingsChoiceList } from "../settings/SettingsChoiceList";
@@ -44,6 +45,11 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   const [graphListLoading, setGraphListLoading] = useState(false);
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [runs, setRuns] = useState<AgentGraphRun[]>([]);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [runInput, setRunInput] = useState("");
+  const [runError, setRunError] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
   const [draft, setDraft] = useState<AgentGraphDefinition | null>(null);
   const [draftRevision, setDraftRevision] = useState<string | null>(null);
   const [savedDefinition, setSavedDefinition] = useState<string | null>(null);
@@ -105,6 +111,59 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
       cancelled = true;
     };
   }, [definitionWorkspacePath, services.agentGraphStore, workspaceCatalogReady]);
+
+  useEffect(() => {
+    if (!draft?.id || !draftRevision) {
+      setRuns([]);
+      return;
+    }
+    let cancelled = false;
+    setRunsLoading(true);
+    setRunError(null);
+    void services.agentGraphRuntime.list({
+      graphId: draft.id,
+      definitionWorkspacePath,
+    })
+      .then((items) => {
+        if (!cancelled) setRuns((current) => mergePolledRuns(current, items));
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setRunError(errorMessage(cause));
+      })
+      .finally(() => {
+        if (!cancelled) setRunsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [definitionWorkspacePath, draft?.id, draftRevision, services.agentGraphRuntime]);
+
+  useEffect(() => {
+    if (!running || !draft?.id || !draftRevision) return;
+    let cancelled = false;
+    let refreshing = false;
+    const refresh = async () => {
+      if (refreshing) return;
+      refreshing = true;
+      try {
+        const items = await services.agentGraphRuntime.list({
+          graphId: draft.id,
+          definitionWorkspacePath,
+        });
+        if (!cancelled) setRuns((current) => mergePolledRuns(current, items));
+      } catch (cause: unknown) {
+        if (!cancelled) setRunError(errorMessage(cause));
+      } finally {
+        refreshing = false;
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 1_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [definitionWorkspacePath, draft?.id, draftRevision, running, services.agentGraphRuntime]);
 
   function createDraft() {
     if (!definitionWorkspacePath) return;
@@ -175,7 +234,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   }
 
   async function saveDraft() {
-    if (!draft || issues.length || saving) return;
+    if (!draft || issues.length || saving || running) return;
     setSaving(true);
     setPersistenceError(null);
     try {
@@ -199,7 +258,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   }
 
   async function deleteDraft() {
-    if (!draft || !draftRevision || saving) return;
+    if (!draft || !draftRevision || saving || running) return;
     if (!window.confirm(t("graphs.confirmDelete", { name: draft.name }))) return;
     setSaving(true);
     setPersistenceError(null);
@@ -218,6 +277,25 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     }
   }
 
+  async function startRun() {
+    if (!draft || !draftRevision || draftDirty || !runInput.trim() || running) return;
+    setRunning(true);
+    setRunError(null);
+    try {
+      const run = await services.agentGraphRuntime.start({
+        graphId: draft.id,
+        graphRevision: draftRevision,
+        definitionWorkspacePath,
+        input: runInput,
+      });
+      setRuns((current) => [run, ...current.filter((candidate) => candidate.id !== run.id)]);
+    } catch (cause: unknown) {
+      setRunError(errorMessage(cause));
+    } finally {
+      setRunning(false);
+    }
+  }
+
   function closeDraft() {
     setDraft(null);
     setDraftRevision(null);
@@ -225,6 +303,10 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     setEditError(null);
     setSelectedAgentNodeId(null);
     setPersistenceError(null);
+    setRuns([]);
+    setRunInput("");
+    setRunError(null);
+    setRunning(false);
   }
 
   return (
@@ -312,6 +394,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                 <span>{t("graphs.name")}</span>
                 <input
                   aria-invalid={issues.includes("name_required")}
+                  disabled={running}
                   value={draft.name}
                   onChange={(event) => setDraft({ ...draft, name: event.currentTarget.value })}
                 />
@@ -320,17 +403,17 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                 <span className="react-agent-graph-draft__badge">
                   {t(draftDirty ? "graphs.unsaved" : "graphs.saved")}
                 </span>
-                <button disabled={!draftDirty || issues.length > 0 || saving} type="button" onClick={() => void saveDraft()}>
+                <button disabled={!draftDirty || issues.length > 0 || saving || running} type="button" onClick={() => void saveDraft()}>
                   <Save aria-hidden="true" size={15} />
                   {t(saving ? "graphs.saving" : "graphs.save")}
                 </button>
                 {draftRevision ? (
-                  <button disabled={saving} type="button" onClick={() => void deleteDraft()}>
+                  <button disabled={saving || running} type="button" onClick={() => void deleteDraft()}>
                     <Trash2 aria-hidden="true" size={15} />
                     {t("graphs.delete")}
                   </button>
                 ) : null}
-                <button disabled={saving} type="button" onClick={closeDraft}>
+                <button disabled={saving || running} type="button" onClick={closeDraft}>
                   <X aria-hidden="true" size={15} />
                   {t(draftRevision ? "graphs.close" : "graphs.discard")}
                 </button>
@@ -407,6 +490,36 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                 />
               </section>
             ) : null}
+            <section
+              aria-busy={running}
+              aria-labelledby="agent-graph-run-title"
+              className="react-agent-graph-run"
+            >
+              <h3 id="agent-graph-run-title">{t("graphs.runTitle")}</h3>
+              <p>{t("graphs.runDescription")}</p>
+              <label>
+                <span>{t("graphs.runInput")}</span>
+                <textarea
+                  disabled={running}
+                  onChange={(event) => setRunInput(event.currentTarget.value)}
+                  placeholder={t("graphs.runInputPlaceholder")}
+                  rows={4}
+                  value={runInput}
+                />
+              </label>
+              <button
+                className="react-agent-graph-run__start"
+                disabled={!draftRevision || draftDirty || !runInput.trim() || running}
+                onClick={() => void startRun()}
+                type="button"
+              >
+                <Play aria-hidden="true" size={14} />
+                {t(running ? "graphs.running" : "graphs.run")}
+              </button>
+              {draftDirty ? <small>{t("graphs.saveBeforeRun")}</small> : null}
+              {runError ? <p className="react-agent-graph-run__error" role="alert">{runError}</p> : null}
+              <GraphRunHistory loading={runsLoading} runs={runs} />
+            </section>
           </aside>
         </div>
       )}
@@ -450,6 +563,57 @@ function sortedStoredGraphs(graphs: StoredAgentGraph[]): StoredAgentGraph[] {
     left.definition.name.localeCompare(right.definition.name)
     || left.definition.id.localeCompare(right.definition.id)
   ));
+}
+
+function mergePolledRuns(current: AgentGraphRun[], incoming: AgentGraphRun[]): AgentGraphRun[] {
+  const merged = new Map(current.map((run) => [run.id, run]));
+  for (const run of incoming) {
+    const existing = merged.get(run.id);
+    const existingIsTerminal = existing && existing.status !== "running";
+    if (!existingIsTerminal || run.status !== "running") {
+      merged.set(run.id, run);
+    }
+  }
+  return [...merged.values()].sort((left, right) => right.id.localeCompare(left.id));
+}
+
+function GraphRunHistory({ loading, runs }: { loading: boolean; runs: AgentGraphRun[] }) {
+  const { t } = useTranslation("common");
+  if (loading) {
+    return <small role="status">{t("graphs.runsLoading")}</small>;
+  }
+  if (!runs.length) {
+    return <small>{t("graphs.noRuns")}</small>;
+  }
+  return (
+    <div aria-live="polite" className="react-agent-graph-run-history">
+      <h4>{t("graphs.runHistory")}</h4>
+      <ul>
+        {runs.map((run) => (
+          <li data-status={run.status} key={run.id}>
+            <header>
+              <strong>{t(`graphs.runStatuses.${run.status}`)}</strong>
+              <code>{run.id}</code>
+            </header>
+            {run.error ? <p>{run.error}</p> : null}
+            {run.output !== undefined ? <pre>{run.output}</pre> : null}
+            {run.nodeRuns.length ? (
+              <ul>
+                {run.nodeRuns.map((nodeRun) => (
+                  <li key={nodeRun.id}>
+                    <span>{nodeRun.nodeId}</span>
+                    <small>{t(`graphs.nodeRunStatuses.${nodeRun.status}`)}</small>
+                    {nodeRun.threadId ? <code>{nodeRun.threadId}</code> : null}
+                    {nodeRun.error ? <p>{nodeRun.error}</p> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 function GraphValidation({ issues }: { issues: AgentGraphValidationIssue[] }) {

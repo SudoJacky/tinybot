@@ -14,7 +14,7 @@ src/react-workbench/README.md
 src/react-workbench/agent-graph/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:bff133c83478c1beeb44e97931c4edf2d106162ce0dd6bd55c4c50f3bab600e9 -->
+<!-- tinybot-doc-fingerprint: sha256:f43453472618c526992d772457f60709f977b109b22e9eca04d78db15f7d2e46 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -49,11 +49,12 @@ Desktop Commands / Desktop Host
 | Module | Owns | Does not own |
 | --- | --- | --- |
 | `react-workbench` | React routes, presentation, route state | Native transport or durable domain state |
-| `react-workbench/agent-graph` | Standalone Agent Graph route, accessible canvas editing, workspace selection, and Graph store consumption | Chat route state, native persistence rules, or execution |
+| `react-workbench/agent-graph` | Standalone Agent Graph editing, workspace selection, Run input, and Run history presentation | Chat route state or native execution rules |
 | `react-workbench/sidecar` | Resource tabs, scope filtering, and Sidecar presentation | Native Browser or Terminal lifecycle |
 | `app-core` | Framework-independent contracts, validation, commands, and projections | React rendering or Tauri invocation |
-| `app-core/agent-graph` | Versioned Agent Graph definitions, Agent workspace configuration, structural validation, immutable edit operations, and the persistence Interface | React rendering, native filesystem I/O, or Agent execution |
+| `app-core/agent-graph` | Versioned Graph contracts, validation, edit operations, persistence Interface, and runtime Interface | React rendering, native filesystem I/O, or Agent execution |
 | `agent_graphs` | Workspace Graph files, schema validation, atomic writes, and exact-byte revisions | Renderer state or Graph execution |
+| `graph_runs` | Linear Graph preflight, Run status files, Agent node sequencing, and standard Thread creation | Renderer state, definition editing, or the Agent Loop implementation |
 | `app-core/native` | Typed renderer adapters for native commands and events | Product state or backend behavior |
 | `desktop_commands` | Thin Tauri input/output adaptation | Reusable domain behavior |
 | `desktop_terminal` | User-only Sidecar PTY lifecycle and resource ownership | Agent shell sessions or renderer presentation |
@@ -77,9 +78,10 @@ Desktop Commands / Desktop Host
   interfaces.
 - Agent Graph definitions: versioned `app-core/agent-graph` values stored under
   `<workspace>/.tinybot/graphs/` through the native `agent_graphs` Adapter.
-  Graph Runs and Agent Thread execution remain unimplemented separate
-  authorities. The Chat projection already excludes Threads identified by
-  `source: "agent_graph"` so later execution cannot leak into conversations.
+- Agent Graph Runs: application-owned status files under
+  `~/.tinybot/graph-runs/<graph-id>/`. The first runtime executes one linear
+  Input-to-Output path and delegates every Agent node to a fresh canonical
+  Thread. The Chat projection excludes those `source: "agent_graph"` Threads.
 - Exact frontend/backend command and event shapes: the Rust backend reference.
 - Command-hook definitions: additive global/workspace `hooks.json` files and
   Tinybot-managed workspace manifests under `.tinybot/hooks/<id>/hook.json`;

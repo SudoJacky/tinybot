@@ -15,26 +15,26 @@ static STORE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct AgentGraphDefinition {
-    schema_version: String,
-    id: String,
-    name: String,
-    nodes: Vec<AgentGraphNode>,
-    edges: Vec<AgentGraphEdge>,
+    pub(crate) schema_version: String,
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) nodes: Vec<AgentGraphNode>,
+    pub(crate) edges: Vec<AgentGraphEdge>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct AgentGraphNode {
-    id: String,
-    kind: AgentGraphNodeKind,
+pub(crate) struct AgentGraphNode {
+    pub(crate) id: String,
+    pub(crate) kind: AgentGraphNodeKind,
     position: AgentGraphNodePosition,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    config: Option<AgentLoopNodeConfig>,
+    pub(crate) config: Option<AgentLoopNodeConfig>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
-enum AgentGraphNodeKind {
+pub(crate) enum AgentGraphNodeKind {
     Input,
     Agent,
     Condition,
@@ -50,23 +50,23 @@ struct AgentGraphNodePosition {
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct AgentLoopNodeConfig {
-    workspace_path: String,
+pub(crate) struct AgentLoopNodeConfig {
+    pub(crate) workspace_path: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct AgentGraphEdge {
-    id: String,
-    source: String,
-    target: String,
+pub(crate) struct AgentGraphEdge {
+    pub(crate) id: String,
+    pub(crate) source: String,
+    pub(crate) target: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct StoredAgentGraph {
-    definition: AgentGraphDefinition,
-    revision: String,
+    pub(crate) definition: AgentGraphDefinition,
+    pub(crate) revision: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -123,6 +123,24 @@ pub(crate) fn list(input: ListAgentGraphsInput) -> Result<Vec<StoredAgentGraph>,
             .then_with(|| left.definition.id.cmp(&right.definition.id))
     });
     Ok(graphs)
+}
+
+pub(crate) fn load(
+    workspace_path: &str,
+    graph_id: &str,
+    expected_revision: &str,
+) -> Result<StoredAgentGraph, String> {
+    let workspace = canonical_workspace(Path::new(workspace_path))?;
+    let _guard = store_lock()?;
+    let stored = read_stored_graph(&graph_path(&workspace, graph_id)?)?;
+    if stored.revision != expected_revision.trim() {
+        return Err(format!(
+            "Agent Graph revision conflict: expected `{}`, current `{}`",
+            expected_revision.trim(),
+            stored.revision
+        ));
+    }
+    Ok(stored)
 }
 
 pub(crate) fn save(input: SaveAgentGraphInput) -> Result<StoredAgentGraph, String> {
@@ -274,7 +292,7 @@ fn validate_definition(definition: &AgentGraphDefinition) -> Result<(), String> 
     Ok(())
 }
 
-fn validate_graph_id(graph_id: &str) -> Result<(), String> {
+pub(crate) fn validate_graph_id(graph_id: &str) -> Result<(), String> {
     if graph_id.is_empty()
         || graph_id.len() > 128
         || !graph_id
@@ -468,6 +486,13 @@ mod tests {
             .unwrap(),
             vec![stored.clone()]
         );
+        assert_eq!(
+            load(&fixture.workspace_path(), "graph-1", &stored.revision,).unwrap(),
+            stored.clone()
+        );
+        assert!(load(&fixture.workspace_path(), "graph-1", "sha256:stale")
+            .unwrap_err()
+            .contains("revision conflict"));
         assert!(fixture
             .workspace
             .join(".tinybot/graphs/graph-1.json")

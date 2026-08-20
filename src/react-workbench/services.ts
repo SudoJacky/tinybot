@@ -1,5 +1,6 @@
 import type { ReactChatMessage } from "./chat/messageActions";
 import type { AgentGraphStore } from "../app-core/agent-graph/agentGraphStore";
+import type { AgentGraphRuntime } from "../app-core/agent-graph/agentGraphRuntime";
 import type { ChatTimelineSnapshot } from "../app-core/chat/agentTimelineModel";
 import type { HookExecutionResult } from "../app-core/chat/hookExecutionResult";
 import type { AgentUiForm } from "../app-core/agent-ui/agentUiEvents";
@@ -302,6 +303,7 @@ export type PerformanceStore = {
 
 export type AppServices = {
   agentGraphStore: AgentGraphStore;
+  agentGraphRuntime: AgentGraphRuntime;
   sessionStore: SessionStore;
   chatStore: ChatStore;
   memoryStore: MemoryStore;

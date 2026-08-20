@@ -5,6 +5,7 @@ import type { AgentInputReference } from "../app-core/chat/agentInputReference";
 import type { DesktopCommand, DesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
 import { createDesktopNativeConfigApi } from "../app-core/native/desktopNativeConfig";
 import { createDesktopNativeAgentGraphsApi } from "../app-core/native/desktopNativeAgentGraphs";
+import { createDesktopNativeAgentGraphRuntime } from "../app-core/native/desktopNativeAgentGraphRuntime";
 import { applyNativeConfigPatch } from "../app-core/native/desktopNativeConfigPatch";
 import { createDesktopNativePluginsApi } from "../app-core/native/desktopNativePlugins";
 import {
@@ -53,6 +54,7 @@ export function createDesktopAppServices(): AppServices {
   const nativeMode = hasTauriRuntime();
   const nativeConfig = nativeMode ? createDesktopNativeConfigApi({ invoke }) : undefined;
   const nativeAgentGraphs = nativeMode ? createDesktopNativeAgentGraphsApi({ invoke }) : undefined;
+  const nativeAgentGraphRuntime = nativeMode ? createDesktopNativeAgentGraphRuntime({ invoke }) : undefined;
   const nativePlugins = nativeMode ? createDesktopNativePluginsApi({ invoke }) : undefined;
   const nativeThreads = nativeMode ? createDesktopNativeThreadsApi({ invoke }) : undefined;
   const nativeHostCommands = nativeMode ? createDesktopNativeHostCommandApi({ invoke }) : undefined;
@@ -324,6 +326,16 @@ export function createDesktopAppServices(): AppServices {
   }
 
   return {
+    agentGraphRuntime: {
+      async list(input) {
+        await initialize();
+        return requireNative(nativeAgentGraphRuntime, "Agent Graph Runtime").list(input);
+      },
+      async start(input) {
+        await initialize();
+        return requireNative(nativeAgentGraphRuntime, "Agent Graph Runtime").start(input);
+      },
+    },
     agentGraphStore: {
       async list(workspacePath) {
         await initialize();

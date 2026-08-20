@@ -1,5 +1,5 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:fddf488312dabfde578f69c98576825c86cecd4c1f34e7d29989752f685ab676 -->
+<!-- tinybot-module-fingerprint: sha256:eef90abce7ec40ab60bd75021f56968e03136e3aac725933b80fc66f252fe7c7 -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
@@ -9,10 +9,13 @@ is separate from Agent shell-tool state, and window-close cleanup terminates it
 before the native runtime and desktop window are destroyed.
 
 Frontend-facing command handlers live separately in `desktop_commands/`.
-Bootstrap registers the Agent Graph definition store alongside the hook
-catalog, managed save/test/archive, constrained managed-script editing, and
-exact-definition trust commands. Graph storage remains owned by `agent_graphs`;
-hook behavior remains owned by `command_hooks` and the Agent runtime.
+Bootstrap registers the Agent Graph definition store and linear Graph Run
+runtime alongside the hook catalog, managed save/test/archive, constrained
+managed-script editing, and
+exact-definition trust commands. Graph definition storage remains owned by
+`agent_graphs`, while `graph_runs` owns Run status and delegates Agent nodes to
+the standard Thread/Agent path. Hook behavior remains owned by `command_hooks`
+and the Agent runtime.
 
 `logging` owns the `tinybot.native_log.v1` record, severity levels, context
 redaction and bounds, the platform log path, and 5 MiB single-backup rotation.

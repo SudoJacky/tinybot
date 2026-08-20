@@ -1,6 +1,7 @@
 # Rust Backend API Reference
 <!-- tinybot-doc-watch:
 src-tauri/src/desktop/bootstrap.rs
+src/app-core/native/desktopNativeAgentGraphRuntime.ts
 src/app-core/native/desktopNativeConfig.ts
 src/app-core/native/desktopNativeHostCommand.ts
 src/app-core/native/desktopNativeTerminal.ts
@@ -9,7 +10,7 @@ src/app-core/native/desktopNativeUpdate.ts
 src/app-core/native/desktopNativeWebui.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:64fcb1f2b37b03242956bd610cb561f5404628d360eeb849f1d8ca37fe9091ce -->
+<!-- tinybot-doc-fingerprint: sha256:ad37debf98968a49924a86afa83aebd6aa41d3ffdd44a5d6ddee4912730a83ee -->
 
 This document describes the API surfaces exposed by the Rust/Tauri backend in `src-tauri`.
 It is intended for frontend callers and integrators who need command names, invocation
@@ -124,6 +125,7 @@ Prefer these wrappers instead of direct command strings:
 | Wrapper | File | Commands/routes covered |
 | --- | --- | --- |
 | `createDesktopNativeAgentGraphsApi` | `src/app-core/native/desktopNativeAgentGraphs.ts` | Workspace Agent Graph definition list/save/delete |
+| `createDesktopNativeAgentGraphRuntime` | `src/app-core/native/desktopNativeAgentGraphRuntime.ts` | Graph Run history and saved-revision execution |
 | `createDesktopNativeConfigApi` | `src/app-core/native/desktopNativeConfig.ts` | Config snapshot |
 | `createDesktopNativeHooksApi` | `src/app-core/native/desktopNativeHooks.ts` | Workspace hook catalog, managed-hook save/test/archive, constrained script editing, and exact-definition trust |
 | `createDesktopNativeUpdateClient` | `src/app-core/native/desktopNativeUpdate.ts` | Desktop update status, check, install, and status events |

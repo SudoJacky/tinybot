@@ -518,6 +518,148 @@
   border-top: 1px solid var(--color-hairline);
 }
 
+.react-agent-graph-run {
+  display: grid;
+  gap: 8px;
+  margin-top: 9px;
+  padding-top: 15px;
+  border-top: 1px solid var(--color-hairline);
+}
+
+.react-agent-graph-run h3,
+.react-agent-graph-run h4 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 13px;
+}
+
+.react-agent-graph-run > p,
+.react-agent-graph-run > small {
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.react-agent-graph-run label {
+  display: grid;
+  gap: 5px;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.react-agent-graph-run textarea {
+  width: 100%;
+  min-height: 82px;
+  padding: 8px 9px;
+  resize: vertical;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.react-agent-graph-run__start {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  border: 1px solid var(--color-primary);
+  border-radius: 8px;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-weight: 650;
+}
+
+.react-agent-graph-run__start:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+.react-agent-graph-run > .react-agent-graph-run__error {
+  padding: 8px 9px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-danger) 9%, var(--color-panel));
+  color: var(--color-danger);
+}
+
+.react-agent-graph-run-history {
+  display: grid;
+  gap: 7px;
+  margin-top: 6px;
+}
+
+.react-agent-graph-run-history > ul,
+.react-agent-graph-run-history > ul > li > ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.react-agent-graph-run-history > ul > li {
+  display: grid;
+  gap: 7px;
+  padding: 9px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-canvas);
+}
+
+.react-agent-graph-run-history > ul > li > header {
+  display: grid;
+  gap: 2px;
+}
+
+.react-agent-graph-run-history strong {
+  color: var(--color-ink);
+  font-size: 11px;
+}
+
+.react-agent-graph-run-history code {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-agent-graph-run-history p {
+  color: var(--color-danger);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.react-agent-graph-run-history pre {
+  max-height: 120px;
+  margin: 0;
+  overflow: auto;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.react-agent-graph-run-history > ul > li > ul > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 7px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-hairline);
+  font-size: 10px;
+}
+
+.react-agent-graph-run-history > ul > li > ul code,
+.react-agent-graph-run-history > ul > li > ul p {
+  grid-column: 1 / -1;
+}
+
 .react-agent-graph-node-config h3 {
   margin: 0;
   color: var(--color-ink);
@@ -543,7 +685,7 @@
   justify-self: start;
 }
 
-.react-agent-graph-node-catalog ul {
+.react-agent-graph-node-catalog > ul {
   display: grid;
   gap: 7px;
   margin: 8px 0 0;
@@ -551,11 +693,11 @@
   list-style: none;
 }
 
-.react-agent-graph-node-catalog li {
+.react-agent-graph-node-catalog > ul > li {
   min-width: 0;
 }
 
-.react-agent-graph-node-catalog li button {
+.react-agent-graph-node-catalog > ul > li > button {
   display: flex;
   align-items: center;
   gap: 9px;
@@ -569,18 +711,18 @@
   cursor: grab;
 }
 
-.react-agent-graph-node-catalog li button:hover:not(:disabled),
-.react-agent-graph-node-catalog li button:focus-visible {
+.react-agent-graph-node-catalog > ul > li > button:hover:not(:disabled),
+.react-agent-graph-node-catalog > ul > li > button:focus-visible {
   border-color: var(--color-primary);
   background: color-mix(in srgb, var(--color-primary) 4%, var(--color-panel));
   outline: none;
 }
 
-.react-agent-graph-node-catalog li button:active:not(:disabled) {
+.react-agent-graph-node-catalog > ul > li > button:active:not(:disabled) {
   cursor: grabbing;
 }
 
-.react-agent-graph-node-catalog li button:disabled {
+.react-agent-graph-node-catalog > ul > li > button:disabled {
   cursor: not-allowed;
   opacity: .48;
 }

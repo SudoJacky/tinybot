@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentGraphDraft } from "../../app-core/agent-graph/agentGraphDefinition";
 import type { AgentGraphStore, StoredAgentGraph } from "../../app-core/agent-graph/agentGraphStore";
+import type { AgentGraphRun, AgentGraphRuntime } from "../../app-core/agent-graph/agentGraphRuntime";
 import type { AppServices } from "../services";
 import AgentGraphsRoute from "./AgentGraphsRoute";
 
@@ -121,16 +122,67 @@ describe("AgentGraphsRoute", () => {
     });
     expect(await screen.findByText("Saved")).toBeTruthy();
   });
+
+  it("runs a saved Graph outside Chat and displays its result", async () => {
+    const user = userEvent.setup();
+    const definition = createAgentGraphDraft({
+      id: "graph-research",
+      name: "Research flow",
+      workspacePath: "D:\\code\\tinybot",
+    });
+    const completedRun: AgentGraphRun = {
+      schemaVersion: "tinybot.agent_graph_run.v1",
+      id: "run-1",
+      graphId: definition.id,
+      graphRevision: "sha256:before",
+      definitionWorkspacePath: "D:\\code\\tinybot",
+      status: "completed",
+      nodeRuns: [{
+        id: "run-1-node-1",
+        nodeId: "agent",
+        threadId: "thread-graph-1",
+        status: "completed",
+      }],
+      output: "Repository review complete.",
+    };
+    const services = createServices({
+      completedRun,
+      storedGraphs: [{ definition, revision: "sha256:before" }],
+    });
+    render(<AgentGraphsRoute services={services} />);
+
+    await user.click(await screen.findByRole("button", { name: /Research flow/ }));
+    await user.type(screen.getByRole("textbox", { name: "Input" }), "Review this repository");
+    await user.click(screen.getByRole("button", { name: "Run" }));
+
+    expect(services.agentGraphRuntime.start).toHaveBeenCalledWith({
+      graphId: "graph-research",
+      graphRevision: "sha256:before",
+      definitionWorkspacePath: "D:\\code\\tinybot",
+      input: "Review this repository",
+    });
+    expect(await screen.findByText("Repository review complete.")).toBeTruthy();
+    expect(screen.getByText("thread-graph-1")).toBeTruthy();
+  });
 });
 
 function createServices({
   projectWorkspaces = [],
   storedGraphs = [],
+  completedRun,
 }: {
   projectWorkspaces?: string[];
   storedGraphs?: StoredAgentGraph[];
+  completedRun?: AgentGraphRun;
 } = {}) {
   return {
+    agentGraphRuntime: {
+      list: vi.fn().mockResolvedValue([]),
+      start: vi.fn(async (_input: Parameters<AgentGraphRuntime["start"]>[0]) => {
+        if (!completedRun) throw new Error("No completed Graph Run fixture configured");
+        return completedRun;
+      }),
+    },
     agentGraphStore: {
       list: vi.fn().mockResolvedValue(storedGraphs),
       save: vi.fn(async (input: Parameters<AgentGraphStore["save"]>[0]) => ({
@@ -159,6 +211,10 @@ function createServices({
       list: ReturnType<typeof vi.fn>;
       save: ReturnType<typeof vi.fn>;
       delete: ReturnType<typeof vi.fn>;
+    };
+    agentGraphRuntime: {
+      list: ReturnType<typeof vi.fn>;
+      start: ReturnType<typeof vi.fn>;
     };
   };
 }

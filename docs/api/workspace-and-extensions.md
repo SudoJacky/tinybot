@@ -2,17 +2,20 @@
 <!-- tinybot-doc-watch:
 src-tauri/src/desktop_commands/plugins.rs
 src-tauri/src/desktop_commands/agent_graphs.rs
+src-tauri/src/desktop_commands/graph_runs.rs
 src-tauri/src/desktop_commands/skills.rs
 src-tauri/src/desktop_commands/workspace.rs
 src-tauri/src/agent_graphs.rs
+src-tauri/src/graph_runs.rs
 src/app-core/native/desktopNativeAgentGraphs.ts
+src/app-core/native/desktopNativeAgentGraphRuntime.ts
 src-tauri/src/plugins/manifest.rs
 src-tauri/src/plugins/manifest_tests.rs
 src-tauri/src/skills/definition.rs
 src-tauri/src/workspace/types.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:59a7368ada514de530cb028927a04357599186afab9d9baf918bb90c1f94fbf4 -->
+<!-- tinybot-doc-fingerprint: sha256:b3ee043b4417300596361ec2f3a3cdcf0ebc719f4e3e3d3d75420c26042ab049 -->
 
 This document covers workspace operations and the extension catalogs available
 to Agents. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -61,6 +64,23 @@ the versioned definition and atomically replaces one file. The returned
 must provide it so external edits fail visibly instead of being overwritten.
 The first save omits `expectedRevision`, and an existing file cannot be replaced
 without one. Listing rejects invalid Graph files rather than hiding them.
+
+## Agent Graph Run Commands
+
+| Command | Args | Response |
+| --- | --- | --- |
+| `worker_agent_graph_runs_list` | `{ input: { graphId, definitionWorkspacePath } }` | `AgentGraphRun[]` |
+| `worker_agent_graph_run` | `{ input: { graphId, graphRevision, definitionWorkspacePath, input } }` | `AgentGraphRun` |
+
+Runs live at `~/.tinybot/graph-runs/<graph-id>/<run-id>.json` and are atomically
+updated as nodes transition. Start reloads the requested saved revision,
+canonicalizes every Agent workspace, and accepts only a single linear
+Input-to-Output path. Condition nodes, branches, cycles, disconnected nodes,
+and missing workspaces fail preflight. Each Agent node creates a fresh standard
+parentless Thread with `source: "agent_graph"`; final output becomes the next
+Agent input and the Output value. Agent terminal failures produce a failed Run
+rather than a successful empty result. Cancellation and crash recovery are not
+implemented in this first slice.
 
 ## Workspace Commands
 

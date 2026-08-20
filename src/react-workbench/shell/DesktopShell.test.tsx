@@ -58,6 +58,10 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
   };
 } {
   return {
+    agentGraphRuntime: {
+      list: vi.fn(async () => []),
+      start: vi.fn(async () => { throw new Error("Graph execution is not configured in this fixture"); }),
+    },
     agentGraphStore: {
       list: vi.fn(async () => []),
       save: vi.fn(async (input) => ({ definition: input.definition, revision: "sha256:test" })),
