@@ -180,6 +180,10 @@ fn retained_shell_tools_use_owned_process_rpc_targets() {
 
     assert_eq!(start.exposure, ToolExposure::Model);
     assert!(start.available);
+    assert!(start.description.contains("workingDir"));
+    assert!(start.description.contains("yieldTimeMs"));
+    assert!(start.description.contains("write_stdin"));
+    assert!(start.description.contains("before reporting success"));
     assert_eq!(
         start.runtime_policy.cancellation_mode,
         ToolCancellationMode::TerminateProcess

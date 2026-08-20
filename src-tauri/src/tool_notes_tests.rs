@@ -10,11 +10,9 @@ fn creates_default_tool_notes_with_usage_guidance() {
     let saved = std::fs::read_to_string(fixture.root.join(TOOL_NOTES_FILE_NAME))
         .expect("default tool notes should be readable");
 
-    assert!(saved.contains("usage scenarios"));
-    assert!(saved.contains("`web.open`"));
-    assert!(saved.contains("latest `snapshotId`"));
-    assert!(saved.contains("`nextTextOffset`"));
-    assert!(saved.contains("Hand control to the user"));
+    assert_eq!(saved, DEFAULT_TOOL_NOTES);
+    assert!(saved.contains("source of truth"));
+    assert!(saved.len() < 256);
 }
 
 #[test]
