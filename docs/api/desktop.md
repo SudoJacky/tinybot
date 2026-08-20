@@ -12,7 +12,7 @@ src-tauri/src/desktop_commands/plugins.rs
 src/app-core/native/desktopNativeHooks.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:3d0d8ca6849f62ac8c30f394ccb4f14a26cf415056f89c8a40e9044209a5b05a -->
+<!-- tinybot-doc-fingerprint: sha256:59fde2c9e7148b9cc8e47e1b7a6a91e552555bbcd968e55f339a8ce3a813cd6b -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),

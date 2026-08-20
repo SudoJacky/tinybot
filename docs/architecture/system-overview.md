@@ -7,12 +7,14 @@ src-tauri/src/desktop/README.md
 src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
+src/app-core/agent-graph/README.md
 src/app-core/chat/README.md
 src/app-core/native/README.md
 src/react-workbench/README.md
+src/react-workbench/agent-graph/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:0f8e4c4c30f3f7e66ae743e459677c3c35753dd1be5588a55e8a0447433c954c -->
+<!-- tinybot-doc-fingerprint: sha256:9364a645671fbe5d90c17275106194b6561d5032263032a9a51ad5aa837f4ca4 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -47,8 +49,12 @@ Desktop Commands / Desktop Host
 | Module | Owns | Does not own |
 | --- | --- | --- |
 | `react-workbench` | React routes, presentation, route state | Native transport or durable domain state |
+| `react-workbench/agent-graph` | Standalone Agent Graph editing, node configuration, Run history, and per-node inspection | Chat route state or native execution rules |
 | `react-workbench/sidecar` | Resource tabs, scope filtering, and Sidecar presentation | Native Browser or Terminal lifecycle |
 | `app-core` | Framework-independent contracts, validation, commands, and projections | React rendering or Tauri invocation |
+| `app-core/agent-graph` | Versioned Graph contracts, validation, edit operations, persistence Interface, and runtime Interface | React rendering, native filesystem I/O, or Agent execution |
+| `agent_graphs` | Workspace Graph files, schema validation, atomic writes, and exact-byte revisions | Renderer state or Graph execution |
+| `graph_runs` | Linear Graph preflight, Run status files, Agent node sequencing, and standard Thread creation | Renderer state, definition editing, or the Agent Loop implementation |
 | `app-core/native` | Typed renderer adapters for native commands and events | Product state or backend behavior |
 | `desktop_commands` | Thin Tauri input/output adaptation | Reusable domain behavior |
 | `desktop_terminal` | User-only Sidecar PTY lifecycle and resource ownership | Agent shell sessions or renderer presentation |
@@ -70,6 +76,17 @@ Desktop Commands / Desktop Host
 - Tool metadata and exposure: the backend tool registry.
 - Renderer product state: route stores composed through the React workbench
   interfaces.
+- Agent Graph definitions: versioned `app-core/agent-graph` values stored under
+  `<workspace>/.tinybot/graphs/` through the native `agent_graphs` Adapter.
+- Agent Graph Runs: application-owned status files under
+  `~/.tinybot/graph-runs/<graph-id>/`. The first runtime executes one linear
+  Input-to-Output path, reads the initial task from the saved Input node, and
+  delegates every Agent node to a fresh canonical Thread. Per-node role
+  instructions and optional model settings use the existing Turn interfaces;
+  absent model settings inherit application defaults. The Chat projection
+  excludes those `source: "agent_graph"` Threads;
+  the Graph node inspector reads an explicitly selected Thread and reuses the
+  canonical timeline presentation without turning it into a Chat session.
 - Exact frontend/backend command and event shapes: the Rust backend reference.
 - Command-hook definitions: additive global/workspace `hooks.json` files and
   Tinybot-managed workspace manifests under `.tinybot/hooks/<id>/hook.json`;
@@ -100,11 +117,15 @@ instead of choosing desktop persistence or transport internally.
 - Model-visible instructions follow [Context and instructions](context-and-instructions.md).
 - Model-requested actions follow [Tool execution and permissions](tool-execution-and-permissions.md).
 - Durable conversation state follows [Thread and Rollout persistence](thread-rollout-persistence.md).
+- The accepted Agent Graph persistence and execution seams are recorded in
+  [Agent Graph definitions, runs, and Threads](../decisions/0001-agent-graph-definitions-runs-and-threads.md).
 
 ## Maintainer entry points
 
 - [Rust backend map](../../src-tauri/README.md)
 - [React workbench](../../src/react-workbench/README.md)
+- [Agent Graph workbench](../../src/react-workbench/agent-graph/README.md)
+- [Agent Graph contracts](../../src/app-core/agent-graph/README.md)
 - [Sidecar resource shell](../../src/react-workbench/sidecar/README.md)
 - [Application core chat contracts](../../src/app-core/chat/README.md)
 - [Native renderer adapters](../../src/app-core/native/README.md)

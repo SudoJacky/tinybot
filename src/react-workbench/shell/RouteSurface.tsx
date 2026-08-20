@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { ChatPage } from "../chat/ChatPage";
+import type { TinybotMascotMood } from "../chat/TinybotMascot";
 import type { AppServices, WorkspaceFileSummary } from "../services";
 import { DeferredSurface } from "./DeferredSurface";
 
-export type AppRoute = "chat" | "files" | "memory" | "github" | "docs" | "tools" | "settings" | "performanceTrace";
+export type AppRoute = "chat" | "graphs" | "files" | "memory" | "github" | "docs" | "tools" | "settings" | "performanceTrace";
 
 type ChatRouteProps = {
   createSessionSignal: number;
@@ -12,6 +13,7 @@ type ChatRouteProps = {
   sessionSidebarCollapsed: boolean;
   onSessionSidebarCollapsedChange: (collapsed: boolean) => void;
   onStopGenerationTargetChange: (sessionId: string) => void;
+  onMascotMoodChange: (mood: TinybotMascotMood) => void;
 };
 
 type FilesState =
@@ -20,6 +22,7 @@ type FilesState =
   | { status: "failed"; error: Error };
 
 const loadMemoryRoute = () => import("../memory/MemoryRoute");
+const loadAgentGraphsRoute = () => import("../agent-graph/AgentGraphsRoute");
 const loadPerformanceTraceRoute = () => import("../performance/PerformanceTraceRoute");
 const loadSettingsRoute = () => import("../settings/SettingsRoute");
 const loadToolsRoute = () => import("../tools/ToolsRoute");
@@ -53,10 +56,13 @@ export function RouteSurface({
           sessionSidebarCollapsed={chat.sessionSidebarCollapsed}
           onOpenFiles={() => onNavigate("files")}
           onOpenSettings={() => onNavigate("settings")}
+          onMascotMoodChange={chat.onMascotMoodChange}
           onSessionSidebarCollapsedChange={chat.onSessionSidebarCollapsedChange}
           onStopGenerationTargetChange={chat.onStopGenerationTargetChange}
         />
       );
+    case "graphs":
+      return <DeferredSurface load={loadAgentGraphsRoute} name={routeName} surfaceProps={{ services }} />;
     case "files":
       return <FilesPage services={services} title={routeName} />;
     case "memory":

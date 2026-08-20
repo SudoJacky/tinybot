@@ -37,7 +37,14 @@ import { AppShortcutProvider, useAppShortcuts } from "../settings/AppShortcutCon
 import type { AppServices } from "../services";
 import type { DesktopUpdateClient } from "../../app-core/native/desktopNativeUpdate";
 import { DesktopUpdateDialogs } from "./DesktopUpdateDialogs";
+import { DesktopPet } from "./DesktopPet";
+import {
+  readDesktopPetPreferences,
+  writeDesktopPetPreferences,
+  type DesktopPetPreferences,
+} from "./desktopPetState";
 import { RouteSurface, type AppRoute } from "./RouteSurface";
+import type { TinybotMascotMood } from "../chat/TinybotMascot";
 
 type RouteHistory = {
   back: AppRoute[];
@@ -67,6 +74,7 @@ type TopMenuCommandId =
   | "search-sessions"
   | "open-chat"
   | "open-files"
+  | "open-graphs"
   | "open-memory"
   | "open-github"
   | "open-tools"
@@ -81,7 +89,8 @@ type TopMenuCommandId =
   | "open-safe-mode"
   | "open-about"
   | "toggle-theme"
-  | "toggle-sidebar";
+  | "toggle-sidebar"
+  | "toggle-desktop-pet";
 
 type TopMenuCommand = {
   id: TopMenuCommandId;
@@ -109,6 +118,7 @@ const menuSeparator = (id: string): TopMenuEntry => ({ kind: "separator", id });
 function createRouteLabels(t: TFunction<"common">): Record<AppRoute, string> {
   return {
     chat: t("routes.chat"),
+    graphs: t("routes.graphs"),
     files: t("routes.files"),
     memory: t("routes.memory"),
     github: t("routes.github"),
@@ -123,6 +133,7 @@ function createTopMenuItems(
   t: TFunction<"common">,
   routeLabels: Record<AppRoute, string>,
   shortcuts: ShortcutPreferences,
+  desktopPetVisible: boolean,
 ): TopMenuItem[] {
   return [
   {
@@ -147,6 +158,7 @@ function createTopMenuItems(
     icon: Folder,
     entries: [
       menuCommand({ id: "open-chat", label: routeLabels.chat, route: "chat" }),
+      menuCommand({ id: "open-graphs", label: routeLabels.graphs, route: "graphs" }),
       menuCommand({ id: "open-files", label: routeLabels.files, route: "files" }),
       menuCommand({ id: "open-memory", label: routeLabels.memory, route: "memory" }),
       menuCommand({ id: "open-github", label: routeLabels.github, route: "github" }),
@@ -160,6 +172,10 @@ function createTopMenuItems(
     entries: [
       menuCommand({ id: "open-settings", label: routeLabels.settings, route: "settings", shortcut: shortcuts["open-settings"] ?? undefined }),
       menuCommand({ id: "open-whats-new", label: t("menu.whatsNew") }),
+      menuCommand({
+        id: "toggle-desktop-pet",
+        label: t(desktopPetVisible ? "menu.hideDesktopPet" : "menu.showDesktopPet"),
+      }),
       menuSeparator("system-observability-separator"),
       menuCommand({ id: "open-performance-trace", label: routeLabels.performanceTrace, route: "performanceTrace" }),
     ],
@@ -206,7 +222,6 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
   const { toggleTheme } = useAppAppearance();
   const { preferences: shortcuts } = useAppShortcuts();
   const routeLabels = createRouteLabels(t);
-  const topMenuItems = createTopMenuItems(t, routeLabels, shortcuts);
   const [routeHistory, setRouteHistory] = useState<RouteHistory>({
     back: [],
     current: "chat",
@@ -222,8 +237,18 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
   const [aboutOpenSignal, setAboutOpenSignal] = useState(0);
   const [whatsNewOpenSignal, setWhatsNewOpenSignal] = useState(0);
   const [stopGenerationSessionId, setStopGenerationSessionId] = useState("");
+  const [desktopPetMood, setDesktopPetMood] = useState<TinybotMascotMood>("calm");
+  const [desktopPetPreferences, setDesktopPetPreferences] = useState<DesktopPetPreferences>(
+    () => readDesktopPetPreferences(window.localStorage),
+  );
   const stopGenerationSessionIdRef = useRef("");
   const frameControls = useMemo(() => windowControls ?? resolveWindowFrameControls(), [windowControls]);
+  const topMenuItems = createTopMenuItems(t, routeLabels, shortcuts, desktopPetPreferences.visible);
+
+  const updateDesktopPetPreferences = useCallback((preferences: DesktopPetPreferences) => {
+    setDesktopPetPreferences(preferences);
+    writeDesktopPetPreferences(window.localStorage, preferences);
+  }, []);
 
   function handleStopGenerationTargetChange(sessionId: string) {
     stopGenerationSessionIdRef.current = sessionId;
@@ -407,6 +432,12 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
         return;
       case "open-whats-new":
         setWhatsNewOpenSignal((current) => current + 1);
+        return;
+      case "toggle-desktop-pet":
+        updateDesktopPetPreferences({
+          ...desktopPetPreferences,
+          visible: !desktopPetPreferences.visible,
+        });
         return;
       default:
         return;
@@ -615,6 +646,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
                 setSidebarMotionSource("pointer");
                 setSessionSidebarCollapsed(collapsed);
               },
+              onMascotMoodChange: setDesktopPetMood,
               onStopGenerationTargetChange: handleStopGenerationTargetChange,
             }}
             route={route}
@@ -623,6 +655,15 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
           />
         </section>
       </div>
+
+      {desktopPetPreferences.visible ? (
+        <DesktopPet
+          label={t(`desktopPet.status.${desktopPetMood}`)}
+          mood={desktopPetMood}
+          onPreferencesChange={updateDesktopPetPreferences}
+          preferences={desktopPetPreferences}
+        />
+      ) : null}
 
       <DesktopUpdateDialogs
         aboutOpenSignal={aboutOpenSignal}

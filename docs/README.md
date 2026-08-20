@@ -31,6 +31,7 @@ used as a source of truth.
 
 - [React workbench](../src/react-workbench/README.md)
 - [Framework-independent application core](../src/app-core/chat/README.md)
+- [Agent Graph definitions, runs, and Threads](decisions/0001-agent-graph-definitions-runs-and-threads.md)
 - [Native renderer adapters](../src/app-core/native/README.md)
 - [Desktop host guide](desktop.md)
 - [Windows desktop smoke test](guides/desktop-smoke-test.md)

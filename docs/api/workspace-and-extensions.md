@@ -1,15 +1,21 @@
 # Workspace and Extensions API
 <!-- tinybot-doc-watch:
 src-tauri/src/desktop_commands/plugins.rs
+src-tauri/src/desktop_commands/agent_graphs.rs
+src-tauri/src/desktop_commands/graph_runs.rs
 src-tauri/src/desktop_commands/skills.rs
 src-tauri/src/desktop_commands/workspace.rs
+src-tauri/src/agent_graphs.rs
+src-tauri/src/graph_runs.rs
+src/app-core/native/desktopNativeAgentGraphs.ts
+src/app-core/native/desktopNativeAgentGraphRuntime.ts
 src-tauri/src/plugins/manifest.rs
 src-tauri/src/plugins/manifest_tests.rs
 src-tauri/src/skills/definition.rs
 src-tauri/src/workspace/types.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:7156e6845e2b09a03549d86f23adf107bf0c8102c07b1ad2a6523c3f56b3e140 -->
+<!-- tinybot-doc-fingerprint: sha256:b1c5172df6b45e22b71b7ddbdae08d419a815153e9eaa69c7b61fee9cb813971 -->
 
 This document covers workspace operations and the extension catalogs available
 to Agents. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -43,6 +49,52 @@ These commands belong to the legacy skills API. Native agent turns discover acti
 Plugin installs use the Agent Plugins 1.0.0 layout and are global under `~/.tinybot/plugins`. New plugins are enabled by default. `PluginSummary.builtIn` identifies packages bundled with Tinybot. The built-in `create-agent-plugin` is installed during desktop startup, can be disabled, and cannot be uninstalled. Enabling, disabling, replacing, or uninstalling a plugin reconciles the shared MCP runtime. Every replacement receives a new install revision, so reinstalling changed plugin code restarts an existing MCP client even when `mcp.json` is unchanged. Skill names exposed to turn-level selection are qualified as `<plugin-name>:<skill-name>`; plugin MCP server IDs are qualified as `plugin:<plugin-name>:<server-name>`.
 
 Migration preparation accepts a recognized standalone Skill, MCP configuration, or client-plugin directory but does not install it. It rejects already valid Agent Plugins and unrecognized directories, copies the source without following links or reparse points into `~/.tinybot/plugins/migrations/<job-id>/source`, and creates an empty sibling `output` directory for an Agent-assisted conversion turn.
+
+## Agent Graph Definition Commands
+
+| Command | Args | Response |
+| --- | --- | --- |
+| `worker_agent_graphs_list` | `{ input: { workspacePath } }` | `StoredAgentGraph[]` |
+| `worker_agent_graph_save` | `{ input: { workspacePath, definition, expectedRevision? } }` | `StoredAgentGraph` |
+| `worker_agent_graph_delete` | `{ input: { workspacePath, graphId, expectedRevision } }` | `null` |
+
+Definitions live at `<workspace>/.tinybot/graphs/<graph-id>.json`. Save validates
+the versioned definition and atomically replaces one file. The returned
+`revision` is the SHA-256 hash of the exact persisted bytes; updates and deletes
+must provide it so external edits fail visibly instead of being overwritten.
+The first save omits `expectedRevision`, and an existing file cannot be replaced
+without one. Listing rejects invalid Graph files rather than hiding them. An
+Input node stores the required initial `prompt`. An Agent node stores its
+execution `workspacePath`, additional `instructions`, and an optional `model`
+tuple containing `modelId`, optional `providerId`, and optional
+`reasoningEffort`. Missing required node configuration makes the definition
+invalid; test-era files are not migrated or defaulted.
+
+## Agent Graph Run Commands
+
+| Command | Args | Response |
+| --- | --- | --- |
+| `worker_agent_graph_runs_list` | `{ input: { graphId, definitionWorkspacePath } }` | `AgentGraphRun[]` |
+| `worker_agent_graph_run` | `{ input: { graphId, graphRevision, definitionWorkspacePath } }` | `AgentGraphRun` |
+
+Runs live at `~/.tinybot/graph-runs/<graph-id>/<run-id>.json` and are atomically
+updated as nodes transition. Start reloads the requested saved revision and
+uses the Input node's required prompt as the first Agent input. The Run copies
+that prompt so the Input node can be inspected later. It then
+canonicalizes every Agent workspace, and accepts only a single linear
+Input-to-Output path. Condition nodes, branches, cycles, disconnected nodes,
+and missing workspaces fail preflight. Each Agent node creates a fresh standard
+parentless Thread with `source: "agent_graph"`; final output becomes the next
+Agent input and the Output value. Node instructions enter the existing
+turn-scoped agent-role instruction source, while an optional node model tuple
+sets the Turn's model, provider, and reasoning effort. Agent terminal failures produce a failed Run
+rather than a successful empty result. Cancellation and crash recovery are not
+implemented in this first slice.
+
+The Graph renderer selects a durable Run before inspecting a node. Input and
+Output use the Run's boundary values. Agent nodes use the node invocation's
+`threadId` with the normal Thread timeline APIs and the shared read-only Chat
+timeline renderer; they remain excluded from Chat session discovery.
 
 ## Workspace Commands
 

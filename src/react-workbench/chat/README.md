@@ -1,9 +1,16 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:bfc54a4d48d5db900da1def19de81f01d2517c3f59d73ea09d55ad86afff0ffb -->
+<!-- tinybot-module-fingerprint: sha256:46d9c949adbd53e7bd8f0073f80cc4f3ad2b19892157ab854450564f2499e1d3 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
 `ChatPage.tsx` is the route-level composition module.
+`ChatTimeline.tsx` owns the reusable canonical message and execution rendering;
+its action callbacks are optional so read-only consumers can omit unavailable
+branch, recovery, artifact, delegate, and tool-detail controls.
+
+Chat projects the active session and Turn lifecycle into calm, curious, working,
+angry, and pleased mascot moods, then reports that presentation state to the
+desktop shell. It does not introduce a second source of truth for Agent status.
 
 Chat contracts, commands, and projections live in `app-core/chat`. This folder
 owns React state and presentation. Browser runtime snapshots are retained by the

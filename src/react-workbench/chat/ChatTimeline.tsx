@@ -43,12 +43,12 @@ import { DataViewCard } from "./DataViewCard";
 export type RecoveryAction = "continue" | "retry" | "restart";
 
 export type ChatTimelineActions = {
-  onBranch: (messageId: string) => void;
-  onOpenArtifact: (artifact: ArtifactRef) => void;
-  onOpenError: (turn: ChatTurn, step: ChatStep) => void;
-  onOpenSubagent: (delegate: DelegatedAgentState) => void;
-  onOpenTool: (toolCall: ToolCallSummary) => void;
-  onRecover: (turn: ChatTurn, action: RecoveryAction) => void;
+  onBranch?: (messageId: string) => void;
+  onOpenArtifact?: (artifact: ArtifactRef) => void;
+  onOpenError?: (turn: ChatTurn, step: ChatStep) => void;
+  onOpenSubagent?: (delegate: DelegatedAgentState) => void;
+  onOpenTool?: (toolCall: ToolCallSummary) => void;
+  onRecover?: (turn: ChatTurn, action: RecoveryAction) => void;
 };
 
 export function ChatTimeline({
@@ -85,10 +85,10 @@ export function ChatTimeline({
           turn={turn}
           onBranch={actions.onBranch}
           onOpenArtifact={actions.onOpenArtifact}
-          onOpenError={(step) => actions.onOpenError(turn, step)}
+          onOpenError={actions.onOpenError ? (step) => actions.onOpenError?.(turn, step) : undefined}
           onOpenSubagent={actions.onOpenSubagent}
           onOpenTool={actions.onOpenTool}
-          onRecover={(action) => actions.onRecover(turn, action)}
+          onRecover={actions.onRecover ? (action) => actions.onRecover?.(turn, action) : undefined}
         />
       ))}
       {optimisticMessages.map((message) => (
@@ -125,12 +125,12 @@ function CanonicalChatTurn({
   focusError: boolean;
   hookResults: readonly HookExecutionResult[];
   interactiveFormIds: ReadonlySet<string>;
-  onBranch: (messageId: string) => void;
-  onOpenError: (step: ChatStep) => void;
-  onOpenArtifact: (artifact: ArtifactRef) => void;
-  onRecover: (action: RecoveryAction) => void;
-  onOpenSubagent: (delegate: DelegatedAgentState) => void;
-  onOpenTool: (toolCall: ToolCallSummary) => void;
+  onBranch?: (messageId: string) => void;
+  onOpenError?: (step: ChatStep) => void;
+  onOpenArtifact?: (artifact: ArtifactRef) => void;
+  onRecover?: (action: RecoveryAction) => void;
+  onOpenSubagent?: (delegate: DelegatedAgentState) => void;
+  onOpenTool?: (toolCall: ToolCallSummary) => void;
   recovering: boolean;
   turn: ChatTurn;
 }) {
@@ -196,7 +196,7 @@ function CanonicalChatTurn({
               recovering={recovering}
               step={step}
               turn={turn}
-              onOpenDetails={() => onOpenError(step)}
+              onOpenDetails={onOpenError ? () => onOpenError(step) : undefined}
               onRecover={onRecover}
             />
           ))}
@@ -212,7 +212,7 @@ function CanonicalChatTurn({
           role="assistant"
           streaming={turn.status === "running"}
           text={finalAnswer.text}
-          onBranch={turn.status === "completed" ? () => onBranch(finalAnswer.id) : undefined}
+          onBranch={turn.status === "completed" && onBranch ? () => onBranch(finalAnswer.id) : undefined}
         />
       ) : !turn.executionItems && reasoningSteps.length ? (
         <CanonicalMessage
@@ -313,11 +313,11 @@ function ExecutionTimeline({
 }: {
   executionItems: ChatStep[];
   focusError: boolean;
-  onOpenArtifact: (artifact: ArtifactRef) => void;
-  onOpenError: (step: ChatStep) => void;
-  onOpenSubagent: (delegate: DelegatedAgentState) => void;
-  onOpenTool: (toolCall: ToolCallSummary) => void;
-  onRecover: (action: RecoveryAction) => void;
+  onOpenArtifact?: (artifact: ArtifactRef) => void;
+  onOpenError?: (step: ChatStep) => void;
+  onOpenSubagent?: (delegate: DelegatedAgentState) => void;
+  onOpenTool?: (toolCall: ToolCallSummary) => void;
+  onRecover?: (action: RecoveryAction) => void;
   recovering: boolean;
   turn: ChatTurn;
 }) {
@@ -395,7 +395,7 @@ function ExecutionTimeline({
                 recovering={recovering}
                 step={step}
                 turn={turn}
-                onOpenDetails={() => onOpenError(step)}
+                onOpenDetails={onOpenError ? () => onOpenError(step) : undefined}
                 onRecover={onRecover}
               />
             ) : (
@@ -506,9 +506,9 @@ function CanonicalChatStep({
   onOpenTool,
   step,
 }: {
-  onOpenArtifact: (artifact: ArtifactRef) => void;
-  onOpenSubagent: (delegate: DelegatedAgentState) => void;
-  onOpenTool: (toolCall: ToolCallSummary) => void;
+  onOpenArtifact?: (artifact: ArtifactRef) => void;
+  onOpenSubagent?: (delegate: DelegatedAgentState) => void;
+  onOpenTool?: (toolCall: ToolCallSummary) => void;
   step: ChatStep;
 }) {
   const { i18n, t } = useTranslation("chat");
@@ -532,7 +532,7 @@ function CanonicalChatStep({
         <PatchDiffCard
           status={step.status}
           toolCall={step.toolCall}
-          onOpenDetails={() => onOpenTool(toolCallSummaryFromStep(step, step.toolCall!, t))}
+          onOpenDetails={onOpenTool ? () => onOpenTool(toolCallSummaryFromStep(step, step.toolCall!, t)) : undefined}
         />
       );
     }
@@ -541,7 +541,7 @@ function CanonicalChatStep({
         fallbackSummary={step.summary}
         status={step.status}
         toolCall={step.toolCall}
-        onOpenDetails={() => onOpenTool(toolCallSummaryFromStep(step, step.toolCall!, t))}
+        onOpenDetails={onOpenTool ? () => onOpenTool(toolCallSummaryFromStep(step, step.toolCall!, t)) : undefined}
       />
     );
   }
@@ -579,7 +579,7 @@ function CanonicalChatStep({
     );
   }
   if (step.kind === "delegate" && step.delegate) {
-    return (
+    return onOpenSubagent ? (
       <div className="react-canonical-step-stack">
         <button
           aria-label={t("turn.openDetails", { name: step.title })}
@@ -597,6 +597,14 @@ function CanonicalChatStep({
         </button>
         <CanonicalScopedErrors errors={step.scopedErrors ?? []} />
       </div>
+    ) : (
+      <section aria-label={step.title} className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
+        <span className="react-canonical-step__icon"><AgentStepIcon status={canonicalStepIconStatus(step)} /></span>
+        <span>
+          <strong>{step.title}</strong>
+          {step.delegate.latestActivity ? <small>{step.delegate.latestActivity}</small> : null}
+        </span>
+      </section>
     );
   }
   if (step.kind === "plan" && step.plan) {
@@ -653,8 +661,8 @@ function ErrorRecoveryCard({
   turn,
 }: {
   focusOnMount: boolean;
-  onOpenDetails: () => void;
-  onRecover: (action: RecoveryAction) => void;
+  onOpenDetails?: () => void;
+  onRecover?: (action: RecoveryAction) => void;
   recovering: boolean;
   step: ChatStep;
   turn: ChatTurn;
@@ -697,10 +705,14 @@ function ErrorRecoveryCard({
         </div>
       ) : null}
       <div className="react-error-recovery__actions" aria-label={t("recovery.actions")}>
-        <button disabled={recovering} type="button" onClick={() => onRecover("continue")}><Play aria-hidden="true" size={15} />{t("recovery.continue")}</button>
-        <button disabled={recovering} type="button" onClick={() => onRecover("retry")}><RotateCcw aria-hidden="true" size={15} />{t("recovery.retry")}</button>
-        <button disabled={recovering} type="button" onClick={() => onRecover("restart")}><RefreshCw aria-hidden="true" size={15} />{t("recovery.restart")}</button>
-        <button type="button" onClick={onOpenDetails}>{t("recovery.details")}</button>
+        {onRecover ? (
+          <>
+            <button disabled={recovering} type="button" onClick={() => onRecover("continue")}><Play aria-hidden="true" size={15} />{t("recovery.continue")}</button>
+            <button disabled={recovering} type="button" onClick={() => onRecover("retry")}><RotateCcw aria-hidden="true" size={15} />{t("recovery.retry")}</button>
+            <button disabled={recovering} type="button" onClick={() => onRecover("restart")}><RefreshCw aria-hidden="true" size={15} />{t("recovery.restart")}</button>
+          </>
+        ) : null}
+        {onOpenDetails ? <button type="button" onClick={onOpenDetails}>{t("recovery.details")}</button> : null}
         <button type="button" onClick={() => void writeClipboardText(formatFailureDetails(step, turn, t))}><Copy aria-hidden="true" size={15} />{t("recovery.copyError")}</button>
       </div>
     </section>
@@ -807,7 +819,7 @@ function formatPlanStepStatus(status: PlanStepStatus, t: TFunction<"chat">): str
   }
 }
 
-function CanonicalArtifacts({ artifacts, onOpen }: { artifacts: ArtifactRef[]; onOpen: (artifact: ArtifactRef) => void }) {
+function CanonicalArtifacts({ artifacts, onOpen }: { artifacts: ArtifactRef[]; onOpen?: (artifact: ArtifactRef) => void }) {
   const { t } = useTranslation("chat");
   const visibleArtifacts = artifacts.filter((artifact) => artifact.kind !== "data_view");
   if (!visibleArtifacts.length) {
@@ -817,7 +829,9 @@ function CanonicalArtifacts({ artifacts, onOpen }: { artifacts: ArtifactRef[]; o
     <ul aria-label={t("artifacts.label")} className="react-canonical-artifacts">
       {visibleArtifacts.map((artifact) => (
         <li key={artifact.id}>
-          <button aria-label={t("artifacts.preview", { name: artifact.title })} type="button" onClick={() => onOpen(artifact)}>{artifact.title}</button>
+          {onOpen ? (
+            <button aria-label={t("artifacts.preview", { name: artifact.title })} type="button" onClick={() => onOpen(artifact)}>{artifact.title}</button>
+          ) : <span>{artifact.title}</span>}
         </li>
       ))}
     </ul>
@@ -1022,7 +1036,7 @@ function AgentSteps({
   toolCalls,
 }: {
   flat?: boolean;
-  onOpenTool: (toolCall: ToolCallSummary) => void;
+  onOpenTool?: (toolCall: ToolCallSummary) => void;
   toolCalls: ToolCallSummary[];
 }) {
   const { t } = useTranslation("chat");
@@ -1071,7 +1085,7 @@ function AgentSteps({
                 <span className="react-agent-step-item__marker" data-status={status}>
                   <AgentStepIcon status={status} />
                 </span>
-                <button
+                {onOpenTool ? <button
                   aria-label={t("steps.openDetails", { name: toolCall.name })}
                   className="react-agent-step"
                   type="button"
@@ -1083,7 +1097,15 @@ function AgentSteps({
                   </span>
                   <small className="react-agent-step__status">{formatAgentStepStatus(toolCall.status, t)}</small>
                   <PanelRightOpen aria-hidden="true" size={15} />
-                </button>
+                </button> : (
+                  <div className="react-agent-step">
+                    <span className="react-agent-step__content">
+                      <span>{toolCall.name}</span>
+                      {toolCall.summary ? <small>{toolCall.summary}</small> : null}
+                    </span>
+                    <small className="react-agent-step__status">{formatAgentStepStatus(toolCall.status, t)}</small>
+                  </div>
+                )}
               </li>
             );
           })}

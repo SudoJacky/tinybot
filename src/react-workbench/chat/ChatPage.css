@@ -2545,7 +2545,8 @@
   list-style: none;
 }
 
-.react-canonical-artifacts button {
+.react-canonical-artifacts button,
+.react-canonical-artifacts span {
   border: 1px solid var(--color-hairline);
   border-radius: 7px;
   background: var(--color-surface-card);
