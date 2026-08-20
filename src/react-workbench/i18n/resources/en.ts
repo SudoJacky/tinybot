@@ -88,6 +88,10 @@ export const en = {
         single_output_required: "Keep exactly one Output node.",
         duplicate_node_id: "Give every node a unique ID.",
         missing_edge_endpoint: "Connect every edge to existing nodes.",
+        duplicate_edge: "Keep only one connection between the same two nodes.",
+        self_edge: "Connect a node to a different node.",
+        input_has_incoming_edge: "The Input node cannot have incoming connections.",
+        output_has_outgoing_edge: "The Output node cannot have outgoing connections.",
       },
     },
     tools: {

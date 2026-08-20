@@ -27,6 +27,8 @@ export const zh = {
       issues: {
         name_required: "请输入 Graph 名称。", single_input_required: "请仅保留一个输入节点。", single_output_required: "请仅保留一个输出节点。",
         duplicate_node_id: "每个节点必须有唯一 ID。", missing_edge_endpoint: "每条边都必须连接现有节点。",
+        duplicate_edge: "相同的两个节点之间只能保留一条连接。", self_edge: "节点不能连接到自身。",
+        input_has_incoming_edge: "输入节点不能有入边。", output_has_outgoing_edge: "输出节点不能有出边。",
       },
     },
     tools: {
