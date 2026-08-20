@@ -1,12 +1,14 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAgentGraphDraft } from "../../app-core/agent-graph/agentGraphDefinition";
 import type { AgentGraphStore, StoredAgentGraph } from "../../app-core/agent-graph/agentGraphStore";
 import type { AgentGraphRun, AgentGraphRuntime } from "../../app-core/agent-graph/agentGraphRuntime";
+import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import type { AppServices } from "../services";
+import { timelineFromReactMessages } from "../chat/test/timelineFixtures";
 import AgentGraphsRoute from "./AgentGraphsRoute";
 
 afterEach(cleanup);
@@ -87,6 +89,7 @@ describe("AgentGraphsRoute", () => {
     await screen.findByRole("button", { name: "Definition workspace: tinybot" });
     await user.click(screen.getByRole("button", { name: "Create first graph" }));
     await user.click(screen.getByLabelText("Agent node"));
+    await user.click(screen.getByRole("button", { name: "Close node details" }));
 
     const workspaceChoice = screen.getByRole("button", { name: "Execution workspace: tinybot" });
     await user.click(workspaceChoice);
@@ -123,7 +126,7 @@ describe("AgentGraphsRoute", () => {
     expect(await screen.findByText("Saved")).toBeTruthy();
   });
 
-  it("runs a saved Graph outside Chat and displays its result", async () => {
+  it("opens each node in a drawer and renders Agent Threads with the Chat timeline", async () => {
     const user = userEvent.setup();
     const definition = createAgentGraphDraft({
       id: "graph-research",
@@ -148,6 +151,22 @@ describe("AgentGraphsRoute", () => {
     };
     const services = createServices({
       completedRun,
+      nodeTimeline: timelineFromReactMessages("thread-graph-1", [{
+        createdAtMs: 1,
+        id: "node-user-1",
+        role: "user",
+        status: "complete",
+        text: "Review this repository",
+        turnId: "turn-graph-1",
+      }, {
+        createdAtMs: 2,
+        id: "node-assistant-1",
+        role: "assistant",
+        status: "complete",
+        text: "Repository review complete.",
+        turnId: "turn-graph-1",
+        turnStatus: "completed",
+      }]),
       storedGraphs: [{ definition, revision: "sha256:before" }],
     });
     render(<AgentGraphsRoute services={services} />);
@@ -162,8 +181,20 @@ describe("AgentGraphsRoute", () => {
       definitionWorkspacePath: "D:\\code\\tinybot",
       input: "Review this repository",
     });
-    expect(await screen.findByText("Repository review complete.")).toBeTruthy();
-    expect(screen.getByText("thread-graph-1")).toBeTruthy();
+    await user.click(screen.getByLabelText("Agent node"));
+    const agentDrawer = screen.getByRole("complementary", { name: "Agent" });
+    expect(await within(agentDrawer).findByText("Repository review complete.")).toBeTruthy();
+    expect(services.chatStore.load).toHaveBeenCalledWith("thread-graph-1");
+
+    const inputNode = screen.getByLabelText("Input node");
+    await user.click(inputNode);
+    expect(within(screen.getByRole("complementary", { name: "Input" })).getByText("Review this repository")).toBeTruthy();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("complementary", { name: "Input" })).toBeNull();
+    expect(document.activeElement).toBe(inputNode);
+    await user.click(screen.getByLabelText("Output node"));
+    expect(within(screen.getByRole("complementary", { name: "Output" })).getByText("Repository review complete.")).toBeTruthy();
   });
 });
 
@@ -171,10 +202,12 @@ function createServices({
   projectWorkspaces = [],
   storedGraphs = [],
   completedRun,
+  nodeTimeline,
 }: {
   projectWorkspaces?: string[];
   storedGraphs?: StoredAgentGraph[];
   completedRun?: AgentGraphRun;
+  nodeTimeline?: ChatTimelineSnapshot;
 } = {}) {
   return {
     agentGraphRuntime: {
@@ -191,6 +224,9 @@ function createServices({
         revision: "sha256:saved",
       })),
       delete: vi.fn().mockResolvedValue(undefined),
+    },
+    chatStore: {
+      load: vi.fn(async () => nodeTimeline ?? timelineFromReactMessages("empty", [])),
     },
     sessionStore: {
       list: vi.fn().mockResolvedValue([{
@@ -216,6 +252,9 @@ function createServices({
     agentGraphRuntime: {
       list: ReturnType<typeof vi.fn>;
       start: ReturnType<typeof vi.fn>;
+    };
+    chatStore: {
+      load: ReturnType<typeof vi.fn>;
     };
   };
 }

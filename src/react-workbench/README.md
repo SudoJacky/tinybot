@@ -13,7 +13,9 @@ Graph definitions are persisted under the selected workspace while execution
 remains outside Chat. The Chat session projection explicitly excludes standard
 Threads whose source is `agent_graph`; Graph execution discovers them through
 Graph Runs instead. The first Run surface accepts an input, executes a saved
-linear Agent path, and shows durable Run, node, output, error, and Thread IDs.
+linear Agent path, and keeps a compact Run selector. A node inspector renders
+Input and Output boundary content directly and reuses Chat's read-only canonical
+timeline for each Agent node's standard Thread.
 
 The optional `hooksStore` backs Settings > Hooks in the native desktop. The
 page derives its workspace selector from Chat sessions and project groups,

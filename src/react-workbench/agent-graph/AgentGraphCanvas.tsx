@@ -31,6 +31,8 @@ type NodePointerDrag = {
   nodeId: string;
   offsetX: number;
   offsetY: number;
+  startX: number;
+  startY: number;
 };
 
 type AgentGraphCanvasProps = {
@@ -38,6 +40,7 @@ type AgentGraphCanvasProps = {
   onAddNode: (kind: AgentGraphNodeKind, position: AgentGraphNodePosition) => boolean;
   onMoveNode: (nodeId: string, position: AgentGraphNodePosition) => boolean;
   onConnectNodes: (source: string, target: string) => boolean;
+  onNodeActivate: (nodeId: string) => void;
   onRemoveNode: (nodeId: string) => boolean;
   onRemoveEdge: (edgeId: string) => boolean;
   onSelectionChange: (nodeId: string | null) => void;
@@ -48,12 +51,14 @@ export function AgentGraphCanvas({
   onAddNode,
   onMoveNode,
   onConnectNodes,
+  onNodeActivate,
   onRemoveNode,
   onRemoveEdge,
   onSelectionChange,
 }: AgentGraphCanvasProps) {
   const { t } = useTranslation("common");
   const canvasRef = useRef<HTMLDivElement | null>(null);
+  const pointerMovedRef = useRef(false);
   const [selection, setSelection] = useState<GraphSelection | null>(null);
   const [pendingSource, setPendingSource] = useState<string | null>(null);
   const [pointerDrag, setPointerDrag] = useState<NodePointerDrag | null>(null);
@@ -88,6 +93,7 @@ export function AgentGraphCanvas({
     const bounds = canvasRef.current?.getBoundingClientRect();
     if (!bounds) return;
     event.preventDefault();
+    pointerMovedRef.current = false;
     event.currentTarget.setPointerCapture?.(event.pointerId);
     selectNode(node.id);
     setPointerDrag({
@@ -95,11 +101,16 @@ export function AgentGraphCanvas({
       nodeId: node.id,
       offsetX: event.clientX - bounds.left - node.position.x,
       offsetY: event.clientY - bounds.top - node.position.y,
+      startX: event.clientX,
+      startY: event.clientY,
     });
   }
 
   function moveDraggedNode(event: ReactPointerEvent<HTMLElement>) {
     if (!pointerDrag || pointerDrag.pointerId !== event.pointerId) return;
+    if (Math.abs(event.clientX - pointerDrag.startX) > 3 || Math.abs(event.clientY - pointerDrag.startY) > 3) {
+      pointerMovedRef.current = true;
+    }
     const bounds = canvasRef.current?.getBoundingClientRect();
     if (!bounds) return;
     onMoveNode(pointerDrag.nodeId, clampPosition({
@@ -134,6 +145,12 @@ export function AgentGraphCanvas({
         x: node.position.x + delta.x,
         y: node.position.y + delta.y,
       }));
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      selectNode(node.id);
+      onNodeActivate(node.id);
       return;
     }
     if ((event.key === "Delete" || event.key === "Backspace") && node.kind !== "input" && node.kind !== "output") {
@@ -265,6 +282,12 @@ export function AgentGraphCanvas({
               onClick={(event) => {
                 event.stopPropagation();
                 selectNode(node.id);
+                if (pointerMovedRef.current) {
+                  pointerMovedRef.current = false;
+                  return;
+                }
+                event.currentTarget.focus({ preventScroll: true });
+                onNodeActivate(node.id);
               }}
               onKeyDown={(event) => moveNodeWithKeyboard(event, node)}
               onPointerCancel={finishNodeDrag}

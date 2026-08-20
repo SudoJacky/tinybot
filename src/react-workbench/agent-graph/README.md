@@ -1,5 +1,5 @@
 # Agent Graph Workbench
-<!-- tinybot-module-fingerprint: sha256:03e036a08c80b218305d3a5e02f6463ce05c4ffadebd0ea86d3a1e048b7d8148 -->
+<!-- tinybot-module-fingerprint: sha256:ed79b6141bb5028e6715b881c8ac311776588320167ce5d99dc1c70286acba85 -->
 
 `agent-graph` owns the standalone Agent Graph route and its React presentation.
 The page creates one honest in-memory starter draft and exposes a small canvas
@@ -11,10 +11,14 @@ select a different execution workspace. Input and Output remain unique
 protected boundaries. The route lists, explicitly saves, opens, and deletes
 workspace definitions through `AgentGraphStore`; dirty state and revision
 conflicts stay visible. A separate Run panel starts only saved definitions and
-shows durable Run status, node status, output, errors, and canonical Thread IDs.
+keeps a compact selectable Run history. Activating any canvas node opens a
+non-modal right drawer for that Run: Input and Output show their boundary
+content, while Agent nodes load their canonical Thread through the Chat store
+and render it with the shared read-only `ChatTimeline`.
 
 This module does not import `ChatPage`, consume Chat route state, or treat a
-Graph as a Chat mode. It consumes the framework-independent definition in
+Graph as a Chat mode. It reuses only Chat's timeline presentation for standard
+Graph-owned Threads. It consumes the framework-independent definition in
 `app-core/agent-graph`; persistence and execution arrive through
 dedicated Graph interfaces. The first execution slice supports only one linear
 Input-to-Output path; backend preflight visibly rejects Condition nodes,

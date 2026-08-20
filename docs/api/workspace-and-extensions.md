@@ -84,6 +84,11 @@ Agent input and the Output value. Agent terminal failures produce a failed Run
 rather than a successful empty result. Cancellation and crash recovery are not
 implemented in this first slice.
 
+The Graph renderer selects a durable Run before inspecting a node. Input and
+Output use the Run's boundary values. Agent nodes use the node invocation's
+`threadId` with the normal Thread timeline APIs and the shared read-only Chat
+timeline renderer; they remain excluded from Chat session discovery.
+
 ## Workspace Commands
 
 | Command | Args | Response |

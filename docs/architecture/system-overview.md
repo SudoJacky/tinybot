@@ -14,7 +14,7 @@ src/react-workbench/README.md
 src/react-workbench/agent-graph/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:e49bc089e6da137d8e2d683212d1f56d65c4986af899c924fbbf5b09336d3328 -->
+<!-- tinybot-doc-fingerprint: sha256:f862e32c5ca07e37020e08ed285a6bef6bc47cd6b9657447224f8b633cac9d90 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -49,7 +49,7 @@ Desktop Commands / Desktop Host
 | Module | Owns | Does not own |
 | --- | --- | --- |
 | `react-workbench` | React routes, presentation, route state | Native transport or durable domain state |
-| `react-workbench/agent-graph` | Standalone Agent Graph editing, workspace selection, Run input, and Run history presentation | Chat route state or native execution rules |
+| `react-workbench/agent-graph` | Standalone Agent Graph editing, workspace selection, Run input/history, and per-node inspection | Chat route state or native execution rules |
 | `react-workbench/sidecar` | Resource tabs, scope filtering, and Sidecar presentation | Native Browser or Terminal lifecycle |
 | `app-core` | Framework-independent contracts, validation, commands, and projections | React rendering or Tauri invocation |
 | `app-core/agent-graph` | Versioned Graph contracts, validation, edit operations, persistence Interface, and runtime Interface | React rendering, native filesystem I/O, or Agent execution |
@@ -81,7 +81,9 @@ Desktop Commands / Desktop Host
 - Agent Graph Runs: application-owned status files under
   `~/.tinybot/graph-runs/<graph-id>/`. The first runtime executes one linear
   Input-to-Output path and delegates every Agent node to a fresh canonical
-  Thread. The Chat projection excludes those `source: "agent_graph"` Threads.
+  Thread. The Chat projection excludes those `source: "agent_graph"` Threads;
+  the Graph node inspector reads an explicitly selected Thread and reuses the
+  canonical timeline presentation without turning it into a Chat session.
 - Exact frontend/backend command and event shapes: the Rust backend reference.
 - Command-hook definitions: additive global/workspace `hooks.json` files and
   Tinybot-managed workspace manifests under `.tinybot/hooks/<id>/hook.json`;

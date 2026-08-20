@@ -29,6 +29,7 @@ import {
   AgentGraphCanvas,
   NodeIcon,
 } from "./AgentGraphCanvas";
+import { AgentGraphNodeDrawer } from "./AgentGraphNodeDrawer";
 import "./AgentGraphsRoute.css";
 
 const NODE_KINDS: AgentGraphNodeKind[] = ["input", "agent", "condition", "output"];
@@ -46,6 +47,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   const [persistenceError, setPersistenceError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [runs, setRuns] = useState<AgentGraphRun[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [runsLoading, setRunsLoading] = useState(false);
   const [runInput, setRunInput] = useState("");
   const [runError, setRunError] = useState<string | null>(null);
@@ -54,12 +56,15 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   const [draftRevision, setDraftRevision] = useState<string | null>(null);
   const [savedDefinition, setSavedDefinition] = useState<string | null>(null);
   const [selectedAgentNodeId, setSelectedAgentNodeId] = useState<string | null>(null);
+  const [inspectedNodeId, setInspectedNodeId] = useState<string | null>(null);
   const [editError, setEditError] = useState<AgentGraphEditError | null>(null);
   const issues = draft ? validateAgentGraphDefinition(draft) : [];
   const draftDirty = Boolean(draft && JSON.stringify(draft) !== savedDefinition);
   const selectedAgentNode = draft?.nodes.find((node): node is AgentGraphAgentNode => (
     node.id === selectedAgentNodeId && node.kind === "agent"
   ));
+  const inspectedNode = draft?.nodes.find((node) => node.id === inspectedNodeId);
+  const selectedRun = runs.find((run) => run.id === selectedRunId) ?? runs[0];
 
   useEffect(() => {
     let cancelled = false;
@@ -139,6 +144,14 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   }, [definitionWorkspacePath, draft?.id, draftRevision, services.agentGraphRuntime]);
 
   useEffect(() => {
+    setSelectedRunId((current) => {
+      if (!runs.length) return null;
+      if (running || !current || !runs.some((run) => run.id === current)) return runs[0].id;
+      return current;
+    });
+  }, [running, runs]);
+
+  useEffect(() => {
     if (!running || !draft?.id || !draftRevision) return;
     let cancelled = false;
     let refreshing = false;
@@ -171,6 +184,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     nodeSequence.current = 0;
     setEditError(null);
     setSelectedAgentNodeId(null);
+    setInspectedNodeId(null);
     setPersistenceError(null);
     setDraftRevision(null);
     setSavedDefinition(null);
@@ -228,6 +242,8 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     setEditError(null);
     setPersistenceError(null);
     setSelectedAgentNodeId(null);
+    setInspectedNodeId(null);
+    setSelectedRunId(null);
     setDraft(graph.definition);
     setDraftRevision(graph.revision);
     setSavedDefinition(JSON.stringify(graph.definition));
@@ -288,6 +304,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
         definitionWorkspacePath,
         input: runInput,
       });
+      setSelectedRunId(run.id);
       setRuns((current) => [run, ...current.filter((candidate) => candidate.id !== run.id)]);
     } catch (cause: unknown) {
       setRunError(errorMessage(cause));
@@ -302,6 +319,8 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     setSavedDefinition(null);
     setEditError(null);
     setSelectedAgentNodeId(null);
+    setInspectedNodeId(null);
+    setSelectedRunId(null);
     setPersistenceError(null);
     setRuns([]);
     setRunInput("");
@@ -425,8 +444,13 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
               onAddNode={addNode}
               onConnectNodes={(source, target) => applyEdit(connectAgentGraphNodes(draft, source, target))}
               onMoveNode={(nodeId, position) => applyEdit(moveAgentGraphNode(draft, nodeId, position))}
+              onNodeActivate={setInspectedNodeId}
               onRemoveEdge={(edgeId) => applyEdit(removeAgentGraphEdge(draft, edgeId))}
-              onRemoveNode={(nodeId) => applyEdit(removeAgentGraphNode(draft, nodeId))}
+              onRemoveNode={(nodeId) => {
+                const removed = applyEdit(removeAgentGraphNode(draft, nodeId));
+                if (removed && inspectedNodeId === nodeId) setInspectedNodeId(null);
+                return removed;
+              }}
               onSelectionChange={(nodeId) => {
                 const node = draft.nodes.find((candidate) => candidate.id === nodeId);
                 setSelectedAgentNodeId(node?.kind === "agent" ? node.id : null);
@@ -518,9 +542,22 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
               </button>
               {draftDirty ? <small>{t("graphs.saveBeforeRun")}</small> : null}
               {runError ? <p className="react-agent-graph-run__error" role="alert">{runError}</p> : null}
-              <GraphRunHistory loading={runsLoading} runs={runs} />
+              <GraphRunHistory
+                loading={runsLoading}
+                onSelectRun={setSelectedRunId}
+                runs={runs}
+                selectedRunId={selectedRun?.id}
+              />
             </section>
           </aside>
+          {inspectedNode ? (
+            <AgentGraphNodeDrawer
+              chatStore={services.chatStore}
+              node={inspectedNode}
+              onClose={() => setInspectedNodeId(null)}
+              run={selectedRun}
+            />
+          ) : null}
         </div>
       )}
       {!draft && persistenceError ? (
@@ -577,7 +614,17 @@ function mergePolledRuns(current: AgentGraphRun[], incoming: AgentGraphRun[]): A
   return [...merged.values()].sort((left, right) => right.id.localeCompare(left.id));
 }
 
-function GraphRunHistory({ loading, runs }: { loading: boolean; runs: AgentGraphRun[] }) {
+function GraphRunHistory({
+  loading,
+  onSelectRun,
+  runs,
+  selectedRunId,
+}: {
+  loading: boolean;
+  onSelectRun: (runId: string) => void;
+  runs: AgentGraphRun[];
+  selectedRunId?: string;
+}) {
   const { t } = useTranslation("common");
   if (loading) {
     return <small role="status">{t("graphs.runsLoading")}</small>;
@@ -589,26 +636,22 @@ function GraphRunHistory({ loading, runs }: { loading: boolean; runs: AgentGraph
     <div aria-live="polite" className="react-agent-graph-run-history">
       <h4>{t("graphs.runHistory")}</h4>
       <ul>
-        {runs.map((run) => (
+        {runs.map((run, index) => (
           <li data-status={run.status} key={run.id}>
-            <header>
-              <strong>{t(`graphs.runStatuses.${run.status}`)}</strong>
-              <code>{run.id}</code>
-            </header>
-            {run.error ? <p>{run.error}</p> : null}
-            {run.output !== undefined ? <pre>{run.output}</pre> : null}
-            {run.nodeRuns.length ? (
-              <ul>
-                {run.nodeRuns.map((nodeRun) => (
-                  <li key={nodeRun.id}>
-                    <span>{nodeRun.nodeId}</span>
-                    <small>{t(`graphs.nodeRunStatuses.${nodeRun.status}`)}</small>
-                    {nodeRun.threadId ? <code>{nodeRun.threadId}</code> : null}
-                    {nodeRun.error ? <p>{nodeRun.error}</p> : null}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
+            <button
+              aria-pressed={selectedRunId === run.id}
+              onClick={() => onSelectRun(run.id)}
+              type="button"
+            >
+              <span>
+                <strong>{t(`graphs.runStatuses.${run.status}`)}</strong>
+                <small>{t("graphs.runNodeSummary", {
+                  completed: run.nodeRuns.filter((nodeRun) => nodeRun.status === "completed").length,
+                  total: run.nodeRuns.length,
+                })}</small>
+              </span>
+              <small>{t("graphs.runNumber", { number: index + 1 })}</small>
+            </button>
           </li>
         ))}
       </ul>
