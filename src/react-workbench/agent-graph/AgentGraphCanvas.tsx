@@ -37,6 +37,7 @@ type NodePointerDrag = {
 
 type AgentGraphCanvasProps = {
   definition: AgentGraphDefinition;
+  readOnly?: boolean;
   onAddNode: (kind: AgentGraphNodeKind, position: AgentGraphNodePosition) => boolean;
   onMoveNode: (nodeId: string, position: AgentGraphNodePosition) => boolean;
   onConnectNodes: (source: string, target: string) => boolean;
@@ -48,6 +49,7 @@ type AgentGraphCanvasProps = {
 
 export function AgentGraphCanvas({
   definition,
+  readOnly = false,
   onAddNode,
   onMoveNode,
   onConnectNodes,
@@ -89,7 +91,7 @@ export function AgentGraphCanvas({
   }
 
   function startNodeDrag(event: ReactPointerEvent<HTMLElement>, node: AgentGraphNode) {
-    if (event.button !== 0 || (event.target as Element).closest("button")) return;
+    if (readOnly || event.button !== 0 || (event.target as Element).closest("button")) return;
     const bounds = canvasRef.current?.getBoundingClientRect();
     if (!bounds) return;
     event.preventDefault();
@@ -126,6 +128,13 @@ export function AgentGraphCanvas({
   }
 
   function moveNodeWithKeyboard(event: ReactKeyboardEvent<HTMLElement>, node: AgentGraphNode) {
+    if (readOnly) {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onNodeActivate(node.id);
+      }
+      return;
+    }
     const multiplier = event.shiftKey ? 3 : 1;
     const distance = KEYBOARD_MOVE_STEP * multiplier;
     const delta = event.key === "ArrowLeft"
@@ -164,6 +173,7 @@ export function AgentGraphCanvas({
   }
 
   function dropNode(event: ReactDragEvent<HTMLDivElement>) {
+    if (readOnly) return;
     event.preventDefault();
     const kind = event.dataTransfer.getData(AGENT_GRAPH_NODE_DRAG_TYPE) as AgentGraphNodeKind;
     if (!isNodeKind(kind)) return;
@@ -192,7 +202,9 @@ export function AgentGraphCanvas({
             onSelectionChange(null);
           }
         }}
-        onDragOver={(event) => event.preventDefault()}
+        onDragOver={(event) => {
+          if (!readOnly) event.preventDefault();
+        }}
         onDrop={dropNode}
         ref={canvasRef}
         role="region"
@@ -201,9 +213,9 @@ export function AgentGraphCanvas({
           <p aria-live="polite">
             {pendingSourceNode
               ? t("graphs.connectingFrom", { kind: t(`graphs.nodes.${pendingSourceNode.kind}`) })
-              : t("graphs.canvasHint")}
+              : t(readOnly ? "graphs.canvasViewHint" : "graphs.canvasHint")}
           </p>
-          <span>
+          {!readOnly ? <span>
             {pendingSourceNode ? (
               <button type="button" onClick={() => setPendingSource(null)}>
                 <X aria-hidden="true" size={14} />
@@ -220,7 +232,7 @@ export function AgentGraphCanvas({
               <Trash2 aria-hidden="true" size={14} />
               {t("graphs.deleteSelected")}
             </button>
-          </span>
+          </span> : null}
         </div>
 
         <svg aria-label={t("graphs.connections")} className="react-agent-graph-canvas__edges" role="group">
@@ -238,7 +250,7 @@ export function AgentGraphCanvas({
             return (
               <g key={edge.id}>
                 <path className="react-agent-graph-edge" d={path} data-selected={isSelected} markerEnd="url(#agent-graph-arrow)" />
-                <path
+                {!readOnly ? <path
                   aria-label={t("graphs.connectionLabel", {
                     source: t(`graphs.nodes.${source.kind}`),
                     target: t(`graphs.nodes.${target.kind}`),
@@ -260,7 +272,7 @@ export function AgentGraphCanvas({
                   }}
                   role="button"
                   tabIndex={0}
-                />
+                /> : null}
               </g>
             );
           })}
@@ -275,12 +287,18 @@ export function AgentGraphCanvas({
               className="react-agent-graph-node"
               data-dragging={isDragging}
               data-kind={node.kind}
+              data-read-only={readOnly}
               data-selected={isSelected}
               data-x={node.position.x}
               data-y={node.position.y}
               key={node.id}
               onClick={(event) => {
                 event.stopPropagation();
+                if (readOnly) {
+                  event.currentTarget.focus({ preventScroll: true });
+                  onNodeActivate(node.id);
+                  return;
+                }
                 selectNode(node.id);
                 if (pointerMovedRef.current) {
                   pointerMovedRef.current = false;
@@ -297,7 +315,7 @@ export function AgentGraphCanvas({
               style={{ left: node.position.x, top: node.position.y }}
               tabIndex={0}
             >
-              {node.kind !== "input" ? (
+              {!readOnly && node.kind !== "input" ? (
                 <button
                   aria-label={pendingSource
                     ? t("graphs.connectNodes", {
@@ -321,7 +339,7 @@ export function AgentGraphCanvas({
                 </small>
                 <strong>{t(`graphs.nodes.${node.kind}`)}</strong>
               </span>
-              {node.kind !== "output" ? (
+              {!readOnly && node.kind !== "output" ? (
                 <button
                   aria-label={t("graphs.connectionSource", { kind: t(`graphs.nodes.${node.kind}`) })}
                   aria-pressed={pendingSource === node.id}

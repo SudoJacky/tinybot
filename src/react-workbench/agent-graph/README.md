@@ -1,15 +1,18 @@
 # Agent Graph Workbench
-<!-- tinybot-module-fingerprint: sha256:2e7b769532cac6566a9914c7e76b9710e22f6797a87203bfdb3e80ce6dca9143 -->
+<!-- tinybot-module-fingerprint: sha256:1915d7ffb60c74466f075157befc1023bacfc9d34cddfc2f36877c0a43d0ac4e -->
 
 `agent-graph` owns the standalone Agent Graph route and its React presentation.
 The page creates one honest in-memory starter draft and exposes a small canvas
 editor: palette nodes can be dragged or clicked into the canvas, positioned by
 pointer or keyboard, connected through accessible handles, selected, and
-removed. The route selects a definition workspace from workspaces already known
-to Chat and project groups. Each Agent node defaults to that workspace and can
-select a different execution workspace. Input and Output remain unique
-protected boundaries. The selected Input node owns the required initial prompt
-sent to the first Agent. A selected Agent node edits additional role
+removed. An explicit Edit/View switch separates those editing gestures from
+read-only node inspection: clicking a node selects its configuration in Edit
+mode and opens Run status and messages only in View mode. The route selects a
+definition workspace from workspaces already known to Chat and project groups.
+Each Agent node defaults to that workspace and can select a different execution
+workspace. Input and Output remain unique protected boundaries. The selected
+Input node owns the required initial prompt sent to the first Agent. A selected
+Agent node edits additional role
 instructions and chooses a configured model plus optional reasoning effort;
 the explicit inherit choice leaves model routing to the application defaults.
 The route lists, explicitly saves, opens, and deletes

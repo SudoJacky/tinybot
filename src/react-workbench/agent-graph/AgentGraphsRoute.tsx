@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "react";
-import { GripVertical, Play, Plus, Save, Trash2, Workflow, X } from "lucide-react";
+import { Eye, GripVertical, PencilLine, Play, Plus, Save, Trash2, Workflow, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   isReasoningEffort,
@@ -40,6 +40,7 @@ import { AgentGraphNodeDrawer } from "./AgentGraphNodeDrawer";
 import "./AgentGraphsRoute.css";
 
 const NODE_KINDS: AgentGraphNodeKind[] = ["input", "agent", "condition", "output"];
+type AgentGraphInteractionMode = "edit" | "view";
 
 export default function AgentGraphsRoute({ services }: { services: AppServices }) {
   const { t } = useTranslation("common");
@@ -63,6 +64,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   const [draft, setDraft] = useState<AgentGraphDefinition | null>(null);
   const [draftRevision, setDraftRevision] = useState<string | null>(null);
   const [savedDefinition, setSavedDefinition] = useState<string | null>(null);
+  const [interactionMode, setInteractionMode] = useState<AgentGraphInteractionMode>("edit");
   const [selectedConfigNodeId, setSelectedConfigNodeId] = useState<string | null>(null);
   const [inspectedNodeId, setInspectedNodeId] = useState<string | null>(null);
   const [editError, setEditError] = useState<AgentGraphEditError | null>(null);
@@ -221,6 +223,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     draftSequence.current += 1;
     nodeSequence.current = 0;
     setEditError(null);
+    setInteractionMode("edit");
     setSelectedConfigNodeId(null);
     setInspectedNodeId(null);
     setPersistenceError(null);
@@ -318,6 +321,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   function openStoredGraph(graph: StoredAgentGraph) {
     nodeSequence.current = 0;
     setEditError(null);
+    setInteractionMode("edit");
     setPersistenceError(null);
     setSelectedConfigNodeId(null);
     setInspectedNodeId(null);
@@ -395,6 +399,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     setDraftRevision(null);
     setSavedDefinition(null);
     setEditError(null);
+    setInteractionMode("edit");
     setSelectedConfigNodeId(null);
     setInspectedNodeId(null);
     setSelectedRunId(null);
@@ -402,6 +407,12 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     setRuns([]);
     setRunError(null);
     setRunning(false);
+  }
+
+  function changeInteractionMode(mode: AgentGraphInteractionMode) {
+    setInteractionMode(mode);
+    setSelectedConfigNodeId(null);
+    setInspectedNodeId(null);
   }
 
   return (
@@ -489,12 +500,36 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                 <span>{t("graphs.name")}</span>
                 <input
                   aria-invalid={issues.includes("name_required")}
-                  disabled={running}
+                  disabled={running || interactionMode === "view"}
                   value={draft.name}
                   onChange={(event) => setDraft({ ...draft, name: event.currentTarget.value })}
                 />
               </label>
               <span className="react-agent-graph-draft__actions">
+                <span
+                  aria-label={t("graphs.mode")}
+                  className="react-agent-graph-mode-switch"
+                  data-mode={interactionMode}
+                  role="group"
+                >
+                  <span aria-hidden="true" className="react-agent-graph-mode-switch__indicator" />
+                  <button
+                    aria-pressed={interactionMode === "edit"}
+                    onClick={() => changeInteractionMode("edit")}
+                    type="button"
+                  >
+                    <PencilLine aria-hidden="true" size={13} />
+                    {t("graphs.editMode")}
+                  </button>
+                  <button
+                    aria-pressed={interactionMode === "view"}
+                    onClick={() => changeInteractionMode("view")}
+                    type="button"
+                  >
+                    <Eye aria-hidden="true" size={13} />
+                    {t("graphs.viewMode")}
+                  </button>
+                </span>
                 <span className="react-agent-graph-draft__badge">
                   {t(draftDirty ? "graphs.unsaved" : "graphs.saved")}
                 </span>
@@ -517,10 +552,13 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
 
             <AgentGraphCanvas
               definition={draft}
+              key={interactionMode}
               onAddNode={addNode}
               onConnectNodes={(source, target) => applyEdit(connectAgentGraphNodes(draft, source, target))}
               onMoveNode={(nodeId, position) => applyEdit(moveAgentGraphNode(draft, nodeId, position))}
-              onNodeActivate={setInspectedNodeId}
+              onNodeActivate={(nodeId) => {
+                if (interactionMode === "view") setInspectedNodeId(nodeId);
+              }}
               onRemoveEdge={(edgeId) => applyEdit(removeAgentGraphEdge(draft, edgeId))}
               onRemoveNode={(nodeId) => {
                 const removed = applyEdit(removeAgentGraphNode(draft, nodeId));
@@ -528,9 +566,11 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                 return removed;
               }}
               onSelectionChange={(nodeId) => {
+                if (interactionMode === "view") return;
                 const node = draft.nodes.find((candidate) => candidate.id === nodeId);
                 setSelectedConfigNodeId(node?.kind === "input" || node?.kind === "agent" ? node.id : null);
               }}
+              readOnly={interactionMode === "view"}
             />
 
             {editError ? <p className="react-agent-graph-edit-error" role="alert">{t(`graphs.editErrors.${editError}`)}</p> : null}
@@ -539,9 +579,11 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
           </section>
 
           <aside className="react-agent-graph-node-catalog" aria-labelledby="agent-graph-node-catalog-title">
-            <h2 id="agent-graph-node-catalog-title">{t("graphs.availableNodes")}</h2>
-            <p>{t("graphs.availableNodesDescription")}</p>
-            <ul>
+            {interactionMode === "edit" ? (
+              <>
+                <h2 id="agent-graph-node-catalog-title">{t("graphs.availableNodes")}</h2>
+                <p>{t("graphs.availableNodesDescription")}</p>
+                <ul>
               {NODE_KINDS.map((kind) => (
                 <li key={kind}>
                   <button
@@ -565,8 +607,8 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                   </button>
                 </li>
               ))}
-            </ul>
-            {selectedInputNode ? (
+                </ul>
+                {selectedInputNode ? (
               <section className="react-agent-graph-node-config" aria-labelledby="agent-graph-input-config-title">
                 <h3 id="agent-graph-input-config-title">{t("graphs.inputSettings")}</h3>
                 <p>{t("graphs.inputSettingsDescription")}</p>
@@ -590,8 +632,8 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                   />
                 </label>
               </section>
-            ) : null}
-            {selectedAgentNode ? (
+                ) : null}
+                {selectedAgentNode ? (
               <section className="react-agent-graph-node-config" aria-labelledby="agent-graph-node-config-title">
                 <h3 id="agent-graph-node-config-title">{t("graphs.agentSettings")}</h3>
                 <p>{t("graphs.agentSettingsDescription")}</p>
@@ -665,7 +707,14 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                   />
                 ) : null}
               </section>
-            ) : null}
+                ) : null}
+              </>
+            ) : (
+              <>
+                <h2 id="agent-graph-node-catalog-title">{t("graphs.viewModeTitle")}</h2>
+                <p>{t("graphs.viewModeDescription")}</p>
+              </>
+            )}
             <section
               aria-busy={running}
               aria-labelledby="agent-graph-run-title"

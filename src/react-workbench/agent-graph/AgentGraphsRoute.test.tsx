@@ -96,7 +96,7 @@ describe("AgentGraphsRoute", () => {
     await screen.findByRole("button", { name: "Definition workspace: tinybot" });
     await user.click(screen.getByRole("button", { name: "Create first graph" }));
     await user.click(screen.getByLabelText("Agent node"));
-    await user.click(screen.getByRole("button", { name: "Close node details" }));
+    expect(screen.queryByRole("complementary", { name: "Agent" })).toBeNull();
 
     const workspaceChoice = screen.getByRole("button", { name: "Execution workspace: tinybot" });
     await user.click(workspaceChoice);
@@ -123,7 +123,6 @@ describe("AgentGraphsRoute", () => {
     await user.click(screen.getByRole("button", { name: "Create first graph" }));
     await configureInputPrompt(user, "Research this repository");
     await user.click(screen.getByLabelText("Agent node"));
-    await user.click(screen.getByRole("button", { name: "Close node details" }));
 
     await user.type(
       screen.getByRole("textbox", { name: /Node instructions/ }),
@@ -235,6 +234,8 @@ describe("AgentGraphsRoute", () => {
       graphRevision: "sha256:before",
       definitionWorkspacePath: "D:\\code\\tinybot",
     });
+    await user.click(screen.getByRole("button", { name: "View" }));
+    expect(screen.getByRole("button", { name: "View" }).getAttribute("aria-pressed")).toBe("true");
     await user.click(screen.getByLabelText("Agent node"));
     const agentDrawer = screen.getByRole("complementary", { name: "Agent" });
     expect(await within(agentDrawer).findByText("Repository review complete.")).toBeTruthy();
@@ -254,7 +255,6 @@ describe("AgentGraphsRoute", () => {
 
 async function configureInputPrompt(user: ReturnType<typeof userEvent.setup>, prompt: string) {
   await user.click(screen.getByLabelText("Input node"));
-  await user.click(screen.getByRole("button", { name: "Close node details" }));
   await user.type(screen.getByRole("textbox", { name: /Initial prompt/ }), prompt);
 }
 

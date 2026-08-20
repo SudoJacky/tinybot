@@ -1,12 +1,13 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:e1078427a06c452b208635a5f9ec34e6b5d2a5654ad173228b4dd2c86e39d687 -->
+<!-- tinybot-module-fingerprint: sha256:e88146e08729ae168f25f0d3c020378a5ccfc1cf65713d62905dda07ea4c21c6 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
 
 The standalone Agent Graph route keeps node kinds, the Input node prompt,
 workspace, Agent instructions, model and reasoning configuration, catalog and
-persistence failures, save and Run state, node execution status, and validation guidance in these bundles
+persistence failures, Edit/View mode guidance, save and Run state, node
+execution status, and validation guidance in these bundles.
 while persisted schema identifiers, provider/model values, paths, revisions,
 Thread IDs, and node-kind values remain language-neutral.
 

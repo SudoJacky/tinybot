@@ -258,7 +258,61 @@
 .react-agent-graph-draft__actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
+}
+
+.react-agent-graph-mode-switch {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(62px, 1fr));
+  min-height: 34px;
+  padding: 3px;
+  border: 1px solid var(--color-line);
+  border-radius: 9px;
+  background: var(--color-surface-soft);
+}
+
+.react-agent-graph-mode-switch__indicator {
+  position: absolute;
+  z-index: -1;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: calc(50% - 3px);
+  border: 1px solid var(--color-hairline);
+  border-radius: 6px;
+  background: var(--color-panel);
+  box-shadow: 0 1px 3px rgb(20 20 19 / 10%);
+  transition: transform 160ms ease;
+}
+
+.react-agent-graph-mode-switch[data-mode="view"] .react-agent-graph-mode-switch__indicator {
+  transform: translateX(100%);
+}
+
+.react-agent-graph-draft__actions .react-agent-graph-mode-switch button {
+  position: relative;
+  min-height: 26px;
+  padding: 0 9px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--color-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.react-agent-graph-draft__actions .react-agent-graph-mode-switch button[aria-pressed="true"] {
+  color: var(--color-ink);
+}
+
+.react-agent-graph-draft__actions .react-agent-graph-mode-switch button:focus-visible {
+  border-radius: 6px;
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 45%, transparent);
+  outline-offset: 1px;
 }
 
 .react-agent-graph-draft__badge {
@@ -417,6 +471,11 @@
 .react-agent-graph-node[data-dragging="true"] {
   z-index: 3;
   cursor: grabbing;
+}
+
+.react-agent-graph-node[data-read-only="true"] {
+  cursor: pointer;
+  touch-action: auto;
 }
 
 .react-agent-graph-node span,
@@ -914,6 +973,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .react-agent-graph-edge,
+  .react-agent-graph-mode-switch__indicator,
   .react-agent-graph-node-drawer {
     animation: none;
     transition: none;
