@@ -26,8 +26,10 @@ describe("AppSettingsPage", () => {
     expect(screen.getAllByText("Language")).toHaveLength(1);
     expect(screen.queryByRole("heading", { name: "Language" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Language: English" }));
-    await user.click(within(screen.getByRole("menu", { name: "Language options" }))
-      .getByRole("menuitemradio", { name: /Simplified Chinese/ }));
+    const languageOptions = within(screen.getByRole("menu", { name: "Language options" }));
+    expect(languageOptions.getByText("Use the English interface.")).toBeTruthy();
+    expect(languageOptions.getByText("使用简体中文界面。")).toBeTruthy();
+    await user.click(languageOptions.getByRole("menuitemradio", { name: /简体中文/ }));
 
     expect(await screen.findByRole("heading", { name: "应用偏好设置" })).toBeTruthy();
     expect(document.documentElement.lang).toBe("zh-CN");
@@ -35,7 +37,8 @@ describe("AppSettingsPage", () => {
     expect(screen.getByText("更改会立即生效，并仅保存在这台设备上。")).toBeTruthy();
   });
 
-  test("restores a persisted Chinese preference on mount", () => {
+  test("restores a persisted Chinese preference on mount", async () => {
+    const user = userEvent.setup();
     window.localStorage.setItem(APP_LANGUAGE_STORAGE_KEY, "zh");
 
     render(
@@ -45,6 +48,9 @@ describe("AppSettingsPage", () => {
     );
 
     expect(screen.getByRole("heading", { name: "应用偏好设置" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "语言: 简体中文" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "语言: 简体中文" }));
+    const languageOptions = within(screen.getByRole("menu", { name: "语言选项" }));
+    expect(languageOptions.getByText("Use the English interface.")).toBeTruthy();
+    expect(languageOptions.getByText("使用简体中文界面。")).toBeTruthy();
   });
 });

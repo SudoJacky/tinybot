@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:1babc90a67e9a751caadec3885ff4e7a500b277757cd76685553bdafa5b59e08 -->
+<!-- tinybot-module-fingerprint: sha256:3fa4a8a7d6614f29a5fb069396ad0132dd3df726dd3bded2ab950b25ebc9e313 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -176,11 +176,21 @@ contain hashes, counts, truncation state, and allowlisted identifiers rather
 than prompt text, contribution content, document names, or filesystem paths.
 Long-term memory is an instruction source and does not use this extension point.
 
-Hooks run at provider, turn, thread, and context-compaction boundaries. A hook
-error, malformed diagnostic, or invalid decision at an active stage fails the
-turn. The hook type currently declares before/after-tool stages for the shared
-interface, but tool and permission hooks are not invoked; those calls dispatch
-after registry and capability validation.
+Typed in-process hooks run at provider, turn, thread, tool, and
+context-compaction boundaries. A typed hook error, malformed diagnostic, or
+invalid decision at an active stage fails the turn. Before-tool hooks run after
+registry and capability validation and may replace normalized arguments or
+return a model-visible denied result without dispatching the tool.
+
+Trusted user command hooks share the active stages `UserPromptSubmit`,
+`BeforeToolUse`, `AfterToolUse`, and `CompactionComplete`, projected as the
+Codex-compatible event names `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
+and `PostCompact`. They execute asynchronously from Rust, fail open on runner
+errors with an observable `agent.hook.decision`, and can add developer context.
+Post-tool feedback changes the model-visible observation only; it cannot undo a
+completed tool side effect. Command discovery, exact-definition trust, process
+limits, and wire shapes are owned by `command_hooks` and the desktop command
+reference.
 
 Every runtime event in one Turn shares the same trace context. Provider events
 add `providerAttemptId`, tool events retain `itemId` and `toolCallId`, and

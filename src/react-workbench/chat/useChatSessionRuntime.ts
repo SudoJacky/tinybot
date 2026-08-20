@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
+import type { HookExecutionResult } from "../../app-core/chat/hookExecutionResult";
 import type {
   TinyOsNativeBrowserSession,
   TinyOsNativeSnapshot,
@@ -16,6 +17,7 @@ export type ChatSessionRuntimeState = {
   browserError: string;
   browserSnapshot?: TinyOsNativeSnapshot<TinyOsNativeBrowserSession>;
   error: string;
+  hookResults: HookExecutionResult[];
   sessionId: string;
   status: ChatSessionRuntimeStatus;
   timeline: ChatTimelineSnapshot | null;
@@ -145,6 +147,7 @@ export function useChatSessionRuntime({
           ? {
               ...current,
               error: notifyEffect ? "" : current.error,
+              hookResults: mergeHookResults(current.hookResults, timeline.hookResults ?? []),
               status: !notifyEffect && current.error ? "failed" : "ready",
               timeline,
             }
@@ -209,6 +212,14 @@ export function useChatSessionRuntime({
         } catch (error) {
           fail("browser-snapshot.apply", error);
         }
+        return;
+      }
+      if (event.hookResults) {
+        setState((current) => (
+          current.sessionId === sessionId
+            ? { ...current, hookResults: mergeHookResults(current.hookResults, event.hookResults ?? []) }
+            : current
+        ));
         return;
       }
       if (isCommandRuntimeEvent(event)) {
@@ -286,10 +297,20 @@ function initialState(
     agentUiForms: [],
     browserError: "",
     error: "",
+    hookResults: [],
     sessionId,
     status,
     timeline: null,
   };
+}
+
+function mergeHookResults(
+  current: readonly HookExecutionResult[],
+  incoming: readonly HookExecutionResult[],
+): HookExecutionResult[] {
+  const merged = new Map(current.map((result) => [result.id, result]));
+  for (const result of incoming) merged.set(result.id, result);
+  return [...merged.values()];
 }
 
 function shouldFrameBatchTimeline(timeline: ChatTimelineSnapshot): boolean {

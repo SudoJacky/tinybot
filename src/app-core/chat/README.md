@@ -1,5 +1,5 @@
 # Chat Application Core
-<!-- tinybot-module-fingerprint: sha256:7d50f8c24df124e1f4359f0c5b7b7e8b051284ccf92fdbe1a63b96f72263e7de -->
+<!-- tinybot-module-fingerprint: sha256:355f2269e99e88279433125ed921e2499d4bcede8b680ef8f1f984405cc90bc9 -->
 
 `chat` contains framework-independent chat and TinyOS contracts, command
 construction, canonical timeline validation, UI projection, input state, and

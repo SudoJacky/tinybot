@@ -70,6 +70,11 @@ pub(crate) async fn run_agent_with_services(
             native_agent_trace_sink(thread_store.clone(), config_snapshot.clone(), None)
         }),
     };
+    #[cfg(not(test))]
+    let services = services.with_command_hooks(crate::command_hooks::CommandHookEngine::load(
+        &crate::config::application::tinybot_data_root(),
+        &instructions.working_directory,
+    ));
     let turn_result = run_native_agent_turn_with_workspace_and_instructions_async(
         &services,
         runtime_spec,

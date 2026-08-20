@@ -335,13 +335,50 @@ impl AgentTurnState {
         invocation: &AgentHookInvocation,
         evaluation: &AgentHookEvaluation,
     ) -> Result<(), String> {
-        if evaluation.decisions.is_empty() {
+        if evaluation.decisions.is_empty() && evaluation.command_runs.is_empty() {
             return Ok(());
         }
         self.emit(PendingAgentEvent::new(
             AgentEventKind::HookDecision,
             evaluation.event_payload(invocation),
         ))
+    }
+
+    pub(super) fn apply_hook_evaluation(
+        &mut self,
+        context: &mut AgentTurnContext,
+        evaluation: &AgentHookEvaluation,
+    ) -> Result<(), String> {
+        self.apply_additional_context(context, evaluation.additional_context.clone(), false)
+    }
+
+    pub(super) fn apply_pending_tool_hook_context(
+        &mut self,
+        context: &mut AgentTurnContext,
+    ) -> Result<(), String> {
+        let pending = context.take_pending_tool_hook_context();
+        self.apply_additional_context(context, pending, true)
+    }
+
+    fn apply_additional_context(
+        &mut self,
+        context: &mut AgentTurnContext,
+        additional_contexts: Vec<String>,
+        defer_response_items: bool,
+    ) -> Result<(), String> {
+        for additional_context in additional_contexts {
+            let message = serde_json::json!({
+                "role": "developer",
+                "content": additional_context,
+            });
+            self.history.record_message(message.clone())?;
+            if defer_response_items {
+                context.defer_hook_response_item(message);
+            } else if let Some(response_items) = context.responses_input_items.as_mut() {
+                response_items.push(message);
+            }
+        }
+        Ok(())
     }
 
     pub(super) fn emit_pending_hook_evaluations(

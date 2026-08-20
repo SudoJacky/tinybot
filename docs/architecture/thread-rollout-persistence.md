@@ -9,7 +9,7 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:4fcf3d4adacaec5d7993b6fadc3d5f5c7c64a8c0a2f6520efacb2fd22bb2dcff -->
+<!-- tinybot-doc-fingerprint: sha256:a39e61dfe398867538348be7119ba0c27c6a2c64f2c67dc349042fe8fc51707b -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
@@ -81,12 +81,20 @@ deltas and non-blocking status updates remain live-only.
 
 Live desktop patches and reloaded timeline snapshots must converge on the same
 Item identities. Renderer state is never used to reconstruct canonical
-conversation history.
+conversation history. Legacy response records without an explicit Item ID use
+a fallback containing the Thread, Turn, and sequence so equal Turn-local
+sequences cannot collapse across Turns.
 
 Provider API modes share the same Rollout envelope. A Thread pins its provider
 mode so configuration changes do not silently reinterpret existing history.
 Protocol-specific response records are projected at the persistence seam while
 the user-facing Thread history remains protocol-neutral.
+
+Lifecycle command hooks do not introduce a second conversation store. Prompt
+hooks run only after the Turn start is durable; an explicit hook denial follows
+the normal terminal persistence path. Dynamic hook context may be present in a
+resumable context checkpoint, while hook definitions and trusted hashes remain
+application/workspace configuration outside Rollouts.
 
 ## Recovery and consistency
 

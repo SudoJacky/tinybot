@@ -1,6 +1,6 @@
 import type { TFunction } from "i18next";
 import { useEffect, useState, type ReactNode } from "react";
-import { AppWindow, Bot, Cable, ChevronRight, Cloud, Keyboard, Radio, SunMoon, UserRound, type LucideIcon } from "lucide-react";
+import { AppWindow, Bot, Cable, ChevronRight, Cloud, Keyboard, Radio, ShieldCheck, SunMoon, UserRound, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import "./SettingsRoute.css";
 import type { AppServices, SettingsStore } from "../services";
@@ -9,6 +9,7 @@ import { AppSettingsPage } from "./AppSettingsPage";
 import { AppearanceSettingsPage } from "./AppearanceSettingsPage";
 import { ConfigSettingsPage, type ConfigSettingsGroupId } from "./ConfigSettingsPage";
 import { KeyboardShortcutsSettingsPage } from "./KeyboardShortcutsSettingsPage";
+import { HooksSettingsPage } from "./HooksSettingsPage";
 import { PersonalizationSettingsPage } from "./PersonalizationSettingsPage";
 import { ProviderModelsSettingsPage } from "./ProviderModelsSettingsPage";
 
@@ -24,6 +25,9 @@ export default function SettingsRoute({ services }: { services: AppServices }) {
       }
       if (module.id === "personalization") {
         return Boolean(services.settingsStore.loadPersonalizationInstructions && services.settingsStore.savePersonalizationInstructions);
+      }
+      if (module.id === "hooks") {
+        return Boolean(services.hooksStore);
       }
       if (module.groupId) {
         return Boolean(services.settingsStore.loadDesktopConfigSettings && services.settingsStore.saveDesktopConfigSettings);
@@ -52,6 +56,12 @@ export default function SettingsRoute({ services }: { services: AppServices }) {
             <AgentDefaultsSettingsPage
               onNavigateToProviderModels={() => setActiveSettingsModuleId("provider-models")}
               settingsStore={services.settingsStore}
+            />
+          ) : activeModuleId === "hooks" && services.hooksStore ? (
+            <HooksSettingsPage
+              hooksStore={services.hooksStore}
+              projectGroupStore={services.projectGroupStore}
+              sessionStore={services.sessionStore}
             />
           ) : activeModuleId === "tools-mcp" || activeModuleId === "channels" ? (
             <ConfigSettingsPage
@@ -125,7 +135,7 @@ function SettingsFallback({ settingsStore }: { settingsStore: SettingsStore }) {
   );
 }
 
-type SettingsModuleId = "app" | "personalization" | "appearance" | "keyboard-shortcuts" | "provider-models" | "agent-defaults" | ConfigSettingsGroupId;
+type SettingsModuleId = "app" | "personalization" | "appearance" | "keyboard-shortcuts" | "provider-models" | "agent-defaults" | "hooks" | ConfigSettingsGroupId;
 
 type SettingsModule = {
   id: SettingsModuleId;
@@ -143,6 +153,7 @@ function createSettingsModules(t: TFunction<"settings">): SettingsModule[] {
     { id: "keyboard-shortcuts", label: t("modules.shortcuts.label"), description: t("modules.shortcuts.description"), icon: Keyboard },
     { id: "provider-models", label: t("modules.providers.label"), description: t("modules.providers.description"), icon: Cloud },
     { id: "agent-defaults", label: t("modules.agent.label"), description: t("modules.agent.description"), icon: Bot },
+    { id: "hooks", label: t("modules.hooks.label"), description: t("modules.hooks.description"), icon: ShieldCheck },
     { id: "tools-mcp", label: t("modules.tools.label"), description: t("modules.tools.description"), icon: Cable, groupId: "tools-mcp" },
     { id: "channels", label: t("modules.channels.label"), description: t("modules.channels.description"), icon: Radio, groupId: "channels" },
   ];

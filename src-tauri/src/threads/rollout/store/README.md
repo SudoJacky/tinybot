@@ -1,5 +1,5 @@
 # Worker Thread Log
-<!-- tinybot-module-fingerprint: sha256:b8d3deda820c62d506c63fb8afe24ec4cf4824aa426e281a6014390456021807 -->
+<!-- tinybot-module-fingerprint: sha256:7f36e69dc0c8bcb596b239e1a9695ea7c97854c805fce9a9f0bea98c370b4305 -->
 
 `threads::rollout::store` owns Tinybot's canonical append-only Rollout. It validates
 paths, records typed lines, reconstructs Thread and runtime projections,
@@ -139,6 +139,9 @@ metadata, but their Rollout ordinal remains the replay position. This keeps a
 completion after its matching call identity even when runtime sequence values
 are numerically lower than later Rollout ordinals. Timeline snapshots preserve
 the resulting application order instead of sorting again by source sequence.
+For legacy response items without an explicit item ID, the fallback identity
+includes the Thread, Turn, and sequence so Turn-local sequence reuse cannot
+collapse items from different Turns.
 
 Assistant-message identities are scoped to one provider/model call. Provider
 IDs are retained when available; otherwise the projector derives a stable ID

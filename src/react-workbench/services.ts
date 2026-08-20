@@ -1,5 +1,6 @@
 import type { ReactChatMessage } from "./chat/messageActions";
 import type { ChatTimelineSnapshot } from "../app-core/chat/agentTimelineModel";
+import type { HookExecutionResult } from "../app-core/chat/hookExecutionResult";
 import type { AgentUiForm } from "../app-core/agent-ui/agentUiEvents";
 import type {
   WorkspaceDirectoryPage,
@@ -35,6 +36,13 @@ import type {
   DiagnosticBundleExportResult,
   PerformanceTraceSnapshot,
 } from "../app-core/native/desktopNativePerformanceTrace";
+import type {
+  NativeCommandHookSnapshot,
+  NativeCommandHookSummary,
+  NativeManagedHookLanguage,
+  NativeManagedHookScript,
+  NativeManagedHookTestResult,
+} from "../app-core/native/desktopNativeHooks";
 
 export type SessionSummary = {
   id: string;
@@ -77,6 +85,7 @@ export type ChatEvent = {
   commandId?: string;
   eventType?: string;
   error?: string;
+  hookResults?: HookExecutionResult[];
   message?: ReactChatMessage;
   timeline?: ChatTimelineSnapshot;
 };
@@ -140,6 +149,34 @@ export type MemorySnapshot = {
 
 export type MemoryStore = {
   load(): Promise<MemorySnapshot>;
+};
+
+export type HooksStore = {
+  load(workspacePath?: string): Promise<NativeCommandHookSnapshot>;
+  setTrusted(input: {
+    workspacePath?: string;
+    hash: string;
+    trusted: boolean;
+  }): Promise<NativeCommandHookSnapshot>;
+  saveManaged(input: {
+    workspacePath: string;
+    id?: string;
+    name: string;
+    event: NativeCommandHookSummary["event"];
+    matcher?: string;
+    language: NativeManagedHookLanguage;
+    enabled: boolean;
+    timeout: number;
+  }): Promise<NativeCommandHookSnapshot>;
+  testManaged(input: { workspacePath: string; id: string }): Promise<NativeManagedHookTestResult>;
+  archiveManaged(input: { workspacePath: string; id: string }): Promise<NativeCommandHookSnapshot>;
+  readManagedScript(input: { workspacePath: string; id: string }): Promise<NativeManagedHookScript>;
+  saveManagedScript(input: {
+    workspacePath: string;
+    id: string;
+    contents: string;
+    expectedRevision: string;
+  }): Promise<NativeManagedHookScript>;
 };
 
 export type PluginSummary = {
@@ -269,6 +306,7 @@ export type AppServices = {
   projectGroupStore: ProjectGroupStore;
   workspaceStore: WorkspaceStore;
   toolsStore: ToolsStore;
+  hooksStore?: HooksStore;
   settingsStore: SettingsStore;
   performanceStore?: PerformanceStore;
 };

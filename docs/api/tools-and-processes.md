@@ -9,7 +9,7 @@ src-tauri/src/tools/shell/mod.rs
 src-tauri/src/tools/shell/process_manager.rs
 src-tauri/src/rpc/tests/threads_and_tools.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:742abc2ac50cbf1bbc6cdb9fbf0c8bd949dcb29ddecbf56faa5d58fc3aedf52e -->
+<!-- tinybot-doc-fingerprint: sha256:a3bd7089a413278a601f8078e0647fb0feb854b9ed669fdab68deb569edc09f2 -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -83,6 +83,10 @@ after creation. Failure to create or assign that job fails the start and termina
 `shell.terminate`, turn cancellation, and Native Runtime shutdown terminate the job and verify the root
 record reaches terminal state, preventing descendants from retaining inherited pipe handles or
 surviving the owner.
+
+The trusted lifecycle command-hook runner reuses this Windows containment
+primitive, but hook processes do not enter the Shell process registry and
+cannot be addressed through Shell RPC methods.
 
 Process snapshots use camel-case fields and include:
 

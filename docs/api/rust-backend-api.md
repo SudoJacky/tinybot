@@ -9,7 +9,7 @@ src/app-core/native/desktopNativeUpdate.ts
 src/app-core/native/desktopNativeWebui.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:58a3f9e40dabf8a7243228f2c1b2c37e1836c199e37a27b603a244b2b57d903d -->
+<!-- tinybot-doc-fingerprint: sha256:c2772d9077eec7475c2c1ec6c63dbd25f0272dab2592f309f4b0ddeb15eaef67 -->
 
 This document describes the API surfaces exposed by the Rust/Tauri backend in `src-tauri`.
 It is intended for frontend callers and integrators who need command names, invocation
@@ -26,7 +26,7 @@ entire backend inventory.
 
 | Area | Reference |
 | --- | --- |
-| Desktop lifecycle, dialogs, diagnostics, updates, and configuration | [Desktop commands](desktop.md) |
+| Desktop lifecycle, dialogs, diagnostics, updates, configuration, and command-hook trust | [Desktop commands](desktop.md) |
 | Agent turns, provider behavior, cancellation, and checkpoints | [Agent runtime](agent-runtime.md) |
 | Timeline queries, memory, persistence, project groups, and Threads | [Threads and memory](threads-and-memory.md) |
 | Skills, Agent Plugins, and workspace operations | [Workspace and extensions](workspace-and-extensions.md) |
@@ -124,6 +124,7 @@ Prefer these wrappers instead of direct command strings:
 | Wrapper | File | Commands/routes covered |
 | --- | --- | --- |
 | `createDesktopNativeConfigApi` | `src/app-core/native/desktopNativeConfig.ts` | Config snapshot |
+| `createDesktopNativeHooksApi` | `src/app-core/native/desktopNativeHooks.ts` | Workspace hook catalog, managed-hook save/test/archive, constrained script editing, and exact-definition trust |
 | `createDesktopNativeUpdateClient` | `src/app-core/native/desktopNativeUpdate.ts` | Desktop update status, check, install, and status events |
 | `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread, Turn timeline, and effective-capability commands |
 | `createDesktopNativeHostCommandApi` | `src/app-core/native/desktopNativeHostCommand.ts` | Transitional Chat `operation.retry` dispatch |

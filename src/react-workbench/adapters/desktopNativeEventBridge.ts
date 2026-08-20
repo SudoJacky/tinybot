@@ -6,6 +6,7 @@ import {
   reduceAgentUiEventState,
 } from "../../app-core/agent-ui/agentUiEvents";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
+import { projectHookExecutionEvent } from "../../app-core/chat/hookExecutionResult";
 import type { DesktopChatSessionController } from "../../app-core/chat/desktopChatSessionController";
 import { normalizeNativeBrowserSnapshot } from "../../app-core/native/desktopNativeBrowser";
 import { logDesktopNativeDebug } from "../../app-core/native/desktopNativeChatDebug";
@@ -28,6 +29,7 @@ type TerminalTimeline = Pick<ChatTimelineSnapshot, "turns"> | null;
 const NATIVE_EVENT_NAMES = [
   toDesktopNativeTauriEventName("agent.timeline.patch"),
   toDesktopNativeTauriEventName("agent.awaiting_form"),
+  toDesktopNativeTauriEventName("agent.hook.decision"),
   "tinyos:browser-snapshot",
 ] as const;
 const MAX_LOGGED_ERROR_LENGTH = 500;
@@ -177,6 +179,26 @@ export function createDesktopNativeEventBridge({
     }
   }
 
+  function handleHookDecision(event: NativeEvent): void {
+    try {
+      const projection = projectHookExecutionEvent(event.payload);
+      if (!projection) return;
+      logDesktopNativeDebug("nativeEventBridge.hookDecision.accepted", {
+        resultCount: projection.results.length,
+        sessionId: projection.sessionId,
+        turnId: projection.turnId,
+      });
+      notifySession(projection.sessionId, {
+        hookResults: projection.results,
+        type: "hook.completed",
+      });
+    } catch (error) {
+      const message = errorMessage(error);
+      reportNativeEventBridgeError("hookDecision", error);
+      notifyAll({ type: "hook.completed.error", error: message });
+    }
+  }
+
   function handleBrowserSnapshot(event: NativeEvent): void {
     try {
       const browserSnapshot = normalizeNativeBrowserSnapshot(event.payload);
@@ -204,7 +226,8 @@ export function createDesktopNativeEventBridge({
         await Promise.all([
           listen(NATIVE_EVENT_NAMES[0], handleTimelinePatch),
           listen(NATIVE_EVENT_NAMES[1], handleAgentForm),
-          listen(NATIVE_EVENT_NAMES[2], handleBrowserSnapshot),
+          listen(NATIVE_EVENT_NAMES[2], handleHookDecision),
+          listen(NATIVE_EVENT_NAMES[3], handleBrowserSnapshot),
         ]);
         logDesktopNativeDebug("nativeEventBridge.register.complete", {
           durationMs: roundedDuration(readMonotonicNow() - startedAt),

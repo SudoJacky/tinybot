@@ -111,6 +111,7 @@ describe("desktop native event bridge", () => {
     expect([...harness.handlers.keys()]).toEqual([
       "agent:timeline:patch",
       "agent:awaiting_form",
+      "agent:hook:decision",
       "tinyos:browser-snapshot",
     ]);
     const timelineHandler = harness.handlers.get("agent:timeline:patch");
@@ -157,6 +158,45 @@ describe("desktop native event bridge", () => {
       type: "agent-ui.form.error",
       error: "Native agent form event is missing formId.",
     });
+  });
+
+  it("projects completed command hooks without exposing hashes or source paths", async () => {
+    const harness = createHarness();
+    await harness.bridge.register();
+
+    await harness.handlers.get("agent:hook:decision")?.({
+      payload: {
+        commandRuns: [{
+          decision: "continue",
+          durationMs: 42,
+          failure: null,
+          hookHash: "sha256:hidden",
+          hookName: "Reviewing tool input",
+          sourcePath: "D:\\workspace\\.tinybot\\hooks\\review.ps1",
+        }],
+        requestId: "request-1",
+        stage: "before_tool_use",
+        threadId: "thread-1",
+        toolCallId: "tool-1",
+        traceContext: { traceId: "trace-1" },
+        turnId: "turn-1",
+      },
+    });
+
+    expect(harness.notifySession).toHaveBeenCalledWith("thread-1", {
+      type: "hook.completed",
+      hookResults: [{
+        decision: "continue",
+        durationMs: 42,
+        hookName: "Reviewing tool input",
+        id: "trace-1:request-1:turn-1:PreToolUse:tool-1:0:Reviewing tool input",
+        stage: "PreToolUse",
+        toolCallId: "tool-1",
+        turnId: "turn-1",
+      }],
+    });
+    expect(JSON.stringify(harness.notifySession.mock.calls)).not.toContain("sha256:hidden");
+    expect(JSON.stringify(harness.notifySession.mock.calls)).not.toContain("review.ps1");
   });
 
   it("projects browser snapshots with explicit error events", async () => {

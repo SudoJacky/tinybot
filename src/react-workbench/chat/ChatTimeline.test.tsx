@@ -17,6 +17,7 @@ describe("ChatTimeline", () => {
       <ChatTimeline
         actions={actions}
         error="Timeline connection failed"
+        hookResults={[]}
         interactiveFormIds={new Set()}
         latestFailedTurnId=""
         optimisticMessages={[optimisticMessage()]}
@@ -40,6 +41,7 @@ describe("ChatTimeline", () => {
     render(
       <ChatTimeline
         actions={actions}
+        hookResults={[]}
         interactiveFormIds={new Set()}
         latestFailedTurnId={turn.id}
         optimisticMessages={[]}
@@ -54,6 +56,46 @@ describe("ChatTimeline", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /details/i }));
     expect(actions.onOpenError).toHaveBeenCalledWith(turn, turn.steps[0]);
+  });
+
+  test("shows completed hook results inside their canonical turn", () => {
+    const turn = completedTurn();
+    render(
+      <ChatTimeline
+        actions={createActions()}
+        hookResults={[{
+          decision: "continue",
+          durationMs: 42,
+          hookName: "Reviewing tool input",
+          id: "hook-1",
+          stage: "PreToolUse",
+          toolCallId: "tool-1",
+          turnId: turn.id,
+        }, {
+          decision: "failed",
+          durationMs: 17,
+          failure: "Script exited with code 1",
+          hookName: "Validate tool call",
+          id: "hook-2",
+          stage: "PreToolUse",
+          toolCallId: "tool-1",
+          turnId: turn.id,
+        }]}
+        interactiveFormIds={new Set()}
+        latestFailedTurnId=""
+        optimisticMessages={[]}
+        recoveringTurnId=""
+        sessionRunning={false}
+        turns={[turn]}
+      />,
+    );
+
+    const results = screen.getByRole("list", { name: "Hook results" });
+    expect(results.textContent).toContain("Reviewing tool input");
+    expect(results.textContent).toContain("Before tool use · Continued · 42 ms");
+    expect(results.textContent).toContain("Before tool use · Failed · 17 ms");
+    expect(screen.getByText("Script exited with code 1").closest("li")?.dataset.status).toBe("error");
+    expect(results.textContent).not.toContain("tool-1");
   });
 });
 

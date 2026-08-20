@@ -3,8 +3,8 @@ use super::continuations::typed_continuation_from_metadata;
 use super::state::AgentTurnState;
 use super::tool_projection::{commit_tool_observation, prepare_continuation_tool_observation};
 use super::{
-    AgentTurnContext, NativeAgentRuntimeServices, NativeAgentToolCall, NativeAgentToolResult,
-    PreparedToolCall,
+    AgentHookInvocation, AgentHookStage, AgentTurnContext, NativeAgentRuntimeServices,
+    NativeAgentToolCall, NativeAgentToolResult, PreparedToolCall,
 };
 use crate::agent::runtime_protocol::{
     AgentContinuationInput, AgentEventKind, AgentFormAction, AgentRuntimePhase, PendingAgentEvent,
@@ -32,14 +32,16 @@ pub(super) struct UserInputResume {
     restored_completed_results: Vec<Value>,
     form_id: String,
     values: Value,
+    pending_hook_context: Vec<String>,
 }
 
 impl UserInputResume {
-    pub(super) fn apply(
+    pub(super) async fn apply(
         self,
-        context: &AgentTurnContext,
+        context: &mut AgentTurnContext,
         state: &mut AgentTurnState,
     ) -> Result<i64, String> {
+        context.restore_pending_tool_hook_context(self.pending_hook_context);
         state
             .completed_tool_results
             .extend(self.restored_completed_results);
@@ -55,7 +57,36 @@ impl UserInputResume {
                 "values": self.values,
             }),
         ))?;
-        commit_tool_observation(context, state, self.iteration, self.tool_call, self.result)?;
+        let prepared = PreparedToolCall::prepare(self.tool_call)?;
+        let mut result = self.result;
+        let invocation = AgentHookInvocation::tool(
+            AgentHookStage::AfterToolUse,
+            context.trace_context.clone(),
+            context.session_id.clone(),
+            context.model.clone(),
+            context.hook_permission_mode(),
+            prepared.id.clone(),
+            prepared.name.clone(),
+            prepared.arguments_value(),
+            Some(serde_json::json!({
+                "content": result.content,
+                "envelope": result.envelope,
+            })),
+        );
+        let evaluation = context.evaluate_command_hook(invocation.clone()).await?;
+        context.queue_tool_hook_context(&evaluation);
+        state.emit_hook_evaluation(&invocation, &evaluation)?;
+        if !evaluation.tool_feedback.is_empty() {
+            result.replace_model_content(evaluation.tool_feedback.join("\n"));
+        }
+        commit_tool_observation(
+            context,
+            state,
+            self.iteration,
+            prepared.into_original(),
+            result,
+        )?;
+        state.apply_pending_tool_hook_context(context)?;
         Ok(self.iteration.saturating_add(1))
     }
 }
@@ -97,6 +128,7 @@ pub(super) fn awaiting_user_input_result(
             "form": form,
             "pendingToolCalls": state.pending_tool_calls.clone(),
             "completedToolResults": state.completed_tool_results.clone(),
+            "pendingHookContext": context.pending_tool_hook_context(),
             "messages": state.history.messages(),
             "resumeToken": format!("form:{form_id}"),
         }),
@@ -206,6 +238,25 @@ pub(super) fn prepare_user_input_continuation(
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
+    let pending_hook_context = checkpoint
+        .pointer("/payload/pendingHookContext")
+        .map(|value| {
+            value
+                .as_array()
+                .ok_or_else(|| {
+                    "invalid user input checkpoint: pendingHookContext must be an array".to_string()
+                })?
+                .iter()
+                .map(|item| {
+                    item.as_str().map(str::to_string).ok_or_else(|| {
+                        "invalid user input checkpoint: pendingHookContext entries must be strings"
+                            .to_string()
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
     context.messages = messages.clone();
     context.spec["messages"] = Value::Array(messages);
     services
@@ -220,6 +271,7 @@ pub(super) fn prepare_user_input_continuation(
             restored_completed_results,
             form_id,
             values,
+            pending_hook_context,
         },
     )))
 }

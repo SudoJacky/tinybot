@@ -1412,7 +1412,7 @@ fn hanging_cleanup_tool_batch_times_out_without_hanging_the_owned_turn() {
 }
 
 #[test]
-fn trace_context_follows_provider_tool_and_completion_without_tool_hook_rewrite() {
+fn trace_context_follows_provider_tool_and_completion_with_tool_hook_rewrite() {
     struct ToolThenFinalProvider {
         calls: AtomicUsize,
     }
@@ -1522,7 +1522,7 @@ fn trace_context_follows_provider_tool_and_completion_without_tool_hook_rewrite(
             .lock()
             .expect("tool arguments lock should not be poisoned")
             .as_slice(),
-        [json!({ "path": "before.md" })]
+        [json!({ "path": "after.md" })]
     );
     let runtime_events = result["runtimeEvents"]
         .as_array()
@@ -1534,6 +1534,14 @@ fn trace_context_follows_provider_tool_and_completion_without_tool_hook_rewrite(
     assert!(runtime_events
         .iter()
         .any(|event| event["eventName"] == "agent.hook.decision"));
+    let hook_stages = runtime_events
+        .iter()
+        .filter(|event| event["eventName"] == "agent.hook.decision")
+        .filter_map(|event| event.pointer("/payload/stage").and_then(Value::as_str))
+        .collect::<Vec<_>>();
+    assert!(hook_stages.contains(&"user_prompt_submit"));
+    assert!(hook_stages.contains(&"before_tool_use"));
+    assert!(hook_stages.contains(&"after_tool_use"));
     assert!(runtime_events.iter().all(|event| {
         event["traceContext"]["traceId"] == "trace-traced-hook"
             && event["traceContext"]["requestId"] == "request-traced-hook"

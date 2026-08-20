@@ -3402,6 +3402,11 @@ fn rollout_thread_item_id(item: &Value, thread_id: &str, sequence: u64) -> Strin
         .or_else(|| string_value(item, "itemId"))
         .or_else(|| string_value(item, "messageId"))
         .or_else(|| string_value(item, "id"))
+        .or_else(|| {
+            string_value(item, "turnId")
+                .or_else(|| string_value(item, "turn_id"))
+                .map(|turn_id| format!("rollout:{thread_id}:{turn_id}:{sequence}"))
+        })
         .unwrap_or_else(|| format!("rollout:{thread_id}:{sequence}"))
 }
 

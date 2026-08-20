@@ -165,6 +165,8 @@ impl AgentTurnContext {
             hooks: super::hooks::AgentHookPipeline::default(),
             metrics: crate::runtime::observability::global_agent_runtime_metrics().clone(),
             pending_hook_evaluations: Arc::new(std::sync::Mutex::new(Vec::new())),
+            pending_tool_hook_context: Vec::new(),
+            deferred_hook_response_items: Vec::new(),
             tool_router,
         }
     }
@@ -179,6 +181,53 @@ impl AgentTurnContext {
         invocation: AgentHookInvocation,
     ) -> Result<AgentHookEvaluation, String> {
         self.hooks.evaluate(invocation, &self.metrics)
+    }
+
+    pub(crate) async fn evaluate_command_hook(
+        &self,
+        invocation: AgentHookInvocation,
+    ) -> Result<AgentHookEvaluation, String> {
+        self.hooks
+            .evaluate_command_hooks(invocation, &self.metrics)
+            .await
+    }
+
+    pub(crate) fn hook_permission_mode(&self) -> String {
+        self.settings
+            .permission_profile
+            .clone()
+            .unwrap_or_else(|| "local-worker".to_string())
+    }
+
+    pub(crate) fn queue_tool_hook_context(&mut self, evaluation: &AgentHookEvaluation) {
+        self.pending_tool_hook_context
+            .extend(evaluation.additional_context.iter().cloned());
+    }
+
+    pub(crate) fn pending_tool_hook_context(&self) -> &[String] {
+        &self.pending_tool_hook_context
+    }
+
+    pub(crate) fn take_pending_tool_hook_context(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.pending_tool_hook_context)
+    }
+
+    pub(crate) fn restore_pending_tool_hook_context(&mut self, context: Vec<String>) {
+        self.pending_tool_hook_context.extend(context);
+    }
+
+    pub(crate) fn defer_hook_response_item(&mut self, item: Value) {
+        if self.responses_input_items.is_some() {
+            self.deferred_hook_response_items.push(item);
+        }
+    }
+
+    pub(crate) fn flush_deferred_hook_response_items(&mut self) {
+        if let Some(response_items) = self.responses_input_items.as_mut() {
+            response_items.append(&mut self.deferred_hook_response_items);
+        } else {
+            self.deferred_hook_response_items.clear();
+        }
     }
 
     pub(crate) fn metrics(&self) -> &crate::runtime::observability::AgentRuntimeMetrics {

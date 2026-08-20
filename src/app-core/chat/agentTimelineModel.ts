@@ -8,6 +8,7 @@ import type {
   BackendAgentTimelinePatch,
   ChatTurn,
 } from "./chatTurnContracts";
+import { projectHookExecutionResults, type HookExecutionResult } from "./hookExecutionResult";
 
 export type TimelineDiagnostic = {
   code: "lower_item_revision";
@@ -25,6 +26,7 @@ export type ChatTimelineSnapshot = {
   turnRevisions: Record<string, number>;
   turns: ChatTurn[];
   diagnostics: TimelineDiagnostic[];
+  hookResults?: HookExecutionResult[];
 };
 
 export interface AgentTimelineModel {
@@ -217,6 +219,9 @@ function projectSessionSnapshot(sessionId: string, state: SessionTimelineState):
     turnRevisions: Object.fromEntries([...state.turns].map(([turnId, turn]) => [turnId, turn.timeline.snapshotRevision])),
     turns: projectBackendTimeline(sessionId, runtimeStates),
     diagnostics: [...state.diagnostics],
+    hookResults: runtimeStates.flatMap((runtimeState) => (
+      projectHookExecutionResults(runtimeState.runtimeEvents ?? [])
+    )),
   };
 }
 
@@ -228,6 +233,7 @@ function emptyTimelineSnapshot(sessionId: string): ChatTimelineSnapshot {
     turnRevisions: {},
     turns: [],
     diagnostics: [],
+    hookResults: [],
   };
 }
 

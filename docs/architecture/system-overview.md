@@ -12,7 +12,7 @@ src/app-core/native/README.md
 src/react-workbench/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:58837463824a448c7bfb48af0e60ceead0da93d87c9ae2ad0ef8aa9740cf4f60 -->
+<!-- tinybot-doc-fingerprint: sha256:0f8e4c4c30f3f7e66ae743e459677c3c35753dd1be5588a55e8a0447433c954c -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -54,6 +54,7 @@ Desktop Commands / Desktop Host
 | `desktop_terminal` | User-only Sidecar PTY lifecycle and resource ownership | Agent shell sessions or renderer presentation |
 | `agent::bridge` | Complete Turn orchestration and persistence coordination | Provider iteration or the Thread data model |
 | `agent::runtime` | Provider-and-tool loop, context, checkpoints, and runtime events | Tauri state or durable-store selection |
+| `command_hooks` | Hand-written and managed Hook discovery, managed manifest/script generation and constrained editing, exact definition-and-script trust, bounded command execution, and event output parsing | Agent capability policy or renderer state |
 | `threads::domain` | Typed Thread, Turn, and Item behavior | Canonical durable storage |
 | `threads::rollout::store` | Canonical append-only conversation storage and reconstruction | Live task ownership |
 | `runtime` | Startup, shutdown, live Turn generations, MCP, and metrics | Conversation authority |
@@ -70,6 +71,10 @@ Desktop Commands / Desktop Host
 - Renderer product state: route stores composed through the React workbench
   interfaces.
 - Exact frontend/backend command and event shapes: the Rust backend reference.
+- Command-hook definitions: additive global/workspace `hooks.json` files and
+  Tinybot-managed workspace manifests under `.tinybot/hooks/<id>/hook.json`;
+  execution authority remains exact definition-and-script hashes in the global
+  hook trust store.
 - Sidecar Terminal process ownership: the dedicated desktop terminal runtime;
   Agent shell processes remain owned by the Agent runtime's independent shell
   registry.
@@ -82,7 +87,7 @@ An adapter may translate at a seam, but it must not become a second authority.
 React views -> workbench interfaces -> app-core contracts -> native adapters
                                                         -> Tauri commands
 Tauri commands -> bridge / domain modules -> runtime and persistence
-agent runtime -> injected provider, tool, checkpoint, cancellation, and trace interfaces
+agent runtime -> injected provider, tool, checkpoint, cancellation, trace, and command-hook interfaces
 ```
 
 Keep transport at the outside. Domain modules must not depend on React or

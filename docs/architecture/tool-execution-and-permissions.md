@@ -11,7 +11,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:bc2fcd0c6571162db78ebbac023068d14ee3665cca3e7f39e83b1caa03f6ab85 -->
+<!-- tinybot-doc-fingerprint: sha256:d7d7d44bc143ef4301d9057f8888c96f0fccecb6de3abdd47c6ab9b990ed3968 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -36,6 +36,7 @@ Model tool-call batch
     |-- resolve provider name
     |-- reject any disallowed call before batch execution
     |-- validate and prepare arguments
+    |-- run trusted PreToolUse hooks (deny or replace arguments)
     |-- plan parallel read waves and exclusive mutation waves
     v
 Injected dispatcher
@@ -46,6 +47,7 @@ Injected dispatcher
     |-- shell or subagent adapter
     v
 Typed result + runtime events + durable projection
+    |-- run trusted PostToolUse hooks (model feedback/context only)
     |
     v
 Next provider iteration
@@ -95,6 +97,13 @@ Project-coordinator Turns intentionally have no local workspace or shell
 authority. Their persistent cross-workspace Thread tools perform separate
 project-group authorization before targeting a workspace.
 
+Trusted command hooks are user automation, not Agent tools. Their processes
+inherit the desktop user's operating-system authority and are outside the
+`CapabilityPolicy` sandbox, which is why definitions are disabled until their
+exact hashes are reviewed. A `PreToolUse` replacement does not bypass the tool
+executor: the owning module still validates the final arguments and protected
+effects at execution time.
+
 ## Execution and cancellation
 
 The runtime rejects an entire provider tool-call batch before execution when
@@ -107,6 +116,12 @@ terminate an owned process, or require bounded cleanup. A timeout, cancellation,
 runtime failure, and ordinary tool error remain distinct outcomes so the model,
 trace, and terminal Turn state do not report false success.
 
+`PostToolUse` runs only after dispatch completes. Blocking feedback replaces
+the model-visible observation and cannot roll back workspace, process, network,
+or session side effects. Hook-added context is emitted after the complete tool
+result block so both Chat Completions and Responses preserve call/result
+pairing.
+
 ## Invariants
 
 - All model-requested execution crosses the runtime dispatcher.
@@ -118,6 +133,7 @@ trace, and terminal Turn state do not report false success.
 - Model-visible output is bounded independently from richer live projection
   data.
 - A tool batch is fully recorded before the next provider request.
+- User command hooks cannot widen registry exposure or capability grants.
 
 ## Source modules and verification
 

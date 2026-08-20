@@ -185,6 +185,8 @@ pub struct AgentTurnContext {
     metrics: AgentRuntimeMetrics,
     pending_hook_evaluations:
         Arc<std::sync::Mutex<Vec<(AgentHookInvocation, hooks::AgentHookEvaluation)>>>,
+    pending_tool_hook_context: Vec<String>,
+    deferred_hook_response_items: Vec<Value>,
     tool_router: NativeToolRouter,
 }
 
@@ -305,6 +307,23 @@ impl PreparedToolCall {
 
     pub fn arguments_value(&self) -> Value {
         Value::Object(self.arguments.clone())
+    }
+
+    pub(crate) fn replace_arguments(&mut self, value: Value) -> Result<(), String> {
+        let Value::Object(arguments) = value else {
+            return Err(format!(
+                "native tool `{}` replacement arguments must be a JSON object",
+                self.original.name
+            ));
+        };
+        self.original.arguments_json = serde_json::to_string(&arguments).map_err(|error| {
+            format!(
+                "failed to serialize replacement arguments for native tool `{}`: {error}",
+                self.original.name
+            )
+        })?;
+        self.arguments = arguments;
+        Ok(())
     }
 
     pub fn original(&self) -> &NativeAgentToolCall {
@@ -663,6 +682,15 @@ impl NativeAgentRuntimeServices {
         if self.trace_sink.is_none() {
             self.trace_sink = Some(trace_sink());
         }
+        self
+    }
+
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) fn with_command_hooks(
+        mut self,
+        command_hooks: crate::command_hooks::CommandHookEngine,
+    ) -> Self {
+        self.hooks = self.hooks.with_command_hooks(command_hooks);
         self
     }
 

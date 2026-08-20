@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:5df4f7aad840a88145e38d968c3576db1df761355a00c549b9956a5c7d7a5e40 -->
+<!-- tinybot-doc-fingerprint: sha256:9a6b2d15d2f8272d1bc28c5d85501f9f4c77cb6bf2d4de2fe3bc576280e1722b -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -42,13 +42,15 @@ agent::bridge
     |-- hydrate the fixed Thread memory snapshot and compose instructions
     |-- persist Turn start
     |-- hydrate canonical history
-    |-- install tool, checkpoint, and trace adapters
+    |-- install tool, checkpoint, trace, and trusted command-hook adapters
     v
 agent::runtime
+    |-- evaluate UserPromptSubmit before the first provider request
     |-- build bounded model context
     |-- call provider
     |-- append assistant items
-    |-- dispatch and record tool calls when requested
+    |-- evaluate PreToolUse, dispatch, then evaluate PostToolUse
+    |-- evaluate PostCompact after installing compacted history
     |-- repeat until form wait, failure, cancellation, or completion
     v
 flush trace -> persist terminal state or checkpoint
@@ -73,6 +75,17 @@ For each provider iteration, the runtime:
 6. Emits correlated runtime events through the injected trace sink.
 7. Stops at a terminal result or creates a resumable checkpoint.
 
+The bridge loads additive global and effective-working-directory command hooks
+for each Turn. `UserPromptSubmit` runs after the durable Turn start, so a denied
+prompt still produces a recoverable terminal Turn. `PreToolUse` may deny or
+replace normalized arguments before dispatch; `PostToolUse` may replace only
+the next model-visible observation; `PostCompact` runs after replacement
+history and its checkpoint have been installed. Hook-added developer context
+is ordered after the associated tool result before another provider request.
+Typed in-process hook failures fail the Turn, while command-runner failures are
+recorded in `agent.hook.decision` and fail open unless the event returns a
+supported explicit blocking decision.
+
 Provider protocols adapt at one seam. Chat Completions and Responses encode
 different wire formats but share the same provider/tool loop, permission
 checks, cancellation, trace, and result construction.
@@ -95,7 +108,8 @@ Runtime events drive live desktop updates and canonical persistence. Live
 presentation may use bounded diagnostics, but model-visible messages, tool
 calls, and tool results are materialized before diagnostic truncation. Reloaded
 timeline state is reconstructed from the Rollout rather than from renderer
-state.
+state. Legacy response records without an explicit Item ID derive one from the
+Thread, Turn, and sequence so Turn-local sequence reuse remains distinct.
 
 ## Invariants
 
@@ -107,6 +121,9 @@ state.
   persistence.
 - Keep provider failures, tool failures, trace failures, cancellation, and
   typed waiting states distinguishable.
+- Keep trusted command-hook decisions correlated to the same Turn without
+  persisting command text, raw stdout, or stderr in diagnostic events; an
+  explicit bounded `systemMessage` remains intentional user-facing output.
 - Do not create another durable Run identity for a Turn.
 
 ## Source modules and verification
