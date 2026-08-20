@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:673892f91353aa2268c03c9d08d41a9b3641dafa6bfcc7436a43de9dba5b57c1 -->
+<!-- tinybot-module-fingerprint: sha256:fdfaceb558c0559e1fe83f6ae4b3803202804bfe08297e83ff200fa4f80daa4b -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App`, `DesktopShell` owns the desktop chrome, and
@@ -10,7 +10,9 @@ Agent Graph canvas editor without importing `ChatPage` or consuming Chat route
 state. It receives the shared stores only to derive definition and per-Agent
 execution workspace choices and to consume the dedicated `AgentGraphStore`.
 Graph definitions are persisted under the selected workspace while execution
-remains outside Chat.
+remains outside Chat. The Chat session projection explicitly excludes standard
+Threads whose source is `agent_graph`; Graph execution discovers them through
+Graph Runs instead.
 
 The optional `hooksStore` backs Settings > Hooks in the native desktop. The
 page derives its workspace selector from Chat sessions and project groups,

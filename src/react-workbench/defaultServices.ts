@@ -102,7 +102,8 @@ export function createDesktopAppServices(): AppServices {
       threads.push(...result.threads.filter((thread) => {
         const parentThreadId = stringValue(thread.parentThreadId ?? thread.parent_thread_id);
         const source = stringValue(thread.source);
-        return !parentThreadId || source === "fork" || source === "workspace_thread";
+        return source !== "agent_graph"
+          && (!parentThreadId || source === "fork" || source === "workspace_thread");
       }));
       const nextOffset = numberValue(result.nextOffset);
       if (nextOffset === undefined) {
