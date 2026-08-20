@@ -8,6 +8,10 @@ selection, deferred route loading, and update dialogs.
 the active route and preserves lazy seams for optional surfaces. Route-specific
 behavior remains in the route module rather than moving into the shell.
 
+The shell also owns the floating Tinybot desktop pet's viewport position,
+three-step size preference, visibility, and local persistence. Chat only reports
+the current mascot mood. The pet can be hidden from its inline controls and
+restored from the System menu without duplicating Agent lifecycle state.
 The bounded `react-route-surface` owns vertical overflow for document-like
 routes so long settings, tools, and diagnostics pages remain scrollable inside
 the fixed desktop window frame. Full-height routes such as Chat can continue to

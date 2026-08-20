@@ -5,6 +5,10 @@
 canonical timeline presentation, the composer, and detail drawers.
 `ChatPage.tsx` is the route-level composition module.
 
+Chat projects the active session and Turn lifecycle into calm, curious, working,
+angry, and pleased mascot moods, then reports that presentation state to the
+desktop shell. It does not introduce a second source of truth for Agent status.
+
 Chat contracts, commands, and projections live in `app-core/chat`. This folder
 owns React state and presentation. Browser runtime snapshots are retained by the
 session runtime and projected into Sidecar Browser resources. Each resource tab

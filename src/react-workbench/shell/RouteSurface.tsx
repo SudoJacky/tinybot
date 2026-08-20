@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { ChatPage } from "../chat/ChatPage";
+import type { TinybotMascotMood } from "../chat/TinybotMascot";
 import type { AppServices, WorkspaceFileSummary } from "../services";
 import { DeferredSurface } from "./DeferredSurface";
 
@@ -12,6 +13,7 @@ type ChatRouteProps = {
   sessionSidebarCollapsed: boolean;
   onSessionSidebarCollapsedChange: (collapsed: boolean) => void;
   onStopGenerationTargetChange: (sessionId: string) => void;
+  onMascotMoodChange: (mood: TinybotMascotMood) => void;
 };
 
 type FilesState =
@@ -53,6 +55,7 @@ export function RouteSurface({
           sessionSidebarCollapsed={chat.sessionSidebarCollapsed}
           onOpenFiles={() => onNavigate("files")}
           onOpenSettings={() => onNavigate("settings")}
+          onMascotMoodChange={chat.onMascotMoodChange}
           onSessionSidebarCollapsedChange={chat.onSessionSidebarCollapsedChange}
           onStopGenerationTargetChange={chat.onStopGenerationTargetChange}
         />
