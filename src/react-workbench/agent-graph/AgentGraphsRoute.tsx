@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "react";
-import { GripVertical, Plus, Workflow, X } from "lucide-react";
+import { GripVertical, Plus, Save, Trash2, Workflow, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   addAgentGraphNode,
@@ -19,6 +19,7 @@ import {
   type AgentGraphNodePosition,
   type AgentGraphValidationIssue,
 } from "../../app-core/agent-graph/agentGraphDefinition";
+import type { StoredAgentGraph } from "../../app-core/agent-graph/agentGraphStore";
 import { normalizedWorkspacePathKey, sessionWorkspaceName } from "../chat/sessionWorkspaces";
 import type { AppServices } from "../services";
 import { SettingsChoiceList } from "../settings/SettingsChoiceList";
@@ -39,10 +40,17 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   const [definitionWorkspacePath, setDefinitionWorkspacePath] = useState("");
   const [workspaceCatalogError, setWorkspaceCatalogError] = useState<string | null>(null);
   const [workspaceCatalogReady, setWorkspaceCatalogReady] = useState(false);
+  const [storedGraphs, setStoredGraphs] = useState<StoredAgentGraph[]>([]);
+  const [graphListLoading, setGraphListLoading] = useState(false);
+  const [persistenceError, setPersistenceError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [draft, setDraft] = useState<AgentGraphDefinition | null>(null);
+  const [draftRevision, setDraftRevision] = useState<string | null>(null);
+  const [savedDefinition, setSavedDefinition] = useState<string | null>(null);
   const [selectedAgentNodeId, setSelectedAgentNodeId] = useState<string | null>(null);
   const [editError, setEditError] = useState<AgentGraphEditError | null>(null);
   const issues = draft ? validateAgentGraphDefinition(draft) : [];
+  const draftDirty = Boolean(draft && JSON.stringify(draft) !== savedDefinition);
   const selectedAgentNode = draft?.nodes.find((node): node is AgentGraphAgentNode => (
     node.id === selectedAgentNodeId && node.kind === "agent"
   ));
@@ -74,14 +82,41 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     };
   }, [services.projectGroupStore, services.sessionStore]);
 
+  useEffect(() => {
+    if (!workspaceCatalogReady || !definitionWorkspacePath) {
+      setStoredGraphs([]);
+      return;
+    }
+    let cancelled = false;
+    setGraphListLoading(true);
+    setStoredGraphs([]);
+    setPersistenceError(null);
+    void services.agentGraphStore.list(definitionWorkspacePath)
+      .then((graphs) => {
+        if (!cancelled) setStoredGraphs(graphs);
+      })
+      .catch((cause: unknown) => {
+        if (!cancelled) setPersistenceError(errorMessage(cause));
+      })
+      .finally(() => {
+        if (!cancelled) setGraphListLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [definitionWorkspacePath, services.agentGraphStore, workspaceCatalogReady]);
+
   function createDraft() {
     if (!definitionWorkspacePath) return;
     draftSequence.current += 1;
     nodeSequence.current = 0;
     setEditError(null);
     setSelectedAgentNodeId(null);
+    setPersistenceError(null);
+    setDraftRevision(null);
+    setSavedDefinition(null);
     setDraft(createAgentGraphDraft({
-      id: `draft-${draftSequence.current}`,
+      id: `graph-${Date.now()}-${draftSequence.current}`,
       name: t("graphs.untitled"),
       workspacePath: definitionWorkspacePath,
     }));
@@ -99,15 +134,19 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
 
   function addNode(kind: AgentGraphNodeKind, position: AgentGraphNodePosition): boolean {
     if (!draft) return false;
-    nodeSequence.current += 1;
+    let nodeId = "";
+    do {
+      nodeSequence.current += 1;
+      nodeId = `${kind}-${nodeSequence.current}`;
+    } while (draft.nodes.some((node) => node.id === nodeId));
     const node: AgentGraphNode = kind === "agent"
       ? {
-          id: `${kind}-${nodeSequence.current}`,
+          id: nodeId,
           kind,
           position,
           config: { workspacePath: definitionWorkspacePath },
         }
-      : { id: `${kind}-${nodeSequence.current}`, kind, position };
+      : { id: nodeId, kind, position };
     return applyEdit(addAgentGraphNode(draft, node));
   }
 
@@ -123,6 +162,69 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   function beginPaletteDrag(event: ReactDragEvent<HTMLButtonElement>, kind: AgentGraphNodeKind) {
     event.dataTransfer.effectAllowed = "copy";
     event.dataTransfer.setData(AGENT_GRAPH_NODE_DRAG_TYPE, kind);
+  }
+
+  function openStoredGraph(graph: StoredAgentGraph) {
+    nodeSequence.current = 0;
+    setEditError(null);
+    setPersistenceError(null);
+    setSelectedAgentNodeId(null);
+    setDraft(graph.definition);
+    setDraftRevision(graph.revision);
+    setSavedDefinition(JSON.stringify(graph.definition));
+  }
+
+  async function saveDraft() {
+    if (!draft || issues.length || saving) return;
+    setSaving(true);
+    setPersistenceError(null);
+    try {
+      const stored = await services.agentGraphStore.save({
+        workspacePath: definitionWorkspacePath,
+        definition: draft,
+        ...(draftRevision ? { expectedRevision: draftRevision } : {}),
+      });
+      setDraft(stored.definition);
+      setDraftRevision(stored.revision);
+      setSavedDefinition(JSON.stringify(stored.definition));
+      setStoredGraphs((current) => sortedStoredGraphs([
+        ...current.filter((graph) => graph.definition.id !== stored.definition.id),
+        stored,
+      ]));
+    } catch (cause: unknown) {
+      setPersistenceError(errorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteDraft() {
+    if (!draft || !draftRevision || saving) return;
+    if (!window.confirm(t("graphs.confirmDelete", { name: draft.name }))) return;
+    setSaving(true);
+    setPersistenceError(null);
+    try {
+      await services.agentGraphStore.delete({
+        workspacePath: definitionWorkspacePath,
+        graphId: draft.id,
+        expectedRevision: draftRevision,
+      });
+      setStoredGraphs((current) => current.filter((graph) => graph.definition.id !== draft.id));
+      closeDraft();
+    } catch (cause: unknown) {
+      setPersistenceError(errorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function closeDraft() {
+    setDraft(null);
+    setDraftRevision(null);
+    setSavedDefinition(null);
+    setEditError(null);
+    setSelectedAgentNodeId(null);
+    setPersistenceError(null);
   }
 
   return (
@@ -167,15 +269,41 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
       </section>
 
       {!draft ? (
-        <section className="react-agent-graphs-empty" aria-labelledby="agent-graphs-empty-title">
-          <span aria-hidden="true" className="react-agent-graphs-empty__icon"><Workflow size={25} /></span>
-          <h2 id="agent-graphs-empty-title">{t("graphs.emptyTitle")}</h2>
-          <p>{t("graphs.emptyDescription")}</p>
-          <button disabled={!definitionWorkspacePath} className="react-agent-graphs-page__primary" type="button" onClick={createDraft}>
-            <Plus aria-hidden="true" size={16} />
-            {t("graphs.createFirst")}
-          </button>
-        </section>
+        graphListLoading ? (
+          <p className="react-agent-graph-library__status" role="status">{t("graphs.loading")}</p>
+        ) : storedGraphs.length ? (
+          <section className="react-agent-graph-library" aria-labelledby="agent-graph-library-title">
+            <header>
+              <span>
+                <h2 id="agent-graph-library-title">{t("graphs.savedGraphs")}</h2>
+                <p>{t("graphs.savedGraphsDescription")}</p>
+              </span>
+            </header>
+            <ul>
+              {storedGraphs.map((graph) => (
+                <li key={graph.definition.id}>
+                  <button type="button" onClick={() => openStoredGraph(graph)}>
+                    <strong>{graph.definition.name}</strong>
+                    <small>{t("graphs.graphSummary", {
+                      edges: graph.definition.edges.length,
+                      nodes: graph.definition.nodes.length,
+                    })}</small>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : (
+          <section className="react-agent-graphs-empty" aria-labelledby="agent-graphs-empty-title">
+            <span aria-hidden="true" className="react-agent-graphs-empty__icon"><Workflow size={25} /></span>
+            <h2 id="agent-graphs-empty-title">{t("graphs.emptyTitle")}</h2>
+            <p>{t("graphs.emptyDescription")}</p>
+            <button disabled={!definitionWorkspacePath} className="react-agent-graphs-page__primary" type="button" onClick={createDraft}>
+              <Plus aria-hidden="true" size={16} />
+              {t("graphs.createFirst")}
+            </button>
+          </section>
+        )
       ) : (
         <div className="react-agent-graph-draft">
           <section className="react-agent-graph-editor" aria-label={t("graphs.editor")}>
@@ -189,13 +317,22 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                 />
               </label>
               <span className="react-agent-graph-draft__actions">
-                <span className="react-agent-graph-draft__badge">{t("graphs.unsaved")}</span>
-                <button type="button" onClick={() => {
-                  setDraft(null);
-                  setEditError(null);
-                }}>
+                <span className="react-agent-graph-draft__badge">
+                  {t(draftDirty ? "graphs.unsaved" : "graphs.saved")}
+                </span>
+                <button disabled={!draftDirty || issues.length > 0 || saving} type="button" onClick={() => void saveDraft()}>
+                  <Save aria-hidden="true" size={15} />
+                  {t(saving ? "graphs.saving" : "graphs.save")}
+                </button>
+                {draftRevision ? (
+                  <button disabled={saving} type="button" onClick={() => void deleteDraft()}>
+                    <Trash2 aria-hidden="true" size={15} />
+                    {t("graphs.delete")}
+                  </button>
+                ) : null}
+                <button disabled={saving} type="button" onClick={closeDraft}>
                   <X aria-hidden="true" size={15} />
-                  {t("graphs.discard")}
+                  {t(draftRevision ? "graphs.close" : "graphs.discard")}
                 </button>
               </span>
             </header>
@@ -214,6 +351,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
             />
 
             {editError ? <p className="react-agent-graph-edit-error" role="alert">{t(`graphs.editErrors.${editError}`)}</p> : null}
+            {persistenceError ? <p className="react-agent-graph-persistence-error" role="alert">{persistenceError}</p> : null}
             <GraphValidation issues={issues} />
           </section>
 
@@ -272,6 +410,9 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
           </aside>
         </div>
       )}
+      {!draft && persistenceError ? (
+        <p className="react-agent-graph-persistence-error" role="alert">{persistenceError}</p>
+      ) : null}
     </main>
   );
 }
@@ -302,6 +443,13 @@ function workspaceDisplayPath(path: string): string {
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+function sortedStoredGraphs(graphs: StoredAgentGraph[]): StoredAgentGraph[] {
+  return [...graphs].sort((left, right) => (
+    left.definition.name.localeCompare(right.definition.name)
+    || left.definition.id.localeCompare(right.definition.id)
+  ));
 }
 
 function GraphValidation({ issues }: { issues: AgentGraphValidationIssue[] }) {

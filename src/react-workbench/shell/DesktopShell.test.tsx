@@ -58,6 +58,11 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
   };
 } {
   return {
+    agentGraphStore: {
+      list: vi.fn(async () => []),
+      save: vi.fn(async (input) => ({ definition: input.definition, revision: "sha256:test" })),
+      delete: vi.fn(async () => undefined),
+    },
     sessionStore: {
       list: vi.fn(async () => options.sessions ?? []),
       create: vi.fn(async () => ({ id: "s1", chatId: "chat-1", title: "New session", updatedAtMs: Date.now() })),

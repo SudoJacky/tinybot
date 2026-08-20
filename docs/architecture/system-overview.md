@@ -14,7 +14,7 @@ src/react-workbench/README.md
 src/react-workbench/agent-graph/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:1ba697481238b64e6d4373672da743c071a756cc73878df1fbe1539c2c5b4db7 -->
+<!-- tinybot-doc-fingerprint: sha256:950a2c156135ee5dbaf567a487a9de90d5431d396cca894787a3fe183fa37d30 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -49,10 +49,11 @@ Desktop Commands / Desktop Host
 | Module | Owns | Does not own |
 | --- | --- | --- |
 | `react-workbench` | React routes, presentation, route state | Native transport or durable domain state |
-| `react-workbench/agent-graph` | Standalone Agent Graph route, accessible in-memory canvas editing, and workspace selection | Chat route state, persistence, or execution |
+| `react-workbench/agent-graph` | Standalone Agent Graph route, accessible canvas editing, workspace selection, and Graph store consumption | Chat route state, native persistence rules, or execution |
 | `react-workbench/sidecar` | Resource tabs, scope filtering, and Sidecar presentation | Native Browser or Terminal lifecycle |
 | `app-core` | Framework-independent contracts, validation, commands, and projections | React rendering or Tauri invocation |
-| `app-core/agent-graph` | Versioned Agent Graph definitions, Agent workspace configuration, structural validation, and immutable edit operations | React rendering, persistence, or Agent execution |
+| `app-core/agent-graph` | Versioned Agent Graph definitions, Agent workspace configuration, structural validation, immutable edit operations, and the persistence Interface | React rendering, native filesystem I/O, or Agent execution |
+| `agent_graphs` | Workspace Graph files, schema validation, atomic writes, and exact-byte revisions | Renderer state or Graph execution |
 | `app-core/native` | Typed renderer adapters for native commands and events | Product state or backend behavior |
 | `desktop_commands` | Thin Tauri input/output adaptation | Reusable domain behavior |
 | `desktop_terminal` | User-only Sidecar PTY lifecycle and resource ownership | Agent shell sessions or renderer presentation |
@@ -74,10 +75,10 @@ Desktop Commands / Desktop Host
 - Tool metadata and exposure: the backend tool registry.
 - Renderer product state: route stores composed through the React workbench
   interfaces.
-- Agent Graph drafts: versioned `app-core/agent-graph` values held only by the
-  standalone Graph route. The accepted persistence and execution direction
-  keeps Graph definitions, Graph Runs, and Agent Threads as separate
-  authorities; its adapters are not implemented yet.
+- Agent Graph definitions: versioned `app-core/agent-graph` values stored under
+  `<workspace>/.tinybot/graphs/` through the native `agent_graphs` Adapter.
+  Graph Runs and Agent Thread execution remain unimplemented separate
+  authorities.
 - Exact frontend/backend command and event shapes: the Rust backend reference.
 - Command-hook definitions: additive global/workspace `hooks.json` files and
   Tinybot-managed workspace manifests under `.tinybot/hooks/<id>/hook.json`;

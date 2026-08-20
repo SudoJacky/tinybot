@@ -3,6 +3,8 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { createAgentGraphDraft } from "../../app-core/agent-graph/agentGraphDefinition";
+import type { AgentGraphStore, StoredAgentGraph } from "../../app-core/agent-graph/agentGraphStore";
 import type { AppServices } from "../services";
 import AgentGraphsRoute from "./AgentGraphsRoute";
 
@@ -93,10 +95,50 @@ describe("AgentGraphsRoute", () => {
     expect(screen.getByRole("button", { name: "Execution workspace: payments" })).toBeTruthy();
     expect(screen.getByLabelText("Agent node").textContent).toContain("payments");
   });
+
+  it("loads and saves workspace-owned Graph definitions with revisions", async () => {
+    const user = userEvent.setup();
+    const definition = createAgentGraphDraft({
+      id: "graph-research",
+      name: "Research flow",
+      workspacePath: "D:\\code\\tinybot",
+    });
+    const services = createServices({
+      storedGraphs: [{ definition, revision: "sha256:before" }],
+    });
+    render(<AgentGraphsRoute services={services} />);
+
+    await user.click(await screen.findByRole("button", { name: /Research flow/ }));
+    expect(screen.getByText("Saved")).toBeTruthy();
+    await user.clear(screen.getByRole("textbox", { name: "Graph name" }));
+    await user.type(screen.getByRole("textbox", { name: "Graph name" }), "Updated research");
+    await user.click(screen.getByRole("button", { name: "Save Graph" }));
+
+    expect(services.agentGraphStore.save).toHaveBeenCalledWith({
+      workspacePath: "D:\\code\\tinybot",
+      definition: expect.objectContaining({ id: "graph-research", name: "Updated research" }),
+      expectedRevision: "sha256:before",
+    });
+    expect(await screen.findByText("Saved")).toBeTruthy();
+  });
 });
 
-function createServices({ projectWorkspaces = [] }: { projectWorkspaces?: string[] } = {}): AppServices {
+function createServices({
+  projectWorkspaces = [],
+  storedGraphs = [],
+}: {
+  projectWorkspaces?: string[];
+  storedGraphs?: StoredAgentGraph[];
+} = {}) {
   return {
+    agentGraphStore: {
+      list: vi.fn().mockResolvedValue(storedGraphs),
+      save: vi.fn(async (input: Parameters<AgentGraphStore["save"]>[0]) => ({
+        definition: input.definition,
+        revision: "sha256:saved",
+      })),
+      delete: vi.fn().mockResolvedValue(undefined),
+    },
     sessionStore: {
       list: vi.fn().mockResolvedValue([{
         id: "thread-1",
@@ -112,7 +154,13 @@ function createServices({ projectWorkspaces = [] }: { projectWorkspaces?: string
         workspaceIds: projectWorkspaces,
       }] : []),
     },
-  } as unknown as AppServices;
+  } as unknown as AppServices & {
+    agentGraphStore: {
+      list: ReturnType<typeof vi.fn>;
+      save: ReturnType<typeof vi.fn>;
+      delete: ReturnType<typeof vi.fn>;
+    };
+  };
 }
 
 function createDataTransfer(): DataTransfer {

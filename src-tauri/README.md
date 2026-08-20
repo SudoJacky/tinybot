@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:1c24592c1bc034220d37b3717171c5c7cc1520d51cc995968728b9d5d835f11e -->
+<!-- tinybot-module-fingerprint: sha256:3a5f3a25e2c478e1cc081ea99706b980b874dfa3d14e3a64b8a46a5b7d59371b -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -117,8 +117,8 @@ The main layers are:
      canonical append-only Rollouts and their process-local Thread index.
 5. **Domain services**
    - `workspace/`, `tools/`, `automation/`, `collaboration/`, `config/`,
-     `project_groups.rs`, `plugins/`, `skills/`, and `memory/` own their
-     business rules and do not depend on RPC or Tauri.
+     `agent_graphs.rs`, `project_groups.rs`, `plugins/`, `skills/`, and
+     `memory/` own their business rules and do not depend on RPC or Tauri.
 6. **Process and transport infrastructure**
    - [`runtime/`](src/runtime/README.md) owns live tasks, shared MCP state,
      startup recovery, shutdown, and operational metrics.
@@ -162,6 +162,7 @@ roles:
 | `~/.tinybot/threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | `threads::rollout::store` | Active canonical Rollouts |
 | `~/.tinybot/archived_threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | `threads::rollout::store` | Archived canonical Rollouts |
 | `~/.tinybot/project-groups.json` | `project_groups` | Named groups and their workspace memberships |
+| `<workspace>/.tinybot/graphs/<graph-id>.json` | `agent_graphs` | Versioned Agent Graph definitions |
 | `~/.tinybot/hooks.json` | `command_hooks` | Global user command-hook definitions |
 | `~/.tinybot/hook-trust.json` | `command_hooks` | Trusted exact-definition hashes |
 | `<workspace>/.tinybot/hooks.json` | `command_hooks` | Workspace-scoped command-hook definitions |
@@ -169,6 +170,8 @@ roles:
 Thread metadata, checkpoint pointers, and Rollout heads are rebuilt into a
 process-local index from the Rollouts. Project-group membership is loaded from
 its own atomic JSON store and authorizes coordinator-created workspace Threads.
+Agent Graph definitions use one atomically replaced JSON file per Graph and an
+exact-byte SHA-256 revision for optimistic saves and deletes.
 
 Desktop startup moves canonical Rollouts from the former
 `<workspace>/.tinybot/{threads,archived_threads}` layout into the application

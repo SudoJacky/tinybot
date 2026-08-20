@@ -72,6 +72,17 @@ describe("agentGraphDefinition", () => {
     expect(connectAgentGraphNodes(definition, "agent", "input")).toEqual({ ok: false, reason: "input_cannot_be_target" });
   });
 
+  it("keeps generated edge ids unique when node ids make the base id collide", () => {
+    const definition = createAgentGraphDraft({ id: "graph-1", name: "Flow", workspacePath: WORKSPACE_PATH });
+    definition.edges[0] = { ...definition.edges[0], id: "edge-input-output" };
+
+    const connected = connectAgentGraphNodes(definition, "input", "output");
+
+    expect(connected).toMatchObject({ ok: true });
+    if (!connected.ok) return;
+    expect(connected.definition.edges[connected.definition.edges.length - 1]?.id).toBe("edge-input-output-2");
+  });
+
   it("removes editable nodes and their incident edges but protects boundary nodes", () => {
     const definition = createAgentGraphDraft({ id: "graph-1", name: "Flow", workspacePath: WORKSPACE_PATH });
     const removed = removeAgentGraphNode(definition, "agent");

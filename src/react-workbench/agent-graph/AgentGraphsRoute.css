@@ -65,6 +65,11 @@
   font-weight: 650;
 }
 
+.react-agent-graph-draft__actions button:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
 .react-agent-graphs-page__primary {
   border-color: var(--color-primary);
   background: var(--color-primary);
@@ -112,6 +117,74 @@
   text-align: center;
 }
 
+.react-agent-graph-library {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 14px;
+  background: var(--color-panel);
+}
+
+.react-agent-graph-library > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.react-agent-graph-library > header span {
+  display: grid;
+  gap: 4px;
+}
+
+.react-agent-graph-library > header p,
+.react-agent-graph-library__status {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-agent-graph-library ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.react-agent-graph-library li button {
+  display: grid;
+  width: 100%;
+  gap: 4px;
+  padding: 13px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 9px;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  text-align: left;
+}
+
+.react-agent-graph-library li button:hover,
+.react-agent-graph-library li button:focus-visible {
+  border-color: var(--color-primary);
+  outline: none;
+}
+
+.react-agent-graph-library li small {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-agent-graph-persistence-error {
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 26%, var(--color-hairline));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-danger) 8%, var(--color-panel));
+  color: var(--color-danger);
+  font-size: 11px;
+}
+
 .react-agent-graphs-empty__icon {
   display: grid;
   width: 48px;
@@ -124,6 +197,7 @@
 }
 
 .react-agent-graphs-empty h2,
+.react-agent-graph-library h2,
 .react-agent-graph-node-catalog h2 {
   color: var(--color-ink);
   font-size: 15px;

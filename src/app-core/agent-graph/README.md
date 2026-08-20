@@ -1,5 +1,5 @@
 # Agent Graph Application Core
-<!-- tinybot-module-fingerprint: sha256:5c6a0634c0abdb971017efe1034642a082d28366658c602fa300e77deb653016 -->
+<!-- tinybot-module-fingerprint: sha256:44721f883d3cca6faa70d97dcf3ad8f145e5ce5b6c804754f246dba6872833bf -->
 
 `agent-graph` owns the framework-independent, versioned Agent Graph definition,
 its structural validation, and immutable edit operations. The definition
@@ -12,8 +12,9 @@ edges. Agent nodes own an execution workspace path, and the edit interface
 updates that configuration without exposing mutable definition state. UI code
 translates gestures and settings changes into these operations instead of
 duplicating topology rules. This module does not render React, depend on Chat
-state, persist definitions, or execute an Agent Turn. Persistence and runtime
-execution remain future adapters at the Graph interface rather than implicit
+state, perform filesystem I/O, or execute an Agent Turn. `AgentGraphStore`
+defines the small list/save/delete persistence Interface; native storage and
+future runtime execution remain Adapters at Graph seams rather than implicit
 dependencies of the definition model.
 
 The accepted persistence contract keeps a workspace-owned Graph definition

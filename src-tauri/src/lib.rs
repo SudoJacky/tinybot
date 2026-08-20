@@ -2,6 +2,7 @@
 
 mod adapters;
 mod agent;
+mod agent_graphs;
 mod automation;
 mod collaboration;
 mod command_hooks;

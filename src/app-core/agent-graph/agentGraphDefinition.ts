@@ -239,11 +239,19 @@ export function connectAgentGraphNodes(
     return { ok: false, reason: "duplicate_edge" };
   }
 
+  const baseEdgeId = `edge-${source}-${target}`;
+  let edgeId = baseEdgeId;
+  let suffix = 2;
+  while (definition.edges.some((edge) => edge.id === edgeId)) {
+    edgeId = `${baseEdgeId}-${suffix}`;
+    suffix += 1;
+  }
+
   return {
     ok: true,
     definition: {
       ...definition,
-      edges: [...definition.edges, { id: `edge-${source}-${target}`, source, target }],
+      edges: [...definition.edges, { id: edgeId, source, target }],
     },
   };
 }

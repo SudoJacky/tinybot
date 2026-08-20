@@ -12,6 +12,9 @@ describe("native backend contract", () => {
   test("exposes the current typed Tauri command surface", () => {
     expect(NATIVE_BACKEND_COMMAND_NAMES).toEqual(expect.arrayContaining([
       "worker_submit_thread_turn",
+      "worker_agent_graphs_list",
+      "worker_agent_graph_save",
+      "worker_agent_graph_delete",
       "worker_submit_thread_form",
       "worker_thread_read",
       "worker_thread_resume",
