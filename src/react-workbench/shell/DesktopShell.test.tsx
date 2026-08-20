@@ -337,7 +337,7 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     const resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
-    for (const item of ["Chat", "Workspace Files", "Memory", "GitHub", "Tools & Plugins"]) {
+    for (const item of ["Chat", "Agent Graphs", "Workspace Files", "Memory", "GitHub", "Tools & Plugins"]) {
       expect(within(resourcesMenu).getByRole("menuitem", { name: item })).toBeTruthy();
     }
     expect(within(resourcesMenu).getByRole("menuitem", { name: "Chat" }).getAttribute("aria-current")).toBe("page");
@@ -494,6 +494,12 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     let resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
+    await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Agent Graphs" }));
+    expect(await screen.findByRole("heading", { name: "Agent Graphs" })).toBeTruthy();
+    expect(screen.getByText("No graphs yet")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Resources" }));
+    resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
     await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Workspace Files" }));
     expect(await screen.findByRole("heading", { name: "Workspace Files" })).toBeTruthy();
     expect(screen.getByText("src/main.ts")).toBeTruthy();

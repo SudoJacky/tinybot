@@ -2,7 +2,7 @@ import type { en, TranslationResourceShape } from "./en";
 
 export const zh = {
   common: {
-    routes: { chat: "聊天", files: "工作区文件", memory: "记忆", github: "GitHub", docs: "文档", tools: "工具与插件", settings: "设置", performanceTrace: "性能追踪" },
+    routes: { chat: "聊天", graphs: "Agent Graph", files: "工作区文件", memory: "记忆", github: "GitHub", docs: "文档", tools: "工具与插件", settings: "设置", performanceTrace: "性能追踪" },
     menu: {
       app: "应用", resources: "资源", system: "系统", help: "帮助", applicationLabel: "应用菜单", resourcesLabel: "资源菜单",
       systemLabel: "系统菜单", helpLabel: "帮助菜单", newChat: "新建会话", searchSessions: "搜索会话", stopGeneration: "停止生成",
@@ -16,6 +16,19 @@ export const zh = {
       close: "关闭", closeWindow: "关闭窗口",
     },
     files: { empty: "没有找到工作区文件。", sizeUnavailable: "大小不可用" },
+    graphs: {
+      title: "Agent Graph", eyebrow: "自动化", description: "独立于聊天设计可复用的 Agent 工作流。", new: "新建 Graph", createFirst: "创建第一个 Graph",
+      emptyTitle: "还没有 Graph", emptyDescription: "先创建一个仅存在于当前页面的起始草稿。工作区保存和执行将在独立 Graph 接口中实现。",
+      untitled: "未命名 Graph", name: "Graph 名称", unsaved: "未保存草稿", discard: "丢弃草稿", editor: "Graph 草稿编辑器", canvas: "Graph 画布",
+      node: "节点", nodeLabel: "{{kind}}节点", availableNodes: "可用节点", availableNodesDescription: "第一版 Schema 保持足够小。",
+      valid: "这个起始 Graph 的结构已就绪。", invalid: "这个 Graph 需要处理。",
+      nodes: { input: "输入", agent: "Agent", condition: "条件", output: "输出" },
+      nodeDescriptions: { input: "接收 Graph 输入。", agent: "运行一次完整 Agent Loop。", condition: "选择下一条路径。", output: "返回 Graph 结果。" },
+      issues: {
+        name_required: "请输入 Graph 名称。", single_input_required: "请仅保留一个输入节点。", single_output_required: "请仅保留一个输出节点。",
+        duplicate_node_id: "每个节点必须有唯一 ID。", missing_edge_endpoint: "每条边都必须连接现有节点。",
+      },
+    },
     tools: {
       title: "工具与插件", viewLabel: "工具与插件视图", plugins: "插件", tools: "工具",
       pluginDescription: "通过可移植的 Skill 和 MCP Server 扩展 Tinybot，并在所有工作区中共享。",

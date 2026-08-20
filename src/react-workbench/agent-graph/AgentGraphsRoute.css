@@ -1,0 +1,297 @@
+.react-agent-graphs-page {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 24px;
+  width: min(1180px, 100%);
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 30px clamp(24px, 4vw, 52px) 42px;
+}
+
+.react-agent-graphs-page__header,
+.react-agent-graph-editor__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.react-agent-graphs-page__heading {
+  display: grid;
+  gap: 5px;
+  max-width: 680px;
+}
+
+.react-agent-graphs-page__eyebrow {
+  color: var(--color-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.react-agent-graphs-page h1,
+.react-agent-graphs-page h2,
+.react-agent-graphs-page p {
+  margin: 0;
+}
+
+.react-agent-graphs-page h1 {
+  color: var(--color-ink);
+  font-size: clamp(25px, 3vw, 34px);
+  line-height: 1.15;
+}
+
+.react-agent-graphs-page__heading p,
+.react-agent-graphs-empty p,
+.react-agent-graph-node-catalog > p {
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.react-agent-graphs-page__primary,
+.react-agent-graph-draft__actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid var(--color-line);
+  border-radius: 9px;
+  background: var(--color-panel);
+  color: var(--color-ink);
+  font-weight: 650;
+}
+
+.react-agent-graphs-page__primary {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+}
+
+.react-agent-graphs-page__primary:hover,
+.react-agent-graphs-page__primary:focus-visible {
+  background: var(--color-primary-active);
+}
+
+.react-agent-graphs-empty {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 10px;
+  min-height: 360px;
+  padding: 48px 24px;
+  border: 1px dashed var(--color-hairline-strong);
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--color-panel) 72%, transparent);
+  text-align: center;
+}
+
+.react-agent-graphs-empty__icon {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  margin-bottom: 4px;
+  border-radius: 14px;
+  background: var(--color-cream-strong);
+  color: var(--color-primary);
+}
+
+.react-agent-graphs-empty h2,
+.react-agent-graph-node-catalog h2 {
+  color: var(--color-ink);
+  font-size: 15px;
+}
+
+.react-agent-graphs-empty p {
+  max-width: 460px;
+  margin-bottom: 8px;
+}
+
+.react-agent-graph-draft {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 280px);
+  align-items: start;
+  gap: 16px;
+}
+
+.react-agent-graph-editor,
+.react-agent-graph-node-catalog {
+  border: 1px solid var(--color-hairline);
+  border-radius: 14px;
+  background: var(--color-panel);
+}
+
+.react-agent-graph-editor {
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+}
+
+.react-agent-graph-editor__header label {
+  display: grid;
+  flex: 1;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.react-agent-graph-editor__header input {
+  width: min(420px, 100%);
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.react-agent-graph-editor__header input[aria-invalid="true"] {
+  border-color: var(--color-danger);
+}
+
+.react-agent-graph-draft__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.react-agent-graph-draft__badge {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.react-agent-graph-canvas {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 310px;
+  padding: 28px;
+  overflow-x: auto;
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+  background-color: var(--color-canvas);
+  background-image: radial-gradient(var(--color-hairline-strong) .8px, transparent .8px);
+  background-size: 18px 18px;
+}
+
+.react-agent-graph-canvas__step {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--color-muted-soft);
+}
+
+.react-agent-graph-canvas__step article {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 132px;
+  padding: 13px;
+  border: 1px solid var(--color-line);
+  border-radius: 11px;
+  background: var(--color-panel);
+  box-shadow: 0 8px 24px rgb(28 24 19 / 6%);
+  color: var(--color-primary);
+}
+
+.react-agent-graph-canvas__step article span,
+.react-agent-graph-node-catalog li span {
+  display: grid;
+  gap: 2px;
+}
+
+.react-agent-graph-canvas__step small,
+.react-agent-graph-node-catalog small {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.react-agent-graph-canvas__step strong,
+.react-agent-graph-node-catalog strong {
+  color: var(--color-ink);
+  font-size: 12px;
+}
+
+.react-agent-graph-validation {
+  padding: 10px 12px;
+  border-radius: 9px;
+  font-size: 12px;
+}
+
+.react-agent-graph-validation[data-state="valid"] {
+  background: color-mix(in srgb, var(--color-success) 12%, var(--color-panel));
+  color: var(--color-success);
+}
+
+.react-agent-graph-validation[data-state="invalid"] {
+  background: color-mix(in srgb, var(--color-danger) 10%, var(--color-panel));
+  color: var(--color-danger);
+}
+
+.react-agent-graph-validation ul {
+  margin: 5px 0 0;
+  padding-left: 18px;
+}
+
+.react-agent-graph-node-catalog {
+  display: grid;
+  gap: 7px;
+  padding: 16px;
+}
+
+.react-agent-graph-node-catalog ul {
+  display: grid;
+  gap: 7px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.react-agent-graph-node-catalog li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 9px;
+  color: var(--color-primary);
+}
+
+@media (max-width: 820px) {
+  .react-agent-graph-draft {
+    grid-template-columns: 1fr;
+  }
+
+  .react-agent-graph-node-catalog {
+    order: -1;
+  }
+}
+
+@media (max-width: 620px) {
+  .react-agent-graphs-page {
+    padding-inline: 18px;
+  }
+
+  .react-agent-graphs-page__header,
+  .react-agent-graph-editor__header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .react-agent-graph-draft__actions {
+    justify-content: space-between;
+  }
+}

@@ -5,6 +5,11 @@
 `main.tsx` mounts `App`, `DesktopShell` owns the desktop chrome, and
 `defaultServices.ts` composes the renderer-facing stores.
 
+The standalone [`agent-graph/`](agent-graph/README.md) route owns Agent Graph
+draft presentation without importing `ChatPage` or consuming Chat route state.
+Its first slice is deliberately in-memory until a dedicated Graph persistence
+interface exists.
+
 The optional `hooksStore` backs Settings > Hooks in the native desktop. The
 page derives its workspace selector from Chat sessions and project groups,
 displays global and workspace definitions plus parse diagnostics, and requires
@@ -20,6 +25,7 @@ read-only in the renderer.
 - `adapters/` connects those interfaces to native and app-core modules.
 - [`sidecar/`](sidecar/README.md) owns the docked resource shell and its Browser,
   Terminal, and Artifact resource presentations.
+- [`agent-graph/`](agent-graph/README.md) owns the independent Graph route.
 - Route folders own their React state, presentation, and route-scoped styles.
 - Framework-independent contracts and projections belong in `app-core/`.
 

@@ -67,6 +67,7 @@ type TopMenuCommandId =
   | "search-sessions"
   | "open-chat"
   | "open-files"
+  | "open-graphs"
   | "open-memory"
   | "open-github"
   | "open-tools"
@@ -109,6 +110,7 @@ const menuSeparator = (id: string): TopMenuEntry => ({ kind: "separator", id });
 function createRouteLabels(t: TFunction<"common">): Record<AppRoute, string> {
   return {
     chat: t("routes.chat"),
+    graphs: t("routes.graphs"),
     files: t("routes.files"),
     memory: t("routes.memory"),
     github: t("routes.github"),
@@ -147,6 +149,7 @@ function createTopMenuItems(
     icon: Folder,
     entries: [
       menuCommand({ id: "open-chat", label: routeLabels.chat, route: "chat" }),
+      menuCommand({ id: "open-graphs", label: routeLabels.graphs, route: "graphs" }),
       menuCommand({ id: "open-files", label: routeLabels.files, route: "files" }),
       menuCommand({ id: "open-memory", label: routeLabels.memory, route: "memory" }),
       menuCommand({ id: "open-github", label: routeLabels.github, route: "github" }),
