@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:d6ee6c58ab85c9d998cb6be6502391af9b0bb686071cfe2a317bce6713f46ede -->
+<!-- tinybot-module-fingerprint: sha256:b980e62f1ad3abb4671ee3403d81fc5b2ce04c164db01f715eda65bfd8675992 -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
@@ -8,10 +8,16 @@ selection, deferred route loading, and update dialogs.
 the active route and preserves lazy seams for optional surfaces. Route-specific
 behavior remains in the route module rather than moving into the shell.
 
+Resources > Agent Graphs opens a dedicated lazy route. The shell knows only the
+route label, loader, and shared renderer stores passed to it; workspace catalog
+derivation, Graph draft state, and Run presentation remain under `agent-graph/`
+and do not become a Chat mode.
+
 The shell also owns the floating Tinybot desktop pet's viewport position,
 three-step size preference, visibility, and local persistence. Chat only reports
 the current mascot mood. The pet can be hidden from its inline controls and
 restored from the System menu without duplicating Agent lifecycle state.
+
 The bounded `react-route-surface` owns vertical overflow for document-like
 routes so long settings, tools, and diagnostics pages remain scrollable inside
 the fixed desktop window frame. Full-height routes such as Chat can continue to

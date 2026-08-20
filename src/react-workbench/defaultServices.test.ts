@@ -298,6 +298,26 @@ describe("desktop native app services", () => {
     });
   });
 
+  test("keeps parentless Agent Graph threads out of Chat sessions", async () => {
+    const graphThread = {
+      ...thread,
+      source: "agent_graph",
+      threadId: "thread-graph-node",
+      sessionKey: "thread-graph-node",
+    };
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === "worker_threads_list") {
+        return { threads: [graphThread, thread], total: 2 };
+      }
+      return null;
+    });
+    const services = createDesktopAppServices();
+
+    await expect(services.sessionStore.list()).resolves.toEqual([
+      expect.objectContaining({ id: "thread-1" }),
+    ]);
+  });
+
   test("keeps user-visible workspace child threads in the session list", async () => {
     const workspaceThread = {
       ...thread,

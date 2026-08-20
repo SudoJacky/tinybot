@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:1c24592c1bc034220d37b3717171c5c7cc1520d51cc995968728b9d5d835f11e -->
+<!-- tinybot-module-fingerprint: sha256:4f43defa976a6ca64023765d35387956d6b3241e26ee48795489f682fb4346d4 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -117,8 +117,9 @@ The main layers are:
      canonical append-only Rollouts and their process-local Thread index.
 5. **Domain services**
    - `workspace/`, `tools/`, `automation/`, `collaboration/`, `config/`,
-     `project_groups.rs`, `plugins/`, `skills/`, and `memory/` own their
-     business rules and do not depend on RPC or Tauri.
+     `agent_graphs.rs`, `graph_runs.rs`, `project_groups.rs`, `plugins/`,
+     `skills/`, and `memory/` own their business rules and do not depend on RPC
+     or Tauri.
 6. **Process and transport infrastructure**
    - [`runtime/`](src/runtime/README.md) owns live tasks, shared MCP state,
      startup recovery, shutdown, and operational metrics.
@@ -162,6 +163,8 @@ roles:
 | `~/.tinybot/threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | `threads::rollout::store` | Active canonical Rollouts |
 | `~/.tinybot/archived_threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | `threads::rollout::store` | Archived canonical Rollouts |
 | `~/.tinybot/project-groups.json` | `project_groups` | Named groups and their workspace memberships |
+| `<workspace>/.tinybot/graphs/<graph-id>.json` | `agent_graphs` | Versioned Agent Graph definitions |
+| `~/.tinybot/graph-runs/<graph-id>/<run-id>.json` | `graph_runs` | Saved Input prompt, execution, output, and node-to-Thread status |
 | `~/.tinybot/hooks.json` | `command_hooks` | Global user command-hook definitions |
 | `~/.tinybot/hook-trust.json` | `command_hooks` | Trusted exact-definition hashes |
 | `<workspace>/.tinybot/hooks.json` | `command_hooks` | Workspace-scoped command-hook definitions |
@@ -169,6 +172,16 @@ roles:
 Thread metadata, checkpoint pointers, and Rollout heads are rebuilt into a
 process-local index from the Rollouts. Project-group membership is loaded from
 its own atomic JSON store and authorizes coordinator-created workspace Threads.
+Agent Graph definitions use one atomically replaced JSON file per Graph and an
+exact-byte SHA-256 revision for optimistic saves and deletes. Agent nodes may
+store additional role instructions plus a provider/model/reasoning override;
+the Graph runtime maps them onto the existing Turn instruction and settings
+interfaces, while omitted overrides inherit application defaults. The Input
+node stores the required initial prompt; Run start reloads it from the saved
+definition instead of accepting a transient prompt.
+Graph Runs use separate atomically replaced status files. Every Agent node
+invocation creates a canonical parentless Thread with `source: "agent_graph"`;
+its Rollout remains under the standard Thread root.
 
 Desktop startup moves canonical Rollouts from the former
 `<workspace>/.tinybot/{threads,archived_threads}` layout into the application

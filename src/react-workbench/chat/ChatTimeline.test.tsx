@@ -58,6 +58,27 @@ describe("ChatTimeline", () => {
     expect(actions.onOpenError).toHaveBeenCalledWith(turn, turn.steps[0]);
   });
 
+  test("omits unavailable actions when embedded as a read-only timeline", () => {
+    render(
+      <ChatTimeline
+        actions={{}}
+        hookResults={[]}
+        interactiveFormIds={new Set()}
+        latestFailedTurnId=""
+        optimisticMessages={[]}
+        recoveringTurnId=""
+        sessionRunning={false}
+        turns={[completedTurn(), failedTurn()]}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /branch/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /retry/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^details$/i })).toBeNull();
+    expect(screen.getByText("Canonical answer")).toBeTruthy();
+    expect(screen.getByText("Execution failed")).toBeTruthy();
+  });
+
   test("shows completed hook results inside their canonical turn", () => {
     const turn = completedTurn();
     render(

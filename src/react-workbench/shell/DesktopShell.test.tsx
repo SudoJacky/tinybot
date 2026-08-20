@@ -59,6 +59,15 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
   };
 } {
   return {
+    agentGraphRuntime: {
+      list: vi.fn(async () => []),
+      start: vi.fn(async () => { throw new Error("Graph execution is not configured in this fixture"); }),
+    },
+    agentGraphStore: {
+      list: vi.fn(async () => []),
+      save: vi.fn(async (input) => ({ definition: input.definition, revision: "sha256:test" })),
+      delete: vi.fn(async () => undefined),
+    },
     sessionStore: {
       list: vi.fn(async () => options.sessions ?? []),
       create: vi.fn(async () => ({ id: "s1", chatId: "chat-1", title: "New session", updatedAtMs: Date.now() })),
@@ -294,6 +303,7 @@ describe("DesktopShell", () => {
       "src/react-workbench/styles/workbench.css",
       "src/react-workbench/chat/ChatPage.css",
       "src/react-workbench/settings/SettingsRoute.css",
+      "src/react-workbench/settings/SettingsChoiceList.css",
     ].map((path) => readFileSync(path, "utf8")).join("\n");
 
     expect(css).toMatch(/\.react-window-frame__history button\s*{[^}]*width:\s*32px;[^}]*height:\s*32px;/s);
@@ -338,7 +348,7 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     const resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
-    for (const item of ["Chat", "Workspace Files", "Memory", "GitHub", "Tools & Plugins"]) {
+    for (const item of ["Chat", "Agent Graphs", "Workspace Files", "Memory", "GitHub", "Tools & Plugins"]) {
       expect(within(resourcesMenu).getByRole("menuitem", { name: item })).toBeTruthy();
     }
     expect(within(resourcesMenu).getByRole("menuitem", { name: "Chat" }).getAttribute("aria-current")).toBe("page");
@@ -527,6 +537,12 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     let resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
+    await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Agent Graphs" }));
+    expect(await screen.findByRole("heading", { name: "Agent Graphs" })).toBeTruthy();
+    expect(screen.getByText("No graphs yet")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Resources" }));
+    resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
     await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Workspace Files" }));
     expect(await screen.findByRole("heading", { name: "Workspace Files" })).toBeTruthy();
     expect(screen.getByText("src/main.ts")).toBeTruthy();

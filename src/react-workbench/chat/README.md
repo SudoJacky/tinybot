@@ -1,9 +1,12 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:9fce42c16359f6890c2d1c79aa71bf63abfa9caca6a5b20ae2dd16ed929a0829 -->
+<!-- tinybot-module-fingerprint: sha256:46d9c949adbd53e7bd8f0073f80cc4f3ad2b19892157ab854450564f2499e1d3 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
 `ChatPage.tsx` is the route-level composition module.
+`ChatTimeline.tsx` owns the reusable canonical message and execution rendering;
+its action callbacks are optional so read-only consumers can omit unavailable
+branch, recovery, artifact, delegate, and tool-detail controls.
 
 Chat projects the active session and Turn lifecycle into calm, curious, working,
 angry, and pleased mascot moods, then reports that presentation state to the

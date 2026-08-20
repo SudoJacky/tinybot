@@ -1,0 +1,169 @@
+.react-settings-choice {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+}
+
+.react-settings-choice__label {
+  display: grid;
+  gap: 3px;
+  color: var(--color-body);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.react-settings-choice__label strong,
+.react-settings-choice__label small {
+  display: block;
+}
+
+.react-settings-choice__label em {
+  margin-left: 7px;
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  padding: 2px 6px;
+  color: var(--color-muted);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.react-settings-choice__label small {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.react-settings-choice-trigger {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  align-items: center;
+  min-width: 0;
+  min-height: 40px;
+  gap: 12px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 8px 10px;
+  cursor: pointer;
+  text-align: left;
+  transition:
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-settings-choice-trigger:hover,
+.react-settings-choice-trigger:focus-visible,
+.react-settings-choice-trigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-hairline));
+  background: var(--color-surface-soft);
+}
+
+.react-settings-choice-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.react-settings-choice-trigger:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 24%, transparent);
+}
+
+.react-settings-choice-trigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--color-primary) 56%, var(--color-hairline));
+  background: var(--color-surface-card);
+}
+
+.react-settings-choice-trigger > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  justify-items: start;
+}
+
+.react-settings-choice-trigger strong,
+.react-settings-choice-trigger small,
+.react-settings-choice-item strong,
+.react-settings-choice-item small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-settings-choice-trigger strong,
+.react-settings-choice-item strong {
+  color: var(--color-ink);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.react-settings-choice-trigger small,
+.react-settings-choice-item small {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+.react-settings-choice-trigger svg {
+  justify-self: end;
+  color: var(--color-muted);
+  transition:
+    transform var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-settings-choice-trigger[aria-expanded="true"] svg {
+  color: var(--color-primary-active);
+  transform: rotate(180deg);
+}
+
+.react-settings-choice-popover {
+  top: calc(100% + 8px);
+  right: 0;
+  left: 0;
+  z-index: 55;
+  width: auto;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.react-settings-choice-item {
+  grid-template-columns: minmax(0, 1fr) 18px;
+  min-height: 36px;
+  gap: 10px;
+  padding: 4px 10px;
+}
+
+.react-settings-choice-item .react-top-menu__menu-label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 14px;
+  white-space: normal;
+}
+
+.react-settings-choice-item strong {
+  justify-self: start;
+}
+
+.react-settings-choice-item small {
+  justify-self: end;
+}
+
+.react-settings-choice-item[aria-checked="true"] {
+  background: var(--color-surface-card);
+}
+
+.react-settings-choice-item svg {
+  color: var(--color-primary-active);
+}
+
+.react-settings-choice > small {
+  color: #b42318;
+  font-size: 12px;
+  font-weight: 500;
+}

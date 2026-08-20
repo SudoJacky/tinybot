@@ -1,9 +1,21 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:4849a6785377a3cd25a8d3677e2a7a40cac72f1beb4f4e748c0cfd0604651c6e -->
+<!-- tinybot-module-fingerprint: sha256:3f08ce3538e56f8c225e184ee12927f80e7aa477c16235d6df3c1ab22f63d822 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App`, `DesktopShell` owns the desktop chrome, and
 `defaultServices.ts` composes the renderer-facing stores.
+
+The standalone [`agent-graph/`](agent-graph/README.md) route owns the in-memory
+Agent Graph canvas editor without importing `ChatPage` or consuming Chat route
+state. It receives the shared stores only to derive definition and per-Agent
+execution workspace choices and to consume the dedicated `AgentGraphStore`.
+Graph definitions are persisted under the selected workspace while execution
+remains outside Chat. The Chat session projection explicitly excludes standard
+Threads whose source is `agent_graph`; Graph execution discovers them through
+Graph Runs instead. The first Run surface accepts an input, executes a saved
+linear Agent path, and keeps a compact Run selector. A node inspector renders
+Input and Output boundary content directly and reuses Chat's read-only canonical
+timeline for each Agent node's standard Thread.
 
 The optional `hooksStore` backs Settings > Hooks in the native desktop. The
 page derives its workspace selector from Chat sessions and project groups,
@@ -20,6 +32,7 @@ read-only in the renderer.
 - `adapters/` connects those interfaces to native and app-core modules.
 - [`sidecar/`](sidecar/README.md) owns the docked resource shell and its Browser,
   Terminal, and Artifact resource presentations.
+- [`agent-graph/`](agent-graph/README.md) owns the independent Graph route.
 - Route folders own their React state, presentation, and route-scoped styles.
 - Framework-independent contracts and projections belong in `app-core/`.
 

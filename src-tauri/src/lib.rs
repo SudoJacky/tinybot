@@ -2,6 +2,7 @@
 
 mod adapters;
 mod agent;
+mod agent_graphs;
 mod automation;
 mod collaboration;
 mod command_hooks;
@@ -9,6 +10,7 @@ mod config;
 mod desktop;
 pub mod desktop_commands;
 mod desktop_terminal;
+mod graph_runs;
 mod mcp_capability_catalog;
 mod memory;
 mod native_browser;
