@@ -20,8 +20,13 @@ export const zh = {
       title: "Agent Graph", eyebrow: "自动化", description: "独立于聊天设计可复用的 Agent 工作流。", new: "新建 Graph", createFirst: "创建第一个 Graph",
       emptyTitle: "还没有 Graph", emptyDescription: "先创建一个仅存在于当前页面的起始草稿。工作区保存和执行将在独立 Graph 接口中实现。",
       untitled: "未命名 Graph", name: "Graph 名称", unsaved: "未保存草稿", discard: "丢弃草稿", editor: "Graph 草稿编辑器", canvas: "Graph 画布",
-      node: "节点", nodeLabel: "{{kind}}节点", availableNodes: "可用节点", availableNodesDescription: "第一版 Schema 保持足够小。",
-      valid: "这个起始 Graph 的结构已就绪。", invalid: "这个 Graph 需要处理。",
+      node: "节点", nodeLabel: "{{kind}}节点", availableNodes: "可用节点", availableNodesDescription: "将节点拖入画布，或点击直接添加。",
+      canvasHint: "拖动节点调整位置，使用两侧端点创建连接。", addNode: "添加{{kind}}节点", dragNode: "将{{kind}}节点拖入画布",
+      nodeAlreadyExists: "{{kind}}节点已存在", deleteSelected: "删除所选项", boundaryNodeProtected: "输入和输出节点不可删除",
+      connectionSource: "从{{kind}}节点开始连接", connectionTarget: "请先选择来源，再连接到{{kind}}节点",
+      connectNodes: "连接{{source}}到{{target}}", connectingFrom: "正在从{{kind}}连接，请选择目标节点。",
+      cancelConnection: "取消连接", connections: "Graph 连接", connectionLabel: "从{{source}}到{{target}}的连接",
+      valid: "Graph 的基础结构有效。", invalid: "这个 Graph 需要处理。",
       nodes: { input: "输入", agent: "Agent", condition: "条件", output: "输出" },
       nodeDescriptions: { input: "接收 Graph 输入。", agent: "运行一次完整 Agent Loop。", condition: "选择下一条路径。", output: "返回 Graph 结果。" },
       issues: {
@@ -29,6 +34,12 @@ export const zh = {
         duplicate_node_id: "每个节点必须有唯一 ID。", missing_edge_endpoint: "每条边都必须连接现有节点。",
         duplicate_edge: "相同的两个节点之间只能保留一条连接。", self_edge: "节点不能连接到自身。",
         input_has_incoming_edge: "输入节点不能有入边。", output_has_outgoing_edge: "输出节点不能有出边。",
+      },
+      editErrors: {
+        duplicate_node_id: "该节点 ID 已被使用。", unique_node_kind: "一个 Graph 只能包含一个输入节点和一个输出节点。",
+        node_not_found: "该节点已不存在。", edge_not_found: "该连接已不存在。", protected_node_kind: "输入和输出节点不可删除。",
+        self_edge: "节点不能连接到自身。", duplicate_edge: "这两个节点已连接。", input_cannot_be_target: "输入节点不能接收入边。",
+        output_cannot_be_source: "输出节点不能创建出边。",
       },
     },
     tools: {

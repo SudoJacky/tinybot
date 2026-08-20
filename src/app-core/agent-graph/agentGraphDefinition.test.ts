@@ -5,6 +5,7 @@ import {
   connectAgentGraphNodes,
   createAgentGraphDraft,
   moveAgentGraphNode,
+  removeAgentGraphEdge,
   removeAgentGraphNode,
   validateAgentGraphDefinition,
 } from "./agentGraphDefinition";
@@ -76,6 +77,16 @@ describe("agentGraphDefinition", () => {
     expect(removed.definition.nodes.map((node) => node.id)).toEqual(["input", "output"]);
     expect(removed.definition.edges).toEqual([]);
     expect(removeAgentGraphNode(definition, "input")).toEqual({ ok: false, reason: "protected_node_kind" });
+  });
+
+  it("removes a connection by its stable edge id", () => {
+    const definition = createAgentGraphDraft({ id: "graph-1", name: "Flow" });
+    const removed = removeAgentGraphEdge(definition, "input-agent");
+
+    expect(removed).toMatchObject({ ok: true });
+    if (!removed.ok) return;
+    expect(removed.definition.edges.map((edge) => edge.id)).toEqual(["agent-output"]);
+    expect(removeAgentGraphEdge(definition, "missing")).toEqual({ ok: false, reason: "edge_not_found" });
   });
 
   it("keeps Input and Output unique", () => {

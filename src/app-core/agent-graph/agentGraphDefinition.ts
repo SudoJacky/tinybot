@@ -42,6 +42,7 @@ export type AgentGraphEditError =
   | "duplicate_node_id"
   | "unique_node_kind"
   | "node_not_found"
+  | "edge_not_found"
   | "protected_node_kind"
   | "self_edge"
   | "duplicate_edge"
@@ -217,6 +218,23 @@ export function removeAgentGraphNode(
       ...definition,
       nodes: definition.nodes.filter((candidate) => candidate.id !== nodeId),
       edges: definition.edges.filter((edge) => edge.source !== nodeId && edge.target !== nodeId),
+    },
+  };
+}
+
+export function removeAgentGraphEdge(
+  definition: AgentGraphDefinition,
+  edgeId: string,
+): AgentGraphEditResult {
+  if (!definition.edges.some((edge) => edge.id === edgeId)) {
+    return { ok: false, reason: "edge_not_found" };
+  }
+
+  return {
+    ok: true,
+    definition: {
+      ...definition,
+      edges: definition.edges.filter((edge) => edge.id !== edgeId),
     },
   };
 }
