@@ -7,6 +7,7 @@ import {
 } from "../../app-core/chat/reasoningEffort";
 import {
   addAgentGraphNode,
+  configureAgentGraphInput,
   configureAgentGraphNode,
   connectAgentGraphNodes,
   createAgentGraphDraft,
@@ -18,6 +19,7 @@ import {
   type AgentGraphAgentNode,
   type AgentGraphEditError,
   type AgentGraphEditResult,
+  type AgentGraphInputNode,
   type AgentGraphNode,
   type AgentGraphNodeKind,
   type AgentGraphNodePosition,
@@ -56,19 +58,21 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   const [runs, setRuns] = useState<AgentGraphRun[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [runsLoading, setRunsLoading] = useState(false);
-  const [runInput, setRunInput] = useState("");
   const [runError, setRunError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [draft, setDraft] = useState<AgentGraphDefinition | null>(null);
   const [draftRevision, setDraftRevision] = useState<string | null>(null);
   const [savedDefinition, setSavedDefinition] = useState<string | null>(null);
-  const [selectedAgentNodeId, setSelectedAgentNodeId] = useState<string | null>(null);
+  const [selectedConfigNodeId, setSelectedConfigNodeId] = useState<string | null>(null);
   const [inspectedNodeId, setInspectedNodeId] = useState<string | null>(null);
   const [editError, setEditError] = useState<AgentGraphEditError | null>(null);
   const issues = draft ? validateAgentGraphDefinition(draft) : [];
   const draftDirty = Boolean(draft && JSON.stringify(draft) !== savedDefinition);
+  const selectedInputNode = draft?.nodes.find((node): node is AgentGraphInputNode => (
+    node.id === selectedConfigNodeId && node.kind === "input"
+  ));
   const selectedAgentNode = draft?.nodes.find((node): node is AgentGraphAgentNode => (
-    node.id === selectedAgentNodeId && node.kind === "agent"
+    node.id === selectedConfigNodeId && node.kind === "agent"
   ));
   const inspectedNode = draft?.nodes.find((node) => node.id === inspectedNodeId);
   const selectedRun = runs.find((run) => run.id === selectedRunId) ?? runs[0];
@@ -217,7 +221,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     draftSequence.current += 1;
     nodeSequence.current = 0;
     setEditError(null);
-    setSelectedAgentNodeId(null);
+    setSelectedConfigNodeId(null);
     setInspectedNodeId(null);
     setPersistenceError(null);
     setDraftRevision(null);
@@ -284,14 +288,16 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
       nodeSequence.current += 1;
       nodeId = `${kind}-${nodeSequence.current}`;
     } while (draft.nodes.some((node) => node.id === nodeId));
-    const node: AgentGraphNode = kind === "agent"
-      ? {
+    const node: AgentGraphNode = kind === "input"
+      ? { id: nodeId, kind, position, config: { prompt: "" } }
+      : kind === "agent"
+        ? {
           id: nodeId,
           kind,
           position,
           config: { workspacePath: definitionWorkspacePath, instructions: "" },
         }
-      : { id: nodeId, kind, position };
+        : { id: nodeId, kind, position };
     return applyEdit(addAgentGraphNode(draft, node));
   }
 
@@ -313,7 +319,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     nodeSequence.current = 0;
     setEditError(null);
     setPersistenceError(null);
-    setSelectedAgentNodeId(null);
+    setSelectedConfigNodeId(null);
     setInspectedNodeId(null);
     setSelectedRunId(null);
     setDraft(graph.definition);
@@ -366,7 +372,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   }
 
   async function startRun() {
-    if (!draft || !draftRevision || draftDirty || !runInput.trim() || running) return;
+    if (!draft || !draftRevision || draftDirty || running) return;
     setRunning(true);
     setRunError(null);
     try {
@@ -374,7 +380,6 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
         graphId: draft.id,
         graphRevision: draftRevision,
         definitionWorkspacePath,
-        input: runInput,
       });
       setSelectedRunId(run.id);
       setRuns((current) => [run, ...current.filter((candidate) => candidate.id !== run.id)]);
@@ -390,12 +395,11 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     setDraftRevision(null);
     setSavedDefinition(null);
     setEditError(null);
-    setSelectedAgentNodeId(null);
+    setSelectedConfigNodeId(null);
     setInspectedNodeId(null);
     setSelectedRunId(null);
     setPersistenceError(null);
     setRuns([]);
-    setRunInput("");
     setRunError(null);
     setRunning(false);
   }
@@ -525,7 +529,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
               }}
               onSelectionChange={(nodeId) => {
                 const node = draft.nodes.find((candidate) => candidate.id === nodeId);
-                setSelectedAgentNodeId(node?.kind === "agent" ? node.id : null);
+                setSelectedConfigNodeId(node?.kind === "input" || node?.kind === "agent" ? node.id : null);
               }}
             />
 
@@ -562,6 +566,31 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                 </li>
               ))}
             </ul>
+            {selectedInputNode ? (
+              <section className="react-agent-graph-node-config" aria-labelledby="agent-graph-input-config-title">
+                <h3 id="agent-graph-input-config-title">{t("graphs.inputSettings")}</h3>
+                <p>{t("graphs.inputSettingsDescription")}</p>
+                <label className="react-agent-graph-node-config__textarea-field">
+                  <span>
+                    <strong>{t("graphs.inputPrompt")}</strong>
+                    <small id={`agent-graph-input-prompt-help-${selectedInputNode.id}`}>
+                      {t("graphs.inputPromptDescription")}
+                    </small>
+                  </span>
+                  <textarea
+                    aria-describedby={`agent-graph-input-prompt-help-${selectedInputNode.id}`}
+                    aria-invalid={issues.includes("input_prompt_required")}
+                    onChange={(event) => applyEdit(configureAgentGraphInput(draft, selectedInputNode.id, {
+                      prompt: event.currentTarget.value,
+                    }))}
+                    placeholder={t("graphs.inputPromptPlaceholder")}
+                    required
+                    rows={6}
+                    value={selectedInputNode.config.prompt}
+                  />
+                </label>
+              </section>
+            ) : null}
             {selectedAgentNode ? (
               <section className="react-agent-graph-node-config" aria-labelledby="agent-graph-node-config-title">
                 <h3 id="agent-graph-node-config-title">{t("graphs.agentSettings")}</h3>
@@ -583,7 +612,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                   optionsAriaLabel={t("graphs.workspaceOptions")}
                   value={selectedAgentNode.config.workspacePath}
                 />
-                <label className="react-agent-graph-node-config__instructions">
+                <label className="react-agent-graph-node-config__textarea-field">
                   <span>
                     <strong>{t("graphs.nodeInstructions")}</strong>
                     <small id={`agent-graph-instructions-help-${selectedAgentNode.id}`}>
@@ -644,19 +673,9 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
             >
               <h3 id="agent-graph-run-title">{t("graphs.runTitle")}</h3>
               <p>{t("graphs.runDescription")}</p>
-              <label>
-                <span>{t("graphs.runInput")}</span>
-                <textarea
-                  disabled={running}
-                  onChange={(event) => setRunInput(event.currentTarget.value)}
-                  placeholder={t("graphs.runInputPlaceholder")}
-                  rows={4}
-                  value={runInput}
-                />
-              </label>
               <button
                 className="react-agent-graph-run__start"
-                disabled={!draftRevision || draftDirty || !runInput.trim() || running}
+                disabled={!draftRevision || draftDirty || running}
                 onClick={() => void startRun()}
                 type="button"
               >

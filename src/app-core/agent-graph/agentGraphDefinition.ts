@@ -24,14 +24,24 @@ export type AgentLoopNodeConfig = {
   };
 };
 
+export type AgentGraphInputNodeConfig = {
+  prompt: string;
+};
+
+export type AgentGraphInputNode = AgentGraphBaseNode & {
+  kind: "input";
+  config: AgentGraphInputNodeConfig;
+};
+
 export type AgentGraphAgentNode = AgentGraphBaseNode & {
   kind: "agent";
   config: AgentLoopNodeConfig;
 };
 
-export type AgentGraphNode = AgentGraphAgentNode | (AgentGraphBaseNode & {
-  kind: Exclude<AgentGraphNodeKind, "agent">;
-});
+export type AgentGraphNode =
+  | AgentGraphInputNode
+  | AgentGraphAgentNode
+  | (AgentGraphBaseNode & { kind: "condition" | "output" });
 
 export type AgentGraphEdge = {
   id: string;
@@ -51,6 +61,7 @@ export type AgentGraphValidationIssue =
   | "name_required"
   | "single_input_required"
   | "single_output_required"
+  | "input_prompt_required"
   | "duplicate_node_id"
   | "missing_edge_endpoint"
   | "duplicate_edge"
@@ -84,7 +95,7 @@ export function createAgentGraphDraft(input: {
     id: input.id,
     name: input.name,
     nodes: [
-      { id: "input", kind: "input", position: { x: 72, y: 124 } },
+      { id: "input", kind: "input", position: { x: 72, y: 124 }, config: { prompt: "" } },
       {
         id: "agent",
         kind: "agent",
@@ -132,6 +143,10 @@ export function validateAgentGraphDefinition(
   }
   if (definition.nodes.filter((node) => node.kind === "output").length !== 1) {
     issues.push("single_output_required");
+  }
+  const inputNode = definition.nodes.find((node): node is AgentGraphInputNode => node.kind === "input");
+  if (inputNode && !inputNode.config.prompt.trim()) {
+    issues.push("input_prompt_required");
   }
   if (duplicateNodeId) {
     issues.push("duplicate_node_id");
@@ -216,7 +231,7 @@ export function configureAgentGraphNode(
     definition: {
       ...definition,
       nodes: definition.nodes.map((candidate) => (
-        candidate.id === nodeId
+        candidate.id === nodeId && candidate.kind === "agent"
           ? {
               ...candidate,
               config: {
@@ -225,6 +240,30 @@ export function configureAgentGraphNode(
               },
             }
           : candidate
+      )),
+    },
+  };
+}
+
+export function configureAgentGraphInput(
+  definition: AgentGraphDefinition,
+  nodeId: string,
+  config: AgentGraphInputNodeConfig,
+): AgentGraphEditResult {
+  const node = definition.nodes.find((candidate) => candidate.id === nodeId);
+  if (!node) {
+    return { ok: false, reason: "node_not_found" };
+  }
+  if (node.kind !== "input") {
+    return { ok: false, reason: "node_not_configurable" };
+  }
+
+  return {
+    ok: true,
+    definition: {
+      ...definition,
+      nodes: definition.nodes.map((candidate) => (
+        candidate.id === nodeId && candidate.kind === "input" ? { ...candidate, config } : candidate
       )),
     },
   };

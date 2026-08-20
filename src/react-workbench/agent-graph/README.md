@@ -1,5 +1,5 @@
 # Agent Graph Workbench
-<!-- tinybot-module-fingerprint: sha256:7b489696d0e71a9552035bfe2682040b30f80787cf5908651717f997f061e8db -->
+<!-- tinybot-module-fingerprint: sha256:2e7b769532cac6566a9914c7e76b9710e22f6797a87203bfdb3e80ce6dca9143 -->
 
 `agent-graph` owns the standalone Agent Graph route and its React presentation.
 The page creates one honest in-memory starter draft and exposes a small canvas
@@ -8,13 +8,15 @@ pointer or keyboard, connected through accessible handles, selected, and
 removed. The route selects a definition workspace from workspaces already known
 to Chat and project groups. Each Agent node defaults to that workspace and can
 select a different execution workspace. Input and Output remain unique
-protected boundaries. A selected Agent node also edits additional role
+protected boundaries. The selected Input node owns the required initial prompt
+sent to the first Agent. A selected Agent node edits additional role
 instructions and chooses a configured model plus optional reasoning effort;
 the explicit inherit choice leaves model routing to the application defaults.
 The route lists, explicitly saves, opens, and deletes
 workspace definitions through `AgentGraphStore`; dirty state and revision
-conflicts stay visible. A separate Run panel starts only saved definitions and
-keeps a compact selectable Run history. Activating any canvas node opens a
+conflicts stay visible. A separate Run panel starts only saved definitions,
+without a second transient input field, and keeps a compact selectable Run
+history. Activating any canvas node opens a
 non-modal right drawer for that Run: Input and Output show their boundary
 content, while Agent nodes load their canonical Thread through the Chat store
 and render it with the shared read-only `ChatTimeline`.

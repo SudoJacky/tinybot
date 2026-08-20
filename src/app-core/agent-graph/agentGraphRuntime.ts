@@ -31,6 +31,5 @@ export type AgentGraphRuntime = {
     graphId: string;
     graphRevision: string;
     definitionWorkspacePath: string;
-    input: string;
   }): Promise<AgentGraphRun>;
 };

@@ -3,7 +3,11 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createAgentGraphDraft } from "../../app-core/agent-graph/agentGraphDefinition";
+import {
+  configureAgentGraphInput,
+  createAgentGraphDraft,
+  type AgentGraphDefinition,
+} from "../../app-core/agent-graph/agentGraphDefinition";
 import type { AgentGraphStore, StoredAgentGraph } from "../../app-core/agent-graph/agentGraphStore";
 import type { AgentGraphRun, AgentGraphRuntime } from "../../app-core/agent-graph/agentGraphRuntime";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
@@ -28,6 +32,9 @@ describe("AgentGraphsRoute", () => {
     expect(screen.getByLabelText("Input node")).toBeTruthy();
     expect(screen.getByLabelText("Agent node")).toBeTruthy();
     expect(screen.getByLabelText("Output node")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("Enter an initial prompt");
+
+    await configureInputPrompt(user, "Review this repository");
     expect(screen.getByRole("status").textContent).toContain("valid");
 
     await user.clear(screen.getByRole("textbox", { name: "Graph name" }));
@@ -114,6 +121,7 @@ describe("AgentGraphsRoute", () => {
 
     await screen.findByRole("button", { name: "Definition workspace: tinybot" });
     await user.click(screen.getByRole("button", { name: "Create first graph" }));
+    await configureInputPrompt(user, "Research this repository");
     await user.click(screen.getByLabelText("Agent node"));
     await user.click(screen.getByRole("button", { name: "Close node details" }));
 
@@ -140,6 +148,9 @@ describe("AgentGraphsRoute", () => {
             },
             workspacePath: "D:\\code\\tinybot",
           },
+        }), expect.objectContaining({
+          id: "input",
+          config: { prompt: "Research this repository" },
         })]),
       }),
     }));
@@ -147,7 +158,7 @@ describe("AgentGraphsRoute", () => {
 
   it("loads and saves workspace-owned Graph definitions with revisions", async () => {
     const user = userEvent.setup();
-    const definition = createAgentGraphDraft({
+    const definition = createConfiguredGraph({
       id: "graph-research",
       name: "Research flow",
       workspacePath: "D:\\code\\tinybot",
@@ -173,7 +184,7 @@ describe("AgentGraphsRoute", () => {
 
   it("opens each node in a drawer and renders Agent Threads with the Chat timeline", async () => {
     const user = userEvent.setup();
-    const definition = createAgentGraphDraft({
+    const definition = createConfiguredGraph({
       id: "graph-research",
       name: "Research flow",
       workspacePath: "D:\\code\\tinybot",
@@ -217,14 +228,12 @@ describe("AgentGraphsRoute", () => {
     render(<AgentGraphsRoute services={services} />);
 
     await user.click(await screen.findByRole("button", { name: /Research flow/ }));
-    await user.type(screen.getByRole("textbox", { name: "Input" }), "Review this repository");
     await user.click(screen.getByRole("button", { name: "Run" }));
 
     expect(services.agentGraphRuntime.start).toHaveBeenCalledWith({
       graphId: "graph-research",
       graphRevision: "sha256:before",
       definitionWorkspacePath: "D:\\code\\tinybot",
-      input: "Review this repository",
     });
     await user.click(screen.getByLabelText("Agent node"));
     const agentDrawer = screen.getByRole("complementary", { name: "Agent" });
@@ -242,6 +251,23 @@ describe("AgentGraphsRoute", () => {
     expect(within(screen.getByRole("complementary", { name: "Output" })).getByText("Repository review complete.")).toBeTruthy();
   });
 });
+
+async function configureInputPrompt(user: ReturnType<typeof userEvent.setup>, prompt: string) {
+  await user.click(screen.getByLabelText("Input node"));
+  await user.click(screen.getByRole("button", { name: "Close node details" }));
+  await user.type(screen.getByRole("textbox", { name: /Initial prompt/ }), prompt);
+}
+
+function createConfiguredGraph(input: {
+  id: string;
+  name: string;
+  workspacePath: string;
+}): AgentGraphDefinition {
+  const definition = createAgentGraphDraft(input);
+  const result = configureAgentGraphInput(definition, "input", { prompt: "Review this repository" });
+  if (!result.ok) throw new Error(`Could not configure Graph input: ${result.reason}`);
+  return result.definition;
+}
 
 function createServices({
   chatModels = [],

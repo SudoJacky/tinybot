@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:95a19e0843e66e7e4cc2ace494bff2255427b6236d0ec5caf4884df16a722e89 -->
+<!-- tinybot-module-fingerprint: sha256:4f43defa976a6ca64023765d35387956d6b3241e26ee48795489f682fb4346d4 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -164,7 +164,7 @@ roles:
 | `~/.tinybot/archived_threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | `threads::rollout::store` | Archived canonical Rollouts |
 | `~/.tinybot/project-groups.json` | `project_groups` | Named groups and their workspace memberships |
 | `<workspace>/.tinybot/graphs/<graph-id>.json` | `agent_graphs` | Versioned Agent Graph definitions |
-| `~/.tinybot/graph-runs/<graph-id>/<run-id>.json` | `graph_runs` | Graph input, execution, output, and node-to-Thread status |
+| `~/.tinybot/graph-runs/<graph-id>/<run-id>.json` | `graph_runs` | Saved Input prompt, execution, output, and node-to-Thread status |
 | `~/.tinybot/hooks.json` | `command_hooks` | Global user command-hook definitions |
 | `~/.tinybot/hook-trust.json` | `command_hooks` | Trusted exact-definition hashes |
 | `<workspace>/.tinybot/hooks.json` | `command_hooks` | Workspace-scoped command-hook definitions |
@@ -176,7 +176,9 @@ Agent Graph definitions use one atomically replaced JSON file per Graph and an
 exact-byte SHA-256 revision for optimistic saves and deletes. Agent nodes may
 store additional role instructions plus a provider/model/reasoning override;
 the Graph runtime maps them onto the existing Turn instruction and settings
-interfaces, while omitted overrides inherit application defaults.
+interfaces, while omitted overrides inherit application defaults. The Input
+node stores the required initial prompt; Run start reloads it from the saved
+definition instead of accepting a transient prompt.
 Graph Runs use separate atomically replaced status files. Every Agent node
 invocation creates a canonical parentless Thread with `source: "agent_graph"`;
 its Rollout remains under the standard Thread root.

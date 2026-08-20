@@ -152,7 +152,7 @@ export function AgentGraphNodeDrawer({
       >
         {!run ? <NodeEmptyState text={t("graphs.selectRunForNode")} /> : null}
         {run && node.kind === "input" ? (
-          run.input ? <NodeMessage role="user" text={run.input} /> : <NodeEmptyState text={t("graphs.nodeContentUnavailable")} />
+          <NodeMessage role="user" text={run.input} />
         ) : null}
         {run && node.kind === "output" ? (
           run.output ? <NodeMessage role="assistant" text={run.output} /> : (

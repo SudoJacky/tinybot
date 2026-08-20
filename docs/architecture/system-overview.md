@@ -14,7 +14,7 @@ src/react-workbench/README.md
 src/react-workbench/agent-graph/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:11b3af109a12f4ec24e85cd25c1064376500b17de6b500407874c3553567ba1c -->
+<!-- tinybot-doc-fingerprint: sha256:4279ee631727c58d89d727763f7956db781b6625b97ed183fd22779aaf0bbf0e -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -49,7 +49,7 @@ Desktop Commands / Desktop Host
 | Module | Owns | Does not own |
 | --- | --- | --- |
 | `react-workbench` | React routes, presentation, route state | Native transport or durable domain state |
-| `react-workbench/agent-graph` | Standalone Agent Graph editing, workspace selection, Run input/history, and per-node inspection | Chat route state or native execution rules |
+| `react-workbench/agent-graph` | Standalone Agent Graph editing, node configuration, Run history, and per-node inspection | Chat route state or native execution rules |
 | `react-workbench/sidecar` | Resource tabs, scope filtering, and Sidecar presentation | Native Browser or Terminal lifecycle |
 | `app-core` | Framework-independent contracts, validation, commands, and projections | React rendering or Tauri invocation |
 | `app-core/agent-graph` | Versioned Graph contracts, validation, edit operations, persistence Interface, and runtime Interface | React rendering, native filesystem I/O, or Agent execution |
@@ -80,10 +80,11 @@ Desktop Commands / Desktop Host
   `<workspace>/.tinybot/graphs/` through the native `agent_graphs` Adapter.
 - Agent Graph Runs: application-owned status files under
   `~/.tinybot/graph-runs/<graph-id>/`. The first runtime executes one linear
-  Input-to-Output path and delegates every Agent node to a fresh canonical
-  Thread. Per-node role instructions and optional model settings use the
-  existing Turn interfaces; absent model settings inherit application
-  defaults. The Chat projection excludes those `source: "agent_graph"` Threads;
+  Input-to-Output path, reads the initial task from the saved Input node, and
+  delegates every Agent node to a fresh canonical Thread. Per-node role
+  instructions and optional model settings use the existing Turn interfaces;
+  absent model settings inherit application defaults. The Chat projection
+  excludes those `source: "agent_graph"` Threads;
   the Graph node inspector reads an explicitly selected Thread and reuses the
   canonical timeline presentation without turning it into a Chat session.
 - Exact frontend/backend command and event shapes: the Rust backend reference.

@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:dff8c907ec2c7eb44d5e5907e426bf9daf48b4a2254ac44ff65081815f295916 -->
+<!-- tinybot-module-fingerprint: sha256:c0e81414a7c13281b0b5071578bf63bfb41f1aae5406ec7b77ba4cadfcae94c7 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -12,8 +12,9 @@ atomic writes, and revision conflicts; the Adapter only preserves the typed
 definition and expected-revision contract.
 
 `desktopNativeAgentGraphRuntime` lists application-owned Graph Runs and starts
-one saved revision. The Rust Adapter owns preflight, standard Agent Thread
-creation, output handoff, and atomic Run status updates.
+one saved revision by Graph identity; the initial prompt remains part of the
+saved Input node rather than the start command. The Rust Adapter owns preflight,
+standard Agent Thread creation, output handoff, and atomic Run status updates.
 
 `desktopNativeHooks` exposes the workspace-aware hook catalog and
 exact-definition trust mutation. It sends only a workspace path, definition

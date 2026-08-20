@@ -16,9 +16,8 @@ Keeping all of this state in one record would mix three different lifecycles:
 - one execution creates short-lived orchestration state;
 - every Agent Loop invocation creates durable conversation history.
 
-Tinybot currently implements only an in-memory Graph definition and canvas.
-This decision defines the persistence and runtime seams to add next; it does not
-claim that those adapters are already implemented.
+The standalone editor, definition store, and first linear runtime implement
+these separate lifecycles through explicit interfaces.
 
 ## Decision
 
@@ -37,9 +36,17 @@ authority.
 ### Definition and execution workspaces
 
 The workspace containing the Graph file is its **definition workspace**. Each
-Agent node separately owns an **execution workspace**:
+Input node owns the reusable initial task prompt, while each Agent node
+separately owns an **execution workspace** and role configuration:
 
 ```ts
+type AgentGraphInputNode = {
+  id: string;
+  kind: "input";
+  position: AgentGraphNodePosition;
+  config: { prompt: string };
+};
+
 type AgentLoopNodeConfig = {
   workspacePath: string;
   instructions: string;
@@ -69,16 +76,16 @@ reports a node-specific error before starting work. Node instructions are
 appended through the existing turn-scoped agent-role instruction source; they
 do not replace Tinybot's base, workspace, project, memory, or runtime
 instructions. The preceding node's final output remains ordinary Turn input.
+The saved Input prompt is ordinary Turn input for the first Agent. Run start
+accepts only Graph identity and revision; it does not accept a second prompt
+that could diverge from the saved definition.
 
 The optional model tuple pins a node to a configured provider and model, with
 an optional reasoning effort. When it is absent, execution inherits normal
 application defaults. Display labels and credentials remain configuration
-concerns and are not copied into the Graph. Existing v1 definitions that omit
-`instructions` and `model` load them as empty/inherited defaults.
-
-These additive optional/defaulted fields remain in
-`tinybot.agent_graph.v1`; no migration framework or second schema version is
-needed.
+concerns and are not copied into the Graph. Input and Agent configuration fields
+are required by `tinybot.agent_graph.v1`; invalid test-era files are rejected
+rather than migrated or defaulted.
 
 ### Definition persistence Interface
 
@@ -128,6 +135,7 @@ type AgentGraphRun = {
   graphRevision: string;
   definitionWorkspacePath: string;
   status: "running" | "completed" | "failed" | "cancelled";
+  input: string;
   nodeRuns: Array<{
     id: string;
     nodeId: string;
@@ -167,7 +175,8 @@ and Graph Run rather than being converted into successful empty output.
 The Graph revision identifies the definition loaded at run start and detects
 later divergence. The first version does not retain historical definition
 snapshots, so an old revision is traceable but not necessarily reconstructable
-after the definition is edited.
+after the definition is edited. The Run copies the saved Input prompt so node
+inspection still shows the exact task used for that execution.
 
 ### Conversation isolation
 
@@ -210,17 +219,13 @@ workspace content; runs are application execution records.
   source control.
 - Different Agent nodes can safely select different workspaces without
   coupling the Graph page to Chat.
-- Existing Agent and Thread Implementations remain reusable behind a new Graph
+- Existing Agent and Thread implementations remain reusable behind the Graph
   runtime Interface.
 - Graph Run cleanup and retention are independent from definition deletion.
 - Chat queries must apply an explicit source policy rather than assuming every
   parentless Thread is a conversation.
 - Historical runs initially retain identity and Thread evidence, but not a full
   immutable Graph definition snapshot.
-
-Implementation should proceed in three focused slices: finalize Agent node
-configuration, add definition persistence, then add Graph Run execution and
-Chat isolation. Each slice should preserve the three-authority Seam above.
 
 ## Related documentation
 

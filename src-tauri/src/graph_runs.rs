@@ -3,7 +3,8 @@ use crate::agent::runtime::NativeAgentRuntimeServices;
 #[cfg(test)]
 use crate::agent_graphs::AgentLoopReasoningEffort;
 use crate::agent_graphs::{
-    self, validate_graph_id, AgentGraphDefinition, AgentGraphNodeKind, AgentLoopModelConfig,
+    self, validate_graph_id, AgentGraphDefinition, AgentGraphNodeConfig, AgentGraphNodeKind,
+    AgentLoopModelConfig,
 };
 use crate::project_groups::{canonical_workspace, workspace_id};
 use crate::protocol::request_id::next_worker_request_correlation;
@@ -62,7 +63,6 @@ pub(crate) struct AgentGraphRun {
     graph_revision: String,
     definition_workspace_path: String,
     status: AgentGraphRunStatus,
-    #[serde(default)]
     input: String,
     node_runs: Vec<AgentGraphNodeRun>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -84,7 +84,12 @@ pub(crate) struct StartAgentGraphRunInput {
     graph_id: String,
     graph_revision: String,
     definition_workspace_path: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct LinearAgentPlan {
     input: String,
+    steps: Vec<AgentStep>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -153,9 +158,6 @@ pub(crate) async fn start(
     config_snapshot: serde_json::Value,
     input: StartAgentGraphRunInput,
 ) -> Result<AgentGraphRun, String> {
-    if input.input.trim().is_empty() {
-        return Err("Agent Graph Run input must not be empty".to_string());
-    }
     let definition_workspace = canonical_workspace(Path::new(&input.definition_workspace_path))?;
     let definition_workspace_path = workspace_id(&definition_workspace);
     let stored = agent_graphs::load(
@@ -163,7 +165,10 @@ pub(crate) async fn start(
         &input.graph_id,
         &input.graph_revision,
     )?;
-    let steps = linear_agent_plan(&stored.definition)?;
+    let LinearAgentPlan {
+        input: graph_input,
+        steps,
+    } = linear_agent_plan(&stored.definition)?;
     let run_id = generate_run_id(data_root, &stored.definition.id);
     let mut run = AgentGraphRun {
         schema_version: AGENT_GRAPH_RUN_SCHEMA_VERSION.to_string(),
@@ -172,7 +177,7 @@ pub(crate) async fn start(
         graph_revision: stored.revision.clone(),
         definition_workspace_path,
         status: AgentGraphRunStatus::Running,
-        input: input.input.clone(),
+        input: graph_input.clone(),
         node_runs: steps
             .iter()
             .enumerate()
@@ -190,7 +195,7 @@ pub(crate) async fn start(
     write_run(data_root, &run)?;
 
     let thread_store = base_services.thread_store()?;
-    let mut current_input = input.input;
+    let mut current_input = graph_input;
     for (index, step) in steps.iter().enumerate() {
         run.node_runs[index].status = AgentGraphNodeRunStatus::Running;
         write_run(data_root, &run)?;
@@ -276,7 +281,7 @@ pub(crate) async fn start(
     Ok(run)
 }
 
-fn linear_agent_plan(definition: &AgentGraphDefinition) -> Result<Vec<AgentStep>, String> {
+fn linear_agent_plan(definition: &AgentGraphDefinition) -> Result<LinearAgentPlan, String> {
     if definition
         .nodes
         .iter()
@@ -322,6 +327,16 @@ fn linear_agent_plan(definition: &AgentGraphDefinition) -> Result<Vec<AgentStep>
         .iter()
         .find(|node| node.kind == AgentGraphNodeKind::Input)
         .ok_or_else(|| "Agent Graph Run requires an Input node".to_string())?;
+    let AgentGraphNodeConfig::Input(input_config) = input
+        .config
+        .as_ref()
+        .ok_or_else(|| "Agent Graph Input node has no configuration".to_string())?
+    else {
+        return Err("Agent Graph Input node has invalid configuration".to_string());
+    };
+    if input_config.prompt.trim().is_empty() {
+        return Err("Agent Graph Input prompt must not be empty".to_string());
+    }
     let mut visited = HashSet::new();
     visited.insert(input.id.as_str());
     let mut cursor = input.id.as_str();
@@ -343,19 +358,22 @@ fn linear_agent_plan(definition: &AgentGraphDefinition) -> Result<Vec<AgentStep>
         match node.kind {
             AgentGraphNodeKind::Output => break,
             AgentGraphNodeKind::Agent => {
-                let workspace = node
+                let config = node
                     .config
                     .as_ref()
                     .ok_or_else(|| format!("Agent node `{next}` has no workspace configuration"))?;
+                let AgentGraphNodeConfig::Agent(config) = config else {
+                    return Err(format!("Agent node `{next}` has invalid configuration"));
+                };
                 let canonical =
-                    canonical_workspace(Path::new(&workspace.workspace_path)).map_err(|error| {
+                    canonical_workspace(Path::new(&config.workspace_path)).map_err(|error| {
                         format!("Agent node `{next}` workspace is invalid: {error}")
                     })?;
                 steps.push(AgentStep {
                     node_id: node.id.clone(),
                     workspace_path: workspace_id(&canonical),
-                    instructions: workspace.instructions.clone(),
-                    model: workspace.model.clone(),
+                    instructions: config.instructions.clone(),
+                    model: config.model.clone(),
                 });
             }
             AgentGraphNodeKind::Input | AgentGraphNodeKind::Condition => {
@@ -367,7 +385,10 @@ fn linear_agent_plan(definition: &AgentGraphDefinition) -> Result<Vec<AgentStep>
     if visited.len() != definition.nodes.len() {
         return Err("Agent Graph Run does not support disconnected nodes".to_string());
     }
-    Ok(steps)
+    Ok(LinearAgentPlan {
+        input: input_config.prompt.clone(),
+        steps,
+    })
 }
 
 fn create_agent_graph_thread(
@@ -591,9 +612,9 @@ mod tests {
                 "id": "graph-1",
                 "name": "Pipeline",
                 "nodes": [
-                    { "id": "input", "kind": "input", "position": { "x": 0, "y": 0 } },
-                    { "id": "agent-1", "kind": "agent", "position": { "x": 100, "y": 0 }, "config": { "workspacePath": self.first_workspace } },
-                    { "id": "agent-2", "kind": "agent", "position": { "x": 200, "y": 0 }, "config": { "workspacePath": self.second_workspace } },
+                    { "id": "input", "kind": "input", "position": { "x": 0, "y": 0 }, "config": { "prompt": "Research the repository." } },
+                    { "id": "agent-1", "kind": "agent", "position": { "x": 100, "y": 0 }, "config": { "workspacePath": self.first_workspace, "instructions": "" } },
+                    { "id": "agent-2", "kind": "agent", "position": { "x": 200, "y": 0 }, "config": { "workspacePath": self.second_workspace, "instructions": "" } },
                     { "id": "output", "kind": "output", "position": { "x": 300, "y": 0 } }
                 ],
                 "edges": [
@@ -616,10 +637,11 @@ mod tests {
     fn builds_a_linear_plan_with_canonical_agent_workspaces() {
         let fixture = Fixture::new();
 
-        let steps = linear_agent_plan(&fixture.definition()).unwrap();
+        let plan = linear_agent_plan(&fixture.definition()).unwrap();
 
+        assert_eq!(plan.input, "Research the repository.");
         assert_eq!(
-            steps,
+            plan.steps,
             vec![
                 AgentStep {
                     node_id: "agent-1".to_string(),
@@ -766,23 +788,6 @@ mod tests {
         )
         .unwrap()
         .is_empty());
-    }
-
-    #[test]
-    fn legacy_run_without_input_remains_readable() {
-        let run: AgentGraphRun = serde_json::from_value(serde_json::json!({
-            "schemaVersion": AGENT_GRAPH_RUN_SCHEMA_VERSION,
-            "id": "run-legacy",
-            "graphId": "graph-1",
-            "graphRevision": "sha256:test",
-            "definitionWorkspacePath": "workspace",
-            "status": "completed",
-            "nodeRuns": [],
-            "output": "done"
-        }))
-        .unwrap();
-
-        assert!(run.input.is_empty());
     }
 
     #[test]

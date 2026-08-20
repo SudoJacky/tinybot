@@ -15,7 +15,7 @@ src-tauri/src/skills/definition.rs
 src-tauri/src/workspace/types.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:7c0f72c85dd2114a410a0f627f838e1dda45f55e773520ae83da9906405e42a5 -->
+<!-- tinybot-doc-fingerprint: sha256:b1c5172df6b45e22b71b7ddbdae08d419a815153e9eaa69c7b61fee9cb813971 -->
 
 This document covers workspace operations and the extension catalogs available
 to Agents. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -64,22 +64,23 @@ the versioned definition and atomically replaces one file. The returned
 must provide it so external edits fail visibly instead of being overwritten.
 The first save omits `expectedRevision`, and an existing file cannot be replaced
 without one. Listing rejects invalid Graph files rather than hiding them. An
-Agent node stores its execution `workspacePath`, additional `instructions`, and
-an optional `model` tuple containing `modelId`, optional `providerId`, and
-optional `reasoningEffort`. Older v1 definitions that omit the additive fields
-inherit empty instructions and the application model defaults.
+Input node stores the required initial `prompt`. An Agent node stores its
+execution `workspacePath`, additional `instructions`, and an optional `model`
+tuple containing `modelId`, optional `providerId`, and optional
+`reasoningEffort`. Missing required node configuration makes the definition
+invalid; test-era files are not migrated or defaulted.
 
 ## Agent Graph Run Commands
 
 | Command | Args | Response |
 | --- | --- | --- |
 | `worker_agent_graph_runs_list` | `{ input: { graphId, definitionWorkspacePath } }` | `AgentGraphRun[]` |
-| `worker_agent_graph_run` | `{ input: { graphId, graphRevision, definitionWorkspacePath, input } }` | `AgentGraphRun` |
+| `worker_agent_graph_run` | `{ input: { graphId, graphRevision, definitionWorkspacePath } }` | `AgentGraphRun` |
 
 Runs live at `~/.tinybot/graph-runs/<graph-id>/<run-id>.json` and are atomically
-updated as nodes transition. A Run keeps its original input so the Input node
-can be inspected later; older v1 records without it remain readable as an empty
-input. Start reloads the requested saved revision,
+updated as nodes transition. Start reloads the requested saved revision and
+uses the Input node's required prompt as the first Agent input. The Run copies
+that prompt so the Input node can be inspected later. It then
 canonicalizes every Agent workspace, and accepts only a single linear
 Input-to-Output path. Condition nodes, branches, cycles, disconnected nodes,
 and missing workspaces fail preflight. Each Agent node creates a fresh standard

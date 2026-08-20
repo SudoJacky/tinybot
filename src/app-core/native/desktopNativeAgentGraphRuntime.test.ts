@@ -14,7 +14,6 @@ describe("desktopNativeAgentGraphRuntime", () => {
     await runtime.start({
       ...identity,
       graphRevision: "sha256:test",
-      input: "Review this repository",
     });
 
     expect(invoke).toHaveBeenNthCalledWith(1, "worker_agent_graph_runs_list", { input: identity });
@@ -22,7 +21,6 @@ describe("desktopNativeAgentGraphRuntime", () => {
       input: {
         ...identity,
         graphRevision: "sha256:test",
-        input: "Review this repository",
       },
     });
   });

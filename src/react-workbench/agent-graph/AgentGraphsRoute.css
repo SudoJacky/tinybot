@@ -658,31 +658,31 @@
   margin-top: 6px;
 }
 
-.react-agent-graph-node-config__instructions {
+.react-agent-graph-node-config__textarea-field {
   display: grid;
   gap: 7px;
   margin-top: 6px;
 }
 
-.react-agent-graph-node-config__instructions > span {
+.react-agent-graph-node-config__textarea-field > span {
   display: grid;
   gap: 3px;
 }
 
-.react-agent-graph-node-config__instructions strong {
+.react-agent-graph-node-config__textarea-field strong {
   color: var(--color-body);
   font-size: 13px;
   font-weight: 650;
 }
 
-.react-agent-graph-node-config__instructions small {
+.react-agent-graph-node-config__textarea-field small {
   color: var(--color-muted);
   font-size: 12px;
   font-weight: 500;
   line-height: 1.45;
 }
 
-.react-agent-graph-node-config__instructions textarea {
+.react-agent-graph-node-config__textarea-field textarea {
   width: 100%;
   min-height: 104px;
   padding: 9px 10px;
@@ -696,12 +696,12 @@
   line-height: 1.5;
 }
 
-.react-agent-graph-node-config__instructions textarea:hover,
-.react-agent-graph-node-config__instructions textarea:focus-visible {
+.react-agent-graph-node-config__textarea-field textarea:hover,
+.react-agent-graph-node-config__textarea-field textarea:focus-visible {
   border-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-hairline));
 }
 
-.react-agent-graph-node-config__instructions textarea:focus-visible {
+.react-agent-graph-node-config__textarea-field textarea:focus-visible {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 24%, transparent);
   outline: none;
 }

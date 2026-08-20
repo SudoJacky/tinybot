@@ -28,8 +28,8 @@ pub(crate) struct AgentGraphNode {
     pub(crate) id: String,
     pub(crate) kind: AgentGraphNodeKind,
     position: AgentGraphNodePosition,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) config: Option<AgentLoopNodeConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) config: Option<AgentGraphNodeConfig>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
@@ -49,12 +49,24 @@ struct AgentGraphNodePosition {
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(untagged)]
+pub(crate) enum AgentGraphNodeConfig {
+    Input(AgentGraphInputNodeConfig),
+    Agent(AgentLoopNodeConfig),
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct AgentGraphInputNodeConfig {
+    pub(crate) prompt: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct AgentLoopNodeConfig {
     pub(crate) workspace_path: String,
-    #[serde(default)]
     pub(crate) instructions: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) model: Option<AgentLoopModelConfig>,
 }
 
@@ -62,9 +74,9 @@ pub(crate) struct AgentLoopNodeConfig {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct AgentLoopModelConfig {
     pub(crate) model_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) provider_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) reasoning_effort: Option<AgentLoopReasoningEffort>,
 }
 
@@ -251,13 +263,34 @@ fn validate_definition(definition: &AgentGraphDefinition) -> Result<(), String> 
             return Err(format!("duplicate Agent Graph node id `{}`", node.id));
         }
         match node.kind {
-            AgentGraphNodeKind::Input => input_count += 1,
-            AgentGraphNodeKind::Output => output_count += 1,
+            AgentGraphNodeKind::Input => {
+                input_count += 1;
+                let Some(AgentGraphNodeConfig::Input(config)) = &node.config else {
+                    return Err(format!(
+                        "Input node `{}` requires Input configuration",
+                        node.id
+                    ));
+                };
+                if config.prompt.trim().is_empty() {
+                    return Err(format!("Input node `{}` requires a prompt", node.id));
+                }
+            }
+            AgentGraphNodeKind::Output => {
+                output_count += 1;
+                if node.config.is_some() {
+                    return Err(format!(
+                        "Output node `{}` cannot have configuration",
+                        node.id
+                    ));
+                }
+            }
             AgentGraphNodeKind::Agent => {
-                let config = node
-                    .config
-                    .as_ref()
-                    .ok_or_else(|| format!("Agent node `{}` requires configuration", node.id))?;
+                let Some(AgentGraphNodeConfig::Agent(config)) = &node.config else {
+                    return Err(format!(
+                        "Agent node `{}` requires Agent configuration",
+                        node.id
+                    ));
+                };
                 if config.workspace_path.trim().is_empty() {
                     return Err(format!(
                         "Agent node `{}` requires a workspace path",
@@ -277,13 +310,14 @@ fn validate_definition(definition: &AgentGraphDefinition) -> Result<(), String> 
                     }
                 }
             }
-            AgentGraphNodeKind::Condition => {}
-        }
-        if node.kind != AgentGraphNodeKind::Agent && node.config.is_some() {
-            return Err(format!(
-                "non-Agent node `{}` cannot have configuration",
-                node.id
-            ));
+            AgentGraphNodeKind::Condition => {
+                if node.config.is_some() {
+                    return Err(format!(
+                        "Condition node `{}` cannot have configuration",
+                        node.id
+                    ));
+                }
+            }
         }
     }
     if input_count != 1 {
@@ -473,13 +507,15 @@ mod tests {
                         id: "input".to_string(),
                         kind: AgentGraphNodeKind::Input,
                         position: AgentGraphNodePosition { x: 0, y: 0 },
-                        config: None,
+                        config: Some(AgentGraphNodeConfig::Input(AgentGraphInputNodeConfig {
+                            prompt: "Research the repository.".to_string(),
+                        })),
                     },
                     AgentGraphNode {
                         id: "agent".to_string(),
                         kind: AgentGraphNodeKind::Agent,
                         position: AgentGraphNodePosition { x: 100, y: 0 },
-                        config: Some(AgentLoopNodeConfig {
+                        config: Some(AgentGraphNodeConfig::Agent(AgentLoopNodeConfig {
                             workspace_path: self.workspace.display().to_string(),
                             instructions: "Research and return a concise report.".to_string(),
                             model: Some(AgentLoopModelConfig {
@@ -487,7 +523,7 @@ mod tests {
                                 provider_id: Some("openai".to_string()),
                                 reasoning_effort: Some(AgentLoopReasoningEffort::High),
                             }),
-                        }),
+                        })),
                     },
                     AgentGraphNode {
                         id: "output".to_string(),
@@ -566,33 +602,16 @@ mod tests {
     }
 
     #[test]
-    fn legacy_agent_config_inherits_prompt_and_model_defaults() {
+    fn rejects_an_empty_input_prompt() {
         let fixture = Fixture::new();
-        let definition: AgentGraphDefinition = serde_json::from_value(serde_json::json!({
-            "schemaVersion": AGENT_GRAPH_SCHEMA_VERSION,
-            "id": "graph-legacy",
-            "name": "Legacy",
-            "nodes": [
-                { "id": "input", "kind": "input", "position": { "x": 0, "y": 0 } },
-                {
-                    "id": "agent",
-                    "kind": "agent",
-                    "position": { "x": 100, "y": 0 },
-                    "config": { "workspacePath": fixture.workspace }
-                },
-                { "id": "output", "kind": "output", "position": { "x": 200, "y": 0 } }
-            ],
-            "edges": [
-                { "id": "input-agent", "source": "input", "target": "agent" },
-                { "id": "agent-output", "source": "agent", "target": "output" }
-            ]
-        }))
-        .unwrap();
-        let config = definition.nodes[1].config.as_ref().unwrap();
+        let mut definition = fixture.definition();
+        definition.nodes[0].config = Some(AgentGraphNodeConfig::Input(AgentGraphInputNodeConfig {
+            prompt: "  ".to_string(),
+        }));
 
-        assert!(config.instructions.is_empty());
-        assert!(config.model.is_none());
-        validate_definition(&definition).unwrap();
+        let error = validate_definition(&definition).unwrap_err();
+
+        assert!(error.contains("requires a prompt"));
     }
 
     #[test]

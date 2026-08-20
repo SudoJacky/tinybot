@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AGENT_GRAPH_SCHEMA_VERSION,
   addAgentGraphNode,
+  configureAgentGraphInput,
   configureAgentGraphNode,
   connectAgentGraphNodes,
   createAgentGraphDraft,
@@ -20,6 +21,7 @@ describe("agentGraphDefinition", () => {
     expect(definition.schemaVersion).toBe(AGENT_GRAPH_SCHEMA_VERSION);
     expect(definition.nodes.map((node) => node.kind)).toEqual(["input", "agent", "output"]);
     expect(definition.nodes.map((node) => node.position.x)).toEqual([72, 300, 528]);
+    expect(definition.nodes.find((node) => node.kind === "input")?.config).toEqual({ prompt: "" });
     expect(definition.nodes.find((node) => node.kind === "agent")?.config).toEqual({
       instructions: "",
       workspacePath: WORKSPACE_PATH,
@@ -28,7 +30,12 @@ describe("agentGraphDefinition", () => {
       ["input", "agent"],
       ["agent", "output"],
     ]);
-    expect(validateAgentGraphDefinition(definition)).toEqual([]);
+    expect(validateAgentGraphDefinition(definition)).toEqual(["input_prompt_required"]);
+
+    const configured = configureAgentGraphInput(definition, "input", { prompt: "Research the repository." });
+    expect(configured).toMatchObject({ ok: true });
+    if (!configured.ok) return;
+    expect(validateAgentGraphDefinition(configured.definition)).toEqual([]);
   });
 
   it("reports caller-actionable structural issues", () => {
@@ -39,6 +46,7 @@ describe("agentGraphDefinition", () => {
     expect(validateAgentGraphDefinition(definition)).toEqual([
       "name_required",
       "single_output_required",
+      "input_prompt_required",
       "duplicate_node_id",
       "missing_edge_endpoint",
     ]);
@@ -114,6 +122,7 @@ describe("agentGraphDefinition", () => {
       id: "another-input",
       kind: "input",
       position: { x: 0, y: 0 },
+      config: { prompt: "Another prompt" },
     })).toEqual({ ok: false, reason: "unique_node_kind" });
   });
 
