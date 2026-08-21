@@ -15,7 +15,7 @@ src-tauri/src/skills/definition.rs
 src-tauri/src/workspace/types.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:b1c5172df6b45e22b71b7ddbdae08d419a815153e9eaa69c7b61fee9cb813971 -->
+<!-- tinybot-doc-fingerprint: sha256:c14c191e846cb3d04be90c3e3dccf698865a8a84265999c47356361e55872791 -->
 
 This document covers workspace operations and the extension catalogs available
 to Agents. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -68,7 +68,11 @@ Input node stores the required initial `prompt`. An Agent node stores its
 execution `workspacePath`, additional `instructions`, and an optional `model`
 tuple containing `modelId`, optional `providerId`, and optional
 `reasoningEffort`. Missing required node configuration makes the definition
-invalid; test-era files are not migrated or defaulted.
+invalid; test-era files are not migrated or defaulted. Router nodes retain the
+schema kind `condition` and store an optional routing `task`, two or more
+required `{ id, label, description }` routes, and the same optional model
+tuple. Router edges store `sourceRouteId`; every route must own exactly one
+outgoing edge.
 
 ## Agent Graph Run Commands
 
@@ -81,20 +85,26 @@ Runs live at `~/.tinybot/graph-runs/<graph-id>/<run-id>.json` and are atomically
 updated as nodes transition. Start reloads the requested saved revision and
 uses the Input node's required prompt as the first Agent input. The Run copies
 that prompt so the Input node can be inspected later. It then
-canonicalizes every Agent workspace, and accepts only a single linear
-Input-to-Output path. Condition nodes, branches, cycles, disconnected nodes,
-and missing workspaces fail preflight. Each Agent node creates a fresh standard
+canonicalizes every Agent workspace and validates an acyclic Input-to-Output
+graph. Router branches may reconverge, while non-Router branching, cycles,
+disconnected nodes, incomplete route connections, and missing workspaces fail
+preflight. Each visited Agent node creates a fresh standard
 parentless Thread with `source: "agent_graph"`; final output becomes the next
 Agent input and the Output value. Node instructions enter the existing
 turn-scoped agent-role instruction source, while an optional node model tuple
-sets the Turn's model, provider, and reasoning effort. Agent terminal failures produce a failed Run
+sets the Turn's model, provider, and reasoning effort. A Router performs one
+non-streaming provider request with a dedicated system prompt and no Agent
+instructions, tools, workspace context, or Thread. It maps an exact generated
+`ROUTE_A`-style response back to the route's stable ID; any other response
+fails that node without guessing or retrying. Agent terminal failures produce a failed Run
 rather than a successful empty result. Cancellation and crash recovery are not
 implemented in this first slice.
 
 The Graph renderer selects a durable Run before inspecting a node. Input and
 Output use the Run's boundary values. Agent nodes use the node invocation's
 `threadId` with the normal Thread timeline APIs and the shared read-only Chat
-timeline renderer; they remain excluded from Chat session discovery.
+timeline renderer; they remain excluded from Chat session discovery. Router
+node runs expose the selected route/edge, raw response, and provider usage.
 
 ## Workspace Commands
 

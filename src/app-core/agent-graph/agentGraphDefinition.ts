@@ -14,18 +14,32 @@ type AgentGraphBaseNode = {
   position: AgentGraphNodePosition;
 };
 
+export type AgentGraphModelConfig = {
+  modelId: string;
+  providerId?: string;
+  reasoningEffort?: ReasoningEffort;
+};
+
 export type AgentLoopNodeConfig = {
   workspacePath: string;
   instructions: string;
-  model?: {
-    modelId: string;
-    providerId?: string;
-    reasoningEffort?: ReasoningEffort;
-  };
+  model?: AgentGraphModelConfig;
 };
 
 export type AgentGraphInputNodeConfig = {
   prompt: string;
+};
+
+export type AgentGraphRouterRoute = {
+  id: string;
+  label: string;
+  description: string;
+};
+
+export type AgentGraphRouterNodeConfig = {
+  task?: string;
+  routes: AgentGraphRouterRoute[];
+  model?: AgentGraphModelConfig;
 };
 
 export type AgentGraphInputNode = AgentGraphBaseNode & {
@@ -38,15 +52,22 @@ export type AgentGraphAgentNode = AgentGraphBaseNode & {
   config: AgentLoopNodeConfig;
 };
 
+export type AgentGraphConditionNode = AgentGraphBaseNode & {
+  kind: "condition";
+  config?: AgentGraphRouterNodeConfig;
+};
+
 export type AgentGraphNode =
   | AgentGraphInputNode
   | AgentGraphAgentNode
-  | (AgentGraphBaseNode & { kind: "condition" | "output" });
+  | AgentGraphConditionNode
+  | (AgentGraphBaseNode & { kind: "output" });
 
 export type AgentGraphEdge = {
   id: string;
   source: string;
   target: string;
+  sourceRouteId?: string;
 };
 
 export type AgentGraphDefinition = {
@@ -67,7 +88,17 @@ export type AgentGraphValidationIssue =
   | "duplicate_edge"
   | "self_edge"
   | "input_has_incoming_edge"
-  | "output_has_outgoing_edge";
+  | "output_has_outgoing_edge"
+  | "router_configuration_required"
+  | "router_routes_required"
+  | "router_route_label_required"
+  | "router_route_description_required"
+  | "duplicate_router_route_id"
+  | "router_edge_route_required"
+  | "invalid_router_edge_route"
+  | "non_router_edge_route"
+  | "router_route_connection_required"
+  | "router_route_multiple_connections";
 
 export type AgentGraphEditError =
   | "duplicate_node_id"
@@ -79,7 +110,10 @@ export type AgentGraphEditError =
   | "self_edge"
   | "duplicate_edge"
   | "input_cannot_be_target"
-  | "output_cannot_be_source";
+  | "output_cannot_be_source"
+  | "router_route_required"
+  | "router_route_not_found"
+  | "non_router_route";
 
 export type AgentGraphEditResult =
   | { ok: true; definition: AgentGraphDefinition }
@@ -107,6 +141,15 @@ export function createAgentGraphDraft(input: {
     edges: [
       { id: "input-agent", source: "input", target: "agent" },
       { id: "agent-output", source: "agent", target: "output" },
+    ],
+  };
+}
+
+export function createAgentGraphRouterConfig(nodeId: string): AgentGraphRouterNodeConfig {
+  return {
+    routes: [
+      { id: `${nodeId}-route-a`, label: "Path A", description: "" },
+      { id: `${nodeId}-route-b`, label: "Path B", description: "" },
     ],
   };
 }
@@ -165,6 +208,56 @@ export function validateAgentGraphDefinition(
   }
   if (definition.edges.some((edge) => definition.nodes.find((node) => node.id === edge.source)?.kind === "output")) {
     issues.push("output_has_outgoing_edge");
+  }
+
+  const routerNodes = definition.nodes.filter((node): node is AgentGraphConditionNode => node.kind === "condition");
+  if (routerNodes.some((node) => !node.config)) {
+    issues.push("router_configuration_required");
+  }
+  if (routerNodes.some((node) => node.config && node.config.routes.length < 2)) {
+    issues.push("router_routes_required");
+  }
+  if (routerNodes.some((node) => node.config?.routes.some((route) => !route.label.trim()))) {
+    issues.push("router_route_label_required");
+  }
+  if (routerNodes.some((node) => node.config?.routes.some((route) => !route.description.trim()))) {
+    issues.push("router_route_description_required");
+  }
+  if (routerNodes.some((node) => {
+    if (!node.config) return false;
+    const routeIds = node.config.routes.map((route) => route.id);
+    return routeIds.some((routeId) => !routeId.trim()) || new Set(routeIds).size !== routeIds.length;
+  })) {
+    issues.push("duplicate_router_route_id");
+  }
+  if (!duplicateNodeId && definition.edges.some((edge) => (
+    routerNodes.some((node) => node.id === edge.source) && !edge.sourceRouteId
+  ))) {
+    issues.push("router_edge_route_required");
+  }
+  if (!duplicateNodeId && definition.edges.some((edge) => {
+    const source = routerNodes.find((node) => node.id === edge.source);
+    return source?.config && edge.sourceRouteId
+      ? !source.config.routes.some((route) => route.id === edge.sourceRouteId)
+      : false;
+  })) {
+    issues.push("invalid_router_edge_route");
+  }
+  if (!duplicateNodeId && definition.edges.some((edge) => (
+    edge.sourceRouteId
+    && definition.nodes.find((node) => node.id === edge.source)?.kind !== "condition"
+  ))) {
+    issues.push("non_router_edge_route");
+  }
+  if (!duplicateNodeId && routerNodes.some((node) => node.config?.routes.some((route) => (
+    definition.edges.filter((edge) => edge.source === node.id && edge.sourceRouteId === route.id).length === 0
+  )))) {
+    issues.push("router_route_connection_required");
+  }
+  if (!duplicateNodeId && routerNodes.some((node) => node.config?.routes.some((route) => (
+    definition.edges.filter((edge) => edge.source === node.id && edge.sourceRouteId === route.id).length > 1
+  )))) {
+    issues.push("router_route_multiple_connections");
   }
 
   return issues;
@@ -269,10 +362,39 @@ export function configureAgentGraphInput(
   };
 }
 
+export function configureAgentGraphRouter(
+  definition: AgentGraphDefinition,
+  nodeId: string,
+  config: AgentGraphRouterNodeConfig,
+): AgentGraphEditResult {
+  const node = definition.nodes.find((candidate) => candidate.id === nodeId);
+  if (!node) {
+    return { ok: false, reason: "node_not_found" };
+  }
+  if (node.kind !== "condition") {
+    return { ok: false, reason: "node_not_configurable" };
+  }
+
+  const routeIds = new Set(config.routes.map((route) => route.id));
+  return {
+    ok: true,
+    definition: {
+      ...definition,
+      nodes: definition.nodes.map((candidate) => (
+        candidate.id === nodeId && candidate.kind === "condition" ? { ...candidate, config } : candidate
+      )),
+      edges: definition.edges.filter((edge) => (
+        edge.source !== nodeId || (edge.sourceRouteId != null && routeIds.has(edge.sourceRouteId))
+      )),
+    },
+  };
+}
+
 export function connectAgentGraphNodes(
   definition: AgentGraphDefinition,
   source: string,
   target: string,
+  sourceRouteId?: string,
 ): AgentGraphEditResult {
   const sourceNode = definition.nodes.find((node) => node.id === source);
   const targetNode = definition.nodes.find((node) => node.id === target);
@@ -287,6 +409,16 @@ export function connectAgentGraphNodes(
   }
   if (targetNode.kind === "input") {
     return { ok: false, reason: "input_cannot_be_target" };
+  }
+  if (sourceNode.kind === "condition") {
+    if (!sourceRouteId) {
+      return { ok: false, reason: "router_route_required" };
+    }
+    if (!sourceNode.config?.routes.some((route) => route.id === sourceRouteId)) {
+      return { ok: false, reason: "router_route_not_found" };
+    }
+  } else if (sourceRouteId) {
+    return { ok: false, reason: "non_router_route" };
   }
   if (definition.edges.some((edge) => edge.source === source && edge.target === target)) {
     return { ok: false, reason: "duplicate_edge" };
@@ -304,7 +436,12 @@ export function connectAgentGraphNodes(
     ok: true,
     definition: {
       ...definition,
-      edges: [...definition.edges, { id: edgeId, source, target }],
+      edges: [...definition.edges, {
+        id: edgeId,
+        source,
+        target,
+        ...(sourceRouteId ? { sourceRouteId } : {}),
+      }],
     },
   };
 }

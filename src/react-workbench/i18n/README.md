@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:862d0524a538164fe3a531f5524d4302a40ca0e4915ae974adc032253ec4e9b9 -->
+<!-- tinybot-module-fingerprint: sha256:d0d8cabe4dc5d9127b84f611fd986e57584ff795bd4c290b82a153d23326879b -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
@@ -10,6 +10,10 @@ and persistence failures, Edit/View mode guidance, save and Run state, node
 execution status, and validation guidance in these bundles, while persisted
 schema identifiers, Provider/model values, paths, revisions,
 Thread IDs, and node-kind values remain language-neutral.
+The persisted `condition` node kind is presented as Router in both languages;
+route task, label, description, connection, validation, and selected-decision
+copy remains renderer-owned while stable route IDs and generated route tokens
+remain untranslated.
 
 User-visible copy belongs in `resources/`. Domain identifiers, persisted
 values, protocol fields, and diagnostic codes must remain language-neutral.

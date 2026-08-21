@@ -773,6 +773,33 @@
   right: -7px;
 }
 
+.react-agent-graph-node__route-port {
+  position: absolute;
+  right: 0;
+  display: flex;
+  width: 72px;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: 11px;
+  transform: translateY(-50%);
+}
+
+.react-agent-graph-node__route-port > small {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-agent-graph-node__route-port > .react-agent-graph-node__handle {
+  top: 50%;
+}
+
+.react-agent-graph-node[data-kind="condition"] > span:not(.react-agent-graph-node__route-port) {
+  max-width: 54px;
+}
+
 .react-agent-graph-validation {
   padding: 10px 12px;
   border-radius: 9px;
@@ -1011,6 +1038,119 @@
   outline: none;
 }
 
+.react-agent-graph-router-routes {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.react-agent-graph-router-routes > legend {
+  padding: 0;
+  color: var(--color-body);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.react-agent-graph-router-routes > p {
+  margin-top: -4px;
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.react-agent-graph-router-route {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--graph-border);
+  border-radius: 9px;
+  background: var(--graph-panel-deep);
+}
+
+.react-agent-graph-router-route > header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.react-agent-graph-router-route > header strong {
+  color: var(--color-ink);
+  font-size: 12px;
+}
+
+.react-agent-graph-router-route > header small {
+  margin-right: auto;
+  color: var(--color-muted);
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+}
+
+.react-agent-graph-router-route > header button {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  padding: 0;
+  border-color: transparent;
+  color: var(--color-muted);
+}
+
+.react-agent-graph-router-route > header button:hover:not(:disabled),
+.react-agent-graph-router-route > header button:focus-visible {
+  border-color: var(--graph-border);
+  color: var(--color-danger);
+}
+
+.react-agent-graph-router-route > label {
+  display: grid;
+  gap: 5px;
+}
+
+.react-agent-graph-router-route > label > span {
+  color: var(--color-body);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.react-agent-graph-router-route input,
+.react-agent-graph-router-route textarea {
+  width: 100%;
+  padding: 8px 9px;
+  resize: vertical;
+  border: 1px solid var(--graph-border);
+  border-radius: 7px;
+  background: var(--graph-panel-solid);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 11px;
+}
+
+.react-agent-graph-router-route input[aria-invalid="true"],
+.react-agent-graph-router-route textarea[aria-invalid="true"] {
+  border-color: color-mix(in srgb, var(--color-danger) 56%, var(--graph-border));
+}
+
+.react-agent-graph-router-route input:focus-visible,
+.react-agent-graph-router-route textarea:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 20%, transparent);
+  outline: none;
+}
+
+.react-agent-graph-router-routes__add {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px dashed var(--graph-border-strong);
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 11px;
+}
+
 .react-agent-graph-node-catalog > ul {
   display: grid;
   gap: 7px;
@@ -1202,6 +1342,36 @@
 
 .react-agent-graph-node-drawer__error {
   color: var(--color-danger);
+}
+
+.react-agent-graph-router-decision {
+  display: grid;
+  gap: 7px;
+  margin: 16px;
+  padding: 14px;
+  border: 1px solid var(--graph-border);
+  border-radius: 10px;
+  background: var(--graph-panel-deep);
+}
+
+.react-agent-graph-router-decision > span,
+.react-agent-graph-router-decision > small {
+  color: var(--color-muted);
+  font-size: 10px;
+}
+
+.react-agent-graph-router-decision > strong {
+  color: var(--color-ink);
+  font-size: 14px;
+}
+
+.react-agent-graph-router-decision > code {
+  width: fit-content;
+  padding: 4px 7px;
+  border-radius: 5px;
+  background: var(--color-surface-soft);
+  color: var(--color-primary);
+  font-size: 11px;
 }
 
 @keyframes agent-graph-drawer-in {

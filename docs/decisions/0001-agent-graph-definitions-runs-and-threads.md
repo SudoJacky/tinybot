@@ -16,7 +16,7 @@ Keeping all of this state in one record would mix three different lifecycles:
 - one execution creates short-lived orchestration state;
 - every Agent Loop invocation creates durable conversation history.
 
-The standalone editor, definition store, and first linear runtime implement
+The standalone editor, definition store, and acyclic routing runtime implement
 these separate lifecycles through explicit interfaces.
 
 ## Decision
@@ -63,6 +63,17 @@ type AgentGraphAgentNode = {
   position: AgentGraphNodePosition;
   config: AgentLoopNodeConfig;
 };
+
+type AgentGraphRouterNode = {
+  id: string;
+  kind: "condition"; // persisted schema name; presented as Router
+  position: AgentGraphNodePosition;
+  config: {
+    task?: string;
+    routes: Array<{ id: string; label: string; description: string }>;
+    model?: AgentLoopNodeConfig["model"];
+  };
+};
 ```
 
 A newly inserted Agent node defaults to the definition workspace. The editor
@@ -83,9 +94,15 @@ that could diverge from the saved definition.
 The optional model tuple pins a node to a configured provider and model, with
 an optional reasoning effort. When it is absent, execution inherits normal
 application defaults. Display labels and credentials remain configuration
-concerns and are not copied into the Graph. Input and Agent configuration fields
-are required by `tinybot.agent_graph.v1`; invalid test-era files are rejected
+concerns and are not copied into the Graph. Input, Agent, and new Router
+configuration fields are required by `tinybot.agent_graph.v1`; invalid test-era files are rejected
 rather than migrated or defaulted.
+
+Router route IDs are stable definition identity; edges reference them through
+`sourceRouteId`. User-facing labels and descriptions may change without
+rewiring the graph. Generated `ROUTE_A`, `ROUTE_B`, and later tokens exist only
+inside one model request and are mapped back to stable IDs by route order.
+Every Router has at least two routes and exactly one outgoing edge per route.
 
 ### Definition persistence Interface
 
@@ -124,9 +141,9 @@ index, edit history, cache, or generic repository framework. Scanning the small
 
 ### Graph Run and Agent Thread lifecycle
 
-Each execution creates one lightweight Graph Run. Each visit to an Agent node
-creates a distinct node-run entry, so a future cycle can invoke the same node
-more than once without reusing a Thread:
+Each execution creates one lightweight Graph Run. Each visited Agent or Router
+node creates a distinct node-run entry; nodes on unselected branches create no
+entry:
 
 ```ts
 type AgentGraphRun = {
@@ -141,12 +158,18 @@ type AgentGraphRun = {
     nodeId: string;
     threadId?: string;
     status: "pending" | "running" | "completed" | "failed";
+    router?: {
+      rawResponse: string;
+      selectedRouteId: string;
+      selectedEdgeId: string;
+      usage?: unknown;
+    };
     error?: string;
   }>;
 };
 ```
 
-Input, Condition, and Output nodes execute in the Graph runtime and do not
+Input, Router, and Output nodes execute in the Graph runtime and do not
 create Threads. Every Agent node invocation creates a fresh standard Thread
 with no synthetic parent and with enough origin metadata to trace it back:
 
@@ -171,6 +194,20 @@ The Agent Thread follows the normal Agent Loop and Rollout path. Its terminal
 state updates the corresponding node run; the Graph runtime then chooses the
 next edge or terminates the Graph Run. Failures remain visible on the node run
 and Graph Run rather than being converted into successful empty output.
+
+A Router is not an Agent Loop. It makes exactly one non-streaming request to
+the configured or inherited provider/model with a dedicated routing system
+prompt, the current graph value as user data, and no tools. It does not load
+Tinybot Agent instructions, workspace instructions, skills, memory, or create
+a Thread. The optional user routing task augments required route descriptions.
+The complete response is trimmed and must exactly equal one generated route
+token. Prose, code fences, unknown tokens, and ambiguous output fail the node;
+the runtime does not search substrings, guess a default, or retry.
+
+Runtime preflight accepts acyclic graphs whose Router branches may reconverge.
+Every node must be reachable from Input and able to reach Output. Input and
+Agent nodes have one outgoing edge, each Router route has one outgoing edge,
+and non-Router branching and cycles remain unsupported.
 
 The Graph revision identifies the definition loaded at run start and detects
 later divergence. The first version does not retain historical definition

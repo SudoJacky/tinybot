@@ -70,6 +70,11 @@ type CanvasSize = {
   height: number;
 };
 
+type PendingConnectionSource = {
+  nodeId: string;
+  routeId?: string;
+};
+
 const INITIAL_VIEWPORT: CanvasViewport = { panX: 0, panY: 0, zoom: 1 };
 const INITIAL_CANVAS_SIZE: CanvasSize = { width: CANVAS_WIDTH, height: CANVAS_HEIGHT };
 
@@ -81,7 +86,7 @@ type AgentGraphCanvasProps = {
   readOnly?: boolean;
   onAddNode: (kind: AgentGraphNodeKind, position: AgentGraphNodePosition) => boolean;
   onMoveNode: (nodeId: string, position: AgentGraphNodePosition) => boolean;
-  onConnectNodes: (source: string, target: string) => boolean;
+  onConnectNodes: (source: string, target: string, sourceRouteId?: string) => boolean;
   onNodeActivate: (nodeId: string) => void;
   onRemoveNode: (nodeId: string) => boolean;
   onRemoveEdge: (edgeId: string) => boolean;
@@ -107,7 +112,7 @@ export function AgentGraphCanvas({
   const pointerMovedRef = useRef(false);
   const canvasPannedRef = useRef(false);
   const [selection, setSelection] = useState<GraphSelection | null>(null);
-  const [pendingSource, setPendingSource] = useState<string | null>(null);
+  const [pendingSource, setPendingSource] = useState<PendingConnectionSource | null>(null);
   const [pointerDrag, setPointerDrag] = useState<NodePointerDrag | null>(null);
   const [panDrag, setPanDrag] = useState<CanvasPanDrag | null>(null);
   const [viewport, setViewport] = useState<CanvasViewport>(INITIAL_VIEWPORT);
@@ -117,7 +122,10 @@ export function AgentGraphCanvas({
     : undefined;
   const canDeleteSelection = selection?.type === "edge"
     || (selectedNode != null && selectedNode.kind !== "input" && selectedNode.kind !== "output");
-  const pendingSourceNode = definition.nodes.find((node) => node.id === pendingSource);
+  const pendingSourceNode = definition.nodes.find((node) => node.id === pendingSource?.nodeId);
+  const pendingSourceRoute = pendingSourceNode?.kind === "condition"
+    ? pendingSourceNode.config?.routes.find((route) => route.id === pendingSource?.routeId)
+    : undefined;
   const configPanelNode = configPanelNodeId
     ? definition.nodes.find((node) => node.id === configPanelNodeId)
     : undefined;
@@ -165,7 +173,7 @@ export function AgentGraphCanvas({
       ? onRemoveNode(selection.id)
       : onRemoveEdge(selection.id);
     if (removed) {
-      if (selection.type === "node" && pendingSource === selection.id) {
+      if (selection.type === "node" && pendingSource?.nodeId === selection.id) {
         setPendingSource(null);
       }
       setSelection(null);
@@ -319,10 +327,11 @@ export function AgentGraphCanvas({
     const bounds = canvasRef.current?.getBoundingClientRect();
     if (!bounds) return;
     const point = canvasPointFromClient(event.clientX, event.clientY, bounds, viewport);
+    const draggedNode = definition.nodes.find((node) => node.id === pointerDrag.nodeId);
     onMoveNode(pointerDrag.nodeId, clampPosition({
       x: point.x - pointerDrag.offsetX,
       y: point.y - pointerDrag.offsetY,
-    }));
+    }, draggedNode ? nodeHeight(draggedNode) : NODE_HEIGHT));
   }
 
   function finishNodeDrag(event: ReactPointerEvent<HTMLElement>) {
@@ -357,7 +366,7 @@ export function AgentGraphCanvas({
       onMoveNode(node.id, clampPosition({
         x: node.position.x + delta.x,
         y: node.position.y + delta.y,
-      }));
+      }, nodeHeight(node)));
       return;
     }
     if (event.key === "Enter" || event.key === " ") {
@@ -383,7 +392,7 @@ export function AgentGraphCanvas({
 
   function connectTo(target: AgentGraphNode) {
     if (!pendingSource) return;
-    if (onConnectNodes(pendingSource, target.id)) {
+    if (onConnectNodes(pendingSource.nodeId, target.id, pendingSource.routeId)) {
       setPendingSource(null);
     }
   }
@@ -393,7 +402,9 @@ export function AgentGraphCanvas({
       <div className="react-agent-graph-canvas__toolbar">
         <p aria-live="polite">
           {pendingSourceNode
-            ? t("graphs.connectingFrom", { kind: t(`graphs.nodes.${pendingSourceNode.kind}`) })
+            ? t("graphs.connectingFrom", {
+                kind: pendingSourceRoute?.label ?? t(`graphs.nodes.${pendingSourceNode.kind}`),
+              })
             : t(readOnly ? "graphs.canvasViewHint" : "graphs.canvasHint")}
         </p>
         {!readOnly ? <span>
@@ -501,9 +512,12 @@ export function AgentGraphCanvas({
             const source = definition.nodes.find((node) => node.id === edge.source);
             const target = definition.nodes.find((node) => node.id === edge.target);
             if (!source || !target) return null;
-            const path = createEdgePath(source, target);
+            const sourceRoute = source.kind === "condition"
+              ? source.config?.routes.find((route) => route.id === edge.sourceRouteId)
+              : undefined;
+            const path = createEdgePath(source, target, edge.sourceRouteId);
             const isSelected = selection?.type === "edge" && selection.id === edge.id;
-            const runtimeStatus = edgeRuntimeStatus(source, target, run);
+            const runtimeStatus = edgeRuntimeStatus(edge.id, source, target, run);
             return (
               <g key={edge.id}>
                 <path
@@ -515,7 +529,7 @@ export function AgentGraphCanvas({
                 />
                 {!readOnly ? <path
                   aria-label={t("graphs.connectionLabel", {
-                    source: t(`graphs.nodes.${source.kind}`),
+                    source: sourceRoute?.label ?? t(`graphs.nodes.${source.kind}`),
                     target: t(`graphs.nodes.${target.kind}`),
                   })}
                   aria-pressed={isSelected}
@@ -584,14 +598,19 @@ export function AgentGraphCanvas({
               onPointerDown={(event) => startNodeDrag(event, node)}
               onPointerMove={moveDraggedNode}
               onPointerUp={finishNodeDrag}
-              style={{ left: node.position.x, top: node.position.y }}
+              style={{
+                ...(node.kind === "condition" ? { height: nodeHeight(node) } : {}),
+                left: node.position.x,
+                top: node.position.y,
+              }}
               tabIndex={0}
             >
               {!readOnly && node.kind !== "input" ? (
                 <button
                   aria-label={pendingSource
                     ? t("graphs.connectNodes", {
-                      source: t(`graphs.nodes.${pendingSourceNode?.kind ?? "input"}`),
+                      source: pendingSourceRoute?.label
+                        ?? t(`graphs.nodes.${pendingSourceNode?.kind ?? "input"}`),
                       target: t(`graphs.nodes.${node.kind}`),
                     })
                     : t("graphs.connectionTarget", { kind: t(`graphs.nodes.${node.kind}`) })}
@@ -621,19 +640,43 @@ export function AgentGraphCanvas({
                   <small>{t(`graphs.nodeInspectionStatuses.${runtimeStatus}`)}</small>
                 </span>
               ) : null}
-              {!readOnly && node.kind !== "output" ? (
+              {!readOnly && node.kind !== "output" && node.kind !== "condition" ? (
                 <button
                   aria-label={t("graphs.connectionSource", { kind: t(`graphs.nodes.${node.kind}`) })}
-                  aria-pressed={pendingSource === node.id}
+                  aria-pressed={pendingSource?.nodeId === node.id && !pendingSource.routeId}
                   className="react-agent-graph-node__handle react-agent-graph-node__handle--source"
                   onClick={(event) => {
                     event.stopPropagation();
-                    setPendingSource(pendingSource === node.id ? null : node.id);
+                    setPendingSource(
+                      pendingSource?.nodeId === node.id && !pendingSource.routeId
+                        ? null
+                        : { nodeId: node.id },
+                    );
                     selectNode(node.id);
                   }}
                   type="button"
                 />
               ) : null}
+              {!readOnly && node.kind === "condition" ? node.config?.routes.map((route, index) => {
+                const top = routeHandleTop(node, index);
+                const active = pendingSource?.nodeId === node.id && pendingSource.routeId === route.id;
+                return (
+                  <span className="react-agent-graph-node__route-port" key={route.id} style={{ top }}>
+                    <small title={route.label}>{route.label}</small>
+                    <button
+                      aria-label={t("graphs.routerConnectionSource", { label: route.label })}
+                      aria-pressed={active}
+                      className="react-agent-graph-node__handle react-agent-graph-node__handle--source"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setPendingSource(active ? null : { nodeId: node.id, routeId: route.id });
+                        selectNode(node.id);
+                      }}
+                      type="button"
+                    />
+                  </span>
+                );
+              }) : null}
             </article>
           );
           })}
@@ -668,20 +711,37 @@ export function NodeIcon({ kind }: { kind: AgentGraphNodeKind }) {
   return <Icon aria-hidden="true" size={17} />;
 }
 
-function clampPosition(position: AgentGraphNodePosition): AgentGraphNodePosition {
+function clampPosition(position: AgentGraphNodePosition, height = NODE_HEIGHT): AgentGraphNodePosition {
   return {
     x: Math.max(0, Math.min(CANVAS_WIDTH - NODE_WIDTH, position.x)),
-    y: Math.max(64, Math.min(CANVAS_HEIGHT - NODE_HEIGHT, position.y)),
+    y: Math.max(64, Math.min(CANVAS_HEIGHT - height, position.y)),
   };
 }
 
-function createEdgePath(source: AgentGraphNode, target: AgentGraphNode): string {
+function createEdgePath(source: AgentGraphNode, target: AgentGraphNode, sourceRouteId?: string): string {
   const sourceX = source.position.x + NODE_WIDTH;
-  const sourceY = source.position.y + NODE_HEIGHT / 2;
+  const routeIndex = source.kind === "condition"
+    ? source.config?.routes.findIndex((route) => route.id === sourceRouteId) ?? -1
+    : -1;
+  const sourceY = source.position.y + (routeIndex >= 0
+    ? routeHandleTop(source, routeIndex)
+    : nodeHeight(source) / 2);
   const targetX = target.position.x;
-  const targetY = target.position.y + NODE_HEIGHT / 2;
+  const targetY = target.position.y + nodeHeight(target) / 2;
   const curve = Math.max(48, Math.abs(targetX - sourceX) / 2);
   return `M ${sourceX} ${sourceY} C ${sourceX + curve} ${sourceY}, ${targetX - curve} ${targetY}, ${targetX} ${targetY}`;
+}
+
+function nodeHeight(node: AgentGraphNode): number {
+  return node.kind === "condition" && node.config
+    ? Math.max(NODE_HEIGHT, 48 + node.config.routes.length * 24)
+    : NODE_HEIGHT;
+}
+
+function routeHandleTop(node: AgentGraphNode, index: number): number {
+  const height = nodeHeight(node);
+  const routeCount = node.kind === "condition" ? node.config?.routes.length ?? 0 : 0;
+  return routeCount > 0 ? 42 + index * ((height - 50) / routeCount) : height / 2;
 }
 
 function canvasPointFromClient(
@@ -713,7 +773,7 @@ function positionConfigPanel(
   const nodeTop = canvasSize.height / 2
     + viewport.panY
     + (node.position.y - CANVAS_HEIGHT / 2) * viewport.zoom;
-  const nodeBottom = nodeTop + NODE_HEIGHT * viewport.zoom;
+  const nodeBottom = nodeTop + nodeHeight(node) * viewport.zoom;
   const desiredCenterX = canvasSize.width / 2
     + viewport.panX
     + (node.position.x + NODE_WIDTH / 2 - CANVAS_WIDTH / 2) * viewport.zoom;
@@ -769,17 +829,23 @@ function agentGraphNodeStatus(
         ? run.status
         : "pending";
   }
-  if (node.kind === "condition") return "not_run";
   const nodeRun = [...run.nodeRuns].reverse().find((candidate) => candidate.nodeId === node.id);
-  return nodeRun?.status ?? "pending";
+  return nodeRun?.status ?? (run.status === "running" ? "pending" : "not_run");
 }
 
 function edgeRuntimeStatus(
+  edgeId: string,
   source: AgentGraphNode,
   target: AgentGraphNode,
   run?: AgentGraphRun,
 ): "idle" | "active" | "completed" {
   if (!run) return "idle";
+  if (source.kind === "condition") {
+    const routerRun = [...run.nodeRuns]
+      .reverse()
+      .find((candidate) => candidate.nodeId === source.id)?.router;
+    if (!routerRun || routerRun.selectedEdgeId !== edgeId) return "idle";
+  }
   const sourceStatus = agentGraphNodeStatus(source, run);
   const targetStatus = agentGraphNodeStatus(target, run);
   if (sourceStatus === "completed" && targetStatus === "completed") return "completed";
