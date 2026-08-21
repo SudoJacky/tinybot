@@ -85,7 +85,7 @@ describe("AgentGraphsRoute", () => {
 
     const conditionNode = screen.getByLabelText("Condition node");
     expect(conditionNode.dataset.x).toBe("343");
-    expect(conditionNode.dataset.y).toBe("227");
+    expect(conditionNode.dataset.y).toBe("222");
 
     conditionNode.focus();
     await user.keyboard("{ArrowRight}");
@@ -114,6 +114,11 @@ describe("AgentGraphsRoute", () => {
     await user.click(screen.getByRole("button", { name: "Create first graph" }));
     await user.click(screen.getByLabelText("Agent node"));
     expect(screen.queryByRole("complementary", { name: "Agent" })).toBeNull();
+    expect(
+      screen.getByRole("heading", { name: "Agent settings" })
+        .closest(".react-agent-graph-node-config")
+        ?.querySelector(".react-agent-graph-node-config__body"),
+    ).toBeTruthy();
 
     const workspaceChoice = screen.getByRole("button", { name: "Execution workspace: tinybot" });
     await user.click(workspaceChoice);
@@ -255,6 +260,7 @@ describe("AgentGraphsRoute", () => {
     expect(screen.getByRole("button", { name: "View" }).getAttribute("aria-pressed")).toBe("true");
     await user.click(screen.getByLabelText("Agent node"));
     const agentDrawer = screen.getByRole("complementary", { name: "Agent" });
+    expect(agentDrawer.getAttribute("data-presentation")).toBe("floating");
     expect(await within(agentDrawer).findByText("Repository review complete.")).toBeTruthy();
     expect(services.chatStore.load).toHaveBeenCalledWith("thread-graph-1");
 

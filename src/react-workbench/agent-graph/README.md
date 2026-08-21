@@ -20,7 +20,7 @@ workspace definitions through `AgentGraphStore`; dirty state and revision
 conflicts stay visible. A separate Run panel starts only saved definitions,
 without a second transient input field, and keeps a compact selectable Run
 history. Activating any canvas node opens a
-non-modal right drawer for that Run: Input and Output show their boundary
+non-modal floating inspector for that Run: Input and Output show their boundary
 content, while Agent nodes load their canonical Thread through the Chat store
 and render it with the shared read-only `ChatTimeline`.
 

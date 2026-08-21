@@ -5,8 +5,9 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { Bot, CircleDot, GitBranch, Trash2, X } from "lucide-react";
+import { Bot, Check, CircleDot, GitBranch, LoaderCircle, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { AgentGraphRun } from "../../app-core/agent-graph/agentGraphRuntime";
 import type {
   AgentGraphDefinition,
   AgentGraphNode,
@@ -19,7 +20,7 @@ export const AGENT_GRAPH_NODE_DRAG_TYPE = "application/x-tinybot-agent-graph-nod
 const CANVAS_WIDTH = 760;
 const CANVAS_HEIGHT = 400;
 const NODE_WIDTH = 154;
-const NODE_HEIGHT = 66;
+const NODE_HEIGHT = 76;
 const KEYBOARD_MOVE_STEP = 8;
 
 type GraphSelection =
@@ -37,6 +38,7 @@ type NodePointerDrag = {
 
 type AgentGraphCanvasProps = {
   definition: AgentGraphDefinition;
+  run?: AgentGraphRun;
   readOnly?: boolean;
   onAddNode: (kind: AgentGraphNodeKind, position: AgentGraphNodePosition) => boolean;
   onMoveNode: (nodeId: string, position: AgentGraphNodePosition) => boolean;
@@ -49,6 +51,7 @@ type AgentGraphCanvasProps = {
 
 export function AgentGraphCanvas({
   definition,
+  run,
   readOnly = false,
   onAddNode,
   onMoveNode,
@@ -94,6 +97,7 @@ export function AgentGraphCanvas({
     if (readOnly || event.button !== 0 || (event.target as Element).closest("button")) return;
     const bounds = canvasRef.current?.getBoundingClientRect();
     if (!bounds) return;
+    const origin = logicalCanvasOrigin(bounds);
     event.preventDefault();
     pointerMovedRef.current = false;
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -101,8 +105,8 @@ export function AgentGraphCanvas({
     setPointerDrag({
       pointerId: event.pointerId,
       nodeId: node.id,
-      offsetX: event.clientX - bounds.left - node.position.x,
-      offsetY: event.clientY - bounds.top - node.position.y,
+      offsetX: event.clientX - bounds.left - origin.x - node.position.x,
+      offsetY: event.clientY - bounds.top - origin.y - node.position.y,
       startX: event.clientX,
       startY: event.clientY,
     });
@@ -115,9 +119,10 @@ export function AgentGraphCanvas({
     }
     const bounds = canvasRef.current?.getBoundingClientRect();
     if (!bounds) return;
+    const origin = logicalCanvasOrigin(bounds);
     onMoveNode(pointerDrag.nodeId, clampPosition({
-      x: event.clientX - bounds.left - pointerDrag.offsetX,
-      y: event.clientY - bounds.top - pointerDrag.offsetY,
+      x: event.clientX - bounds.left - origin.x - pointerDrag.offsetX,
+      y: event.clientY - bounds.top - origin.y - pointerDrag.offsetY,
     }));
   }
 
@@ -178,9 +183,10 @@ export function AgentGraphCanvas({
     const kind = event.dataTransfer.getData(AGENT_GRAPH_NODE_DRAG_TYPE) as AgentGraphNodeKind;
     if (!isNodeKind(kind)) return;
     const bounds = event.currentTarget.getBoundingClientRect();
+    const origin = logicalCanvasOrigin(bounds);
     onAddNode(kind, clampPosition({
-      x: event.clientX - bounds.left - NODE_WIDTH / 2,
-      y: event.clientY - bounds.top - NODE_HEIGHT / 2,
+      x: event.clientX - bounds.left - origin.x - NODE_WIDTH / 2,
+      y: event.clientY - bounds.top - origin.y - NODE_HEIGHT / 2,
     }));
   }
 
@@ -224,7 +230,7 @@ export function AgentGraphCanvas({
           aria-label={t("graphs.canvas")}
           className="react-agent-graph-canvas"
           onClick={(event) => {
-            if (event.currentTarget === event.target) {
+            if (!(event.target as Element).closest(".react-agent-graph-node, .react-agent-graph-edge-hit")) {
               setSelection(null);
               onSelectionChange(null);
             }
@@ -236,8 +242,8 @@ export function AgentGraphCanvas({
           ref={canvasRef}
           role="region"
         >
-
-        <svg aria-label={t("graphs.connections")} className="react-agent-graph-canvas__edges" role="group">
+        <div className="react-agent-graph-canvas__stage">
+          <svg aria-label={t("graphs.connections")} className="react-agent-graph-canvas__edges" role="group">
           <defs>
             <marker id="agent-graph-arrow" markerHeight="7" markerWidth="7" orient="auto" refX="6" refY="3.5">
               <path d="M 0 0 L 7 3.5 L 0 7 z" />
@@ -249,9 +255,16 @@ export function AgentGraphCanvas({
             if (!source || !target) return null;
             const path = createEdgePath(source, target);
             const isSelected = selection?.type === "edge" && selection.id === edge.id;
+            const runtimeStatus = edgeRuntimeStatus(source, target, run);
             return (
               <g key={edge.id}>
-                <path className="react-agent-graph-edge" d={path} data-selected={isSelected} markerEnd="url(#agent-graph-arrow)" />
+                <path
+                  className="react-agent-graph-edge"
+                  d={path}
+                  data-runtime-status={runtimeStatus}
+                  data-selected={isSelected}
+                  markerEnd="url(#agent-graph-arrow)"
+                />
                 {!readOnly ? <path
                   aria-label={t("graphs.connectionLabel", {
                     source: t(`graphs.nodes.${source.kind}`),
@@ -278,11 +291,12 @@ export function AgentGraphCanvas({
               </g>
             );
           })}
-        </svg>
+          </svg>
 
-        {definition.nodes.map((node) => {
+          {definition.nodes.map((node) => {
           const isSelected = selection?.type === "node" && selection.id === node.id;
           const isDragging = pointerDrag?.nodeId === node.id;
+          const runtimeStatus = agentGraphNodeStatus(node, run);
           return (
             <article
               aria-label={t("graphs.nodeLabel", { kind: t(`graphs.nodes.${node.kind}`) })}
@@ -290,6 +304,7 @@ export function AgentGraphCanvas({
               data-dragging={isDragging}
               data-kind={node.kind}
               data-read-only={readOnly}
+              data-runtime-status={runtimeStatus}
               data-selected={isSelected}
               data-x={node.position.x}
               data-y={node.position.y}
@@ -341,6 +356,16 @@ export function AgentGraphCanvas({
                 </small>
                 <strong>{t(`graphs.nodes.${node.kind}`)}</strong>
               </span>
+              {runtimeStatus !== "not_run" ? (
+                <span aria-hidden="true" className="react-agent-graph-node__runtime-status">
+                  {runtimeStatus === "running"
+                    ? <LoaderCircle size={13} />
+                    : runtimeStatus === "completed"
+                      ? <Check size={13} />
+                      : null}
+                  <small>{t(`graphs.nodeInspectionStatuses.${runtimeStatus}`)}</small>
+                </span>
+              ) : null}
               {!readOnly && node.kind !== "output" ? (
                 <button
                   aria-label={t("graphs.connectionSource", { kind: t(`graphs.nodes.${node.kind}`) })}
@@ -356,7 +381,8 @@ export function AgentGraphCanvas({
               ) : null}
             </article>
           );
-        })}
+          })}
+        </div>
         </div>
       </div>
     </div>
@@ -386,6 +412,52 @@ function createEdgePath(source: AgentGraphNode, target: AgentGraphNode): string 
   const targetY = target.position.y + NODE_HEIGHT / 2;
   const curve = Math.max(48, Math.abs(targetX - sourceX) / 2);
   return `M ${sourceX} ${sourceY} C ${sourceX + curve} ${sourceY}, ${targetX - curve} ${targetY}, ${targetX} ${targetY}`;
+}
+
+function logicalCanvasOrigin(bounds: Pick<DOMRect, "width" | "height">): AgentGraphNodePosition {
+  return {
+    x: Math.max(0, (bounds.width - CANVAS_WIDTH) / 2),
+    y: Math.max(0, (bounds.height - CANVAS_HEIGHT) / 2),
+  };
+}
+
+type AgentGraphNodeRuntimeStatus =
+  | "not_run"
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+function agentGraphNodeStatus(
+  node: AgentGraphNode,
+  run?: AgentGraphRun,
+): AgentGraphNodeRuntimeStatus {
+  if (!run) return "not_run";
+  if (node.kind === "input") return "completed";
+  if (node.kind === "output") {
+    return run.status === "completed"
+      ? "completed"
+      : run.status === "failed" || run.status === "cancelled"
+        ? run.status
+        : "pending";
+  }
+  if (node.kind === "condition") return "not_run";
+  const nodeRun = [...run.nodeRuns].reverse().find((candidate) => candidate.nodeId === node.id);
+  return nodeRun?.status ?? "pending";
+}
+
+function edgeRuntimeStatus(
+  source: AgentGraphNode,
+  target: AgentGraphNode,
+  run?: AgentGraphRun,
+): "idle" | "active" | "completed" {
+  if (!run) return "idle";
+  const sourceStatus = agentGraphNodeStatus(source, run);
+  const targetStatus = agentGraphNodeStatus(target, run);
+  if (sourceStatus === "completed" && targetStatus === "completed") return "completed";
+  if (sourceStatus === "completed" && (targetStatus === "pending" || targetStatus === "running")) return "active";
+  return "idle";
 }
 
 function isNodeKind(value: string): value is AgentGraphNodeKind {
