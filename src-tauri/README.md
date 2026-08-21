@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:979445516a886566d88b31ba4bc00c490ad616ceae272dd56975bf1da011c6d1 -->
+<!-- tinybot-module-fingerprint: sha256:4b71432e84e0019f365e066460b8f6724d436d34d122810e2f137278b0d4076a -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -163,6 +163,7 @@ roles:
 | `~/.tinybot/threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | `threads::rollout::store` | Active canonical Rollouts |
 | `~/.tinybot/archived_threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | `threads::rollout::store` | Archived canonical Rollouts |
 | `~/.tinybot/project-groups.json` | `project_groups` | Named groups and their workspace memberships |
+| `~/.tinybot/chat-attachments/images/<sha256>.<ext>` | `chat_attachments` | Content-addressed local image copies referenced by durable chat messages and encoded only while building provider requests |
 | `<workspace>/.tinybot/graphs/<graph-id>.json` | `agent_graphs` | Versioned Agent Graph definitions |
 | `~/.tinybot/graph-runs/<graph-id>/<run-id>.json` | `graph_runs` | Saved Input prompt, execution, output, and node-to-Thread status |
 | `~/.tinybot/hooks.json` | `command_hooks` | Global user command-hook definitions |

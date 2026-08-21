@@ -816,7 +816,9 @@ function normalizeReferences(value: unknown): AgentInputReference[] | undefined 
   }
   return value.map((item) => {
     const row = recordValue(item);
+    const contentHash = stringValue(row.contentHash ?? row.content_hash);
     const evidenceId = stringValue(row.evidenceId ?? row.evidence_id);
+    const mimeType = stringValue(row.mimeType ?? row.mime_type);
     const noteId = stringValue(row.noteId ?? row.note_id);
     const rawLine = numberValue(row.rawLine ?? row.raw_line);
     const rawPath = stringValue(row.rawPath ?? row.raw_path);
@@ -824,11 +826,14 @@ function normalizeReferences(value: unknown): AgentInputReference[] | undefined 
     const sourceLine = numberValue(row.sourceLine ?? row.source_line);
     const sourcePath = stringValue(row.sourcePath ?? row.source_path);
     const sourceText = stringValue(row.sourceText ?? row.source_text);
+    const sizeBytes = numberValue(row.sizeBytes ?? row.size_bytes);
     const type = stringValue(row.type);
     return {
       detail: stringValue(row.detail ?? row.content ?? row.summary ?? row.url),
+      ...(contentHash ? { contentHash } : {}),
       ...(evidenceId ? { evidenceId } : {}),
       kind: "reference",
+      ...(mimeType ? { mimeType } : {}),
       ...(noteId ? { noteId } : {}),
       ...(rawLine !== undefined ? { rawLine } : {}),
       ...(rawPath ? { rawPath } : {}),
@@ -836,6 +841,7 @@ function normalizeReferences(value: unknown): AgentInputReference[] | undefined 
       ...(sourceLine !== undefined ? { sourceLine } : {}),
       ...(sourcePath ? { sourcePath } : {}),
       ...(sourceText ? { sourceText } : {}),
+      ...(sizeBytes !== undefined ? { sizeBytes } : {}),
       title: stringValue(row.title ?? row.name ?? row.id) || "Reference",
       ...(type ? { type } : {}),
     };

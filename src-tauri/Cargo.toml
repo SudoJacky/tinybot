@@ -32,6 +32,7 @@ tauri-build = { version = "2", features = [] }
 async-trait = "0.1"
 async-openai = { version = "0.41.1", default-features = false, features = ["native-tls", "chat-completion", "model", "responses", "byot"] }
 axum = { version = "0.8", optional = true }
+base64 = "0.22"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 futures-util = "0.3"
 http = "1"

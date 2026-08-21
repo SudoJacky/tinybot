@@ -12,7 +12,7 @@ src-tauri/src/desktop_commands/plugins.rs
 src/app-core/native/desktopNativeHooks.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:59fde2c9e7148b9cc8e47e1b7a6a91e552555bbcd968e55f339a8ce3a813cd6b -->
+<!-- tinybot-doc-fingerprint: sha256:bc6baa69bacafd13e9675375770785146dd4910c3cb9542727448d3aef2b8d2e -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -63,7 +63,7 @@ back to `~/.tinybot/workspace`.
 | Command | Args | Response |
 | --- | --- | --- |
 | `pick_upload_file` | `{ options: { title?: string, filters?: { name: string, extensions: string[] }[] } }` | `null` when cancelled, or `{ name, path, mime_type, size_bytes, bytes }` |
-| `pick_chat_files` | `{ options: { title?: string, filters?: { name: string, extensions: string[] }[] } }` | `[]` when cancelled, or `{ name, path, mimeType, sizeBytes }[]`; file bytes are not loaded |
+| `pick_chat_files` | `{ options: { title?: string, filters?: { name: string, extensions: string[] }[] } }` | `[]` when cancelled, or `{ name, path, mimeType, sizeBytes, contentHash? }[]`; supported images are copied into Tinybot-managed storage and identified by `contentHash`, while other files keep their selected path; file bytes are not returned |
 | `pick_workspace_directory` | `{ options: { title?: string } }` | `null` when cancelled, or the selected absolute UTF-8 path |
 | `save_export_file` | `{ options: { title?: string, defaultPath?: string, filters?: Filter[], contents: string } }` | `null` when cancelled, or `{ path }` |
 | `reveal_workspace_file` | `{ path: string }` | `void` |

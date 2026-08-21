@@ -1,4 +1,5 @@
 export type AgentInputReference = {
+  contentHash?: string;
   kind: "browser" | "recent" | "reference";
   title: string;
   detail: string;
@@ -8,6 +9,8 @@ export type AgentInputReference = {
   sourceText?: string;
   rawPath?: string;
   rawLine?: number;
+  mimeType?: string;
+  sizeBytes?: number;
   noteId?: string;
   evidenceId?: string;
   scope?: string;

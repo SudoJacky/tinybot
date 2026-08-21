@@ -10,6 +10,7 @@ import {
   Copy,
   FileText,
   GitBranch,
+  ImageIcon,
   ListCollapse,
   Loader2,
   PanelRightOpen,
@@ -870,10 +871,13 @@ function canonicalFormValue(value: unknown): string {
 }
 
 function canonicalReferenceSummary(reference: AgentInputReference, index: number): ContextReferenceSummary {
+  const attachmentKind = reference.type === "tinyos.image" ? "image" : "file";
   return {
+    attachmentKind,
     id: reference.noteId || reference.evidenceId || `${reference.kind}:${index}`,
     kind: reference.kind,
-    presentation: reference.type === "tinyos.file" && Boolean(reference.rawPath) && !reference.sourcePath
+    presentation: ["tinyos.file", "tinyos.image"].includes(reference.type ?? "")
+      && Boolean(reference.rawPath) && !reference.sourcePath
       ? "attachment"
       : "context",
     title: reference.title,
@@ -1006,7 +1010,11 @@ function MessageContext({ references }: { references: ContextReferenceSummary[] 
         {references.map((reference) => (
           <li data-presentation={reference.presentation ?? "context"} key={reference.id}>
             {reference.presentation === "attachment" ? (
-              <span className="react-message-context__icon"><FileText aria-hidden="true" size={16} /></span>
+              <span className="react-message-context__icon">
+                {reference.attachmentKind === "image"
+                  ? <ImageIcon aria-hidden="true" size={16} />
+                  : <FileText aria-hidden="true" size={16} />}
+              </span>
             ) : null}
             <span className="react-message-context__text">
               <strong>{reference.title}</strong>

@@ -581,6 +581,41 @@ describe("ChatPage", () => {
     });
   });
 
+  it("sends managed images as multimodal references without embedding base64 in the command", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    nativeFilePickerMocks.pickDesktopChatFiles.mockResolvedValueOnce([{
+      contentHash: "abc123",
+      name: "diagram.png",
+      path: "C:\\Users\\tester\\.tinybot\\chat-attachments\\images\\abc123.png",
+      mimeType: "image/png",
+      sizeBytes: 2048,
+    }]);
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const input = await screen.findByRole("textbox", { name: /message/i });
+    await user.click(screen.getByRole("button", { name: "Attach files" }));
+    await waitFor(() => expect(nativeFilePickerMocks.pickDesktopChatFiles).toHaveBeenCalledTimes(1));
+    await user.type(input, "Explain this diagram");
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+
+    expectTurnSubmit(stores.chatStore, "s1", {
+      reasoningEffort: "medium",
+      references: [{
+        contentHash: "abc123",
+        detail: "PNG - 2 KB",
+        kind: "reference",
+        mimeType: "image/png",
+        rawPath: "C:\\Users\\tester\\.tinybot\\chat-attachments\\images\\abc123.png",
+        sizeBytes: 2048,
+        title: "diagram.png",
+        type: "tinyos.image",
+      }],
+      text: "Explain this diagram",
+    });
+    expect(JSON.stringify(vi.mocked(stores.chatStore.dispatch).mock.calls)).not.toContain("base64");
+  });
+
   it("renders native file metadata without exposing its absolute path", async () => {
     const stores = createStores();
     const timeline = timelineFromReactMessages("s1", [{

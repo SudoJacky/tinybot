@@ -103,6 +103,38 @@ describe("chat projection", () => {
     });
   });
 
+  test("preserves managed image metadata from persisted user references", () => {
+    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("turn-image", [{
+      itemId: "user-image",
+      kind: "user_message",
+      status: "completed",
+      data: {
+        type: "user_message",
+        messageId: "user-image",
+        content: "Describe this image",
+        references: [{
+          contentHash: "abc123",
+          detail: "PNG - 2 KB",
+          kind: "reference",
+          mimeType: "image/png",
+          rawPath: "C:\\Users\\tester\\.tinybot\\chat-attachments\\images\\abc123.png",
+          sizeBytes: 2048,
+          title: "diagram.png",
+          type: "tinyos.image",
+        }],
+      },
+    }]));
+
+    const [turn] = projectBackendTimeline("WebSocket:chat-1", [runtimeState]);
+
+    expect(turn.userMessage.references).toEqual([expect.objectContaining({
+      contentHash: "abc123",
+      mimeType: "image/png",
+      sizeBytes: 2048,
+      type: "tinyos.image",
+    })]);
+  });
+
   test("projects a persisted data view artifact from a canonical tool result", () => {
     const content = {
       schemaVersion: "tinybot.data_view.v1",
