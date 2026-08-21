@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type DragEvent as ReactDragEvent } from "react";
-import { Circle, Eye, GripVertical, PencilLine, Play, Plus, Save, Trash2, Workflow, X } from "lucide-react";
+import { ArrowUpRight, Circle, Eye, GripVertical, PencilLine, Play, Plus, Save, Trash2, Workflow, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   isReasoningEffort,
@@ -37,9 +37,15 @@ import {
   NodeIcon,
 } from "./AgentGraphCanvas";
 import { AgentGraphNodeDrawer } from "./AgentGraphNodeDrawer";
+import { AgentGraphPreview } from "./AgentGraphPreview";
 import "./AgentGraphsRoute.css";
 
 const NODE_KINDS: AgentGraphNodeKind[] = ["input", "agent", "condition", "output"];
+const STARTER_GRAPH_PREVIEW = createAgentGraphDraft({
+  id: "starter-graph-preview",
+  name: "",
+  workspacePath: "",
+});
 type AgentGraphInteractionMode = "edit" | "view";
 
 export default function AgentGraphsRoute({ services }: { services: AppServices }) {
@@ -78,12 +84,14 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   ));
   const inspectedNode = draft?.nodes.find((node) => node.id === inspectedNodeId);
   const selectedRun = runs.find((run) => run.id === selectedRunId) ?? runs[0];
-  const selectedModelValue = selectedAgentNode?.config.model
-    ? agentGraphModelValue(selectedAgentNode.config.model)
-    : "";
-  const modelChoices = agentGraphModelChoices(chatModels, selectedAgentNode?.config.model, {
-    inheritDescription: t("graphs.inheritModelDescription"),
-    inheritLabel: t("graphs.inheritModel"),
+  const selectedProviderValue = selectedAgentNode?.config.model?.providerId ?? "";
+  const providerChoices = agentGraphProviderChoices(chatModels, selectedAgentNode?.config.model, {
+    inheritDescription: t("graphs.inheritProviderDescription"),
+    inheritLabel: t("graphs.inheritProvider"),
+    unavailableDescription: t("graphs.providerUnavailableDescription"),
+  });
+  const selectedProviderModels = chatModels.filter((model) => model.providerId === selectedProviderValue);
+  const modelChoices = agentGraphModelChoices(selectedProviderModels, selectedAgentNode?.config.model, {
     unavailableDescription: t("graphs.modelUnavailableDescription"),
   });
 
@@ -251,8 +259,9 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     applyEdit(configureAgentGraphNode(draft, selectedAgentNode.id, config));
   }
 
-  function selectAgentModel(value: string) {
+  function selectAgentProvider(value: string) {
     if (!selectedAgentNode) return;
+    if (selectedAgentNode.config.model?.providerId === value) return;
     if (!value) {
       updateSelectedAgentConfig({
         instructions: selectedAgentNode.config.instructions ?? "",
@@ -260,13 +269,29 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
       });
       return;
     }
-    const selectedModel = chatModels.find((model) => agentGraphModelValue(model) === value);
+    const providerModels = chatModels.filter((model) => model.providerId === value);
+    const selectedModel = providerModels.find((model) => model.default) ?? providerModels[0];
     if (!selectedModel) return;
     updateSelectedAgentConfig({
       ...selectedAgentNode.config,
       model: {
         modelId: selectedModel.id,
         ...(selectedModel.providerId ? { providerId: selectedModel.providerId } : {}),
+      },
+    });
+  }
+
+  function selectAgentModel(value: string) {
+    const providerId = selectedAgentNode?.config.model?.providerId;
+    if (!selectedAgentNode || !providerId) return;
+    if (selectedAgentNode.config.model?.modelId === value) return;
+    const selectedModel = chatModels.find((model) => model.providerId === providerId && model.id === value);
+    if (!selectedModel) return;
+    updateSelectedAgentConfig({
+      ...selectedAgentNode.config,
+      model: {
+        modelId: selectedModel.id,
+        providerId,
       },
     });
   }
@@ -417,44 +442,43 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
 
   return (
     <main className="react-agent-graphs-page" data-editor-open={Boolean(draft)}>
-      {!draft ? <header className="react-agent-graphs-page__header">
-        <span className="react-agent-graphs-page__heading">
-          <span className="react-agent-graphs-page__eyebrow">{t("graphs.eyebrow")}</span>
-          <h1>{t("graphs.title")}</h1>
-          <p>{t("graphs.description")}</p>
-        </span>
-        {!draft ? (
+      {!draft ? (
+        <header className="react-agent-graphs-page__header">
+          <span className="react-agent-graphs-page__heading">
+            <span className="react-agent-graphs-page__eyebrow">{t("graphs.eyebrow")}</span>
+            <h1>{t("graphs.title")}</h1>
+            <p>{t("graphs.description")}</p>
+          </span>
+          <section className="react-agent-graph-workspace" aria-label={t("graphs.definitionWorkspace")}>
+            <SettingsChoiceList
+              ariaLabel={t("graphs.definitionWorkspace")}
+              description={t("graphs.definitionWorkspaceDescription")}
+              disabled={!workspaceCatalogReady || !workspaceOptions.length}
+              label={t("graphs.definitionWorkspace")}
+              onChange={setDefinitionWorkspacePath}
+              options={workspaceOptions.map((path) => ({
+                description: path,
+                label: sessionWorkspaceName(path),
+                value: path,
+              }))}
+              optionsAriaLabel={t("graphs.workspaceOptions")}
+              value={definitionWorkspacePath}
+            />
+            {workspaceCatalogError ? (
+              <p className="react-agent-graph-workspace__error" role="alert">
+                {t("graphs.workspaceLoadFailed", { message: workspaceCatalogError })}
+              </p>
+            ) : null}
+            {workspaceCatalogReady && !workspaceCatalogError && !workspaceOptions.length ? (
+              <p className="react-agent-graph-workspace__empty" role="status">{t("graphs.workspaceEmpty")}</p>
+            ) : null}
+          </section>
           <button disabled={!definitionWorkspacePath} className="react-agent-graphs-page__primary" type="button" onClick={createDraft}>
             <Plus aria-hidden="true" size={16} />
             {t("graphs.new")}
           </button>
-        ) : null}
-      </header> : null}
-
-      {!draft ? <section className="react-agent-graph-workspace" aria-label={t("graphs.definitionWorkspace")}>
-        <SettingsChoiceList
-          ariaLabel={t("graphs.definitionWorkspace")}
-          description={t("graphs.definitionWorkspaceDescription")}
-          disabled={!workspaceCatalogReady || !workspaceOptions.length || draft !== null}
-          label={t("graphs.definitionWorkspace")}
-          onChange={setDefinitionWorkspacePath}
-          options={workspaceOptions.map((path) => ({
-            description: path,
-            label: sessionWorkspaceName(path),
-            value: path,
-          }))}
-          optionsAriaLabel={t("graphs.workspaceOptions")}
-          value={definitionWorkspacePath}
-        />
-        {workspaceCatalogError ? (
-          <p className="react-agent-graph-workspace__error" role="alert">
-            {t("graphs.workspaceLoadFailed", { message: workspaceCatalogError })}
-          </p>
-        ) : null}
-        {workspaceCatalogReady && !workspaceCatalogError && !workspaceOptions.length ? (
-          <p className="react-agent-graph-workspace__empty" role="status">{t("graphs.workspaceEmpty")}</p>
-        ) : null}
-      </section> : null}
+        </header>
+      ) : null}
 
       {!draft ? (
         graphListLoading ? (
@@ -466,16 +490,27 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                 <h2 id="agent-graph-library-title">{t("graphs.savedGraphs")}</h2>
                 <p>{t("graphs.savedGraphsDescription")}</p>
               </span>
+              <small>{t("graphs.libraryCount", { count: storedGraphs.length })}</small>
             </header>
             <ul>
               {storedGraphs.map((graph) => (
                 <li key={graph.definition.id}>
                   <button type="button" onClick={() => openStoredGraph(graph)}>
-                    <strong>{graph.definition.name}</strong>
-                    <small>{t("graphs.graphSummary", {
-                      edges: graph.definition.edges.length,
-                      nodes: graph.definition.nodes.length,
-                    })}</small>
+                    <AgentGraphPreview
+                      definition={graph.definition}
+                      label={t("graphs.graphPreview", { name: graph.definition.name })}
+                    />
+                    <span className="react-agent-graph-library__card-body">
+                      <span>
+                        <strong>{graph.definition.name}</strong>
+                        <small>{t("graphs.graphSummary", {
+                          edges: graph.definition.edges.length,
+                          nodes: graph.definition.nodes.length,
+                        })}</small>
+                      </span>
+                      <span className="react-agent-graph-library__saved">{t("graphs.saved")}</span>
+                      <ArrowUpRight aria-hidden="true" size={16} />
+                    </span>
                   </button>
                 </li>
               ))}
@@ -483,13 +518,16 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
           </section>
         ) : (
           <section className="react-agent-graphs-empty" aria-labelledby="agent-graphs-empty-title">
-            <span aria-hidden="true" className="react-agent-graphs-empty__icon"><Workflow size={25} /></span>
-            <h2 id="agent-graphs-empty-title">{t("graphs.emptyTitle")}</h2>
-            <p>{t("graphs.emptyDescription")}</p>
-            <button disabled={!definitionWorkspacePath} className="react-agent-graphs-page__primary" type="button" onClick={createDraft}>
-              <Plus aria-hidden="true" size={16} />
-              {t("graphs.createFirst")}
-            </button>
+            <AgentGraphPreview definition={STARTER_GRAPH_PREVIEW} label={t("graphs.starterPreview")} />
+            <span className="react-agent-graphs-empty__content">
+              <span aria-hidden="true" className="react-agent-graphs-empty__icon"><Workflow size={22} /></span>
+              <h2 id="agent-graphs-empty-title">{t("graphs.emptyTitle")}</h2>
+              <p>{t("graphs.emptyDescription")}</p>
+              <button disabled={!definitionWorkspacePath} className="react-agent-graphs-page__primary" type="button" onClick={createDraft}>
+                <Plus aria-hidden="true" size={16} />
+                {t("graphs.createFirst")}
+              </button>
+            </span>
           </section>
         )
       ) : (
@@ -656,39 +694,54 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                       />
                     </label>
                     <SettingsChoiceList
-                      ariaLabel={t("graphs.nodeModel")}
-                      description={t("graphs.nodeModelDescription")}
+                      ariaLabel={t("graphs.nodeProvider")}
+                      description={t("graphs.nodeProviderDescription")}
                       error={modelCatalogError
                         ? t("graphs.modelLoadFailed", { message: modelCatalogError })
                         : undefined}
+                      label={t("graphs.nodeProvider")}
+                      onChange={selectAgentProvider}
+                      options={providerChoices}
+                      optionsAriaLabel={t("graphs.providerOptions")}
+                      value={selectedProviderValue}
+                    />
+                    <SettingsChoiceList
+                      ariaLabel={t("graphs.nodeModel")}
+                      description={t("graphs.nodeModelDescription")}
+                      disabled={!selectedProviderValue || !selectedProviderModels.length}
                       label={t("graphs.nodeModel")}
                       onChange={selectAgentModel}
-                      options={modelChoices}
-                      optionsAriaLabel={t("graphs.modelOptions")}
-                      value={selectedModelValue}
-                    />
-                    {selectedAgentNode.config.model ? (
-                      <SettingsChoiceList
-                        ariaLabel={t("graphs.reasoningEffort")}
-                        description={t("graphs.reasoningEffortDescription")}
-                        label={t("graphs.reasoningEffort")}
-                        onChange={selectAgentReasoningEffort}
-                        options={[
-                          {
-                            description: t("graphs.reasoningDefaultDescription"),
-                            label: t("graphs.reasoningDefault"),
+                      options={selectedProviderValue
+                        ? modelChoices
+                        : [{
+                            description: t("graphs.inheritModelDescription"),
+                            label: t("graphs.inheritModel"),
                             value: "",
-                          },
-                          ...REASONING_EFFORT_VALUES.map((effort) => ({
-                            description: t(`graphs.reasoningOptions.${effort}.description`),
-                            label: t(`graphs.reasoningOptions.${effort}.label`),
-                            value: effort,
-                          })),
-                        ]}
-                        optionsAriaLabel={t("graphs.reasoningOptionsLabel")}
-                        value={selectedAgentNode.config.model.reasoningEffort ?? ""}
-                      />
-                    ) : null}
+                          }]}
+                      optionsAriaLabel={t("graphs.modelOptions")}
+                      value={selectedAgentNode.config.model?.modelId ?? ""}
+                    />
+                    <SettingsChoiceList
+                      ariaLabel={t("graphs.reasoningEffort")}
+                      description={t("graphs.reasoningEffortDescription")}
+                      disabled={!selectedAgentNode.config.model}
+                      label={t("graphs.reasoningEffort")}
+                      onChange={selectAgentReasoningEffort}
+                      options={[
+                        {
+                          description: t("graphs.reasoningDefaultDescription"),
+                          label: t("graphs.reasoningDefault"),
+                          value: "",
+                        },
+                        ...REASONING_EFFORT_VALUES.map((effort) => ({
+                          description: t(`graphs.reasoningOptions.${effort}.description`),
+                          label: t(`graphs.reasoningOptions.${effort}.label`),
+                          value: effort,
+                        })),
+                      ]}
+                      optionsAriaLabel={t("graphs.reasoningOptionsLabel")}
+                      value={selectedAgentNode.config.model?.reasoningEffort ?? ""}
+                    />
                   </div>
                 </section>
               ) : null}
@@ -794,12 +847,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   );
 }
 
-function agentGraphModelValue(model: ChatModelOption | NonNullable<AgentLoopNodeConfig["model"]>): string {
-  const modelId = "modelId" in model ? model.modelId : model.id;
-  return `${model.providerId ?? ""}\u001f${modelId}`;
-}
-
-function agentGraphModelChoices(
+function agentGraphProviderChoices(
   models: ChatModelOption[],
   current: AgentLoopNodeConfig["model"] | undefined,
   labels: {
@@ -814,20 +862,44 @@ function agentGraphModelChoices(
       label: labels.inheritLabel,
       value: "",
     },
-    ...models.map((model) => ({
-      description: model.providerLabel ?? model.description ?? model.providerId,
-      label: model.label,
-      value: agentGraphModelValue(model),
-    })),
   ];
-  if (current && !models.some((model) => agentGraphModelValue(model) === agentGraphModelValue(current))) {
+  const providerIds = new Set<string>();
+  for (const model of models) {
+    if (!model.providerId || providerIds.has(model.providerId)) continue;
+    providerIds.add(model.providerId);
+    choices.push({
+      description: model.providerId,
+      label: model.providerLabel ?? model.providerId,
+      value: model.providerId,
+    });
+  }
+  if (current?.providerId && !providerIds.has(current.providerId)) {
     choices.splice(1, 0, {
-      description: current.providerId
-        ? `${current.providerId} · ${labels.unavailableDescription}`
-        : labels.unavailableDescription,
+      description: labels.unavailableDescription,
+      disabled: true,
+      label: current.providerId,
+      value: current.providerId,
+    });
+  }
+  return choices;
+}
+
+function agentGraphModelChoices(
+  models: ChatModelOption[],
+  current: AgentLoopNodeConfig["model"] | undefined,
+  labels: { unavailableDescription: string },
+): SettingsChoiceOption[] {
+  const choices: SettingsChoiceOption[] = models.map((model) => ({
+    description: model.description,
+    label: model.label,
+    value: model.id,
+  }));
+  if (current && !models.some((model) => model.id === current.modelId)) {
+    choices.unshift({
+      description: labels.unavailableDescription,
       disabled: true,
       label: current.modelId,
-      value: agentGraphModelValue(current),
+      value: current.modelId,
     });
   }
   return choices;

@@ -47,6 +47,43 @@ describe("desktop settings store", () => {
     expect(route).toHaveBeenCalledWith({ method: "GET", path: "/api/providers" });
   });
 
+  it("excludes models from enabled providers that are not available", async () => {
+    const get = vi.fn(async () => ({
+      agents: { defaults: { activeProfile: "dashscope-default", model: "qwen-plus", provider: "dashscope" } },
+      providers: {
+        profiles: {
+          "deepseek-default": {
+            provider: "deepseek",
+            displayName: "DeepSeek",
+            enabled: true,
+            models: ["deepseek-chat"],
+          },
+          "dashscope-default": {
+            provider: "dashscope",
+            displayName: "DashScope",
+            enabled: true,
+            models: ["qwen-plus"],
+          },
+        },
+      },
+    }));
+    const route = vi.fn(async () => ({
+      providers: [
+        { id: "deepseek", displayName: "DeepSeek", status: "ready" },
+        { id: "dashscope", displayName: "DashScope", status: "not_configured" },
+      ],
+    }));
+    const store = createDesktopSettingsStore({
+      initialize: async () => undefined,
+      nativeConfig: { get },
+      nativeWebui: { route },
+    });
+
+    await expect(store.loadChatModels!()).resolves.toEqual([
+      expect.objectContaining({ id: "deepseek-chat", providerId: "deepseek" }),
+    ]);
+  });
+
   it("does not hide provider catalog failures", async () => {
     const failure = new Error("provider catalog unavailable");
     const store = createDesktopSettingsStore({

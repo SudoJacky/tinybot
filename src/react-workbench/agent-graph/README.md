@@ -13,12 +13,19 @@ mode, with the configuration panel anchored below or above that node so it
 tracks canvas pan and zoom without covering the selection. View mode reuses the
 same anchored panel placement for read-only Run status and messages. The route selects a
 definition workspace from workspaces already known to Chat and project groups.
+Before a definition is opened, the same workspace command bar serves both the
+empty and saved-library states. The empty state previews the starter
+Input-to-Agent-to-Output topology; saved definitions render their real nodes
+and edges as compact visual cards, with only persisted status and graph counts
+shown as metadata.
 Each Agent node defaults to that workspace and can select a different execution
 workspace. Input and Output remain unique protected boundaries. The selected
 Input node owns the required initial prompt sent to the first Agent. A selected
 Agent node edits additional role
-instructions and chooses a configured model plus optional reasoning effort;
-the explicit inherit choice leaves model routing to the application defaults.
+instructions and chooses a currently available Provider, one of its models, and optional reasoning effort;
+the explicit inherit choice leaves model routing to the application defaults. Definition workspace,
+execution workspace, model, and reasoning controls reuse the workbench's canonical
+`SettingsChoiceList` appearance and interaction; Graph only owns their placement.
 The route lists, explicitly saves, opens, and deletes
 workspace definitions through `AgentGraphStore`; dirty state and revision
 conflicts stay visible. A separate Run panel starts only saved definitions,

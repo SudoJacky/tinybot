@@ -238,7 +238,7 @@ function normalizeChatModelOptions(
   const defaultModel = stringValue(pane.defaultRouting?.model);
   const defaultProviderId = stringValue(pane.defaultRouting?.providerId);
   const defaultProvider = pane.providerCatalog.find((provider) => provider.id === defaultProviderId);
-  const providers = pane.providerCatalog.filter((provider) => provider.enabled !== false);
+  const providers = pane.providerCatalog.filter(isAvailableChatModelProvider);
   const options = new Map<string, ChatModelOption>();
   for (const provider of providers) {
     for (const model of provider.models ?? []) {
@@ -256,7 +256,7 @@ function normalizeChatModelOptions(
     }
   }
   const defaultOptionKey = chatModelOptionKey(defaultProvider?.id || defaultProviderId, defaultModel);
-  if (defaultModel && !options.has(defaultOptionKey)) {
+  if (defaultModel && defaultProvider && isAvailableChatModelProvider(defaultProvider) && !options.has(defaultOptionKey)) {
     options.set(defaultOptionKey, {
       id: defaultModel,
       label: defaultModel,
@@ -271,6 +271,12 @@ function normalizeChatModelOptions(
     if (right.default) return 1;
     return left.label.localeCompare(right.label);
   });
+}
+
+function isAvailableChatModelProvider(
+  provider: ReturnType<typeof buildDesktopSettingsPaneModel>["providerCatalog"][number],
+): boolean {
+  return provider.enabled !== false && ["available", "ready"].includes(provider.status.trim().toLowerCase());
 }
 
 function chatModelOptionKey(providerId: string, modelId: string): string {

@@ -23,7 +23,8 @@ describe("AgentGraphsRoute", () => {
     render(<AgentGraphsRoute services={createServices()} />);
 
     expect(screen.getByRole("heading", { name: "Agent Graphs" })).toBeTruthy();
-    expect(screen.getByText("No graphs yet")).toBeTruthy();
+    expect(screen.getByText("Start with your first workflow")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Starter workflow preview with Input, Agent, and Output" })).toBeTruthy();
     await screen.findByRole("button", { name: "Definition workspace: tinybot" });
 
     await user.click(screen.getByRole("button", { name: "Create first graph" }));
@@ -41,7 +42,7 @@ describe("AgentGraphsRoute", () => {
     expect(screen.getByRole("alert").textContent).toContain("Enter a graph name");
 
     await user.click(screen.getByRole("button", { name: "Discard draft" }));
-    expect(screen.getByText("No graphs yet")).toBeTruthy();
+    expect(screen.getByText("Start with your first workflow")).toBeTruthy();
   });
 
   it("keeps canvas actions outside the horizontally scrolling graph surface", async () => {
@@ -193,15 +194,30 @@ describe("AgentGraphsRoute", () => {
     );
   });
 
-  it("configures node instructions, model, and reasoning effort independently", async () => {
+  it("configures node instructions, Provider, model, and reasoning effort independently", async () => {
     const user = userEvent.setup();
     const services = createServices({
-      chatModels: [{
-        id: "gpt-5.6-sol",
-        label: "gpt-5.6-sol",
-        providerId: "openai",
-        providerLabel: "OpenAI",
-      }],
+      chatModels: [
+        {
+          default: true,
+          id: "gpt-5.6-sol",
+          label: "gpt-5.6-sol",
+          providerId: "openai",
+          providerLabel: "OpenAI",
+        },
+        {
+          id: "gpt-5.5",
+          label: "gpt-5.5",
+          providerId: "openai",
+          providerLabel: "OpenAI",
+        },
+        {
+          id: "deepseek-chat",
+          label: "deepseek-chat",
+          providerId: "deepseek",
+          providerLabel: "DeepSeek",
+        },
+      ],
     });
     render(<AgentGraphsRoute services={services} />);
 
@@ -214,8 +230,13 @@ describe("AgentGraphsRoute", () => {
       screen.getByRole("textbox", { name: /Node instructions/ }),
       "Research the topic and return a sourced report.",
     );
-    await user.click(screen.getByRole("button", { name: "Model: Inherit application default" }));
-    await user.click(await screen.findByRole("menuitemradio", { name: /gpt-5\.6-sol/ }));
+    await user.click(screen.getByRole("button", { name: "Provider: Inherit application default" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: /OpenAI/ }));
+    expect(screen.getByRole("button", { name: "Model: gpt-5.6-sol" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Model: gpt-5.6-sol" }));
+    expect(screen.queryByRole("menuitemradio", { name: /deepseek-chat/ })).toBeNull();
+    await user.click(screen.getByRole("menuitemradio", { name: /gpt-5\.5/ }));
     await user.click(screen.getByRole("button", { name: "Reasoning effort: Provider default" }));
     await user.click(screen.getByRole("menuitemradio", { name: /^High\b/ }));
     await user.click(screen.getByRole("button", { name: "Save Graph" }));
@@ -227,7 +248,7 @@ describe("AgentGraphsRoute", () => {
           config: {
             instructions: "Research the topic and return a sourced report.",
             model: {
-              modelId: "gpt-5.6-sol",
+              modelId: "gpt-5.5",
               providerId: "openai",
               reasoningEffort: "high",
             },
@@ -253,6 +274,9 @@ describe("AgentGraphsRoute", () => {
     });
     render(<AgentGraphsRoute services={services} />);
 
+    expect(await screen.findByRole("img", { name: "Workflow preview for Research flow" })).toBeTruthy();
+    expect(screen.getByText("1 Graph")).toBeTruthy();
+    expect(screen.getByText("3 nodes · 2 connections")).toBeTruthy();
     await user.click(await screen.findByRole("button", { name: /Research flow/ }));
     expect(screen.getByText("Saved")).toBeTruthy();
     await user.clear(screen.getByRole("textbox", { name: "Graph name" }));

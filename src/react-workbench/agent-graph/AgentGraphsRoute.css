@@ -1,16 +1,22 @@
 .react-agent-graphs-page {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 480px);
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto;
   align-content: start;
-  gap: 20px clamp(20px, 3vw, 32px);
+  gap: 24px;
   width: min(1180px, 100%);
   min-height: 100%;
   margin: 0 auto;
   padding: 30px clamp(24px, 4vw, 52px) 42px;
 }
 
-.react-agent-graphs-page__header,
+.react-agent-graphs-page__header {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(280px, 360px) max-content;
+  align-items: center;
+  gap: clamp(18px, 3vw, 34px);
+}
+
 .react-agent-graph-editor__header {
   display: flex;
   align-items: flex-start;
@@ -74,6 +80,8 @@
 }
 
 .react-agent-graphs-page__primary {
+  min-height: 40px;
+  padding-inline: 16px;
   border-color: var(--color-primary);
   background: var(--color-primary);
   color: var(--color-on-primary);
@@ -90,7 +98,7 @@
 }
 
 .react-agent-graph-workspace {
-  align-self: end;
+  align-self: center;
   width: 100%;
   min-width: 0;
 }
@@ -113,12 +121,12 @@
   display: grid;
   align-content: center;
   justify-items: center;
-  gap: 10px;
-  min-height: 360px;
-  padding: 48px 24px;
-  border: 1px dashed var(--color-hairline-strong);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--color-panel) 72%, transparent);
+  min-height: clamp(460px, calc(100vh - 250px), 640px);
+  padding: 28px 34px 48px;
+  overflow: hidden;
+  border: 1px solid var(--color-hairline);
+  border-radius: 14px;
+  background: var(--color-panel);
   text-align: center;
 }
 
@@ -131,11 +139,7 @@
 
 .react-agent-graph-library {
   display: grid;
-  gap: 16px;
-  padding: 18px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 14px;
-  background: var(--color-panel);
+  gap: 14px;
 }
 
 .react-agent-graph-library > header {
@@ -156,10 +160,15 @@
   font-size: 12px;
 }
 
+.react-agent-graph-library > header > small {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
 .react-agent-graph-library ul {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
-  gap: 9px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -168,24 +177,122 @@
 .react-agent-graph-library li button {
   display: grid;
   width: 100%;
-  gap: 4px;
-  padding: 13px;
+  min-height: 250px;
+  grid-template-rows: minmax(156px, 1fr) auto;
+  padding: 0;
+  overflow: hidden;
   border: 1px solid var(--color-hairline);
-  border-radius: 9px;
-  background: var(--color-canvas);
+  border-radius: 13px;
+  background: var(--color-panel);
   color: var(--color-ink);
   text-align: left;
+  transition:
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
 .react-agent-graph-library li button:hover,
 .react-agent-graph-library li button:focus-visible {
   border-color: var(--color-primary);
+  box-shadow: 0 14px 34px rgb(28 24 19 / 9%);
   outline: none;
+  transform: translateY(-2px);
 }
 
 .react-agent-graph-library li small {
   color: var(--color-muted);
   font-size: 11px;
+}
+
+.react-agent-graph-library__card-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content 18px;
+  align-items: center;
+  gap: 12px;
+  min-height: 82px;
+  padding: 14px 16px;
+  border-top: 1px solid var(--color-hairline);
+}
+
+.react-agent-graph-library__card-body > span:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.react-agent-graph-library__card-body strong,
+.react-agent-graph-library__card-body small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-agent-graph-library__saved {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-success) 12%, var(--color-panel));
+  color: var(--color-success);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.react-agent-graph-library__card-body > svg {
+  color: var(--color-muted);
+}
+
+.react-agent-graph-preview {
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background-color: var(--color-canvas);
+  background-image: radial-gradient(var(--color-hairline-strong) .75px, transparent .75px);
+  background-position: center;
+  background-size: 18px 18px;
+}
+
+.react-agent-graph-preview > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 24px 34px;
+}
+
+.react-agent-graph-preview__edges path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--color-muted) 72%, transparent);
+  stroke-linecap: round;
+  stroke-width: 2;
+}
+
+.react-agent-graph-preview__node {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  border: 1.5px solid color-mix(in srgb, var(--color-primary) 42%, var(--color-hairline));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-panel));
+  color: var(--color-primary);
+  box-shadow: 0 5px 14px rgb(28 24 19 / 7%);
+}
+
+.react-agent-graph-preview__node[data-kind="input"],
+.react-agent-graph-preview__node[data-kind="output"] {
+  border-color: color-mix(in srgb, var(--color-success) 46%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-success) 7%, var(--color-panel));
+  color: var(--color-success);
+}
+
+.react-agent-graph-preview__node[data-kind="condition"] {
+  border-color: color-mix(in srgb, var(--color-warning) 48%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-warning) 7%, var(--color-panel));
+  color: var(--color-warning);
+  transform: rotate(45deg) scale(.82);
+}
+
+.react-agent-graph-preview__node[data-kind="condition"] svg {
+  transform: rotate(-45deg) scale(1.12);
 }
 
 .react-agent-graph-persistence-error {
@@ -351,6 +458,19 @@
   background-color: var(--color-canvas);
   background-position: calc(50% + var(--graph-canvas-pan-x, 0px)) calc(50% + var(--graph-canvas-pan-y, 0px));
   background-size: var(--graph-canvas-grid-size, 18px) var(--graph-canvas-grid-size, 18px);
+}
+
+.react-agent-graphs-empty > .react-agent-graph-preview {
+  width: min(720px, 92%);
+  height: 220px;
+  background-color: transparent;
+}
+
+.react-agent-graphs-empty__content {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  margin-top: -18px;
 }
 
 .react-agent-graph-canvas-scroll {
@@ -891,15 +1011,6 @@
   outline: none;
 }
 
-.react-agent-graph-node-config .react-settings-choice-item .react-top-menu__menu-label {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 1px;
-}
-
-.react-agent-graph-node-config .react-settings-choice-item small {
-  justify-self: start;
-}
-
 .react-agent-graph-node-catalog > ul {
   display: grid;
   gap: 7px;
@@ -1111,12 +1222,27 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .react-agent-graphs-page__header {
+    grid-template-columns: minmax(0, 1fr) max-content;
+  }
+
   .react-agent-graph-workspace {
+    grid-column: 1 / -1;
+    grid-row: 2;
     width: min(720px, 100%);
+  }
+
+  .react-agent-graphs-page__header > .react-agent-graphs-page__primary {
+    grid-column: 2;
+    grid-row: 1;
   }
 }
 
 @media (max-width: 820px) {
+  .react-agent-graph-library ul {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .react-agent-graph-draft {
     grid-template-columns: 1fr;
   }
@@ -1138,6 +1264,30 @@
   .react-agent-graph-editor__header {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .react-agent-graphs-page__header {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .react-agent-graph-workspace,
+  .react-agent-graphs-page__header > .react-agent-graphs-page__primary {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .react-agent-graphs-page__header > .react-agent-graphs-page__primary {
+    justify-self: start;
+  }
+
+  .react-agent-graphs-empty {
+    min-height: 430px;
+    padding-inline: 18px;
+  }
+
+  .react-agent-graphs-empty > .react-agent-graph-preview {
+    width: 100%;
+    height: 170px;
   }
 
   .react-agent-graph-draft__actions {
@@ -1683,13 +1833,6 @@
 
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-node-config__textarea-field textarea {
   min-height: 90px;
-  border-color: var(--graph-border);
-  background: var(--graph-panel-deep);
-  color: var(--color-ink);
-}
-
-.react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-node-config .react-settings-choice-item,
-.react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-node-config .react-settings-choice > button {
   border-color: var(--graph-border);
   background: var(--graph-panel-deep);
   color: var(--color-ink);
