@@ -1,11 +1,15 @@
 import {
+  useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type DragEvent as ReactDragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  type WheelEvent as ReactWheelEvent,
 } from "react";
-import { Bot, Check, CircleDot, GitBranch, LoaderCircle, Trash2, X } from "lucide-react";
+import { Bot, Check, CircleDot, GitBranch, LoaderCircle, Minus, Plus, RotateCcw, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AgentGraphRun } from "../../app-core/agent-graph/agentGraphRuntime";
 import type {
@@ -22,6 +26,17 @@ const CANVAS_HEIGHT = 400;
 const NODE_WIDTH = 154;
 const NODE_HEIGHT = 76;
 const KEYBOARD_MOVE_STEP = 8;
+const KEYBOARD_PAN_STEP = 24;
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 2;
+const ZOOM_STEP = 0.1;
+const WHEEL_ZOOM_SENSITIVITY = 0.0015;
+const CONFIG_PANEL_GAP = 12;
+const CONFIG_PANEL_WIDTH = 340;
+const CONFIG_PANEL_MIN_HEIGHT = 160;
+const CONFIG_PANEL_MAX_HEIGHT = 500;
+const CONFIG_PANEL_TOP_SAFE_AREA = 56;
+const CONFIG_PANEL_BOTTOM_SAFE_AREA = 104;
 
 type GraphSelection =
   | { type: "node"; id: string }
@@ -36,8 +51,32 @@ type NodePointerDrag = {
   startY: number;
 };
 
+type CanvasViewport = {
+  panX: number;
+  panY: number;
+  zoom: number;
+};
+
+type CanvasPanDrag = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startPanX: number;
+  startPanY: number;
+};
+
+type CanvasSize = {
+  width: number;
+  height: number;
+};
+
+const INITIAL_VIEWPORT: CanvasViewport = { panX: 0, panY: 0, zoom: 1 };
+const INITIAL_CANVAS_SIZE: CanvasSize = { width: CANVAS_WIDTH, height: CANVAS_HEIGHT };
+
 type AgentGraphCanvasProps = {
   definition: AgentGraphDefinition;
+  configPanel?: ReactNode;
+  configPanelNodeId?: string | null;
   run?: AgentGraphRun;
   readOnly?: boolean;
   onAddNode: (kind: AgentGraphNodeKind, position: AgentGraphNodePosition) => boolean;
@@ -51,6 +90,8 @@ type AgentGraphCanvasProps = {
 
 export function AgentGraphCanvas({
   definition,
+  configPanel,
+  configPanelNodeId,
   run,
   readOnly = false,
   onAddNode,
@@ -64,15 +105,54 @@ export function AgentGraphCanvas({
   const { t } = useTranslation("common");
   const canvasRef = useRef<HTMLDivElement | null>(null);
   const pointerMovedRef = useRef(false);
+  const canvasPannedRef = useRef(false);
   const [selection, setSelection] = useState<GraphSelection | null>(null);
   const [pendingSource, setPendingSource] = useState<string | null>(null);
   const [pointerDrag, setPointerDrag] = useState<NodePointerDrag | null>(null);
+  const [panDrag, setPanDrag] = useState<CanvasPanDrag | null>(null);
+  const [viewport, setViewport] = useState<CanvasViewport>(INITIAL_VIEWPORT);
+  const [canvasSize, setCanvasSize] = useState<CanvasSize>(INITIAL_CANVAS_SIZE);
   const selectedNode = selection?.type === "node"
     ? definition.nodes.find((node) => node.id === selection.id)
     : undefined;
   const canDeleteSelection = selection?.type === "edge"
     || (selectedNode != null && selectedNode.kind !== "input" && selectedNode.kind !== "output");
   const pendingSourceNode = definition.nodes.find((node) => node.id === pendingSource);
+  const configPanelNode = configPanelNodeId
+    ? definition.nodes.find((node) => node.id === configPanelNodeId)
+    : undefined;
+  const configPanelPosition = configPanelNode
+    ? positionConfigPanel(configPanelNode, viewport, canvasSize)
+    : undefined;
+  const viewportStyle = {
+    "--graph-canvas-grid-size": `${18 * viewport.zoom}px`,
+    "--graph-canvas-pan-x": `${viewport.panX}px`,
+    "--graph-canvas-pan-y": `${viewport.panY}px`,
+  } as CSSProperties;
+  const viewportGeometryStyle = {
+    width: CANVAS_WIDTH * viewport.zoom,
+    height: CANVAS_HEIGHT * viewport.zoom,
+  } as CSSProperties;
+  const stageStyle = { zoom: viewport.zoom } as CSSProperties;
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const updateCanvasSize = () => {
+      const bounds = canvas.getBoundingClientRect();
+      if (bounds.width > 0 && bounds.height > 0) {
+        setCanvasSize({ width: bounds.width, height: bounds.height });
+      }
+    };
+    updateCanvasSize();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateCanvasSize);
+      return () => window.removeEventListener("resize", updateCanvasSize);
+    }
+    const observer = new ResizeObserver(updateCanvasSize);
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, []);
 
   function selectNode(nodeId: string) {
     setSelection({ type: "node", id: nodeId });
@@ -93,11 +173,130 @@ export function AgentGraphCanvas({
     }
   }
 
+  function setZoom(nextZoom: number, anchor?: { clientX: number; clientY: number }) {
+    const bounds = canvasRef.current?.getBoundingClientRect();
+    setViewport((current) => {
+      const zoom = clampZoom(nextZoom);
+      if (zoom === current.zoom) return current;
+      if (!anchor || !bounds) return { ...current, zoom };
+      const cursorX = anchor.clientX - bounds.left - bounds.width / 2;
+      const cursorY = anchor.clientY - bounds.top - bounds.height / 2;
+      const worldX = (cursorX - current.panX) / current.zoom;
+      const worldY = (cursorY - current.panY) / current.zoom;
+      return {
+        panX: snapToDevicePixel(cursorX - worldX * zoom),
+        panY: snapToDevicePixel(cursorY - worldY * zoom),
+        zoom,
+      };
+    });
+  }
+
+  function moveViewport(deltaX: number, deltaY: number) {
+    setViewport((current) => ({
+      ...current,
+      panX: snapToDevicePixel(current.panX + deltaX),
+      panY: snapToDevicePixel(current.panY + deltaY),
+    }));
+  }
+
+  function resetViewport() {
+    setViewport(INITIAL_VIEWPORT);
+  }
+
+  function startCanvasPan(event: ReactPointerEvent<HTMLDivElement>) {
+    if ((event.button !== 0 && event.button !== 1)
+      || (event.target as Element).closest(".react-agent-graph-node, .react-agent-graph-edge-hit, button")) return;
+    event.preventDefault();
+    canvasPannedRef.current = false;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setPanDrag({
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startPanX: viewport.panX,
+      startPanY: viewport.panY,
+    });
+  }
+
+  function moveCanvasPan(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!panDrag || panDrag.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - panDrag.startX;
+    const deltaY = event.clientY - panDrag.startY;
+    if (!canvasPannedRef.current && Math.hypot(deltaX, deltaY) < 4) return;
+    canvasPannedRef.current = true;
+    setViewport((current) => ({
+      ...current,
+      panX: snapToDevicePixel(panDrag.startPanX + deltaX),
+      panY: snapToDevicePixel(panDrag.startPanY + deltaY),
+    }));
+  }
+
+  function finishCanvasPan(event: ReactPointerEvent<HTMLDivElement>) {
+    if (panDrag?.pointerId !== event.pointerId) return;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    setPanDrag(null);
+    if (canvasPannedRef.current) {
+      window.setTimeout(() => {
+        canvasPannedRef.current = false;
+      }, 0);
+    }
+  }
+
+  function handleCanvasWheel(event: ReactWheelEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const multiplier = wheelDeltaMultiplier(event.deltaMode, canvasRef.current?.clientHeight ?? CANVAS_HEIGHT);
+    if (event.ctrlKey || event.metaKey) {
+      const zoomFactor = Math.exp(-event.deltaY * multiplier * WHEEL_ZOOM_SENSITIVITY);
+      setZoom(viewport.zoom * zoomFactor, { clientX: event.clientX, clientY: event.clientY });
+      return;
+    }
+    moveViewport(-event.deltaX * multiplier, -event.deltaY * multiplier);
+  }
+
+  function handleCanvasKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if ((event.target as Element).closest("input, textarea, select, [contenteditable='true']")) return;
+
+    if (!readOnly && (event.key === "Delete" || event.key === "Backspace")) {
+      event.preventDefault();
+      removeSelection();
+      return;
+    }
+
+    if (event.ctrlKey || event.metaKey) {
+      if (event.key === "+" || event.key === "=") {
+        event.preventDefault();
+        setZoom(viewport.zoom + ZOOM_STEP);
+      } else if (event.key === "-") {
+        event.preventDefault();
+        setZoom(viewport.zoom - ZOOM_STEP);
+      } else if (event.key === "0") {
+        event.preventDefault();
+        resetViewport();
+      }
+      return;
+    }
+
+    if (event.target !== event.currentTarget) return;
+    const delta = event.key === "ArrowLeft"
+      ? { x: -KEYBOARD_PAN_STEP, y: 0 }
+      : event.key === "ArrowRight"
+        ? { x: KEYBOARD_PAN_STEP, y: 0 }
+        : event.key === "ArrowUp"
+          ? { x: 0, y: -KEYBOARD_PAN_STEP }
+          : event.key === "ArrowDown"
+            ? { x: 0, y: KEYBOARD_PAN_STEP }
+            : null;
+    if (delta) {
+      event.preventDefault();
+      moveViewport(delta.x, delta.y);
+    }
+  }
+
   function startNodeDrag(event: ReactPointerEvent<HTMLElement>, node: AgentGraphNode) {
     if (readOnly || event.button !== 0 || (event.target as Element).closest("button")) return;
     const bounds = canvasRef.current?.getBoundingClientRect();
     if (!bounds) return;
-    const origin = logicalCanvasOrigin(bounds);
+    const point = canvasPointFromClient(event.clientX, event.clientY, bounds, viewport);
     event.preventDefault();
     pointerMovedRef.current = false;
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -105,8 +304,8 @@ export function AgentGraphCanvas({
     setPointerDrag({
       pointerId: event.pointerId,
       nodeId: node.id,
-      offsetX: event.clientX - bounds.left - origin.x - node.position.x,
-      offsetY: event.clientY - bounds.top - origin.y - node.position.y,
+      offsetX: point.x - node.position.x,
+      offsetY: point.y - node.position.y,
       startX: event.clientX,
       startY: event.clientY,
     });
@@ -119,10 +318,10 @@ export function AgentGraphCanvas({
     }
     const bounds = canvasRef.current?.getBoundingClientRect();
     if (!bounds) return;
-    const origin = logicalCanvasOrigin(bounds);
+    const point = canvasPointFromClient(event.clientX, event.clientY, bounds, viewport);
     onMoveNode(pointerDrag.nodeId, clampPosition({
-      x: event.clientX - bounds.left - origin.x - pointerDrag.offsetX,
-      y: event.clientY - bounds.top - origin.y - pointerDrag.offsetY,
+      x: point.x - pointerDrag.offsetX,
+      y: point.y - pointerDrag.offsetY,
     }));
   }
 
@@ -167,14 +366,6 @@ export function AgentGraphCanvas({
       onNodeActivate(node.id);
       return;
     }
-    if ((event.key === "Delete" || event.key === "Backspace") && node.kind !== "input" && node.kind !== "output") {
-      event.preventDefault();
-      if (onRemoveNode(node.id)) {
-        setSelection(null);
-        onSelectionChange(null);
-        if (pendingSource === node.id) setPendingSource(null);
-      }
-    }
   }
 
   function dropNode(event: ReactDragEvent<HTMLDivElement>) {
@@ -183,10 +374,10 @@ export function AgentGraphCanvas({
     const kind = event.dataTransfer.getData(AGENT_GRAPH_NODE_DRAG_TYPE) as AgentGraphNodeKind;
     if (!isNodeKind(kind)) return;
     const bounds = event.currentTarget.getBoundingClientRect();
-    const origin = logicalCanvasOrigin(bounds);
+    const point = canvasPointFromClient(event.clientX, event.clientY, bounds, viewport);
     onAddNode(kind, clampPosition({
-      x: event.clientX - bounds.left - origin.x - NODE_WIDTH / 2,
-      y: event.clientY - bounds.top - origin.y - NODE_HEIGHT / 2,
+      x: point.x - NODE_WIDTH / 2,
+      y: point.y - NODE_HEIGHT / 2,
     }));
   }
 
@@ -198,7 +389,7 @@ export function AgentGraphCanvas({
   }
 
   return (
-    <div className="react-agent-graph-canvas-frame">
+    <div className="react-agent-graph-canvas-frame" style={viewportStyle}>
       <div className="react-agent-graph-canvas__toolbar">
         <p aria-live="polite">
           {pendingSourceNode
@@ -214,6 +405,7 @@ export function AgentGraphCanvas({
           ) : null}
           <button
             aria-label={t("graphs.deleteSelected")}
+            aria-keyshortcuts="Delete Backspace"
             disabled={!canDeleteSelection}
             onClick={removeSelection}
             title={selectedNode && !canDeleteSelection ? t("graphs.boundaryNodeProtected") : undefined}
@@ -225,11 +417,54 @@ export function AgentGraphCanvas({
         </span> : null}
       </div>
 
+      <div
+        aria-label={t("graphs.canvasControls")}
+        className="react-agent-graph-canvas__viewport-controls"
+        role="group"
+      >
+        <button
+          aria-keyshortcuts="Control+- Meta+-"
+          aria-label={t("graphs.zoomOut")}
+          disabled={viewport.zoom <= MIN_ZOOM}
+          onClick={() => setZoom(viewport.zoom - ZOOM_STEP)}
+          title={t("graphs.zoomOutShortcut")}
+          type="button"
+        >
+          <Minus aria-hidden="true" size={14} />
+        </button>
+        <button
+          aria-keyshortcuts="Control+0 Meta+0"
+          aria-label={t("graphs.resetCanvasView")}
+          className="react-agent-graph-canvas__zoom-level"
+          onClick={resetViewport}
+          title={t("graphs.resetCanvasViewShortcut")}
+          type="button"
+        >
+          <RotateCcw aria-hidden="true" size={13} />
+          <span>{Math.round(viewport.zoom * 100)}%</span>
+        </button>
+        <button
+          aria-keyshortcuts="Control+= Meta+="
+          aria-label={t("graphs.zoomIn")}
+          disabled={viewport.zoom >= MAX_ZOOM}
+          onClick={() => setZoom(viewport.zoom + ZOOM_STEP)}
+          title={t("graphs.zoomInShortcut")}
+          type="button"
+        >
+          <Plus aria-hidden="true" size={14} />
+        </button>
+      </div>
+
       <div className="react-agent-graph-canvas-scroll">
         <div
           aria-label={t("graphs.canvas")}
           className="react-agent-graph-canvas"
+          data-panning={Boolean(panDrag)}
           onClick={(event) => {
+            if (canvasPannedRef.current) {
+              canvasPannedRef.current = false;
+              return;
+            }
             if (!(event.target as Element).closest(".react-agent-graph-node, .react-agent-graph-edge-hit")) {
               setSelection(null);
               onSelectionChange(null);
@@ -239,10 +474,23 @@ export function AgentGraphCanvas({
             if (!readOnly) event.preventDefault();
           }}
           onDrop={dropNode}
+          onKeyDown={handleCanvasKeyDown}
+          onPointerCancel={finishCanvasPan}
+          onPointerDown={startCanvasPan}
+          onPointerMove={moveCanvasPan}
+          onPointerUp={finishCanvasPan}
+          onWheel={handleCanvasWheel}
           ref={canvasRef}
           role="region"
+          tabIndex={0}
         >
-        <div className="react-agent-graph-canvas__stage">
+        <div
+          className="react-agent-graph-canvas__viewport"
+          data-pan-x={viewport.panX}
+          data-pan-y={viewport.panY}
+          style={viewportGeometryStyle}
+        >
+        <div className="react-agent-graph-canvas__stage" data-zoom={viewport.zoom} style={stageStyle}>
           <svg aria-label={t("graphs.connections")} className="react-agent-graph-canvas__edges" role="group">
           <defs>
             <marker id="agent-graph-arrow" markerHeight="7" markerWidth="7" orient="auto" refX="6" refY="3.5">
@@ -285,6 +533,10 @@ export function AgentGraphCanvas({
                       onSelectionChange(null);
                     }
                   }}
+                  onFocus={() => {
+                    setSelection({ type: "edge", id: edge.id });
+                    onSelectionChange(null);
+                  }}
                   role="button"
                   tabIndex={0}
                 /> : null}
@@ -325,6 +577,9 @@ export function AgentGraphCanvas({
                 onNodeActivate(node.id);
               }}
               onKeyDown={(event) => moveNodeWithKeyboard(event, node)}
+              onFocus={() => {
+                if (!readOnly) selectNode(node.id);
+              }}
               onPointerCancel={finishNodeDrag}
               onPointerDown={(event) => startNodeDrag(event, node)}
               onPointerMove={moveDraggedNode}
@@ -384,6 +639,21 @@ export function AgentGraphCanvas({
           })}
         </div>
         </div>
+        {configPanel && configPanelNode && configPanelPosition ? (
+          <div
+            className="react-agent-graph-canvas__node-config-popover"
+            data-anchor-node-id={configPanelNode.id}
+            data-placement={configPanelPosition.placement}
+            onClick={(event) => event.stopPropagation()}
+            onKeyDown={(event) => event.stopPropagation()}
+            onPointerDown={(event) => event.stopPropagation()}
+            onWheel={(event) => event.stopPropagation()}
+            style={configPanelPosition.style}
+          >
+            {configPanel}
+          </div>
+        ) : null}
+        </div>
       </div>
     </div>
   );
@@ -414,11 +684,68 @@ function createEdgePath(source: AgentGraphNode, target: AgentGraphNode): string 
   return `M ${sourceX} ${sourceY} C ${sourceX + curve} ${sourceY}, ${targetX - curve} ${targetY}, ${targetX} ${targetY}`;
 }
 
-function logicalCanvasOrigin(bounds: Pick<DOMRect, "width" | "height">): AgentGraphNodePosition {
+function canvasPointFromClient(
+  clientX: number,
+  clientY: number,
+  bounds: Pick<DOMRect, "left" | "top" | "width" | "height">,
+  viewport: CanvasViewport,
+): AgentGraphNodePosition {
   return {
-    x: Math.max(0, (bounds.width - CANVAS_WIDTH) / 2),
-    y: Math.max(0, (bounds.height - CANVAS_HEIGHT) / 2),
+    x: CANVAS_WIDTH / 2 + (clientX - bounds.left - bounds.width / 2 - viewport.panX) / viewport.zoom,
+    y: CANVAS_HEIGHT / 2 + (clientY - bounds.top - bounds.height / 2 - viewport.panY) / viewport.zoom,
   };
+}
+
+function clampZoom(zoom: number): number {
+  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(zoom * 100) / 100));
+}
+
+function snapToDevicePixel(value: number): number {
+  const pixelRatio = window.devicePixelRatio || 1;
+  return Math.round(value * pixelRatio) / pixelRatio;
+}
+
+function positionConfigPanel(
+  node: AgentGraphNode,
+  viewport: CanvasViewport,
+  canvasSize: CanvasSize,
+): { placement: "above" | "below"; style: CSSProperties } {
+  const nodeTop = canvasSize.height / 2
+    + viewport.panY
+    + (node.position.y - CANVAS_HEIGHT / 2) * viewport.zoom;
+  const nodeBottom = nodeTop + NODE_HEIGHT * viewport.zoom;
+  const desiredCenterX = canvasSize.width / 2
+    + viewport.panX
+    + (node.position.x + NODE_WIDTH / 2 - CANVAS_WIDTH / 2) * viewport.zoom;
+  const panelHalfWidth = Math.min(CONFIG_PANEL_WIDTH, canvasSize.width - 24) / 2;
+  const centerX = Math.max(
+    panelHalfWidth + 12,
+    Math.min(canvasSize.width - panelHalfWidth - 12, desiredCenterX),
+  );
+  const spaceBelow = canvasSize.height - CONFIG_PANEL_BOTTOM_SAFE_AREA - nodeBottom - CONFIG_PANEL_GAP;
+  const spaceAbove = nodeTop - CONFIG_PANEL_TOP_SAFE_AREA - CONFIG_PANEL_GAP;
+  const placement = spaceBelow >= CONFIG_PANEL_MIN_HEIGHT || spaceBelow >= spaceAbove ? "below" : "above";
+  const availableHeight = placement === "below" ? spaceBelow : spaceAbove;
+  const maxHeight = Math.max(
+    CONFIG_PANEL_MIN_HEIGHT,
+    Math.min(CONFIG_PANEL_MAX_HEIGHT, Math.floor(availableHeight)),
+  );
+
+  const style = {
+    "--graph-config-panel-max-height": `${maxHeight}px`,
+    left: snapToDevicePixel(centerX),
+    top: snapToDevicePixel(placement === "below"
+      ? nodeBottom + CONFIG_PANEL_GAP
+      : nodeTop - CONFIG_PANEL_GAP),
+    maxHeight,
+  } as CSSProperties;
+  return { placement, style };
+}
+
+function wheelDeltaMultiplier(deltaMode: number, pageHeight: number): number {
+  if (deltaMode === 1) return 16;
+  if (deltaMode === 2) return pageHeight;
+  return 1;
 }
 
 type AgentGraphNodeRuntimeStatus =

@@ -53,12 +53,61 @@ describe("AgentGraphsRoute", () => {
     const canvas = screen.getByRole("region", { name: "Graph canvas" });
     const scrollSurface = canvas.closest(".react-agent-graph-canvas-scroll");
     const deleteButton = screen.getByRole("button", { name: "Delete selected" });
+    const zoomInButton = screen.getByRole("button", { name: "Zoom in" });
     const toolbar = deleteButton.closest(".react-agent-graph-canvas__toolbar");
 
     expect(scrollSurface).toBeTruthy();
     expect(toolbar).toBeTruthy();
     expect(scrollSurface?.contains(toolbar)).toBe(false);
+    expect(scrollSurface?.contains(zoomInButton)).toBe(false);
     expect(toolbar?.parentElement?.classList.contains("react-agent-graph-canvas-frame")).toBe(true);
+  });
+
+  it("pans, zooms, and resets the canvas viewport", async () => {
+    const user = userEvent.setup();
+    render(<AgentGraphsRoute services={createServices()} />);
+    await screen.findByRole("button", { name: "Definition workspace: tinybot" });
+    await user.click(screen.getByRole("button", { name: "Create first graph" }));
+
+    const canvas = screen.getByRole("region", { name: "Graph canvas" });
+    const viewport = canvas.querySelector<HTMLElement>(".react-agent-graph-canvas__viewport");
+    const stage = canvas.querySelector<HTMLElement>(".react-agent-graph-canvas__stage");
+    expect(viewport).toBeTruthy();
+    expect(stage?.dataset.zoom).toBe("1");
+    expect(stage?.style.zoom).toBe("1");
+    expect(stage?.style.transform).not.toContain("scale");
+
+    fireEvent.pointerDown(canvas, { button: 0, clientX: 180, clientY: 180, pointerId: 11 });
+    fireEvent.pointerMove(canvas, { clientX: 228, clientY: 212, pointerId: 11 });
+    fireEvent.pointerUp(canvas, { clientX: 228, clientY: 212, pointerId: 11 });
+    expect(viewport?.dataset.panX).toBe("48");
+    expect(viewport?.dataset.panY).toBe("32");
+
+    await user.click(screen.getByRole("button", { name: "Zoom in" }));
+    expect(stage?.dataset.zoom).toBe("1.1");
+    expect(stage?.style.zoom).toBe("1.1");
+    Object.defineProperty(canvas, "getBoundingClientRect", {
+      value: () => ({ left: 0, top: 0, right: 760, bottom: 400, width: 760, height: 400, x: 0, y: 0, toJSON: () => ({}) }),
+    });
+    const zoomWheelEvent = new Event("wheel", { bubbles: true, cancelable: true });
+    Object.defineProperties(zoomWheelEvent, {
+      clientX: { value: 380 },
+      clientY: { value: 200 },
+      ctrlKey: { value: true },
+      deltaMode: { value: 0 },
+      deltaY: { value: -100 },
+    });
+    fireEvent(canvas, zoomWheelEvent);
+    expect(Number(stage?.dataset.zoom)).toBeGreaterThan(1.1);
+    await user.click(screen.getByRole("button", { name: "Reset canvas view" }));
+    expect(stage?.dataset.zoom).toBe("1");
+    expect(viewport?.dataset.panX).toBe("0");
+    expect(viewport?.dataset.panY).toBe("0");
+
+    canvas.focus();
+    await user.keyboard("{ArrowRight}{ArrowDown}");
+    expect(viewport?.dataset.panX).toBe("24");
+    expect(viewport?.dataset.panY).toBe("24");
   });
 
   it("supports palette drag, keyboard movement, connections, and deletion", async () => {
@@ -96,7 +145,8 @@ describe("AgentGraphsRoute", () => {
     const connection = screen.getByRole("button", { name: "Connection from Agent to Condition" });
 
     fireEvent.click(connection);
-    await user.click(screen.getByRole("button", { name: "Delete selected" }));
+    canvas.focus();
+    await user.keyboard("{Delete}");
     expect(screen.queryByRole("button", { name: "Connection from Agent to Condition" })).toBeNull();
 
     conditionNode.focus();
@@ -114,11 +164,17 @@ describe("AgentGraphsRoute", () => {
     await user.click(screen.getByRole("button", { name: "Create first graph" }));
     await user.click(screen.getByLabelText("Agent node"));
     expect(screen.queryByRole("complementary", { name: "Agent" })).toBeNull();
-    expect(
-      screen.getByRole("heading", { name: "Agent settings" })
-        .closest(".react-agent-graph-node-config")
-        ?.querySelector(".react-agent-graph-node-config__body"),
-    ).toBeTruthy();
+    const canvas = screen.getByRole("region", { name: "Graph canvas" });
+    const configPanel = screen.getByRole("heading", { name: "Agent settings" })
+      .closest<HTMLElement>(".react-agent-graph-node-config");
+    const anchoredPopover = configPanel?.closest<HTMLElement>(".react-agent-graph-canvas__node-config-popover");
+    expect(configPanel?.querySelector(".react-agent-graph-node-config__body")).toBeTruthy();
+    expect(anchoredPopover).toBeTruthy();
+    expect(canvas.contains(anchoredPopover ?? null)).toBe(true);
+    expect(anchoredPopover?.dataset.anchorNodeId).toBe("agent");
+    expect(anchoredPopover?.dataset.placement).toBe("below");
+    expect(anchoredPopover?.style.left).toBe("377px");
+    expect(anchoredPopover?.style.top).toBe("212px");
 
     const workspaceChoice = screen.getByRole("button", { name: "Execution workspace: tinybot" });
     await user.click(workspaceChoice);
@@ -127,6 +183,14 @@ describe("AgentGraphsRoute", () => {
 
     expect(screen.getByRole("button", { name: "Execution workspace: payments" })).toBeTruthy();
     expect(screen.getByLabelText("Agent node").textContent).toContain("payments");
+
+    const agentNode = screen.getByLabelText("Agent node");
+    agentNode.focus();
+    for (let step = 0; step < 20; step += 1) fireEvent.keyDown(agentNode, { key: "ArrowDown" });
+    expect(anchoredPopover?.dataset.placement).toBe("above");
+    expect(Number.parseFloat(anchoredPopover?.style.top ?? "0")).toBeLessThan(
+      Number.parseFloat(agentNode.dataset.y ?? "0"),
+    );
   });
 
   it("configures node instructions, model, and reasoning effort independently", async () => {
@@ -258,11 +322,28 @@ describe("AgentGraphsRoute", () => {
     });
     await user.click(screen.getByRole("button", { name: "View" }));
     expect(screen.getByRole("button", { name: "View" }).getAttribute("aria-pressed")).toBe("true");
+    const viewCanvas = screen.getByRole("region", { name: "Graph canvas" });
+    const viewViewport = viewCanvas.querySelector<HTMLElement>(".react-agent-graph-canvas__viewport");
+    const viewStage = viewCanvas.querySelector<HTMLElement>(".react-agent-graph-canvas__stage");
+    await user.click(screen.getByRole("button", { name: "Zoom in" }));
+    expect(viewStage?.dataset.zoom).toBe("1.1");
+    fireEvent.pointerDown(viewCanvas, { button: 0, clientX: 200, clientY: 200, pointerId: 12 });
+    fireEvent.pointerMove(viewCanvas, { clientX: 230, clientY: 220, pointerId: 12 });
+    fireEvent.pointerUp(viewCanvas, { clientX: 230, clientY: 220, pointerId: 12 });
+    expect(viewViewport?.dataset.panX).toBe("30");
+    expect(viewViewport?.dataset.panY).toBe("20");
     await user.click(screen.getByLabelText("Agent node"));
     const agentDrawer = screen.getByRole("complementary", { name: "Agent" });
-    expect(agentDrawer.getAttribute("data-presentation")).toBe("floating");
+    const anchoredInspector = agentDrawer.closest<HTMLElement>(".react-agent-graph-canvas__node-config-popover");
+    expect(agentDrawer.getAttribute("data-presentation")).toBe("anchored");
+    expect(viewCanvas.contains(anchoredInspector ?? null)).toBe(true);
+    expect(anchoredInspector?.dataset.anchorNodeId).toBe("agent");
     expect(await within(agentDrawer).findByText("Repository review complete.")).toBeTruthy();
     expect(services.chatStore.load).toHaveBeenCalledWith("thread-graph-1");
+    await user.keyboard("{Delete}");
+    expect(screen.getByLabelText("Agent node")).toBeTruthy();
+    fireEvent.click(viewCanvas);
+    expect(screen.queryByRole("complementary", { name: "Agent" })).toBeNull();
 
     const inputNode = screen.getByLabelText("Input node");
     await user.click(inputNode);

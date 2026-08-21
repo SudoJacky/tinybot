@@ -566,6 +566,133 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
             </header>
 
             <AgentGraphCanvas
+              configPanel={interactionMode === "view" && inspectedNode ? (
+                <AgentGraphNodeDrawer
+                  chatStore={services.chatStore}
+                  node={inspectedNode}
+                  onClose={() => setInspectedNodeId(null)}
+                  run={selectedRun}
+                />
+              ) : selectedInputNode ? (
+                <section className="react-agent-graph-node-config" aria-labelledby="agent-graph-input-config-title">
+                  <header className="react-agent-graph-node-config__header">
+                    <span>
+                      <small>{t("graphs.nodes.input")}</small>
+                      <h3 id="agent-graph-input-config-title">{t("graphs.inputSettings")}</h3>
+                    </span>
+                    <button aria-label={t("graphs.closeNodeDetails")} type="button" onClick={() => setSelectedConfigNodeId(null)}>
+                      <X aria-hidden="true" size={15} />
+                    </button>
+                  </header>
+                  <div className="react-agent-graph-node-config__body">
+                    <p>{t("graphs.inputSettingsDescription")}</p>
+                    <label className="react-agent-graph-node-config__textarea-field">
+                      <span>
+                        <strong>{t("graphs.inputPrompt")}</strong>
+                        <small id={`agent-graph-input-prompt-help-${selectedInputNode.id}`}>
+                          {t("graphs.inputPromptDescription")}
+                        </small>
+                      </span>
+                      <textarea
+                        aria-describedby={`agent-graph-input-prompt-help-${selectedInputNode.id}`}
+                        aria-invalid={issues.includes("input_prompt_required")}
+                        onChange={(event) => applyEdit(configureAgentGraphInput(draft, selectedInputNode.id, {
+                          prompt: event.currentTarget.value,
+                        }))}
+                        placeholder={t("graphs.inputPromptPlaceholder")}
+                        required
+                        rows={6}
+                        value={selectedInputNode.config.prompt}
+                      />
+                    </label>
+                  </div>
+                </section>
+              ) : selectedAgentNode ? (
+                <section className="react-agent-graph-node-config" aria-labelledby="agent-graph-node-config-title">
+                  <header className="react-agent-graph-node-config__header">
+                    <span>
+                      <small>{t("graphs.nodes.agent")}</small>
+                      <h3 id="agent-graph-node-config-title">{t("graphs.agentSettings")}</h3>
+                    </span>
+                    <button aria-label={t("graphs.closeNodeDetails")} type="button" onClick={() => setSelectedConfigNodeId(null)}>
+                      <X aria-hidden="true" size={15} />
+                    </button>
+                  </header>
+                  <div className="react-agent-graph-node-config__body">
+                    <p>{t("graphs.agentSettingsDescription")}</p>
+                    <SettingsChoiceList
+                      ariaLabel={t("graphs.executionWorkspace")}
+                      description={t("graphs.executionWorkspaceDescription")}
+                      disabled={!workspaceOptions.length}
+                      label={t("graphs.executionWorkspace")}
+                      onChange={(workspacePath) => updateSelectedAgentConfig({
+                        ...selectedAgentNode.config,
+                        workspacePath,
+                      })}
+                      options={workspaceOptions.map((path) => ({
+                        description: path,
+                        label: sessionWorkspaceName(path),
+                        value: path,
+                      }))}
+                      optionsAriaLabel={t("graphs.workspaceOptions")}
+                      value={selectedAgentNode.config.workspacePath}
+                    />
+                    <label className="react-agent-graph-node-config__textarea-field">
+                      <span>
+                        <strong>{t("graphs.nodeInstructions")}</strong>
+                        <small id={`agent-graph-instructions-help-${selectedAgentNode.id}`}>
+                          {t("graphs.nodeInstructionsDescription")}
+                        </small>
+                      </span>
+                      <textarea
+                        aria-describedby={`agent-graph-instructions-help-${selectedAgentNode.id}`}
+                        onChange={(event) => updateSelectedAgentConfig({
+                          ...selectedAgentNode.config,
+                          instructions: event.currentTarget.value,
+                        })}
+                        placeholder={t("graphs.nodeInstructionsPlaceholder")}
+                        rows={5}
+                        value={selectedAgentNode.config.instructions ?? ""}
+                      />
+                    </label>
+                    <SettingsChoiceList
+                      ariaLabel={t("graphs.nodeModel")}
+                      description={t("graphs.nodeModelDescription")}
+                      error={modelCatalogError
+                        ? t("graphs.modelLoadFailed", { message: modelCatalogError })
+                        : undefined}
+                      label={t("graphs.nodeModel")}
+                      onChange={selectAgentModel}
+                      options={modelChoices}
+                      optionsAriaLabel={t("graphs.modelOptions")}
+                      value={selectedModelValue}
+                    />
+                    {selectedAgentNode.config.model ? (
+                      <SettingsChoiceList
+                        ariaLabel={t("graphs.reasoningEffort")}
+                        description={t("graphs.reasoningEffortDescription")}
+                        label={t("graphs.reasoningEffort")}
+                        onChange={selectAgentReasoningEffort}
+                        options={[
+                          {
+                            description: t("graphs.reasoningDefaultDescription"),
+                            label: t("graphs.reasoningDefault"),
+                            value: "",
+                          },
+                          ...REASONING_EFFORT_VALUES.map((effort) => ({
+                            description: t(`graphs.reasoningOptions.${effort}.description`),
+                            label: t(`graphs.reasoningOptions.${effort}.label`),
+                            value: effort,
+                          })),
+                        ]}
+                        optionsAriaLabel={t("graphs.reasoningOptionsLabel")}
+                        value={selectedAgentNode.config.model.reasoningEffort ?? ""}
+                      />
+                    ) : null}
+                  </div>
+                </section>
+              ) : null}
+              configPanelNodeId={interactionMode === "view" ? inspectedNode?.id : selectedConfigNodeId}
               definition={draft}
               key={interactionMode}
               onAddNode={addNode}
@@ -581,7 +708,10 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                 return removed;
               }}
               onSelectionChange={(nodeId) => {
-                if (interactionMode === "view") return;
+                if (interactionMode === "view") {
+                  if (nodeId === null) setInspectedNodeId(null);
+                  return;
+                }
                 const node = draft.nodes.find((candidate) => candidate.id === nodeId);
                 setSelectedConfigNodeId(node?.kind === "input" || node?.kind === "agent" ? node.id : null);
               }}
@@ -624,126 +754,6 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                 </li>
               ))}
                 </ul>
-                {selectedInputNode ? (
-              <section className="react-agent-graph-node-config" aria-labelledby="agent-graph-input-config-title">
-                <header className="react-agent-graph-node-config__header">
-                  <span>
-                    <small>{t("graphs.nodes.input")}</small>
-                    <h3 id="agent-graph-input-config-title">{t("graphs.inputSettings")}</h3>
-                  </span>
-                  <button aria-label={t("graphs.closeNodeDetails")} type="button" onClick={() => setSelectedConfigNodeId(null)}>
-                    <X aria-hidden="true" size={15} />
-                  </button>
-                </header>
-                <div className="react-agent-graph-node-config__body">
-                  <p>{t("graphs.inputSettingsDescription")}</p>
-                  <label className="react-agent-graph-node-config__textarea-field">
-                    <span>
-                      <strong>{t("graphs.inputPrompt")}</strong>
-                      <small id={`agent-graph-input-prompt-help-${selectedInputNode.id}`}>
-                        {t("graphs.inputPromptDescription")}
-                      </small>
-                    </span>
-                    <textarea
-                      aria-describedby={`agent-graph-input-prompt-help-${selectedInputNode.id}`}
-                      aria-invalid={issues.includes("input_prompt_required")}
-                      onChange={(event) => applyEdit(configureAgentGraphInput(draft, selectedInputNode.id, {
-                        prompt: event.currentTarget.value,
-                      }))}
-                      placeholder={t("graphs.inputPromptPlaceholder")}
-                      required
-                      rows={6}
-                      value={selectedInputNode.config.prompt}
-                    />
-                  </label>
-                </div>
-              </section>
-                ) : null}
-                {selectedAgentNode ? (
-              <section className="react-agent-graph-node-config" aria-labelledby="agent-graph-node-config-title">
-                <header className="react-agent-graph-node-config__header">
-                  <span>
-                    <small>{t("graphs.nodes.agent")}</small>
-                    <h3 id="agent-graph-node-config-title">{t("graphs.agentSettings")}</h3>
-                  </span>
-                  <button aria-label={t("graphs.closeNodeDetails")} type="button" onClick={() => setSelectedConfigNodeId(null)}>
-                    <X aria-hidden="true" size={15} />
-                  </button>
-                </header>
-                <div className="react-agent-graph-node-config__body">
-                  <p>{t("graphs.agentSettingsDescription")}</p>
-                  <SettingsChoiceList
-                    ariaLabel={t("graphs.executionWorkspace")}
-                    description={t("graphs.executionWorkspaceDescription")}
-                    disabled={!workspaceOptions.length}
-                    label={t("graphs.executionWorkspace")}
-                    onChange={(workspacePath) => updateSelectedAgentConfig({
-                      ...selectedAgentNode.config,
-                      workspacePath,
-                    })}
-                    options={workspaceOptions.map((path) => ({
-                      description: path,
-                      label: sessionWorkspaceName(path),
-                      value: path,
-                    }))}
-                    optionsAriaLabel={t("graphs.workspaceOptions")}
-                    value={selectedAgentNode.config.workspacePath}
-                  />
-                  <label className="react-agent-graph-node-config__textarea-field">
-                    <span>
-                      <strong>{t("graphs.nodeInstructions")}</strong>
-                      <small id={`agent-graph-instructions-help-${selectedAgentNode.id}`}>
-                        {t("graphs.nodeInstructionsDescription")}
-                      </small>
-                    </span>
-                    <textarea
-                      aria-describedby={`agent-graph-instructions-help-${selectedAgentNode.id}`}
-                      onChange={(event) => updateSelectedAgentConfig({
-                        ...selectedAgentNode.config,
-                        instructions: event.currentTarget.value,
-                      })}
-                      placeholder={t("graphs.nodeInstructionsPlaceholder")}
-                      rows={5}
-                      value={selectedAgentNode.config.instructions ?? ""}
-                    />
-                  </label>
-                  <SettingsChoiceList
-                    ariaLabel={t("graphs.nodeModel")}
-                    description={t("graphs.nodeModelDescription")}
-                    error={modelCatalogError
-                      ? t("graphs.modelLoadFailed", { message: modelCatalogError })
-                      : undefined}
-                    label={t("graphs.nodeModel")}
-                    onChange={selectAgentModel}
-                    options={modelChoices}
-                    optionsAriaLabel={t("graphs.modelOptions")}
-                    value={selectedModelValue}
-                  />
-                  {selectedAgentNode.config.model ? (
-                    <SettingsChoiceList
-                      ariaLabel={t("graphs.reasoningEffort")}
-                      description={t("graphs.reasoningEffortDescription")}
-                      label={t("graphs.reasoningEffort")}
-                      onChange={selectAgentReasoningEffort}
-                      options={[
-                        {
-                          description: t("graphs.reasoningDefaultDescription"),
-                          label: t("graphs.reasoningDefault"),
-                          value: "",
-                        },
-                        ...REASONING_EFFORT_VALUES.map((effort) => ({
-                          description: t(`graphs.reasoningOptions.${effort}.description`),
-                          label: t(`graphs.reasoningOptions.${effort}.label`),
-                          value: effort,
-                        })),
-                      ]}
-                      optionsAriaLabel={t("graphs.reasoningOptionsLabel")}
-                      value={selectedAgentNode.config.model.reasoningEffort ?? ""}
-                    />
-                  ) : null}
-                </div>
-              </section>
-                ) : null}
               </>
             ) : (
               <>
@@ -775,14 +785,6 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
               />
             </section>
           </aside>
-          {inspectedNode ? (
-            <AgentGraphNodeDrawer
-              chatStore={services.chatStore}
-              node={inspectedNode}
-              onClose={() => setInspectedNodeId(null)}
-              run={selectedRun}
-            />
-          ) : null}
         </div>
       )}
       {!draft && persistenceError ? (

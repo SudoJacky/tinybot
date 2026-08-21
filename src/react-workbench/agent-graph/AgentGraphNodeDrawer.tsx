@@ -125,7 +125,7 @@ export function AgentGraphNodeDrawer({
     <aside
       aria-labelledby={titleId}
       className="react-agent-graph-node-drawer"
-      data-presentation="floating"
+      data-presentation="anchored"
       ref={drawerRef}
       role="complementary"
     >
