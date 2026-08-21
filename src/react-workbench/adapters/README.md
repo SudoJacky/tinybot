@@ -1,5 +1,5 @@
 # Desktop Adapters
-<!-- tinybot-module-fingerprint: sha256:810a0125f5642f6bfb0d3fcdac1ece46d6cbfd07c57325217bd1658f6afdec63 -->
+<!-- tinybot-module-fingerprint: sha256:1c37c2db658cd39c6a67a88a96157aa4c5c6d290507315f6f0111751549be924 -->
 
 `adapters` implements renderer store interfaces over Tinybot's native and
 app-core modules. It owns event projection and the Settings, Tools, and
@@ -8,6 +8,11 @@ Workspace store adapters used by `createDesktopAppServices()`.
 Adapters may translate transport data into renderer contracts, but they do not
 render React views or become a second authority for chat, settings, or
 workspace state.
+
+The desktop Settings adapter projects the native Provider catalog into the
+shared Chat model catalog. Only enabled Providers whose runtime status is
+`available` or `ready` contribute selectable models, so Chat and Agent Graph
+cannot select models from configured-but-unavailable connections.
 
 The native event bridge records opt-in lifecycle stages through
 `tinybot.desktop.nativeDebug`. Entries contain only correlation identities,

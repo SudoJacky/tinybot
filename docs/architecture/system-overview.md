@@ -14,7 +14,7 @@ src/react-workbench/README.md
 src/react-workbench/agent-graph/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:9364a645671fbe5d90c17275106194b6561d5032263032a9a51ad5aa837f4ca4 -->
+<!-- tinybot-doc-fingerprint: sha256:fd986409519e289bead4743fced21f5420b66b433c6b4a1517d34fd2b76a05df -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -49,7 +49,7 @@ Desktop Commands / Desktop Host
 | Module | Owns | Does not own |
 | --- | --- | --- |
 | `react-workbench` | React routes, presentation, route state | Native transport or durable domain state |
-| `react-workbench/agent-graph` | Standalone Agent Graph editing, node configuration, Run history, and per-node inspection | Chat route state or native execution rules |
+| `react-workbench/agent-graph` | Standalone Agent Graph library and canvas, node configuration, Run history, and per-node inspection | Chat route state or native execution rules |
 | `react-workbench/sidecar` | Resource tabs, scope filtering, and Sidecar presentation | Native Browser or Terminal lifecycle |
 | `app-core` | Framework-independent contracts, validation, commands, and projections | React rendering or Tauri invocation |
 | `app-core/agent-graph` | Versioned Graph contracts, validation, edit operations, persistence Interface, and runtime Interface | React rendering, native filesystem I/O, or Agent execution |
@@ -82,9 +82,10 @@ Desktop Commands / Desktop Host
   `~/.tinybot/graph-runs/<graph-id>/`. The first runtime executes one linear
   Input-to-Output path, reads the initial task from the saved Input node, and
   delegates every Agent node to a fresh canonical Thread. Per-node role
-  instructions and optional model settings use the existing Turn interfaces;
-  absent model settings inherit application defaults. The Chat projection
-  excludes those `source: "agent_graph"` Threads;
+  instructions and optional Provider, model, and reasoning-effort settings use
+  the existing Turn interfaces; the renderer only offers models from available
+  Provider connections, while absent settings inherit application defaults.
+  The Chat projection excludes those `source: "agent_graph"` Threads;
   the Graph node inspector reads an explicitly selected Thread and reuses the
   canonical timeline presentation without turning it into a Chat session.
 - Exact frontend/backend command and event shapes: the Rust backend reference.
