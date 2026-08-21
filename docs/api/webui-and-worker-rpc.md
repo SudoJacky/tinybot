@@ -8,7 +8,7 @@ src-tauri/src/rpc/method.rs
 src-tauri/src/rpc/runtime.rs
 src-tauri/tests/crate/transport.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:a5d882bbda31a411da1c9d730e4f4a8c1c92977c972388edc81b73f03971eba0 -->
+<!-- tinybot-doc-fingerprint: sha256:834e06c3b65fcb233f0e98229b209e7006cd888884af5eef413e04a6000ab59f -->
 
 This document covers the Rust-owned WebUI route wrapper and Worker RPC protocol.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -52,7 +52,7 @@ Use `routeResponse()` if the status and headers are needed.
 | --- | --- | --- | --- |
 | `GET` | `/api/tools` | tools | Effective built-in and MCP capability catalog |
 | `GET` | `/api/providers` | providers | Provider catalog |
-| `POST` | `/api/provider-models` | providers | Provider model resolution |
+| `POST` | `/api/provider-models` | providers | Async provider model resolution, including optional live OpenAI-compatible `GET /models` discovery |
 | `POST` | `/api/agent-ui/forms/{form_id}/submit` | agent-ui | Form continuation |
 | `POST` | `/api/agent-ui/forms/{form_id}/cancel` | agent-ui | Form cancellation |
 | `GET` | `/api/skills` | skills | List skills |

@@ -134,7 +134,8 @@ async fn worker_webui_rust_route_with_options(
         ("POST", "/api/provider-models") => Some(Ok(crate::agent::provider::provider_models_body(
             &config_snapshot,
             &body,
-        ))),
+        )
+        .await)),
         ("GET", "/api/skills") => Some(worker_skills_list_with_options(
             shared,
             workspace_root.clone(),

@@ -106,6 +106,16 @@ pub struct NativeProviderModelList {
     pub error: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct ProviderModelDiscoveryResponse {
+    data: Vec<ProviderModelDiscoveryItem>,
+}
+
+#[derive(Deserialize)]
+struct ProviderModelDiscoveryItem {
+    id: String,
+}
+
 const PROVIDER_CATALOG: &[NativeProviderCatalogEntry] = &[
     catalog_entry(
         "openai",
@@ -240,7 +250,7 @@ pub fn provider_catalog_body(config: &Value) -> Value {
     })
 }
 
-pub fn provider_models_body(config: &Value, body: &Value) -> Value {
+pub async fn provider_models_body(config: &Value, body: &Value) -> Value {
     if !body.is_object() {
         return serde_json::json!({ "ok": false, "error": "payload must be a dict", "models": [] });
     }
@@ -254,7 +264,7 @@ pub fn provider_models_body(config: &Value, body: &Value) -> Value {
             });
         }
     };
-    match list_provider_models(config, request) {
+    match list_provider_models(config, request).await {
         Ok(result) => serde_json::to_value(result).unwrap_or_else(|_| {
             serde_json::json!({ "ok": false, "error": "failed to serialize provider models", "models": [] })
         }),
@@ -269,7 +279,7 @@ pub fn provider_models_body(config: &Value, body: &Value) -> Value {
     }
 }
 
-pub fn list_provider_models(
+pub async fn list_provider_models(
     config: &Value,
     request: NativeProviderModelsRequest,
 ) -> Result<NativeProviderModelList, String> {
@@ -335,6 +345,7 @@ pub fn list_provider_models(
                     api_key.unwrap_or_default(),
                     profile.request_timeout_ms,
                 )
+                .await
                 .map(|models| (models, api_base.as_deref().map(join_models_url)))
             };
             match discovery {
@@ -397,18 +408,18 @@ pub fn list_provider_models(
     })
 }
 
-fn discover_openai_models(
+async fn discover_openai_models(
     api_base: String,
     api_key: String,
     timeout_ms: u64,
 ) -> Result<Vec<String>, String> {
-    tauri::async_runtime::block_on(async move {
-        let timeout = Duration::from_millis(timeout_ms.max(1));
-        let config = OpenAIConfig::new()
-            .with_api_base(api_base)
-            .with_api_key(api_key);
-        let client = Client::with_config(config);
-        tokio::time::timeout(timeout, client.models().list())
+    let timeout = Duration::from_millis(timeout_ms.max(1));
+    let config = OpenAIConfig::new()
+        .with_api_base(api_base)
+        .with_api_key(api_key);
+    let client = Client::with_config(config);
+    let response: ProviderModelDiscoveryResponse =
+        tokio::time::timeout(timeout, client.models().list_byot())
             .await
             .map_err(|_| {
                 format!(
@@ -416,9 +427,8 @@ fn discover_openai_models(
                     timeout.as_millis()
                 )
             })?
-            .map(|response| response.data.into_iter().map(|model| model.id).collect())
-            .map_err(|error| error.to_string())
-    })
+            .map_err(|error| error.to_string())?;
+    Ok(response.data.into_iter().map(|model| model.id).collect())
 }
 
 pub fn configured_model(config: &Value) -> String {
