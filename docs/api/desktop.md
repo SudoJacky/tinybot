@@ -68,6 +68,11 @@ back to `~/.tinybot/workspace`.
 | `save_export_file` | `{ options: { title?: string, defaultPath?: string, filters?: Filter[], contents: string } }` | `null` when cancelled, or `{ path }` |
 | `reveal_workspace_file` | `{ path: string }` | `void` |
 
+The Tauri asset protocol is enabled only for
+`$HOME/.tinybot/chat-attachments/images/**`. Chat image previews convert the
+managed path to an asset URL; arbitrary selected files and other local paths
+remain outside the renderer-readable scope.
+
 `reveal_workspace_file` only accepts these workspace-relative paths:
 
 - `AGENTS.md`

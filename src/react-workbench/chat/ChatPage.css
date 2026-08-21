@@ -222,6 +222,9 @@
 }
 
 .react-message[data-role="user"] .react-message__body {
+  justify-self: end;
+  width: fit-content;
+  max-width: 100%;
   border: 1px solid var(--color-hairline);
   border-radius: 8px;
   background: var(--color-surface-card);
@@ -312,6 +315,89 @@
   margin: 4px 0;
   border: 0;
   border-top: 1px solid var(--color-hairline);
+}
+
+.react-message-attachments {
+  display: grid;
+  justify-items: end;
+  justify-self: end;
+  gap: 8px;
+  width: min(360px, 100%);
+  max-width: 100%;
+}
+
+.react-message-attachment {
+  max-width: 100%;
+  margin: 0;
+}
+
+.react-message-attachment[data-kind="image"] {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 96px;
+  max-height: 280px;
+  overflow: hidden;
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+  background: var(--color-surface-soft);
+}
+
+.react-message-attachment[data-kind="image"] img {
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  max-height: 280px;
+  object-fit: contain;
+}
+
+.react-message-attachment[data-kind="file"] {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  justify-self: end;
+  gap: 10px;
+  width: min(320px, 100%);
+  min-height: 54px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: var(--color-surface-card);
+  padding: 8px 10px;
+}
+
+.react-message-attachment__icon {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--color-surface-soft);
+  color: var(--color-muted);
+}
+
+.react-message-attachment__summary {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.react-message-attachment__summary strong,
+.react-message-attachment__summary small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-message-attachment__summary strong {
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.react-message-attachment__summary small {
+  color: var(--color-muted);
+  font-size: 12px;
 }
 
 .react-message-context {
@@ -3336,6 +3422,15 @@
 }
 
 @media (max-width: 680px) {
+  .react-message-attachments {
+    width: min(320px, 100%);
+  }
+
+  .react-message-attachment[data-kind="image"],
+  .react-message-attachment[data-kind="image"] img {
+    max-height: 220px;
+  }
+
   .claude-ai-input__toolbar {
     align-items: flex-end;
   }

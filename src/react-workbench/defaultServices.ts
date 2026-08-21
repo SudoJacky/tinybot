@@ -653,17 +653,25 @@ function createOptimisticUserMessage(clientEventId: string, text: string, refere
     text,
     status: "complete",
     ...(references.length ? {
-      contextReferences: references.map((reference, index) => ({
-        detail: reference.detail,
-        id: reference.evidenceId || `reference-${index}`,
-        kind: reference.kind,
-        presentation: reference.type === "tinyos.file" && Boolean(reference.rawPath) && !reference.sourcePath
-          ? "attachment"
-          : "context",
-        sourceLine: reference.sourceLine,
-        sourcePath: reference.sourcePath,
-        title: reference.title,
-      })),
+      contextReferences: references.map((reference, index) => {
+        const attachment = ["tinyos.file", "tinyos.image"].includes(reference.type ?? "")
+          && Boolean(reference.rawPath) && !reference.sourcePath;
+        return {
+          ...(attachment ? {
+            attachmentKind: reference.type === "tinyos.image" ? "image" as const : "file" as const,
+            ...(reference.type === "tinyos.image" && reference.rawPath
+              ? { attachmentPreviewPath: reference.rawPath }
+              : {}),
+          } : {}),
+          detail: reference.detail,
+          id: reference.evidenceId || `reference-${index}`,
+          kind: reference.kind,
+          presentation: attachment ? "attachment" as const : "context" as const,
+          sourceLine: reference.sourceLine,
+          sourcePath: reference.sourcePath,
+          title: reference.title,
+        };
+      }),
     } : {}),
   };
 }

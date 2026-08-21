@@ -20,6 +20,7 @@ export type ToolCallSummary = {
 
 export type ContextReferenceSummary = {
   attachmentKind?: "file" | "image";
+  attachmentPreviewPath?: string;
   id: string;
   kind: string;
   title: string;

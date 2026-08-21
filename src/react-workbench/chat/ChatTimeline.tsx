@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import type { TFunction } from "i18next";
 import {
   Activity,
@@ -475,14 +476,22 @@ function CanonicalMessage({
   text: string;
 }) {
   const { t } = useTranslation("chat");
+  const referenceSummaries = references.map(canonicalReferenceSummary);
+  const attachmentReferences = role === "user"
+    ? referenceSummaries.filter(isAttachmentReference)
+    : [];
+  const inlineReferences = role === "user"
+    ? referenceSummaries.filter((reference) => !isAttachmentReference(reference))
+    : referenceSummaries;
   return (
     <article className="react-message" data-actions-placement="bottom" data-role={role} data-testid={`message-${messageId}`}>
+      {attachmentReferences.length ? <MessageAttachments references={attachmentReferences} /> : null}
       <div className="react-message__body">
         {reasoning.map((step) => (
           <MessageReasoning durationMs={reasoningDurationMs(step)} key={step.id} streaming={step.status === "running"} text={step.summary ?? ""} />
         ))}
         {role === "assistant" ? <AssistantMarkdown streaming={streaming} text={text} /> : <PlainMessageText text={text} />}
-        {references?.length ? <MessageContext references={references.map(canonicalReferenceSummary)} /> : null}
+        {inlineReferences.length ? <MessageContext references={inlineReferences} /> : null}
         {streaming ? <span aria-label={t("turn.agentResponding")} className="react-message__streaming" /> : null}
       </div>
       {allowActions && text.trim() ? (
@@ -874,6 +883,9 @@ function canonicalReferenceSummary(reference: AgentInputReference, index: number
   const attachmentKind = reference.type === "tinyos.image" ? "image" : "file";
   return {
     attachmentKind,
+    ...(attachmentKind === "image" && reference.rawPath
+      ? { attachmentPreviewPath: reference.rawPath }
+      : {}),
     id: reference.noteId || reference.evidenceId || `${reference.kind}:${index}`,
     kind: reference.kind,
     presentation: ["tinyos.file", "tinyos.image"].includes(reference.type ?? "")
@@ -921,6 +933,12 @@ function MessageBubble({
 }) {
   const { t } = useTranslation("chat");
   const actionAlignment = message.role === "user" ? "right" : "left";
+  const attachmentReferences = message.role === "user"
+    ? (message.contextReferences ?? []).filter(isAttachmentReference)
+    : [];
+  const inlineReferences = message.role === "user"
+    ? (message.contextReferences ?? []).filter((reference) => !isAttachmentReference(reference))
+    : message.contextReferences ?? [];
   const showCopyAction = canCopyMessage(message, { sessionRunning });
   const showBranchAction = canBranchFromMessage(message, { sessionRunning });
   return (
@@ -930,6 +948,7 @@ function MessageBubble({
       data-role={message.role}
       data-testid={`message-${message.id}`}
     >
+      {attachmentReferences.length ? <MessageAttachments references={attachmentReferences} /> : null}
       <div className="react-message__body">
         {message.reasoningText ? (
           <MessageReasoning streaming={message.status === "streaming"} text={message.reasoningText} />
@@ -939,7 +958,7 @@ function MessageBubble({
         ) : (
           <PlainMessageText text={message.text} />
         )}
-        {message.contextReferences?.length ? <MessageContext references={message.contextReferences} /> : null}
+        {inlineReferences.length ? <MessageContext references={inlineReferences} /> : null}
         {message.toolCalls?.length ? <AgentSteps toolCalls={message.toolCalls} onOpenTool={onOpenTool} /> : null}
         {message.status === "streaming" ? <span className="react-message__streaming" aria-label={t("turn.agentResponding")} /> : null}
       </div>
@@ -1030,6 +1049,61 @@ function MessageContext({ references }: { references: ContextReferenceSummary[] 
       </ul>
     </section>
   );
+}
+
+function isAttachmentReference(reference: ContextReferenceSummary): boolean {
+  return reference.presentation === "attachment";
+}
+
+function MessageAttachments({ references }: { references: ContextReferenceSummary[] }) {
+  const { t } = useTranslation("chat");
+  return (
+    <section aria-label={t("context.attachments")} className="react-message-attachments">
+      {references.map((reference) => (
+        <MessageAttachment key={reference.id} reference={reference} />
+      ))}
+    </section>
+  );
+}
+
+function MessageAttachment({ reference }: { reference: ContextReferenceSummary }) {
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const previewSource = reference.attachmentKind === "image" && !previewFailed
+    ? managedImagePreviewSource(reference.attachmentPreviewPath)
+    : undefined;
+  if (previewSource) {
+    return (
+      <figure className="react-message-attachment" data-kind="image">
+        <img
+          alt={reference.title}
+          decoding="async"
+          loading="lazy"
+          onError={() => setPreviewFailed(true)}
+          src={previewSource}
+        />
+      </figure>
+    );
+  }
+  return (
+    <div className="react-message-attachment" data-kind="file">
+      <span className="react-message-attachment__icon">
+        {reference.attachmentKind === "image"
+          ? <ImageIcon aria-hidden="true" size={18} />
+          : <FileText aria-hidden="true" size={18} />}
+      </span>
+      <span className="react-message-attachment__summary">
+        <strong>{reference.title}</strong>
+        {reference.detail ? <small>{reference.detail}</small> : null}
+      </span>
+    </div>
+  );
+}
+
+function managedImagePreviewSource(path: string | undefined): string | undefined {
+  const tauriWindow = typeof window === "undefined"
+    ? undefined
+    : window as Window & { __TAURI_INTERNALS__?: unknown };
+  return path && tauriWindow?.__TAURI_INTERNALS__ ? convertFileSrc(path) : undefined;
 }
 
 function formatMessageForCopy(message: ReactChatMessage): string {
