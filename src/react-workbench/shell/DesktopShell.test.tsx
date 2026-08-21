@@ -539,7 +539,7 @@ describe("DesktopShell", () => {
     let resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
     await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Agent Graphs" }));
     expect(await screen.findByRole("heading", { name: "Agent Graphs" })).toBeTruthy();
-    expect(screen.getByText("No graphs yet")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Start with your first workflow" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });

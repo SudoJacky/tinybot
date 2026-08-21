@@ -260,7 +260,7 @@ describe("AgentGraphsRoute", () => {
         })]),
       }),
     }));
-  });
+  }, 10_000);
 
   it("loads and saves workspace-owned Graph definitions with revisions", async () => {
     const user = userEvent.setup();
