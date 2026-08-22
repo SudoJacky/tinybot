@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:46d9c949adbd53e7bd8f0073f80cc4f3ad2b19892157ab854450564f2499e1d3 -->
+<!-- tinybot-module-fingerprint: sha256:70c83e070a8eb36c330542c9a32233a9b374fe09925bd1c77d1e57c0513d2504 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -13,7 +13,12 @@ angry, and pleased mascot moods, then reports that presentation state to the
 desktop shell. It does not introduce a second source of truth for Agent status.
 
 Chat contracts, commands, and projections live in `app-core/chat`. This folder
-owns React state and presentation. Browser runtime snapshots are retained by the
+owns React state and presentation. Composer submission turns native managed
+images into typed `tinyos.image` references. User attachments render as a
+separate stack above the text bubble: managed images use the scoped Tauri asset
+protocol for bounded previews, while ordinary files use compact metadata cards.
+Composer removal remains independent from this persisted timeline presentation.
+Browser runtime snapshots are retained by the
 session runtime and projected into Sidecar Browser resources. Each resource tab
 maps to one native WebView2 tab in the Chat-owned shared Browser Session, so user
 input and Agent browser tools operate on the same tabs, profile, and navigation

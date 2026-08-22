@@ -14,7 +14,7 @@ src/react-workbench/README.md
 src/react-workbench/agent-graph/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:30da1f37c5713ed9a4a177ab753c25dcab626e32077a9c4909b7a743304c3774 -->
+<!-- tinybot-doc-fingerprint: sha256:cfaa3ed8d93a658bf63182a7c70d0f11f2fd40197a02a9f60311c1cfcebc7577 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -58,6 +58,7 @@ Desktop Commands / Desktop Host
 | `app-core/native` | Typed renderer adapters for native commands and events | Product state or backend behavior |
 | `desktop_commands` | Thin Tauri input/output adaptation | Reusable domain behavior |
 | `desktop_terminal` | User-only Sidecar PTY lifecycle and resource ownership | Agent shell sessions or renderer presentation |
+| `chat_attachments` | Content-addressed managed image storage, validation, and request-local Data URL encoding | Conversation authority or provider protocol selection |
 | `agent::bridge` | Complete Turn orchestration and persistence coordination | Provider iteration or the Thread data model |
 | `agent::runtime` | Provider-and-tool loop, context, checkpoints, and runtime events | Tauri state or durable-store selection |
 | `command_hooks` | Hand-written and managed Hook discovery, managed manifest/script generation and constrained editing, exact definition-and-script trust, bounded command execution, and event output parsing | Agent capability policy or renderer state |
@@ -69,6 +70,9 @@ Desktop Commands / Desktop Host
 
 - Canonical conversation history: Rollouts under the Tinybot application data
   root.
+- Managed chat image bytes: content-addressed files under
+  `~/.tinybot/chat-attachments/images/`; Rollouts remain authoritative for the
+  typed reference and never persist the Base64 request payload.
 - Typed in-process conversation projection: `threads::domain`.
 - Current execution generation for a Turn: `TurnExecutionRuntime`.
 - Runtime model-and-tool history: typed `AgentItem` values inside

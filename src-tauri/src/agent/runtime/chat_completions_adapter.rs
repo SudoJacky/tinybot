@@ -1,6 +1,7 @@
 use super::items::{parse_tool_call, AgentUsageItem};
 use super::provider_adapter::{
-    attach_provider_tools, provider_message_with_user_context, require_provider_capability,
+    attach_provider_tools, provider_message_with_user_context,
+    reject_image_attachments_for_chat_completions, require_provider_capability,
     DecodedProviderTurn,
 };
 use super::tool_router::AgentToolDefinition;
@@ -61,7 +62,10 @@ impl ChatCompletionsAdapter {
     ) -> Result<Value, String> {
         let provider_messages = legacy_messages
             .iter()
-            .map(provider_message_with_user_context)
+            .map(|message| {
+                reject_image_attachments_for_chat_completions(message)?;
+                provider_message_with_user_context(message)
+            })
             .collect::<Result<Vec<_>, _>>()?;
         let mut history = AgentItemHistory::from_legacy_messages(&provider_messages)?;
         if let Some(system_prompt) = system_prompt {

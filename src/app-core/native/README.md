@@ -1,10 +1,14 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:c0e81414a7c13281b0b5071578bf63bfb41f1aae5406ec7b77ba4cadfcae94c7 -->
+<!-- tinybot-module-fingerprint: sha256:240ef3703b023e22bb027f3339fdfeabe3db33f47efd3f2ac77cb3b61b7ee92a -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
 Workspace, Browser, Terminal, Settings, Plugins, Memory, or Performance Trace
 snapshots.
+
+`desktopNativeFilePicker` preserves the optional content hash returned for a
+managed image. The native backend owns content detection and storage; the
+renderer receives metadata and a managed path, never image bytes.
 
 `desktopNativeAgentGraphs` implements the Graph store Interface through three
 workspace-aware commands. The backend owns path validation, schema validation,

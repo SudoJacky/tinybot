@@ -1,7 +1,7 @@
 use super::items::{AgentContentPart, AgentUsageItem};
 use super::provider_adapter::{
-    attach_provider_tools, provider_message_with_user_context, require_provider_capability,
-    DecodedProviderTurn,
+    attach_provider_tools, provider_responses_message_with_user_context,
+    require_provider_capability, DecodedProviderTurn,
 };
 use super::tool_router::{provider_tool_name, AgentToolDefinition};
 use super::{
@@ -61,7 +61,7 @@ impl ResponsesAdapter {
         }
         let provider_messages = legacy_messages
             .iter()
-            .map(provider_message_with_user_context)
+            .map(provider_responses_message_with_user_context)
             .collect::<Result<Vec<_>, _>>()?;
         let mut history = AgentItemHistory::from_legacy_messages(&provider_messages)?;
         if let Some(system_prompt) = system_prompt {
@@ -317,7 +317,7 @@ fn project_superseded_web_response_targets(response_items: &[Value]) -> Vec<Valu
 fn sanitize_replayed_item(item: &Value, index: usize) -> Result<Value, String> {
     let normalized = match item.get("role").and_then(Value::as_str) {
         Some("user") => {
-            let provider_message = provider_message_with_user_context(item)?;
+            let provider_message = provider_responses_message_with_user_context(item)?;
             encode_replayed_input_message(&provider_message, index)?
         }
         Some("system" | "developer") => encode_replayed_input_message(item, index)?,
@@ -616,6 +616,31 @@ mod tests {
 
         assert_eq!(input[1], json!({ "role": "assistant", "content": "hi" }));
         assert!(input[1].get("type").is_none());
+    }
+
+    #[test]
+    fn encodes_image_content_as_a_responses_input_image() {
+        let content = AgentMessageContent::Parts(vec![
+            AgentContentPart::Text {
+                text: "Describe this image".to_string(),
+            },
+            AgentContentPart::Image {
+                url: "data:image/png;base64,iVBORw0KGgo=".to_string(),
+                detail: Some("auto".to_string()),
+            },
+        ]);
+
+        assert_eq!(
+            input_message_content(&content).expect("image content should encode"),
+            json!([
+                { "type": "input_text", "text": "Describe this image" },
+                {
+                    "type": "input_image",
+                    "image_url": "data:image/png;base64,iVBORw0KGgo=",
+                    "detail": "auto"
+                }
+            ])
+        );
     }
 
     #[test]

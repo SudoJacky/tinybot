@@ -522,6 +522,46 @@ describe("desktop native app services", () => {
     }));
   });
 
+  test("projects managed images as optimistic preview attachments", async () => {
+    const services = createDesktopAppServices();
+    await services.sessionStore.list();
+    const events: ChatEvent[] = [];
+    services.chatStore.subscribe("thread-1", (event) => events.push(event));
+    const imagePath = "C:\\Users\\tester\\.tinybot\\chat-attachments\\images\\abc123.png";
+
+    await services.chatStore.dispatch(createDesktopTurnSubmitCommand({
+      commandId: "command-image-1",
+      message: {
+        references: [{
+          contentHash: "abc123",
+          detail: "PNG - 2 KB",
+          kind: "reference",
+          mimeType: "image/png",
+          rawPath: imagePath,
+          sizeBytes: 2048,
+          title: "diagram.png",
+          type: "tinyos.image",
+        }],
+        text: "Explain this image",
+      },
+      sessionId: "thread-1",
+      source: { control: "test", surface: "chat" },
+    }));
+
+    expect(events).toContainEqual(expect.objectContaining({
+      message: expect.objectContaining({
+        contextReferences: [expect.objectContaining({
+          attachmentKind: "image",
+          attachmentPreviewPath: imagePath,
+          presentation: "attachment",
+          title: "diagram.png",
+        })],
+        text: "Explain this image",
+      }),
+      type: "message-sent",
+    }));
+  });
+
   test("preserves live reasoning after the completed Thread result arrives", async () => {
     let completedTurnId = "";
     let resolveSubmit!: (value: unknown) => void;

@@ -47,6 +47,8 @@ pub(crate) struct PickedChatFile {
     pub(crate) path: String,
     pub(crate) mime_type: String,
     pub(crate) size_bytes: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) content_hash: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -97,7 +99,7 @@ pub(crate) fn pick_chat_files(
         .pick_files()
         .unwrap_or_default()
         .iter()
-        .map(|path| chat_file_from_path(path))
+        .map(|path| chat_file_from_path(path, &crate::config::application::tinybot_data_root()))
         .collect()
 }
 
@@ -166,7 +168,7 @@ pub(crate) fn upload_file_from_path(path: &Path) -> Result<PickedUploadFile, Str
     })
 }
 
-fn chat_file_from_path(path: &Path) -> Result<PickedChatFile, String> {
+fn chat_file_from_path(path: &Path, data_root: &Path) -> Result<PickedChatFile, String> {
     let path = if path.is_absolute() {
         path.to_path_buf()
     } else {
@@ -176,15 +178,31 @@ fn chat_file_from_path(path: &Path) -> Result<PickedChatFile, String> {
     };
     let metadata = std::fs::metadata(&path)
         .map_err(|error| format!("failed to inspect selected file: {error}"))?;
+    let managed_image = crate::chat_attachments::store_image_attachment(&path, data_root)?;
+    let (stored_path, mime_type, size_bytes, content_hash) = match managed_image {
+        Some(image) => (
+            image.path,
+            image.mime_type,
+            image.size_bytes,
+            Some(image.content_hash),
+        ),
+        None => (
+            path.display().to_string(),
+            mime_type_for_path(&path).to_string(),
+            metadata.len(),
+            None,
+        ),
+    };
     Ok(PickedChatFile {
         name: path
             .file_name()
             .and_then(|value| value.to_str())
             .unwrap_or("file")
             .to_string(),
-        path: path.display().to_string(),
-        mime_type: mime_type_for_path(&path).to_string(),
-        size_bytes: metadata.len(),
+        path: stored_path,
+        mime_type,
+        size_bytes,
+        content_hash,
     })
 }
 
@@ -203,7 +221,9 @@ pub(crate) fn mime_type_for_path(path: &Path) -> &'static str {
         "pdf" => "application/pdf",
         "txt" => "text/plain",
         "jpeg" | "jpg" => "image/jpeg",
+        "gif" => "image/gif",
         "png" => "image/png",
+        "webp" => "image/webp",
         _ => "application/octet-stream",
     }
 }

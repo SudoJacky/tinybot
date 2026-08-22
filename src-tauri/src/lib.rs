@@ -4,6 +4,7 @@ mod adapters;
 mod agent;
 mod agent_graphs;
 mod automation;
+mod chat_attachments;
 mod collaboration;
 mod command_hooks;
 mod config;
