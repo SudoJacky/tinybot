@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:2d0c0b8f628095f5cebe53bcd2c23d0da25104a1a5dae68deee93064019eebc0 -->
+<!-- tinybot-module-fingerprint: sha256:ef4a1bb6a20a1ba7fb82df6ca32725ea5fb55c62bdd7345384265399afcba6e9 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -7,6 +7,13 @@ canonical timeline presentation, the composer, and detail drawers.
 `ChatTimeline.tsx` owns the reusable canonical message and execution rendering;
 its action callbacks are optional so read-only consumers can omit unavailable
 branch, recovery, artifact, delegate, and tool-detail controls.
+
+The desktop pet quick-chat surface composes `ChatTimeline` and
+`ClaudeStyleAiInput` directly without mounting `ChatPage`. Its first submitted
+draft creates an ordinary General Thread marked only with the `desktop-pet`
+entry point. When that independent renderer hands a Thread to the main window,
+`ChatPage` refreshes the native Thread list and activates the exact requested
+session rather than inferring a target from the currently selected chat.
 
 Chat projects the active session and Turn lifecycle into calm, curious, working,
 angry, and pleased mascot moods, then reports that presentation state to the

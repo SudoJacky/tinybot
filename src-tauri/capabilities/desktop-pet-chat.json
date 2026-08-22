@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "desktop-pet-chat",
+  "description": "Windows-only capability for the desktop pet quick chat window",
+  "webviews": ["desktop-pet-chat"],
+  "platforms": ["windows"],
+  "permissions": [
+    "core:event:default",
+    "core:window:allow-hide"
+  ]
+}

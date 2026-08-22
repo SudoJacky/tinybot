@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +13,7 @@ import { timelineFromReactMessages } from "../chat/test/timelineFixtures";
 import { unavailableTinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
 import type { DesktopUpdateClient, DesktopUpdateSnapshot } from "../../app-core/native/desktopNativeUpdate";
 import type { DesktopPetHost, DesktopPetPreferencesPatch } from "../../app-core/native/desktopNativePet";
+import type { DesktopPetQuickChatHost, DesktopPetQuickChatHostEvent } from "../../app-core/native/desktopNativePetQuickChat";
 import { pickDesktopPluginMigrationDirectory } from "../../app-core/native/desktopNativePluginPicker";
 import { APPEARANCE_STORAGE_KEY } from "../../app-core/settings/appAppearance";
 import { SHORTCUTS_STORAGE_KEY } from "../../app-core/settings/appShortcuts";
@@ -426,6 +427,28 @@ describe("DesktopShell", () => {
       const stored = JSON.parse(window.localStorage.getItem(DESKTOP_PET_STORAGE_KEY) ?? "{}");
       expect(stored.position).toEqual({ x: -1243, y: 318 });
     });
+  });
+
+  it("refreshes and activates the exact quick chat session when opening the main window", async () => {
+    let quickChatListener: ((event: DesktopPetQuickChatHostEvent) => void) | undefined;
+    const desktopPetQuickChatHost: DesktopPetQuickChatHost = {
+      listen: vi.fn(async (listener) => {
+        quickChatListener = listener;
+        return () => undefined;
+      }),
+    };
+    const existing = { id: "existing", title: "Existing", updatedAtMs: 1 };
+    const quickChat = { id: "quick-chat", title: "Dropped browser text", updatedAtMs: 2 };
+    const services = createServices({ sessions: [existing] });
+    services.desktopPetQuickChatHost = desktopPetQuickChatHost;
+    services.sessionStore.refresh = vi.fn(async () => [existing, quickChat]);
+
+    render(<DesktopShell services={services} />);
+    await waitFor(() => expect(quickChatListener).toBeTypeOf("function"));
+    act(() => quickChatListener?.({ type: "open-main", sessionId: quickChat.id }));
+
+    await waitFor(() => expect(services.sessionStore.refresh).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("heading", { level: 1, name: "Dropped browser text" })).toBeTruthy();
   });
 
   it("resizes, hides, and restores the desktop pet from the System menu", async () => {

@@ -17,6 +17,12 @@ export const zh = {
     },
     desktopPet: {
       move: "移动 Tinybot 桌面宠物。拖动它，或使用方向键。", sizeControls: "Tinybot 尺寸：{{size}}", smaller: "缩小 Tinybot", larger: "放大 Tinybot", hide: "隐藏 Tinybot 桌面宠物",
+      quickChat: {
+        open: "打开快捷会话", release: "松开以聊天", emptyDrop: "拖入的内容中没有文字。", panel: "Tinybot 快捷会话", newChat: "新会话",
+        windowControls: "快捷会话窗口控制", openInMain: "在 Tinybot 中打开", minimize: "收起快捷会话", loading: "正在加载会话",
+        recent: "最近会话", seeAll: "查看全部", today: "今天", placeholder: "给 Tinybot 发消息",
+        needsInput: "在 Tinybot 中继续并提供所需信息", filesUnsupported: "快捷会话暂不支持文件附件。", commandUnsupported: "快捷会话暂不支持这个命令。",
+      },
       sizes: { small: "小", medium: "中", large: "大" },
       status: { calm: "Tinybot 很平静", curious: "Tinybot 正疑惑地等你", working: "Tinybot 正在努力", angry: "Tinybot 有点生气", pleased: "Tinybot 满意地完成了任务" },
     },

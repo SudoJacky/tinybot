@@ -168,7 +168,7 @@ describe("desktop native chat session controller", () => {
     const { controller, submitThreadTurn } = createController();
     await controller.loadSessions();
 
-    const result = await controller.submitMessage("hello", {
+    const result = await controller.submitMessage("thread-1", "hello", {
       model: "model-1",
       provider: "openai",
       reasoningEffort: "xhigh",
@@ -223,7 +223,7 @@ describe("desktop native chat session controller", () => {
     await controller.loadSessions();
     const content = "# Files mentioned by the user:\n\n## notes.md: C:\\Users\\tester\\notes.md\n\n## My request for Tinybot:\nReview this file\n";
 
-    const result = await controller.submitMessage(content);
+    const result = await controller.submitMessage("thread-1", content);
 
     expect(result).toEqual(expect.objectContaining({ content }));
     expect(submitThreadTurn).toHaveBeenCalledWith(expect.objectContaining({
@@ -235,7 +235,7 @@ describe("desktop native chat session controller", () => {
     const { controller, submitThreadTurn } = createController();
     await controller.loadSessions();
 
-    await expect(controller.submitMessage("hello", { clientEventId: "command-turn-1" })).resolves.toEqual(
+    await expect(controller.submitMessage("thread-1", "hello", { clientEventId: "command-turn-1" })).resolves.toEqual(
       expect.objectContaining({ clientEventId: "command-turn-1", status: "sent" }),
     );
     expect(submitThreadTurn).toHaveBeenCalledWith(expect.objectContaining({
@@ -244,6 +244,61 @@ describe("desktop native chat session controller", () => {
         metadata: expect.objectContaining({ clientEventId: "command-turn-1" }),
       }),
     }));
+  });
+
+  test("routes concurrent submissions by their explicit Thread IDs", async () => {
+    const submitThreadTurn = vi.fn(async (request: {
+      threadId: string;
+      input: { content: string };
+      spec: { turnId: string };
+    }) => ({
+      threadId: request.threadId,
+      sessionId: request.threadId,
+      turnId: request.spec.turnId,
+    }));
+    const { controller } = createController({
+      listThreads: vi.fn(async () => ({
+        threads: [
+          {
+            threadId: "thread-1",
+            title: "First",
+            status: "idle" as const,
+            createdAt: "2026-07-14T00:00:00.000Z",
+            updatedAt: "2026-07-14T00:00:00.000Z",
+          },
+          {
+            threadId: "thread-2",
+            title: "Second",
+            status: "idle" as const,
+            createdAt: "2026-07-14T00:00:00.000Z",
+            updatedAt: "2026-07-14T00:00:00.000Z",
+          },
+        ],
+        total: 2,
+      })),
+      submitThreadTurn,
+    });
+    await controller.loadSessions();
+
+    const first = controller.submitMessage("thread-1", "from main", {
+      clientEventId: "main-command",
+    });
+    await controller.selectSession("thread-2");
+    const second = controller.submitMessage("thread-2", "from pet", {
+      clientEventId: "pet-command",
+    });
+
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      expect.objectContaining({ sessionId: "thread-1" }),
+      expect.objectContaining({ sessionId: "thread-2" }),
+    ]);
+    expect(submitThreadTurn.mock.calls.map(([request]) => [
+      request.threadId,
+      request.input.content,
+    ])).toEqual([
+      ["thread-1", "from main"],
+      ["thread-2", "from pet"],
+    ]);
   });
 
   test("applies typed timeline patches after the Thread timeline is loaded", async () => {

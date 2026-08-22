@@ -12,9 +12,10 @@ src-tauri/src/desktop_commands/hooks.rs
 src-tauri/src/desktop_commands/plugins.rs
 src/app-core/native/desktopNativeHooks.ts
 src/app-core/native/desktopNativePet.ts
+src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:8a78da8eafbd25f88d8935568a3ccc67b2129b220edff39a08814bb8fbaa170d -->
+<!-- tinybot-doc-fingerprint: sha256:d24f6710adbc5527a7602201a715687e66841a81336c4bf7a7c8d8b978dbdb50 -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -40,14 +41,23 @@ later Rollout/index mismatch. A persisted `running` turn with no live owner is t
 error leaves the task runtime non-accepting, sets `last_error`, and appends a
 `startup_recovery` diagnostic instead of silently continuing.
 
-## Windows Desktop Pet Window
+## Windows Desktop Pet Windows
 
-On Windows, desktop setup creates one hidden, transparent `desktop-pet`
-webview in addition to `main`. It is undecorated, always on top, omitted from
-the taskbar, and deliberately has no owner or parent window, so minimizing the
-main window does not remove the pet from the desktop. The pet renderer is
-selected with `index.html?surface=desktop-pet`; it does not start another App
-service graph.
+On Windows, desktop setup creates two hidden, transparent webviews in addition
+to `main`: the `desktop-pet` mascot and the `desktop-pet-chat` quick-chat
+panel. Both are undecorated, always on top, omitted from the taskbar, and own
+isolated hidden menus so application-menu text cannot leak into their compact
+surfaces. The pet deliberately has no owner or parent window, so minimizing
+the main window does not remove it from the desktop.
+
+The pet renderer is selected with `index.html?surface=desktop-pet`; it does not
+start another App service graph. Dropping external `text/plain` content on the
+pet, or clicking its chat affordance, sends a validated request through the
+typed `desktopNativePetQuickChat` event seam. The main renderer positions the
+quick-chat panel next to the pet within the current monitor work area, then the
+`?surface=desktop-pet-chat` renderer presents an editable draft and uses the
+canonical Thread stores for model selection, token usage, timeline updates,
+and first-send creation of a standard non-workspace Thread.
 
 The main renderer remains authoritative for the pet label, mood, visibility,
 size, and persisted physical-desktop center. The typed
@@ -58,10 +68,12 @@ used when restoring or resizing the pet, including monitors with negative
 coordinates.
 
 Closing `desktop-pet` prevents destruction, hides the window, and notifies
-`main` to persist `visible: false`. Closing `main` performs the normal bounded
-runtime cleanup before destroying both windows. The pet's Windows-only
-capability grants only event, position, scale-factor, and native-drag access;
-it cannot invoke the wider main-window command surface.
+`main` to persist `visible: false`; closing `desktop-pet-chat` hides it without
+discarding canonical Thread state. Closing `main` performs the normal bounded
+runtime cleanup before destroying both auxiliary windows. The pet's
+Windows-only capability grants only event, position, scale-factor, and
+native-drag access. The quick-chat capability grants only events and window
+hide; neither can invoke the wider main-window command surface.
 
 ## Sidecar Terminal Commands
 

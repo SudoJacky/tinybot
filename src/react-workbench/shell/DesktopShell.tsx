@@ -235,6 +235,10 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
   const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(false);
   const [sidebarMotionSource, setSidebarMotionSource] = useState<MotionSource>("pointer");
   const [createChatSignal, setCreateChatSignal] = useState(0);
+  const [activateChatSessionRequest, setActivateChatSessionRequest] = useState<{
+    sessionId: string;
+    signal: number;
+  } | null>(null);
   const [aboutOpenSignal, setAboutOpenSignal] = useState(0);
   const [whatsNewOpenSignal, setWhatsNewOpenSignal] = useState(0);
   const [stopGenerationSessionId, setStopGenerationSessionId] = useState("");
@@ -243,6 +247,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
     () => readDesktopPetPreferences(window.localStorage),
   );
   const desktopPetHost = services.desktopPetHost ?? null;
+  const desktopPetQuickChatHost = services.desktopPetQuickChatHost ?? null;
   const desktopPetLabel = t(`desktopPet.status.${desktopPetMood}`);
   const stopGenerationSessionIdRef = useRef("");
   const frameControls = useMemo(() => windowControls ?? resolveWindowFrameControls(), [windowControls]);
@@ -324,6 +329,32 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
       };
     });
   }, []);
+
+  useEffect(() => {
+    if (!desktopPetQuickChatHost) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void desktopPetQuickChatHost.listen((event) => {
+      if (disposed || event.type !== "open-main") return;
+      navigateToRoute("chat");
+      if (event.sessionId) {
+        const sessionId = event.sessionId;
+        setActivateChatSessionRequest((current) => ({
+          sessionId,
+          signal: (current?.signal ?? 0) + 1,
+        }));
+      }
+    }).then((stopListening) => {
+      if (disposed) stopListening();
+      else unlisten = stopListening;
+    }).catch((error) => {
+      console.error("[desktop-pet-quick-chat] Failed to listen for panel actions.", error);
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [desktopPetQuickChatHost, navigateToRoute]);
 
   const executeShortcutCommand = useCallback((commandId: ShortcutCommandId, source: MotionSource) => {
     switch (commandId) {
@@ -686,6 +717,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
         <section className="react-route-surface">
           <RouteSurface
             chat={{
+              activateSessionRequest: activateChatSessionRequest,
               createSessionSignal: createChatSignal,
               now,
               sessionSidebarCollapsed,

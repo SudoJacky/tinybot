@@ -1,11 +1,13 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:2e9f26c4da75e677cd30f98afaf0ae15dfd5cd670d59af1cac00171f0a09b2f9 -->
+<!-- tinybot-module-fingerprint: sha256:4b9175d33377e945d3dcc05a7c87054ea55abbebda8b83b680f2d4cc92cfa87f -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
-`main.tsx` mounts `App` for the main window and selects the lightweight
-`DesktopPetWindow` surface for the Windows-only `desktop-pet` webview.
+`main.tsx` mounts `App` for the main window and selects lightweight
+`DesktopPetWindow` and `DesktopPetQuickChatWindow` surfaces for the Windows-only
+pet webviews. The quick-chat surface owns an independent renderer service graph
+so it remains usable while the main window is minimized.
 `DesktopShell` owns the desktop chrome, and `defaultServices.ts` composes the
-renderer-facing stores including the optional native pet host.
+renderer-facing stores including the optional native pet and quick-chat hosts.
 
 The standalone [`agent-graph/`](agent-graph/README.md) route owns the in-memory
 Agent Graph canvas editor without importing `ChatPage` or consuming Chat route

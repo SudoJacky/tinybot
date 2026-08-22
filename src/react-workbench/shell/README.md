@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:347e3c501430a943010d144c6b5e4f98208865748f7a79c5f6c8126ac2f3c14a -->
+<!-- tinybot-module-fingerprint: sha256:8037f34b113a8c9e2012ec94ee8d02a8c0e1ccc63dcd19600c7cfd12ef873612 -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
@@ -21,6 +21,16 @@ bounded inline adapter. `DesktopPetWindow.tsx` owns only rendering and direct
 window interaction, while Chat only reports the current mascot mood. The pet
 can be hidden from its own controls and restored from the System menu without
 duplicating Agent lifecycle state or booting a second `App` service graph.
+
+The pet accepts external HTML5 `text/plain` drops and forwards the exact draft
+through `desktopNativePetQuickChat` to the independent `desktop-pet-chat`
+window. `DesktopPetQuickChatWindow.tsx` reuses Chat's canonical composer and
+timeline presentation, keeps the draft editable, exposes the same model picker
+and context-token usage, and persists model changes to the selected Thread. It
+lazily creates a standard Thread on first send without workspace or project
+metadata. Opening an existing recent chat or handing the new Thread to the main
+window always carries its explicit Thread ID; `DesktopShell` refreshes the main
+renderer's session list before activating it.
 
 The bounded `react-route-surface` owns vertical overflow for document-like
 routes so long settings, tools, and diagnostics pages remain scrollable inside

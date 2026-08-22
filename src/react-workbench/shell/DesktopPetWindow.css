@@ -36,7 +36,9 @@
   cursor: grab;
   touch-action: none;
   transform: translate(-50%, -50%);
-  transition: filter 160ms ease;
+  transition:
+    filter 160ms ease,
+    transform 220ms cubic-bezier(.2, .8, .2, 1);
 }
 
 .react-desktop-pet-window__drag-surface:active {
@@ -51,6 +53,79 @@
 
 .react-desktop-pet-window .react-tinybot-mascot {
   --tinybot-mascot-size: var(--desktop-pet-size);
+}
+
+.react-desktop-pet-window[data-drop-active="true"] .react-desktop-pet-window__drag-surface {
+  filter: saturate(1.16) drop-shadow(0 6px 14px color-mix(in srgb, var(--color-primary) 38%, transparent));
+  transform: translate(-50%, -50%) scale(1.08);
+}
+
+.react-desktop-pet-window__drop-cue {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  place-items: end center;
+  width: var(--desktop-pet-size);
+  height: var(--desktop-pet-size);
+  border: 2px solid color-mix(in srgb, var(--color-primary) 84%, transparent);
+  border-radius: 50%;
+  padding-bottom: 5px;
+  color: var(--color-primary-active);
+  pointer-events: none;
+  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--color-panel) 68%, transparent);
+  transform: translate(-50%, -50%);
+}
+
+.react-desktop-pet-window__drop-cue span,
+.react-desktop-pet-window__drop-error {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.react-desktop-pet-window__quick-chat-button {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid color-mix(in srgb, var(--color-hairline) 86%, transparent);
+  border-radius: 50%;
+  padding: 0;
+  background: color-mix(in srgb, var(--color-panel) 90%, transparent);
+  color: var(--color-body);
+  box-shadow: 0 6px 18px rgb(20 20 19 / 12%);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px) scale(.92);
+  transition:
+    opacity 160ms ease,
+    transform 200ms cubic-bezier(.2, .8, .2, 1);
+  backdrop-filter: blur(12px) saturate(140%);
+}
+
+.react-desktop-pet-window:hover .react-desktop-pet-window__quick-chat-button,
+.react-desktop-pet-window:focus-within .react-desktop-pet-window__quick-chat-button {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+.react-desktop-pet-window__quick-chat-button:hover,
+.react-desktop-pet-window__quick-chat-button:focus-visible {
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+}
+
+.react-desktop-pet-window__quick-chat-button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 70%, transparent);
+  outline-offset: -1px;
 }
 
 .react-desktop-pet-window__toolbar {
@@ -81,6 +156,16 @@
   opacity: 1;
   pointer-events: auto;
   transform: translate(-50%, 0) scale(1);
+}
+
+.react-desktop-pet-window[data-drop-active="true"] .react-desktop-pet-window__toolbar {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.react-desktop-pet-window[data-drop-active="true"] .react-desktop-pet-window__quick-chat-button {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .react-desktop-pet-window__toolbar button {
@@ -114,12 +199,14 @@
 
 @media (prefers-reduced-motion: reduce) {
   .react-desktop-pet-window__drag-surface,
+  .react-desktop-pet-window__quick-chat-button,
   .react-desktop-pet-window__toolbar {
     transition-duration: 140ms;
   }
 }
 
 @media (prefers-reduced-transparency: reduce) {
+  .react-desktop-pet-window__quick-chat-button,
   .react-desktop-pet-window__toolbar {
     background: var(--color-panel);
     backdrop-filter: none;

@@ -120,6 +120,8 @@ pub(crate) fn run() {
             install_desktop_application_menu(app)?;
             #[cfg(windows)]
             super::pet::create_desktop_pet_window(app)?;
+            #[cfg(windows)]
+            super::pet::create_desktop_pet_quick_chat_window(app)?;
             match ensure_default_config_file(&default_tinybot_config_path()) {
                 Ok(diagnostics) => {
                     for diagnostic in diagnostics {
@@ -323,6 +325,15 @@ pub(crate) fn run() {
         ])
         .on_window_event(move |window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
+                if super::pet::is_desktop_pet_quick_chat_window(window.label()) {
+                    api.prevent_close();
+                    if let Err(error) = window.hide() {
+                        eprintln!("desktop_pet_quick_chat_window_hide_failed error={error}");
+                    } else {
+                        eprintln!("desktop_pet_quick_chat_window_hidden reason=close_requested");
+                    }
+                    return;
+                }
                 if super::pet::is_desktop_pet_window(window.label()) {
                     api.prevent_close();
                     if let Err(error) = window.hide() {
@@ -387,6 +398,16 @@ pub(crate) fn run() {
                                 eprintln!("desktop_pet_window_destroy_failed error={error}");
                             } else {
                                 eprintln!("desktop_pet_window_destroy_completed");
+                            }
+                        }
+                        if let Some(quick_chat_window) = window
+                            .app_handle()
+                            .get_webview_window(super::pet::DESKTOP_PET_QUICK_CHAT_WINDOW_LABEL)
+                        {
+                            if let Err(error) = quick_chat_window.destroy() {
+                                eprintln!("desktop_pet_quick_chat_window_destroy_failed error={error}");
+                            } else {
+                                eprintln!("desktop_pet_quick_chat_window_destroy_completed");
                             }
                         }
                         if let Err(error) = window.destroy() {

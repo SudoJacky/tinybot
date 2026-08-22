@@ -1,18 +1,24 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
+  type DragEvent,
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
-import { Minus, Plus, X } from "lucide-react";
+import { MessageCircle, Minus, Plus, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
   createDesktopNativePetWindowClient,
   type DesktopPetWindowClient,
   type DesktopPetWindowSnapshot,
 } from "../../app-core/native/desktopNativePet";
+import {
+  createDesktopNativePetQuickChatDropClient,
+  type DesktopPetQuickChatDropClient,
+} from "../../app-core/native/desktopNativePetQuickChat";
 import {
   DESKTOP_PET_SIZE_PIXELS,
   stepDesktopPetSize,
@@ -21,10 +27,23 @@ import {
 import { TinybotMascot } from "../chat/TinybotMascot";
 import "./DesktopPetWindow.css";
 
-export function DesktopPetWindow({ client }: { client?: DesktopPetWindowClient }) {
+export function DesktopPetWindow({
+  client,
+  quickChatClient,
+}: {
+  client?: DesktopPetWindowClient;
+  quickChatClient?: DesktopPetQuickChatDropClient;
+}) {
   const { t } = useTranslation("common");
   const windowClient = useMemo(() => client ?? createDesktopNativePetWindowClient(), [client]);
+  const dropClient = useMemo(
+    () => quickChatClient ?? createDesktopNativePetQuickChatDropClient(),
+    [quickChatClient],
+  );
   const [snapshot, setSnapshot] = useState<DesktopPetWindowSnapshot | null>(null);
+  const [dropActive, setDropActive] = useState(false);
+  const [dropError, setDropError] = useState("");
+  const dragDepth = useRef(0);
 
   useEffect(() => {
     let disposed = false;
@@ -76,10 +95,52 @@ export function DesktopPetWindow({ client }: { client?: DesktopPetWindowClient }
     void windowClient.requestPreferences({ size }).catch(reportDesktopPetWindowError);
   }
 
+  function handleDragEnter(event: DragEvent<HTMLDivElement>) {
+    if (!hasPlainText(event.dataTransfer.types)) return;
+    event.preventDefault();
+    dragDepth.current += 1;
+    setDropError("");
+    setDropActive(true);
+  }
+
+  function handleDragOver(event: DragEvent<HTMLDivElement>) {
+    if (!hasPlainText(event.dataTransfer.types)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleDragLeave(event: DragEvent<HTMLDivElement>) {
+    if (!hasPlainText(event.dataTransfer.types)) return;
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (dragDepth.current === 0) setDropActive(false);
+  }
+
+  function handleDrop(event: DragEvent<HTMLDivElement>) {
+    if (!hasPlainText(event.dataTransfer.types)) return;
+    event.preventDefault();
+    dragDepth.current = 0;
+    setDropActive(false);
+    const draft = event.dataTransfer.getData("text/plain") || event.dataTransfer.getData("text");
+    if (!draft.trim()) {
+      setDropError(t("desktopPet.quickChat.emptyDrop"));
+      return;
+    }
+    void dropClient.openWithDraft(draft).catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setDropError(message);
+      reportDesktopPetWindowError(error);
+    });
+  }
+
   return (
     <div
       className="react-desktop-pet-window"
+      data-drop-active={dropActive ? "true" : "false"}
       style={{ "--desktop-pet-size": `${sizePixels}px` } as CSSProperties}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
     >
       <div
         aria-label={t("desktopPet.move")}
@@ -92,6 +153,22 @@ export function DesktopPetWindow({ client }: { client?: DesktopPetWindowClient }
       >
         <TinybotMascot label={snapshot.label} mood={snapshot.mood} />
       </div>
+      {dropActive ? (
+        <div aria-live="polite" className="react-desktop-pet-window__drop-cue" role="status">
+          <MessageCircle aria-hidden="true" size={16} />
+          <span>{t("desktopPet.quickChat.release")}</span>
+        </div>
+      ) : null}
+      {dropError ? <span className="react-desktop-pet-window__drop-error" role="alert">{dropError}</span> : null}
+      <button
+        aria-label={t("desktopPet.quickChat.open")}
+        className="react-desktop-pet-window__quick-chat-button"
+        title={t("desktopPet.quickChat.open")}
+        type="button"
+        onClick={() => void dropClient.openWithDraft("").catch(reportDesktopPetWindowError)}
+      >
+        <MessageCircle aria-hidden="true" size={14} />
+      </button>
       <div
         aria-label={t("desktopPet.sizeControls", { size: t(`desktopPet.sizes.${snapshot.preferences.size}`) })}
         className="react-desktop-pet-window__toolbar"
@@ -126,6 +203,10 @@ export function DesktopPetWindow({ client }: { client?: DesktopPetWindowClient }
       </div>
     </div>
   );
+}
+
+function hasPlainText(types: readonly string[] | DOMStringList): boolean {
+  return Array.from(types).some((type) => type === "text/plain" || type === "text");
 }
 
 function keyboardDirection(key: string): DesktopPetPosition | null {

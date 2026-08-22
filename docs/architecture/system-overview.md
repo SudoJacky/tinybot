@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:cbd35619db219659115fac05670fde1a7e76a29a5bc9ee3b082dbd3778636a66 -->
+<!-- tinybot-doc-fingerprint: sha256:1c42596befb51f867398ca8f1df2ad8e65812fc8145dc1fa58055692992ca88d -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -55,7 +55,7 @@ Desktop Commands / Desktop Host
 | `react-workbench/sidecar` | Resource tabs, scope filtering, and Sidecar presentation | Native Browser or Terminal lifecycle |
 | `app-core` | Framework-independent contracts, validation, commands, and projections | React rendering or Tauri invocation |
 | `app-core/agent-graph` | Versioned Graph contracts, validation, edit operations, persistence Interface, and runtime Interface | React rendering, native filesystem I/O, or Agent execution |
-| `app-core/desktop-pet` | Pet preferences plus monitor-aware physical window geometry | React rendering or native window calls |
+| `app-core/desktop-pet` | Pet preferences plus monitor-aware pet and quick-chat window geometry | React rendering or native window calls |
 | `agent_graphs` | Workspace Graph files, schema validation, atomic writes, and exact-byte revisions | Renderer state or Graph execution |
 | `graph_runs` | Linear Graph preflight, Run status files, Agent node sequencing, and standard Thread creation | Renderer state, definition editing, or the Agent Loop implementation |
 | `app-core/native` | Typed renderer adapters for native commands and events | Product state or backend behavior |
@@ -109,6 +109,10 @@ Desktop Commands / Desktop Host
 - Desktop pet preferences: the main renderer's `DesktopShell`, persisted under
   `tinybot.ui.desktop-pet.v1`. The Windows `desktop-pet` webview is a projection
   of that state and never becomes a second authority.
+- Desktop pet quick-chat state: canonical Threads and Rollouts remain
+  authoritative. The `desktop-pet-chat` webview owns only its editable draft,
+  selected recent Thread, and shared composer/timeline projection; explicit
+  Tauri events carry draft presentation and main-window Thread activation.
 
 An adapter may translate at a seam, but it must not become a second authority.
 
@@ -125,12 +129,17 @@ Keep transport at the outside. Domain modules must not depend on React or
 Tauri. The generic Agent Runtime receives adapters through injected interfaces
 instead of choosing desktop persistence or transport internally.
 
-The renderer entry point has two surfaces. The main window follows
+The renderer entry point has three surfaces. The main window follows
 `main.tsx -> App -> DesktopShell` and composes the application services. The
 Windows-only `?surface=desktop-pet` path mounts `DesktopPetWindow` directly
 under the shared language, appearance, error, and diagnostic providers. It
 receives snapshots from `DesktopShell` through `app-core/native`, so showing a
-global desktop pet does not duplicate routes, stores, or native runtimes.
+global desktop pet does not duplicate routes, stores, or native runtimes. The
+`?surface=desktop-pet-chat` path mounts `DesktopPetQuickChatWindow` with a
+bounded service composition so it can create and continue canonical Threads;
+the scoped native event seam positions it next to the pet and hands an explicit
+Thread ID back to `DesktopShell` when the user opens the conversation in the
+main Chat route.
 
 ## Cross-module flows
 
