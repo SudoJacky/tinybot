@@ -1,4 +1,5 @@
-export const DESKTOP_PET_STORAGE_KEY = "tinybot.ui.desktop-pet.v1";
+export const DESKTOP_PET_STORAGE_KEY = "tinybot.ui.desktop-pet.v2";
+const LEGACY_DESKTOP_PET_STORAGE_KEY = "tinybot.ui.desktop-pet.v1";
 export const DESKTOP_PET_MARGIN = 12;
 export const DESKTOP_PET_TOP_INSET = 54;
 
@@ -9,6 +10,9 @@ export const DESKTOP_PET_SIZE_PIXELS = {
 } as const;
 
 export type DesktopPetSize = keyof typeof DESKTOP_PET_SIZE_PIXELS;
+
+export const DESKTOP_PET_MOODS = ["calm", "curious", "working", "angry", "pleased"] as const;
+export type DesktopPetMood = (typeof DESKTOP_PET_MOODS)[number];
 
 export type DesktopPetPosition = {
   x: number;
@@ -38,14 +42,19 @@ const DESKTOP_PET_MIN_TOOLBAR_WIDTH = 76;
 export function readDesktopPetPreferences(
   storage: Pick<Storage, "getItem">,
 ): DesktopPetPreferences {
-  const serialized = storage.getItem(DESKTOP_PET_STORAGE_KEY);
+  let serialized = storage.getItem(DESKTOP_PET_STORAGE_KEY);
+  let restorePosition = true;
+  if (!serialized) {
+    serialized = storage.getItem(LEGACY_DESKTOP_PET_STORAGE_KEY);
+    restorePosition = false;
+  }
   if (!serialized) return { ...DEFAULT_DESKTOP_PET_PREFERENCES };
 
   try {
     const value = JSON.parse(serialized) as unknown;
     if (!isRecord(value)) throw new Error("Stored desktop pet preferences must be an object.");
     const size = isDesktopPetSize(value.size) ? value.size : DEFAULT_DESKTOP_PET_PREFERENCES.size;
-    const position = isRecord(value.position)
+    const position = restorePosition && isRecord(value.position)
       && isFiniteNumber(value.position.x)
       && isFiniteNumber(value.position.y)
       ? { x: value.position.x, y: value.position.y }
@@ -110,12 +119,27 @@ export function defaultDesktopPetPosition(
   }, size, viewport);
 }
 
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.max(minimum, Math.min(maximum, value));
+export function isDesktopPetPreferences(value: unknown): value is DesktopPetPreferences {
+  if (!isRecord(value) || typeof value.visible !== "boolean" || !isDesktopPetSize(value.size)) {
+    return false;
+  }
+  return value.position === null || (
+    isRecord(value.position)
+    && isFiniteNumber(value.position.x)
+    && isFiniteNumber(value.position.y)
+  );
 }
 
-function isDesktopPetSize(value: unknown): value is DesktopPetSize {
+export function isDesktopPetSize(value: unknown): value is DesktopPetSize {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(DESKTOP_PET_SIZE_PIXELS, value);
+}
+
+export function isDesktopPetMood(value: unknown): value is DesktopPetMood {
+  return typeof value === "string" && (DESKTOP_PET_MOODS as readonly string[]).includes(value);
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, value));
 }
 
 function isFiniteNumber(value: unknown): value is number {

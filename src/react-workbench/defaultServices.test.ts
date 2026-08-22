@@ -251,6 +251,7 @@ describe("desktop native app services", () => {
     await expect(services.sessionStore.create({
       title: "New Thread",
       workingDirectory: "D:\\Code\\py\\tinybot",
+      entryPoint: "desktop-pet",
     })).resolves.toEqual(
       expect.objectContaining({ id: "thread-1" }),
     );
@@ -263,6 +264,9 @@ describe("desktop native app services", () => {
           metadata: {
             workingDirectory: "D:\\Code\\py\\tinybot",
             model: "model-current",
+            extra: {
+              entryPoint: "desktop-pet",
+            },
           },
         },
       },

@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:240ef3703b023e22bb027f3339fdfeabe3db33f47efd3f2ac77cb3b61b7ee92a -->
+<!-- tinybot-module-fingerprint: sha256:c71f977b65867c77c909b7365fe15cbc5753d0f2b9a33c3e7821213c6291a656 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -35,6 +35,25 @@ boundary.
 Adapters preserve native failures and normalize only their transport contract.
 React state and product projections remain in the workbench and other app-core
 modules. `nativeBackendContract` guards frontend/backend contract parity.
+`desktopNativeCommandPermissions.test` keeps the registered Tauri handler list,
+the build-time application-command manifest, and window-scoped permission sets
+in lockstep. It also pins the quick-chat webview to its bounded chat command
+subset while leaving the pet webview without application-command access.
+
+`desktopNativePet` is the seam between the main renderer and the Windows-only
+`desktop-pet` webview. Its host synchronizes one state snapshot, owns the
+ready/probe handshake, native size and monitor placement, and settled move
+events. The lightweight pet renderer client exposes only state listening,
+native window dragging, keyboard movement, and size or visibility requests.
+Neither side creates a second application service graph.
+
+`desktopNativePetQuickChat` owns the typed event handshake between the pet,
+main renderer, and independent `desktop-pet-chat` webview. The main host alone
+positions, presents, and focuses the native panel; the pet sends a bounded
+plain-text draft, and the quick-chat window can hand an explicit Thread ID back
+to the main Chat route or start native dragging from its title bar. Main-window
+handoff shows, restores, and focuses `main` before dispatching the route event.
+Invalid or oversized payloads fail at this adapter boundary.
 
 `desktopNativeHostCommand` is a transitional retry adapter: it dispatches only
 Chat `operation.retry` frames. Browser sessions remain a separate native

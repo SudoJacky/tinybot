@@ -8,6 +8,7 @@ import { DeferredSurface } from "./DeferredSurface";
 export type AppRoute = "chat" | "graphs" | "files" | "memory" | "github" | "docs" | "tools" | "settings" | "performanceTrace";
 
 type ChatRouteProps = {
+  activateSessionRequest?: { sessionId: string; signal: number } | null;
   createSessionSignal: number;
   now?: () => number;
   sessionSidebarCollapsed: boolean;
@@ -45,6 +46,7 @@ export function RouteSurface({
     case "chat":
       return (
         <ChatPage
+          activateSessionRequest={chat.activateSessionRequest ?? null}
           chatStore={services.chatStore}
           createSessionSignal={chat.createSessionSignal}
           now={chat.now}

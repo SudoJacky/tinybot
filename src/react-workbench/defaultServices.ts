@@ -22,6 +22,8 @@ import { createDesktopNativeTerminalApi } from "../app-core/native/desktopNative
 import { createDesktopNativeWebuiApi } from "../app-core/native/desktopNativeWebui";
 import { createDesktopNativeWorkspaceApi } from "../app-core/native/desktopNativeWorkspace";
 import { createDesktopNativePerformanceTraceApi } from "../app-core/native/desktopNativePerformanceTrace";
+import { createDesktopNativePetHost } from "../app-core/native/desktopNativePet";
+import { createDesktopNativePetQuickChatHost } from "../app-core/native/desktopNativePetQuickChat";
 import {
   isRendererDiagnosticModeEnabled,
   rendererLogSnapshot,
@@ -52,6 +54,8 @@ type Listener = (event: ChatEvent) => void;
 
 export function createDesktopAppServices(): AppServices {
   const nativeMode = hasTauriRuntime();
+  const desktopPetHost = createDesktopNativePetHost();
+  const desktopPetQuickChatHost = createDesktopNativePetQuickChatHost();
   const nativeConfig = nativeMode ? createDesktopNativeConfigApi({ invoke }) : undefined;
   const nativeAgentGraphs = nativeMode ? createDesktopNativeAgentGraphsApi({ invoke }) : undefined;
   const nativeAgentGraphRuntime = nativeMode ? createDesktopNativeAgentGraphRuntime({ invoke }) : undefined;
@@ -205,7 +209,7 @@ export function createDesktopAppServices(): AppServices {
         metadata: withModelProvider(threadExtra, provider),
       });
     }
-    const result = await controller.submitMessage(input.text, {
+    const result = await controller.submitMessage(sessionId, input.text, {
       ...(model ? { model } : {}),
       ...(provider ? { provider } : {}),
       ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
@@ -326,6 +330,8 @@ export function createDesktopAppServices(): AppServices {
   }
 
   return {
+    desktopPetHost,
+    desktopPetQuickChatHost,
     agentGraphRuntime: {
       async list(input) {
         await initialize();
@@ -358,6 +364,14 @@ export function createDesktopAppServices(): AppServices {
           controller.state.respondingThreadIds.has(thread.threadId),
         ));
       },
+      async refresh() {
+        await initialize();
+        await controller.loadSessions();
+        return controller.state.threads.map((thread) => mapSession(
+          thread,
+          controller.state.respondingThreadIds.has(thread.threadId),
+        ));
+      },
       async create(input) {
         await initialize();
         const preference = readCurrentChatModelPreference();
@@ -367,6 +381,7 @@ export function createDesktopAppServices(): AppServices {
         const extra = {
           ...(modelProvider ? { modelProvider } : {}),
           ...(input?.projectGroupId ? { projectGroupId: input.projectGroupId } : {}),
+          ...(input?.entryPoint ? { entryPoint: input.entryPoint } : {}),
           ...(input?.pluginMigration ? { pluginMigration: input.pluginMigration } : {}),
         };
         const metadata = {

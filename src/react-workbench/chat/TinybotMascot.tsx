@@ -1,8 +1,9 @@
 import type { ChatTurn } from "../../app-core/chat/chatTurnContracts";
+import type { DesktopPetMood } from "../../app-core/desktop-pet/desktopPetState";
 import type { SessionSummary } from "../services";
 import "./TinybotMascot.css";
 
-export type TinybotMascotMood = "calm" | "curious" | "working" | "angry" | "pleased";
+export type TinybotMascotMood = DesktopPetMood;
 
 export type TinybotMascotState = {
   responding: boolean;

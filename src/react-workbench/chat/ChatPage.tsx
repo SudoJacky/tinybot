@@ -152,6 +152,7 @@ export type ChatPageProps = {
   toolsStore?: Pick<ToolsStore, "installPluginMigration">;
   workspaceStore?: Pick<WorkspaceStore, "listDirectory" | "readFile">;
   createSessionSignal?: number;
+  activateSessionRequest?: { sessionId: string; signal: number } | null;
   sessionSidebarCollapsed?: boolean;
   onSessionSidebarCollapsedChange?: (collapsed: boolean) => void;
   onStopGenerationTargetChange?: (sessionId: string) => void;
@@ -241,6 +242,7 @@ const SESSION_DELETE_DISSOLVE_MS = 180;
 const EMPTY_OPTIMISTIC_MESSAGES: ReactChatMessage[] = [];
 
 export function ChatPage({
+  activateSessionRequest = null,
   chatStore,
   createSessionSignal = 0,
   now = Date.now,
@@ -309,6 +311,7 @@ export function ChatPage({
   const interruptTerminalInputIdsRef = useRef(new Set<string>());
   const deleteDissolveTimers = useRef<number[]>([]);
   const lastCreateSessionSignal = useRef(createSessionSignal);
+  const lastActivateSessionSignal = useRef<number | null>(null);
   const draftSessionCreatePromise = useRef<Promise<SessionSummary> | null>(null);
   const optimisticSessionTitlesRef = useRef<Map<string, string>>(new Map());
   const conversationRef = useRef<HTMLDivElement | null>(null);
@@ -747,6 +750,33 @@ export function ChatPage({
     createSessionFromSignal();
   }, [createSessionSignal]);
 
+  const activateRequestedSession = useEffectEvent(async (sessionId: string) => {
+    const nextSessions = sessionStore.refresh
+      ? await sessionStore.refresh()
+      : await sessionStore.list();
+    const target = nextSessions.find((session) => session.id === sessionId);
+    if (!target) throw new Error(`Cannot activate unknown Thread ${sessionId}`);
+    sessionsRef.current = nextSessions;
+    setSessions(nextSessions);
+    dispatchDelete({ type: "session-selected", sessionId });
+    dispatchSessionTabs({ type: "open", sessionId });
+  });
+  useEffect(() => {
+    if (!sessionsLoaded
+      || !activateSessionRequest
+      || activateSessionRequest.signal === lastActivateSessionSignal.current) {
+      return;
+    }
+    lastActivateSessionSignal.current = activateSessionRequest.signal;
+    void activateRequestedSession(activateSessionRequest.sessionId).catch((error) => {
+      reportTimelineError(error);
+      console.error("[chat] external-session-activation.failed", {
+        error: error instanceof Error ? error.message : String(error),
+        sessionId: activateSessionRequest.sessionId,
+      });
+    });
+  }, [activateSessionRequest, reportTimelineError, sessionsLoaded]);
+
   const handleBackgroundChatEvent = useEffectEvent((sessionId: string, event: ChatEvent) => {
     const effects = projectChatEventEffects(event);
     if (event.timeline) {
@@ -888,7 +918,9 @@ export function ChatPage({
     }
     setSessionCreatePending(true);
     setSessionWorkspaceError("");
-    const inheritedProjectContext: ProjectSessionContext | undefined = workingDirectory === undefined && activeSession?.projectGroupId
+    const inheritedProjectContext: ProjectSessionContext | undefined = workingDirectory === undefined
+      && activeSession?.projectGroupId
+      && !activeSession.projectCoordinator
       ? {
           projectCoordinator: activeSession.projectCoordinator,
           projectGroupId: activeSession.projectGroupId,

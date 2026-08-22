@@ -3,6 +3,7 @@ pub(crate) mod diagnostics;
 pub(crate) mod files;
 pub(crate) mod logging;
 pub(crate) mod menu;
+pub(crate) mod pet;
 pub(crate) mod state;
 mod update;
 

@@ -1,6 +1,7 @@
 # Desktop Commands
 <!-- tinybot-doc-watch:
 src-tauri/src/desktop/bootstrap.rs
+src-tauri/src/desktop/pet.rs
 src-tauri/src/desktop/diagnostics.rs
 src-tauri/src/desktop/files.rs
 src-tauri/src/desktop/logging.rs
@@ -10,9 +11,11 @@ src-tauri/src/desktop_commands/config.rs
 src-tauri/src/desktop_commands/hooks.rs
 src-tauri/src/desktop_commands/plugins.rs
 src/app-core/native/desktopNativeHooks.ts
+src/app-core/native/desktopNativePet.ts
+src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:bc6baa69bacafd13e9675375770785146dd4910c3cb9542727448d3aef2b8d2e -->
+<!-- tinybot-doc-fingerprint: sha256:29aa71ff7e4bd723be9fd0caf9baf8e47f91f4cac58f80cff8c7b4c9541e0cbe -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -37,6 +40,46 @@ later Rollout/index mismatch. A persisted `running` turn with no live owner is t
 `stopReason: "runtime_restarted"`; waiting turns and their checkpoints remain unchanged. A storage
 error leaves the task runtime non-accepting, sets `last_error`, and appends a
 `startup_recovery` diagnostic instead of silently continuing.
+
+## Windows Desktop Pet Windows
+
+On Windows, desktop setup creates two hidden, transparent webviews in addition
+to `main`: the `desktop-pet` mascot and the `desktop-pet-chat` quick-chat
+panel. Both are undecorated, always on top, omitted from the taskbar, and own
+isolated hidden menus so application-menu text cannot leak into their compact
+surfaces. The pet deliberately has no owner or parent window, so minimizing
+the main window does not remove it from the desktop.
+
+The pet renderer is selected with `index.html?surface=desktop-pet`; it does not
+start another App service graph. Dropping external `text/plain` content on the
+pet, or clicking its chat affordance, sends a validated request through the
+typed `desktopNativePetQuickChat` event seam. The main renderer positions the
+quick-chat panel next to the pet within the current monitor work area, then the
+`?surface=desktop-pet-chat` renderer presents an editable draft and uses the
+canonical Thread stores for model selection, token usage, timeline updates,
+and first-send creation of a standard non-workspace Thread. Its title bar
+starts native window dragging while leaving the window controls interactive.
+Opening a quick-chat Thread in Tinybot first shows, restores, and focuses
+`main`, then refreshes and activates the explicit Thread ID carried by the
+event.
+
+The main renderer remains authoritative for the pet label, mood, visibility,
+size, and persisted physical-desktop center. The typed
+`desktopNativePet` host/client seam synchronizes that snapshot through scoped
+Tauri events, uses the native `startDragging` operation for pointer movement,
+and reports settled native window moves back to `main`. Monitor work areas are
+used when restoring or resizing the pet, including monitors with negative
+coordinates.
+
+Closing `desktop-pet` prevents destruction, hides the window, and notifies
+`main` to persist `visible: false`; closing `desktop-pet-chat` hides it without
+discarding canonical Thread state. Closing `main` performs the normal bounded
+runtime cleanup before destroying both auxiliary windows. The pet's
+Windows-only capability grants only event, position, scale-factor, and
+native-drag access. The quick-chat capability grants events, window hide,
+native dragging, and a least-privilege application-command subset for its chat
+workflow. The build-time application-command manifest prevents either
+auxiliary webview from inheriting the wider main-window command surface.
 
 ## Sidecar Terminal Commands
 

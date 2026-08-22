@@ -71,7 +71,7 @@ export interface DesktopChatSessionController {
   selectSession(threadId: string): Promise<void>;
   deleteSession(sessionKey: string): Promise<ChatDeleteSessionResult>;
   patchSession(sessionKey: string, body: unknown): Promise<boolean>;
-  submitMessage(content: string, options?: ChatSubmitOptions): Promise<ChatSubmitResult>;
+  submitMessage(sessionKey: string, content: string, options?: ChatSubmitOptions): Promise<ChatSubmitResult>;
   loadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot>;
   reloadTimeline(sessionKey: string): Promise<ChatTimelineSnapshot>;
   applyTimelinePatch(sessionKey: string, payload: unknown): Promise<ChatTimelineSnapshot | null>;
@@ -341,18 +341,24 @@ export function createDesktopChatSessionController({
     return true;
   }
 
-  async function submitMessage(content: string, options: ChatSubmitOptions = {}): Promise<ChatSubmitResult> {
+  async function submitMessage(
+    sessionKey: string,
+    content: string,
+    options: ChatSubmitOptions = {},
+  ): Promise<ChatSubmitResult> {
     if (!content.trim()) {
-      logDesktopNativeDebug("session.message.empty", summarizeSessionState());
+      logDesktopNativeDebug("session.message.empty", {
+        ...summarizeSessionState(),
+        sessionKey,
+      });
       return { status: "empty" };
     }
-    if (!state.activeThreadId) {
-      throw new Error("Cannot submit a turn without an active Thread");
-    }
+    const thread = state.threads.find((candidate) => candidate.threadId === sessionKey);
+    if (!thread) throw new Error(`Cannot submit a turn to unknown Thread ${sessionKey}`);
     const clientEventId = options.clientEventId || createClientEventId();
     const { model, provider, reasoningEffort, references, selectedSkills } = options;
     const turnId = createTurnId();
-    const threadId = state.activeThreadId;
+    const threadId = thread.threadId;
     const request: NativeThreadTurnInput = {
       threadId,
       input: {

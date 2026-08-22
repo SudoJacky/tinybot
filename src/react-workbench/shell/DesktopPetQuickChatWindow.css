@@ -1,0 +1,276 @@
+:root[data-surface="desktop-pet-chat"],
+:root[data-surface="desktop-pet-chat"] body {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+:root[data-surface="desktop-pet-chat"] #root {
+  width: 100%;
+  height: 100%;
+  padding: 4px;
+}
+
+.react-desktop-pet-quick-chat {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 56px minmax(0, 1fr) auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-hairline) 88%, transparent);
+  border-radius: 26px;
+  background: color-mix(in srgb, var(--color-panel) 96%, transparent);
+  box-shadow: 0 20px 60px rgb(20 20 19 / 20%);
+  color: var(--color-body);
+  transform-origin: center bottom;
+  animation: desktop-pet-quick-chat-materialize 240ms cubic-bezier(.2, .8, .2, 1);
+  backdrop-filter: blur(22px) saturate(150%);
+}
+
+.react-desktop-pet-quick-chat__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 8px 10px 4px 22px;
+  cursor: grab;
+  user-select: none;
+}
+
+.react-desktop-pet-quick-chat__header:active {
+  cursor: grabbing;
+}
+
+.react-desktop-pet-quick-chat > * {
+  min-width: 0;
+}
+
+.react-desktop-pet-quick-chat__header h1 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 18px;
+  font-weight: 450;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-desktop-pet-quick-chat__header > div {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.react-desktop-pet-quick-chat__header button {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+.react-desktop-pet-quick-chat__header button:hover,
+.react-desktop-pet-quick-chat__header button:focus-visible {
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+}
+
+.react-desktop-pet-quick-chat__header button:disabled {
+  color: var(--color-border-strong);
+  cursor: default;
+}
+
+.react-desktop-pet-quick-chat__conversation {
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 18px 18px;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.react-desktop-pet-quick-chat__conversation .react-chat-timeline {
+  max-width: none;
+}
+
+.react-desktop-pet-quick-chat__recent {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 100%;
+  padding: 12px 2px 6px;
+}
+
+.react-desktop-pet-quick-chat__recent h2 {
+  margin: 0 0 12px;
+  color: var(--color-muted-soft);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.react-desktop-pet-quick-chat__recent > button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  min-height: 46px;
+  border-radius: 12px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.react-desktop-pet-quick-chat__recent > button span {
+  overflow: hidden;
+  color: var(--color-body);
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-desktop-pet-quick-chat__recent > button time {
+  color: var(--color-muted-soft);
+  font-size: 13px;
+}
+
+.react-desktop-pet-quick-chat__recent .react-desktop-pet-quick-chat__see-all {
+  display: inline-flex;
+  align-self: flex-start;
+  min-height: 40px;
+  margin-top: 2px;
+  color: var(--color-muted);
+}
+
+.react-desktop-pet-quick-chat__loading,
+.react-desktop-pet-quick-chat__error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.react-desktop-pet-quick-chat__loading {
+  color: var(--color-muted);
+}
+
+.react-desktop-pet-quick-chat__loading svg {
+  animation: react-spin 900ms linear infinite;
+}
+
+.react-desktop-pet-quick-chat__error {
+  background: color-mix(in srgb, var(--color-error) 9%, transparent);
+  color: var(--color-error);
+}
+
+.react-desktop-pet-quick-chat__continue {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 12px;
+  border-color: var(--color-hairline);
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+}
+
+.react-desktop-pet-quick-chat__composer {
+  padding: 0 10px 10px;
+}
+
+.react-desktop-pet-quick-chat__composer .claude-ai-input__panel {
+  border-radius: 22px;
+  box-shadow: 0 8px 26px rgb(20 20 19 / 10%);
+}
+
+.react-desktop-pet-quick-chat__composer .claude-ai-input__toolbar {
+  min-width: 0;
+  gap: 6px;
+}
+
+.react-desktop-pet-quick-chat__composer .claude-ai-input__tools {
+  flex: 1 1 auto;
+  overflow: visible;
+}
+
+.react-desktop-pet-quick-chat__composer .claude-ai-input__model {
+  flex: 1 1 120px;
+}
+
+.react-desktop-pet-quick-chat__composer .claude-ai-input__model-trigger {
+  width: 100%;
+  max-width: 180px;
+  padding-inline: 7px;
+}
+
+.react-desktop-pet-quick-chat__composer .claude-ai-input__model-menu {
+  left: -12px;
+}
+
+.react-desktop-pet-quick-chat__composer .claude-ai-input__send {
+  flex: 0 0 34px;
+}
+
+.react-desktop-pet-quick-chat__composer .claude-ai-input__context-usage-tip {
+  right: 0;
+  left: auto;
+  transform: translateY(4px);
+}
+
+.react-desktop-pet-quick-chat__composer .claude-ai-input__context-usage:hover .claude-ai-input__context-usage-tip,
+.react-desktop-pet-quick-chat__composer .claude-ai-input__context-usage:focus-visible .claude-ai-input__context-usage-tip {
+  transform: translateY(0);
+}
+
+.react-desktop-pet-quick-chat__composer .claude-ai-input__textarea {
+  max-height: 132px;
+  min-height: 48px;
+}
+
+@keyframes desktop-pet-quick-chat-materialize {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-desktop-pet-quick-chat {
+    animation: desktop-pet-quick-chat-fade 140ms ease-out;
+  }
+
+  .react-desktop-pet-quick-chat__loading svg {
+    animation-duration: 1.4s;
+  }
+}
+
+@keyframes desktop-pet-quick-chat-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .react-desktop-pet-quick-chat {
+    background: var(--color-panel);
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .react-desktop-pet-quick-chat {
+    border: 2px solid var(--color-ink);
+    background: var(--color-panel);
+  }
+}
