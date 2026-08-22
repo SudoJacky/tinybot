@@ -45,6 +45,7 @@ import type {
   NativeManagedHookScript,
   NativeManagedHookTestResult,
 } from "../app-core/native/desktopNativeHooks";
+import type { DesktopPetHost } from "../app-core/native/desktopNativePet";
 
 export type SessionSummary = {
   id: string;
@@ -313,4 +314,5 @@ export type AppServices = {
   hooksStore?: HooksStore;
   settingsStore: SettingsStore;
   performanceStore?: PerformanceStore;
+  desktopPetHost?: DesktopPetHost | null;
 };

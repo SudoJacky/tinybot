@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:c785dff2321f87572f581603408cef94ceaac591631a78ccc5f7694b74d22dee -->
+<!-- tinybot-module-fingerprint: sha256:249008364243efcfd4d708960250207b8c0afcdbd392e621f765c03b69ccf20b -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -16,7 +16,8 @@ For desktop setup and launch behavior, see [the desktop guide](../docs/desktop.m
 - `src/desktop/bootstrap.rs` assembles shared runtime state and registers Tauri
   commands; `src/desktop_terminal.rs` owns the user-only Sidecar PTY runtime;
   `src/desktop/diagnostics.rs` owns bounded Performance Trace snapshots and
-  local diagnostic ZIP export.
+  local diagnostic ZIP export; `src/desktop/pet.rs` creates the Windows-only
+  transparent desktop-pet window without making it an owned child of `main`.
 
 Sidecar terminals with no explicit Thread working directory resolve through
 the same configured native backend workspace used by ordinary Agent turns.
@@ -29,6 +30,10 @@ the same configured native backend workspace used by ordinary Agent turns.
 The default desktop path is in-process. Compatibility fields may mention HTTP
 or WebSocket endpoints, but they do not imply that the Tauri backend binds a
 local server.
+
+Tauri capabilities remain window-scoped. `capabilities/default.json` belongs
+to the main webview, while `capabilities/desktop-pet.json` grants the pet only
+event, position, and native drag operations on Windows.
 
 ## Domain terminology
 

@@ -1,5 +1,5 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:df8014d054a2f8e8a1372e59179d9d1d511340df7de2a0e9723755f9089a0586 -->
+<!-- tinybot-module-fingerprint: sha256:fa14621717f000936a0b06d6a3ceadb9fae08877122710ff22d15c949245e950 -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
@@ -9,9 +9,11 @@ copies them into content-addressed application storage, and returns their hash
 with the managed path. Other selected files retain their original path, and no
 file bytes cross the Tauri command boundary.
 
-`bootstrap` also manages the Sidecar terminal runtime. That PTY process manager
-is separate from Agent shell-tool state, and window-close cleanup terminates it
-before the native runtime and desktop window are destroyed.
+`bootstrap` also creates the Windows-only `desktop-pet` transparent webview
+window through `pet`. The pet window remains independent from the main window,
+stays available when the main window is minimized, and converts its own close
+request into a hide event. Closing the main window still shuts down the Sidecar
+terminal and native runtimes first, then destroys the pet and main windows.
 
 Frontend-facing command handlers live separately in `desktop_commands/`.
 Bootstrap registers the Agent Graph definition store and linear Graph Run

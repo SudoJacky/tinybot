@@ -12,10 +12,11 @@ import type { ReactChatMessage } from "../chat/messageActions";
 import { timelineFromReactMessages } from "../chat/test/timelineFixtures";
 import { unavailableTinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
 import type { DesktopUpdateClient, DesktopUpdateSnapshot } from "../../app-core/native/desktopNativeUpdate";
+import type { DesktopPetHost, DesktopPetPreferencesPatch } from "../../app-core/native/desktopNativePet";
 import { pickDesktopPluginMigrationDirectory } from "../../app-core/native/desktopNativePluginPicker";
 import { APPEARANCE_STORAGE_KEY } from "../../app-core/settings/appAppearance";
 import { SHORTCUTS_STORAGE_KEY } from "../../app-core/settings/appShortcuts";
-import { DESKTOP_PET_STORAGE_KEY } from "./desktopPetState";
+import { DESKTOP_PET_STORAGE_KEY } from "../../app-core/desktop-pet/desktopPetState";
 
 vi.mock("../../app-core/native/desktopNativePluginPicker", () => ({
   pickDesktopPluginDirectory: vi.fn(),
@@ -397,6 +398,34 @@ describe("DesktopShell", () => {
 
     const stored = JSON.parse(window.localStorage.getItem(DESKTOP_PET_STORAGE_KEY) ?? "{}");
     expect(stored.position).toEqual({ x: 574, y: 418 });
+  });
+
+  it("synchronizes native pet state without rendering an in-window duplicate", async () => {
+    let nativeListener: ((patch: DesktopPetPreferencesPatch) => void) | undefined;
+    const desktopPetHost: DesktopPetHost = {
+      sync: vi.fn(async () => undefined),
+      listen: vi.fn(async (listener) => {
+        nativeListener = listener;
+        return () => undefined;
+      }),
+    };
+    const services = createServices();
+    services.desktopPetHost = desktopPetHost;
+
+    render(<DesktopShell services={services} />);
+
+    await waitFor(() => expect(desktopPetHost.sync).toHaveBeenCalledWith({
+      label: "Tinybot is calm",
+      mood: "calm",
+      preferences: { visible: true, size: "medium", position: null },
+    }));
+    expect(screen.queryByRole("img", { name: "Tinybot is calm" })).toBeNull();
+
+    nativeListener?.({ position: { x: -1243, y: 318 } });
+    await waitFor(() => {
+      const stored = JSON.parse(window.localStorage.getItem(DESKTOP_PET_STORAGE_KEY) ?? "{}");
+      expect(stored.position).toEqual({ x: -1243, y: 318 });
+    });
   });
 
   it("resizes, hides, and restores the desktop pet from the System menu", async () => {

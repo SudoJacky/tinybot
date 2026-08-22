@@ -41,8 +41,9 @@ import { DesktopPet } from "./DesktopPet";
 import {
   readDesktopPetPreferences,
   writeDesktopPetPreferences,
+  type DesktopPetPosition,
   type DesktopPetPreferences,
-} from "./desktopPetState";
+} from "../../app-core/desktop-pet/desktopPetState";
 import { RouteSurface, type AppRoute } from "./RouteSurface";
 import type { TinybotMascotMood } from "../chat/TinybotMascot";
 
@@ -241,14 +242,60 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
   const [desktopPetPreferences, setDesktopPetPreferences] = useState<DesktopPetPreferences>(
     () => readDesktopPetPreferences(window.localStorage),
   );
+  const desktopPetHost = services.desktopPetHost ?? null;
+  const desktopPetLabel = t(`desktopPet.status.${desktopPetMood}`);
   const stopGenerationSessionIdRef = useRef("");
   const frameControls = useMemo(() => windowControls ?? resolveWindowFrameControls(), [windowControls]);
   const topMenuItems = createTopMenuItems(t, routeLabels, shortcuts, desktopPetPreferences.visible);
 
-  const updateDesktopPetPreferences = useCallback((preferences: DesktopPetPreferences) => {
-    setDesktopPetPreferences(preferences);
-    writeDesktopPetPreferences(window.localStorage, preferences);
+  const updateDesktopPetPreferences = useCallback((
+    update: DesktopPetPreferences | ((current: DesktopPetPreferences) => DesktopPetPreferences),
+  ) => {
+    setDesktopPetPreferences((current) => {
+      const preferences = typeof update === "function" ? update(current) : update;
+      if (sameDesktopPetPreferences(current, preferences)) {
+        return current;
+      }
+      writeDesktopPetPreferences(window.localStorage, preferences);
+      return preferences;
+    });
   }, []);
+
+  useEffect(() => {
+    if (!desktopPetHost) {
+      return;
+    }
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void desktopPetHost.listen((patch) => {
+      updateDesktopPetPreferences((current) => ({ ...current, ...patch }));
+    }).then((stopListening) => {
+      if (disposed) {
+        stopListening();
+      } else {
+        unlisten = stopListening;
+      }
+    }).catch((error) => {
+      console.error("[desktop-pet] Failed to listen to the native pet window.", error);
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [desktopPetHost, updateDesktopPetPreferences]);
+
+  useEffect(() => {
+    if (!desktopPetHost) {
+      return;
+    }
+    void desktopPetHost.sync({
+      label: desktopPetLabel,
+      mood: desktopPetMood,
+      preferences: desktopPetPreferences,
+    }).catch((error) => {
+      console.error("[desktop-pet] Failed to synchronize the native pet window.", error);
+    });
+  }, [desktopPetHost, desktopPetLabel, desktopPetMood, desktopPetPreferences]);
 
   function handleStopGenerationTargetChange(sessionId: string) {
     stopGenerationSessionIdRef.current = sessionId;
@@ -656,9 +703,9 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
         </section>
       </div>
 
-      {desktopPetPreferences.visible ? (
+      {!desktopPetHost && desktopPetPreferences.visible ? (
         <DesktopPet
-          label={t(`desktopPet.status.${desktopPetMood}`)}
+          label={desktopPetLabel}
           mood={desktopPetMood}
           onPreferencesChange={updateDesktopPetPreferences}
           preferences={desktopPetPreferences}
@@ -684,6 +731,27 @@ function resolveWindowFrameControls(): WindowFrameControls | null {
 
 function hasTauriRuntime(): boolean {
   return "__TAURI_INTERNALS__" in globalThis;
+}
+
+function sameDesktopPetPreferences(
+  left: DesktopPetPreferences,
+  right: DesktopPetPreferences,
+): boolean {
+  return left.visible === right.visible
+    && left.size === right.size
+    && sameDesktopPetPosition(left.position, right.position);
+}
+
+function sameDesktopPetPosition(
+  left: DesktopPetPosition | null,
+  right: DesktopPetPosition | null,
+): boolean {
+  return left === right || (
+    left !== null
+    && right !== null
+    && left.x === right.x
+    && left.y === right.y
+  );
 }
 
 function isWindowFrameInteractiveTarget(target: EventTarget, currentTarget: HTMLElement): boolean {

@@ -22,6 +22,7 @@ import { createDesktopNativeTerminalApi } from "../app-core/native/desktopNative
 import { createDesktopNativeWebuiApi } from "../app-core/native/desktopNativeWebui";
 import { createDesktopNativeWorkspaceApi } from "../app-core/native/desktopNativeWorkspace";
 import { createDesktopNativePerformanceTraceApi } from "../app-core/native/desktopNativePerformanceTrace";
+import { createDesktopNativePetHost } from "../app-core/native/desktopNativePet";
 import {
   isRendererDiagnosticModeEnabled,
   rendererLogSnapshot,
@@ -52,6 +53,7 @@ type Listener = (event: ChatEvent) => void;
 
 export function createDesktopAppServices(): AppServices {
   const nativeMode = hasTauriRuntime();
+  const desktopPetHost = createDesktopNativePetHost();
   const nativeConfig = nativeMode ? createDesktopNativeConfigApi({ invoke }) : undefined;
   const nativeAgentGraphs = nativeMode ? createDesktopNativeAgentGraphsApi({ invoke }) : undefined;
   const nativeAgentGraphRuntime = nativeMode ? createDesktopNativeAgentGraphRuntime({ invoke }) : undefined;
@@ -326,6 +328,7 @@ export function createDesktopAppServices(): AppServices {
   }
 
   return {
+    desktopPetHost,
     agentGraphRuntime: {
       async list(input) {
         await initialize();

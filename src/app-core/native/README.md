@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:240ef3703b023e22bb027f3339fdfeabe3db33f47efd3f2ac77cb3b61b7ee92a -->
+<!-- tinybot-module-fingerprint: sha256:9d04999b0ac4ac21904c58a7b2f9dc843eebdf56ff3a4c750279fe407999e864 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -35,6 +35,13 @@ boundary.
 Adapters preserve native failures and normalize only their transport contract.
 React state and product projections remain in the workbench and other app-core
 modules. `nativeBackendContract` guards frontend/backend contract parity.
+
+`desktopNativePet` is the seam between the main renderer and the Windows-only
+`desktop-pet` webview. Its host synchronizes one state snapshot, owns the
+ready/probe handshake, native size and monitor placement, and settled move
+events. The lightweight pet renderer client exposes only state listening,
+native window dragging, keyboard movement, and size or visibility requests.
+Neither side creates a second application service graph.
 
 `desktopNativeHostCommand` is a transitional retry adapter: it dispatches only
 Chat `operation.retry` frames. Browser sessions remain a separate native

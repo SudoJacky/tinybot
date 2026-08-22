@@ -10,6 +10,9 @@ export const DESKTOP_PET_SIZE_PIXELS = {
 
 export type DesktopPetSize = keyof typeof DESKTOP_PET_SIZE_PIXELS;
 
+export const DESKTOP_PET_MOODS = ["calm", "curious", "working", "angry", "pleased"] as const;
+export type DesktopPetMood = (typeof DESKTOP_PET_MOODS)[number];
+
 export type DesktopPetPosition = {
   x: number;
   y: number;
@@ -110,12 +113,27 @@ export function defaultDesktopPetPosition(
   }, size, viewport);
 }
 
-function clamp(value: number, minimum: number, maximum: number): number {
-  return Math.max(minimum, Math.min(maximum, value));
+export function isDesktopPetPreferences(value: unknown): value is DesktopPetPreferences {
+  if (!isRecord(value) || typeof value.visible !== "boolean" || !isDesktopPetSize(value.size)) {
+    return false;
+  }
+  return value.position === null || (
+    isRecord(value.position)
+    && isFiniteNumber(value.position.x)
+    && isFiniteNumber(value.position.y)
+  );
 }
 
-function isDesktopPetSize(value: unknown): value is DesktopPetSize {
+export function isDesktopPetSize(value: unknown): value is DesktopPetSize {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(DESKTOP_PET_SIZE_PIXELS, value);
+}
+
+export function isDesktopPetMood(value: unknown): value is DesktopPetMood {
+  return typeof value === "string" && (DESKTOP_PET_MOODS as readonly string[]).includes(value);
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, value));
 }
 
 function isFiniteNumber(value: unknown): value is number {

@@ -4,6 +4,7 @@ import {
   DESKTOP_PET_STORAGE_KEY,
   clampDesktopPetPosition,
   defaultDesktopPetPosition,
+  isDesktopPetPreferences,
   readDesktopPetPreferences,
   stepDesktopPetSize,
   writeDesktopPetPreferences,
@@ -56,5 +57,11 @@ describe("desktopPetState", () => {
     expect(clampDesktopPetPosition({ x: -100, y: -100 }, "medium", viewport)).toEqual({ x: 50, y: 92 });
     expect(clampDesktopPetPosition({ x: 900, y: 700 }, "medium", viewport)).toEqual({ x: 750, y: 550 });
     expect(defaultDesktopPetPosition("large", viewport)).toEqual({ x: 736, y: 536 });
+  });
+
+  it("validates complete preference payloads", () => {
+    expect(isDesktopPetPreferences({ visible: true, size: "medium", position: { x: -120, y: 80 } })).toBe(true);
+    expect(isDesktopPetPreferences({ visible: true, size: "huge", position: null })).toBe(false);
+    expect(isDesktopPetPreferences({ visible: true, size: "small", position: { x: Number.NaN, y: 80 } })).toBe(false);
   });
 });

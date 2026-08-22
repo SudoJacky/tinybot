@@ -118,6 +118,8 @@ pub(crate) fn run() {
             }
             app.manage(browser_runtime);
             install_desktop_application_menu(app)?;
+            #[cfg(windows)]
+            super::pet::create_desktop_pet_window(app)?;
             match ensure_default_config_file(&default_tinybot_config_path()) {
                 Ok(diagnostics) => {
                     for diagnostic in diagnostics {
@@ -321,6 +323,22 @@ pub(crate) fn run() {
         ])
         .on_window_event(move |window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
+                if super::pet::is_desktop_pet_window(window.label()) {
+                    api.prevent_close();
+                    if let Err(error) = window.hide() {
+                        eprintln!("desktop_pet_window_hide_failed error={error}");
+                    } else {
+                        eprintln!("desktop_pet_window_hidden reason=close_requested");
+                    }
+                    if let Err(error) = window.emit_to(
+                        "main",
+                        super::pet::DESKTOP_PET_CLOSE_REQUESTED_EVENT,
+                        (),
+                    ) {
+                        eprintln!("desktop_pet_close_event_emit_failed error={error}");
+                    }
+                    return;
+                }
                 if !close_started.swap(true, Ordering::AcqRel) {
                     api.prevent_close();
                     eprintln!("desktop_window_close_cleanup_started");
@@ -360,6 +378,16 @@ pub(crate) fn run() {
                             eprintln!("desktop_window_close_runtime_cleanup_failed error={error}");
                         } else {
                             eprintln!("desktop_window_close_runtime_cleanup_completed");
+                        }
+                        if let Some(pet_window) = window
+                            .app_handle()
+                            .get_webview_window(super::pet::DESKTOP_PET_WINDOW_LABEL)
+                        {
+                            if let Err(error) = pet_window.destroy() {
+                                eprintln!("desktop_pet_window_destroy_failed error={error}");
+                            } else {
+                                eprintln!("desktop_pet_window_destroy_completed");
+                            }
                         }
                         if let Err(error) = window.destroy() {
                             close_started.store(false, Ordering::Release);

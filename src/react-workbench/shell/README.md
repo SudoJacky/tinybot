@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:c34b41c582813482d507b899146d9d7035803e4a82cc3c0ea7eda75e7fc2507d -->
+<!-- tinybot-module-fingerprint: sha256:347e3c501430a943010d144c6b5e4f98208865748f7a79c5f6c8126ac2f3c14a -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
@@ -13,10 +13,14 @@ route label, loader, and shared renderer stores passed to it; workspace catalog
 derivation, Graph draft state, and Run presentation remain under `agent-graph/`
 and do not become a Chat mode.
 
-The shell also owns the floating Tinybot desktop pet's viewport position,
-three-step size preference, visibility, and local persistence. Chat only reports
-the current mascot mood. The pet can be hidden from its inline controls and
-restored from the System menu without duplicating Agent lifecycle state.
+The shell owns the Tinybot desktop pet's three-step size preference, visibility,
+desktop position persistence, and current mascot mood. On Windows, it
+synchronizes that state through `app-core/native/desktopNativePet` to the
+independent `desktop-pet` Tauri window; browser-only development retains the
+bounded inline adapter. `DesktopPetWindow.tsx` owns only rendering and direct
+window interaction, while Chat only reports the current mascot mood. The pet
+can be hidden from its own controls and restored from the System menu without
+duplicating Agent lifecycle state or booting a second `App` service graph.
 
 The bounded `react-route-surface` owns vertical overflow for document-like
 routes so long settings, tools, and diagnostics pages remain scrollable inside
