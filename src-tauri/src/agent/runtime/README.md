@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:3fa4a8a7d6614f29a5fb069396ad0132dd3df726dd3bded2ab950b25ebc9e313 -->
+<!-- tinybot-module-fingerprint: sha256:f19ae3b02cedd91d126f85cbb60edb92970ee778b8d00fc25614cd037a628b20 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -83,7 +83,10 @@ Completions remains the default. The endpoint must support `/responses`. The
 adapter sends `store: false` and replays Tinybot's local message and function
 history. It does not use Conversations, `previous_response_id`, hosted tools, or
 persist/replay encrypted reasoning items yet. Context compaction continues to
-use the existing Chat Completions path.
+use the existing Chat Completions path. Durable `tinyos.image` references keep
+only managed local metadata; the Responses adapter validates and Base64-encodes
+their files when constructing each request. Chat Completions rejects image
+references instead of silently degrading them to path text.
 
 ## Protocol adapter boundary
 

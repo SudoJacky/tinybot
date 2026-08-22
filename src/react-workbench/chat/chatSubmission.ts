@@ -124,12 +124,18 @@ function createComposerChatInput(
 }
 
 function nativeReferenceFromComposerFile(file: ComposerFileReference): AgentInputReference {
+  const managedImage = file.mimeType.startsWith("image/") && Boolean(file.contentHash);
   return {
+    ...(managedImage && file.contentHash ? {
+      contentHash: file.contentHash,
+      mimeType: file.mimeType,
+      sizeBytes: file.sizeBytes,
+    } : {}),
     detail: formatFileMetadata(file.mimeType, file.sizeBytes),
     kind: "reference",
     rawPath: file.path,
     title: file.name,
-    type: "tinyos.file",
+    type: managedImage ? "tinyos.image" : "tinyos.file",
   };
 }
 

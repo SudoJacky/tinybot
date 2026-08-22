@@ -46,6 +46,33 @@ describe("prepareChatSubmission", () => {
     expect(loadSessionTranscript).not.toHaveBeenCalled();
   });
 
+  test("persists managed images as typed local attachment references", async () => {
+    const prepared = await prepareChatSubmission(input({
+      files: [{
+        contentHash: "abc123",
+        id: "image-1",
+        mimeType: "image/png",
+        name: "diagram.png",
+        path: "C:\\Users\\tester\\.tinybot\\chat-attachments\\images\\abc123.png",
+        sizeBytes: 2048,
+      }],
+      message: "Explain this diagram",
+    }));
+
+    expect(prepared.kind).toBe("send_message");
+    if (prepared.kind !== "send_message") throw new Error("Expected send_message.");
+    expect(prepared.turnInput.references).toEqual([{
+      contentHash: "abc123",
+      detail: "PNG - 2 KB",
+      kind: "reference",
+      mimeType: "image/png",
+      rawPath: "C:\\Users\\tester\\.tinybot\\chat-attachments\\images\\abc123.png",
+      sizeBytes: 2048,
+      title: "diagram.png",
+      type: "tinyos.image",
+    }]);
+  });
+
   test("returns a queue input with its canonical turn input when the session is running", async () => {
     const prepared = await prepareChatSubmission(input({
       isRunning: true,

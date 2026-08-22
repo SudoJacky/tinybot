@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 
 export interface ComposerFileReference {
+  contentHash?: string;
   id: string;
   name: string;
   path: string;

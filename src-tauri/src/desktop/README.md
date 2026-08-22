@@ -1,8 +1,13 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:eef90abce7ec40ab60bd75021f56968e03136e3aac725933b80fc66f252fe7c7 -->
+<!-- tinybot-module-fingerprint: sha256:df8014d054a2f8e8a1372e59179d9d1d511340df7de2a0e9723755f9089a0586 -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
+
+`files` detects supported images by content when the chat picker returns them,
+copies them into content-addressed application storage, and returns their hash
+with the managed path. Other selected files retain their original path, and no
+file bytes cross the Tauri command boundary.
 
 `bootstrap` also manages the Sidecar terminal runtime. That PTY process manager
 is separate from Agent shell-tool state, and window-close cleanup terminates it

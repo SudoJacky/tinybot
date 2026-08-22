@@ -3,6 +3,7 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 type TauriInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
 export type NativePickedFile = {
+  contentHash?: string;
   name: string;
   path: string;
   mimeType: string;

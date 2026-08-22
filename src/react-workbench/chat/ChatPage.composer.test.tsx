@@ -546,8 +546,10 @@ describe("ChatPage", () => {
     await user.type(input, "Hello from React");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
-    expectTurnSubmit(stores.chatStore, "s1", { reasoningEffort: "medium", text: "Hello from React" });
-    expect((input as HTMLTextAreaElement).value).toBe("");
+    await waitFor(() => {
+      expectTurnSubmit(stores.chatStore, "s1", { reasoningEffort: "medium", text: "Hello from React" });
+      expect((input as HTMLTextAreaElement).value).toBe("");
+    });
   });
 
   it("sends native files as structured references without exposing paths in user text", async () => {
@@ -581,6 +583,41 @@ describe("ChatPage", () => {
     });
   });
 
+  it("sends managed images as multimodal references without embedding base64 in the command", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    nativeFilePickerMocks.pickDesktopChatFiles.mockResolvedValueOnce([{
+      contentHash: "abc123",
+      name: "diagram.png",
+      path: "C:\\Users\\tester\\.tinybot\\chat-attachments\\images\\abc123.png",
+      mimeType: "image/png",
+      sizeBytes: 2048,
+    }]);
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const input = await screen.findByRole("textbox", { name: /message/i });
+    await user.click(screen.getByRole("button", { name: "Attach files" }));
+    await waitFor(() => expect(nativeFilePickerMocks.pickDesktopChatFiles).toHaveBeenCalledTimes(1));
+    await user.type(input, "Explain this diagram");
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+
+    expectTurnSubmit(stores.chatStore, "s1", {
+      reasoningEffort: "medium",
+      references: [{
+        contentHash: "abc123",
+        detail: "PNG - 2 KB",
+        kind: "reference",
+        mimeType: "image/png",
+        rawPath: "C:\\Users\\tester\\.tinybot\\chat-attachments\\images\\abc123.png",
+        sizeBytes: 2048,
+        title: "diagram.png",
+        type: "tinyos.image",
+      }],
+      text: "Explain this diagram",
+    });
+    expect(JSON.stringify(vi.mocked(stores.chatStore.dispatch).mock.calls)).not.toContain("base64");
+  });
+
   it("renders native file metadata without exposing its absolute path", async () => {
     const stores = createStores();
     const timeline = timelineFromReactMessages("s1", [{
@@ -603,11 +640,65 @@ describe("ChatPage", () => {
 
     const message = await screen.findByTestId("message-u-native-file");
     const attachments = within(message).getByLabelText("Attachments");
+    const body = message.querySelector(".react-message__body");
     expect(message.textContent).toContain("文件中的内容是什么");
     expect(attachments.textContent).toContain("AI_Agent_第一性原理_文档.md");
     expect(attachments.textContent).toContain("MARKDOWN - 1.67 KB");
+    expect(message.firstElementChild).toBe(attachments);
+    expect(attachments.nextElementSibling).toBe(body);
+    expect(body?.textContent).not.toContain("AI_Agent_第一性原理_文档.md");
     expect(message.textContent).not.toContain("D:\\code\\tinybot\\test");
     expect(message.textContent).not.toContain("Files mentioned by the user");
+  });
+
+  it("renders a managed image preview above the user message bubble", async () => {
+    const tauriInternals = Object.getOwnPropertyDescriptor(window, "__TAURI_INTERNALS__");
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {
+        convertFileSrc: (path: string) => `asset://preview/${encodeURIComponent(path)}`,
+      },
+    });
+    const stores = createStores();
+    const timeline = timelineFromReactMessages("s1", [{
+      id: "u-managed-image",
+      role: "user",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      text: "这是什么",
+      status: "complete",
+    }]);
+    timeline.turns[0].userMessage.references = [{
+      contentHash: "abc123",
+      detail: "PNG - 15.17 KB",
+      kind: "reference",
+      mimeType: "image/png",
+      rawPath: "C:\\Users\\tester\\.tinybot\\chat-attachments\\images\\abc123.png",
+      sizeBytes: 15_534,
+      title: "screen.png",
+      type: "tinyos.image",
+    }];
+    stores.chatStore.load = vi.fn(async () => timeline);
+
+    try {
+      render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+      const message = await screen.findByTestId("message-u-managed-image");
+      const attachments = within(message).getByLabelText("Attachments");
+      const preview = within(attachments).getByRole("img", { name: "screen.png" });
+      const body = message.querySelector(".react-message__body");
+      expect(message.firstElementChild).toBe(attachments);
+      expect(attachments.nextElementSibling).toBe(body);
+      expect(body?.contains(preview)).toBe(false);
+      expect(body?.textContent).toBe("这是什么");
+      expect(within(message).queryByText("screen.png")).toBeNull();
+      expect(preview.getAttribute("src")).toContain("asset://preview/");
+    } finally {
+      if (tauriInternals) {
+        Object.defineProperty(window, "__TAURI_INTERNALS__", tauriInternals);
+      } else {
+        delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+      }
+    }
   });
 
   it("queues composer text while the active session is running", async () => {
