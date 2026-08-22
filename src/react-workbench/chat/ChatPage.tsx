@@ -888,7 +888,9 @@ export function ChatPage({
     }
     setSessionCreatePending(true);
     setSessionWorkspaceError("");
-    const inheritedProjectContext: ProjectSessionContext | undefined = workingDirectory === undefined && activeSession?.projectGroupId
+    const inheritedProjectContext: ProjectSessionContext | undefined = workingDirectory === undefined
+      && activeSession?.projectGroupId
+      && !activeSession.projectCoordinator
       ? {
           projectCoordinator: activeSession.projectCoordinator,
           projectGroupId: activeSession.projectGroupId,

@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:22b18c80e931a0db636d5816b9a42599c220b557d6a22968c635becf4db5c159 -->
+<!-- tinybot-module-fingerprint: sha256:2d0c0b8f628095f5cebe53bcd2c23d0da25104a1a5dae68deee93064019eebc0 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -48,6 +48,12 @@ native default used by Agent turns.
 Desktop-level project and session-search dialogs keep their domain actions in
 this module while delegating modal focus, keyboard, dismissal, and scroll-lock
 behavior to `components/ui/useModalDialog`.
+
+Session creation follows the entry point's target. Workspace and project
+actions pass their workspace and project context explicitly. Global, tab, and
+search actions may inherit an ordinary active workspace, but never an active
+project coordinator; coordinator sessions are created only by the project's
+coordinator action.
 
 See the [Sidecar module contract](../sidecar/README.md) for resource scoping,
 renderer ownership, native lifecycle boundaries, and verification entry points.
