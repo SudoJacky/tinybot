@@ -1,5 +1,5 @@
 # Agent Graph Application Core
-<!-- tinybot-module-fingerprint: sha256:76a9d7d97316d33dd244cb63b678f50a4f0dc7f16ff632ed1f66b07a6f4dcb30 -->
+<!-- tinybot-module-fingerprint: sha256:9d9079f9c72768fa5aaa434ccf1338f12407edf4a8d770c4ced76c478ea728f5 -->
 
 `agent-graph` owns the framework-independent, versioned Agent Graph definition,
 its structural validation, and immutable edit operations. The definition
@@ -9,7 +9,9 @@ contains the minimal Input-to-Agent-to-Output flow.
 
 The edit interface adds, moves, connects, and removes nodes or edges while
 keeping the Input and Output boundaries unique and preventing invalid boundary
-edges. The Input node owns the required initial prompt. Agent nodes own an
+edges. Node positions are rounded signed world coordinates, so the domain model
+does not impose a viewport boundary on spatial editors. The Input node owns the
+required initial prompt. Agent nodes own an
 execution workspace path, additional role instructions, and optional model
 settings. The edit interface updates those configurations without exposing
 mutable definition state. UI code translates gestures and settings changes

@@ -14,7 +14,7 @@ src/react-workbench/README.md
 src/react-workbench/agent-graph/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:cfaa3ed8d93a658bf63182a7c70d0f11f2fd40197a02a9f60311c1cfcebc7577 -->
+<!-- tinybot-doc-fingerprint: sha256:d78120a3bcf5f52f5a559b79525dfc27bbff277345cdca2f99d4018b66d82bda -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -49,7 +49,7 @@ Desktop Commands / Desktop Host
 | Module | Owns | Does not own |
 | --- | --- | --- |
 | `react-workbench` | React routes, presentation, route state | Native transport or durable domain state |
-| `react-workbench/agent-graph` | Standalone Agent Graph library and canvas, node configuration, Run history, and per-node inspection | Chat route state or native execution rules |
+| `react-workbench/agent-graph` | Standalone Agent Graph library and unbounded spatial canvas, node configuration, Run history, and per-node inspection | Chat route state or native execution rules |
 | `react-workbench/sidecar` | Resource tabs, scope filtering, and Sidecar presentation | Native Browser or Terminal lifecycle |
 | `app-core` | Framework-independent contracts, validation, commands, and projections | React rendering or Tauri invocation |
 | `app-core/agent-graph` | Versioned Graph contracts, validation, edit operations, persistence Interface, and runtime Interface | React rendering, native filesystem I/O, or Agent execution |
@@ -82,6 +82,8 @@ Desktop Commands / Desktop Host
   interfaces.
 - Agent Graph definitions: versioned `app-core/agent-graph` values stored under
   `<workspace>/.tinybot/graphs/` through the native `agent_graphs` Adapter.
+  Node positions are signed world coordinates; viewport pan, zoom, and fit-to-view
+  behavior remain renderer presentation state rather than persistence constraints.
 - Agent Graph Runs: application-owned status files under
   `~/.tinybot/graph-runs/<graph-id>/`. The runtime follows one model-selected
   path through an acyclic Router graph, reads the initial task from the saved

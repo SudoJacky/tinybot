@@ -67,12 +67,12 @@ describe("agentGraphDefinition", () => {
     expect(added).toMatchObject({ ok: true });
     if (!added.ok) return;
     expect(definition.nodes).toHaveLength(3);
-    expect(added.definition.nodes[added.definition.nodes.length - 1]?.position).toEqual({ x: 220, y: 0 });
+    expect(added.definition.nodes[added.definition.nodes.length - 1]?.position).toEqual({ x: 220, y: -12 });
 
-    const moved = moveAgentGraphNode(added.definition, "condition-1", { x: 340, y: 210 });
+    const moved = moveAgentGraphNode(added.definition, "condition-1", { x: -340.4, y: 210.7 });
     expect(moved).toMatchObject({ ok: true });
     if (!moved.ok) return;
-    expect(moved.definition.nodes.find((node) => node.id === "condition-1")?.position).toEqual({ x: 340, y: 210 });
+    expect(moved.definition.nodes.find((node) => node.id === "condition-1")?.position).toEqual({ x: -340, y: 211 });
   });
 
   it("connects nodes while rejecting invalid or duplicate edges", () => {
