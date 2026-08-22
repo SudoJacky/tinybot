@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import type { TFunction } from "i18next";
 import { ExternalLink, Loader2, Minus } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -285,6 +293,11 @@ export function DesktopPetQuickChatWindow({
     }));
   }
 
+  function handleHeaderPointerDown(event: ReactPointerEvent<HTMLElement>) {
+    if (event.button !== 0 || (event.target as Element).closest("button")) return;
+    void windowClient.startDragging().catch(reportQuickChatError);
+  }
+
   function selectRecentSession(nextSession: SessionSummary) {
     setSession(nextSession);
     setDraft("");
@@ -297,7 +310,10 @@ export function DesktopPetQuickChatWindow({
 
   return (
     <main ref={rootRef} aria-label={t("desktopPet.quickChat.panel")} className="react-desktop-pet-quick-chat">
-      <header className="react-desktop-pet-quick-chat__header">
+      <header
+        className="react-desktop-pet-quick-chat__header"
+        onPointerDown={handleHeaderPointerDown}
+      >
         <h1 title={headerTitle}>{headerTitle}</h1>
         <div aria-label={t("desktopPet.quickChat.windowControls")} role="group">
           <button

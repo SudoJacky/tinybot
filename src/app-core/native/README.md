@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:3e6a077971364d86cc2ca37c90b85e87b1a39c84b1ddefafd9bc5e7a4c4791f6 -->
+<!-- tinybot-module-fingerprint: sha256:3190e7ccd5a1163f3b9b8c2edfa9040c45e958ebeeebc7e6172fdacf7d0c9a78 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -47,8 +47,9 @@ Neither side creates a second application service graph.
 main renderer, and independent `desktop-pet-chat` webview. The main host alone
 positions, presents, and focuses the native panel; the pet sends a bounded
 plain-text draft, and the quick-chat window can hand an explicit Thread ID back
-to the main Chat route. Invalid or oversized payloads fail at this adapter
-boundary.
+to the main Chat route or start native dragging from its title bar. Main-window
+handoff shows, restores, and focuses `main` before dispatching the route event.
+Invalid or oversized payloads fail at this adapter boundary.
 
 `desktopNativeHostCommand` is a transitional retry adapter: it dispatches only
 Chat `operation.retry` frames. Browser sessions remain a separate native

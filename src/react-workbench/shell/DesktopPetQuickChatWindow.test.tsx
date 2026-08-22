@@ -65,6 +65,7 @@ describe("DesktopPetQuickChatWindow", () => {
       dismiss: vi.fn(async () => undefined),
       listen: vi.fn(async () => () => undefined),
       openInMain: vi.fn(async () => undefined),
+      startDragging: vi.fn(async () => undefined),
     };
     const user = userEvent.setup();
     render(<DesktopPetQuickChatWindow client={client} services={{ chatStore, sessionStore, settingsStore }} />);
@@ -80,6 +81,15 @@ describe("DesktopPetQuickChatWindow", () => {
 
     expect(screen.getByRole("button", { name: "Select model" }).textContent).toContain("DeepSeek V4 Flash");
     expect(sessionStore.setModel).toHaveBeenCalledWith("regular-1", "deepseek-v4-flash", "deepseek");
+
+    const header = screen.getByRole("banner");
+    const openInMain = screen.getByRole("button", { name: "Open in Tinybot" });
+    fireEvent.pointerDown(header, { button: 0 });
+    fireEvent.pointerDown(openInMain, { button: 0 });
+    await user.click(openInMain);
+
+    expect(client.startDragging).toHaveBeenCalledTimes(1);
+    expect(client.openInMain).toHaveBeenCalledWith("regular-1");
   });
 
   it("does not clip composer popovers inside the quick-chat toolbar", () => {
@@ -87,6 +97,19 @@ describe("DesktopPetQuickChatWindow", () => {
 
     expect(css).toMatch(/\.react-desktop-pet-quick-chat__composer \.claude-ai-input__tools\s*{[^}]*overflow:\s*visible;/s);
     expect(css).toMatch(/\.react-desktop-pet-quick-chat__composer \.claude-ai-input__model-menu\s*{[^}]*left:\s*-12px;/s);
+  });
+
+  it("grants the native window operations required by main handoff and quick-chat dragging", () => {
+    const mainCapability = JSON.parse(readFileSync("src-tauri/capabilities/default.json", "utf8")) as {
+      permissions: string[];
+    };
+    const quickChatCapability = JSON.parse(readFileSync("src-tauri/capabilities/desktop-pet-chat.json", "utf8")) as {
+      permissions: string[];
+    };
+
+    expect(mainCapability.permissions).toContain("core:window:allow-set-focus");
+    expect(mainCapability.permissions).toContain("core:window:allow-unminimize");
+    expect(quickChatCapability.permissions).toContain("core:window:allow-start-dragging");
   });
 
   it("places dropped text in the composer and creates a General chat on first send", async () => {
@@ -98,6 +121,7 @@ describe("DesktopPetQuickChatWindow", () => {
         return () => undefined;
       }),
       openInMain: vi.fn(async () => undefined),
+      startDragging: vi.fn(async () => undefined),
     };
     const sessionStore: SessionStore = {
       list: vi.fn(async () => [

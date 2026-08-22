@@ -10,9 +10,11 @@
     "core:window:allow-minimize",
     "core:window:allow-set-position",
     "core:window:allow-set-size",
+    "core:window:allow-set-focus",
     "core:window:allow-show",
     "core:window:allow-start-dragging",
     "core:window:allow-toggle-maximize",
+    "core:window:allow-unminimize",
     "notification:default",
     "opener:default"
   ]

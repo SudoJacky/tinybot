@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:8037f34b113a8c9e2012ec94ee8d02a8c0e1ccc63dcd19600c7cfd12ef873612 -->
+<!-- tinybot-module-fingerprint: sha256:24fe698f4874397690e8e315b9167029a7d1553c50df1c39dff7bd3c1bb60b9b -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
@@ -30,7 +30,9 @@ and context-token usage, and persists model changes to the selected Thread. It
 lazily creates a standard Thread on first send without workspace or project
 metadata. Opening an existing recent chat or handing the new Thread to the main
 window always carries its explicit Thread ID; `DesktopShell` refreshes the main
-renderer's session list before activating it.
+renderer's session list before activating it. Pointer-down on the panel title
+bar starts native window dragging, while the open and minimize controls remain
+ordinary buttons.
 
 The bounded `react-route-surface` owns vertical overflow for document-like
 routes so long settings, tools, and diagnostics pages remain scrollable inside

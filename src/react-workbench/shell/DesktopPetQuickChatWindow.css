@@ -39,6 +39,12 @@
   justify-content: space-between;
   min-width: 0;
   padding: 8px 10px 4px 22px;
+  cursor: grab;
+  user-select: none;
+}
+
+.react-desktop-pet-quick-chat__header:active {
+  cursor: grabbing;
 }
 
 .react-desktop-pet-quick-chat > * {
@@ -70,6 +76,7 @@
   height: 40px;
   border-radius: 50%;
   color: var(--color-muted);
+  cursor: pointer;
 }
 
 .react-desktop-pet-quick-chat__header button:hover,

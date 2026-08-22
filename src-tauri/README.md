@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:9cf0f8108cbaa0492dbad334aa28083a656279507091646ab1e65a87500a1bd0 -->
+<!-- tinybot-module-fingerprint: sha256:fe0361c2e85604b4d7a0c7dcd01cf099402d9aeb4891cdae9eba3814238b4744 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -36,7 +36,9 @@ Tauri capabilities remain window-scoped. `capabilities/default.json` belongs
 to the main webview, while `capabilities/desktop-pet.json` grants the pet only
 event, position, and native drag operations on Windows. The separate
 `capabilities/desktop-pet-chat.json` grants the quick-chat panel only scoped
-events and window hiding.
+events, window hiding, and native dragging. The main capability explicitly
+grants restore and focus operations so quick-chat handoff can bring a minimized
+main window to the foreground before routing to the selected Thread.
 
 ## Domain terminology
 

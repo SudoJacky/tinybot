@@ -46,6 +46,7 @@ export type DesktopPetQuickChatWindowClient = {
   dismiss(): Promise<void>;
   listen(listener: (request: DesktopPetQuickChatRequest) => void): Promise<() => void>;
   openInMain(sessionId?: string): Promise<void>;
+  startDragging(): Promise<void>;
 };
 
 export function createDesktopNativePetQuickChatHost(): DesktopPetQuickChatHost | null {
@@ -64,6 +65,14 @@ export function createDesktopNativePetQuickChatWindowClient(): DesktopPetQuickCh
     throw new Error("Desktop pet quick chat requires the Tauri runtime.");
   }
   return new TauriDesktopPetQuickChatWindowClient();
+}
+
+export async function presentMainWindowForQuickChat(
+  mainWindow: Pick<WebviewWindow, "show" | "unminimize" | "setFocus">,
+): Promise<void> {
+  await mainWindow.show();
+  await mainWindow.unminimize();
+  await mainWindow.setFocus();
 }
 
 class TauriDesktopPetQuickChatHost implements DesktopPetQuickChatHost {
@@ -88,8 +97,7 @@ class TauriDesktopPetQuickChatHost implements DesktopPetQuickChatHost {
         const sessionId = parseOpenMainSessionId(payload);
         void (async () => {
           const mainWindow = getCurrentWindow();
-          await mainWindow.show();
-          await mainWindow.setFocus();
+          await presentMainWindowForQuickChat(mainWindow);
           listener({ type: "open-main", ...(sessionId ? { sessionId } : {}) });
         })().catch(reportQuickChatError);
       });
@@ -179,6 +187,10 @@ class TauriDesktopPetQuickChatWindowClient implements DesktopPetQuickChatWindowC
     }
     await emitTo("main", QUICK_CHAT_OPEN_MAIN_EVENT, sessionId ? { sessionId } : {});
     await this.dismiss();
+  }
+
+  async startDragging(): Promise<void> {
+    await getCurrentWindow().startDragging();
   }
 }
 

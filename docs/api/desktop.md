@@ -15,7 +15,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:d24f6710adbc5527a7602201a715687e66841a81336c4bf7a7c8d8b978dbdb50 -->
+<!-- tinybot-doc-fingerprint: sha256:29aa71ff7e4bd723be9fd0caf9baf8e47f91f4cac58f80cff8c7b4c9541e0cbe -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -57,7 +57,11 @@ typed `desktopNativePetQuickChat` event seam. The main renderer positions the
 quick-chat panel next to the pet within the current monitor work area, then the
 `?surface=desktop-pet-chat` renderer presents an editable draft and uses the
 canonical Thread stores for model selection, token usage, timeline updates,
-and first-send creation of a standard non-workspace Thread.
+and first-send creation of a standard non-workspace Thread. Its title bar
+starts native window dragging while leaving the window controls interactive.
+Opening a quick-chat Thread in Tinybot first shows, restores, and focuses
+`main`, then refreshes and activates the explicit Thread ID carried by the
+event.
 
 The main renderer remains authoritative for the pet label, mood, visibility,
 size, and persisted physical-desktop center. The typed
@@ -73,7 +77,8 @@ discarding canonical Thread state. Closing `main` performs the normal bounded
 runtime cleanup before destroying both auxiliary windows. The pet's
 Windows-only capability grants only event, position, scale-factor, and
 native-drag access. The quick-chat capability grants only events and window
-hide; neither can invoke the wider main-window command surface.
+hide plus native dragging; neither can invoke the wider main-window command
+surface.
 
 ## Sidecar Terminal Commands
 
