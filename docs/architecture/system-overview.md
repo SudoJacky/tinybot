@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:7b52596f4c8b7e55735b5e2f097e08eabc3e8f9b9b964355b338ac9a909365bd -->
+<!-- tinybot-doc-fingerprint: sha256:65cab0188575edf6d3707bb2ec01fba91a081273bdd91b9bcc4ad0c3807104e9 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -107,8 +107,10 @@ Desktop Commands / Desktop Host
   Agent shell processes remain owned by the Agent runtime's independent shell
   registry.
 - Desktop pet preferences: the main renderer's `DesktopShell`, persisted under
-  `tinybot.ui.desktop-pet.v1`. The Windows `desktop-pet` webview is a projection
-  of that state and never becomes a second authority.
+  `tinybot.ui.desktop-pet.v2`. Legacy `v1` visibility and size migrate without
+  carrying viewport-relative coordinates into the physical desktop coordinate
+  system. The Windows `desktop-pet` webview is a projection of that state and
+  never becomes a second authority.
 - Desktop pet quick-chat state: canonical Threads and Rollouts remain
   authoritative. The `desktop-pet-chat` webview owns only its editable draft,
   selected recent Thread, and shared composer/timeline projection; explicit
@@ -136,10 +138,10 @@ under the shared language, appearance, error, and diagnostic providers. It
 receives snapshots from `DesktopShell` through `app-core/native`, so showing a
 global desktop pet does not duplicate routes, stores, or native runtimes. The
 `?surface=desktop-pet-chat` path mounts `DesktopPetQuickChatWindow` with a
-bounded service composition so it can create and continue canonical Threads;
-the scoped native event seam positions it next to the pet and hands an explicit
-Thread ID back to `DesktopShell` when the user opens the conversation in the
-main Chat route.
+bounded service composition and a least-privilege Tauri command permission so
+it can create and continue canonical Threads; the scoped native event seam
+positions it next to the pet and hands an explicit Thread ID back to
+`DesktopShell` when the user opens the conversation in the main Chat route.
 
 ## Cross-module flows
 

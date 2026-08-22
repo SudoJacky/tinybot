@@ -76,9 +76,10 @@ Closing `desktop-pet` prevents destruction, hides the window, and notifies
 discarding canonical Thread state. Closing `main` performs the normal bounded
 runtime cleanup before destroying both auxiliary windows. The pet's
 Windows-only capability grants only event, position, scale-factor, and
-native-drag access. The quick-chat capability grants only events and window
-hide plus native dragging; neither can invoke the wider main-window command
-surface.
+native-drag access. The quick-chat capability grants events, window hide,
+native dragging, and a least-privilege application-command subset for its chat
+workflow. The build-time application-command manifest prevents either
+auxiliary webview from inheriting the wider main-window command surface.
 
 ## Sidecar Terminal Commands
 

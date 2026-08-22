@@ -1,10 +1,13 @@
 # Desktop Pet State
-<!-- tinybot-module-fingerprint: sha256:f9437e667cd18b570393b205bca92a36eff7d8cdc439f02575d8f9d8ea5e19b5 -->
+<!-- tinybot-module-fingerprint: sha256:5ad53936178ab38ab2c0ad62d9cd8c3c91072a09ecef2a9d26c94f0eae477fc0 -->
 
 `desktop-pet` owns the framework-independent pet preferences and Windows
 window geometry. A persisted position is the pet window center in physical
 desktop pixels, so negative coordinates remain valid for monitors placed to
-the left of the primary display.
+the left of the primary display. Storage version `v2` marks that coordinate
+contract. When `v1` viewport-relative preferences are encountered, visibility
+and size migrate while position is discarded so the native host can choose a
+safe physical-desktop default.
 
 `desktopPetWindowGeometry` converts that center to native top-left coordinates,
 keeps the full window inside the selected monitor work area, and chooses a

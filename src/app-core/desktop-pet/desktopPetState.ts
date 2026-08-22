@@ -1,4 +1,5 @@
-export const DESKTOP_PET_STORAGE_KEY = "tinybot.ui.desktop-pet.v1";
+export const DESKTOP_PET_STORAGE_KEY = "tinybot.ui.desktop-pet.v2";
+const LEGACY_DESKTOP_PET_STORAGE_KEY = "tinybot.ui.desktop-pet.v1";
 export const DESKTOP_PET_MARGIN = 12;
 export const DESKTOP_PET_TOP_INSET = 54;
 
@@ -41,14 +42,19 @@ const DESKTOP_PET_MIN_TOOLBAR_WIDTH = 76;
 export function readDesktopPetPreferences(
   storage: Pick<Storage, "getItem">,
 ): DesktopPetPreferences {
-  const serialized = storage.getItem(DESKTOP_PET_STORAGE_KEY);
+  let serialized = storage.getItem(DESKTOP_PET_STORAGE_KEY);
+  let restorePosition = true;
+  if (!serialized) {
+    serialized = storage.getItem(LEGACY_DESKTOP_PET_STORAGE_KEY);
+    restorePosition = false;
+  }
   if (!serialized) return { ...DEFAULT_DESKTOP_PET_PREFERENCES };
 
   try {
     const value = JSON.parse(serialized) as unknown;
     if (!isRecord(value)) throw new Error("Stored desktop pet preferences must be an object.");
     const size = isDesktopPetSize(value.size) ? value.size : DEFAULT_DESKTOP_PET_PREFERENCES.size;
-    const position = isRecord(value.position)
+    const position = restorePosition && isRecord(value.position)
       && isFiniteNumber(value.position.x)
       && isFiniteNumber(value.position.y)
       ? { x: value.position.x, y: value.position.y }

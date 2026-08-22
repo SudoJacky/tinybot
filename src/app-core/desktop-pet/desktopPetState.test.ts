@@ -30,6 +30,24 @@ describe("desktopPetState", () => {
     warn.mockRestore();
   });
 
+  it("discards viewport-relative positions when migrating v1 preferences", () => {
+    const storage = {
+      getItem: vi.fn((key: string) => key === "tinybot.ui.desktop-pet.v1"
+        ? JSON.stringify({ visible: false, size: "large", position: { x: 320, y: 240 } })
+        : null),
+    };
+
+    expect(readDesktopPetPreferences(storage)).toEqual({
+      visible: false,
+      size: "large",
+      position: null,
+    });
+    expect(storage.getItem.mock.calls).toEqual([
+      ["tinybot.ui.desktop-pet.v2"],
+      ["tinybot.ui.desktop-pet.v1"],
+    ]);
+  });
+
   it("persists rounded coordinates", () => {
     const storage = { setItem: vi.fn() };
     writeDesktopPetPreferences(storage, {
