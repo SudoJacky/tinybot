@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:d6453a05e9099fb6c41c89094cbf50afce8dd55112feb88c8988de894fae648f -->
+<!-- tinybot-module-fingerprint: sha256:d54d913ddffad1887bb19d90cc96cace7642cf38ed6d45139c1d2b7a8b96f849 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -182,7 +182,10 @@ node stores the required initial prompt; Run start reloads it from the saved
 definition instead of accepting a transient prompt.
 Graph Runs use separate atomically replaced status files. Every Agent node
 invocation creates a canonical parentless Thread with `source: "agent_graph"`;
-its Rollout remains under the standard Thread root.
+its Rollout remains under the standard Thread root. Router nodes instead make
+one non-streaming, tool-free model request with a dedicated routing prompt,
+strictly parse an exact generated route token, and persist the selected stable
+route ID without creating a Thread.
 
 Desktop startup moves canonical Rollouts from the former
 `<workspace>/.tinybot/{threads,archived_threads}` layout into the application

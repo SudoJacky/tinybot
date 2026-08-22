@@ -141,8 +141,8 @@ fn resolves_responses_api_mode_from_profile_setting() {
     );
 }
 
-#[test]
-fn resolves_active_provider_profile_credentials() {
+#[tokio::test]
+async fn resolves_active_provider_profile_credentials() {
     let config = json!({
         "agents": {
             "defaults": {
@@ -170,6 +170,7 @@ fn resolves_active_provider_profile_credentials() {
             ..Default::default()
         },
     )
+    .await
     .unwrap();
 
     assert_eq!(profile.provider_id, "openai");
@@ -183,8 +184,8 @@ fn resolves_active_provider_profile_credentials() {
     assert!(models.models.contains(&"profile-model".to_string()));
 }
 
-#[test]
-fn resolves_configured_custom_openai_compatible_provider_without_catalog_entry() {
+#[tokio::test]
+async fn resolves_configured_custom_openai_compatible_provider_without_catalog_entry() {
     let config = json!({
         "agents": {
             "defaults": {
@@ -209,6 +210,7 @@ fn resolves_configured_custom_openai_compatible_provider_without_catalog_entry()
             ..Default::default()
         },
     )
+    .await
     .unwrap();
 
     assert_eq!(profile.provider_id, "my_gateway");
@@ -223,8 +225,8 @@ fn resolves_configured_custom_openai_compatible_provider_without_catalog_entry()
     assert_eq!(models.sources["profile"], 1);
 }
 
-#[test]
-fn provider_models_merge_curated_profile_manual_and_fixture_live() {
+#[tokio::test]
+async fn provider_models_merge_curated_profile_manual_and_fixture_live() {
     let result = list_provider_models(
         &json!({
             "providers": {
@@ -242,6 +244,7 @@ fn provider_models_merge_curated_profile_manual_and_fixture_live() {
             ..Default::default()
         },
     )
+    .await
     .unwrap();
 
     assert!(result.ok);
@@ -251,15 +254,21 @@ fn provider_models_merge_curated_profile_manual_and_fixture_live() {
     assert_eq!(result.sources["live"], 1);
 }
 
-#[test]
-fn provider_models_fetches_openai_compatible_model_list() {
+#[tokio::test(flavor = "multi_thread")]
+async fn provider_models_fetches_deepseek_model_list_inside_runtime() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
     let api_base = format!("http://{}", listener.local_addr().unwrap());
+    let (request_tx, request_rx) = mpsc::sync_channel(1);
     let server = thread::spawn(move || {
         if let Ok((mut stream, _)) = listener.accept() {
             let mut buffer = [0_u8; 2048];
-            let _ = stream.read(&mut buffer);
-            let body = r#"{"object":"list","data":[{"id":"live-a","object":"model","created":1,"owned_by":"test"},{"id":"live-b","object":"model","created":1,"owned_by":"test"}]}"#;
+            let bytes_read = stream
+                .read(&mut buffer)
+                .expect("request should be readable");
+            request_tx
+                .send(String::from_utf8_lossy(&buffer[..bytes_read]).into_owned())
+                .expect("request should be observable");
+            let body = r#"{"object":"list","data":[{"id":"deepseek-v4-flash","object":"model","owned_by":"deepseek"},{"id":"deepseek-v4-pro","object":"model","owned_by":"deepseek"},{"id":"deepseek-v4-flash-vision-exp","object":"model","owned_by":"deepseek"}]}"#;
             let _ = write!(
                     stream,
                     "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
@@ -271,29 +280,40 @@ fn provider_models_fetches_openai_compatible_model_list() {
     let result = list_provider_models(
         &json!({
             "providers": {
-                "openai": {
+                "deepseek": {
                     "api_key": "sk-test",
                     "api_base": api_base
                 }
             }
         }),
         NativeProviderModelsRequest {
-            provider_id: Some("openai".to_string()),
+            provider_id: Some("deepseek".to_string()),
             refresh_live: Some(true),
             ..Default::default()
         },
     )
+    .await
     .unwrap();
     let _ = server.join();
+    let request = request_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("model discovery should issue an HTTP request");
+    let normalized_request = request.to_ascii_lowercase();
 
     assert!(result.ok);
-    assert!(result.models.contains(&"live-a".to_string()));
-    assert!(result.models.contains(&"live-b".to_string()));
-    assert_eq!(result.sources["live"], 2);
+    assert_eq!(result.warning, None);
+    assert!(result.models.contains(&"deepseek-v4-flash".to_string()));
+    assert!(result.models.contains(&"deepseek-v4-pro".to_string()));
+    assert!(result
+        .models
+        .contains(&"deepseek-v4-flash-vision-exp".to_string()));
+    assert_eq!(result.sources["live"], 3);
+    assert!(normalized_request.starts_with("get /models http/1.1\r\n"));
+    assert!(normalized_request.contains("\r\nauthorization: bearer sk-test\r\n"));
 }
 
-#[test]
-fn dashscope_models_use_openai_compatible_discovery() {
+#[tokio::test]
+async fn dashscope_models_use_openai_compatible_discovery() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
     let api_base = format!("http://{}", listener.local_addr().unwrap());
     let server = thread::spawn(move || {
@@ -324,6 +344,7 @@ fn dashscope_models_use_openai_compatible_discovery() {
             ..Default::default()
         },
     )
+    .await
     .unwrap();
     let _ = server.join();
 
@@ -333,8 +354,8 @@ fn dashscope_models_use_openai_compatible_discovery() {
     assert_eq!(result.sources["live"], 1);
 }
 
-#[test]
-fn provider_models_reports_discovery_configuration_failure() {
+#[tokio::test]
+async fn provider_models_reports_discovery_configuration_failure() {
     let result = list_provider_models(
         &json!({ "providers": { "openai": {} } }),
         NativeProviderModelsRequest {
@@ -343,6 +364,7 @@ fn provider_models_reports_discovery_configuration_failure() {
             ..Default::default()
         },
     )
+    .await
     .unwrap();
 
     assert!(result.ok);

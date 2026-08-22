@@ -29,7 +29,7 @@ export function AgentGraphNodeDrawer({
   run?: AgentGraphRun;
 }) {
   const { t } = useTranslation("common");
-  const nodeRun = node.kind === "agent"
+  const nodeRun = node.kind === "agent" || node.kind === "condition"
     ? run?.nodeRuns.find((candidate) => candidate.nodeId === node.id)
     : undefined;
   const [timeline, setTimeline] = useState<ChatTimelineSnapshot | null>(null);
@@ -160,7 +160,19 @@ export function AgentGraphNodeDrawer({
             <NodeEmptyState text={run.error || t("graphs.nodeOutputUnavailable")} />
           )
         ) : null}
-        {run && node.kind === "condition" ? <NodeEmptyState text={t("graphs.conditionNotRunnable")} /> : null}
+        {run && node.kind === "condition" ? (
+          nodeRun?.router ? (
+            <section className="react-agent-graph-router-decision">
+              <span>{t("graphs.routerSelectedRoute")}</span>
+              <strong>{node.config?.routes.find((route) => route.id === nodeRun.router?.selectedRouteId)?.label
+                ?? nodeRun.router.selectedRouteId}</strong>
+              <small>{t("graphs.routerRawResponse")}</small>
+              <code>{nodeRun.router.rawResponse}</code>
+            </section>
+          ) : nodeRun?.error ? (
+            <p className="react-agent-graph-node-drawer__error" role="alert">{nodeRun.error}</p>
+          ) : <NodeEmptyState text={t("graphs.routerNotRun")} />
+        ) : null}
         {run && node.kind === "agent" ? (
           <>
             {nodeRun?.error ? <p className="react-agent-graph-node-drawer__error" role="alert">{nodeRun.error}</p> : null}
@@ -188,8 +200,7 @@ function nodeInspectionStatus(
 ): NodeInspectionStatus {
   if (!run) return "not_run";
   if (node.kind === "input") return "completed";
-  if (node.kind === "agent") return nodeRun?.status ?? "not_run";
-  if (node.kind === "condition") return "not_run";
+  if (node.kind === "agent" || node.kind === "condition") return nodeRun?.status ?? "not_run";
   if (run.status === "completed") return "completed";
   if (run.status === "running") return "pending";
   return run.status;

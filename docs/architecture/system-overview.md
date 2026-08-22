@@ -14,7 +14,7 @@ src/react-workbench/README.md
 src/react-workbench/agent-graph/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:fdd933ca1348e18c3b0db417f7e3102443082e31839c063f308fd020ef35d375 -->
+<!-- tinybot-doc-fingerprint: sha256:cfaa3ed8d93a658bf63182a7c70d0f11f2fd40197a02a9f60311c1cfcebc7577 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -83,12 +83,15 @@ Desktop Commands / Desktop Host
 - Agent Graph definitions: versioned `app-core/agent-graph` values stored under
   `<workspace>/.tinybot/graphs/` through the native `agent_graphs` Adapter.
 - Agent Graph Runs: application-owned status files under
-  `~/.tinybot/graph-runs/<graph-id>/`. The first runtime executes one linear
-  Input-to-Output path, reads the initial task from the saved Input node, and
-  delegates every Agent node to a fresh canonical Thread. Per-node role
+  `~/.tinybot/graph-runs/<graph-id>/`. The runtime follows one model-selected
+  path through an acyclic Router graph, reads the initial task from the saved
+  Input node, and delegates every visited Agent node to a fresh canonical
+  Thread. Per-node role
   instructions and optional Provider, model, and reasoning-effort settings use
   the existing Turn interfaces; the renderer only offers models from available
   Provider connections, while absent settings inherit application defaults.
+  Router decisions use a separate, single-shot, tool-free provider request and
+  do not create Threads or load Agent instruction sources.
   The Chat projection excludes those `source: "agent_graph"` Threads;
   the Graph node inspector reads an explicitly selected Thread and reuses the
   canonical timeline presentation without turning it into a Chat session.

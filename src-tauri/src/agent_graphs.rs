@@ -53,12 +53,31 @@ struct AgentGraphNodePosition {
 pub(crate) enum AgentGraphNodeConfig {
     Input(AgentGraphInputNodeConfig),
     Agent(AgentLoopNodeConfig),
+    Router(AgentGraphRouterNodeConfig),
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct AgentGraphInputNodeConfig {
     pub(crate) prompt: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct AgentGraphRouterNodeConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) task: Option<String>,
+    pub(crate) routes: Vec<AgentGraphRouterRoute>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) model: Option<AgentLoopModelConfig>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct AgentGraphRouterRoute {
+    pub(crate) id: String,
+    pub(crate) label: String,
+    pub(crate) description: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -103,11 +122,13 @@ impl AgentLoopReasoningEffort {
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct AgentGraphEdge {
     pub(crate) id: String,
     pub(crate) source: String,
     pub(crate) target: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) source_route_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -311,12 +332,37 @@ fn validate_definition(definition: &AgentGraphDefinition) -> Result<(), String> 
                 }
             }
             AgentGraphNodeKind::Condition => {
-                if node.config.is_some() {
+                let Some(config) = &node.config else {
+                    continue;
+                };
+                let AgentGraphNodeConfig::Router(config) = config else {
                     return Err(format!(
-                        "Condition node `{}` cannot have configuration",
+                        "Condition node `{}` requires Router configuration",
+                        node.id
+                    ));
+                };
+                if config.routes.len() < 2 {
+                    return Err(format!(
+                        "Condition node `{}` requires at least two routes",
                         node.id
                     ));
                 }
+                let mut route_ids = HashSet::new();
+                for route in &config.routes {
+                    if route.id.trim().is_empty() || !route_ids.insert(route.id.as_str()) {
+                        return Err(format!(
+                            "Condition node `{}` has an invalid or duplicate route id",
+                            node.id
+                        ));
+                    }
+                    if route.label.trim().is_empty() || route.description.trim().is_empty() {
+                        return Err(format!(
+                            "Condition node `{}` routes require labels and descriptions",
+                            node.id
+                        ));
+                    }
+                }
+                validate_model_config(&node.id, config.model.as_ref())?;
             }
         }
     }
@@ -370,6 +416,68 @@ fn validate_definition(definition: &AgentGraphDefinition) -> Result<(), String> 
         if target.kind == AgentGraphNodeKind::Input {
             return Err("Input node cannot have incoming edges".to_string());
         }
+        if source.kind == AgentGraphNodeKind::Condition {
+            if let Some(AgentGraphNodeConfig::Router(config)) = source.config.as_ref() {
+                let route_id = edge.source_route_id.as_deref().ok_or_else(|| {
+                    format!("Condition edge `{}` requires a source route", edge.id)
+                })?;
+                if !config.routes.iter().any(|route| route.id == route_id) {
+                    return Err(format!(
+                        "Condition edge `{}` references missing route `{route_id}`",
+                        edge.id
+                    ));
+                }
+            }
+        } else if edge.source_route_id.is_some() {
+            return Err(format!(
+                "non-Condition edge `{}` cannot reference a source route",
+                edge.id
+            ));
+        }
+    }
+    for node in &definition.nodes {
+        let Some(AgentGraphNodeConfig::Router(config)) = node.config.as_ref() else {
+            continue;
+        };
+        for route in &config.routes {
+            let edge_count = definition
+                .edges
+                .iter()
+                .filter(|edge| {
+                    edge.source == node.id && edge.source_route_id.as_deref() == Some(&route.id)
+                })
+                .count();
+            if edge_count != 1 {
+                return Err(format!(
+                    "Condition node `{}` route `{}` requires exactly one outgoing edge",
+                    node.id, route.id
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_model_config(
+    node_id: &str,
+    model: Option<&AgentLoopModelConfig>,
+) -> Result<(), String> {
+    let Some(model) = model else {
+        return Ok(());
+    };
+    if model.model_id.trim().is_empty() {
+        return Err(format!(
+            "Agent Graph node `{node_id}` has an empty model id"
+        ));
+    }
+    if model
+        .provider_id
+        .as_ref()
+        .is_some_and(|provider_id| provider_id.trim().is_empty())
+    {
+        return Err(format!(
+            "Agent Graph node `{node_id}` has an empty provider id"
+        ));
     }
     Ok(())
 }
@@ -537,11 +645,13 @@ mod tests {
                         id: "input-agent".to_string(),
                         source: "input".to_string(),
                         target: "agent".to_string(),
+                        source_route_id: None,
                     },
                     AgentGraphEdge {
                         id: "agent-output".to_string(),
                         source: "agent".to_string(),
                         target: "output".to_string(),
+                        source_route_id: None,
                     },
                 ],
             }

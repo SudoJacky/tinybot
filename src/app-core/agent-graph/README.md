@@ -1,10 +1,11 @@
 # Agent Graph Application Core
-<!-- tinybot-module-fingerprint: sha256:7488e334e32f2b05e5e8075fab147dfdc9a9b3990964224458ba4c0bb3f07408 -->
+<!-- tinybot-module-fingerprint: sha256:76a9d7d97316d33dd244cb63b678f50a4f0dc7f16ff632ed1f66b07a6f4dcb30 -->
 
 `agent-graph` owns the framework-independent, versioned Agent Graph definition,
 its structural validation, and immutable edit operations. The definition
-supports positioned Input, Agent, Condition, and Output nodes plus directed
-edges. The starter draft contains the minimal Input-to-Agent-to-Output flow.
+supports positioned Input, Agent, Router (stored as `condition` for schema
+compatibility), and Output nodes plus directed edges. The starter draft
+contains the minimal Input-to-Agent-to-Output flow.
 
 The edit interface adds, moves, connects, and removes nodes or edges while
 keeping the Input and Output boundaries unique and preventing invalid boundary
@@ -28,8 +29,13 @@ existing turn-scoped agent-role instruction source, so Tinybot's base and
 workspace instructions remain intact. Nodes without a model override inherit
 application defaults. The runtime reads its initial task only from the saved
 Input node and copies that prompt into the Run record for inspection. The first
-runtime accepts only a single linear Input-to-Output path and rejects Condition
-nodes, branches, cycles, disconnected nodes, or missing execution workspaces
-before creating a Run. See
+runtime accepts an acyclic Input-to-Output graph with model-driven Router
+branches and reconvergence. Router definitions contain an optional routing
+task, at least two stable route IDs with required labels and descriptions, and
+an optional provider/model/reasoning override. Every route owns exactly one
+outgoing edge through `sourceRouteId`; removing a route prunes its edge. Runtime
+preflight rejects cycles, disconnected nodes, incomplete routes, unsupported
+non-Router branching, or missing execution workspaces before creating a Run.
+See
 [ADR 0001](../../../docs/decisions/0001-agent-graph-definitions-runs-and-threads.md)
 for the store Interface, revision rules, and runtime boundary.

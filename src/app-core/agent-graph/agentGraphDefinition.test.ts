@@ -4,8 +4,10 @@ import {
   addAgentGraphNode,
   configureAgentGraphInput,
   configureAgentGraphNode,
+  configureAgentGraphRouter,
   connectAgentGraphNodes,
   createAgentGraphDraft,
+  createAgentGraphRouterConfig,
   moveAgentGraphNode,
   removeAgentGraphEdge,
   removeAgentGraphNode,
@@ -49,6 +51,7 @@ describe("agentGraphDefinition", () => {
       "input_prompt_required",
       "duplicate_node_id",
       "missing_edge_endpoint",
+      "router_configuration_required",
     ]);
   });
 
@@ -58,6 +61,7 @@ describe("agentGraphDefinition", () => {
       id: "condition-1",
       kind: "condition",
       position: { x: 220.4, y: -12 },
+      config: createAgentGraphRouterConfig("condition-1"),
     });
 
     expect(added).toMatchObject({ ok: true });
@@ -157,5 +161,73 @@ describe("agentGraphDefinition", () => {
       ok: false,
       reason: "node_not_configurable",
     });
+  });
+
+  it("configures Router paths and connects a stable route to an edge", () => {
+    const definition = createAgentGraphDraft({ id: "graph-1", name: "Flow", workspacePath: WORKSPACE_PATH });
+    const added = addAgentGraphNode(definition, {
+      id: "condition-1",
+      kind: "condition",
+      position: { x: 420, y: 124 },
+      config: createAgentGraphRouterConfig("condition-1"),
+    });
+    expect(added).toMatchObject({ ok: true });
+    if (!added.ok) return;
+
+    const configured = configureAgentGraphRouter(added.definition, "condition-1", {
+      task: "Choose whether the review passed.",
+      routes: [
+        { id: "approved", label: "Approved", description: "The review has no blocking issues." },
+        { id: "changes", label: "Needs changes", description: "The review found actionable issues." },
+      ],
+      model: { modelId: "gpt-5.6-sol", providerId: "openai", reasoningEffort: "low" },
+    });
+    expect(configured).toMatchObject({ ok: true });
+    if (!configured.ok) return;
+
+    const connected = connectAgentGraphNodes(configured.definition, "condition-1", "output", "approved");
+    expect(connected).toMatchObject({ ok: true });
+    if (!connected.ok) return;
+    expect(connected.definition.edges[connected.definition.edges.length - 1]).toMatchObject({
+      source: "condition-1",
+      sourceRouteId: "approved",
+      target: "output",
+    });
+    expect(connectAgentGraphNodes(configured.definition, "condition-1", "output")).toEqual({
+      ok: false,
+      reason: "router_route_required",
+    });
+  });
+
+  it("reports incomplete Router configuration and prunes removed route edges", () => {
+    const definition = createAgentGraphDraft({ id: "graph-1", name: "Flow", workspacePath: WORKSPACE_PATH });
+    definition.nodes.push({
+      id: "condition-1",
+      kind: "condition",
+      position: { x: 420, y: 124 },
+      config: createAgentGraphRouterConfig("condition-1"),
+    });
+
+    expect(validateAgentGraphDefinition(definition)).toEqual([
+      "input_prompt_required",
+      "router_route_description_required",
+      "router_route_connection_required",
+    ]);
+
+    definition.edges.push({
+      id: "condition-output",
+      source: "condition-1",
+      sourceRouteId: "condition-1-route-b",
+      target: "output",
+    });
+    const configured = configureAgentGraphRouter(definition, "condition-1", {
+      routes: [
+        { id: "condition-1-route-a", label: "Approved", description: "No blocking issues." },
+        { id: "condition-1-route-c", label: "Manual", description: "A person must decide." },
+      ],
+    });
+    expect(configured).toMatchObject({ ok: true });
+    if (!configured.ok) return;
+    expect(configured.definition.edges.some((edge) => edge.id === "condition-output")).toBe(false);
   });
 });

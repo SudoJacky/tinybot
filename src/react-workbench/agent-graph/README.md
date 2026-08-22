@@ -1,5 +1,5 @@
 # Agent Graph Workbench
-<!-- tinybot-module-fingerprint: sha256:ed53a7f33f0ec8b930704acb4f034f6092c224d96d79db3fe346c57154929e18 -->
+<!-- tinybot-module-fingerprint: sha256:9921bdd0b22628e76125b19fc9269504d7c53cd8f92c95a34209aafa1fa98833 -->
 
 `agent-graph` owns the standalone Agent Graph route and its React presentation.
 The page creates one honest in-memory starter draft and exposes a small canvas
@@ -24,6 +24,10 @@ Input node owns the required initial prompt sent to the first Agent. A selected
 Agent node edits additional role instructions and chooses a currently
 available Provider, one of its models, and optional reasoning effort; the
 explicit inherit choice leaves model routing to the application defaults.
+Router nodes use the same Provider, model, and reasoning controls. They also
+configure an optional routing task and two or more labeled routes with required
+selection descriptions. Each route renders its own accessible source handle,
+while generated `ROUTE_A`, `ROUTE_B`, and later tokens stay runtime-only.
 Definition workspace, execution workspace, Provider, model, and reasoning
 controls reuse the workbench's canonical `SettingsChoiceList` appearance and
 interaction; Graph only owns their placement.
@@ -34,15 +38,18 @@ without a second transient input field, and keeps a compact selectable Run
 history. Activating any canvas node opens a
 non-modal node-anchored inspector for that Run: Input and Output show their boundary
 content, while Agent nodes load their canonical Thread through the Chat store
-and render it with the shared read-only `ChatTimeline`.
+and render it with the shared read-only `ChatTimeline`. Router inspection shows
+the selected route and the exact model response for that node invocation.
 
 This module does not import `ChatPage`, consume Chat route state, or treat a
 Graph as a Chat mode. It reuses only Chat's timeline presentation for standard
 Graph-owned Threads. It consumes the framework-independent definition in
 `app-core/agent-graph`; persistence and execution arrive through
-dedicated Graph interfaces. The first execution slice supports only one linear
-Input-to-Output path; backend preflight visibly rejects Condition nodes,
-branches, cycles, disconnected nodes, and missing Agent workspaces.
+dedicated Graph interfaces. Execution follows one selected path through an
+acyclic graph, permits Router branches to reconverge, and creates Run entries
+only for nodes actually visited. Backend preflight rejects non-Router
+branching, cycles, disconnected nodes, incomplete route connections, and
+missing Agent workspaces.
 
 The page may reuse the workspaces already known to Chat and project groups as
 choices, but the selected definition workspace and each Agent node's execution

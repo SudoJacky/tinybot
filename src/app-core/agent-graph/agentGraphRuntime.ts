@@ -6,6 +6,12 @@ export type AgentGraphNodeRun = {
   nodeId: string;
   threadId?: string;
   status: AgentGraphNodeRunStatus;
+  router?: {
+    rawResponse: string;
+    selectedRouteId: string;
+    selectedEdgeId: string;
+    usage?: unknown;
+  };
   error?: string;
 };
 

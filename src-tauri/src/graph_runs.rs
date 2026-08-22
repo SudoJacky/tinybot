@@ -1,10 +1,11 @@
 use crate::agent::bridge::{execute_thread_turn_with_services, SubmitThreadTurnInput};
+use crate::agent::router;
 use crate::agent::runtime::NativeAgentRuntimeServices;
 #[cfg(test)]
 use crate::agent_graphs::AgentLoopReasoningEffort;
 use crate::agent_graphs::{
     self, validate_graph_id, AgentGraphDefinition, AgentGraphNodeConfig, AgentGraphNodeKind,
-    AgentLoopModelConfig,
+    AgentGraphRouterNodeConfig, AgentLoopModelConfig,
 };
 use crate::project_groups::{canonical_workspace, workspace_id};
 use crate::protocol::request_id::next_worker_request_correlation;
@@ -51,7 +52,19 @@ pub(crate) struct AgentGraphNodeRun {
     thread_id: Option<String>,
     status: AgentGraphNodeRunStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    router: Option<AgentGraphRouterRun>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     error: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct AgentGraphRouterRun {
+    raw_response: String,
+    selected_route_id: String,
+    selected_edge_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    usage: Option<serde_json::Value>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -86,10 +99,12 @@ pub(crate) struct StartAgentGraphRunInput {
     definition_workspace_path: String,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct LinearAgentPlan {
+#[derive(Clone, Debug)]
+struct AgentGraphPlan {
     input: String,
-    steps: Vec<AgentStep>,
+    input_node_id: String,
+    nodes: HashMap<String, PlannedNode>,
+    outgoing: HashMap<String, Vec<PlannedEdge>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -98,6 +113,21 @@ struct AgentStep {
     workspace_path: String,
     instructions: String,
     model: Option<AgentLoopModelConfig>,
+}
+
+#[derive(Clone, Debug)]
+enum PlannedNode {
+    Input,
+    Agent(AgentStep),
+    Router(AgentGraphRouterNodeConfig),
+    Output,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PlannedEdge {
+    id: String,
+    target: String,
+    source_route_id: Option<String>,
 }
 
 pub(crate) fn list(
@@ -165,10 +195,8 @@ pub(crate) async fn start(
         &input.graph_id,
         &input.graph_revision,
     )?;
-    let LinearAgentPlan {
-        input: graph_input,
-        steps,
-    } = linear_agent_plan(&stored.definition)?;
+    let plan = agent_graph_plan(&stored.definition)?;
+    let graph_input = plan.input.clone();
     let run_id = generate_run_id(data_root, &stored.definition.id);
     let mut run = AgentGraphRun {
         schema_version: AGENT_GRAPH_RUN_SCHEMA_VERSION.to_string(),
@@ -178,17 +206,7 @@ pub(crate) async fn start(
         definition_workspace_path,
         status: AgentGraphRunStatus::Running,
         input: graph_input.clone(),
-        node_runs: steps
-            .iter()
-            .enumerate()
-            .map(|(index, step)| AgentGraphNodeRun {
-                id: format!("{run_id}-node-{}", index + 1),
-                node_id: step.node_id.clone(),
-                thread_id: None,
-                status: AgentGraphNodeRunStatus::Pending,
-                error: None,
-            })
-            .collect(),
+        node_runs: Vec::new(),
         output: None,
         error: None,
     };
@@ -196,79 +214,132 @@ pub(crate) async fn start(
 
     let thread_store = base_services.thread_store()?;
     let mut current_input = graph_input;
-    for (index, step) in steps.iter().enumerate() {
-        run.node_runs[index].status = AgentGraphNodeRunStatus::Running;
-        write_run(data_root, &run)?;
-
-        let thread_id = match create_agent_graph_thread(
-            &thread_store,
-            &config_snapshot,
-            &stored.definition.name,
-            step,
-            &run,
-            index,
-        ) {
-            Ok(thread_id) => thread_id,
-            Err(error) => return finish_failed_run(data_root, run, index, error),
-        };
-        run.node_runs[index].thread_id = Some(thread_id.clone());
-        write_run(data_root, &run)?;
-
-        let turn_id = format!("turn-{run_id}-{}", index + 1);
-        let node_run_id = run.node_runs[index].id.clone();
-        let result = execute_thread_turn_with_services(
-            base_services.clone(),
-            SubmitThreadTurnInput {
-                thread_id: Some(thread_id),
-                input: serde_json::json!({
-                    "role": "user",
-                    "content": current_input,
-                    "clientEventId": format!("graph-{run_id}-{}", index + 1),
-                }),
-                spec: agent_turn_spec(&run, step, &node_run_id, &turn_id),
-            },
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            None,
-        )
-        .await;
-        let result = match result {
-            Ok(result) => result,
-            Err(error) => return finish_failed_run(data_root, run, index, error),
-        };
-        let stop_reason = result
-            .result
-            .get("stopReason")
-            .or_else(|| result.result.get("stop_reason"))
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("missing_stop_reason");
-        if stop_reason != "final_response" {
-            let error = result
-                .result
-                .get("error")
-                .and_then(serde_json::Value::as_str)
-                .map(str::to_string)
-                .unwrap_or_else(|| format!("Agent node stopped with `{stop_reason}`"));
-            return finish_failed_run(data_root, run, index, error);
-        }
-        current_input = match result
-            .result
-            .get("finalContent")
-            .or_else(|| result.result.get("final_content"))
-            .and_then(serde_json::Value::as_str)
-        {
-            Some(content) => content.to_string(),
-            None => {
-                return finish_failed_run(
-                    data_root,
-                    run,
+    let mut cursor = single_outgoing_edge(&plan, &plan.input_node_id)?
+        .target
+        .clone();
+    loop {
+        let node = plan
+            .nodes
+            .get(&cursor)
+            .cloned()
+            .ok_or_else(|| format!("Agent Graph path references missing node `{cursor}`"))?;
+        match node {
+            PlannedNode::Output => break,
+            PlannedNode::Agent(step) => {
+                let index = begin_node_run(data_root, &mut run, &step.node_id)?;
+                let thread_id = match create_agent_graph_thread(
+                    &thread_store,
+                    &config_snapshot,
+                    &stored.definition.name,
+                    &step,
+                    &run,
                     index,
-                    "Agent node completed without final content".to_string(),
+                ) {
+                    Ok(thread_id) => thread_id,
+                    Err(error) => return finish_failed_run(data_root, run, index, error),
+                };
+                run.node_runs[index].thread_id = Some(thread_id.clone());
+                write_run(data_root, &run)?;
+
+                let turn_id = format!("turn-{run_id}-{}", index + 1);
+                let node_run_id = run.node_runs[index].id.clone();
+                let result = execute_thread_turn_with_services(
+                    base_services.clone(),
+                    SubmitThreadTurnInput {
+                        thread_id: Some(thread_id),
+                        input: serde_json::json!({
+                            "role": "user",
+                            "content": current_input,
+                            "clientEventId": format!("graph-{run_id}-{}", index + 1),
+                        }),
+                        spec: agent_turn_spec(&run, &step, &node_run_id, &turn_id),
+                    },
+                    workspace_root.clone(),
+                    config_snapshot.clone(),
+                    None,
                 )
+                .await;
+                let result = match result {
+                    Ok(result) => result,
+                    Err(error) => return finish_failed_run(data_root, run, index, error),
+                };
+                let stop_reason = result
+                    .result
+                    .get("stopReason")
+                    .or_else(|| result.result.get("stop_reason"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("missing_stop_reason");
+                if stop_reason != "final_response" {
+                    let error = result
+                        .result
+                        .get("error")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_string)
+                        .unwrap_or_else(|| format!("Agent node stopped with `{stop_reason}`"));
+                    return finish_failed_run(data_root, run, index, error);
+                }
+                current_input = match result
+                    .result
+                    .get("finalContent")
+                    .or_else(|| result.result.get("final_content"))
+                    .and_then(serde_json::Value::as_str)
+                {
+                    Some(content) => content.to_string(),
+                    None => {
+                        return finish_failed_run(
+                            data_root,
+                            run,
+                            index,
+                            "Agent node completed without final content".to_string(),
+                        )
+                    }
+                };
+                run.node_runs[index].status = AgentGraphNodeRunStatus::Completed;
+                write_run(data_root, &run)?;
+                cursor = single_outgoing_edge(&plan, &step.node_id)?.target.clone();
             }
-        };
-        run.node_runs[index].status = AgentGraphNodeRunStatus::Completed;
-        write_run(data_root, &run)?;
+            PlannedNode::Router(router_config) => {
+                let index = begin_node_run(data_root, &mut run, &cursor)?;
+                let decision =
+                    match router::route(&config_snapshot, &current_input, &router_config).await {
+                        Ok(decision) => decision,
+                        Err(error) => return finish_failed_run(data_root, run, index, error),
+                    };
+                let edge = match plan
+                    .outgoing
+                    .get(&cursor)
+                    .into_iter()
+                    .flatten()
+                    .find(|edge| edge.source_route_id.as_deref() == Some(&decision.route_id))
+                    .cloned()
+                {
+                    Some(edge) => edge,
+                    None => {
+                        return finish_failed_run(
+                            data_root,
+                            run,
+                            index,
+                            format!(
+                            "Router node `{cursor}` selected route `{}` without an outgoing edge",
+                            decision.route_id
+                        ),
+                        )
+                    }
+                };
+                run.node_runs[index].router = Some(AgentGraphRouterRun {
+                    raw_response: decision.raw_response,
+                    selected_route_id: decision.route_id,
+                    selected_edge_id: edge.id.clone(),
+                    usage: decision.usage,
+                });
+                run.node_runs[index].status = AgentGraphNodeRunStatus::Completed;
+                write_run(data_root, &run)?;
+                cursor = edge.target;
+            }
+            PlannedNode::Input => {
+                return Err(format!("Agent Graph path re-entered Input node `{cursor}`"));
+            }
+        }
     }
 
     run.status = AgentGraphRunStatus::Completed;
@@ -281,47 +352,7 @@ pub(crate) async fn start(
     Ok(run)
 }
 
-fn linear_agent_plan(definition: &AgentGraphDefinition) -> Result<LinearAgentPlan, String> {
-    if definition
-        .nodes
-        .iter()
-        .any(|node| node.kind == AgentGraphNodeKind::Condition)
-    {
-        return Err("Condition nodes are not supported by the first Graph runtime".to_string());
-    }
-    let nodes = definition
-        .nodes
-        .iter()
-        .map(|node| (node.id.as_str(), node))
-        .collect::<HashMap<_, _>>();
-    let mut incoming = HashMap::<&str, Vec<&str>>::new();
-    let mut outgoing = HashMap::<&str, Vec<&str>>::new();
-    for edge in &definition.edges {
-        incoming
-            .entry(edge.target.as_str())
-            .or_default()
-            .push(edge.source.as_str());
-        outgoing
-            .entry(edge.source.as_str())
-            .or_default()
-            .push(edge.target.as_str());
-    }
-    for node in &definition.nodes {
-        let incoming_count = incoming.get(node.id.as_str()).map_or(0, Vec::len);
-        let outgoing_count = outgoing.get(node.id.as_str()).map_or(0, Vec::len);
-        let valid = match node.kind {
-            AgentGraphNodeKind::Input => incoming_count == 0 && outgoing_count == 1,
-            AgentGraphNodeKind::Output => incoming_count == 1 && outgoing_count == 0,
-            AgentGraphNodeKind::Agent => incoming_count == 1 && outgoing_count == 1,
-            AgentGraphNodeKind::Condition => false,
-        };
-        if !valid {
-            return Err(format!(
-                "Agent Graph Run requires one linear Input-to-Output path; node `{}` has {incoming_count} incoming and {outgoing_count} outgoing edges",
-                node.id
-            ));
-        }
-    }
+fn agent_graph_plan(definition: &AgentGraphDefinition) -> Result<AgentGraphPlan, String> {
     let input = definition
         .nodes
         .iter()
@@ -337,58 +368,212 @@ fn linear_agent_plan(definition: &AgentGraphDefinition) -> Result<LinearAgentPla
     if input_config.prompt.trim().is_empty() {
         return Err("Agent Graph Input prompt must not be empty".to_string());
     }
-    let mut visited = HashSet::new();
-    visited.insert(input.id.as_str());
-    let mut cursor = input.id.as_str();
-    let mut steps = Vec::new();
-    loop {
-        let next = outgoing
-            .get(cursor)
-            .and_then(|targets| targets.first())
-            .copied()
-            .ok_or_else(|| format!("Agent Graph path stops at node `{cursor}`"))?;
-        if !visited.insert(next) {
-            return Err(format!(
-                "Agent Graph Run path contains a cycle at node `{next}`"
-            ));
-        }
-        let node = nodes
-            .get(next)
-            .ok_or_else(|| format!("Agent Graph path references missing node `{next}`"))?;
-        match node.kind {
-            AgentGraphNodeKind::Output => break,
+
+    let mut nodes = HashMap::new();
+    for node in &definition.nodes {
+        let planned = match node.kind {
+            AgentGraphNodeKind::Input => PlannedNode::Input,
+            AgentGraphNodeKind::Output => PlannedNode::Output,
             AgentGraphNodeKind::Agent => {
-                let config = node
-                    .config
-                    .as_ref()
-                    .ok_or_else(|| format!("Agent node `{next}` has no workspace configuration"))?;
-                let AgentGraphNodeConfig::Agent(config) = config else {
-                    return Err(format!("Agent node `{next}` has invalid configuration"));
+                let Some(AgentGraphNodeConfig::Agent(config)) = node.config.as_ref() else {
+                    return Err(format!(
+                        "Agent node `{}` has invalid workspace configuration",
+                        node.id
+                    ));
                 };
                 let canonical =
                     canonical_workspace(Path::new(&config.workspace_path)).map_err(|error| {
-                        format!("Agent node `{next}` workspace is invalid: {error}")
+                        format!("Agent node `{}` workspace is invalid: {error}", node.id)
                     })?;
-                steps.push(AgentStep {
+                PlannedNode::Agent(AgentStep {
                     node_id: node.id.clone(),
                     workspace_path: workspace_id(&canonical),
                     instructions: config.instructions.clone(),
                     model: config.model.clone(),
-                });
+                })
             }
-            AgentGraphNodeKind::Input | AgentGraphNodeKind::Condition => {
-                return Err(format!("Agent Graph path has invalid node `{next}`"));
+            AgentGraphNodeKind::Condition => {
+                let Some(AgentGraphNodeConfig::Router(config)) = node.config.as_ref() else {
+                    return Err(format!("Router node `{}` is not configured", node.id));
+                };
+                PlannedNode::Router(config.clone())
+            }
+        };
+        nodes.insert(node.id.clone(), planned);
+    }
+
+    let mut incoming = HashMap::<String, Vec<String>>::new();
+    let mut outgoing = HashMap::<String, Vec<PlannedEdge>>::new();
+    for edge in &definition.edges {
+        incoming
+            .entry(edge.target.clone())
+            .or_default()
+            .push(edge.source.clone());
+        outgoing
+            .entry(edge.source.clone())
+            .or_default()
+            .push(PlannedEdge {
+                id: edge.id.clone(),
+                target: edge.target.clone(),
+                source_route_id: edge.source_route_id.clone(),
+            });
+    }
+
+    for node in &definition.nodes {
+        let incoming_count = incoming.get(&node.id).map_or(0, Vec::len);
+        let outgoing_edges = outgoing.get(&node.id).map(Vec::as_slice).unwrap_or(&[]);
+        let outgoing_count = outgoing_edges.len();
+        match nodes.get(&node.id).expect("planned node must exist") {
+            PlannedNode::Input if incoming_count == 0 && outgoing_count == 1 => {}
+            PlannedNode::Output if incoming_count >= 1 && outgoing_count == 0 => {}
+            PlannedNode::Agent(_) if incoming_count >= 1 && outgoing_count == 1 => {}
+            PlannedNode::Router(config)
+                if incoming_count >= 1 && outgoing_count == config.routes.len() =>
+            {
+                for route in &config.routes {
+                    let edge_count = outgoing_edges
+                        .iter()
+                        .filter(|edge| edge.source_route_id.as_deref() == Some(&route.id))
+                        .count();
+                    if edge_count != 1 {
+                        return Err(format!(
+                            "Router node `{}` route `{}` requires exactly one outgoing edge",
+                            node.id, route.label
+                        ));
+                    }
+                }
+            }
+            PlannedNode::Router(config) => {
+                return Err(format!(
+                    "Router node `{}` requires one incoming edge and exactly one outgoing edge for each of its {} routes; found {incoming_count} incoming and {outgoing_count} outgoing edges",
+                    node.id,
+                    config.routes.len()
+                ));
+            }
+            _ => {
+                return Err(format!(
+                    "Agent Graph node `{}` has unsupported topology: {incoming_count} incoming and {outgoing_count} outgoing edges",
+                    node.id
+                ));
             }
         }
-        cursor = next;
     }
-    if visited.len() != definition.nodes.len() {
+
+    let reachable_from_input = reachable_nodes(&input.id, &outgoing);
+    if reachable_from_input.len() != nodes.len() {
         return Err("Agent Graph Run does not support disconnected nodes".to_string());
     }
-    Ok(LinearAgentPlan {
+    let output = definition
+        .nodes
+        .iter()
+        .find(|node| node.kind == AgentGraphNodeKind::Output)
+        .ok_or_else(|| "Agent Graph Run requires an Output node".to_string())?;
+    let reverse = incoming
+        .iter()
+        .map(|(target, sources)| {
+            (
+                target.clone(),
+                sources
+                    .iter()
+                    .map(|source| PlannedEdge {
+                        id: String::new(),
+                        target: source.clone(),
+                        source_route_id: None,
+                    })
+                    .collect(),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    if reachable_nodes(&output.id, &reverse).len() != nodes.len() {
+        return Err("Every Agent Graph path must reach the Output node".to_string());
+    }
+    ensure_acyclic(&nodes, &outgoing, &incoming)?;
+
+    Ok(AgentGraphPlan {
         input: input_config.prompt.clone(),
-        steps,
+        input_node_id: input.id.clone(),
+        nodes,
+        outgoing,
     })
+}
+
+fn reachable_nodes(start: &str, outgoing: &HashMap<String, Vec<PlannedEdge>>) -> HashSet<String> {
+    let mut visited = HashSet::new();
+    let mut pending = vec![start.to_string()];
+    while let Some(node_id) = pending.pop() {
+        if !visited.insert(node_id.clone()) {
+            continue;
+        }
+        if let Some(edges) = outgoing.get(&node_id) {
+            pending.extend(edges.iter().map(|edge| edge.target.clone()));
+        }
+    }
+    visited
+}
+
+fn ensure_acyclic(
+    nodes: &HashMap<String, PlannedNode>,
+    outgoing: &HashMap<String, Vec<PlannedEdge>>,
+    incoming: &HashMap<String, Vec<String>>,
+) -> Result<(), String> {
+    let mut incoming_counts = nodes
+        .keys()
+        .map(|node_id| (node_id.clone(), incoming.get(node_id).map_or(0, Vec::len)))
+        .collect::<HashMap<_, _>>();
+    let mut pending = incoming_counts
+        .iter()
+        .filter_map(|(node_id, count)| (*count == 0).then_some(node_id.clone()))
+        .collect::<Vec<_>>();
+    let mut visited_count = 0;
+    while let Some(node_id) = pending.pop() {
+        visited_count += 1;
+        if let Some(edges) = outgoing.get(&node_id) {
+            for edge in edges {
+                let count = incoming_counts
+                    .get_mut(&edge.target)
+                    .expect("edge target must be a planned node");
+                *count -= 1;
+                if *count == 0 {
+                    pending.push(edge.target.clone());
+                }
+            }
+        }
+    }
+    if visited_count != nodes.len() {
+        return Err("Agent Graph Run does not support cycles".to_string());
+    }
+    Ok(())
+}
+
+fn single_outgoing_edge<'a>(
+    plan: &'a AgentGraphPlan,
+    node_id: &str,
+) -> Result<&'a PlannedEdge, String> {
+    let edges = plan.outgoing.get(node_id).map(Vec::as_slice).unwrap_or(&[]);
+    if edges.len() != 1 {
+        return Err(format!(
+            "Agent Graph node `{node_id}` requires exactly one outgoing edge"
+        ));
+    }
+    Ok(&edges[0])
+}
+
+fn begin_node_run(
+    data_root: &Path,
+    run: &mut AgentGraphRun,
+    node_id: &str,
+) -> Result<usize, String> {
+    let index = run.node_runs.len();
+    run.node_runs.push(AgentGraphNodeRun {
+        id: format!("{}-node-{}", run.id, index + 1),
+        node_id: node_id.to_string(),
+        thread_id: None,
+        status: AgentGraphNodeRunStatus::Running,
+        router: None,
+        error: None,
+    });
+    write_run(data_root, run)?;
+    Ok(index)
 }
 
 fn create_agent_graph_thread(
@@ -637,29 +822,19 @@ mod tests {
     fn builds_a_linear_plan_with_canonical_agent_workspaces() {
         let fixture = Fixture::new();
 
-        let plan = linear_agent_plan(&fixture.definition()).unwrap();
+        let plan = agent_graph_plan(&fixture.definition()).unwrap();
 
         assert_eq!(plan.input, "Research the repository.");
+        let PlannedNode::Agent(first) = &plan.nodes["agent-1"] else {
+            panic!("agent-1 should be planned as an Agent node");
+        };
         assert_eq!(
-            plan.steps,
-            vec![
-                AgentStep {
-                    node_id: "agent-1".to_string(),
-                    workspace_path: workspace_id(
-                        &canonical_workspace(&fixture.first_workspace).unwrap()
-                    ),
-                    instructions: String::new(),
-                    model: None,
-                },
-                AgentStep {
-                    node_id: "agent-2".to_string(),
-                    workspace_path: workspace_id(
-                        &canonical_workspace(&fixture.second_workspace).unwrap()
-                    ),
-                    instructions: String::new(),
-                    model: None,
-                },
-            ]
+            first.workspace_path,
+            workspace_id(&canonical_workspace(&fixture.first_workspace).unwrap())
+        );
+        assert_eq!(
+            single_outgoing_edge(&plan, "agent-2").unwrap().target,
+            "output"
         );
     }
 
@@ -732,7 +907,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_branches_before_creating_a_run() {
+    fn rejects_a_branch_from_a_non_router_node() {
         let fixture = Fixture::new();
         let mut definition = fixture.definition();
         definition.edges.push(
@@ -744,9 +919,79 @@ mod tests {
             .unwrap(),
         );
 
-        let error = linear_agent_plan(&definition).unwrap_err();
+        let error = agent_graph_plan(&definition).unwrap_err();
 
-        assert!(error.contains("one linear Input-to-Output path"));
+        assert!(error.contains("unsupported topology"));
+    }
+
+    #[test]
+    fn plans_router_routes_by_stable_route_id() {
+        let fixture = Fixture::new();
+        let definition: AgentGraphDefinition = serde_json::from_value(serde_json::json!({
+            "schemaVersion": "tinybot.agent_graph.v1",
+            "id": "graph-router",
+            "name": "Router",
+            "nodes": [
+                { "id": "input", "kind": "input", "position": { "x": 0, "y": 0 }, "config": { "prompt": "Classify this request." } },
+                { "id": "router", "kind": "condition", "position": { "x": 100, "y": 0 }, "config": {
+                    "task": "Choose the best specialist.",
+                    "routes": [
+                        { "id": "route-a", "label": "Code", "description": "A code change is needed." },
+                        { "id": "route-b", "label": "Docs", "description": "Only documentation is needed." }
+                    ]
+                } },
+                { "id": "agent-1", "kind": "agent", "position": { "x": 200, "y": -50 }, "config": { "workspacePath": fixture.first_workspace, "instructions": "" } },
+                { "id": "agent-2", "kind": "agent", "position": { "x": 200, "y": 50 }, "config": { "workspacePath": fixture.second_workspace, "instructions": "" } },
+                { "id": "output", "kind": "output", "position": { "x": 300, "y": 0 } }
+            ],
+            "edges": [
+                { "id": "edge-input", "source": "input", "target": "router" },
+                { "id": "edge-code", "source": "router", "target": "agent-1", "sourceRouteId": "route-a" },
+                { "id": "edge-docs", "source": "router", "target": "agent-2", "sourceRouteId": "route-b" },
+                { "id": "edge-code-output", "source": "agent-1", "target": "output" },
+                { "id": "edge-docs-output", "source": "agent-2", "target": "output" }
+            ]
+        }))
+        .unwrap();
+
+        let plan = agent_graph_plan(&definition).unwrap();
+        let router_edges = &plan.outgoing["router"];
+
+        assert_eq!(router_edges.len(), 2);
+        assert_eq!(router_edges[0].source_route_id.as_deref(), Some("route-a"));
+        assert_eq!(router_edges[0].target, "agent-1");
+        assert_eq!(router_edges[1].source_route_id.as_deref(), Some("route-b"));
+        assert_eq!(router_edges[1].target, "agent-2");
+    }
+
+    #[test]
+    fn rejects_cycles_even_when_a_router_can_reach_output() {
+        let fixture = Fixture::new();
+        let definition: AgentGraphDefinition = serde_json::from_value(serde_json::json!({
+            "schemaVersion": "tinybot.agent_graph.v1",
+            "id": "graph-cycle",
+            "name": "Cycle",
+            "nodes": [
+                { "id": "input", "kind": "input", "position": { "x": 0, "y": 0 }, "config": { "prompt": "Route this." } },
+                { "id": "router", "kind": "condition", "position": { "x": 100, "y": 0 }, "config": { "routes": [
+                    { "id": "again", "label": "Again", "description": "Repeat." },
+                    { "id": "done", "label": "Done", "description": "Finish." }
+                ] } },
+                { "id": "agent", "kind": "agent", "position": { "x": 200, "y": 0 }, "config": { "workspacePath": fixture.first_workspace, "instructions": "" } },
+                { "id": "output", "kind": "output", "position": { "x": 300, "y": 0 } }
+            ],
+            "edges": [
+                { "id": "edge-input", "source": "input", "target": "router" },
+                { "id": "edge-again", "source": "router", "target": "agent", "sourceRouteId": "again" },
+                { "id": "edge-done", "source": "router", "target": "output", "sourceRouteId": "done" },
+                { "id": "edge-cycle", "source": "agent", "target": "router" }
+            ]
+        }))
+        .unwrap();
+
+        let error = agent_graph_plan(&definition).unwrap_err();
+
+        assert!(error.contains("cycles"));
     }
 
     #[test]
@@ -818,6 +1063,7 @@ mod tests {
                 node_id: step.node_id.clone(),
                 thread_id: None,
                 status: AgentGraphNodeRunStatus::Running,
+                router: None,
                 error: None,
             }],
             output: None,

@@ -9,17 +9,21 @@ import {
   addAgentGraphNode,
   configureAgentGraphInput,
   configureAgentGraphNode,
+  configureAgentGraphRouter,
   connectAgentGraphNodes,
   createAgentGraphDraft,
+  createAgentGraphRouterConfig,
   moveAgentGraphNode,
   removeAgentGraphEdge,
   removeAgentGraphNode,
   validateAgentGraphDefinition,
   type AgentGraphDefinition,
   type AgentGraphAgentNode,
+  type AgentGraphConditionNode,
   type AgentGraphEditError,
   type AgentGraphEditResult,
   type AgentGraphInputNode,
+  type AgentGraphModelConfig,
   type AgentGraphNode,
   type AgentGraphNodeKind,
   type AgentGraphNodePosition,
@@ -82,16 +86,20 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   const selectedAgentNode = draft?.nodes.find((node): node is AgentGraphAgentNode => (
     node.id === selectedConfigNodeId && node.kind === "agent"
   ));
+  const selectedRouterNode = draft?.nodes.find((node): node is AgentGraphConditionNode => (
+    node.id === selectedConfigNodeId && node.kind === "condition"
+  ));
   const inspectedNode = draft?.nodes.find((node) => node.id === inspectedNodeId);
   const selectedRun = runs.find((run) => run.id === selectedRunId) ?? runs[0];
-  const selectedProviderValue = selectedAgentNode?.config.model?.providerId ?? "";
-  const providerChoices = agentGraphProviderChoices(chatModels, selectedAgentNode?.config.model, {
+  const selectedModelConfig = selectedAgentNode?.config.model ?? selectedRouterNode?.config?.model;
+  const selectedProviderValue = selectedModelConfig?.providerId ?? "";
+  const providerChoices = agentGraphProviderChoices(chatModels, selectedModelConfig, {
     inheritDescription: t("graphs.inheritProviderDescription"),
     inheritLabel: t("graphs.inheritProvider"),
     unavailableDescription: t("graphs.providerUnavailableDescription"),
   });
   const selectedProviderModels = chatModels.filter((model) => model.providerId === selectedProviderValue);
-  const modelChoices = agentGraphModelChoices(selectedProviderModels, selectedAgentNode?.config.model, {
+  const modelChoices = agentGraphModelChoices(selectedProviderModels, selectedModelConfig, {
     unavailableDescription: t("graphs.modelUnavailableDescription"),
   });
 
@@ -259,53 +267,53 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     applyEdit(configureAgentGraphNode(draft, selectedAgentNode.id, config));
   }
 
-  function selectAgentProvider(value: string) {
-    if (!selectedAgentNode) return;
-    if (selectedAgentNode.config.model?.providerId === value) return;
+  function updateSelectedRouterConfig(config: NonNullable<AgentGraphConditionNode["config"]>) {
+    if (!draft || !selectedRouterNode) return;
+    applyEdit(configureAgentGraphRouter(draft, selectedRouterNode.id, config));
+  }
+
+  function updateSelectedModelConfig(model?: AgentGraphModelConfig) {
+    if (selectedAgentNode) {
+      updateSelectedAgentConfig({ ...selectedAgentNode.config, ...(model ? { model } : { model: undefined }) });
+    } else if (selectedRouterNode?.config) {
+      updateSelectedRouterConfig({ ...selectedRouterNode.config, ...(model ? { model } : { model: undefined }) });
+    }
+  }
+
+  function selectNodeProvider(value: string) {
+    if (!selectedAgentNode && !selectedRouterNode?.config) return;
+    if (selectedModelConfig?.providerId === value) return;
     if (!value) {
-      updateSelectedAgentConfig({
-        instructions: selectedAgentNode.config.instructions ?? "",
-        workspacePath: selectedAgentNode.config.workspacePath,
-      });
+      updateSelectedModelConfig();
       return;
     }
     const providerModels = chatModels.filter((model) => model.providerId === value);
     const selectedModel = providerModels.find((model) => model.default) ?? providerModels[0];
     if (!selectedModel) return;
-    updateSelectedAgentConfig({
-      ...selectedAgentNode.config,
-      model: {
-        modelId: selectedModel.id,
-        ...(selectedModel.providerId ? { providerId: selectedModel.providerId } : {}),
-      },
+    updateSelectedModelConfig({
+      modelId: selectedModel.id,
+      ...(selectedModel.providerId ? { providerId: selectedModel.providerId } : {}),
     });
   }
 
-  function selectAgentModel(value: string) {
-    const providerId = selectedAgentNode?.config.model?.providerId;
-    if (!selectedAgentNode || !providerId) return;
-    if (selectedAgentNode.config.model?.modelId === value) return;
+  function selectNodeModel(value: string) {
+    const providerId = selectedModelConfig?.providerId;
+    if ((!selectedAgentNode && !selectedRouterNode?.config) || !providerId) return;
+    if (selectedModelConfig?.modelId === value) return;
     const selectedModel = chatModels.find((model) => model.providerId === providerId && model.id === value);
     if (!selectedModel) return;
-    updateSelectedAgentConfig({
-      ...selectedAgentNode.config,
-      model: {
-        modelId: selectedModel.id,
-        providerId,
-      },
+    updateSelectedModelConfig({
+      modelId: selectedModel.id,
+      providerId,
     });
   }
 
-  function selectAgentReasoningEffort(value: string) {
-    const model = selectedAgentNode?.config.model;
-    if (!selectedAgentNode || !model) return;
-    updateSelectedAgentConfig({
-      ...selectedAgentNode.config,
-      model: {
-        modelId: model.modelId,
-        ...(model.providerId ? { providerId: model.providerId } : {}),
-        ...(isReasoningEffort(value) ? { reasoningEffort: value } : {}),
-      },
+  function selectNodeReasoningEffort(value: string) {
+    if (!selectedModelConfig) return;
+    updateSelectedModelConfig({
+      modelId: selectedModelConfig.modelId,
+      ...(selectedModelConfig.providerId ? { providerId: selectedModelConfig.providerId } : {}),
+      ...(isReasoningEffort(value) ? { reasoningEffort: value } : {}),
     });
   }
 
@@ -325,7 +333,20 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
           position,
           config: { workspacePath: definitionWorkspacePath, instructions: "" },
         }
-        : { id: nodeId, kind, position };
+        : kind === "condition"
+          ? {
+              id: nodeId,
+              kind,
+              position,
+              config: {
+                ...createAgentGraphRouterConfig(nodeId),
+                routes: createAgentGraphRouterConfig(nodeId).routes.map((route, index) => ({
+                  ...route,
+                  label: t("graphs.defaultRouterRouteLabel", { suffix: routeTokenSuffix(index) }),
+                })),
+              },
+            }
+          : { id: nodeId, kind, position };
     return applyEdit(addAgentGraphNode(draft, node));
   }
 
@@ -693,55 +714,170 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                         value={selectedAgentNode.config.instructions ?? ""}
                       />
                     </label>
-                    <SettingsChoiceList
-                      ariaLabel={t("graphs.nodeProvider")}
-                      description={t("graphs.nodeProviderDescription")}
-                      error={modelCatalogError
-                        ? t("graphs.modelLoadFailed", { message: modelCatalogError })
-                        : undefined}
-                      label={t("graphs.nodeProvider")}
-                      onChange={selectAgentProvider}
-                      options={providerChoices}
-                      optionsAriaLabel={t("graphs.providerOptions")}
-                      value={selectedProviderValue}
+                    <AgentGraphModelSettings
+                      model={selectedAgentNode.config.model}
+                      modelCatalogError={modelCatalogError}
+                      modelChoices={modelChoices}
+                      onModelChange={selectNodeModel}
+                      onProviderChange={selectNodeProvider}
+                      onReasoningEffortChange={selectNodeReasoningEffort}
+                      providerChoices={providerChoices}
+                      selectedProviderModels={selectedProviderModels}
+                      selectedProviderValue={selectedProviderValue}
                     />
-                    <SettingsChoiceList
-                      ariaLabel={t("graphs.nodeModel")}
-                      description={t("graphs.nodeModelDescription")}
-                      disabled={!selectedProviderValue || !selectedProviderModels.length}
-                      label={t("graphs.nodeModel")}
-                      onChange={selectAgentModel}
-                      options={selectedProviderValue
-                        ? modelChoices
-                        : [{
-                            description: t("graphs.inheritModelDescription"),
-                            label: t("graphs.inheritModel"),
-                            value: "",
-                          }]}
-                      optionsAriaLabel={t("graphs.modelOptions")}
-                      value={selectedAgentNode.config.model?.modelId ?? ""}
+                  </div>
+                </section>
+              ) : selectedRouterNode?.config ? (
+                <section className="react-agent-graph-node-config" aria-labelledby="agent-graph-router-config-title">
+                  <header className="react-agent-graph-node-config__header">
+                    <span>
+                      <small>{t("graphs.nodes.condition")}</small>
+                      <h3 id="agent-graph-router-config-title">{t("graphs.routerSettings")}</h3>
+                    </span>
+                    <button aria-label={t("graphs.closeNodeDetails")} type="button" onClick={() => setSelectedConfigNodeId(null)}>
+                      <X aria-hidden="true" size={15} />
+                    </button>
+                  </header>
+                  <div className="react-agent-graph-node-config__body">
+                    <p>{t("graphs.routerSettingsDescription")}</p>
+                    <label className="react-agent-graph-node-config__textarea-field">
+                      <span>
+                        <strong>{t("graphs.routerTask")}</strong>
+                        <small id={`agent-graph-router-task-help-${selectedRouterNode.id}`}>
+                          {t("graphs.routerTaskDescription")}
+                        </small>
+                      </span>
+                      <textarea
+                        aria-describedby={`agent-graph-router-task-help-${selectedRouterNode.id}`}
+                        onChange={(event) => updateSelectedRouterConfig({
+                          ...selectedRouterNode.config!,
+                          task: event.currentTarget.value,
+                        })}
+                        placeholder={t("graphs.routerTaskPlaceholder")}
+                        rows={3}
+                        value={selectedRouterNode.config.task ?? ""}
+                      />
+                    </label>
+                    <fieldset className="react-agent-graph-router-routes">
+                      <legend>{t("graphs.routerRoutes")}</legend>
+                      <p>{t("graphs.routerRoutesDescription")}</p>
+                      {selectedRouterNode.config.routes.map((route, index) => (
+                        <section className="react-agent-graph-router-route" key={route.id}>
+                          <header>
+                            <strong>{t("graphs.routerRoute", { index: index + 1 })}</strong>
+                            <small>{`ROUTE_${routeTokenSuffix(index)}`}</small>
+                            <button
+                              aria-label={t("graphs.removeRouterRoute", { label: route.label || index + 1 })}
+                              disabled={selectedRouterNode.config!.routes.length <= 2}
+                              onClick={() => updateSelectedRouterConfig({
+                                ...selectedRouterNode.config!,
+                                routes: selectedRouterNode.config!.routes.filter((candidate) => candidate.id !== route.id),
+                              })}
+                              type="button"
+                            >
+                              <Trash2 aria-hidden="true" size={14} />
+                            </button>
+                          </header>
+                          <label>
+                            <span>{t("graphs.routerRouteLabel")}</span>
+                            <input
+                              aria-invalid={!route.label.trim()}
+                              onChange={(event) => updateSelectedRouterConfig({
+                                ...selectedRouterNode.config!,
+                                routes: selectedRouterNode.config!.routes.map((candidate) => (
+                                  candidate.id === route.id
+                                    ? { ...candidate, label: event.currentTarget.value }
+                                    : candidate
+                                )),
+                              })}
+                              placeholder={t("graphs.routerRouteLabelPlaceholder")}
+                              value={route.label}
+                            />
+                          </label>
+                          <label>
+                            <span>{t("graphs.routerRouteDescription")}</span>
+                            <textarea
+                              aria-invalid={!route.description.trim()}
+                              onChange={(event) => updateSelectedRouterConfig({
+                                ...selectedRouterNode.config!,
+                                routes: selectedRouterNode.config!.routes.map((candidate) => (
+                                  candidate.id === route.id
+                                    ? { ...candidate, description: event.currentTarget.value }
+                                    : candidate
+                                )),
+                              })}
+                              placeholder={t("graphs.routerRouteDescriptionPlaceholder")}
+                              rows={2}
+                              value={route.description}
+                            />
+                          </label>
+                        </section>
+                      ))}
+                      <button
+                        className="react-agent-graph-router-routes__add"
+                        onClick={() => {
+                          const index = selectedRouterNode.config!.routes.length;
+                          updateSelectedRouterConfig({
+                            ...selectedRouterNode.config!,
+                            routes: [
+                              ...selectedRouterNode.config!.routes,
+                              {
+                                id: nextRouterRouteId(selectedRouterNode),
+                                label: t("graphs.defaultRouterRouteLabel", { suffix: routeTokenSuffix(index) }),
+                                description: "",
+                              },
+                            ],
+                          });
+                        }}
+                        type="button"
+                      >
+                        <Plus aria-hidden="true" size={14} />
+                        {t("graphs.addRouterRoute")}
+                      </button>
+                    </fieldset>
+                    <AgentGraphModelSettings
+                      model={selectedRouterNode.config.model}
+                      modelCatalogError={modelCatalogError}
+                      modelChoices={modelChoices}
+                      onModelChange={selectNodeModel}
+                      onProviderChange={selectNodeProvider}
+                      onReasoningEffortChange={selectNodeReasoningEffort}
+                      providerChoices={providerChoices}
+                      selectedProviderModels={selectedProviderModels}
+                      selectedProviderValue={selectedProviderValue}
                     />
-                    <SettingsChoiceList
-                      ariaLabel={t("graphs.reasoningEffort")}
-                      description={t("graphs.reasoningEffortDescription")}
-                      disabled={!selectedAgentNode.config.model}
-                      label={t("graphs.reasoningEffort")}
-                      onChange={selectAgentReasoningEffort}
-                      options={[
-                        {
-                          description: t("graphs.reasoningDefaultDescription"),
-                          label: t("graphs.reasoningDefault"),
-                          value: "",
-                        },
-                        ...REASONING_EFFORT_VALUES.map((effort) => ({
-                          description: t(`graphs.reasoningOptions.${effort}.description`),
-                          label: t(`graphs.reasoningOptions.${effort}.label`),
-                          value: effort,
-                        })),
-                      ]}
-                      optionsAriaLabel={t("graphs.reasoningOptionsLabel")}
-                      value={selectedAgentNode.config.model?.reasoningEffort ?? ""}
-                    />
+                  </div>
+                </section>
+              ) : selectedRouterNode ? (
+                <section className="react-agent-graph-node-config" aria-labelledby="agent-graph-router-config-title">
+                  <header className="react-agent-graph-node-config__header">
+                    <span>
+                      <small>{t("graphs.nodes.condition")}</small>
+                      <h3 id="agent-graph-router-config-title">{t("graphs.routerSettings")}</h3>
+                    </span>
+                    <button aria-label={t("graphs.closeNodeDetails")} type="button" onClick={() => setSelectedConfigNodeId(null)}>
+                      <X aria-hidden="true" size={15} />
+                    </button>
+                  </header>
+                  <div className="react-agent-graph-node-config__body">
+                    <p>{t("graphs.routerSetupLegacyDescription")}</p>
+                    <button
+                      className="react-agent-graph-router-routes__add"
+                      onClick={() => {
+                        const config = createAgentGraphRouterConfig(selectedRouterNode.id);
+                        updateSelectedRouterConfig({
+                          ...config,
+                          routes: config.routes.map((route, index) => ({
+                            ...route,
+                            label: t("graphs.defaultRouterRouteLabel", { suffix: routeTokenSuffix(index) }),
+                          })),
+                        });
+                      }}
+                      type="button"
+                    >
+                      <Plus aria-hidden="true" size={14} />
+                      {t("graphs.routerSetupLegacy")}
+                    </button>
                   </div>
                 </section>
               ) : null}
@@ -749,7 +885,9 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
               definition={draft}
               key={interactionMode}
               onAddNode={addNode}
-              onConnectNodes={(source, target) => applyEdit(connectAgentGraphNodes(draft, source, target))}
+              onConnectNodes={(source, target, sourceRouteId) => (
+                applyEdit(connectAgentGraphNodes(draft, source, target, sourceRouteId))
+              )}
               onMoveNode={(nodeId, position) => applyEdit(moveAgentGraphNode(draft, nodeId, position))}
               onNodeActivate={(nodeId) => {
                 if (interactionMode === "view") setInspectedNodeId(nodeId);
@@ -766,7 +904,11 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                   return;
                 }
                 const node = draft.nodes.find((candidate) => candidate.id === nodeId);
-                setSelectedConfigNodeId(node?.kind === "input" || node?.kind === "agent" ? node.id : null);
+                setSelectedConfigNodeId(
+                  node?.kind === "input" || node?.kind === "agent" || node?.kind === "condition"
+                    ? node.id
+                    : null,
+                );
               }}
               readOnly={interactionMode === "view"}
               run={selectedRun}
@@ -847,9 +989,101 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   );
 }
 
+function AgentGraphModelSettings({
+  model,
+  modelCatalogError,
+  modelChoices,
+  onModelChange,
+  onProviderChange,
+  onReasoningEffortChange,
+  providerChoices,
+  selectedProviderModels,
+  selectedProviderValue,
+}: {
+  model?: AgentGraphModelConfig;
+  modelCatalogError: string | null;
+  modelChoices: SettingsChoiceOption[];
+  onModelChange: (value: string) => void;
+  onProviderChange: (value: string) => void;
+  onReasoningEffortChange: (value: string) => void;
+  providerChoices: SettingsChoiceOption[];
+  selectedProviderModels: ChatModelOption[];
+  selectedProviderValue: string;
+}) {
+  const { t } = useTranslation("common");
+  return (
+    <>
+      <SettingsChoiceList
+        ariaLabel={t("graphs.nodeProvider")}
+        description={t("graphs.nodeProviderDescription")}
+        error={modelCatalogError ? t("graphs.modelLoadFailed", { message: modelCatalogError }) : undefined}
+        label={t("graphs.nodeProvider")}
+        onChange={onProviderChange}
+        options={providerChoices}
+        optionsAriaLabel={t("graphs.providerOptions")}
+        value={selectedProviderValue}
+      />
+      <SettingsChoiceList
+        ariaLabel={t("graphs.nodeModel")}
+        description={t("graphs.nodeModelDescription")}
+        disabled={!selectedProviderValue || !selectedProviderModels.length}
+        label={t("graphs.nodeModel")}
+        onChange={onModelChange}
+        options={selectedProviderValue
+          ? modelChoices
+          : [{
+              description: t("graphs.inheritModelDescription"),
+              label: t("graphs.inheritModel"),
+              value: "",
+            }]}
+        optionsAriaLabel={t("graphs.modelOptions")}
+        value={model?.modelId ?? ""}
+      />
+      <SettingsChoiceList
+        ariaLabel={t("graphs.reasoningEffort")}
+        description={t("graphs.reasoningEffortDescription")}
+        disabled={!model}
+        label={t("graphs.reasoningEffort")}
+        onChange={onReasoningEffortChange}
+        options={[
+          {
+            description: t("graphs.reasoningDefaultDescription"),
+            label: t("graphs.reasoningDefault"),
+            value: "",
+          },
+          ...REASONING_EFFORT_VALUES.map((effort) => ({
+            description: t(`graphs.reasoningOptions.${effort}.description`),
+            label: t(`graphs.reasoningOptions.${effort}.label`),
+            value: effort,
+          })),
+        ]}
+        optionsAriaLabel={t("graphs.reasoningOptionsLabel")}
+        value={model?.reasoningEffort ?? ""}
+      />
+    </>
+  );
+}
+
+function nextRouterRouteId(node: AgentGraphConditionNode): string {
+  const usedIds = new Set(node.config?.routes.map((route) => route.id));
+  for (let sequence = 1; ; sequence += 1) {
+    const candidate = `${node.id}-route-${sequence}`;
+    if (!usedIds.has(candidate)) return candidate;
+  }
+}
+
+function routeTokenSuffix(index: number): string {
+  let suffix = "";
+  do {
+    suffix = String.fromCharCode(65 + (index % 26)) + suffix;
+    index = Math.floor(index / 26) - 1;
+  } while (index >= 0);
+  return suffix;
+}
+
 function agentGraphProviderChoices(
   models: ChatModelOption[],
-  current: AgentLoopNodeConfig["model"] | undefined,
+  current: AgentGraphModelConfig | undefined,
   labels: {
     inheritDescription: string;
     inheritLabel: string;

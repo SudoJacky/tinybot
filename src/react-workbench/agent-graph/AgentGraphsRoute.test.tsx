@@ -122,7 +122,7 @@ describe("AgentGraphsRoute", () => {
       value: () => ({ left: 0, top: 0, right: 760, bottom: 400, width: 760, height: 400, x: 0, y: 0, toJSON: () => ({}) }),
     });
     const dataTransfer = createDataTransfer();
-    const conditionPaletteItem = screen.getByRole("button", { name: "Add Condition node" });
+    const conditionPaletteItem = screen.getByRole("button", { name: "Add Router node" });
 
     fireEvent.dragStart(conditionPaletteItem, { dataTransfer });
     const dropEvent = new Event("drop", { bubbles: true, cancelable: true });
@@ -133,7 +133,7 @@ describe("AgentGraphsRoute", () => {
     });
     fireEvent(canvas, dropEvent);
 
-    const conditionNode = screen.getByLabelText("Condition node");
+    const conditionNode = screen.getByLabelText("Router node");
     expect(conditionNode.dataset.x).toBe("343");
     expect(conditionNode.dataset.y).toBe("222");
 
@@ -142,17 +142,17 @@ describe("AgentGraphsRoute", () => {
     expect(conditionNode.dataset.x).toBe("351");
 
     await user.click(screen.getByRole("button", { name: "Start a connection from Agent node" }));
-    await user.click(screen.getByRole("button", { name: "Connect Agent to Condition" }));
-    const connection = screen.getByRole("button", { name: "Connection from Agent to Condition" });
+    await user.click(screen.getByRole("button", { name: "Connect Agent to Router" }));
+    const connection = screen.getByRole("button", { name: "Connection from Agent to Router" });
 
     fireEvent.click(connection);
     canvas.focus();
     await user.keyboard("{Delete}");
-    expect(screen.queryByRole("button", { name: "Connection from Agent to Condition" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Connection from Agent to Router" })).toBeNull();
 
     conditionNode.focus();
     await user.keyboard("{Delete}");
-    expect(screen.queryByLabelText("Condition node")).toBeNull();
+    expect(screen.queryByLabelText("Router node")).toBeNull();
   });
 
   it("configures each Agent node with a workspace known to Chat", async () => {
@@ -257,6 +257,63 @@ describe("AgentGraphsRoute", () => {
         }), expect.objectContaining({
           id: "input",
           config: { prompt: "Research this repository" },
+        })]),
+      }),
+    }));
+  }, 10_000);
+
+  it("configures Router routes and connects each stable route handle", async () => {
+    const user = userEvent.setup();
+    const services = createServices({
+      chatModels: [{
+        default: true,
+        id: "gpt-5.6-sol",
+        label: "gpt-5.6-sol",
+        providerId: "openai",
+        providerLabel: "OpenAI",
+      }],
+    });
+    render(<AgentGraphsRoute services={services} />);
+
+    await screen.findByRole("button", { name: "Definition workspace: tinybot" });
+    await user.click(screen.getByRole("button", { name: "Create first graph" }));
+    await configureInputPrompt(user, "Route this request");
+    await user.click(screen.getByRole("button", { name: "Add Router node" }));
+    await user.click(screen.getByLabelText("Router node"));
+
+    const panel = screen.getByRole("heading", { name: "Router settings" })
+      .closest<HTMLElement>(".react-agent-graph-node-config");
+    expect(panel).toBeTruthy();
+    await user.type(within(panel!).getByRole("textbox", { name: /Routing task/ }), "Choose a specialist.");
+    const routeDescriptions = within(panel!).getAllByRole("textbox", { name: "When to choose this route" });
+    await user.type(routeDescriptions[0], "Requests that require implementation.");
+    await user.type(routeDescriptions[1], "Requests that only require a written answer.");
+
+    await user.click(within(panel!).getByRole("button", { name: "Provider: Inherit application default" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: /OpenAI/ }));
+    await user.click(within(panel!).getByRole("button", { name: "Reasoning effort: Provider default" }));
+    await user.click(screen.getByRole("menuitemradio", { name: /^Light\b/ }));
+
+    await user.click(screen.getByRole("button", { name: "Start a connection from route Path A" }));
+    await user.click(screen.getByRole("button", { name: "Connect Path A to Agent" }));
+    await user.click(screen.getByRole("button", { name: "Start a connection from route Path B" }));
+    await user.click(screen.getByRole("button", { name: "Connect Path B to Output" }));
+    expect(screen.getByRole("button", { name: "Connection from Path A to Agent" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Connection from Path B to Output" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Save Graph" }));
+    expect(services.agentGraphStore.save).toHaveBeenCalledWith(expect.objectContaining({
+      definition: expect.objectContaining({
+        edges: expect.arrayContaining([
+          expect.objectContaining({ source: "condition-1", sourceRouteId: "condition-1-route-a", target: "agent" }),
+          expect.objectContaining({ source: "condition-1", sourceRouteId: "condition-1-route-b", target: "output" }),
+        ]),
+        nodes: expect.arrayContaining([expect.objectContaining({
+          id: "condition-1",
+          config: expect.objectContaining({
+            model: { modelId: "gpt-5.6-sol", providerId: "openai", reasoningEffort: "low" },
+            task: "Choose a specialist.",
+          }),
         })]),
       }),
     }));
@@ -378,6 +435,62 @@ describe("AgentGraphsRoute", () => {
     expect(document.activeElement).toBe(inputNode);
     await user.click(screen.getByLabelText("Output node"));
     expect(within(screen.getByRole("complementary", { name: "Output" })).getByText("Repository review complete.")).toBeTruthy();
+  });
+
+  it("shows the selected Router route in View mode", async () => {
+    const user = userEvent.setup();
+    const base = createConfiguredGraph({
+      id: "graph-router-view",
+      name: "Router view",
+      workspacePath: "D:\\code\\tinybot",
+    });
+    const definition: AgentGraphDefinition = {
+      ...base,
+      nodes: [...base.nodes, {
+        id: "router",
+        kind: "condition",
+        position: { x: 300, y: 230 },
+        config: {
+          routes: [
+            { id: "code", label: "Implementation", description: "Requires code changes." },
+            { id: "answer", label: "Written answer", description: "Requires only an answer." },
+          ],
+        },
+      }],
+    };
+    const completedRun: AgentGraphRun = {
+      schemaVersion: "tinybot.agent_graph_run.v1",
+      id: "run-router",
+      graphId: definition.id,
+      graphRevision: "sha256:router",
+      definitionWorkspacePath: "D:\\code\\tinybot",
+      status: "completed",
+      input: "Explain the architecture.",
+      nodeRuns: [{
+        id: "run-router-node-1",
+        nodeId: "router",
+        status: "completed",
+        router: {
+          rawResponse: "ROUTE_B",
+          selectedEdgeId: "edge-answer",
+          selectedRouteId: "answer",
+        },
+      }],
+      output: "Architecture explained.",
+    };
+    render(<AgentGraphsRoute services={createServices({
+      completedRun,
+      storedGraphs: [{ definition, revision: "sha256:router" }],
+    })} />);
+
+    await user.click(await screen.findByRole("button", { name: /Router view/ }));
+    await user.click(screen.getByRole("button", { name: "Run" }));
+    await user.click(screen.getByRole("button", { name: "View" }));
+    await user.click(screen.getByLabelText("Router node"));
+
+    const drawer = screen.getByRole("complementary", { name: "Router" });
+    expect(within(drawer).getByText("Written answer")).toBeTruthy();
+    expect(within(drawer).getByText("ROUTE_B")).toBeTruthy();
   });
 });
 
