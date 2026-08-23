@@ -60,6 +60,26 @@
   transform: translate(-50%, -50%) scale(1.08);
 }
 
+.react-desktop-pet-window[data-drop-active="true"] .react-tinybot-mascot__body-pose {
+  transform: translateY(-2px) rotate(4deg) scale(.98, 1.04);
+}
+
+.react-desktop-pet-window[data-drop-active="true"] .react-tinybot-mascot__body-motion {
+  animation: desktop-pet-drop-expect 680ms cubic-bezier(.2, .8, .2, 1) infinite alternate;
+}
+
+.react-desktop-pet-window[data-drop-active="true"] .react-tinybot-mascot__eye-pose {
+  transform: translate(1px, -2px) scale(.86, 1.34);
+}
+
+.react-desktop-pet-window[data-drop-active="true"] .react-tinybot-mascot__eye-motion {
+  animation: none;
+}
+
+.react-desktop-pet-window[data-drop-active="true"] .react-tinybot-mascot__satellite-pose {
+  transform: translate(-1px, -1px) rotate(-14deg) scale(1.12);
+}
+
 .react-desktop-pet-window__drop-cue {
   position: absolute;
   top: 50%;
@@ -68,13 +88,43 @@
   place-items: end center;
   width: var(--desktop-pet-size);
   height: var(--desktop-pet-size);
-  border: 2px solid color-mix(in srgb, var(--color-primary) 84%, transparent);
+  border: 2px dashed color-mix(in srgb, var(--color-primary) 84%, transparent);
   border-radius: 50%;
   padding-bottom: 5px;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--color-primary) 12%, transparent) 0 54%,
+    transparent 72%
+  );
   color: var(--color-primary-active);
   pointer-events: none;
-  box-shadow: inset 0 0 0 3px color-mix(in srgb, var(--color-panel) 68%, transparent);
+  box-shadow:
+    inset 0 0 0 3px color-mix(in srgb, var(--color-panel) 68%, transparent),
+    0 0 18px color-mix(in srgb, var(--color-primary) 24%, transparent);
   transform: translate(-50%, -50%);
+}
+
+.react-desktop-pet-window__drop-cue::before {
+  position: absolute;
+  inset: 5px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 58%, transparent);
+  border-radius: inherit;
+  content: "";
+  animation: desktop-pet-drop-pulse 880ms ease-out infinite;
+}
+
+.react-desktop-pet-window__drop-cue svg {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  z-index: 1;
+  box-sizing: content-box;
+  border-radius: 50%;
+  padding: 4px;
+  background: var(--color-primary);
+  color: var(--color-panel);
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--color-primary) 38%, transparent);
+  transform: translateX(-50%);
 }
 
 .react-desktop-pet-window__drop-cue span,
@@ -197,11 +247,31 @@
   opacity: .34;
 }
 
+@keyframes desktop-pet-drop-expect {
+  from { transform: translateY(0) scale(1); }
+  to { transform: translateY(-1px) scale(1.025, .975); }
+}
+
+@keyframes desktop-pet-drop-pulse {
+  from {
+    opacity: .72;
+    transform: scale(.82);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.08);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .react-desktop-pet-window__drag-surface,
   .react-desktop-pet-window__quick-chat-button,
   .react-desktop-pet-window__toolbar {
     transition-duration: 140ms;
+  }
+
+  .react-desktop-pet-window__drop-cue::before {
+    animation: none;
   }
 }
 
