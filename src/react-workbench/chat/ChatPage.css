@@ -286,10 +286,30 @@
 }
 
 .react-message-markdown [data-streamdown="link"] {
+  display: inline-flex;
+  align-items: baseline;
+  max-width: 100%;
   color: var(--color-primary-active);
+  cursor: pointer;
   text-decoration: underline;
   text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
   text-underline-offset: 3px;
+  transition:
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    text-decoration-color var(--motion-duration-fast) var(--motion-ease-standard);
+  vertical-align: baseline;
+}
+
+.react-message-markdown__link-icon {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-inline-end: 4px;
+}
+
+.react-message-markdown__link-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .react-message-markdown [data-streamdown="link"]:hover,
