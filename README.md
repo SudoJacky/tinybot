@@ -30,8 +30,6 @@ For development setup and repository contribution requirements, see
 
 <img width="558" height="314" alt="image" src="https://github.com/user-attachments/assets/dc8755a3-c9ff-45d9-aa72-8a7257822787" />
 
-<img width="597" height="348" alt="image" src="https://github.com/user-attachments/assets/e78f6ddd-3d7b-43eb-beb5-d3628d846e82" />
-
 ## Agent Plugins
 
 Starting with v0.2.3, Tinybot supports the [Agent Plugins 1.0.0 standard](https://agent-plugins.org/). Open **Tools & Plugins** to import a plugin directory you want to use. Tinybot includes and enables the `create-agent-plugin` helper by default, so **Migrate Skill or MCP** can convert an existing Skill or MCP configuration without requiring a separate download.
@@ -42,10 +40,10 @@ Starting with v0.2.3, Tinybot supports the [Agent Plugins 1.0.0 standard](https:
 
 Tinybot can provide custom charts.
 
-<img width="960" height="747" alt="image" src="https://github.com/user-attachments/assets/3345c7f4-65c4-4464-aebf-b5ca491edea7" />
+<img width="480" height="374" alt="image" src="https://github.com/user-attachments/assets/3345c7f4-65c4-4464-aebf-b5ca491edea7" />
 
 ## Continue in another conversation
 
-<img width="683" height="415" alt="image" src="https://github.com/user-attachments/assets/0af9df84-b254-469a-9ebd-2f7e866c66eb" />
+<img width="455" height="277" alt="image" src="https://github.com/user-attachments/assets/0af9df84-b254-469a-9ebd-2f7e866c66eb" />
 
 
