@@ -64,18 +64,21 @@ describe("AgentGraphsRoute", () => {
     expect(toolbar?.parentElement?.classList.contains("react-agent-graph-canvas-frame")).toBe(true);
   });
 
-  it("pans, zooms, and resets the canvas viewport", async () => {
+  it("pans, zooms, and fits the graph in the canvas viewport", async () => {
     const user = userEvent.setup();
     render(<AgentGraphsRoute services={createServices()} />);
     await screen.findByRole("button", { name: "Definition workspace: tinybot" });
     await user.click(screen.getByRole("button", { name: "Create first graph" }));
 
     const canvas = screen.getByRole("region", { name: "Graph canvas" });
+    const frame = canvas.closest<HTMLElement>(".react-agent-graph-canvas-frame");
     const viewport = canvas.querySelector<HTMLElement>(".react-agent-graph-canvas__viewport");
     const stage = canvas.querySelector<HTMLElement>(".react-agent-graph-canvas__stage");
     expect(viewport).toBeTruthy();
     expect(stage?.dataset.zoom).toBe("1");
-    expect(stage?.style.zoom).toBe("1");
+    expect(viewport?.dataset.zoom).toBe("1");
+    expect(frame?.style.getPropertyValue("--graph-canvas-zoom")).toBe("1");
+    expect(stage?.style.zoom).toBe("");
     expect(stage?.style.transform).not.toContain("scale");
 
     fireEvent.pointerDown(canvas, { button: 0, clientX: 180, clientY: 180, pointerId: 11 });
@@ -86,7 +89,8 @@ describe("AgentGraphsRoute", () => {
 
     await user.click(screen.getByRole("button", { name: "Zoom in" }));
     expect(stage?.dataset.zoom).toBe("1.1");
-    expect(stage?.style.zoom).toBe("1.1");
+    expect(viewport?.dataset.zoom).toBe("1.1");
+    expect(frame?.style.getPropertyValue("--graph-canvas-zoom")).toBe("1.1");
     Object.defineProperty(canvas, "getBoundingClientRect", {
       value: () => ({ left: 0, top: 0, right: 760, bottom: 400, width: 760, height: 400, x: 0, y: 0, toJSON: () => ({}) }),
     });
@@ -100,15 +104,15 @@ describe("AgentGraphsRoute", () => {
     });
     fireEvent(canvas, zoomWheelEvent);
     expect(Number(stage?.dataset.zoom)).toBeGreaterThan(1.1);
-    await user.click(screen.getByRole("button", { name: "Reset canvas view" }));
+    await user.click(screen.getByRole("button", { name: "Fit graph to view" }));
     expect(stage?.dataset.zoom).toBe("1");
-    expect(viewport?.dataset.panX).toBe("0");
-    expect(viewport?.dataset.panY).toBe("0");
+    expect(viewport?.dataset.panX).toBe("3");
+    expect(viewport?.dataset.panY).toBe("18");
 
     canvas.focus();
     await user.keyboard("{ArrowRight}{ArrowDown}");
-    expect(viewport?.dataset.panX).toBe("24");
-    expect(viewport?.dataset.panY).toBe("24");
+    expect(viewport?.dataset.panX).toBe("27");
+    expect(viewport?.dataset.panY).toBe("42");
   });
 
   it("supports palette drag, keyboard movement, connections, and deletion", async () => {
@@ -140,6 +144,11 @@ describe("AgentGraphsRoute", () => {
     conditionNode.focus();
     await user.keyboard("{ArrowRight}");
     expect(conditionNode.dataset.x).toBe("351");
+
+    const inputNode = screen.getByLabelText("Input node");
+    inputNode.focus();
+    for (let step = 0; step < 10; step += 1) fireEvent.keyDown(inputNode, { key: "ArrowLeft" });
+    expect(inputNode.dataset.x).toBe("-8");
 
     await user.click(screen.getByRole("button", { name: "Start a connection from Agent node" }));
     await user.click(screen.getByRole("button", { name: "Connect Agent to Router" }));

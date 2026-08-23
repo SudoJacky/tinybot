@@ -456,7 +456,7 @@
   border: 1px solid var(--color-hairline);
   border-radius: 12px;
   background-color: var(--color-canvas);
-  background-position: calc(50% + var(--graph-canvas-pan-x, 0px)) calc(50% + var(--graph-canvas-pan-y, 0px));
+  background-position: calc(50% + var(--graph-canvas-grid-offset-x, 0px)) calc(50% + var(--graph-canvas-grid-offset-y, 0px));
   background-size: var(--graph-canvas-grid-size, 18px) var(--graph-canvas-grid-size, 18px);
 }
 
@@ -485,7 +485,7 @@
   height: 100%;
   overflow: hidden;
   background-image: radial-gradient(var(--color-hairline-strong) .8px, transparent .8px);
-  background-position: calc(50% + var(--graph-canvas-pan-x, 0px)) calc(50% + var(--graph-canvas-pan-y, 0px));
+  background-position: calc(50% + var(--graph-canvas-grid-offset-x, 0px)) calc(50% + var(--graph-canvas-grid-offset-y, 0px));
   background-size: var(--graph-canvas-grid-size, 18px) var(--graph-canvas-grid-size, 18px);
   cursor: grab;
   touch-action: none;
@@ -504,9 +504,10 @@
   position: absolute;
   top: 50%;
   left: 50%;
-  width: 760px;
-  height: 400px;
-  transform: translate(-50%, -50%) translate(var(--graph-canvas-pan-x, 0px), var(--graph-canvas-pan-y, 0px));
+  width: 0;
+  height: 0;
+  transform: translate(var(--graph-canvas-pan-x, 0px), var(--graph-canvas-pan-y, 0px)) scale(var(--graph-canvas-zoom, 1));
+  transform-origin: 0 0;
 }
 
 .react-agent-graph-canvas[data-panning="true"] .react-agent-graph-canvas__viewport {
@@ -514,9 +515,10 @@
 }
 
 .react-agent-graph-canvas__stage {
-  position: relative;
-  width: 760px;
-  height: 400px;
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: visible;
 }
 
 .react-agent-graph-canvas__node-config-popover {
@@ -642,9 +644,10 @@
 .react-agent-graph-canvas__edges {
   position: absolute;
   z-index: 1;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
   overflow: visible;
   pointer-events: none;
 }
@@ -1509,7 +1512,7 @@
   min-height: 0;
   grid-column: 2;
   grid-row: 1;
-  grid-template-rows: 112px minmax(0, 1fr);
+  grid-template-rows: 82px minmax(0, 1fr);
   gap: 0;
   padding: 0;
   overflow: hidden;
@@ -1523,15 +1526,15 @@
   z-index: 7;
   display: flex;
   align-items: center;
-  min-height: 84px;
-  margin: 18px 28px 10px;
-  padding: 12px 14px 12px 18px;
+  min-height: 64px;
+  margin: 10px 18px 8px;
+  padding: 8px 10px 8px 14px;
   flex-wrap: nowrap;
-  gap: 18px;
+  gap: 12px;
   border: 1px solid var(--graph-border);
-  border-radius: 16px;
+  border-radius: 14px;
   background: var(--graph-panel);
-  box-shadow: 0 18px 48px var(--graph-shadow);
+  box-shadow: 0 12px 32px var(--graph-shadow);
   backdrop-filter: blur(18px);
 }
 
@@ -1540,7 +1543,7 @@
   display: grid;
   flex: 1 1 260px;
   min-width: 180px;
-  max-width: 310px;
+  max-width: 280px;
   gap: 2px;
 }
 
@@ -1561,7 +1564,7 @@
   border-radius: 0;
   background: transparent;
   color: var(--color-ink);
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 720;
 }
 
@@ -1582,10 +1585,10 @@
 
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-editor__workspace {
   display: grid;
-  flex: 0 1 200px;
-  min-width: 142px;
+  flex: 0 1 180px;
+  min-width: 132px;
   gap: 2px;
-  padding: 7px 12px;
+  padding: 5px 10px;
   border: 1px solid var(--graph-border);
   border-radius: 10px;
   background: color-mix(in srgb, var(--color-canvas) 58%, transparent);
@@ -1614,8 +1617,8 @@
 }
 
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-draft__actions > button {
-  min-height: 38px;
-  padding: 0 11px;
+  min-height: 34px;
+  padding: 0 9px;
   border-color: var(--graph-border);
   background: transparent;
   color: var(--color-muted);
@@ -1631,7 +1634,7 @@
 }
 
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-mode-switch {
-  min-height: 40px;
+  min-height: 36px;
   border-color: var(--graph-border);
   background: color-mix(in srgb, var(--color-canvas) 58%, transparent);
 }
@@ -1656,8 +1659,8 @@
 }
 
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-run__start {
-  min-width: 96px;
-  min-height: 42px;
+  min-width: 88px;
+  min-height: 36px;
   order: 10;
   border-color: var(--color-primary);
   background: var(--color-primary);
@@ -1681,7 +1684,7 @@
   border-radius: 0;
   background-color: var(--color-canvas);
   background-image: radial-gradient(var(--graph-dot) .7px, transparent .7px);
-  background-position: calc(50% + var(--graph-canvas-pan-x, 0px)) calc(50% + var(--graph-canvas-pan-y, 0px));
+  background-position: calc(50% + var(--graph-canvas-grid-offset-x, 0px)) calc(50% + var(--graph-canvas-grid-offset-y, 0px));
   background-size: var(--graph-canvas-grid-size, 18px) var(--graph-canvas-grid-size, 18px);
 }
 
@@ -1700,22 +1703,22 @@
 }
 
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-canvas__stage {
-  position: relative;
-  width: 760px;
-  height: 400px;
+  position: absolute;
+  width: 0;
+  height: 0;
 }
 
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-canvas__toolbar {
-  top: 14px;
+  top: 12px;
   right: auto;
-  left: 22px;
+  left: 18px;
   width: min(420px, calc(100% - 44px));
   min-height: 38px;
   padding: 5px 6px 5px 10px;
   border-color: var(--graph-border);
   border-radius: 10px;
   background: var(--graph-panel);
-  box-shadow: 0 12px 30px var(--graph-shadow);
+  box-shadow: 0 8px 22px var(--graph-shadow);
   backdrop-filter: blur(14px);
 }
 
@@ -1730,12 +1733,12 @@
 }
 
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-canvas__viewport-controls {
-  top: 14px;
-  right: 22px;
+  top: 12px;
+  right: 18px;
   bottom: auto;
   border-color: var(--graph-border);
   background: var(--graph-panel);
-  box-shadow: 0 12px 30px var(--graph-shadow);
+  box-shadow: 0 8px 22px var(--graph-shadow);
   backdrop-filter: blur(14px);
 }
 
@@ -1744,8 +1747,8 @@
 }
 
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-canvas__edges {
-  width: 760px;
-  height: 400px;
+  width: 1px;
+  height: 1px;
 }
 
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-canvas__edges marker path {
@@ -1861,13 +1864,13 @@
   grid-column: 1;
   grid-row: 1;
   gap: 10px;
-  padding: 18px 8px;
+  padding: 14px 8px;
   overflow: visible;
   border-width: 0 1px 0 0;
   border-color: var(--graph-border);
   border-radius: 0;
   background: var(--graph-panel);
-  box-shadow: 16px 0 48px var(--graph-shadow);
+  box-shadow: 8px 0 24px var(--graph-shadow);
   scrollbar-gutter: auto;
 }
 
@@ -2011,21 +2014,22 @@
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-run {
   position: absolute;
   z-index: 9;
-  right: clamp(34px, 9vw, 124px);
-  bottom: 26px;
-  left: clamp(178px, 20vw, 300px);
+  bottom: 16px;
+  left: calc(50% + 44px);
   display: grid;
-  min-height: 72px;
-  grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
+  width: min(760px, calc(100% - 220px));
+  min-height: 64px;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
   align-items: center;
-  gap: 18px;
+  gap: 12px;
   margin: 0;
-  padding: 10px 14px;
+  padding: 8px 10px;
   overflow: hidden;
   border: 1px solid var(--graph-border);
   border-radius: 14px;
   background: var(--graph-panel);
-  box-shadow: 0 18px 48px var(--graph-shadow);
+  box-shadow: 0 12px 32px var(--graph-shadow);
+  transform: translateX(-50%);
   backdrop-filter: blur(18px);
 }
 
@@ -2094,12 +2098,12 @@
 }
 
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-run-history > ul > li {
-  flex: 0 0 132px;
+  flex: 0 0 116px;
 }
 
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-run-history > ul > li > button {
-  min-height: 46px;
-  padding: 7px 9px;
+  min-height: 40px;
+  padding: 5px 8px;
   border-color: var(--graph-border);
   background: color-mix(in srgb, var(--color-canvas) 62%, transparent);
   color: var(--color-ink);
@@ -2136,12 +2140,12 @@
 }
 
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-validation {
-  top: 176px;
+  top: 136px;
 }
 
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-edit-error,
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-persistence-error {
-  bottom: 112px;
+  bottom: 94px;
 }
 
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-node-drawer {
@@ -2230,8 +2234,8 @@
   }
 
   .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-run {
-    right: 18px;
-    left: 90px;
+    left: calc(50% + 35px);
+    width: calc(100% - 106px);
     grid-template-columns: minmax(0, 1fr);
   }
 
