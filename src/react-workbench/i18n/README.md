@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:c1f6add66262a0754592473cc3ce669130b75909ba4a48b71b6100df3277e405 -->
+<!-- tinybot-module-fingerprint: sha256:3b67e4ace8037fa49b9fd4951e638e65fc8a53f47e25050c5ffb193a547af469 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
@@ -34,6 +34,8 @@ Editor shortcut hints use the platform modifier label while persisted script
 content, event names, paths, and trust identifiers remain untranslated.
 
 Desktop pet quick-chat copy also lives in the common renderer bundle so the
-pet drop affordance and the independent panel use the same locale. Draft text,
-Thread IDs, model identifiers, and the `desktop-pet` entry-point value remain
-untranslated protocol or user content.
+pet drop affordance and the independent panel use the same locale. File chips
+and file-only prompts reuse the canonical Chat composer bundle instead of a
+pet-specific unsupported state. Draft text, filenames, Thread IDs, model
+identifiers, and the `desktop-pet` entry-point value remain untranslated
+protocol or user content.

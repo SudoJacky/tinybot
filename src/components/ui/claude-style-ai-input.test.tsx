@@ -140,6 +140,30 @@ describe("ClaudeStyleAiInput slash commands", () => {
     expect(onSendMessage).toHaveBeenCalledWith("Start the next turn", [], [], { reasoningEffort: "medium" });
   });
 
+  it("submits and clears externally controlled file attachments", async () => {
+    const user = userEvent.setup();
+    const files = [{
+      contentHash: "abc123",
+      id: "file-1",
+      mimeType: "image/png",
+      name: "diagram.png",
+      path: "C:\\Tinybot\\diagram.png",
+      sizeBytes: 2048,
+    }];
+    const onFilesChange = vi.fn();
+    const onSendMessage = vi.fn();
+    render(<ClaudeStyleAiInput
+      files={files}
+      onFilesChange={onFilesChange}
+      onSendMessage={onSendMessage}
+    />);
+
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSendMessage).toHaveBeenCalledWith("", files, [], { reasoningEffort: "medium" });
+    expect(onFilesChange).toHaveBeenCalledWith([]);
+  });
+
   it("dismisses the menu with Escape without changing the draft", async () => {
     const user = userEvent.setup();
     render(<ClaudeStyleAiInput slashCommands={slashCommands} />);

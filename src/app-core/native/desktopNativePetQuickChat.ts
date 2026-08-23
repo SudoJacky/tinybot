@@ -12,6 +12,11 @@ import {
 import { desktopPetWindowCenter } from "../desktop-pet/desktopPetWindowGeometry";
 import type { DesktopPetPosition } from "../desktop-pet/desktopPetState";
 import { DESKTOP_PET_WINDOW_LABEL } from "./desktopNativePet";
+import {
+  importDesktopPetDroppedFiles,
+  parseNativePickedFiles,
+} from "./desktopNativePetFileDrop";
+import type { NativePickedFile } from "./desktopNativeFilePicker";
 
 export const DESKTOP_PET_QUICK_CHAT_WINDOW_LABEL = "desktop-pet-chat";
 
@@ -20,13 +25,14 @@ const QUICK_CHAT_PRESENT_EVENT = "desktop-pet-quick-chat-present";
 const QUICK_CHAT_READY_EVENT = "desktop-pet-quick-chat-ready";
 const QUICK_CHAT_PROBE_EVENT = "desktop-pet-quick-chat-probe";
 const QUICK_CHAT_OPEN_MAIN_EVENT = "desktop-pet-quick-chat-open-main";
-const QUICK_CHAT_SCHEMA_VERSION = "tinybot.desktop_pet_quick_chat.v1";
+const QUICK_CHAT_SCHEMA_VERSION = "tinybot.desktop_pet_quick_chat.v2";
 const MAX_QUICK_CHAT_DRAFT_LENGTH = 512 * 1024;
 
 export type DesktopPetQuickChatRequest = {
   schemaVersion: typeof QUICK_CHAT_SCHEMA_VERSION;
   requestId: string;
   draft: string;
+  attachments: NativePickedFile[];
 };
 
 export type DesktopPetQuickChatHostEvent = {
@@ -39,6 +45,7 @@ export type DesktopPetQuickChatHost = {
 };
 
 export type DesktopPetQuickChatDropClient = {
+  openWithFiles(files: readonly File[]): Promise<void>;
   openWithDraft(draft: string): Promise<void>;
 };
 
@@ -156,6 +163,11 @@ class TauriDesktopPetQuickChatHost implements DesktopPetQuickChatHost {
 }
 
 class TauriDesktopPetQuickChatDropClient implements DesktopPetQuickChatDropClient {
+  async openWithFiles(files: readonly File[]): Promise<void> {
+    const attachments = await importDesktopPetDroppedFiles(files);
+    await emitTo("main", QUICK_CHAT_OPEN_REQUEST_EVENT, createQuickChatRequest("", attachments));
+  }
+
   openWithDraft(draft: string): Promise<void> {
     return emitTo("main", QUICK_CHAT_OPEN_REQUEST_EVENT, createQuickChatRequest(draft));
   }
@@ -194,7 +206,10 @@ class TauriDesktopPetQuickChatWindowClient implements DesktopPetQuickChatWindowC
   }
 }
 
-function createQuickChatRequest(draft: string): DesktopPetQuickChatRequest {
+function createQuickChatRequest(
+  draft: string,
+  attachments: NativePickedFile[] = [],
+): DesktopPetQuickChatRequest {
   if (draft.length > MAX_QUICK_CHAT_DRAFT_LENGTH) {
     throw new Error(`Dropped text exceeds the ${MAX_QUICK_CHAT_DRAFT_LENGTH} character limit.`);
   }
@@ -202,6 +217,7 @@ function createQuickChatRequest(draft: string): DesktopPetQuickChatRequest {
     schemaVersion: QUICK_CHAT_SCHEMA_VERSION,
     requestId: `pet-chat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`,
     draft,
+    attachments: parseNativePickedFiles(attachments),
   };
 }
 
@@ -211,13 +227,15 @@ function parseDesktopPetQuickChatRequest(value: unknown): DesktopPetQuickChatReq
     || typeof value.requestId !== "string"
     || !value.requestId.trim()
     || typeof value.draft !== "string"
-    || value.draft.length > MAX_QUICK_CHAT_DRAFT_LENGTH) {
+    || value.draft.length > MAX_QUICK_CHAT_DRAFT_LENGTH
+    || value.attachments === undefined) {
     throw new Error("Received an invalid desktop pet quick chat request.");
   }
   return {
     schemaVersion: QUICK_CHAT_SCHEMA_VERSION,
     requestId: value.requestId,
     draft: value.draft,
+    attachments: parseNativePickedFiles(value.attachments),
   };
 }
 

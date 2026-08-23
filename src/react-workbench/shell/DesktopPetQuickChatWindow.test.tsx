@@ -185,13 +185,21 @@ describe("DesktopPetQuickChatWindow", () => {
     await waitFor(() => expect(requestListener).toBeTypeOf("function"));
 
     act(() => requestListener?.({
-      schemaVersion: "tinybot.desktop_pet_quick_chat.v1",
+      schemaVersion: "tinybot.desktop_pet_quick_chat.v2",
       requestId: "drop-1",
       draft: "Selected browser text",
+      attachments: [{
+        contentHash: "abc123",
+        mimeType: "image/png",
+        name: "diagram.png",
+        path: "C:\\Tinybot\\diagram.png",
+        sizeBytes: 2048,
+      }],
     }));
 
     const composer = await screen.findByRole("textbox", { name: "Message" });
     expect((composer as HTMLTextAreaElement).value).toBe("Selected browser text");
+    expect(screen.getByText("diagram.png")).toBeTruthy();
     expect(screen.getByText("Regular")).toBeTruthy();
     expect(screen.queryByText("Workspace")).toBeNull();
     fireEvent.change(composer, { target: { value: "Selected browser text and a question" } });
@@ -205,8 +213,16 @@ describe("DesktopPetQuickChatWindow", () => {
       kind: "turn.submit",
       source: { control: "desktop-pet-quick-chat", surface: "chat" },
       target: { sessionId: "quick-1" },
-      input: expect.objectContaining({ text: "Selected browser text and a question" }),
+      input: expect.objectContaining({
+        references: [expect.objectContaining({
+          contentHash: "abc123",
+          rawPath: "C:\\Tinybot\\diagram.png",
+          type: "tinyos.image",
+        })],
+        text: "Selected browser text and a question",
+      }),
     }));
     await waitFor(() => expect((composer as HTMLTextAreaElement).value).toBe(""));
+    await waitFor(() => expect(screen.queryByText("diagram.png")).toBeNull());
   });
 });

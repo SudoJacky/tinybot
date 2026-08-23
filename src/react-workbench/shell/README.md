@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:b31e5338b56e1398b3e09aac4add605fa349ba318687e84fbc1079bad40ae2de -->
+<!-- tinybot-module-fingerprint: sha256:6b4d960646bcf934e7c5e1b7d2f382d0942dd38603672c621e8b5dab8f3a53d4 -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
@@ -22,17 +22,19 @@ window interaction, while Chat only reports the current mascot mood. The pet
 can be hidden from its own controls and restored from the System menu without
 duplicating Agent lifecycle state or booting a second `App` service graph.
 
-The pet accepts external HTML5 `text/plain` drops and forwards the exact draft
-through `desktopNativePetQuickChat` to the independent `desktop-pet-chat`
-window. `DesktopPetQuickChatWindow.tsx` reuses Chat's canonical composer and
-timeline presentation, keeps the draft editable, exposes the same model picker
-and context-token usage, and persists model changes to the selected Thread. It
-lazily creates a standard Thread on first send without workspace or project
-metadata. Opening an existing recent chat or handing the new Thread to the main
-window always carries its explicit Thread ID; `DesktopShell` refreshes the main
-renderer's session list before activating it. Pointer-down on the panel title
-bar starts native window dragging, while the open and minimize controls remain
-ordinary buttons.
+The pet accepts external HTML5 `text/plain` and `Files` drops. It forwards text
+unchanged and asks the native Adapter to import local files before sending a
+versioned quick-chat request to the independent `desktop-pet-chat` window.
+`DesktopPetQuickChatWindow.tsx` reuses Chat's canonical composer, attachment
+submission, and timeline presentation; dropped attachments remain removable,
+and the composer file picker uses the same native importer. It keeps the draft
+editable, exposes the same model picker and context-token usage, and persists
+model changes to the selected Thread. It lazily creates a standard Thread on
+first send without workspace or project metadata. Opening an existing recent
+chat or handing the new Thread to the main window always carries its explicit
+Thread ID; `DesktopShell` refreshes the main renderer's session list before
+activating it. Pointer-down on the panel title bar starts native window
+dragging, while the open and minimize controls remain ordinary buttons.
 
 The bounded `react-route-surface` owns vertical overflow for document-like
 routes so long settings, tools, and diagnostics pages remain scrollable inside

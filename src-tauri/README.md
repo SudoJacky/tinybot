@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:eee270ed1cb4ea9dab9bbd6ee463241ba40cfb1ddcc427d257761fe4c538582e -->
+<!-- tinybot-module-fingerprint: sha256:443d3e93d8154b016ea2526883dfd215b25f789d1df4b656c161aeeb1ed2d2f3 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -18,7 +18,8 @@ For desktop setup and launch behavior, see [the desktop guide](../docs/desktop.m
   `src/desktop/diagnostics.rs` owns bounded Performance Trace snapshots and
   local diagnostic ZIP export; `src/desktop/pet.rs` creates the Windows-only
   transparent desktop-pet window and its adjacent quick-chat panel without
-  making either an owned child of `main`.
+  making either an owned child of `main`; `src/desktop/pet_file_drop.rs` owns
+  the WebView2 local-file bridge used by the pet.
 
 Sidecar terminals with no explicit Thread working directory resolve through
 the same configured native backend workspace used by ordinary Agent turns.
@@ -34,12 +35,15 @@ local server.
 
 Tauri capabilities remain window-scoped. `capabilities/default.json` belongs
 to the main webview, while `capabilities/desktop-pet.json` grants the pet only
-event, position, and native drag operations on Windows. The separate
+event, position, native drag operations, and its no-op file-drop signal on
+Windows. The separate
 `capabilities/desktop-pet-chat.json` grants the quick-chat panel scoped events,
 window hiding, native dragging, and only the application commands required to
-list, create, configure, and run chat Threads. `app_commands.rs` is the
+pick attachments and list, create, configure, and run chat Threads.
+`app_commands.rs` is the
 build-time application-command manifest; `permissions/app-commands.toml`
-separates the complete main-window command surface from that quick-chat subset.
+separates the complete main-window command surface from the narrow pet and
+quick-chat subsets.
 The main capability also grants restore and focus operations so quick-chat
 handoff can bring a minimized main window to the foreground before routing to
 the selected Thread.

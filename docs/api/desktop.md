@@ -15,7 +15,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:29aa71ff7e4bd723be9fd0caf9baf8e47f91f4cac58f80cff8c7b4c9541e0cbe -->
+<!-- tinybot-doc-fingerprint: sha256:71fcce8c46b56e033db235f644c47a2d3bf56543d908d203b24657c0d520a08e -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -52,12 +52,19 @@ the main window does not remove it from the desktop.
 
 The pet renderer is selected with `index.html?surface=desktop-pet`; it does not
 start another App service graph. Dropping external `text/plain` content on the
-pet, or clicking its chat affordance, sends a validated request through the
-typed `desktopNativePetQuickChat` event seam. The main renderer positions the
-quick-chat panel next to the pet within the current monitor work area, then the
-`?surface=desktop-pet-chat` renderer presents an editable draft and uses the
-canonical Thread stores for model selection, token usage, timeline updates,
-and first-send creation of a standard non-workspace Thread. Its title bar
+pet, dropping one to ten local `Files`, or clicking its chat affordance sends a
+validated `tinybot.desktop_pet_quick_chat.v2` request through the typed
+`desktopNativePetQuickChat` event seam. Text remains an editable draft. For
+files, the HTML5 drop supplies WebView2 additional objects; `pet_file_drop`
+validates the Tauri invoke key, extracts only local paths, and delegates to the
+same native attachment importer as `pick_chat_files`. Images therefore receive
+a managed path and content hash, ordinary files retain their path, directories
+fail explicitly, and no file bytes cross the renderer message boundary. The
+main renderer positions the quick-chat panel next to the pet within the current
+monitor work area, then the `?surface=desktop-pet-chat` renderer presents the
+editable draft and removable attachments and uses the canonical Thread stores
+for model selection, token usage, timeline updates, and first-send creation of
+a standard non-workspace Thread. File-only submission is valid. Its title bar
 starts native window dragging while leaving the window controls interactive.
 Opening a quick-chat Thread in Tinybot first shows, restores, and focuses
 `main`, then refreshes and activates the explicit Thread ID carried by the
@@ -75,10 +82,13 @@ Closing `desktop-pet` prevents destruction, hides the window, and notifies
 `main` to persist `visible: false`; closing `desktop-pet-chat` hides it without
 discarding canonical Thread state. Closing `main` performs the normal bounded
 runtime cleanup before destroying both auxiliary windows. The pet's
-Windows-only capability grants only event, position, scale-factor, and
-native-drag access. The quick-chat capability grants events, window hide,
-native dragging, and a least-privilege application-command subset for its chat
-workflow. The build-time application-command manifest prevents either
+Windows-only capability grants only event, position, scale-factor, native-drag,
+and the no-op `desktop_pet_drop_signal` used to authenticate the WebView2
+additional-object message. The command does not accept paths or file bytes and
+is not a general-purpose `invoke` API. The quick-chat capability grants events,
+window hide, native dragging, `pick_chat_files`, and the remaining
+least-privilege application-command subset for its chat workflow. The
+build-time application-command manifest prevents either
 auxiliary webview from inheriting the wider main-window command surface.
 
 ## Sidecar Terminal Commands
@@ -106,7 +116,7 @@ back to `~/.tinybot/workspace`.
 | Command | Args | Response |
 | --- | --- | --- |
 | `pick_upload_file` | `{ options: { title?: string, filters?: { name: string, extensions: string[] }[] } }` | `null` when cancelled, or `{ name, path, mime_type, size_bytes, bytes }` |
-| `pick_chat_files` | `{ options: { title?: string, filters?: { name: string, extensions: string[] }[] } }` | `[]` when cancelled, or `{ name, path, mimeType, sizeBytes, contentHash? }[]`; supported images are copied into Tinybot-managed storage and identified by `contentHash`, while other files keep their selected path; file bytes are not returned |
+| `pick_chat_files` | `{ options: { title?: string, filters?: { name: string, extensions: string[] }[] } }` | `[]` when cancelled, or `{ name, path, mimeType, sizeBytes, contentHash? }[]`; non-files fail, supported images are copied into Tinybot-managed storage and identified by `contentHash`, while other files keep their selected path; file bytes are not returned |
 | `pick_workspace_directory` | `{ options: { title?: string } }` | `null` when cancelled, or the selected absolute UTF-8 path |
 | `save_export_file` | `{ options: { title?: string, defaultPath?: string, filters?: Filter[], contents: string } }` | `null` when cancelled, or `{ path }` |
 | `reveal_workspace_file` | `{ path: string }` | `void` |

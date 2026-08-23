@@ -56,6 +56,7 @@ describe("desktop native command permissions", () => {
       "record_renderer_log",
       "get_settings_snapshot",
       "get_config_editor_snapshot",
+      "pick_chat_files",
       "worker_webui_route",
       "worker_threads_list",
       "worker_thread_create",
@@ -71,6 +72,12 @@ describe("desktop native command permissions", () => {
     expect(capabilityPermissions("desktop-pet.json")).not.toContain("main-app-commands");
     expect(capabilityPermissions("desktop-pet.json")).not.toContain(
       "desktop-pet-quick-chat-app-commands",
+    );
+    expect(permissionCommands("desktop-pet-drop-app-commands")).toEqual([
+      "desktop_pet_drop_signal",
+    ]);
+    expect(capabilityPermissions("desktop-pet.json")).toContain(
+      "desktop-pet-drop-app-commands",
     );
   });
 });

@@ -4,6 +4,7 @@ pub(crate) mod files;
 pub(crate) mod logging;
 pub(crate) mod menu;
 pub(crate) mod pet;
+pub(crate) mod pet_file_drop;
 pub(crate) mod state;
 mod update;
 
