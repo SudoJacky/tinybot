@@ -28,8 +28,8 @@ To install Tinybot, open [GitHub Releases](https://github.com/SudoJacky/tinybot/
 For development setup and repository contribution requirements, see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
-We have already supported Agent Graph and will soon support graph generation managed by agents.
-We support a dynamic pet system, where Tinybot will be with you at all times during work, while also allowing you to drag content to your pet and quickly initiate conversations.
+We have already supported the orchestration of Agent graphs and the definition of high degrees of freedom. In the future, we will support graphs managed and called by Agents.
+We support a dynamic pet system, where Tinybot will accompany pets at work in the form of pets, while also being able to drag text content to pets and quickly initiate conversations. Multimodal and file support will be implemented in the future (which should be soon).
 
 <img width="418" height="236" alt="image" src="https://github.com/user-attachments/assets/dc8755a3-c9ff-45d9-aa72-8a7257822787" />
 
