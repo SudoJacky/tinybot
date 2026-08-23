@@ -28,8 +28,6 @@ Tinybot 是一个由大语言模型和原生工具系统驱动的轻量级个人
 
 <img width="558" height="314" alt="image" src="https://github.com/user-attachments/assets/59ffe250-d52a-4c8f-ad11-ab7ae6e86551" />
 
-<img width="597" height="348" alt="应用截图" src="https://github.com/user-attachments/assets/e78f6ddd-3d7b-43eb-beb5-d3628d846e82" />
-
 ## Agent Plugins
 
 从 v0.2.3 开始，Tinybot 支持 [Agent Plugins 1.0.0 标准](https://agent-plugins.org/)。你可以在 **工具与插件** 页面导入想要使用的插件目录。Tinybot 默认内置并启用 `create-agent-plugin`，因此可以直接通过 **迁移 Skill 或 MCP** 把现有 Skill 或 MCP 配置转换为插件，无需另行下载辅助插件。
@@ -40,8 +38,8 @@ Tinybot 是一个由大语言模型和原生工具系统驱动的轻量级个人
 
 Tinybot 可以提供自定义的图表。
 
-<img width="960" height="747" alt="image" src="https://github.com/user-attachments/assets/3345c7f4-65c4-4464-aebf-b5ca491edea7" />
+<img width="480" height="374" alt="image" src="https://github.com/user-attachments/assets/3345c7f4-65c4-4464-aebf-b5ca491edea7" />
 
 ## 在另一个会话中继续
 
-<img width="683" height="415" alt="image" src="https://github.com/user-attachments/assets/0af9df84-b254-469a-9ebd-2f7e866c66eb" />
+<img width="455" height="277" alt="image" src="https://github.com/user-attachments/assets/0af9df84-b254-469a-9ebd-2f7e866c66eb" />
