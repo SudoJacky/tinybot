@@ -550,11 +550,18 @@ describe("ChatPage", () => {
         },
       ],
     });
+    const listSessions = stores.sessionStore.list;
+    stores.sessionStore.list = vi.fn(async () => {
+      const sessions = await listSessions();
+      await new Promise((resolve) => window.setTimeout(resolve, 1));
+      return sessions;
+    });
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const sidebar = await screen.findByLabelText("Sessions");
     const tablist = screen.getByRole("tablist", { name: "Open conversations" });
     const input = screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
+    await waitFor(() => expect(input.disabled).toBe(false));
     await user.type(input, "draft for planning");
     await user.click(within(sidebar).getByRole("button", { name: "Knowledge review" }));
     await user.type(input, "draft for knowledge");
