@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { PackagePlus, Puzzle, Search, WandSparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
-import { readCurrentChatModel } from "../../app-core/chat/chatModelPreference";
+import { readDefaultChatModel } from "../../app-core/chat/chatModelPreference";
 import {
   pickDesktopPluginDirectory,
   pickDesktopPluginMigrationDirectory,
@@ -246,7 +246,7 @@ function PluginsSection({
         .filter((plugin) => plugin.enabled)
         .flatMap((plugin) => plugin.skills)
         .find((skill) => skill.qualifiedName === OFFICIAL_PLUGIN_MIGRATION_SKILL);
-      const model = readCurrentChatModel();
+      const model = readDefaultChatModel();
       const session = await services.sessionStore.create({
         title: t("plugins.migrate"),
         workingDirectory: job.workingDirectory,

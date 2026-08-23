@@ -774,6 +774,7 @@ describe("ChatPage", () => {
         },
       ]),
     };
+    window.localStorage.setItem("tinybot.ui.chat.composer-model", "deepseek-chat");
     render(
       <ChatPage
         chatStore={stores.chatStore}
@@ -793,7 +794,7 @@ describe("ChatPage", () => {
 
     await user.click(screen.getByRole("option", { name: /deepseek-reasoner/i }));
     await waitFor(() => expect(modelTrigger.textContent).toContain("deepseek-reasoner"));
-    expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-reasoner");
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-chat");
     expect(stores.sessionStore.setModel).toHaveBeenCalledWith("s1", "deepseek-reasoner");
     await user.type(screen.getByRole("textbox", { name: /message/i }), "Use a specific model");
     await user.click(screen.getByRole("button", { name: /send message/i }));
@@ -869,8 +870,10 @@ describe("ChatPage", () => {
       loadChatModels: vi.fn(async () => [
         { id: "deepseek-chat", label: "deepseek-chat" },
         { id: "deepseek-reasoner", label: "deepseek-reasoner" },
+        { id: "new-chat-default", label: "new-chat-default" },
       ]),
     };
+    window.localStorage.setItem("tinybot.ui.chat.composer-model", "new-chat-default");
 
     render(
       <ChatPage
@@ -883,13 +886,54 @@ describe("ChatPage", () => {
 
     const modelTrigger = await screen.findByRole("button", { name: "Select model" });
     await waitFor(() => expect(modelTrigger.textContent).toContain("deepseek-reasoner"));
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("new-chat-default");
 
     await user.click(screen.getByRole("button", { name: "Chat thread" }));
     await waitFor(() => expect(modelTrigger.textContent).toContain("deepseek-chat"));
-    expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-chat");
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("new-chat-default");
   });
 
-  it("restores a valid current model and replaces a stale one", async () => {
+  it("updates the new-conversation default when selecting a model before the first Turn", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Empty thread",
+        updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+        status: "idle",
+        model: "deepseek-chat",
+      }],
+    });
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
+    const settingsStore: SettingsStore = {
+      load: vi.fn(async () => []),
+      loadChatModels: vi.fn(async () => [
+        { id: "deepseek-chat", label: "deepseek-chat" },
+        { id: "deepseek-reasoner", label: "deepseek-reasoner" },
+      ]),
+    };
+    window.localStorage.setItem("tinybot.ui.chat.composer-model", "deepseek-chat");
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
+        sessionStore={stores.sessionStore}
+        settingsStore={settingsStore}
+      />,
+    );
+
+    await screen.findByLabelText("Start a new chat");
+    await user.click(screen.getByRole("button", { name: "Select model" }));
+    await user.click(screen.getByRole("button", { name: /Model deepseek-chat/ }));
+    await user.click(screen.getByRole("option", { name: /deepseek-reasoner/i }));
+
+    await waitFor(() => expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-reasoner"));
+    expect(stores.sessionStore.setModel).toHaveBeenCalledWith("s1", "deepseek-reasoner");
+  });
+
+  it("restores a valid new-conversation default and clears a stale one", async () => {
     const stores = createStores();
     const settingsStore: SettingsStore = {
       load: vi.fn(async () => []),
@@ -932,7 +976,7 @@ describe("ChatPage", () => {
     );
 
     expect((await screen.findByRole("button", { name: "Select model" })).textContent).toContain("deepseek-chat");
-    await waitFor(() => expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-chat"));
+    await waitFor(() => expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBeNull());
   });
 
   it("sends long pasted content through the Claude-style composer", async () => {

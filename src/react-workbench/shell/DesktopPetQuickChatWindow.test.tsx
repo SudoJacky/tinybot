@@ -11,7 +11,10 @@ import type { ChatStore, SessionStore, SettingsStore } from "../services";
 import { timelineFromReactMessages } from "../chat/test/timelineFixtures";
 import { DesktopPetQuickChatWindow } from "./DesktopPetQuickChatWindow";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  window.localStorage.clear();
+});
 
 describe("DesktopPetQuickChatWindow", () => {
   it("keeps the model menu and token usage operable in the compact composer", async () => {
@@ -59,6 +62,7 @@ describe("DesktopPetQuickChatWindow", () => {
       loadChatModels: vi.fn(async () => [
         { id: "deepseek-v4-pro", label: "DeepSeek V4 Pro", providerId: "deepseek", default: true },
         { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", providerId: "deepseek" },
+        { id: "deepseek-v4-lite", label: "DeepSeek V4 Lite", providerId: "deepseek" },
       ]),
     };
     const client: DesktopPetQuickChatWindowClient = {
@@ -68,19 +72,28 @@ describe("DesktopPetQuickChatWindow", () => {
       startDragging: vi.fn(async () => undefined),
     };
     const user = userEvent.setup();
+    window.localStorage.setItem("tinybot.ui.chat.composer-model", "deepseek-v4-pro");
     render(<DesktopPetQuickChatWindow client={client} services={{ chatStore, sessionStore, settingsStore }} />);
 
-    await user.click(await screen.findByRole("button", { name: /Regular/ }));
+    const recentSession = await screen.findByRole("button", { name: /Regular/ });
+    await user.click(screen.getByRole("button", { name: "Select model" }));
+    let menu = screen.getByRole("dialog", { name: "Model and reasoning effort" });
+    await user.click(within(menu).getByRole("button", { name: /Model DeepSeek V4 Pro/ }));
+    await user.click(screen.getByRole("option", { name: /DeepSeek V4 Flash/ }));
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-v4-flash");
+
+    await user.click(recentSession);
     const usage = await screen.findByLabelText("Context window 50% used, 50% left");
     expect(usage.textContent).toContain("64k / 128k tokens used");
 
     await user.click(screen.getByRole("button", { name: "Select model" }));
-    const menu = screen.getByRole("dialog", { name: "Model and reasoning effort" });
+    menu = screen.getByRole("dialog", { name: "Model and reasoning effort" });
     await user.click(within(menu).getByRole("button", { name: /Model DeepSeek V4 Pro/ }));
-    await user.click(screen.getByRole("option", { name: /DeepSeek V4 Flash/ }));
+    await user.click(screen.getByRole("option", { name: /DeepSeek V4 Lite/ }));
 
-    expect(screen.getByRole("button", { name: "Select model" }).textContent).toContain("DeepSeek V4 Flash");
-    expect(sessionStore.setModel).toHaveBeenCalledWith("regular-1", "deepseek-v4-flash", "deepseek");
+    expect(screen.getByRole("button", { name: "Select model" }).textContent).toContain("DeepSeek V4 Lite");
+    expect(sessionStore.setModel).toHaveBeenCalledWith("regular-1", "deepseek-v4-lite", "deepseek");
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-v4-flash");
 
     const header = screen.getByRole("banner");
     const openInMain = screen.getByRole("button", { name: "Open in Tinybot" });

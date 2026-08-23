@@ -14,7 +14,7 @@ import {
   createDesktopStopCommand,
   createDesktopTurnSubmitCommand,
 } from "../../app-core/chat/desktopCommand";
-import { readCurrentChatModelPreference, writeCurrentChatModel } from "../../app-core/chat/chatModelPreference";
+import { readDefaultChatModelPreference, writeDefaultChatModel } from "../../app-core/chat/chatModelPreference";
 import {
   readCurrentChatReasoningEffort,
   writeCurrentChatReasoningEffort,
@@ -72,7 +72,7 @@ export function DesktopPetQuickChatWindow({
   const [session, setSession] = useState<SessionSummary | null>(null);
   const [recentSessions, setRecentSessions] = useState<SessionSummary[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
-  const [defaultModel, setDefaultModel] = useState("");
+  const [composerModel, setComposerModel] = useState("");
   const [contextUsageDefaults, setContextUsageDefaults] = useState<ContextUsageDefaults>({});
   const [reasoningEffort, setReasoningEffort] = useState(readCurrentChatReasoningEffort);
   const [optimisticMessages, setOptimisticMessages] = useState<ReactChatMessage[]>([]);
@@ -163,14 +163,14 @@ export function DesktopPetQuickChatWindow({
     void services.settingsStore.loadChatModels().then((nextModels) => {
       if (cancelled) return;
       const composerModels = nextModels.map((model) => toComposerModelOption(model, tChat));
-      const preference = readCurrentChatModelPreference();
+      const preference = readDefaultChatModelPreference();
       const selected = composerModels.find((model) => (
         model.modelId === preference?.modelId
         && (model.providerId ?? "") === (preference?.providerId ?? "")
       )) ?? composerModels.find((model) => nextModels.find((source) => source.id === model.modelId)?.default)
         ?? composerModels[0];
       setModels(composerModels);
-      setDefaultModel(selected?.id ?? "");
+      setComposerModel(selected?.id ?? "");
     }).catch((error) => {
       if (cancelled) return;
       setLoadError(errorMessage(error));
@@ -184,7 +184,7 @@ export function DesktopPetQuickChatWindow({
   useEffect(() => {
     if (!models.length || !session) return;
     const selected = findComposerModel(models, session.model ?? "", session.modelProvider ?? "");
-    if (selected) setDefaultModel(selected.id);
+    if (selected) setComposerModel(selected.id);
   }, [models, session]);
 
   useEffect(() => {
@@ -307,6 +307,12 @@ export function DesktopPetQuickChatWindow({
 
   const headerTitle = session ? displaySessionTitle(session.title, tChat) : t("desktopPet.quickChat.newChat");
   const runtimeError = sessionRuntime.state.error || loadError;
+  const emptyActiveSession = !session || (
+    sessionRuntime.state.status === "ready"
+    && timeline?.sessionId === session.id
+    && timeline.turns.length === 0
+    && optimisticMessages.length === 0
+  );
 
   return (
     <main ref={rootRef} aria-label={t("desktopPet.quickChat.panel")} className="react-desktop-pet-quick-chat">
@@ -389,7 +395,7 @@ export function DesktopPetQuickChatWindow({
       <ClaudeStyleAiInput
         className="react-desktop-pet-quick-chat__composer"
         contextUsage={activeContextUsage}
-        defaultModel={defaultModel}
+        defaultModel={composerModel}
         defaultReasoningEffort={reasoningEffort}
         models={models}
         placeholder={t("desktopPet.quickChat.placeholder")}
@@ -398,9 +404,11 @@ export function DesktopPetQuickChatWindow({
         onModelChange={(modelId) => {
           const selected = models.find((model) => model.id === modelId);
           if (!selected) return;
-          setDefaultModel(modelId);
+          setComposerModel(modelId);
           const selectedModelId = selected.modelId || selected.id;
-          writeCurrentChatModel(selectedModelId, selected.providerId);
+          if (emptyActiveSession) {
+            writeDefaultChatModel(selectedModelId, selected.providerId);
+          }
           if (session) {
             setSession((current) => current && current.id === session.id
               ? {

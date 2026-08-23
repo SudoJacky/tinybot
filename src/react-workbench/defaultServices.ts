@@ -46,7 +46,7 @@ import {
   type TinyOsHostCommand,
 } from "../app-core/chat/tinyOsCommand";
 import {
-  readCurrentChatModelPreference,
+  readDefaultChatModelPreference,
 } from "../app-core/chat/chatModelPreference";
 import { normalizeTinyOsEffectiveCapabilities } from "../app-core/chat/tinyOsCapabilities";
 
@@ -195,7 +195,7 @@ export function createDesktopAppServices(): AppServices {
       await controller.selectSession(thread.threadId);
     }
     const input = command.input;
-    const preference = readCurrentChatModelPreference();
+    const preference = readDefaultChatModelPreference();
     const threadExtra = isRecord(thread.metadata?.extra) ? thread.metadata.extra : {};
     const threadModel = stringValue(thread.metadata?.model);
     const threadProvider = stringValue(threadExtra.modelProvider);
@@ -374,7 +374,7 @@ export function createDesktopAppServices(): AppServices {
       },
       async create(input) {
         await initialize();
-        const preference = readCurrentChatModelPreference();
+        const preference = readDefaultChatModelPreference();
         const model = stringValue(input?.model) || preference?.modelId || "";
         const modelProvider = stringValue(input?.modelProvider)
           || (model === preference?.modelId ? preference.providerId ?? "" : "");
