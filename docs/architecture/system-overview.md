@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:65cab0188575edf6d3707bb2ec01fba91a081273bdd91b9bcc4ad0c3807104e9 -->
+<!-- tinybot-doc-fingerprint: sha256:ce1ea4469cf906030a216de6b46f87f24bb35f68aa22b8a9f9f061a2c67807b0 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -51,7 +51,7 @@ Desktop Commands / Desktop Host
 | Module | Owns | Does not own |
 | --- | --- | --- |
 | `react-workbench` | React routes, presentation, route state | Native transport or durable domain state |
-| `react-workbench/agent-graph` | Standalone Agent Graph library and canvas, node configuration, Run history, and per-node inspection | Chat route state or native execution rules |
+| `react-workbench/agent-graph` | Standalone Agent Graph library and unbounded spatial canvas, node configuration, Run history, and per-node inspection | Chat route state or native execution rules |
 | `react-workbench/sidecar` | Resource tabs, scope filtering, and Sidecar presentation | Native Browser or Terminal lifecycle |
 | `app-core` | Framework-independent contracts, validation, commands, and projections | React rendering or Tauri invocation |
 | `app-core/agent-graph` | Versioned Graph contracts, validation, edit operations, persistence Interface, and runtime Interface | React rendering, native filesystem I/O, or Agent execution |
@@ -85,6 +85,8 @@ Desktop Commands / Desktop Host
   interfaces.
 - Agent Graph definitions: versioned `app-core/agent-graph` values stored under
   `<workspace>/.tinybot/graphs/` through the native `agent_graphs` Adapter.
+  Node positions are signed world coordinates; viewport pan, zoom, and fit-to-view
+  behavior remain renderer presentation state rather than persistence constraints.
 - Agent Graph Runs: application-owned status files under
   `~/.tinybot/graph-runs/<graph-id>/`. The runtime follows one model-selected
   path through an acyclic Router graph, reads the initial task from the saved

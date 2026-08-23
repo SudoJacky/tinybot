@@ -487,7 +487,7 @@ export function removeAgentGraphEdge(
 
 function normalizePosition(position: AgentGraphNodePosition): AgentGraphNodePosition {
   return {
-    x: Math.max(0, Math.round(position.x)),
-    y: Math.max(0, Math.round(position.y)),
+    x: Math.round(position.x),
+    y: Math.round(position.y),
   };
 }

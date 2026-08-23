@@ -9,7 +9,7 @@ import {
   type ReactNode,
   type WheelEvent as ReactWheelEvent,
 } from "react";
-import { Bot, Check, CircleDot, GitBranch, LoaderCircle, Minus, Plus, RotateCcw, Trash2, X } from "lucide-react";
+import { Bot, Check, CircleDot, GitBranch, LoaderCircle, Minus, Plus, Scan, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { AgentGraphRun } from "../../app-core/agent-graph/agentGraphRuntime";
 import type {
@@ -21,13 +21,15 @@ import type {
 
 export const AGENT_GRAPH_NODE_DRAG_TYPE = "application/x-tinybot-agent-graph-node";
 
-const CANVAS_WIDTH = 760;
-const CANVAS_HEIGHT = 400;
+const INITIAL_WORLD_WIDTH = 760;
+const INITIAL_WORLD_HEIGHT = 400;
+const WORLD_ORIGIN_X = INITIAL_WORLD_WIDTH / 2;
+const WORLD_ORIGIN_Y = INITIAL_WORLD_HEIGHT / 2;
 const NODE_WIDTH = 154;
 const NODE_HEIGHT = 76;
 const KEYBOARD_MOVE_STEP = 8;
 const KEYBOARD_PAN_STEP = 24;
-const MIN_ZOOM = 0.5;
+const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 2;
 const ZOOM_STEP = 0.1;
 const WHEEL_ZOOM_SENSITIVITY = 0.0015;
@@ -37,6 +39,9 @@ const CONFIG_PANEL_MIN_HEIGHT = 160;
 const CONFIG_PANEL_MAX_HEIGHT = 500;
 const CONFIG_PANEL_TOP_SAFE_AREA = 56;
 const CONFIG_PANEL_BOTTOM_SAFE_AREA = 104;
+const FIT_VIEW_HORIZONTAL_PADDING = 56;
+const FIT_VIEW_TOP_PADDING = 72;
+const FIT_VIEW_BOTTOM_PADDING = 112;
 
 type GraphSelection =
   | { type: "node"; id: string }
@@ -76,7 +81,7 @@ type PendingConnectionSource = {
 };
 
 const INITIAL_VIEWPORT: CanvasViewport = { panX: 0, panY: 0, zoom: 1 };
-const INITIAL_CANVAS_SIZE: CanvasSize = { width: CANVAS_WIDTH, height: CANVAS_HEIGHT };
+const INITIAL_CANVAS_SIZE: CanvasSize = { width: INITIAL_WORLD_WIDTH, height: INITIAL_WORLD_HEIGHT };
 
 type AgentGraphCanvasProps = {
   definition: AgentGraphDefinition;
@@ -134,14 +139,16 @@ export function AgentGraphCanvas({
     : undefined;
   const viewportStyle = {
     "--graph-canvas-grid-size": `${18 * viewport.zoom}px`,
+    "--graph-canvas-grid-offset-x": `${viewport.panX - WORLD_ORIGIN_X * viewport.zoom}px`,
+    "--graph-canvas-grid-offset-y": `${viewport.panY - WORLD_ORIGIN_Y * viewport.zoom}px`,
     "--graph-canvas-pan-x": `${viewport.panX}px`,
     "--graph-canvas-pan-y": `${viewport.panY}px`,
+    "--graph-canvas-zoom": viewport.zoom,
   } as CSSProperties;
-  const viewportGeometryStyle = {
-    width: CANVAS_WIDTH * viewport.zoom,
-    height: CANVAS_HEIGHT * viewport.zoom,
+  const stageStyle = {
+    left: -WORLD_ORIGIN_X,
+    top: -WORLD_ORIGIN_Y,
   } as CSSProperties;
-  const stageStyle = { zoom: viewport.zoom } as CSSProperties;
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -208,7 +215,7 @@ export function AgentGraphCanvas({
   }
 
   function resetViewport() {
-    setViewport(INITIAL_VIEWPORT);
+    setViewport(fitViewportToNodes(definition.nodes, canvasSize));
   }
 
   function startCanvasPan(event: ReactPointerEvent<HTMLDivElement>) {
@@ -252,7 +259,7 @@ export function AgentGraphCanvas({
 
   function handleCanvasWheel(event: ReactWheelEvent<HTMLDivElement>) {
     event.preventDefault();
-    const multiplier = wheelDeltaMultiplier(event.deltaMode, canvasRef.current?.clientHeight ?? CANVAS_HEIGHT);
+    const multiplier = wheelDeltaMultiplier(event.deltaMode, canvasRef.current?.clientHeight ?? INITIAL_WORLD_HEIGHT);
     if (event.ctrlKey || event.metaKey) {
       const zoomFactor = Math.exp(-event.deltaY * multiplier * WHEEL_ZOOM_SENSITIVITY);
       setZoom(viewport.zoom * zoomFactor, { clientX: event.clientX, clientY: event.clientY });
@@ -327,11 +334,10 @@ export function AgentGraphCanvas({
     const bounds = canvasRef.current?.getBoundingClientRect();
     if (!bounds) return;
     const point = canvasPointFromClient(event.clientX, event.clientY, bounds, viewport);
-    const draggedNode = definition.nodes.find((node) => node.id === pointerDrag.nodeId);
-    onMoveNode(pointerDrag.nodeId, clampPosition({
+    onMoveNode(pointerDrag.nodeId, {
       x: point.x - pointerDrag.offsetX,
       y: point.y - pointerDrag.offsetY,
-    }, draggedNode ? nodeHeight(draggedNode) : NODE_HEIGHT));
+    });
   }
 
   function finishNodeDrag(event: ReactPointerEvent<HTMLElement>) {
@@ -363,10 +369,10 @@ export function AgentGraphCanvas({
     if (delta) {
       event.preventDefault();
       selectNode(node.id);
-      onMoveNode(node.id, clampPosition({
+      onMoveNode(node.id, {
         x: node.position.x + delta.x,
         y: node.position.y + delta.y,
-      }, nodeHeight(node)));
+      });
       return;
     }
     if (event.key === "Enter" || event.key === " ") {
@@ -384,10 +390,10 @@ export function AgentGraphCanvas({
     if (!isNodeKind(kind)) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     const point = canvasPointFromClient(event.clientX, event.clientY, bounds, viewport);
-    onAddNode(kind, clampPosition({
+    onAddNode(kind, {
       x: point.x - NODE_WIDTH / 2,
       y: point.y - NODE_HEIGHT / 2,
-    }));
+    });
   }
 
   function connectTo(target: AgentGraphNode) {
@@ -451,7 +457,7 @@ export function AgentGraphCanvas({
           title={t("graphs.resetCanvasViewShortcut")}
           type="button"
         >
-          <RotateCcw aria-hidden="true" size={13} />
+          <Scan aria-hidden="true" size={13} />
           <span>{Math.round(viewport.zoom * 100)}%</span>
         </button>
         <button
@@ -499,7 +505,7 @@ export function AgentGraphCanvas({
           className="react-agent-graph-canvas__viewport"
           data-pan-x={viewport.panX}
           data-pan-y={viewport.panY}
-          style={viewportGeometryStyle}
+          data-zoom={viewport.zoom}
         >
         <div className="react-agent-graph-canvas__stage" data-zoom={viewport.zoom} style={stageStyle}>
           <svg aria-label={t("graphs.connections")} className="react-agent-graph-canvas__edges" role="group">
@@ -711,13 +717,6 @@ export function NodeIcon({ kind }: { kind: AgentGraphNodeKind }) {
   return <Icon aria-hidden="true" size={17} />;
 }
 
-function clampPosition(position: AgentGraphNodePosition, height = NODE_HEIGHT): AgentGraphNodePosition {
-  return {
-    x: Math.max(0, Math.min(CANVAS_WIDTH - NODE_WIDTH, position.x)),
-    y: Math.max(64, Math.min(CANVAS_HEIGHT - height, position.y)),
-  };
-}
-
 function createEdgePath(source: AgentGraphNode, target: AgentGraphNode, sourceRouteId?: string): string {
   const sourceX = source.position.x + NODE_WIDTH;
   const routeIndex = source.kind === "condition"
@@ -751,8 +750,41 @@ function canvasPointFromClient(
   viewport: CanvasViewport,
 ): AgentGraphNodePosition {
   return {
-    x: CANVAS_WIDTH / 2 + (clientX - bounds.left - bounds.width / 2 - viewport.panX) / viewport.zoom,
-    y: CANVAS_HEIGHT / 2 + (clientY - bounds.top - bounds.height / 2 - viewport.panY) / viewport.zoom,
+    x: WORLD_ORIGIN_X + (clientX - bounds.left - bounds.width / 2 - viewport.panX) / viewport.zoom,
+    y: WORLD_ORIGIN_Y + (clientY - bounds.top - bounds.height / 2 - viewport.panY) / viewport.zoom,
+  };
+}
+
+function fitViewportToNodes(nodes: AgentGraphNode[], canvasSize: CanvasSize): CanvasViewport {
+  if (nodes.length === 0) return INITIAL_VIEWPORT;
+
+  const minX = Math.min(...nodes.map((node) => node.position.x));
+  const minY = Math.min(...nodes.map((node) => node.position.y));
+  const maxX = Math.max(...nodes.map((node) => node.position.x + NODE_WIDTH));
+  const maxY = Math.max(...nodes.map((node) => node.position.y + nodeHeight(node)));
+  const graphWidth = Math.max(NODE_WIDTH, maxX - minX);
+  const graphHeight = Math.max(NODE_HEIGHT, maxY - minY);
+  const availableWidth = Math.max(
+    NODE_WIDTH,
+    canvasSize.width - FIT_VIEW_HORIZONTAL_PADDING * 2,
+  );
+  const availableHeight = Math.max(
+    NODE_HEIGHT,
+    canvasSize.height - FIT_VIEW_TOP_PADDING - FIT_VIEW_BOTTOM_PADDING,
+  );
+  const zoom = clampZoom(Math.min(1, availableWidth / graphWidth, availableHeight / graphHeight));
+  const graphCenterX = (minX + maxX) / 2;
+  const graphCenterY = (minY + maxY) / 2;
+  const availableCenterY = FIT_VIEW_TOP_PADDING + availableHeight / 2;
+
+  return {
+    panX: snapToDevicePixel((WORLD_ORIGIN_X - graphCenterX) * zoom),
+    panY: snapToDevicePixel(
+      availableCenterY
+      - canvasSize.height / 2
+      - (graphCenterY - WORLD_ORIGIN_Y) * zoom,
+    ),
+    zoom,
   };
 }
 
@@ -772,11 +804,11 @@ function positionConfigPanel(
 ): { placement: "above" | "below"; style: CSSProperties } {
   const nodeTop = canvasSize.height / 2
     + viewport.panY
-    + (node.position.y - CANVAS_HEIGHT / 2) * viewport.zoom;
+    + (node.position.y - WORLD_ORIGIN_Y) * viewport.zoom;
   const nodeBottom = nodeTop + nodeHeight(node) * viewport.zoom;
   const desiredCenterX = canvasSize.width / 2
     + viewport.panX
-    + (node.position.x + NODE_WIDTH / 2 - CANVAS_WIDTH / 2) * viewport.zoom;
+    + (node.position.x + NODE_WIDTH / 2 - WORLD_ORIGIN_X) * viewport.zoom;
   const panelHalfWidth = Math.min(CONFIG_PANEL_WIDTH, canvasSize.width - 24) / 2;
   const centerX = Math.max(
     panelHalfWidth + 12,
