@@ -82,6 +82,14 @@ describe("ChatPage", () => {
     );
   });
 
+  it("keeps session rows compact", () => {
+    const css = readWorkbenchCss();
+
+    expect(css).toMatch(
+      /\.react-session-row__select\s*{[^}]*height:\s*34px;[^}]*padding:\s*0 10px;/s,
+    );
+  });
+
   it("defines reduced-motion fallbacks for chat motion primitives", () => {
     const css = readWorkbenchCss();
 

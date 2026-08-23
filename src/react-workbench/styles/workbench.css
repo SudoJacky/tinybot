@@ -1474,10 +1474,10 @@ button:disabled {
   column-gap: 8px;
   width: 100%;
   min-width: 0;
-  min-height: 44px;
+  height: 34px;
   overflow: hidden;
   border-radius: inherit;
-  padding: 10px;
+  padding: 0 10px;
   text-align: left;
 }
 
