@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:fb44d7c2373a132e99b65515de6f38a7a005cc01b44bb513d3df7b4c289c2bce -->
+<!-- tinybot-module-fingerprint: sha256:ec3eb3efc9a1a2c9e317b521e2eda1f41bc02ab7a24ac38bf58e92b511d1c49c -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
@@ -32,3 +32,8 @@ Managed-hook form, test-result, and recoverable-remove copy follows the same
 boundary, as do inline script-editor status and conflict instructions.
 Editor shortcut hints use the platform modifier label while persisted script
 content, event names, paths, and trust identifiers remain untranslated.
+
+Desktop pet quick-chat copy also lives in the common renderer bundle so the
+pet drop affordance and the independent panel use the same locale. Draft text,
+Thread IDs, model identifiers, and the `desktop-pet` entry-point value remain
+untranslated protocol or user content.

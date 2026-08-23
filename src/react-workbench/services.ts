@@ -45,6 +45,8 @@ import type {
   NativeManagedHookScript,
   NativeManagedHookTestResult,
 } from "../app-core/native/desktopNativeHooks";
+import type { DesktopPetHost } from "../app-core/native/desktopNativePet";
+import type { DesktopPetQuickChatHost } from "../app-core/native/desktopNativePetQuickChat";
 
 export type SessionSummary = {
   id: string;
@@ -94,6 +96,7 @@ export type ChatEvent = {
 
 export type SessionStore = {
   list(): Promise<SessionSummary[]>;
+  refresh?(): Promise<SessionSummary[]>;
   create(input?: {
     title?: string;
     workingDirectory?: string;
@@ -101,6 +104,7 @@ export type SessionStore = {
     modelProvider?: string;
     projectCoordinator?: boolean;
     projectGroupId?: string;
+    entryPoint?: "desktop-pet";
     pluginMigration?: PluginMigrationSession;
   }): Promise<SessionSummary>;
   rename(id: string, title: string): Promise<void>;
@@ -313,4 +317,6 @@ export type AppServices = {
   hooksStore?: HooksStore;
   settingsStore: SettingsStore;
   performanceStore?: PerformanceStore;
+  desktopPetHost?: DesktopPetHost | null;
+  desktopPetQuickChatHost?: DesktopPetQuickChatHost | null;
 };

@@ -4,6 +4,7 @@ import {
   DESKTOP_PET_STORAGE_KEY,
   clampDesktopPetPosition,
   defaultDesktopPetPosition,
+  isDesktopPetPreferences,
   readDesktopPetPreferences,
   stepDesktopPetSize,
   writeDesktopPetPreferences,
@@ -27,6 +28,24 @@ describe("desktopPetState", () => {
       expect.any(Error),
     );
     warn.mockRestore();
+  });
+
+  it("discards viewport-relative positions when migrating v1 preferences", () => {
+    const storage = {
+      getItem: vi.fn((key: string) => key === "tinybot.ui.desktop-pet.v1"
+        ? JSON.stringify({ visible: false, size: "large", position: { x: 320, y: 240 } })
+        : null),
+    };
+
+    expect(readDesktopPetPreferences(storage)).toEqual({
+      visible: false,
+      size: "large",
+      position: null,
+    });
+    expect(storage.getItem.mock.calls).toEqual([
+      ["tinybot.ui.desktop-pet.v2"],
+      ["tinybot.ui.desktop-pet.v1"],
+    ]);
   });
 
   it("persists rounded coordinates", () => {
@@ -56,5 +75,11 @@ describe("desktopPetState", () => {
     expect(clampDesktopPetPosition({ x: -100, y: -100 }, "medium", viewport)).toEqual({ x: 50, y: 92 });
     expect(clampDesktopPetPosition({ x: 900, y: 700 }, "medium", viewport)).toEqual({ x: 750, y: 550 });
     expect(defaultDesktopPetPosition("large", viewport)).toEqual({ x: 736, y: 536 });
+  });
+
+  it("validates complete preference payloads", () => {
+    expect(isDesktopPetPreferences({ visible: true, size: "medium", position: { x: -120, y: 80 } })).toBe(true);
+    expect(isDesktopPetPreferences({ visible: true, size: "huge", position: null })).toBe(false);
+    expect(isDesktopPetPreferences({ visible: true, size: "small", position: { x: Number.NaN, y: 80 } })).toBe(false);
   });
 });

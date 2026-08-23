@@ -10,7 +10,7 @@ src/app-core/native/desktopNativeUpdate.ts
 src/app-core/native/desktopNativeWebui.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:ad37debf98968a49924a86afa83aebd6aa41d3ffdd44a5d6ddee4912730a83ee -->
+<!-- tinybot-doc-fingerprint: sha256:d6d38b55d7408535717eb604ae51be768636ce8a75924c75fb579d28170fa283 -->
 
 This document describes the API surfaces exposed by the Rust/Tauri backend in `src-tauri`.
 It is intended for frontend callers and integrators who need command names, invocation
@@ -128,6 +128,7 @@ Prefer these wrappers instead of direct command strings:
 | `createDesktopNativeAgentGraphRuntime` | `src/app-core/native/desktopNativeAgentGraphRuntime.ts` | Graph Run history and saved-revision execution |
 | `createDesktopNativeConfigApi` | `src/app-core/native/desktopNativeConfig.ts` | Config snapshot |
 | `createDesktopNativeHooksApi` | `src/app-core/native/desktopNativeHooks.ts` | Workspace hook catalog, managed-hook save/test/archive, constrained script editing, and exact-definition trust |
+| `createDesktopNativePetQuickChatHost` / quick-chat clients | `src/app-core/native/desktopNativePetQuickChat.ts` | Validated desktop-pet draft handoff, panel presentation, dismissal, and explicit Thread handoff to `main` through scoped Tauri events |
 | `createDesktopNativeUpdateClient` | `src/app-core/native/desktopNativeUpdate.ts` | Desktop update status, check, install, and status events |
 | `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread, Turn timeline, and effective-capability commands |
 | `createDesktopNativeHostCommandApi` | `src/app-core/native/desktopNativeHostCommand.ts` | Transitional Chat `operation.retry` dispatch |

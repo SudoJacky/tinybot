@@ -18,7 +18,7 @@ import {
   type DesktopPetPosition,
   type DesktopPetPreferences,
   type DesktopPetViewport,
-} from "./desktopPetState";
+} from "../../app-core/desktop-pet/desktopPetState";
 import "./DesktopPet.css";
 
 type DragState = {

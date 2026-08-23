@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:70c83e070a8eb36c330542c9a32233a9b374fe09925bd1c77d1e57c0513d2504 -->
+<!-- tinybot-module-fingerprint: sha256:ef4a1bb6a20a1ba7fb82df6ca32725ea5fb55c62bdd7345384265399afcba6e9 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -7,6 +7,13 @@ canonical timeline presentation, the composer, and detail drawers.
 `ChatTimeline.tsx` owns the reusable canonical message and execution rendering;
 its action callbacks are optional so read-only consumers can omit unavailable
 branch, recovery, artifact, delegate, and tool-detail controls.
+
+The desktop pet quick-chat surface composes `ChatTimeline` and
+`ClaudeStyleAiInput` directly without mounting `ChatPage`. Its first submitted
+draft creates an ordinary General Thread marked only with the `desktop-pet`
+entry point. When that independent renderer hands a Thread to the main window,
+`ChatPage` refreshes the native Thread list and activates the exact requested
+session rather than inferring a target from the currently selected chat.
 
 Chat projects the active session and Turn lifecycle into calm, curious, working,
 angry, and pleased mascot moods, then reports that presentation state to the
@@ -48,6 +55,12 @@ native default used by Agent turns.
 Desktop-level project and session-search dialogs keep their domain actions in
 this module while delegating modal focus, keyboard, dismissal, and scroll-lock
 behavior to `components/ui/useModalDialog`.
+
+Session creation follows the entry point's target. Workspace and project
+actions pass their workspace and project context explicitly. Global, tab, and
+search actions may inherit an ordinary active workspace, but never an active
+project coordinator; coordinator sessions are created only by the project's
+coordinator action.
 
 See the [Sidecar module contract](../sidecar/README.md) for resource scoping,
 renderer ownership, native lifecycle boundaries, and verification entry points.

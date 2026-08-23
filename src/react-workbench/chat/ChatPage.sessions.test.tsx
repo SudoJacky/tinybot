@@ -234,6 +234,28 @@ describe("ChatPage", () => {
     expect(stores.sessionStore.create).toHaveBeenCalledWith({ workingDirectory });
   });
 
+  it("does not inherit an active coordinator when creating from the global action", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "coordinator",
+        chatId: "chat-coordinator",
+        title: "Coordinate group-1",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "idle",
+        projectCoordinator: true,
+        projectGroupId: "group-1",
+      }],
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+
+    const sidebar = await screen.findByLabelText("Sessions");
+    await user.click(within(sidebar).getByRole("button", { name: "New chat" }));
+
+    expect(stores.sessionStore.create).toHaveBeenCalledWith({});
+  });
+
   it("does not inherit a cleaned plugin migration directory when creating a session", async () => {
     const user = userEvent.setup();
     const migrationDirectory = "C:\\Users\\test\\.tinybot\\plugins\\migrations\\migration-1";
@@ -370,6 +392,73 @@ describe("ChatPage", () => {
       projectGroupId: "commerce",
       title: "Coordinate Commerce",
     });
+  });
+
+  it("creates a project workspace session in the clicked workspace while a coordinator is active", async () => {
+    const user = userEvent.setup();
+    const workingDirectory = "D:\\Code\\py\\tbtest";
+    const stores = createStores({
+      sessions: [
+        {
+          id: "coordinator",
+          chatId: "chat-coordinator",
+          title: "Coordinate group-1",
+          updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+          status: "idle",
+          projectCoordinator: true,
+          projectGroupId: "group-1",
+        },
+        {
+          id: "workspace-session",
+          chatId: "chat-workspace",
+          title: "List workspace files",
+          updatedAtMs: Date.UTC(2026, 6, 4, 11, 50, 0),
+          status: "idle",
+          workingDirectory,
+          projectGroupId: "group-1",
+        },
+      ],
+    });
+    vi.mocked(stores.sessionStore.create).mockImplementation(async (input) => ({
+      id: "created-workspace-session",
+      chatId: "chat-created-workspace",
+      title: "New session",
+      updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      status: "idle",
+      workingDirectory: input?.workingDirectory,
+      projectGroupId: input?.projectGroupId,
+    }));
+    const projectGroupStore: ProjectGroupStore = {
+      list: vi.fn(async () => [{
+        projectGroupId: "group-1",
+        name: "group-1",
+        workspaceIds: [workingDirectory],
+      }]),
+      save: vi.fn(),
+      delete: vi.fn(),
+    };
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
+        projectGroupStore={projectGroupStore}
+        sessionStore={stores.sessionStore}
+      />,
+    );
+
+    const sidebar = await screen.findByLabelText("Sessions");
+    const project = await within(sidebar).findByRole("group", { name: "Project group-1" });
+    await user.click(within(project).getByRole("button", { name: "New session in tbtest" }));
+
+    expect(stores.sessionStore.create).toHaveBeenLastCalledWith({
+      workingDirectory,
+      projectGroupId: "group-1",
+    });
+    await waitFor(() => expect(stores.chatStore.load).toHaveBeenLastCalledWith("created-workspace-session"));
+    const createdRow = within(project).getByRole("button", { name: "New session" })
+      .closest<HTMLElement>(".react-session-row");
+    expect(createdRow?.dataset.active).toBe("true");
   });
 
   it("opens sidebar sessions as an accessible multi-session tab set", async () => {

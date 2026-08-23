@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:c785dff2321f87572f581603408cef94ceaac591631a78ccc5f7694b74d22dee -->
+<!-- tinybot-module-fingerprint: sha256:926d6928cb42c22ac560b863933428c6cbfb00c94f0c5e149286cc2e21f6fe51 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -16,7 +16,9 @@ For desktop setup and launch behavior, see [the desktop guide](../docs/desktop.m
 - `src/desktop/bootstrap.rs` assembles shared runtime state and registers Tauri
   commands; `src/desktop_terminal.rs` owns the user-only Sidecar PTY runtime;
   `src/desktop/diagnostics.rs` owns bounded Performance Trace snapshots and
-  local diagnostic ZIP export.
+  local diagnostic ZIP export; `src/desktop/pet.rs` creates the Windows-only
+  transparent desktop-pet window and its adjacent quick-chat panel without
+  making either an owned child of `main`.
 
 Sidecar terminals with no explicit Thread working directory resolve through
 the same configured native backend workspace used by ordinary Agent turns.
@@ -29,6 +31,18 @@ the same configured native backend workspace used by ordinary Agent turns.
 The default desktop path is in-process. Compatibility fields may mention HTTP
 or WebSocket endpoints, but they do not imply that the Tauri backend binds a
 local server.
+
+Tauri capabilities remain window-scoped. `capabilities/default.json` belongs
+to the main webview, while `capabilities/desktop-pet.json` grants the pet only
+event, position, and native drag operations on Windows. The separate
+`capabilities/desktop-pet-chat.json` grants the quick-chat panel scoped events,
+window hiding, native dragging, and only the application commands required to
+list, create, configure, and run chat Threads. `app_commands.rs` is the
+build-time application-command manifest; `permissions/app-commands.toml`
+separates the complete main-window command surface from that quick-chat subset.
+The main capability also grants restore and focus operations so quick-chat
+handoff can bring a minimized main window to the foreground before routing to
+the selected Thread.
 
 ## Domain terminology
 
