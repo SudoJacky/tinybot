@@ -28,13 +28,21 @@ To install Tinybot, open [GitHub Releases](https://github.com/SudoJacky/tinybot/
 For development setup and repository contribution requirements, see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
-<img width="558" height="314" alt="image" src="https://github.com/user-attachments/assets/dc8755a3-c9ff-45d9-aa72-8a7257822787" />
+We have already supported Agent Graph and will soon support graph generation managed by agents.
+We support a dynamic pet system, where Tinybot will be with you at all times during work, while also allowing you to drag content to your pet and quickly initiate conversations.
+
+<img width="418" height="236" alt="image" src="https://github.com/user-attachments/assets/dc8755a3-c9ff-45d9-aa72-8a7257822787" />
+
+<img width="418" height="236" alt="exec-e70c12de-f1f3-42e5-bef3-ca9c26f40cf3" src="https://github.com/user-attachments/assets/ebfd7ebf-5890-455d-b4a3-a0bda297c9fd" />
+
+<img width="418" height="236" alt="exec-e6855f42-52aa-4234-b841-d48679ec7513" src="https://github.com/user-attachments/assets/c2121dc3-ec0f-49e6-9d86-082f95a5e514" />
+
 
 ## Agent Plugins
 
 Starting with v0.2.3, Tinybot supports the [Agent Plugins 1.0.0 standard](https://agent-plugins.org/). Open **Tools & Plugins** to import a plugin directory you want to use. Tinybot includes and enables the `create-agent-plugin` helper by default, so **Migrate Skill or MCP** can convert an existing Skill or MCP configuration without requiring a separate download.
 
-<img width="681" height="445" alt="image" src="https://github.com/user-attachments/assets/efe401da-826b-4203-a158-d3d0c30293b3" />
+<img width="480" height="314" alt="image" src="https://github.com/user-attachments/assets/efe401da-826b-4203-a158-d3d0c30293b3" />
 
 ## Generated charts
 
