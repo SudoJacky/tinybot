@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:24fe698f4874397690e8e315b9167029a7d1553c50df1c39dff7bd3c1bb60b9b -->
+<!-- tinybot-module-fingerprint: sha256:ca63d727dee4431120263ef499a9e61785b0420b7894f44017fdd3bd61cddf8a -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
