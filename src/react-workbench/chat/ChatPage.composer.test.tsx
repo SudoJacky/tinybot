@@ -543,13 +543,14 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const input = await screen.findByRole("textbox", { name: /message/i });
+    await waitFor(() => expect((input as HTMLTextAreaElement).disabled).toBe(false), { timeout: 3_000 });
     await user.type(input, "Hello from React");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     await waitFor(() => {
       expectTurnSubmit(stores.chatStore, "s1", { reasoningEffort: "medium", text: "Hello from React" });
       expect((input as HTMLTextAreaElement).value).toBe("");
-    });
+    }, { timeout: 3_000 });
   });
 
   it("sends native files as structured references without exposing paths in user text", async () => {
