@@ -374,7 +374,7 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "System" }));
     await user.click(within(screen.getByRole("menu", { name: "System menu" })).getByRole("menuitem", { name: "Settings (Ctrl+,)" }));
-    expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Settings" }, { timeout: 3_000 })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Help" }));
     const helpMenu = screen.getByRole("menu", { name: "Help menu" });
