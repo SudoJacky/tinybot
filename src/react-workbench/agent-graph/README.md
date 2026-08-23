@@ -1,13 +1,15 @@
 # Agent Graph Workbench
-<!-- tinybot-module-fingerprint: sha256:9921bdd0b22628e76125b19fc9269504d7c53cd8f92c95a34209aafa1fa98833 -->
+<!-- tinybot-module-fingerprint: sha256:3011942a085766f991ecde82e922a0925280be99cf01648966659d57bc4223b0 -->
 
 `agent-graph` owns the standalone Agent Graph route and its React presentation.
-The page creates one honest in-memory starter draft and exposes a small canvas
-editor: palette nodes can be dragged or clicked into the canvas, positioned by
-pointer or keyboard, connected through accessible handles, selected, and
-removed with the Delete or Backspace shortcut. The canvas supports pointer,
-wheel, and keyboard panning plus bounded zoom controls in both modes; node drag
-coordinates remain stable at every zoom level. An explicit Edit/View switch separates those editing gestures from
+The page creates one honest in-memory starter draft and exposes an unbounded
+spatial canvas editor: palette nodes can be dragged or clicked into the canvas,
+positioned at signed world coordinates by pointer or keyboard, connected through
+accessible handles, selected, and removed with the Delete or Backspace shortcut.
+The canvas supports pointer, wheel, and keyboard panning plus bounded zoom controls
+in both modes; node drag coordinates remain stable at every zoom level, and the
+fit-view control recovers the full graph when nodes have been placed off-screen.
+An explicit Edit/View switch separates those editing gestures from
 read-only node inspection: clicking a node selects its configuration in Edit
 mode, with the configuration panel anchored below or above that node so it
 tracks canvas pan and zoom without covering the selection. View mode reuses the

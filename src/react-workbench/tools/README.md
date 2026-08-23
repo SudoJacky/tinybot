@@ -1,5 +1,5 @@
 # Tools Route
-<!-- tinybot-module-fingerprint: sha256:3287d56a31792eb6d5e17b2de07aed63451cefb7c58356e33ee1decf079f10e6 -->
+<!-- tinybot-module-fingerprint: sha256:4f65a2647d28ee020e169fa6fe04822c60594b15191b779b53473a2a3dfa8062 -->
 
 `tools` owns the lazy Tools and Plugins route, including catalog, lifecycle,
 migration, loading, and visible failure states. Its stylesheet is loaded with

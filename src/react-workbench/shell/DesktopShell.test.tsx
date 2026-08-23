@@ -772,7 +772,7 @@ describe("DesktopShell", () => {
     expect(screen.queryByRole("button", { name: "Runtime" })).toBeNull();
     expect(screen.getByRole("button", { name: "Provider & Models" }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("region", { name: "Provider & Models" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Current model" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "New conversation default" })).toBeTruthy();
     expect((screen.getByRole("button", { name: "Add provider" }) as HTMLButtonElement).disabled).toBe(false);
     await user.click(screen.getByRole("button", { name: "Change model" }));
     expect(screen.getByRole("navigation", { name: "Provider selection" })).toBeTruthy();
@@ -785,7 +785,7 @@ describe("DesktopShell", () => {
     await user.click(screen.getByRole("button", { name: "Select OpenAI provider" }));
     expect(screen.getByRole("region", { name: "OpenAI models" })).toBeTruthy();
     await user.click(screen.getByRole("radio", { name: "Select gpt-4.1 model" }));
-    await user.click(screen.getByRole("button", { name: "Save current model" }));
+    await user.click(screen.getByRole("button", { name: "Save default model" }));
 
     expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("gpt-4.1");
     expect(saveProviderSettings).not.toHaveBeenCalled();
