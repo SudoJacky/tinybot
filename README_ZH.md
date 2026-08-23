@@ -26,13 +26,21 @@ Tinybot 是一个由大语言模型和原生工具系统驱动的轻量级个人
 
 如需参与开发，请参阅 [CONTRIBUTING.md](CONTRIBUTING.md)，了解开发环境初始化和仓库贡献要求。
 
-<img width="558" height="314" alt="image" src="https://github.com/user-attachments/assets/59ffe250-d52a-4c8f-ad11-ab7ae6e86551" />
+我们已经支持了Agent graph的编排和高自由度的定义，未来将会支持由Agent负责和调用的Graph。
+我们支持了灵动的宠物系统，Tinybot将以宠物的形式在工作中陪伴，同时可以将文字内容拖动给宠物并快速唤起会话，多模态和文件的支持将在未来实现（应该很快）。
+
+<img width="418" height="236" alt="image" src="https://github.com/user-attachments/assets/59ffe250-d52a-4c8f-ad11-ab7ae6e86551" />
+
+<img width="418" height="236" alt="exec-3bccb095-cd9a-4ebb-9f83-9295b1876440" src="https://github.com/user-attachments/assets/3fba12b1-a8e8-4a51-a76b-91e6dcfdc037" />
+
+<img width="418" height="236" alt="exec-bd0be409-9323-425f-931a-e2b7b6d98573" src="https://github.com/user-attachments/assets/66e9e155-44e8-43ef-88a5-ea8cbc35c287" />
+
 
 ## Agent Plugins
 
 从 v0.2.3 开始，Tinybot 支持 [Agent Plugins 1.0.0 标准](https://agent-plugins.org/)。你可以在 **工具与插件** 页面导入想要使用的插件目录。Tinybot 默认内置并启用 `create-agent-plugin`，因此可以直接通过 **迁移 Skill 或 MCP** 把现有 Skill 或 MCP 配置转换为插件，无需另行下载辅助插件。
 
-<img width="681" height="445" alt="image" src="https://github.com/user-attachments/assets/efe401da-826b-4203-a158-d3d0c30293b3" />
+<img width="480" height="314" alt="image" src="https://github.com/user-attachments/assets/efe401da-826b-4203-a158-d3d0c30293b3" />
 
 ## 自定义图表
 
