@@ -34,9 +34,9 @@ import { formatRelativeUpdatedTime } from "../lib/relativeTime";
 import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, ToolsStore, WorkspaceStore } from "../services";
 import { createDesktopCompactCommand, createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import {
-  clearCurrentChatModel,
-  readCurrentChatModelPreference,
-  writeCurrentChatModel,
+  clearDefaultChatModel,
+  readDefaultChatModelPreference,
+  writeDefaultChatModel,
 } from "../../app-core/chat/chatModelPreference";
 import {
   readCurrentChatReasoningEffort,
@@ -191,13 +191,13 @@ function resolveComposerModel(
   if (sessionOption) {
     return sessionOption.id;
   }
-  const stored = readCurrentChatModelPreference();
+  const stored = readDefaultChatModelPreference();
   const storedOption = findComposerModel(models, stored?.modelId ?? "", stored?.providerId ?? "");
   if (storedOption) {
     return storedOption.id;
   }
   if (stored) {
-    clearCurrentChatModel();
+    clearDefaultChatModel();
   }
   return models[0]?.id || "";
 }
@@ -272,7 +272,7 @@ export function ChatPage({
     unavailableTinyOsEffectiveCapabilities("", "loading", t("runtime.loadingCapabilities"))
   ));
   const [composerModels, setComposerModels] = useState<ModelOption[]>([]);
-  const [defaultComposerModel, setDefaultComposerModel] = useState("");
+  const [composerModel, setComposerModel] = useState("");
   const [composerReasoningEffort, setComposerReasoningEffort] = useState(readCurrentChatReasoningEffort);
   const [contextUsageDefaults, setContextUsageDefaults] = useState<ContextUsageDefaults>({});
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
@@ -802,7 +802,7 @@ export function ChatPage({
   useEffect(() => {
     if (!settingsStore?.loadChatModels) {
       setComposerModels([]);
-      setDefaultComposerModel("");
+      setComposerModel("");
       return;
     }
     let cancelled = false;
@@ -812,11 +812,11 @@ export function ChatPage({
       }
       const nextModels = models.map((model) => toComposerModelOption(model, t));
       setComposerModels(nextModels);
-      setDefaultComposerModel(resolveComposerModel(nextModels));
+      setComposerModel(resolveComposerModel(nextModels));
     }).catch(() => {
       if (!cancelled) {
         setComposerModels([]);
-        setDefaultComposerModel("");
+        setComposerModel("");
       }
     });
     return () => {
@@ -831,11 +831,7 @@ export function ChatPage({
       activeSession?.model,
       activeSession?.modelProvider,
     );
-    setDefaultComposerModel(model);
-    const selected = composerModels.find((option) => option.id === model);
-    if (selected) {
-      writeCurrentChatModel(selected.modelId || selected.id, selected.providerId);
-    }
+    setComposerModel(model);
   }, [activeSession?.id, activeSession?.model, activeSession?.modelProvider, composerModels]);
 
   useEffect(() => {
@@ -936,7 +932,7 @@ export function ChatPage({
         ...(resolvedProjectContext?.projectGroupId ? { projectGroupId: resolvedProjectContext.projectGroupId } : {}),
         ...(resolvedProjectContext?.projectCoordinator ? { projectCoordinator: true } : {}),
         ...(resolvedProjectContext?.title ? { title: resolvedProjectContext.title } : {}),
-        ...composerSessionModelInput(composerModels, defaultComposerModel),
+        ...composerSessionModelInput(composerModels, composerModel),
       });
       activateCreatedSession(created);
       return created;
@@ -1280,7 +1276,7 @@ export function ChatPage({
                 model: activeSession.model,
                 ...(activeSession.modelProvider ? { modelProvider: activeSession.modelProvider } : {}),
               }
-            : composerSessionModelInput(composerModels, defaultComposerModel)),
+            : composerSessionModelInput(composerModels, composerModel)),
         });
         activateCreatedSession(created);
         await dispatchTurn(created.id, { text: turn.userMessage.text }, "recovery-restart");
@@ -1382,7 +1378,7 @@ export function ChatPage({
       return null;
     }
     if (!draftSessionCreatePromise.current) {
-      const modelInput = composerSessionModelInput(composerModels, defaultComposerModel);
+      const modelInput = composerSessionModelInput(composerModels, composerModel);
       draftSessionCreatePromise.current = sessionStore.create(Object.keys(modelInput).length ? modelInput : undefined)
         .then((created) => {
           activateCreatedSession(created);
@@ -2146,7 +2142,7 @@ export function ChatPage({
             className={["react-composer", emptyActiveSession ? "react-composer--raised" : ""].filter(Boolean).join(" ")}
           disabled={!activeSession && !draftNewSession}
           disabledReason={!sessionsLoaded ? t("shell.loadingSessions") : !activeSession && !draftNewSession ? t("shell.createOrSelect") : undefined}
-          defaultModel={defaultComposerModel}
+          defaultModel={composerModel}
           defaultReasoningEffort={composerReasoningEffort}
           contextUsage={activeContextUsage}
           models={composerModels}
@@ -2154,15 +2150,17 @@ export function ChatPage({
             const selected = composerModels.find((model) => model.id === modelId);
             if (!selected) return;
             const selectedModelId = selected.modelId || selected.id;
-            setDefaultComposerModel(modelId);
-            writeCurrentChatModel(selectedModelId, selected.providerId);
+            setComposerModel(modelId);
+            if (emptyActiveSession) {
+              writeDefaultChatModel(selectedModelId, selected.providerId);
+            }
             if (activeSession) {
               setSessions((current) => current.map((session) => (
                 session.id === activeSession.id
                   ? {
                       ...session,
                       model: selectedModelId,
-                      ...(selected.providerId ? { modelProvider: selected.providerId } : {}),
+                      modelProvider: selected.providerId,
                     }
                   : session
               )));

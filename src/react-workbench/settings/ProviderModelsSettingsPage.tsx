@@ -14,8 +14,8 @@ import {
   type ProviderModelsSettingsData,
 } from "../../app-core/settings/providerModelsSettings";
 import {
-  readCurrentChatModelPreference,
-  writeCurrentChatModel,
+  readDefaultChatModelPreference,
+  writeDefaultChatModel,
 } from "../../app-core/chat/chatModelPreference";
 import type { SettingsStore } from "../services";
 import { SettingsSaveStatus, type SettingsSaveState } from "./SettingsSaveStatus";
@@ -167,23 +167,23 @@ function DefaultLlmPanel({
 }) {
   const { t: tCommon } = useTranslation("common");
   const { t } = useTranslation("settings");
-  const savedPreference = readCurrentChatModelPreference();
-  const savedCurrentModel = savedPreference?.modelId ?? "";
-  const initialProviderFromCurrentModel = data.providers.find((provider) => (
+  const savedPreference = readDefaultChatModelPreference();
+  const savedDefaultModel = savedPreference?.modelId ?? "";
+  const initialProviderFromDefaultModel = data.providers.find((provider) => (
     provider.id === savedPreference?.providerId
-    && provider.models.some((model) => model.id === savedCurrentModel)
+    && provider.models.some((model) => model.id === savedDefaultModel)
   )) ?? data.providers.find((provider) => (
-    provider.models.some((model) => model.id === savedCurrentModel)
+    provider.models.some((model) => model.id === savedDefaultModel)
   ));
-  const initialProfileId = initialProviderFromCurrentModel?.profileId ?? data.activeProfileId
+  const initialProfileId = initialProviderFromDefaultModel?.profileId ?? data.activeProfileId
     ?? data.providers.find((provider) => provider.configured)?.profileId
     ?? data.providers[0]?.profileId
     ?? "";
   const initialProvider = data.providers.find((provider) => provider.profileId === initialProfileId) ?? data.providers[0];
   const initialModelOptions = initialProvider?.models ?? [];
-  const initialModel = savedCurrentModel
-    && initialModelOptions.some((model) => model.id === savedCurrentModel)
-    ? savedCurrentModel
+  const initialModel = savedDefaultModel
+    && initialModelOptions.some((model) => model.id === savedDefaultModel)
+    ? savedDefaultModel
     : initialProvider?.defaultModel ?? initialModelOptions[0]?.id ?? "";
   const [profileId, setProfileId] = useState(initialProfileId);
   const selectedProvider = data.providers.find((provider) => provider.profileId === profileId) ?? data.providers[0];
@@ -206,20 +206,20 @@ function DefaultLlmPanel({
     }
   }, [data.providers, model, profileId]);
 
-  const dirty = model !== savedCurrentModel || profileId !== initialProfileId;
+  const dirty = model !== savedDefaultModel || profileId !== initialProfileId;
   const canSave = Boolean(profileId && model && dirty && !saving);
   const normalizedModelSearch = modelSearch.trim().toLocaleLowerCase();
   const filteredModelOptions = useMemo(() => normalizedModelSearch
     ? modelOptions.filter((option) => `${option.label} ${option.id}`.toLocaleLowerCase().includes(normalizedModelSearch))
     : modelOptions, [modelOptions, normalizedModelSearch]);
 
-  async function saveCurrentModel(onSaved: () => void) {
+  async function saveDefaultModel(onSaved: () => void) {
     if (!canSave) {
       return;
     }
     setSaving(true);
     try {
-      writeCurrentChatModel(model, selectedProvider?.id);
+      writeDefaultChatModel(model, selectedProvider?.id);
       onSaved();
     } finally {
       setSaving(false);
@@ -238,8 +238,8 @@ function DefaultLlmPanel({
       <header>
         <div>
           <span className="react-settings-eyebrow">{t("provider.recentlyUsed")}</span>
-          <h3 id="default-llm-title">{t("provider.currentModel")}</h3>
-          <p>{t("provider.currentModelDescription")}</p>
+          <h3 id="default-llm-title">{t("provider.defaultModel")}</h3>
+          <p>{t("provider.defaultModelDescription")}</p>
         </div>
       </header>
       <div className="react-default-llm-summary">
@@ -357,10 +357,10 @@ function DefaultLlmPanel({
                   <button data-press-feedback="true" type="button" onClick={requestClose}>{tCommon("generic.cancel")}</button>
                   <button
                     type="button"
-                    aria-label={t("provider.saveCurrentModel")}
+                    aria-label={t("provider.saveDefaultModel")}
                     data-press-feedback="true"
                     disabled={!canSave}
-                    onClick={() => saveCurrentModel(requestClose)}
+                    onClick={() => saveDefaultModel(requestClose)}
                   >
                     {saving
                       ? <Loader2 aria-hidden="true" className="react-settings-spinner" size={15} />
