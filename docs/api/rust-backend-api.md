@@ -10,7 +10,7 @@ src/app-core/native/desktopNativeUpdate.ts
 src/app-core/native/desktopNativeWebui.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:344f596d5c858af16b9d52c79a1c2a3ce4296d6a725e190e8bcfdde7037ef26a -->
+<!-- tinybot-doc-fingerprint: sha256:af4c966fb04fad3a47389ac0ecbfcbe0bac8663bcfd5fe0b50ac62761ae59f13 -->
 
 This document describes the API surfaces exposed by the Rust/Tauri backend in `src-tauri`.
 It is intended for frontend callers and integrators who need command names, invocation
@@ -135,6 +135,7 @@ Prefer these wrappers instead of direct command strings:
 | `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread, Turn timeline, and effective-capability commands |
 | `createDesktopNativeHostCommandApi` | `src/app-core/native/desktopNativeHostCommand.ts` | Transitional Chat `operation.retry` dispatch |
 | `createDesktopNativeTerminalApi` | `src/app-core/native/desktopNativeTerminal.ts` | User-only Sidecar terminal lifecycle and PTY input/output |
+| `createDesktopNativeWorkspaceApi` | `src/app-core/native/desktopNativeWorkspace.ts` | Default-workspace browsing plus Thread-scoped file chunks for contextual Artifact previews |
 | `createDesktopNativeWebuiApi` | `src/app-core/native/desktopNativeWebui.ts` | `worker_webui_route` |
 
 ## Examples

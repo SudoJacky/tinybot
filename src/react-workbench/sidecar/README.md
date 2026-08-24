@@ -54,7 +54,10 @@ resource invokes termination through Chat. Terminal input is serialized with
 polling so cursor-based output cannot be reordered.
 
 Artifact presentation is supplied by Chat through the Sidecar render contract;
-Artifact domain state does not live in this module.
+Artifact domain state does not live in this module. Artifact tabs may come from
+canonical Agent artifacts or from local file links in assistant Markdown. File
+links are contextual only, so the resource menu does not create an empty
+Artifact tab.
 
 ## Invariants
 
@@ -71,6 +74,8 @@ Artifact domain state does not live in this module.
   current workspace bounds.
 - Resource provisioning failures remain visible and retryable rather than
   being represented as an empty successful surface.
+- Local file Artifact reads use the recorded Thread workspace and retain the
+  native workspace path guard; the renderer cannot nominate an arbitrary root.
 
 ## Verification
 
@@ -84,6 +89,8 @@ Artifact domain state does not live in this module.
   reattachment, resize, and renderer disposal without termination.
 - `../chat/ChatPage.sidecar.test.tsx` covers Chat-owned provisioning, Browser
   activation, session reattachment, workspace fallback, and close-time cleanup.
+- `../chat/ChatPage.timeline.test.tsx` covers assistant file-link Artifact
+  previews and visible path-boundary failures.
 - Run the [Windows desktop smoke test](../../../docs/guides/desktop-smoke-test.md)
   for real WebView2, PTY, process cleanup, and native geometry behavior.
 

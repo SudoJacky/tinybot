@@ -992,6 +992,8 @@ export const en = {
       turnId: "Turn ID", status: "Status", stopReason: "Stop reason", interruptedAt: "Interrupted at", originalTask: "Original task", originalError: "Original error",
       unavailable: "Details unavailable.", id: "ID", trace: "Trace", childTurn: "Child turn", loadingTrace: "Loading trace…", finalOutput: "Final output",
       type: "Type", loadingArtifact: "Loading artifact…", noPreview: "No preview content is available.", subagentTrace: "Subagent trace",
+      fileOutsideWorkspace: "This file is outside the active workspace.", filePreviewUnavailable: "Workspace file preview is unavailable in this runtime.",
+      binaryFilePreviewUnsupported: "Binary files cannot be previewed here yet.", filePreviewTruncated: "Preview truncated. Open the file directly to inspect the remaining content.",
       task: "Task", errorCode: "Error code", errorMessage: "Error message", summary: "Summary", arguments: "Arguments", response: "Response",
       delegate: "Delegate", title: "Title", parentTurn: "Parent turn", session: "Session",
     },

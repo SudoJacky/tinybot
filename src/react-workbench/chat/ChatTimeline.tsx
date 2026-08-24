@@ -38,6 +38,7 @@ import {
   type ToolCallSummary,
 } from "./messageActions";
 import { AssistantMarkdown } from "./AssistantMarkdown";
+import type { AssistantFileLink } from "./assistantFileLinks";
 import { isApplyPatchToolCall, PatchDiffCard, patchChangeSetFromToolResult } from "./PatchDiffCard";
 import { ToolActivityItem } from "./ToolActivityItem";
 import { DataViewCard } from "./DataViewCard";
@@ -48,6 +49,7 @@ export type ChatTimelineActions = {
   onBranch?: (messageId: string) => void;
   onOpenArtifact?: (artifact: ArtifactRef) => void;
   onOpenError?: (turn: ChatTurn, step: ChatStep) => void;
+  onOpenFileLink?: (link: AssistantFileLink) => void;
   onOpenSubagent?: (delegate: DelegatedAgentState) => void;
   onOpenTool?: (toolCall: ToolCallSummary) => void;
   onRecover?: (turn: ChatTurn, action: RecoveryAction) => void;
@@ -88,6 +90,7 @@ export function ChatTimeline({
           onBranch={actions.onBranch}
           onOpenArtifact={actions.onOpenArtifact}
           onOpenError={actions.onOpenError ? (step) => actions.onOpenError?.(turn, step) : undefined}
+          onOpenFileLink={actions.onOpenFileLink}
           onOpenSubagent={actions.onOpenSubagent}
           onOpenTool={actions.onOpenTool}
           onRecover={actions.onRecover ? (action) => actions.onRecover?.(turn, action) : undefined}
@@ -99,6 +102,7 @@ export function ChatTimeline({
           message={message}
           onBranch={() => undefined}
           onCopy={() => void writeClipboardText(formatMessageForCopy(message))}
+          onOpenFileLink={actions.onOpenFileLink}
           onOpenTool={() => undefined}
           sessionRunning={sessionRunning}
         />
@@ -118,6 +122,7 @@ function CanonicalChatTurn({
   onBranch,
   onOpenError,
   onOpenArtifact,
+  onOpenFileLink,
   onRecover,
   onOpenSubagent,
   onOpenTool,
@@ -130,6 +135,7 @@ function CanonicalChatTurn({
   onBranch?: (messageId: string) => void;
   onOpenError?: (step: ChatStep) => void;
   onOpenArtifact?: (artifact: ArtifactRef) => void;
+  onOpenFileLink?: (link: AssistantFileLink) => void;
   onRecover?: (action: RecoveryAction) => void;
   onOpenSubagent?: (delegate: DelegatedAgentState) => void;
   onOpenTool?: (toolCall: ToolCallSummary) => void;
@@ -178,7 +184,7 @@ function CanonicalChatTurn({
       ) : !turn.executionItems ? (
         <>
           {planSteps.map((step) => (
-            <CanonicalChatStep key={step.id} onOpenArtifact={onOpenArtifact} onOpenSubagent={onOpenSubagent} onOpenTool={onOpenTool} step={step} />
+            <CanonicalChatStep key={step.id} onOpenArtifact={onOpenArtifact} onOpenFileLink={onOpenFileLink} onOpenSubagent={onOpenSubagent} onOpenTool={onOpenTool} step={step} />
           ))}
           {groupCanonicalSteps(legacyProcessSteps).map((group) => (
             Array.isArray(group) ? (
@@ -188,7 +194,7 @@ function CanonicalChatTurn({
                 <CanonicalScopedErrors errors={group.flatMap((step) => step.scopedErrors ?? [])} />
               </div>
             ) : (
-              <CanonicalChatStep key={group.id} onOpenArtifact={onOpenArtifact} onOpenSubagent={onOpenSubagent} onOpenTool={onOpenTool} step={group} />
+              <CanonicalChatStep key={group.id} onOpenArtifact={onOpenArtifact} onOpenFileLink={onOpenFileLink} onOpenSubagent={onOpenSubagent} onOpenTool={onOpenTool} step={group} />
             )
           ))}
           {errorSteps.map((step, index) => (
@@ -214,6 +220,7 @@ function CanonicalChatTurn({
           role="assistant"
           streaming={turn.status === "running"}
           text={finalAnswer.text}
+          onOpenFileLink={onOpenFileLink}
           onBranch={turn.status === "completed" && onBranch ? () => onBranch(finalAnswer.id) : undefined}
         />
       ) : !turn.executionItems && reasoningSteps.length ? (
@@ -224,6 +231,7 @@ function CanonicalChatTurn({
           role="assistant"
           streaming={turn.status === "running"}
           text=""
+          onOpenFileLink={onOpenFileLink}
         />
       ) : null}
       {dataViewArtifacts.map((artifact) => (
@@ -460,6 +468,7 @@ function CanonicalMessage({
   allowActions = true,
   messageId,
   onBranch,
+  onOpenFileLink,
   reasoning = [],
   references = [],
   role,
@@ -469,6 +478,7 @@ function CanonicalMessage({
   allowActions?: boolean;
   messageId: string;
   onBranch?: () => void;
+  onOpenFileLink?: (link: AssistantFileLink) => void;
   reasoning?: ChatStep[];
   references?: AgentInputReference[];
   role: "user" | "assistant";
@@ -490,7 +500,7 @@ function CanonicalMessage({
         {reasoning.map((step) => (
           <MessageReasoning durationMs={reasoningDurationMs(step)} key={step.id} streaming={step.status === "running"} text={step.summary ?? ""} />
         ))}
-        {role === "assistant" ? <AssistantMarkdown streaming={streaming} text={text} /> : <PlainMessageText text={text} />}
+        {role === "assistant" ? <AssistantMarkdown onOpenFileLink={onOpenFileLink} streaming={streaming} text={text} /> : <PlainMessageText text={text} />}
         {inlineReferences.length ? <MessageContext references={inlineReferences} /> : null}
         {streaming ? <span aria-label={t("turn.agentResponding")} className="react-message__streaming" /> : null}
       </div>
@@ -512,11 +522,13 @@ function CanonicalMessage({
 
 function CanonicalChatStep({
   onOpenArtifact,
+  onOpenFileLink,
   onOpenSubagent,
   onOpenTool,
   step,
 }: {
   onOpenArtifact?: (artifact: ArtifactRef) => void;
+  onOpenFileLink?: (link: AssistantFileLink) => void;
   onOpenSubagent?: (delegate: DelegatedAgentState) => void;
   onOpenTool?: (toolCall: ToolCallSummary) => void;
   step: ChatStep;
@@ -533,6 +545,7 @@ function CanonicalChatStep({
         role="assistant"
         streaming={step.status === "running"}
         text={step.summary ?? ""}
+        onOpenFileLink={onOpenFileLink}
       />
     );
   }
@@ -922,12 +935,14 @@ function MessageBubble({
   message,
   onBranch,
   onCopy,
+  onOpenFileLink,
   onOpenTool,
   sessionRunning,
 }: {
   message: ReactChatMessage;
   onBranch: () => void;
   onCopy: () => void;
+  onOpenFileLink?: (link: AssistantFileLink) => void;
   onOpenTool: (toolCall: ToolCallSummary) => void;
   sessionRunning: boolean;
 }) {
@@ -954,7 +969,7 @@ function MessageBubble({
           <MessageReasoning streaming={message.status === "streaming"} text={message.reasoningText} />
         ) : null}
         {message.role === "assistant" ? (
-          <AssistantMarkdown streaming={message.status === "streaming"} text={message.text} />
+          <AssistantMarkdown onOpenFileLink={onOpenFileLink} streaming={message.status === "streaming"} text={message.text} />
         ) : (
           <PlainMessageText text={message.text} />
         )}

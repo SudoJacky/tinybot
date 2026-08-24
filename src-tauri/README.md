@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:443d3e93d8154b016ea2526883dfd215b25f789d1df4b656c161aeeb1ed2d2f3 -->
+<!-- tinybot-module-fingerprint: sha256:00d6487518d75cfb80d3f7fc6e3bdebc60a39db1893691d2a9bda520ef5a57ad -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -23,6 +23,9 @@ For desktop setup and launch behavior, see [the desktop guide](../docs/desktop.m
 
 Sidecar terminals with no explicit Thread working directory resolve through
 the same configured native backend workspace used by ordinary Agent turns.
+Contextual Artifact file previews instead resolve the canonical Thread's
+recorded working directory and pass only a guarded, bounded file-chunk result
+to the renderer; the renderer cannot select an arbitrary workspace root.
 - `src/desktop_commands/` adapts typed Tauri inputs to backend services.
 - `WorkerRpcRouter` handles versioned `WorkerRequest` values for internal and
   transport-backed callers.

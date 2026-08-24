@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:c2f8044fd6ba65cddcfcad1c82a270ab3c7d96b476a4845bf30a005c12a5cc3a -->
+<!-- tinybot-doc-fingerprint: sha256:9bba20486a83a9226ceb16d12e02e21c4989e7cb1f4c435e2c9abeff99e7e5dc -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -52,14 +52,14 @@ Desktop Commands / Desktop Host
 | --- | --- | --- |
 | `react-workbench` | React routes, presentation, route state | Native transport or durable domain state |
 | `react-workbench/agent-graph` | Standalone Agent Graph library and unbounded spatial canvas, node configuration, Run history, and per-node inspection | Chat route state or native execution rules |
-| `react-workbench/sidecar` | Resource tabs, scope filtering, and Sidecar presentation | Native Browser or Terminal lifecycle |
+| `react-workbench/sidecar` | Resource tabs, scope filtering, and Browser, Terminal, or contextual Artifact presentation | Native Browser or Terminal lifecycle, Artifact domain state, or workspace file authorization |
 | `app-core` | Framework-independent contracts, validation, commands, and projections | React rendering or Tauri invocation |
 | `app-core/agent-graph` | Versioned Graph contracts, validation, edit operations, persistence Interface, and runtime Interface | React rendering, native filesystem I/O, or Agent execution |
 | `app-core/desktop-pet` | Pet preferences plus monitor-aware pet and quick-chat window geometry | React rendering or native window calls |
 | `agent_graphs` | Workspace Graph files, schema validation, atomic writes, and exact-byte revisions | Renderer state or Graph execution |
 | `graph_runs` | Linear Graph preflight, Run status files, Agent node sequencing, and standard Thread creation | Renderer state, definition editing, or the Agent Loop implementation |
 | `app-core/native` | Typed renderer adapters for native commands and events | Product state or backend behavior |
-| `desktop_commands` | Thin Tauri input/output adaptation | Reusable domain behavior |
+| `desktop_commands` | Thin Tauri input/output adaptation, including Thread-scoped workspace selection for Artifact file reads | Reusable workspace path validation or file-reading behavior |
 | `desktop/pet_file_drop` and `desktop/files` | Windows WebView2 dropped-path extraction plus shared chat-attachment validation/import | Chat state, file-byte transport, or renderer presentation |
 | `desktop_terminal` | User-only Sidecar PTY lifecycle and resource ownership | Agent shell sessions or renderer presentation |
 | `chat_attachments` | Content-addressed managed image storage, validation, and request-local Data URL encoding | Conversation authority or provider protocol selection |

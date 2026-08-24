@@ -140,6 +140,7 @@ export type WorkspaceStore = {
   listFiles(): Promise<WorkspaceFileSummary[]>;
   listDirectory(request: WorkspaceDirectoryRequest): Promise<WorkspaceDirectoryPage>;
   readFile(request: { cursor?: string; path: string }): Promise<WorkspaceFileChunk>;
+  readThreadFile(request: { cursor?: string; path: string; threadId: string }): Promise<WorkspaceFileChunk>;
 };
 
 export type MemoryWorkspace = {

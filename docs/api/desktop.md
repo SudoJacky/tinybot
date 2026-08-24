@@ -15,7 +15,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:c78ea538607619f7b202bf334d39113386af396d5fae7227c591a5dff000ea42 -->
+<!-- tinybot-doc-fingerprint: sha256:558df943e791000d20fef5ed0a49ea073a5b3cbead954df0544d278103e9805a -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -110,6 +110,22 @@ Sidecar tab does not invoke termination; closing the resource terminates and
 releases its PTY record. When `workingDirectory` is omitted, the command uses
 the same configured native backend workspace as an ordinary Thread, falling
 back to `~/.tinybot/workspace`.
+
+## Sidecar Artifact File Preview
+
+Assistant Markdown file links open contextual Artifact tabs; Artifact is not an
+empty resource offered by the Sidecar add menu. The renderer recognizes
+workspace-relative paths, `file:` URLs, absolute paths inside the active
+workspace, and optional line suffixes. It sends the Thread ID and normalized
+path to `worker_thread_workspace_file_chunk`, never a renderer-selected
+workspace root.
+
+The backend resolves the canonical Thread projection and uses its recorded
+`workingDirectory`, falling back to the configured default workspace only when
+the Thread is unbound. It then delegates to the guarded workspace chunk reader,
+so traversal and symlink escapes fail explicitly. The Artifact surface shows
+loading, truncated-preview, binary-file, and read-failure states instead of an
+empty successful preview.
 
 ## File Dialog Commands
 

@@ -76,6 +76,29 @@ describe("AssistantMarkdown", () => {
     expect(screen.queryByRole("link", { name: "Relative" })).toBeNull();
   });
 
+  it("opens local file links through the artifact handler without invoking the system opener", async () => {
+    const onOpenFileLink = vi.fn();
+    render(
+      <AssistantMarkdown
+        onOpenFileLink={onOpenFileLink}
+        streaming={false}
+        text={'[Workspace guide](./docs/guide.md) [Entry](src/main.ts:12) [Absolute file](file:///D:/Code/tinybot/src/main.ts) [Outside](C:/Users/private.txt)'}
+      />,
+    );
+
+    const relativeLink = screen.getByRole("link", { name: "Workspace guide" });
+    expect(relativeLink.getAttribute("data-link-kind")).toBe("file");
+    expect(relativeLink.getAttribute("href")).toBe("#");
+    expect(relativeLink.getAttribute("target")).toBeNull();
+    fireEvent.click(relativeLink);
+
+    expect(onOpenFileLink).toHaveBeenCalledWith({ href: "./docs/guide.md" });
+    expect(mocks.openUrl).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: "Entry" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Absolute file" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Outside" })).toBeTruthy();
+  });
+
   it("adds quiet source icons without changing link names", () => {
     const { container } = render(
       <AssistantMarkdown

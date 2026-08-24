@@ -2964,6 +2964,12 @@
   overflow-wrap: anywhere;
 }
 
+.react-artifact-detail__notice {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
 .react-canonical-step[data-kind="error"] {
   border-color: #e5b7ad;
   background: color-mix(in srgb, var(--color-error) 7%, var(--color-panel));

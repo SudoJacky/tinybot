@@ -1035,4 +1035,151 @@ describe("ChatPage", () => {
     const image = await within(sidecar).findByRole("img", { name: "chart.png" });
     expect(image.getAttribute("src")).toBe("data:image/png;base64,aGVsbG8=");
   });
+
+  it("opens assistant workspace file links as contextual artifact tabs", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Tinybot workspace",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "idle",
+        workingDirectory: "D:\\Code\\py\\tinybot",
+      }],
+    });
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, [{
+      id: "a-file-link",
+      role: "assistant",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "See [the renderer entry](src/main.ts:12).",
+      status: "complete",
+    }]));
+    const readThreadFile = vi.fn(async () => ({
+      content: "import { mount } from './react-workbench/main';",
+      contentType: "text" as const,
+      lineEnd: 1,
+      lineStart: 1,
+      path: "src/main.ts",
+      revision: "rev-1",
+      sizeBytes: 48,
+    }));
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 2, 0)}
+        sessionStore={stores.sessionStore}
+        workspaceStore={{ readThreadFile }}
+      />,
+    );
+
+    await user.click(await screen.findByRole("link", { name: "the renderer entry" }));
+
+    expect(readThreadFile).toHaveBeenCalledWith({ path: "src/main.ts", threadId: "s1" });
+    const sidecar = await screen.findByLabelText("Sidecar");
+    expect(within(sidecar).getByRole("tab", { name: "main.ts" })).toBeTruthy();
+    expect(await within(sidecar).findByText("import { mount } from './react-workbench/main';")).toBeTruthy();
+  });
+
+  it("surfaces truncated and binary workspace file previews in the artifact tab", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Tinybot workspace",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "idle",
+        workingDirectory: "D:\\Code\\py\\tinybot",
+      }],
+    });
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, [{
+      id: "a-file-preview-boundaries",
+      role: "assistant",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Inspect [the full log](logs/full.log) or [the executable](dist/tinybot.exe).",
+      status: "complete",
+    }]));
+    const readThreadFile = vi.fn(async ({ path }: { path: string }) => path.endsWith(".exe")
+      ? {
+          contentType: "binary" as const,
+          path,
+          revision: "rev-binary",
+          sizeBytes: 1024,
+        }
+      : {
+          content: "first chunk",
+          contentType: "text" as const,
+          lineEnd: 1,
+          lineStart: 1,
+          nextCursor: "cursor-2",
+          path,
+          revision: "rev-log",
+          sizeBytes: 2048,
+        });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 2, 0)}
+        sessionStore={stores.sessionStore}
+        workspaceStore={{ readThreadFile }}
+      />,
+    );
+
+    await user.click(await screen.findByRole("link", { name: "the full log" }));
+    let sidecar = await screen.findByLabelText("Sidecar");
+    expect(await within(sidecar).findByText("first chunk")).toBeTruthy();
+    expect(within(sidecar).getByText(/Preview truncated/)).toBeTruthy();
+
+    await user.click(screen.getByRole("link", { name: "the executable" }));
+    sidecar = await screen.findByLabelText("Sidecar");
+    await waitFor(() => {
+      expect(within(sidecar).getByRole("alert").textContent).toContain("Binary files cannot be previewed");
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      "[artifact-preview] workspace file read failed",
+      expect.objectContaining({ path: "dist/tinybot.exe", sessionId: "s1" }),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("shows workspace file preview failures inside the artifact tab", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Tinybot workspace",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "idle",
+        workingDirectory: "D:\\Code\\py\\tinybot",
+      }],
+    });
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, [{
+      id: "a-bad-file-link",
+      role: "assistant",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "See [private file](C:/Users/private.txt).",
+      status: "complete",
+    }]));
+    const readThreadFile = vi.fn();
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 2, 0)}
+        sessionStore={stores.sessionStore}
+        workspaceStore={{ readThreadFile }}
+      />,
+    );
+
+    await user.click(await screen.findByRole("link", { name: "private file" }));
+
+    const sidecar = await screen.findByLabelText("Sidecar");
+    expect(within(sidecar).getByRole("alert").textContent).toContain("outside the active workspace");
+    expect(readThreadFile).not.toHaveBeenCalled();
+  });
 });

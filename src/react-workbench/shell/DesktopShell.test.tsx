@@ -39,6 +39,7 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
     listFiles: ReturnType<typeof vi.fn>;
     listDirectory: ReturnType<typeof vi.fn>;
     readFile: ReturnType<typeof vi.fn>;
+    readThreadFile: ReturnType<typeof vi.fn>;
   };
   toolsStore: {
     loadCatalog: ReturnType<typeof vi.fn>;
@@ -124,6 +125,13 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
         workspaceKey: "test-workspace",
       })),
       readFile: vi.fn(async ({ path }) => ({
+        content: "",
+        contentType: "text" as const,
+        path,
+        revision: "test",
+        sizeBytes: 0,
+      })),
+      readThreadFile: vi.fn(async ({ path }) => ({
         content: "",
         contentType: "text" as const,
         path,

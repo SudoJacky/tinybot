@@ -487,6 +487,8 @@ export const zh = {
       turnId: "Turn ID", status: "状态", stopReason: "停止原因", interruptedAt: "中断位置", originalTask: "原始任务", originalError: "原始错误信息",
       unavailable: "详情不可用。", id: "ID", trace: "Trace", childTurn: "子任务轮次", loadingTrace: "正在加载 Trace…", finalOutput: "最终输出",
       type: "类型", loadingArtifact: "正在加载产物…", noPreview: "没有可预览的内容。", subagentTrace: "子 Agent Trace",
+      fileOutsideWorkspace: "该文件位于当前工作区之外。", filePreviewUnavailable: "当前运行环境无法预览工作区文件。",
+      binaryFilePreviewUnsupported: "暂不支持在此处预览二进制文件。", filePreviewTruncated: "预览已截断，请直接打开文件查看剩余内容。",
       task: "任务", errorCode: "错误代码", errorMessage: "错误信息", summary: "摘要", arguments: "参数", response: "响应",
       delegate: "委派任务", title: "标题", parentTurn: "父任务轮次", session: "会话",
     },

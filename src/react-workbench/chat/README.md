@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:dac3e81ef01d3376719819ef3f40e3ce3c03e79c8b90a08ad83a9e39ead7c168 -->
+<!-- tinybot-module-fingerprint: sha256:d064c3848b58eb2b74e7bd49664670a91af6f4e49d53b8e5af3bb42c678105f5 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -7,11 +7,16 @@ canonical timeline presentation, the composer, and detail drawers.
 `ChatTimeline.tsx` owns the reusable canonical message and execution rendering;
 its action callbacks are optional so read-only consumers can omit unavailable
 branch, recovery, artifact, delegate, and tool-detail controls.
-`AssistantMarkdown.tsx` owns assistant prose and external-link presentation.
+`AssistantMarkdown.tsx` owns assistant prose and link presentation.
 Allowed web and email links keep their existing safe opener path while adding
 an aria-hidden inline source icon: a GitHub mark for GitHub hosts, an envelope
 for email, and a globe for other websites. The anchor remains inline so long
 URLs can wrap with the surrounding Markdown text.
+Local Markdown links are encoded before Streamdown's URL hardening and decoded
+only by the file-link renderer. Clicking one asks Chat to open a contextual
+Artifact resource; it never sends a local path through the external URL opener.
+Chat normalizes relative paths, `file:` URLs, workspace absolute paths, and
+optional line suffixes before requesting a Thread-scoped workspace read.
 
 The desktop pet quick-chat surface composes `ChatTimeline` and
 `ClaudeStyleAiInput` directly without mounting `ChatPage`. Its first submitted
@@ -50,6 +55,12 @@ resource while native snapshots synchronize tab identity and content; the select
 resource then drives native activation without a reverse activation feedback loop.
 Returning to a Thread with retained Browser resources reloads the authoritative
 native snapshot before rendering its existing tabs.
+Artifact file previews use the Thread ID rather than accepting a renderer-owned
+workspace root. Rust resolves the recorded Thread working directory, falls back
+to the configured default only for unbound conversations, and applies the
+existing workspace traversal and symlink guards before reading one bounded text
+chunk. Unsupported binary files, truncated previews, and read failures remain
+visible in the Artifact surface.
 Creating sessions stay in the preparation state until WebView2 is ready, and
 monotonic snapshot revisions prevent stale surface responses from hiding a newer
 visible surface.

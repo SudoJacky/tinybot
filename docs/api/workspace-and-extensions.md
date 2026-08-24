@@ -15,7 +15,7 @@ src-tauri/src/skills/definition.rs
 src-tauri/src/workspace/types.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:c14c191e846cb3d04be90c3e3dccf698865a8a84265999c47356361e55872791 -->
+<!-- tinybot-doc-fingerprint: sha256:7d81f627efe3963085d988be3a157b82c86578703bdfc94f01f6a648ad217e0a -->
 
 This document covers workspace operations and the extension catalogs available
 to Agents. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -116,6 +116,7 @@ node runs expose the selected route/edge, raw response, and provider usage.
 | `worker_workspace_put_file` | `{ input: { path, body } }` | `WorkspaceWriteResult` |
 | `worker_workspace_directory` | `{ input: { path, cursor?, nameQuery? } }` | Worker response containing `WorkspaceDirectoryPage` |
 | `worker_workspace_file_chunk` | `{ input: { path, cursor? } }` | Worker response containing `WorkspaceFileChunk` |
+| `worker_thread_workspace_file_chunk` | `{ input: { threadId, path, cursor? } }` | Worker response containing `WorkspaceFileChunk` |
 
 Lower-level workspace RPC also supports:
 
@@ -192,6 +193,15 @@ Binary files return `content_type: "binary"` without invented text content or li
 continuation cursors are bound to `revision`; using one after the file changes fails visibly with
 query code `source_changed`. Other workspace query failures retain their protocol error, path, and
 retryable metadata rather than returning an empty successful page.
+
+`worker_thread_workspace_file_chunk` is the Sidecar Artifact preview boundary.
+It resolves the Thread from the canonical rollout projection and selects that
+Thread's recorded `workingDirectory`; an unbound Thread uses the configured
+default workspace. Absolute paths are accepted only when their canonical target
+is below that root, then converted to workspace-relative paths before the same
+chunk reader handles them. The renderer cannot supply a workspace root, and
+relative traversal, symlink escape, binary content, stale cursors, and I/O
+errors retain the normal structured workspace failure behavior.
 
 `workspace.apply_patch` accepts:
 
