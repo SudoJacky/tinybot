@@ -578,6 +578,7 @@ fn canonical_config_segment(parent: &[String], _index: usize, segment: &str) -> 
             "request_timeout_ms" => "requestTimeoutMs".to_string(),
             "default_model" => "defaultModel".to_string(),
             "supports_model_discovery" => "supportsModelDiscovery".to_string(),
+            "supports_reasoning_effort" => "supportsReasoningEffort".to_string(),
             other => other.to_string(),
         };
     }

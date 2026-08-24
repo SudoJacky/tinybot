@@ -77,6 +77,7 @@ describe("provider models settings", () => {
       label: "Local OpenAI",
       builtIn: false,
       active: true,
+      supportsReasoningEffort: true,
       baseUrl: "http://127.0.0.1:11434/v1",
       models: [{ id: "local-model", label: "local-model", source: "user" }],
       modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
@@ -153,6 +154,43 @@ describe("provider models settings", () => {
             models: ["local-model"],
             defaultModel: "local-model",
             supportsModelDiscovery: true,
+            supportsReasoningEffort: true,
+          },
+        },
+      },
+    });
+  });
+
+  test("preserves an explicitly disabled reasoning effort feature for custom providers", () => {
+    const settings = buildProviderModelsSettings({
+      providers: {
+        profiles: {
+          "local-default": {
+            provider: "local-openai",
+            apiBase: "http://127.0.0.1:11434/v1",
+            models: ["local-model"],
+            supportsReasoningEffort: false,
+          },
+        },
+      },
+    });
+
+    expect(settings.providers.find((provider) => provider.profileId === "local-default"))
+      .toMatchObject({ supportsReasoningEffort: false });
+    expect(buildProviderConfigurePatch({
+      providerId: "local-openai",
+      profileId: "local-default",
+      apiBase: "http://127.0.0.1:11434/v1",
+      supportsReasoningEffort: false,
+    })).toEqual({
+      providers: {
+        profiles: {
+          "local-default": {
+            provider: "local-openai",
+            displayName: "local-openai",
+            enabled: true,
+            apiBase: "http://127.0.0.1:11434/v1",
+            supportsReasoningEffort: false,
           },
         },
       },

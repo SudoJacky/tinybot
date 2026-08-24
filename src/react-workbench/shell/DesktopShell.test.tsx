@@ -864,6 +864,7 @@ describe("DesktopShell", () => {
             models: ["local-model"],
             defaultModel: "local-model",
             supportsModelDiscovery: true,
+            supportsReasoningEffort: false,
           },
         },
       },
@@ -886,6 +887,9 @@ describe("DesktopShell", () => {
     await user.type(within(dialog).getByLabelText("Custom API base"), "http://127.0.0.1:11434/v1");
     await user.type(within(dialog).getByLabelText("Custom API key"), "local-secret");
     await user.type(within(dialog).getByLabelText("Provider fallback model"), "local-model");
+    const reasoningEffort = within(dialog).getByRole("checkbox", { name: /Send reasoning effort/ }) as HTMLInputElement;
+    expect(reasoningEffort.checked).toBe(true);
+    await user.click(reasoningEffort);
     await user.click(within(dialog).getByRole("checkbox", { name: "Set as active provider and default model" }));
     await user.click(within(dialog).getByRole("button", { name: "Add provider" }));
 
@@ -904,11 +908,38 @@ describe("DesktopShell", () => {
             models: ["local-model"],
             defaultModel: "local-model",
             supportsModelDiscovery: true,
+            supportsReasoningEffort: false,
           },
         },
       },
     });
     expect(await screen.findByRole("article", { name: "Local OpenAI provider" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "More actions for Local OpenAI" }));
+    await user.click(within(screen.getByRole("menu", { name: "Local OpenAI provider actions" }))
+      .getByRole("menuitem", { name: "Configure" }));
+    const configureDialog = screen.getByRole("dialog", { name: "Configure Local OpenAI" });
+    const configuredReasoningEffort = within(configureDialog)
+      .getByRole("checkbox", { name: "Send reasoning effort" }) as HTMLInputElement;
+    expect(configuredReasoningEffort.checked).toBe(false);
+    await user.click(configuredReasoningEffort);
+    await user.click(within(configureDialog).getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(2));
+    expect(saveProviderSettings.mock.calls[1][1]).toEqual({
+      providers: {
+        profiles: {
+          "local-openai-default": {
+            provider: "local-openai",
+            displayName: "Local OpenAI",
+            enabled: true,
+            apiBase: "http://127.0.0.1:11434/v1",
+            apiMode: "chat_completions",
+            supportsReasoningEffort: true,
+          },
+        },
+      },
+    });
   });
 
   it("renders Agent Defaults settings and jumps back to Provider & Models", async () => {

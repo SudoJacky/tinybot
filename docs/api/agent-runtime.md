@@ -76,6 +76,9 @@ Optional provider features must be declared explicitly on the selected provider 
 `structured_output` (camel-case spellings are also accepted). A requested undeclared feature fails
 with the resolved provider ID and missing capability. Built-in profile capabilities fall back to the
 provider catalog when the profile omits the field; an explicit profile value overrides that default.
+Custom OpenAI-compatible profiles are the exception for reasoning effort: they default
+`supportsReasoningEffort` to `true`. Setting it to `false` omits effort instead of failing the Turn;
+reasoning summaries still require the `reasoning` capability.
 Declared settings map to Chat Completions fields as follows: service tier to `service_tier`, reasoning
 effort to `reasoning_effort`, reasoning summary configuration to `reasoning`, and output schemas to
 `response_format.type = "json_schema"`. For Responses requests, effort and summary map to

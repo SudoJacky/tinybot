@@ -1287,6 +1287,72 @@ fn typed_turn_settings_encode_declared_provider_features() {
 }
 
 #[test]
+fn custom_provider_reasoning_effort_defaults_on_for_both_protocols() {
+    let context = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "provider": "fixture",
+            "model": "fixture-model",
+            "reasoning": { "effort": "high" },
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({
+            "providers": {
+                "profiles": {
+                    "fixture-default": {
+                        "provider": "fixture",
+                        "apiBase": "https://fixture.example.test/v1"
+                    }
+                }
+            }
+        }),
+    );
+
+    let chat_request = agent_chat_completion_request(&context)
+        .expect("custom providers should accept reasoning effort by default");
+    let responses_request = agent_responses_request(&context)
+        .expect("custom providers should accept Responses reasoning effort by default");
+
+    assert_eq!(chat_request["reasoning_effort"], "high");
+    assert_eq!(responses_request["reasoning"]["effort"], "high");
+}
+
+#[test]
+fn custom_provider_reasoning_effort_can_be_omitted_without_dropping_summary() {
+    let context = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "provider": "fixture",
+            "model": "fixture-model",
+            "reasoning": { "effort": "high", "summary": "auto" },
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({
+            "providers": {
+                "profiles": {
+                    "fixture-default": {
+                        "provider": "fixture",
+                        "apiBase": "https://fixture.example.test/v1",
+                        "supportsReasoningEffort": false,
+                        "capabilities": { "reasoning": true }
+                    }
+                }
+            }
+        }),
+    );
+
+    let chat_request = agent_chat_completion_request(&context)
+        .expect("disabled effort should not prevent a declared reasoning summary");
+    let responses_request = agent_responses_request(&context)
+        .expect("disabled effort should not prevent a declared Responses reasoning summary");
+
+    assert!(chat_request.get("reasoning_effort").is_none());
+    assert_eq!(chat_request["reasoning"]["summary"], "auto");
+    assert!(responses_request["reasoning"].get("effort").is_none());
+    assert_eq!(responses_request["reasoning"]["summary"], "auto");
+}
+
+#[test]
 fn selected_turn_tools_limit_the_production_provider_registry() {
     #[derive(Clone)]
     struct ToolRegistryProvider {

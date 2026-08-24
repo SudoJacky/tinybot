@@ -510,11 +510,13 @@ function ProviderConfigureDialog({
   const [apiBase, setApiBase] = useState(provider.baseUrl);
   const [apiKey, setApiKey] = useState("");
   const [useResponsesApi, setUseResponsesApi] = useState(provider.useResponsesApi);
+  const [supportsReasoningEffort, setSupportsReasoningEffort] = useState(provider.supportsReasoningEffort !== false);
   const [activate, setActivate] = useState(provider.active);
   const [saving, setSaving] = useState(false);
   const dirty = apiBase.trim() !== provider.baseUrl
     || Boolean(apiKey.trim())
     || useResponsesApi !== provider.useResponsesApi
+    || (!provider.builtIn && supportsReasoningEffort !== provider.supportsReasoningEffort)
     || activate !== provider.active;
   const canSave = Boolean(apiBase.trim()) && dirty && !saving;
 
@@ -529,6 +531,7 @@ function ProviderConfigureDialog({
         apiBase,
         apiKey,
         useResponsesApi,
+        supportsReasoningEffort: provider.builtIn ? undefined : supportsReasoningEffort,
         enabled: true,
         activate: !provider.active && activate,
       }));
@@ -628,6 +631,24 @@ function ProviderConfigureDialog({
             </div>
             <small>{t("provider.configureDialog.responsesHelp")}</small>
           </fieldset>
+          {!provider.builtIn ? (
+            <section className="react-provider-config__section" aria-labelledby="provider-features-title">
+              <h3 id="provider-features-title">{t("provider.configureDialog.features")}</h3>
+              <label className="react-provider-config__switch">
+                <span>
+                  <strong>{t("provider.reasoningEffort.title")}</strong>
+                  <small>{t("provider.reasoningEffort.description")}</small>
+                </span>
+                <input
+                  aria-label={t("provider.reasoningEffort.title")}
+                  checked={supportsReasoningEffort}
+                  type="checkbox"
+                  onChange={(event) => setSupportsReasoningEffort(event.currentTarget.checked)}
+                />
+                <i aria-hidden="true" />
+              </label>
+            </section>
+          ) : null}
           <footer>
             <button className="react-provider-config__cancel" data-press-feedback="true" type="button" onClick={requestClose}>{tCommon("generic.cancel")}</button>
             <button className="react-provider-config__save" data-press-feedback="true" type="submit" disabled={!canSave}>
@@ -660,6 +681,7 @@ function CustomProviderDialog({
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [supportsModelDiscovery, setSupportsModelDiscovery] = useState(true);
+  const [supportsReasoningEffort, setSupportsReasoningEffort] = useState(true);
   const [useResponsesApi, setUseResponsesApi] = useState(false);
   const [activate, setActivate] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -692,6 +714,7 @@ function CustomProviderDialog({
         apiKey,
         model,
         supportsModelDiscovery,
+        supportsReasoningEffort,
         useResponsesApi,
         activate,
       }));
@@ -744,6 +767,10 @@ function CustomProviderDialog({
           <label className="react-settings-checkbox">
             <input checked={supportsModelDiscovery} type="checkbox" onChange={(event) => setSupportsModelDiscovery(event.currentTarget.checked)} />
             <span>{t("provider.addDialog.discoverModels")}</span>
+          </label>
+          <label className="react-settings-checkbox">
+            <input checked={supportsReasoningEffort} type="checkbox" onChange={(event) => setSupportsReasoningEffort(event.currentTarget.checked)} />
+            <span>{t("provider.reasoningEffort.title")} <small>{t("provider.reasoningEffort.description")}</small></span>
           </label>
           <label className="react-settings-checkbox">
             <input checked={useResponsesApi} type="checkbox" onChange={(event) => setUseResponsesApi(event.currentTarget.checked)} />

@@ -295,6 +295,7 @@ export const zh = {
       saving: "正在保存…", saved: "已保存", saveFailed: "保存失败：{{message}}", connections: "连接", connectionsDescription: "管理每个 Provider 的凭证、Endpoint 和模型。",
       addProvider: "添加 Provider", recentlyUsed: "最近使用", defaultModel: "新会话默认模型", defaultModelDescription: "新会话会使用此模型；已有会话会保留自己的模型选择。",
       noModel: "未配置模型", noProvider: "没有 Provider", notConfigured: "未配置", responsesApi: "Responses API", chatCompletions: "Chat Completions",
+      reasoningEffort: { title: "发送推理强度", description: "如果 Endpoint 不接受 reasoning effort 参数，请关闭此项。" },
       modelCount: "{{count}} 个模型", noModels: "没有模型", changeModel: "更换模型", changeModelDescription: "选择新会话默认使用的模型。",
       closeModelSelection: "关闭模型选择", providerSelection: "选择 Provider", selectProvider: "选择 {{name}} Provider", providerModelsLabel: "{{name}} 的模型",
       modelsFrom: "来自 {{name}} 的模型", searchModels: "搜索模型", showingModels: "显示 {{shown}} / {{total}}", modelSelection: "选择模型",
@@ -307,7 +308,7 @@ export const zh = {
         close: "关闭 {{name}} 配置", description: "更新此 Provider 使用的连接。", connection: "连接", apiBase: "API Base", apiKey: "API Key",
         configured: "已配置", notConfigured: "未配置", newApiKey: "输入新的 API Key", replaceKey: "输入新 Key 会替换当前 Key。",
         keyIfRequired: "如果 Endpoint 需要，请输入 Key。", profile: "Profile", activeProfile: "当前 Profile", setActiveProfile: "设为当前 Profile",
-        activeDescription: "新任务当前使用此 Provider。", setActiveDescription: "保存后让新 Agent 任务使用此 Provider。", apiMode: "API 模式",
+        activeDescription: "新任务当前使用此 Provider。", setActiveDescription: "保存后让新 Agent 任务使用此 Provider。", apiMode: "API 模式", features: "功能支持",
         responsesHelp: "仅当 Endpoint 支持 /responses 时使用 Responses API。",
       },
       addDialog: {

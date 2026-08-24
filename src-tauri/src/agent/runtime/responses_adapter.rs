@@ -1,7 +1,7 @@
 use super::items::{AgentContentPart, AgentUsageItem};
 use super::provider_adapter::{
-    attach_provider_tools, provider_responses_message_with_user_context,
-    require_provider_capability, DecodedProviderTurn,
+    attach_provider_tools, provider_reasoning_effort_enabled,
+    provider_responses_message_with_user_context, require_provider_capability, DecodedProviderTurn,
 };
 use super::tool_router::{provider_tool_name, AgentToolDefinition};
 use super::{
@@ -139,12 +139,15 @@ impl ResponsesAdapter {
             request["service_tier"] = Value::String(service_tier.to_string());
         }
         if let Some(reasoning) = settings.reasoning.as_ref() {
-            require_provider_capability(settings, config_snapshot, "reasoning")?;
             let mut response_reasoning = Map::new();
             if let Some(effort) = reasoning.effort.as_deref() {
-                response_reasoning.insert("effort".to_string(), Value::String(effort.to_string()));
+                if provider_reasoning_effort_enabled(settings, config_snapshot)? {
+                    response_reasoning
+                        .insert("effort".to_string(), Value::String(effort.to_string()));
+                }
             }
             if let Some(summary) = reasoning.summary.as_deref() {
+                require_provider_capability(settings, config_snapshot, "reasoning")?;
                 response_reasoning
                     .insert("summary".to_string(), Value::String(summary.to_string()));
             }

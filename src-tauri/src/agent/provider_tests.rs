@@ -221,8 +221,31 @@ async fn resolves_configured_custom_openai_compatible_provider_without_catalog_e
     );
     assert_eq!(profile.api_key.as_deref(), Some("sk-custom"));
     assert!(profile.supports_model_discovery);
+    assert!(profile.is_custom);
+    assert!(profile.supports_reasoning_effort);
     assert_eq!(models.models, vec!["custom-chat"]);
     assert_eq!(models.sources["profile"], 1);
+}
+
+#[test]
+fn custom_provider_reasoning_effort_can_be_disabled() {
+    let config = json!({
+        "providers": {
+            "profiles": {
+                "my-gateway-default": {
+                    "provider": "my_gateway",
+                    "apiBase": "https://gateway.example.test/v1",
+                    "supportsReasoningEffort": false
+                }
+            }
+        }
+    });
+
+    let profile = resolve_provider_profile(&config, Some("my_gateway"), Some("my-gateway-default"))
+        .expect("custom provider should resolve");
+
+    assert!(profile.is_custom);
+    assert!(!profile.supports_reasoning_effort);
 }
 
 #[tokio::test]

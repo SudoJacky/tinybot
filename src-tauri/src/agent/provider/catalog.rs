@@ -28,11 +28,13 @@ pub struct NativeProviderCatalogEntry {
 pub struct NativeProviderProfile {
     pub provider_id: String,
     pub display_name: String,
+    pub is_custom: bool,
     pub api_base: Option<String>,
     pub api_key: Option<String>,
     pub api_key_configured: bool,
     pub models: Vec<String>,
     pub supports_model_discovery: bool,
+    pub supports_reasoning_effort: bool,
     pub capabilities: Value,
     pub request_timeout_ms: u64,
     pub stream_idle_timeout_ms: u64,
@@ -513,6 +515,7 @@ pub fn resolve_provider_profile(
                     .map(|entry| entry.display_name.to_string())
                     .unwrap_or_else(|| provider_id.to_string())
             }),
+        is_custom: catalog.is_none(),
         api_base,
         api_key_configured: api_key
             .as_deref()
@@ -534,6 +537,17 @@ pub fn resolve_provider_profile(
                 .map(|entry| entry.supports_model_discovery)
                 .unwrap_or(true)
         }),
+        supports_reasoning_effort: bool_field(
+            provider_config.unwrap_or(&Value::Null),
+            "supports_reasoning_effort",
+        )
+        .or_else(|| {
+            bool_field(
+                provider_config.unwrap_or(&Value::Null),
+                "supportsReasoningEffort",
+            )
+        })
+        .unwrap_or(true),
         capabilities: provider_config
             .and_then(|provider| provider.get("capabilities"))
             .cloned()

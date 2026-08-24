@@ -33,6 +33,7 @@ export type ProviderCardModel = {
   baseUrl: string;
   apiKeyConfigured: boolean;
   useResponsesApi: boolean;
+  supportsReasoningEffort?: boolean;
   modelCount: number;
   defaultModel: string | null;
   models: ProviderModelItem[];
@@ -54,6 +55,7 @@ export type ProviderConfigurePatchInput = {
   apiBase: string;
   apiKey?: string;
   useResponsesApi?: boolean;
+  supportsReasoningEffort?: boolean;
   enabled?: boolean;
   activate?: boolean;
 };
@@ -67,6 +69,7 @@ export type CustomProviderPatchInput = {
   useResponsesApi?: boolean;
   model: string;
   supportsModelDiscovery?: boolean;
+  supportsReasoningEffort?: boolean;
   activate?: boolean;
 };
 
@@ -176,6 +179,9 @@ export function buildProviderConfigurePatch(input: ProviderConfigurePatchInput):
   if (input.useResponsesApi !== undefined) {
     profile.apiMode = input.useResponsesApi ? "responses" : "chat_completions";
   }
+  if (input.supportsReasoningEffort !== undefined) {
+    profile.supportsReasoningEffort = input.supportsReasoningEffort;
+  }
   return withOptionalAgentsPatch(input.activate ? { activeProfile: profileId } : null, {
     providers: {
       profiles: {
@@ -196,6 +202,7 @@ export function buildCustomProviderPatch(input: CustomProviderPatchInput): JsonR
     apiBase: input.apiBase.trim(),
     models: model ? [model] : [],
     supportsModelDiscovery: input.supportsModelDiscovery !== false,
+    supportsReasoningEffort: input.supportsReasoningEffort !== false,
   };
   if (model) {
     profile.defaultModel = model;
@@ -335,6 +342,7 @@ function buildCustomProviderCard(
   const available = enabled && Boolean(baseUrl) && models.length > 0;
   const status: ProviderCardStatus = available ? "available" : "not_ready";
   const supportsModelDiscovery = pick(profile, "supportsModelDiscovery", "supports_model_discovery") !== false;
+  const supportsReasoningEffort = pick(profile, "supportsReasoningEffort", "supports_reasoning_effort") !== false;
 
   return {
     id: providerId,
@@ -348,6 +356,7 @@ function buildCustomProviderCard(
     baseUrl,
     apiKeyConfigured: hasConfiguredApiKey(profile),
     useResponsesApi: usesResponsesApi(profile),
+    supportsReasoningEffort,
     modelCount: models.length,
     defaultModel,
     models,

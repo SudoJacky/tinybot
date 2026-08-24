@@ -644,6 +644,10 @@ export const en = {
       notConfigured: "Not configured",
       responsesApi: "Responses API",
       chatCompletions: "Chat Completions",
+      reasoningEffort: {
+        title: "Send reasoning effort",
+        description: "Turn this off if the endpoint rejects reasoning effort parameters.",
+      },
       modelCount: "{{count}} models",
       noModels: "No models",
       changeModel: "Change model",
@@ -692,6 +696,7 @@ export const en = {
         activeDescription: "This provider is currently used for new turns.",
         setActiveDescription: "Use this provider for new agent turns after saving.",
         apiMode: "API mode",
+        features: "Features",
         responsesHelp: "Use Responses API only when the endpoint supports /responses.",
       },
       addDialog: {
