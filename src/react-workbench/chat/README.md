@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:1504e0b222f1b58cd752cf52ce3c935460e4a38e3a168b165017799a6137e5ef -->
+<!-- tinybot-module-fingerprint: sha256:a7b2d6d07566b4ee60a2dbdd748ef0902ac793a04e92ac55e807a138c8a5c1b8 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -71,6 +71,12 @@ actions pass their workspace and project context explicitly. Global, tab, and
 search actions may inherit an ordinary active workspace, but never an active
 project coordinator; coordinator sessions are created only by the project's
 coordinator action.
+
+Composer model selection has two scopes. Selecting a model in a draft or an
+empty Thread updates the default used by future chats as well as that Thread.
+Selecting a model in a populated Thread updates only that Thread. Explicitly
+creating another chat always resolves the saved new-chat default instead of
+inheriting the model projected from the currently viewed populated Thread.
 
 See the [Sidecar module contract](../sidecar/README.md) for resource scoping,
 renderer ownership, native lifecycle boundaries, and verification entry points.

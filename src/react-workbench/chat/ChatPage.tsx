@@ -930,13 +930,14 @@ export function ChatPage({
     const resolvedWorkingDirectory = resolvedProjectContext?.projectCoordinator
       ? undefined
       : workingDirectory ?? (activeSession?.pluginMigration ? undefined : activeSession?.workingDirectory);
+    const newSessionModel = resolveComposerModel(composerModels);
     try {
       const created = await sessionStore.create({
         ...(resolvedWorkingDirectory ? { workingDirectory: resolvedWorkingDirectory } : {}),
         ...(resolvedProjectContext?.projectGroupId ? { projectGroupId: resolvedProjectContext.projectGroupId } : {}),
         ...(resolvedProjectContext?.projectCoordinator ? { projectCoordinator: true } : {}),
         ...(resolvedProjectContext?.title ? { title: resolvedProjectContext.title } : {}),
-        ...composerSessionModelInput(composerModels, composerModel),
+        ...composerSessionModelInput(composerModels, newSessionModel),
       });
       activateCreatedSession(created);
       return created;

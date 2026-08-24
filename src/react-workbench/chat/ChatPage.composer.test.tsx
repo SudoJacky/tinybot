@@ -894,6 +894,52 @@ describe("ChatPage", () => {
     expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("new-chat-default");
   });
 
+  it("uses the saved default when creating a chat after viewing a populated Thread", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Flash thread",
+        updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+        status: "idle",
+        model: "deepseek-v4-flash",
+      }],
+    });
+    const settingsStore: SettingsStore = {
+      load: vi.fn(async () => []),
+      loadChatModels: vi.fn(async () => [
+        { id: "deepseek-v4-flash", label: "deepseek-v4-flash" },
+        { id: "deepseek-v4-flash-vision-exp", label: "deepseek-v4-flash-vision-exp" },
+      ]),
+    };
+    window.localStorage.setItem(
+      "tinybot.ui.chat.composer-model",
+      "deepseek-v4-flash-vision-exp",
+    );
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
+        sessionStore={stores.sessionStore}
+        settingsStore={settingsStore}
+      />,
+    );
+
+    const modelTrigger = await screen.findByRole("button", { name: "Select model" });
+    await waitFor(() => expect(modelTrigger.textContent).toContain("deepseek-v4-flash"));
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-model"))
+      .toBe("deepseek-v4-flash-vision-exp");
+
+    const sidebar = await screen.findByLabelText("Sessions");
+    await user.click(within(sidebar).getByRole("button", { name: "New chat" }));
+
+    expect(stores.sessionStore.create).toHaveBeenCalledWith({
+      model: "deepseek-v4-flash-vision-exp",
+    });
+  });
+
   it("updates the new-conversation default when selecting a model before the first Turn", async () => {
     const user = userEvent.setup();
     const stores = createStores({
