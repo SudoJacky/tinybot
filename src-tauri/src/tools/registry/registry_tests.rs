@@ -76,6 +76,13 @@ fn publish_data_view_is_model_visible_and_requires_session_write() {
         available.input_schema["properties"]["schemaVersion"]["const"],
         "tinybot.data_view.v1"
     );
+    let default_sort = &available.input_schema["properties"]["view"]["properties"]["defaultSort"];
+    assert_eq!(default_sort["type"], "object");
+    assert_eq!(default_sort["required"], json!(["field", "direction"]));
+    assert_eq!(
+        default_sort["properties"]["direction"]["enum"],
+        json!(["asc", "desc"])
+    );
 }
 
 #[test]

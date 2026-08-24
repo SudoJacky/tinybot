@@ -2,7 +2,6 @@ export type AgentDefaultsFormValues = {
   timezone: string;
   temperature: string;
   maxTokens: string;
-  contextWindowTokens: string;
   contextWindowStrategy: string;
   maxToolIterations: string;
 };
@@ -12,11 +11,11 @@ export type AgentDefaultsSettingsData = {
   revision?: string;
   activeProfileId: string | null;
   defaultModel: string | null;
+  fallbackContextWindowTokens: number;
   values: AgentDefaultsFormValues;
 };
 
 export type AgentDefaultsValidationErrorCode =
-  | "context-budget"
   | "context-strategy"
   | "max-tokens"
   | "max-tool-iterations"
@@ -40,14 +39,14 @@ export function buildAgentDefaultsSettings(config: unknown): AgentDefaultsSettin
     revision: stringOrUndefined(root.revision) ?? stringOrUndefined(asRecord(root.configMetadata).revision),
     activeProfileId: stringOrNull(pick(defaults, "activeProfile", "active_profile")),
     defaultModel: stringOrNull(defaults.model),
+    fallbackContextWindowTokens: positiveInteger(
+      pick(defaults, "contextWindowTokens", "context_window_tokens"),
+      DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS,
+    ),
     values: {
       timezone: stringValue(defaults.timezone),
       temperature: formNumber(pick(defaults, "temperature")),
       maxTokens: formNumber(pick(defaults, "maxTokens", "max_tokens"), DEFAULT_AGENT_MAX_TOKENS),
-      contextWindowTokens: formNumber(
-        pick(defaults, "contextWindowTokens", "context_window_tokens"),
-        DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS,
-      ),
       contextWindowStrategy: contextWindowStrategyValue(
         pick(defaults, "contextWindowStrategy", "context_window_strategy"),
       ) || DEFAULT_AGENT_CONTEXT_WINDOW_STRATEGY,
@@ -71,9 +70,6 @@ export function validateAgentDefaultsInput(values: AgentDefaultsFormValues): Age
   if (!isOptionalPositiveInteger(values.maxTokens)) {
     errors.maxTokens = "max-tokens";
   }
-  if (!isOptionalPositiveInteger(values.contextWindowTokens)) {
-    errors.contextWindowTokens = "context-budget";
-  }
   if (!isContextWindowStrategy(values.contextWindowStrategy)) {
     errors.contextWindowStrategy = "context-strategy";
   }
@@ -94,7 +90,6 @@ export function buildAgentDefaultsPatch(values: AgentDefaultsFormValues): JsonRe
     defaults.temperature = temperature;
   }
   setOptionalInteger(defaults, "maxTokens", values.maxTokens);
-  setOptionalInteger(defaults, "contextWindowTokens", values.contextWindowTokens);
   const contextWindowStrategy = contextWindowStrategyValue(values.contextWindowStrategy);
   if (contextWindowStrategy) {
     defaults.contextWindowStrategy = contextWindowStrategy;
@@ -138,6 +133,10 @@ function formNumber(value: unknown, fallback?: number): string {
     return String(value);
   }
   return fallback === undefined ? "" : String(fallback);
+}
+
+function positiveInteger(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : fallback;
 }
 
 function stringOrNull(value: unknown): string | null {

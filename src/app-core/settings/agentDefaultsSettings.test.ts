@@ -27,11 +27,11 @@ describe("agent defaults settings", () => {
       revision: "hash:1",
       activeProfileId: "deepseek-default",
       defaultModel: "deepseek-v4-pro",
+      fallbackContextWindowTokens: 128000,
       values: {
         timezone: "Asia/Singapore",
         temperature: "0.4",
         maxTokens: "4096",
-        contextWindowTokens: "128000",
         contextWindowStrategy: "compact",
         maxToolIterations: "12",
       },
@@ -50,10 +50,10 @@ describe("agent defaults settings", () => {
 
     expect(settings.values).toMatchObject({
       maxTokens: "8192",
-      contextWindowTokens: "128000",
       contextWindowStrategy: "compact",
       maxToolIterations: "200",
     });
+    expect(settings.fallbackContextWindowTokens).toBe(128000);
   });
 
   test("builds agent defaults patch from valid form values", () => {
@@ -61,7 +61,6 @@ describe("agent defaults settings", () => {
       timezone: "UTC",
       temperature: "0.2",
       maxTokens: "2048",
-      contextWindowTokens: "64000",
       contextWindowStrategy: "compact",
       maxToolIterations: "8",
     })).toEqual({
@@ -70,7 +69,6 @@ describe("agent defaults settings", () => {
           timezone: "UTC",
           temperature: 0.2,
           maxTokens: 2048,
-          contextWindowTokens: 64000,
           contextWindowStrategy: "compact",
           maxIterations: 8,
         },
@@ -83,7 +81,6 @@ describe("agent defaults settings", () => {
       timezone: "UTC",
       temperature: "abc",
       maxTokens: "2048",
-      contextWindowTokens: "64000",
       contextWindowStrategy: "compact",
       maxToolIterations: "8",
     })).toEqual({
@@ -93,7 +90,6 @@ describe("agent defaults settings", () => {
       timezone: "UTC",
       temperature: "abc",
       maxTokens: "",
-      contextWindowTokens: "",
       contextWindowStrategy: "discard",
       maxToolIterations: "",
     })).toEqual({
@@ -111,13 +107,11 @@ describe("agent defaults settings", () => {
       timezone: "UTC",
       temperature: "3",
       maxTokens: "0",
-      contextWindowTokens: "1.5",
       contextWindowStrategy: "invalid",
       maxToolIterations: "-1",
     })).toEqual({
       temperature: "temperature-range",
       maxTokens: "max-tokens",
-      contextWindowTokens: "context-budget",
       contextWindowStrategy: "context-strategy",
       maxToolIterations: "max-tool-iterations",
     });

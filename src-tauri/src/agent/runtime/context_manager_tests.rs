@@ -96,6 +96,44 @@ fn token_info_tracks_total_and_last_model_call_usage() {
 }
 
 #[test]
+fn token_info_reads_cached_input_tokens_from_provider_details() {
+    let mut history = ContextManager::from_legacy_messages(&[]).unwrap();
+
+    history.update_token_info(
+        &json!({
+            "input_tokens": 4216,
+            "input_tokens_details": { "cached_tokens": 4096 },
+            "output_tokens": 60,
+            "total_tokens": 4276
+        }),
+        Some(128_000),
+    );
+
+    let info = history.token_info().unwrap();
+    assert_eq!(info.last_token_usage.cached_input_tokens, 4096);
+    assert_eq!(info.total_token_usage.cached_input_tokens, 4096);
+}
+
+#[test]
+fn token_info_reads_reasoning_output_tokens_from_provider_details() {
+    let mut history = ContextManager::from_legacy_messages(&[]).unwrap();
+
+    history.update_token_info(
+        &json!({
+            "input_tokens": 4130,
+            "output_tokens": 81,
+            "output_tokens_details": { "reasoning_tokens": 47 },
+            "total_tokens": 4211
+        }),
+        Some(128_000),
+    );
+
+    let info = history.token_info().unwrap();
+    assert_eq!(info.last_token_usage.reasoning_output_tokens, 47);
+    assert_eq!(info.total_token_usage.reasoning_output_tokens, 47);
+}
+
+#[test]
 fn prompt_only_keeps_targets_from_the_latest_web_snapshot() {
     let snapshot = |target_ref: &str, text: &str| {
         json!({

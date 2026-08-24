@@ -9,6 +9,7 @@ import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefault
 import { buildProviderModelsSettings } from "../../app-core/settings/providerModelsSettings";
 import type { AppServices, PersonalizationInstructionsSaveInput, SessionSummary } from "../services";
 import type { ReactChatMessage } from "../chat/messageActions";
+import { CHAT_SESSION_TABS_STORAGE_KEY } from "../chat/sessionTabWorkspace";
 import { timelineFromReactMessages } from "../chat/test/timelineFixtures";
 import { unavailableTinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
 import type { DesktopUpdateClient, DesktopUpdateSnapshot } from "../../app-core/native/desktopNativeUpdate";
@@ -253,6 +254,29 @@ function createUpdateClient(
 }
 
 describe("DesktopShell", () => {
+  it("starts with an uncreated conversation even when a previous tab was saved", async () => {
+    const services = createServices({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Previously open",
+        updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+        status: "idle",
+      }],
+    });
+    window.localStorage.setItem(CHAT_SESSION_TABS_STORAGE_KEY, JSON.stringify({
+      activeSessionId: "s1",
+      draftsBySession: {},
+      openSessionIds: ["s1"],
+    }));
+
+    render(<DesktopShell services={services} />);
+
+    expect(await screen.findByRole("heading", { name: "New chat" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Previously open" })).toBeTruthy();
+    expect(services.chatStore.load).not.toHaveBeenCalled();
+  });
+
   it("keeps the React window frame draggable and top menus compact", () => {
     const controls = {
       close: vi.fn(async () => undefined),
@@ -751,7 +775,9 @@ describe("DesktopShell", () => {
         },
       },
     };
-    const saveProviderSettings = vi.fn(async (_currentConfig: unknown, _patch: unknown) => buildProviderModelsSettings(savedProviderConfig));
+    const saveProviderSettings = vi.fn()
+      .mockResolvedValueOnce(buildProviderModelsSettings(initialProviderConfig))
+      .mockResolvedValue(buildProviderModelsSettings(savedProviderConfig));
     const fetchProviderModels = vi.fn(async () => ({
       ok: true,
       models: ["deepseek-v4-pro", "deepseek-live"],
@@ -800,6 +826,9 @@ describe("DesktopShell", () => {
     const modelsDialog = screen.getByRole("dialog", { name: "DeepSeek models" });
     expect(modelsDialog).toBeTruthy();
     expect(within(modelsDialog).getAllByText("deepseek-v4-pro").length).toBeGreaterThan(0);
+    expect(within(modelsDialog).getByRole("button", {
+      name: "Context window mode for deepseek-v4-pro: Auto · 1M",
+    })).toBeTruthy();
     await user.click(within(modelsDialog).getByRole("button", { name: "Refresh models" }));
     await waitFor(() => expect(fetchProviderModels).toHaveBeenCalledWith({
       providerId: "deepseek",
@@ -808,7 +837,28 @@ describe("DesktopShell", () => {
       modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
     }));
     await waitFor(() => expect(within(modelsDialog).getAllByText("deepseek-live").length).toBeGreaterThan(0));
-    await user.click(screen.getByRole("button", { name: "Close models" }));
+    await user.click(within(modelsDialog).getByRole("button", {
+      name: "Context window mode for deepseek-live: Default · 128K",
+    }));
+    await user.click(within(modelsDialog).getByRole("menuitemradio", { name: "Custom" }));
+    const customContextWindow = within(modelsDialog).getByLabelText("Custom context window for deepseek-live");
+    await user.clear(customContextWindow);
+    await user.type(customContextWindow, "32000");
+    await user.click(within(modelsDialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(1));
+    expect(saveProviderSettings.mock.calls[0][1]).toEqual({
+      providers: {
+        profiles: {
+          "deepseek-default": {
+            provider: "deepseek",
+            models: ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-live"],
+            defaultModel: "deepseek-v4-pro",
+            modelContextWindows: [{ model: "deepseek-live", contextWindowTokens: 32000 }],
+          },
+        },
+      },
+    });
 
     await user.click(screen.getByRole("button", { name: "More actions for OpenAI" }));
     const providerActions = screen.getByRole("menu", { name: "OpenAI provider actions" });
@@ -826,8 +876,8 @@ describe("DesktopShell", () => {
     expect(saveChanges.disabled).toBe(false);
     await user.click(saveChanges);
 
-    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(1));
-    expect(saveProviderSettings.mock.calls[0][1]).toEqual({
+    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(2));
+    expect(saveProviderSettings.mock.calls[1][1]).toEqual({
       providers: {
         profiles: {
           "openai-default": {
@@ -864,6 +914,7 @@ describe("DesktopShell", () => {
             models: ["local-model"],
             defaultModel: "local-model",
             supportsModelDiscovery: true,
+            supportsReasoningEffort: false,
           },
         },
       },
@@ -886,6 +937,9 @@ describe("DesktopShell", () => {
     await user.type(within(dialog).getByLabelText("Custom API base"), "http://127.0.0.1:11434/v1");
     await user.type(within(dialog).getByLabelText("Custom API key"), "local-secret");
     await user.type(within(dialog).getByLabelText("Provider fallback model"), "local-model");
+    const reasoningEffort = within(dialog).getByRole("checkbox", { name: /Send reasoning effort/ }) as HTMLInputElement;
+    expect(reasoningEffort.checked).toBe(true);
+    await user.click(reasoningEffort);
     await user.click(within(dialog).getByRole("checkbox", { name: "Set as active provider and default model" }));
     await user.click(within(dialog).getByRole("button", { name: "Add provider" }));
 
@@ -904,11 +958,38 @@ describe("DesktopShell", () => {
             models: ["local-model"],
             defaultModel: "local-model",
             supportsModelDiscovery: true,
+            supportsReasoningEffort: false,
           },
         },
       },
     });
     expect(await screen.findByRole("article", { name: "Local OpenAI provider" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "More actions for Local OpenAI" }));
+    await user.click(within(screen.getByRole("menu", { name: "Local OpenAI provider actions" }))
+      .getByRole("menuitem", { name: "Configure" }));
+    const configureDialog = screen.getByRole("dialog", { name: "Configure Local OpenAI" });
+    const configuredReasoningEffort = within(configureDialog)
+      .getByRole("checkbox", { name: "Send reasoning effort" }) as HTMLInputElement;
+    expect(configuredReasoningEffort.checked).toBe(false);
+    await user.click(configuredReasoningEffort);
+    await user.click(within(configureDialog).getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(2));
+    expect(saveProviderSettings.mock.calls[1][1]).toEqual({
+      providers: {
+        profiles: {
+          "local-openai-default": {
+            provider: "local-openai",
+            displayName: "Local OpenAI",
+            enabled: true,
+            apiBase: "http://127.0.0.1:11434/v1",
+            apiMode: "chat_completions",
+            supportsReasoningEffort: true,
+          },
+        },
+      },
+    });
   });
 
   it("renders Agent Defaults settings and jumps back to Provider & Models", async () => {
@@ -976,7 +1057,6 @@ describe("DesktopShell", () => {
           timezone: "Asia/Singapore",
           temperature: 0.6,
           maxTokens: 2048,
-          contextWindowTokens: 128000,
           contextWindowStrategy: "compact",
           maxIterations: 12,
         },
@@ -1096,6 +1176,7 @@ describe("DesktopShell", () => {
     });
     render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
 
+    await user.click(await screen.findByRole("button", { name: "Running chat" }));
     await screen.findByRole("heading", { name: "Running chat" });
     await user.click(screen.getByRole("button", { name: "App" }));
     const stopCommand = within(screen.getByRole("menu", { name: "Application menu" })).getByRole("menuitem", { name: /Stop Generation/ });
@@ -1111,6 +1192,7 @@ describe("DesktopShell", () => {
   });
 
   it("runs Stop Generation from the keyboard shortcut for the active running chat", async () => {
+    const user = userEvent.setup();
     const services = createServices({
       messages: [{
         id: "u1",
@@ -1129,6 +1211,7 @@ describe("DesktopShell", () => {
     });
     render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
 
+    await user.click(await screen.findByRole("button", { name: "Running chat" }));
     const stopButton = await screen.findByRole("button", { name: "Stop generation" });
     await waitFor(() => expect((stopButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.keyDown(window, { ctrlKey: true, key: "." });

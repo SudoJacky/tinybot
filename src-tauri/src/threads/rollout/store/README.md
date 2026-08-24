@@ -1,5 +1,5 @@
 # Worker Thread Log
-<!-- tinybot-module-fingerprint: sha256:786b19af60301269396f71aa8b56c4cd63468230063d6122069a9731eb38d4b2 -->
+<!-- tinybot-module-fingerprint: sha256:83ff06ddca1d06a527ab2a395f7ba31ea0551fc73bcf1fdd03ca2a42ac122351 -->
 
 `threads::rollout::store` owns Tinybot's canonical append-only Rollout. It validates
 paths, records typed lines, reconstructs Thread and runtime projections,
@@ -58,6 +58,8 @@ successful append.
   independently of the Agent's content workspace.
 - Append complete JSON lines and flush them before reporting success.
 - Replay log history without mutating the source log.
+- Rehydrate context metrics in historical compact usage Items from their adjacent
+  canonical token-count event.
 - Project replayed state into typed Thread history and runtime context shapes.
 - Maintain the `ThreadStateIndex` used for listing and lookup.
 - Rebuild the process-local index from canonical logs at startup.
@@ -154,6 +156,11 @@ item. A tool-only provider response with no assistant content does not create a
 live-only empty item or advance `snapshotRevision`. Reasoning identities remain
 available to replay and diagnostics but do not create product-facing timeline
 items.
+
+Durable usage events keep the typed usage `agentItem` and its original provider
+payload. The store omits redundant outer enriched usage fields; the adjacent
+canonical token-count record remains authoritative for normalized last-call and
+Turn-total usage, including context-window, cache, and reasoning counters.
 
 Thread-owned runtime-event records persist the canonical item identity.
 Reconstruction of older records recovers assistant and reasoning identity from

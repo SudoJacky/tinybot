@@ -2222,6 +2222,83 @@ fn publish_data_view_emits_a_persistable_artifact_and_continues_the_turn() {
 }
 
 #[test]
+fn invalid_publish_data_view_sort_still_emits_a_terminal_result() {
+    let arguments = json!({
+        "schemaVersion": "tinybot.data_view.v1",
+        "title": "Agent projects",
+        "insight": "Compare three projects.",
+        "dataset": {
+            "columns": [
+                { "key": "name", "label": "Project", "type": "string" },
+                { "key": "stars", "label": "Stars", "type": "number", "format": "compact" }
+            ],
+            "rows": [
+                { "id": "openhands", "values": { "name": "OpenHands", "stars": 84937 } }
+            ]
+        },
+        "view": {
+            "kind": "table",
+            "fields": ["name", "stars"],
+            "defaultSort": "stars"
+        },
+        "provenance": {
+            "status": "sourced",
+            "asOf": "2026-08-24",
+            "sources": [{
+                "id": "github",
+                "kind": "url",
+                "title": "GitHub API",
+                "uri": "https://api.github.com/repos/OpenHands/OpenHands"
+            }]
+        }
+    })
+    .to_string();
+    let services = NativeAgentRuntimeServices::default();
+    let result = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runtime": "rust",
+            "turnId": "turn-invalid-data-view-sort",
+            "sessionId": "websocket:chat-invalid-data-view-sort",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "compare projects" }]
+        }),
+        json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+            "providers": {
+                "fixture": {
+                    "responses": [
+                        {
+                            "content": "",
+                            "toolCalls": [{
+                                "id": "call-invalid-data-view-sort",
+                                "name": "publish_data_view",
+                                "argumentsJson": arguments
+                            }]
+                        },
+                        { "content": "The data view was rejected." }
+                    ]
+                }
+            }
+        }),
+    )
+    .expect("invalid data view should be returned to the model instead of stalling");
+
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["completedToolResults"][0]["status"], "error");
+    assert!(result["runtimeEvents"]
+        .as_array()
+        .expect("events should be an array")
+        .iter()
+        .any(|event| {
+            event["eventName"] == "agent.tool.result"
+                && event["payload"]["toolCallId"] == "call-invalid-data-view-sort"
+                && event["payload"]["status"] == "completed"
+                && event["payload"]["resultStatus"] == "error"
+        }));
+}
+
+#[test]
 fn publish_data_view_handles_multiple_calls_from_one_provider_response() {
     let tool_calls = [
         ("call-data-view-1", "Revenue", "bar"),
@@ -3554,14 +3631,33 @@ fn cancellation_after_tool_result_preserves_completed_tool_state() {
 }
 
 #[test]
-fn malformed_tool_arguments_fail_before_dispatch() {
-    struct InvalidArgumentsProvider;
+fn malformed_tool_arguments_are_returned_to_the_model() {
+    struct InvalidArgumentsProvider {
+        calls: AtomicUsize,
+    }
 
     impl NativeAgentProvider for InvalidArgumentsProvider {
         fn complete(
             &self,
-            _context: &AgentTurnContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) > 0 {
+                assert!(context.messages.iter().any(|message| {
+                    message["role"] == "tool"
+                        && message["tool_call_id"] == "call-invalid-json"
+                        && message["content"].as_str().is_some_and(|content| {
+                            content.contains("workspace.read_file")
+                                && content.contains("arguments are invalid JSON")
+                        })
+                }));
+                return Ok(NativeAgentProviderResponse {
+                    final_content: "invalid tool arguments handled".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    response_items: Vec::new(),
+                    tool_calls: Vec::new(),
+                });
+            }
             Ok(NativeAgentProviderResponse {
                 final_content: String::new(),
                 reasoning_delta: None,
@@ -3590,24 +3686,164 @@ fn malformed_tool_arguments_fail_before_dispatch() {
     }
 
     let services = NativeAgentRuntimeServices::new(
-        Arc::new(InvalidArgumentsProvider),
+        Arc::new(InvalidArgumentsProvider {
+            calls: AtomicUsize::new(0),
+        }),
         Arc::new(PanickingDispatcher),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
     )
     .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]));
 
-    let error = run_native_agent_turn_with_services(
+    let result = run_native_agent_turn_with_services(
         &services,
         json!({
             "runtime": "rust",
             "turnId": "turn-invalid-tool-json",
             "sessionId": "websocket:chat-invalid-tool-json",
+            "maxIterations": 2,
             "messages": [{ "role": "user", "content": "read" }]
         }),
     )
-    .expect_err("malformed tool arguments should fail the turn");
+    .expect("malformed tool arguments should be returned to the model");
 
-    assert!(error.contains("workspace.read_file"));
-    assert!(error.contains("arguments are invalid JSON"));
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["finalContent"], "invalid tool arguments handled");
+    assert_eq!(
+        result["completedToolResults"][0]["toolCallId"],
+        "call-invalid-json"
+    );
+    assert_eq!(result["completedToolResults"][0]["status"], "error");
+    assert!(
+        result["completedToolResults"][0]["envelope"]["modelContent"]
+            .as_str()
+            .is_some_and(|content| {
+                content.contains("workspace.read_file")
+                    && content.contains("arguments are invalid JSON")
+            })
+    );
+    assert!(!result["runtimeEvents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|event| event["eventName"] == "agent.error"));
+}
+
+#[test]
+fn malformed_tool_batch_returns_a_result_for_every_call() {
+    struct PartiallyInvalidBatchProvider {
+        calls: AtomicUsize,
+    }
+
+    impl NativeAgentProvider for PartiallyInvalidBatchProvider {
+        fn complete(
+            &self,
+            context: &AgentTurnContext,
+        ) -> Result<NativeAgentProviderResponse, String> {
+            if self.calls.fetch_add(1, Ordering::SeqCst) > 0 {
+                let tool_messages = context
+                    .messages
+                    .iter()
+                    .filter(|message| message["role"] == "tool")
+                    .collect::<Vec<_>>();
+                assert_eq!(tool_messages.len(), 2);
+                assert!(tool_messages.iter().any(|message| {
+                    message["tool_call_id"] == "call-invalid-json"
+                        && message["content"]
+                            .as_str()
+                            .is_some_and(|content| content.contains("arguments are invalid JSON"))
+                }));
+                assert!(tool_messages.iter().any(|message| {
+                    message["tool_call_id"] == "call-valid-but-blocked"
+                        && message["content"].as_str().is_some_and(|content| {
+                            content.contains(
+                                "tool batch was not executed because it contains invalid tool arguments",
+                            )
+                        })
+                }));
+                return Ok(NativeAgentProviderResponse {
+                    final_content: "invalid tool batch handled".to_string(),
+                    reasoning_delta: None,
+                    usage: None,
+                    response_items: Vec::new(),
+                    tool_calls: Vec::new(),
+                });
+            }
+            Ok(NativeAgentProviderResponse {
+                final_content: String::new(),
+                reasoning_delta: None,
+                usage: None,
+                response_items: Vec::new(),
+                tool_calls: vec![
+                    NativeAgentToolCall {
+                        id: "call-invalid-json".to_string(),
+                        name: "workspace.read_file".to_string(),
+                        arguments_json: "{".to_string(),
+                        result: Value::Null,
+                    },
+                    NativeAgentToolCall {
+                        id: "call-valid-but-blocked".to_string(),
+                        name: "test.lookup".to_string(),
+                        arguments_json: "{\"query\":\"tinybot\"}".to_string(),
+                        result: Value::Null,
+                    },
+                ],
+            })
+        }
+    }
+
+    struct PanickingDispatcher;
+
+    impl NativeAgentToolDispatcher for PanickingDispatcher {
+        fn dispatch(
+            &self,
+            _context: &AgentTurnContext,
+            _tool_call: &PreparedToolCall,
+        ) -> Result<NativeAgentToolResult, String> {
+            panic!("a batch with invalid arguments must not dispatch any tool");
+        }
+    }
+
+    let result = run_native_agent_turn_with_services(
+        &NativeAgentRuntimeServices::new(
+            Arc::new(PartiallyInvalidBatchProvider {
+                calls: AtomicUsize::new(0),
+            }),
+            Arc::new(PanickingDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_test_tool_registry_entries(test_registry_with_model_tools(&[
+            "workspace.read_file",
+            "test.lookup",
+        ])),
+        json!({
+            "runtime": "rust",
+            "turnId": "turn-invalid-tool-batch-json",
+            "sessionId": "websocket:chat-invalid-tool-batch-json",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "run two tools" }]
+        }),
+    )
+    .expect("every call in a malformed tool batch should receive a result");
+
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["finalContent"], "invalid tool batch handled");
+    assert_eq!(result["completedToolResults"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        result["completedToolResults"][0]["toolCallId"],
+        "call-invalid-json"
+    );
+    assert_eq!(
+        result["completedToolResults"][1]["toolCallId"],
+        "call-valid-but-blocked"
+    );
+    assert!(result["completedToolResults"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|completed| completed["status"] == "error"
+            && completed["envelope"]["modelContent"]
+                .as_str()
+                .is_some_and(|content| !content.is_empty())));
 }

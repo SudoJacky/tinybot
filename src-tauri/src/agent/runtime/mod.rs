@@ -19,6 +19,7 @@ mod checkpoint;
 mod context;
 mod context_contributors;
 mod context_manager;
+mod context_window_config;
 mod continuations;
 mod data_view;
 mod events;

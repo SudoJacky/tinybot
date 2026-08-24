@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:f19ae3b02cedd91d126f85cbb60edb92970ee778b8d00fc25614cd037a628b20 -->
+<!-- tinybot-module-fingerprint: sha256:1907da50bf368aa312b4074b86eaedf4ff50efbe5ab6540430017dac214cedd9 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -22,7 +22,13 @@ to [`agent::bridge`](../bridge/README.md).
 - Evaluate hooks around provider, turn, thread, and context-compaction stages.
 - Emit correlated runtime events and project typed items for compatibility
   consumers.
-- Track token usage, cancellation, and resumable form checkpoints.
+- Track token usage, cancellation, and resumable form checkpoints. Provider
+  cache-read and reasoning-output counts are normalized from both top-level
+  usage fields and the Chat Completions/Responses prompt, input, completion,
+  or output Token detail objects. Context-window estimates include serialized
+  provider-visible tool definitions as well as messages and instructions. Typed
+  usage Items keep those normalized context metrics separate from the untouched
+  provider payload.
 
 This module does **not** choose the desktop transport, mutate Tauri state, or
 decide which durable conversation store a caller uses.
@@ -42,9 +48,11 @@ decide which durable conversation store a caller uses.
    the request and decode provider output into runtime concepts.
 5. Assistant items are appended. Tool calls are routed through
    `tool_router.rs`, `tool_dispatcher.rs`, and `tool_runtime.rs`.
-6. Tools dispatch directly after validation. Forms use their dedicated
-   resumable mechanism. A tool batch is fully recorded before the next provider
-   call.
+6. Tools dispatch directly after validation. Provider-authored argument JSON
+   that cannot be prepared blocks dispatch for that batch and produces one
+   model-visible error result for every call ID before the provider loop
+   continues. Forms use their dedicated resumable mechanism. A tool batch is
+   fully recorded before the next provider call.
 7. Usage and runtime events are emitted through the injected trace sink, and
    `result.rs` builds the terminal response.
 
@@ -52,6 +60,11 @@ When a Turn does not configure a context-window strategy, the runtime defaults
 to `compact`. Explicit `discard` remains supported. Compaction failure is
 reported through the typed failure path and never silently falls back to
 discarding history.
+
+`context_window_config.rs` resolves the effective window behind one runtime
+interface. Turn overrides win over Provider Profile model overrides; known
+DeepSeek V4 models then use 1M automatically, while the legacy global value is
+retained only as an unknown-model fallback before the 128K default.
 
 Project-group coordinator Turns receive `spawn_workspace_thread` and
 `send_thread_message`. Each call authorizes the target workspace against the
@@ -111,6 +124,13 @@ product-facing canonical timeline item. This keeps Chat Completions and
 Responses rendering focused on messages and observable work without exposing
 raw chain-of-thought content.
 
+Custom OpenAI-compatible providers assume reasoning-effort parameters are
+supported unless their profile sets `supportsReasoningEffort: false`. Both
+protocol adapters apply that profile decision at the wire boundary: Chat
+Completions omits `reasoning_effort`, while Responses omits only
+`reasoning.effort`. Reasoning summary settings retain their separate
+capability check and wire field.
+
 The provider loop, tool router, tool execution, permission checks,
 cancellation, tracing, and terminal-result construction remain shared. Adding a
 new provider API must extend the adapter router instead of adding API-mode
@@ -128,6 +148,7 @@ conditionals throughout those shared runtime modules.
 - `items.rs`, `item_event_projection.rs`, `subagent_projection.rs`: canonical
   items and compatibility projections.
 - `context.rs`, `context_manager.rs`, `context_contributors.rs`,
+  `context_window_config.rs`,
   `instructions.rs`, `usage.rs`: model-visible context, compaction, usage, and
   instruction composition.
 - `tool_router.rs`, `tool_dispatcher.rs`, `tool_runtime.rs`: discovery,
@@ -152,6 +173,9 @@ conditionals throughout those shared runtime modules.
   boundaries; late work must not overwrite a terminal outcome.
 - Tool execution goes through the dispatcher so capability, ownership, trace,
   and cleanup behavior remain consistent.
+- Every provider tool-call ID receives exactly one model-visible result before
+  the next provider request, including calls rejected before dispatch because
+  their argument JSON is invalid.
 - Model-visible shell results keep one compact process-control view with the
   interleaved output. The full process snapshot is available to live runtime
   projections, but durable response items use that compact view as their sole
@@ -276,8 +300,11 @@ Each tool call runs under an owned task and child cancellation token. Calls
 marked parallel-safe by registry policy share a wave; exclusive calls split the
 batch into sequential waves. Every wave is awaited and results are projected in
 model order before the next provider call. Rejected batches also project one
-terminal result per provider call ID. Tool cleanup comes from the registry
-policy:
+terminal result per provider call ID. If any call has malformed or non-object
+argument JSON, the whole batch is rejected without side effects: the malformed
+call keeps its parser error and every otherwise-valid call receives a batch
+rejection result so protocol call/result pairing remains complete. Tool cleanup
+comes from the registry policy:
 
 - `cooperative`: notify and wait through the cleanup bound;
 - `terminate_process`: terminate the owned process after cancellation;

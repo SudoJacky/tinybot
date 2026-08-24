@@ -204,7 +204,27 @@ pub(super) fn require_provider_capability(
     config_snapshot: &Value,
     capability: &str,
 ) -> Result<(), String> {
-    let profile = crate::agent::provider::resolve_provider_profile(
+    let profile = resolve_provider_profile(settings, config_snapshot)?;
+    require_profile_capability(&profile, capability)
+}
+
+pub(super) fn provider_reasoning_effort_enabled(
+    settings: &AgentTurnSettings,
+    config_snapshot: &Value,
+) -> Result<bool, String> {
+    let profile = resolve_provider_profile(settings, config_snapshot)?;
+    if profile.is_custom {
+        return Ok(profile.supports_reasoning_effort);
+    }
+    require_profile_capability(&profile, "reasoning")?;
+    Ok(true)
+}
+
+fn resolve_provider_profile(
+    settings: &AgentTurnSettings,
+    config_snapshot: &Value,
+) -> Result<crate::agent::provider::NativeProviderProfile, String> {
+    crate::agent::provider::resolve_provider_profile(
         config_snapshot,
         settings.provider.as_deref(),
         None,
@@ -212,7 +232,13 @@ pub(super) fn require_provider_capability(
     .ok_or_else(|| {
         let provider = settings.provider.as_deref().unwrap_or("active profile");
         format!("provider `{provider}` is not configured")
-    })?;
+    })
+}
+
+fn require_profile_capability(
+    profile: &crate::agent::provider::NativeProviderProfile,
+    capability: &str,
+) -> Result<(), String> {
     let supported = capability_enabled(&profile.capabilities, capability);
     if supported {
         Ok(())

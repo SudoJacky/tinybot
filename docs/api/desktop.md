@@ -481,6 +481,24 @@ The built-in provider catalog currently exposes only `deepseek`, `dashscope`, an
 Profiles are not limited to that catalog: a profile with a custom provider ID, explicit `apiBase`,
 and at least one model is resolved as an OpenAI-compatible provider. Its optional API key remains on
 the existing secret/redaction path, and `supportsModelDiscovery` controls `/models` discovery.
+`supportsReasoningEffort` defaults to `true`; set it to `false` to omit effort from both Chat
+Completions and Responses requests for endpoints that reject the field.
+Context windows are model-specific. A provider profile can store explicit overrides as
+`modelContextWindows`, for example:
+
+```json
+{
+  "modelContextWindows": [
+    { "model": "local-small-model", "contextWindowTokens": 32768 }
+  ]
+}
+```
+
+The runtime prefers a turn override, then the active profile's model override, then Tinybot's
+known-model default. `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`, and
+`deepseek-v4-pro` default to `1000000`; unknown models use the legacy
+`agents.defaults.contextWindowTokens` value when present and otherwise fall back to `128000`.
+The settings UI edits these values per model instead of applying one global window to every model.
 Each profile defaults to Chat Completions. Set `apiMode` to `responses` (or enable **Use Responses
 API** in provider settings) only when its endpoint supports `/responses`.
 

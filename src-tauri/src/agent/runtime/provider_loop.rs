@@ -865,7 +865,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         }
 
         let provider_context = context_with_projected_messages(&self.context, projection.messages);
-        let estimated_context_tokens = estimate_context_tokens_for_request(&provider_context);
+        let estimated_context_tokens = estimate_context_tokens_for_request(&provider_context)?;
         let attempt = ProviderAttempt::new(&self.context, iteration, estimated_context_tokens);
         let before_provider_invocation = AgentHookInvocation::provider(
             AgentHookStage::BeforeProviderRequest,
@@ -1448,7 +1448,7 @@ fn emit_context_compaction_failure(
             "failureStopReason": failure_stop_reason,
             "message": message,
             "error": message,
-            "estimatedTokensBefore": estimate_context_tokens_for_request(context),
+            "estimatedTokensBefore": estimate_context_tokens_for_request(context)?,
             "canonicalContextChanged": false,
         }),
     ))

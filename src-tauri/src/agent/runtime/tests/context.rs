@@ -1,4 +1,6 @@
-use super::super::usage::{context_window_action_payload, context_window_projection};
+use super::super::usage::{
+    context_window_action_payload, context_window_projection, estimate_context_tokens_for_request,
+};
 use super::*;
 
 #[test]
@@ -304,6 +306,7 @@ fn system_prompt_survives_context_window_trimming() {
         json!({
             "agents": {
                 "defaults": {
+                    "model": "fixture-model",
                     "contextWindowTokens": 32,
                     "contextWindowStrategy": "discard"
                 }
@@ -396,7 +399,7 @@ fn agent_chat_request_requests_stream_usage() {
 
 #[test]
 fn agent_chat_request_compacts_old_messages_when_strategy_is_compact() {
-    let context = AgentTurnContext::from_spec(
+    let mut context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
             "turnId": "turn-context-compact",
@@ -421,6 +424,7 @@ fn agent_chat_request_compacts_old_messages_when_strategy_is_compact() {
             "providers": { "fixture": { "responses": [{ "content": "summary of earlier turns" }] } }
         }),
     );
+    context.tool_router = NativeToolRouter::new(Vec::new());
 
     let request = agent_chat_completion_request(&context).expect("request should build");
     let messages = request["messages"]
@@ -529,8 +533,12 @@ fn agent_turn_emits_compaction_failed_without_installing_a_checkpoint() {
 
 #[test]
 fn agent_turn_emits_context_compaction_event_when_old_messages_are_summarized() {
+    let services = NativeAgentRuntimeServices {
+        test_tool_registry_entries: Some(Vec::new()),
+        ..NativeAgentRuntimeServices::default()
+    };
     let result = run_native_agent_turn_with_config(
-        &NativeAgentRuntimeServices::default(),
+        &services,
         json!({
             "runtime": "rust",
             "turnId": "turn-context-compact-event",
@@ -1171,7 +1179,12 @@ fn compacted_context_becomes_the_next_tool_iteration_baseline() {
             contexts: contexts.clone(),
         }),
         tools: Arc::new(ReadDispatcher),
-        test_tool_registry_entries: Some(test_registry_with_model_tools(&["workspace.read_file"])),
+        test_tool_registry_entries: Some(
+            test_registry_with_model_tools(&["workspace.read_file"])
+                .into_iter()
+                .filter(|entry| entry.method == "workspace.read_file")
+                .collect(),
+        ),
         ..NativeAgentRuntimeServices::default()
     };
     let result = run_native_agent_turn_with_config(
@@ -1261,15 +1274,38 @@ fn agent_usage_event_includes_context_window_budget() {
     assert!(usage["context_window_remaining_tokens"].is_number());
     assert!(usage["context_window_used_tokens"].is_number());
     assert_eq!(usage_event["payload"]["agentItem"]["type"], "usage");
-    assert_eq!(
-        usage_event["payload"]["agentItem"]["providerPayload"],
-        *usage
+    assert!(usage_event["payload"]["agentItem"]["providerPayload"]
+        .get("contextWindowTokens")
+        .is_none());
+}
+
+#[test]
+fn context_estimate_includes_provider_visible_tool_definitions() {
+    let mut without_tools = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({}),
     );
+    without_tools.tool_router = NativeToolRouter::new(Vec::new());
+    let mut with_tools = without_tools.clone();
+    with_tools.tool_router =
+        NativeToolRouter::new(test_registry_with_model_tools(&["workspace.read_file"]));
+
+    let estimate_without_tools = estimate_context_tokens_for_request(&without_tools).unwrap();
+    let estimate_with_tools = estimate_context_tokens_for_request(&with_tools).unwrap();
+
+    assert!(estimate_with_tools > estimate_without_tools + 500);
 }
 
 #[test]
 fn context_window_uses_whitelisted_model_default_when_unconfigured() {
-    for model in ["deepseek-v4-flash", "deepseek-v4-pro"] {
+    for model in [
+        "deepseek-v4-flash",
+        "deepseek-v4-flash-vision-exp",
+        "deepseek-v4-pro",
+    ] {
         let context = AgentTurnContext::from_spec(json!({ "model": model }), json!({}));
 
         let usage = enrich_usage_with_context_window(&context, json!({}), 10, 0);
@@ -1288,13 +1324,56 @@ fn context_window_keeps_generic_default_for_unlisted_models() {
 }
 
 #[test]
-fn configured_context_window_overrides_whitelisted_model_default() {
+fn legacy_global_context_window_is_only_an_unknown_model_fallback() {
     let context = AgentTurnContext::from_spec(
         json!({ "model": "deepseek-v4-pro" }),
         json!({
             "agents": {
                 "defaults": {
                     "contextWindowTokens": 64_000
+                }
+            }
+        }),
+    );
+
+    let usage = enrich_usage_with_context_window(&context, json!({}), 10, 0);
+
+    assert_eq!(usage["contextWindowTokens"], 1_000_000);
+
+    let unknown_context = AgentTurnContext::from_spec(
+        json!({ "model": "custom-model" }),
+        json!({
+            "agents": {
+                "defaults": {
+                    "contextWindowTokens": 64_000
+                }
+            }
+        }),
+    );
+    let unknown_usage = enrich_usage_with_context_window(&unknown_context, json!({}), 10, 0);
+    assert_eq!(unknown_usage["contextWindowTokens"], 64_000);
+}
+
+#[test]
+fn provider_profile_model_context_window_overrides_automatic_default() {
+    let context = AgentTurnContext::from_spec(
+        json!({ "model": "deepseek-v4-pro", "provider": "deepseek" }),
+        json!({
+            "agents": {
+                "defaults": {
+                    "activeProfile": "deepseek-default",
+                    "contextWindowTokens": 128_000
+                }
+            },
+            "providers": {
+                "profiles": {
+                    "deepseek-default": {
+                        "provider": "deepseek",
+                        "modelContextWindows": [{
+                            "model": "deepseek-v4-pro",
+                            "contextWindowTokens": 64_000
+                        }]
+                    }
                 }
             }
         }),

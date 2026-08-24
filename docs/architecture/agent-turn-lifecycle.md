@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:e2514dac7954ba67ed72463d6f24ada8be7f05e3d42521a562d3a95019d2ad3a -->
+<!-- tinybot-doc-fingerprint: sha256:29787e2dff303c938cdf1dfc55664dd16a309c9451b4480a1ffe99f3389036c0 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -61,7 +61,10 @@ Rollout reconstruction and live timeline events -> React projection
 
 The bridge persists the Turn start before provider work. This ordering makes a
 visible Turn recoverable after interruption. Trace output is flushed before a
-successful terminal result is persisted.
+successful terminal result is persisted. If runtime execution or trace flush
+fails, the bridge persists a failed terminal state with `runtime_error` before
+returning the original error to the desktop caller; the renderer can then
+reload the canonical Rollout instead of leaving the Turn active.
 
 ## Runtime loop
 
@@ -70,10 +73,14 @@ For each provider iteration, the runtime:
 1. Restores any continuation and prepares typed `AgentItem` history.
 2. Builds the bounded request context and records provenance.
 3. Invokes the configured provider adapter.
-4. Decodes assistant text, reasoning metadata, usage, and tool calls.
+4. Decodes assistant text, reasoning metadata, usage (including nested cache
+   and reasoning detail counters), and tool calls.
 5. Records the complete tool batch before the next provider request.
-6. Emits correlated runtime events through the injected trace sink.
-7. Stops at a terminal result or creates a resumable checkpoint.
+6. Converts provider-authored argument preparation failures into correlated
+   tool results for every call in the batch, then continues planning without
+   dispatching partial side effects.
+7. Emits correlated runtime events through the injected trace sink.
+8. Stops at a terminal result or creates a resumable checkpoint.
 
 The bridge loads additive global and effective-working-directory command hooks
 for each Turn. `UserPromptSubmit` runs after the durable Turn start, so a denied
@@ -121,11 +128,13 @@ reconstruct the updated log before recovery decisions are made.
 - Preserve Thread, Turn, Item, tool-call, request, trace, and client-event IDs
   across seams.
 - Persist Turn start before provider work and flush trace before terminal
-  success.
+  success; persist a failed terminal before returning a runtime or trace error.
 - Do not append the same user, assistant, or tool item again during terminal
   persistence.
 - Keep provider failures, tool failures, trace failures, cancellation, and
   typed waiting states distinguishable.
+- Preserve one model-visible result for every provider tool-call ID, including
+  calls rejected before dispatch because another call in the batch is invalid.
 - Keep trusted command-hook decisions correlated to the same Turn without
   persisting command text, raw stdout, or stderr in diagnostic events; an
   explicit bounded `systemMessage` remains intentional user-facing output.

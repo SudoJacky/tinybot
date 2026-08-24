@@ -150,12 +150,6 @@ export function AgentDefaultsSettingsPage({ onNavigateToProviderModels, settings
               value={values.maxTokens}
               onChange={(value) => editValue("maxTokens", value)}
             />
-            <AgentDefaultInput
-              error={validationMessage(t, errors.contextWindowTokens)}
-              label={t("agent.contextBudget")}
-              value={values.contextWindowTokens}
-              onChange={(value) => editValue("contextWindowTokens", value)}
-            />
             <SettingsChoiceList
               error={validationMessage(t, errors.contextWindowStrategy)}
               label={t("agent.contextStrategy")}
@@ -196,7 +190,6 @@ function validationMessage(
     case "temperature-number": return t("agent.validation.temperatureNumber");
     case "temperature-range": return t("agent.validation.temperatureRange");
     case "max-tokens": return t("agent.validation.maxTokens");
-    case "context-budget": return t("agent.validation.contextBudget");
     case "context-strategy": return t("agent.validation.contextStrategy");
     case "max-tool-iterations": return t("agent.validation.maxToolIterations");
     case undefined: return undefined;

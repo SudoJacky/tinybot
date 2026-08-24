@@ -204,7 +204,7 @@ pub fn build_settings_snapshot(input: SettingsSnapshotInput) -> SettingsSnapshot
                 ),
                 config_field(
                     "context-window-tokens",
-                    "Context window budget",
+                    "Unknown-model context window fallback",
                     "agents.defaults.contextWindowTokens",
                     SettingScope::RunDefault,
                     SettingValueType::Number,
@@ -665,6 +665,18 @@ fn provider_models_group(config: &Value) -> SettingsGroup {
                 SettingValueType::Json,
                 true,
                 profile.get("models").cloned(),
+            ));
+            fields.push(config_field(
+                &format!("provider-profile-{profile_id}-model-context-windows"),
+                "Per-model context windows",
+                &format!("{prefix}.modelContextWindows"),
+                SettingScope::Profile,
+                SettingValueType::Json,
+                true,
+                profile
+                    .get("modelContextWindows")
+                    .or_else(|| profile.get("model_context_windows"))
+                    .cloned(),
             ));
             fields.push(config_field(
                 &format!("provider-profile-{profile_id}-default-model"),

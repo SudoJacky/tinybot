@@ -230,10 +230,39 @@ pub(super) async fn execute_tool_calls_for_iteration(
         return cancelled_result(services, context, state, iteration);
     }
 
-    let tool_calls = tool_calls
-        .into_iter()
-        .map(PreparedToolCall::prepare)
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut prepared_tool_calls = Vec::with_capacity(tool_calls.len());
+    let mut preparation_errors = Vec::with_capacity(tool_calls.len());
+    for tool_call in &tool_calls {
+        match PreparedToolCall::prepare(tool_call.clone()) {
+            Ok(prepared) => {
+                prepared_tool_calls.push(prepared);
+                preparation_errors.push(None);
+            }
+            Err(error) => preparation_errors.push(Some(error)),
+        }
+    }
+    if preparation_errors.iter().any(Option::is_some) {
+        let invalid_calls = tool_calls
+            .iter()
+            .zip(&preparation_errors)
+            .filter_map(|(tool_call, error)| {
+                error
+                    .as_ref()
+                    .map(|_| format!("{} ({})", tool_call.name, tool_call.id))
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let batch_error = format!(
+            "tool batch was not executed because it contains invalid tool arguments: {invalid_calls}"
+        );
+        let failures = tool_calls
+            .iter()
+            .zip(preparation_errors)
+            .map(|(tool_call, error)| (tool_call, error.unwrap_or_else(|| batch_error.clone())))
+            .collect();
+        return tool_batch_error_result(services, context, state, iteration, failures);
+    }
+    let tool_calls = prepared_tool_calls;
     let tool_calls = evaluate_pre_tool_hooks(context, state, iteration, tool_calls).await?;
     if tool_calls.is_empty() {
         state.apply_pending_tool_hook_context(context)?;

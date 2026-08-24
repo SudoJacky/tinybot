@@ -158,6 +158,8 @@ export type ChatPageProps = {
   onMascotMoodChange?: (mood: TinybotMascotMood) => void;
   onOpenFiles?: () => void;
   onOpenSettings?: () => void;
+  onStartupSessionHydrated?: () => void;
+  startInNewSession?: boolean;
   now?: () => number;
 };
 
@@ -254,9 +256,11 @@ export function ChatPage({
   onOpenSettings,
   onMascotMoodChange,
   onSessionSidebarCollapsedChange,
+  onStartupSessionHydrated,
   onStopGenerationTargetChange,
   sessionSidebarCollapsed,
   sessionStore,
+  startInNewSession = false,
   projectGroupStore,
   settingsStore,
   toolsStore,
@@ -265,6 +269,7 @@ export function ChatPage({
   const slashCommands = useMemo(() => composerSlashCommands(t), [t]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
+  const [startInNewSessionOnMount] = useState(startInNewSession);
   const [sessionTabs, dispatchSessionTabs] = useReducer(
     reduceSessionTabWorkspace,
     INITIAL_SESSION_TAB_WORKSPACE,
@@ -713,6 +718,9 @@ export function ChatPage({
     };
   }, []);
 
+  const notifyStartupSessionHydrated = useEffectEvent(() => {
+    onStartupSessionHydrated?.();
+  });
   useEffect(() => {
     let cancelled = false;
     void sessionStore.list().then((nextSessions) => {
@@ -725,13 +733,16 @@ export function ChatPage({
       dispatchSessionTabs({
         type: "hydrate",
         availableSessionIds: nextSessions.map((session) => session.id),
-        persisted: readPersistedSessionTabWorkspace(window.localStorage),
+        persisted: startInNewSessionOnMount
+          ? { activeSessionId: "", draftsBySession: {}, openSessionIds: [] }
+          : readPersistedSessionTabWorkspace(window.localStorage),
       });
+      notifyStartupSessionHydrated();
     });
     return () => {
       cancelled = true;
     };
-  }, [sessionStore]);
+  }, [sessionStore, startInNewSessionOnMount]);
 
   useEffect(() => {
     if (!sessionsLoaded) {
@@ -845,9 +856,9 @@ export function ChatPage({
     }
     let cancelled = false;
     void settingsStore.loadAgentDefaultsSettings().then((settings) => {
-      const contextWindowTokens = Number(settings.values.contextWindowTokens);
+      const contextWindowTokens = settings.fallbackContextWindowTokens;
       if (!Number.isSafeInteger(contextWindowTokens) || contextWindowTokens <= 0) {
-        throw new Error(`Invalid context window token budget: ${settings.values.contextWindowTokens}`);
+        throw new Error(`Invalid context window token fallback: ${contextWindowTokens}`);
       }
       if (!cancelled) {
         setContextUsageDefaults({
@@ -930,13 +941,14 @@ export function ChatPage({
     const resolvedWorkingDirectory = resolvedProjectContext?.projectCoordinator
       ? undefined
       : workingDirectory ?? (activeSession?.pluginMigration ? undefined : activeSession?.workingDirectory);
+    const newSessionModel = resolveComposerModel(composerModels);
     try {
       const created = await sessionStore.create({
         ...(resolvedWorkingDirectory ? { workingDirectory: resolvedWorkingDirectory } : {}),
         ...(resolvedProjectContext?.projectGroupId ? { projectGroupId: resolvedProjectContext.projectGroupId } : {}),
         ...(resolvedProjectContext?.projectCoordinator ? { projectCoordinator: true } : {}),
         ...(resolvedProjectContext?.title ? { title: resolvedProjectContext.title } : {}),
-        ...composerSessionModelInput(composerModels, composerModel),
+        ...composerSessionModelInput(composerModels, newSessionModel),
       });
       activateCreatedSession(created);
       return created;

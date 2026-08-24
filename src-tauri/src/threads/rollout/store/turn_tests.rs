@@ -1,3 +1,4 @@
+use super::super::protocol_projection::semantic_thread_item_from_runtime_event;
 use super::{
     completed_tool_result_from_response_item, response_item_from_runtime_event,
     response_items_from_runtime_event,
@@ -490,13 +491,68 @@ fn persisted_usage_preserves_the_live_timeline_item_identity() {
             "usage": {
                 "inputTokens": 4469,
                 "outputTokens": 219,
-                "totalTokens": 4688
+                "totalTokens": 4688,
+                "contextWindowRemainingTokens": 123312,
+                "contextWindowStrategy": "compact",
+                "contextWindowTokens": 128000,
+                "contextWindowUsedTokens": 4688,
+                "estimatedContextTokens": 1024,
+                "percent": 3.6625
+            },
+            "providerUsage": {
+                "input_tokens": 4469,
+                "input_tokens_details": { "cached_tokens": 4096 },
+                "output_tokens": 219,
+                "total_tokens": 4688
+            },
+            "agentItem": {
+                "type": "usage",
+                "id": "turn-usage:usage:0",
+                "inputTokens": 4469,
+                "outputTokens": 219,
+                "totalTokens": 4688,
+                "contextWindowRemainingTokens": 123312,
+                "contextWindowStrategy": "compact",
+                "contextWindowTokens": 128000,
+                "contextWindowUsedTokens": 4688,
+                "estimatedContextTokens": 1024,
+                "percent": 3.6625,
+                "providerPayload": {
+                    "input_tokens": 4469,
+                    "input_tokens_details": { "cached_tokens": 4096 },
+                    "output_tokens": 219,
+                    "total_tokens": 4688
+                }
             }
         }
     }))
     .unwrap();
     let live_timeline =
         project_timeline_snapshot(session_id, turn_id, std::slice::from_ref(&live_event)).unwrap();
+    let persisted_item = semantic_thread_item_from_runtime_event(
+        session_id,
+        turn_id,
+        started_at,
+        &serde_json::to_value(&live_event).unwrap(),
+        SessionApiMode::ChatCompletions,
+    )
+    .expect("usage event should be persisted");
+    let crate::threads::domain::ThreadItemKind::Event(persisted_event) = persisted_item.kind else {
+        panic!("usage should remain a semantic event");
+    };
+    assert!(persisted_event["payload"].get("usage").is_none());
+    assert!(persisted_event["payload"].get("providerUsage").is_none());
+    assert_eq!(
+        persisted_event["payload"]["agentItem"]["contextWindowTokens"],
+        128_000
+    );
+    assert_eq!(
+        persisted_event["payload"]["agentItem"]["providerPayload"]["total_tokens"],
+        4688
+    );
+    assert!(persisted_event["payload"]["agentItem"]["providerPayload"]
+        .get("contextWindowTokens")
+        .is_none());
 
     rpc.append_turn_semantic_event(
         session_id,

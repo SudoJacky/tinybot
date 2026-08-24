@@ -1,6 +1,6 @@
 use super::items::{parse_tool_call, AgentUsageItem};
 use super::provider_adapter::{
-    attach_provider_tools, provider_message_with_user_context,
+    attach_provider_tools, provider_message_with_user_context, provider_reasoning_effort_enabled,
     reject_image_attachments_for_chat_completions, require_provider_capability,
     DecodedProviderTurn,
 };
@@ -162,11 +162,13 @@ impl ChatCompletionsAdapter {
             request["service_tier"] = Value::String(service_tier.to_string());
         }
         if let Some(reasoning) = settings.reasoning.as_ref() {
-            require_provider_capability(settings, config_snapshot, "reasoning")?;
             if let Some(effort) = reasoning.effort.as_deref() {
-                request["reasoning_effort"] = Value::String(effort.to_string());
+                if provider_reasoning_effort_enabled(settings, config_snapshot)? {
+                    request["reasoning_effort"] = Value::String(effort.to_string());
+                }
             }
             if let Some(summary) = reasoning.summary.as_deref() {
+                require_provider_capability(settings, config_snapshot, "reasoning")?;
                 request["reasoning"] = serde_json::json!({ "summary": summary });
             }
         }

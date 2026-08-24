@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ChatEvent, ProjectGroupStore, SessionSummary } from "../services";
 import { i18n } from "../i18n";
+import { CHAT_SESSION_TABS_STORAGE_KEY } from "./sessionTabWorkspace";
 import { timelineFromReactMessages } from "./test/timelineFixtures";
 import {
   ChatPageUnderTest as ChatPage,
@@ -16,6 +17,27 @@ import {
 } from "./test/ChatPageTestHarness";
 
 describe("ChatPage", () => {
+  it("starts in an uncreated conversation instead of restoring saved session tabs", async () => {
+    const stores = createStores();
+    window.localStorage.setItem(CHAT_SESSION_TABS_STORAGE_KEY, JSON.stringify({
+      activeSessionId: "s1",
+      draftsBySession: {},
+      openSessionIds: ["s1"],
+    }));
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        sessionStore={stores.sessionStore}
+        startInNewSession
+      />,
+    );
+
+    await waitFor(() => expect(stores.sessionStore.list).toHaveBeenCalled());
+    expect(await screen.findByRole("heading", { name: "New chat" })).toBeTruthy();
+    expect(stores.chatStore.load).not.toHaveBeenCalled();
+  });
+
   it("allows drafting while sessions load but prevents sending", async () => {
     const user = userEvent.setup();
     const stores = createStores({ sessions: [] });

@@ -7,6 +7,7 @@ import {
   buildProviderConfigurePatch,
   buildProviderModelsPatch,
   buildProviderModelsSettings,
+  automaticModelContextWindow,
   type ProviderModelFetchInput,
   type ProviderModelFetchResult,
   type ProviderCardModel,
@@ -18,6 +19,7 @@ import {
   writeDefaultChatModel,
 } from "../../app-core/chat/chatModelPreference";
 import type { SettingsStore } from "../services";
+import { SettingsChoiceList } from "./SettingsChoiceList";
 import { SettingsSaveStatus, type SettingsSaveState } from "./SettingsSaveStatus";
 import { SettingsSheet } from "./SettingsSheet";
 
@@ -148,6 +150,7 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
 
       {modelsProvider ? (
         <ProviderModelsDialog
+          fallbackContextWindowTokens={data.fallbackContextWindowTokens}
           provider={modelsProvider}
           onClose={() => setModelsProvider(null)}
           onRefresh={fetchProviderModels
@@ -510,11 +513,13 @@ function ProviderConfigureDialog({
   const [apiBase, setApiBase] = useState(provider.baseUrl);
   const [apiKey, setApiKey] = useState("");
   const [useResponsesApi, setUseResponsesApi] = useState(provider.useResponsesApi);
+  const [supportsReasoningEffort, setSupportsReasoningEffort] = useState(provider.supportsReasoningEffort !== false);
   const [activate, setActivate] = useState(provider.active);
   const [saving, setSaving] = useState(false);
   const dirty = apiBase.trim() !== provider.baseUrl
     || Boolean(apiKey.trim())
     || useResponsesApi !== provider.useResponsesApi
+    || (!provider.builtIn && supportsReasoningEffort !== provider.supportsReasoningEffort)
     || activate !== provider.active;
   const canSave = Boolean(apiBase.trim()) && dirty && !saving;
 
@@ -529,6 +534,7 @@ function ProviderConfigureDialog({
         apiBase,
         apiKey,
         useResponsesApi,
+        supportsReasoningEffort: provider.builtIn ? undefined : supportsReasoningEffort,
         enabled: true,
         activate: !provider.active && activate,
       }));
@@ -628,6 +634,24 @@ function ProviderConfigureDialog({
             </div>
             <small>{t("provider.configureDialog.responsesHelp")}</small>
           </fieldset>
+          {!provider.builtIn ? (
+            <section className="react-provider-config__section" aria-labelledby="provider-features-title">
+              <h3 id="provider-features-title">{t("provider.configureDialog.features")}</h3>
+              <label className="react-provider-config__switch">
+                <span>
+                  <strong>{t("provider.reasoningEffort.title")}</strong>
+                  <small>{t("provider.reasoningEffort.description")}</small>
+                </span>
+                <input
+                  aria-label={t("provider.reasoningEffort.title")}
+                  checked={supportsReasoningEffort}
+                  type="checkbox"
+                  onChange={(event) => setSupportsReasoningEffort(event.currentTarget.checked)}
+                />
+                <i aria-hidden="true" />
+              </label>
+            </section>
+          ) : null}
           <footer>
             <button className="react-provider-config__cancel" data-press-feedback="true" type="button" onClick={requestClose}>{tCommon("generic.cancel")}</button>
             <button className="react-provider-config__save" data-press-feedback="true" type="submit" disabled={!canSave}>
@@ -660,6 +684,7 @@ function CustomProviderDialog({
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [supportsModelDiscovery, setSupportsModelDiscovery] = useState(true);
+  const [supportsReasoningEffort, setSupportsReasoningEffort] = useState(true);
   const [useResponsesApi, setUseResponsesApi] = useState(false);
   const [activate, setActivate] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -692,6 +717,7 @@ function CustomProviderDialog({
         apiKey,
         model,
         supportsModelDiscovery,
+        supportsReasoningEffort,
         useResponsesApi,
         activate,
       }));
@@ -746,6 +772,10 @@ function CustomProviderDialog({
             <span>{t("provider.addDialog.discoverModels")}</span>
           </label>
           <label className="react-settings-checkbox">
+            <input checked={supportsReasoningEffort} type="checkbox" onChange={(event) => setSupportsReasoningEffort(event.currentTarget.checked)} />
+            <span>{t("provider.reasoningEffort.title")} <small>{t("provider.reasoningEffort.description")}</small></span>
+          </label>
+          <label className="react-settings-checkbox">
             <input checked={useResponsesApi} type="checkbox" onChange={(event) => setUseResponsesApi(event.currentTarget.checked)} />
             <span>{t("provider.addDialog.useResponses")} <small>{t("provider.addDialog.responsesRequirement")}</small></span>
           </label>
@@ -778,11 +808,13 @@ function isHttpUrl(value: string): boolean {
 }
 
 function ProviderModelsDialog({
+  fallbackContextWindowTokens,
   onClose,
   onRefresh,
   onSave,
   provider,
 }: {
+  fallbackContextWindowTokens: number;
   provider: ProviderCardModel;
   onClose: () => void;
   onRefresh?: (input: ProviderModelFetchInput) => Promise<ProviderModelFetchResult>;
@@ -794,6 +826,9 @@ function ProviderModelsDialog({
   const [models, setModels] = useState(provider.models);
   const [newModel, setNewModel] = useState("");
   const [defaultModel, setDefaultModel] = useState(provider.defaultModel ?? provider.models[0]?.id ?? "");
+  const [contextWindowDrafts, setContextWindowDrafts] = useState<Record<string, string>>(() => (
+    Object.fromEntries(Object.entries(provider.modelContextWindows).map(([model, tokens]) => [model, String(tokens)]))
+  ));
   const [refreshing, setRefreshing] = useState(false);
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const filteredModels = useMemo(() => {
@@ -802,6 +837,11 @@ function ProviderModelsDialog({
       ? models.filter((model) => model.id.toLowerCase().includes(normalizedQuery) || model.label.toLowerCase().includes(normalizedQuery))
       : models;
   }, [models, query]);
+  const invalidContextWindowModels = useMemo(() => new Set(
+    Object.entries(contextWindowDrafts)
+      .filter(([, value]) => !isPositiveInteger(value))
+      .map(([model]) => model),
+  ), [contextWindowDrafts]);
 
   function addModel() {
     const id = newModel.trim();
@@ -821,9 +861,30 @@ function ProviderModelsDialog({
     }
     const nextModels = models.filter((item) => item.id !== model.id);
     setModels(nextModels);
+    setContextWindowDrafts((current) => {
+      const next = { ...current };
+      delete next[model.id];
+      return next;
+    });
     if (defaultModel === model.id) {
       setDefaultModel(nextModels[0]?.id ?? "");
     }
+  }
+
+  function setContextWindowMode(model: string, mode: "auto" | "custom") {
+    setContextWindowDrafts((current) => {
+      const next = { ...current };
+      if (mode === "auto") {
+        delete next[model];
+      } else if (!Object.prototype.hasOwnProperty.call(next, model)) {
+        next[model] = String(automaticModelContextWindow(model, fallbackContextWindowTokens).tokens);
+      }
+      return next;
+    });
+  }
+
+  function setContextWindowTokens(model: string, value: string) {
+    setContextWindowDrafts((current) => ({ ...current, [model]: value }));
   }
 
   async function refreshModels() {
@@ -857,6 +918,7 @@ function ProviderModelsDialog({
   }
 
   const canRefresh = Boolean(onRefresh) && provider.modelDiscovery.status === "openai-compatible";
+  const canSave = invalidContextWindowModels.size === 0;
 
   async function saveModels(onSaved: () => void) {
     await onSave(buildProviderModelsPatch({
@@ -864,6 +926,10 @@ function ProviderModelsDialog({
       profileId: provider.profileId,
       models: models.map((model) => model.id),
       defaultModel,
+      modelContextWindows: Object.entries(contextWindowDrafts).map(([model, value]) => ({
+        model,
+        contextWindowTokens: Number.parseInt(value, 10),
+      })),
     }));
     onSaved();
   }
@@ -897,6 +963,14 @@ function ProviderModelsDialog({
                   <small>{model.id}</small>
                 </div>
                 <span>{modelSourceLabel(model.source, t)}</span>
+                <ModelContextWindowControl
+                  fallbackContextWindowTokens={fallbackContextWindowTokens}
+                  invalid={invalidContextWindowModels.has(model.id)}
+                  model={model.id}
+                  onModeChange={(mode) => setContextWindowMode(model.id, mode)}
+                  onTokensChange={(value) => setContextWindowTokens(model.id, value)}
+                  overrideValue={contextWindowDrafts[model.id]}
+                />
                 <button data-press-feedback="true" type="button" onClick={() => setDefaultModel(model.id)}>
                   {defaultModel === model.id ? <Check aria-hidden="true" size={15} /> : null}
                   {t("provider.fallback")}
@@ -928,12 +1002,78 @@ function ProviderModelsDialog({
               {provider.modelDiscovery.status === "static" ? t("provider.modelsDialog.staticList") : refreshing ? t("provider.modelsDialog.refreshing") : t("provider.modelsDialog.refresh")}
             </button>
             <button data-press-feedback="true" type="button" onClick={requestClose}>{tCommon("generic.cancel")}</button>
-            <button data-press-feedback="true" type="button" onClick={() => saveModels(requestClose)}>{tCommon("generic.save")}</button>
+            <button data-press-feedback="true" type="button" disabled={!canSave} onClick={() => saveModels(requestClose)}>{tCommon("generic.save")}</button>
           </footer>
         </div>
       )}
     </SettingsSheet>
   );
+}
+
+function ModelContextWindowControl({
+  fallbackContextWindowTokens,
+  invalid,
+  model,
+  onModeChange,
+  onTokensChange,
+  overrideValue,
+}: {
+  fallbackContextWindowTokens: number;
+  invalid: boolean;
+  model: string;
+  onModeChange: (mode: "auto" | "custom") => void;
+  onTokensChange: (value: string) => void;
+  overrideValue?: string;
+}) {
+  const { t } = useTranslation("settings");
+  const automatic = automaticModelContextWindow(model, fallbackContextWindowTokens);
+  const custom = overrideValue !== undefined;
+  return (
+    <div className="react-provider-model-context">
+      <SettingsChoiceList
+        ariaLabel={t("provider.modelsDialog.contextMode", { name: model })}
+        label={t("provider.modelsDialog.contextWindow")}
+        onChange={(value) => onModeChange(value === "custom" ? "custom" : "auto")}
+        options={[
+          {
+            value: "auto",
+            label: automatic.known
+              ? t("provider.modelsDialog.contextAuto", { tokens: formatContextWindowTokens(automatic.tokens) })
+              : t("provider.modelsDialog.contextDefault", { tokens: formatContextWindowTokens(automatic.tokens) }),
+          },
+          { value: "custom", label: t("provider.modelsDialog.contextCustom") },
+        ]}
+        optionsAriaLabel={t("provider.modelsDialog.contextOptions", { name: model })}
+        value={custom ? "custom" : "auto"}
+      />
+      {custom ? (
+        <input
+          aria-invalid={invalid || undefined}
+          aria-label={t("provider.modelsDialog.contextTokens", { name: model })}
+          min={1}
+          step={1}
+          type="number"
+          value={overrideValue}
+          onChange={(event) => onTokensChange(event.currentTarget.value)}
+        />
+      ) : null}
+      {invalid ? <small role="alert">{t("provider.modelsDialog.contextInvalid")}</small> : null}
+    </div>
+  );
+}
+
+function isPositiveInteger(value: string): boolean {
+  return /^\d+$/.test(value.trim()) && Number.isSafeInteger(Number(value)) && Number(value) > 0;
+}
+
+function formatContextWindowTokens(tokens: number): string {
+  if (tokens >= 1_000_000 && tokens % 1_000_000 === 0) {
+    return `${tokens / 1_000_000}M`;
+  }
+  if (tokens >= 1_000 && tokens % 1_000 === 0) {
+    return `${tokens / 1_000}K`;
+  }
+  return tokens.toLocaleString();
 }
 
 function mergeFetchedModels(currentModels: ProviderModelItem[], fetchedModelIds: string[]): ProviderModelItem[] {

@@ -847,6 +847,30 @@ fn legacy_item_data(
                 input_tokens: item_i64(usage, &["inputTokens", "input_tokens"]),
                 output_tokens: item_i64(usage, &["outputTokens", "output_tokens"]),
                 total_tokens: item_i64(usage, &["totalTokens", "total_tokens"]),
+                context_window_remaining_tokens: item_i64(
+                    usage,
+                    &[
+                        "contextWindowRemainingTokens",
+                        "context_window_remaining_tokens",
+                    ],
+                ),
+                context_window_strategy: item_string(
+                    usage,
+                    &["contextWindowStrategy", "context_window_strategy"],
+                ),
+                context_window_tokens: item_i64(
+                    usage,
+                    &["contextWindowTokens", "context_window_tokens"],
+                ),
+                context_window_used_tokens: item_i64(
+                    usage,
+                    &["contextWindowUsedTokens", "context_window_used_tokens"],
+                ),
+                estimated_context_tokens: item_i64(
+                    usage,
+                    &["estimatedContextTokens", "estimated_context_tokens"],
+                ),
+                percent: item_f64(usage, &["percent"]),
                 provider_payload: usage.clone(),
             }
         }
@@ -903,6 +927,11 @@ fn item_u32(payload: &Value, keys: &[&str]) -> u32 {
 fn item_i64(payload: &Value, keys: &[&str]) -> Option<i64> {
     keys.iter()
         .find_map(|key| payload.get(*key).and_then(Value::as_i64))
+}
+
+fn item_f64(payload: &Value, keys: &[&str]) -> Option<f64> {
+    keys.iter()
+        .find_map(|key| payload.get(*key).and_then(Value::as_f64))
 }
 
 fn required_item_string(payload: &Value, keys: &[&str], kind: &AgentTurnItemKind) -> String {
@@ -1011,8 +1040,24 @@ fn projected_item_payload(
         AgentEventKind::AwaitingForm | AgentEventKind::FormResolution => {
             projected_form_payload(existing_payload, event, event_kind)
         }
+        AgentEventKind::Usage => projected_usage_payload(event),
         _ => event.payload.clone(),
     }
+}
+
+fn projected_usage_payload(event: &AgentRuntimeEventEnvelope) -> Value {
+    let mut payload = event.payload.as_object().cloned().unwrap_or_default();
+    let has_typed_usage = payload
+        .get("agentItem")
+        .and_then(|item| item.get("type"))
+        .and_then(Value::as_str)
+        == Some("usage");
+    if has_typed_usage {
+        payload.remove("usage");
+        payload.remove("providerUsage");
+        payload.remove("provider_usage");
+    }
+    Value::Object(payload)
 }
 
 fn projected_completed_message_payload(event: &AgentRuntimeEventEnvelope) -> Value {

@@ -560,7 +560,7 @@ fn canonical_provider_call_usage(info: &Value) -> Option<Value> {
     }))
 }
 
-fn semantic_thread_item_from_runtime_event(
+pub(super) fn semantic_thread_item_from_runtime_event(
     session_id: &str,
     turn_id: &str,
     timestamp: &str,
@@ -580,9 +580,12 @@ fn semantic_thread_item_from_runtime_event(
         AgentEventKind::DelegateCompleted => {
             crate::threads::domain::ThreadItemKind::SubagentCompleted(payload)
         }
-        AgentEventKind::ContextCompacted
-        | AgentEventKind::ContextTrimmed
-        | AgentEventKind::Usage => crate::threads::domain::ThreadItemKind::Event(event.clone()),
+        AgentEventKind::ContextCompacted | AgentEventKind::ContextTrimmed => {
+            crate::threads::domain::ThreadItemKind::Event(event.clone())
+        }
+        AgentEventKind::Usage => {
+            crate::threads::domain::ThreadItemKind::Event(compact_persisted_usage_event(event))
+        }
         AgentEventKind::ToolCallDelta if api_mode == SessionApiMode::Responses => {
             crate::threads::domain::ThreadItemKind::Event(event.clone())
         }
@@ -598,6 +601,24 @@ fn semantic_thread_item_from_runtime_event(
         created_at: timestamp.to_string(),
         kind,
     })
+}
+
+fn compact_persisted_usage_event(event: &Value) -> Value {
+    let mut compacted = event.clone();
+    let Some(payload) = compacted.get_mut("payload").and_then(Value::as_object_mut) else {
+        return compacted;
+    };
+    let has_typed_usage = payload
+        .get("agentItem")
+        .and_then(|item| item.get("type"))
+        .and_then(Value::as_str)
+        == Some("usage");
+    if has_typed_usage {
+        payload.remove("usage");
+        payload.remove("providerUsage");
+        payload.remove("provider_usage");
+    }
+    compacted
 }
 
 pub(crate) fn is_turn_semantic_event(event_name: &str) -> bool {

@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:007c60514afb3f506c6bee709a8b8df347aa99dc7772befc923eee19955cdb80 -->
+<!-- tinybot-module-fingerprint: sha256:5c7a073cd5689844eb49a18a0e894420f37c87aa362ba34387a69a67d6ce9a02 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
@@ -48,3 +48,12 @@ regardless of the currently selected interface language.
 `SettingsSheet.tsx` owns settings-specific layout and close animation while
 delegating modal focus, keyboard, dismissal, and scroll-lock behavior to the
 shared `components/ui/useModalDialog` seam.
+
+The Provider & Models page exposes reasoning-effort support only for custom
+providers. New custom profiles start enabled; users can disable it while
+creating or configuring the profile when an endpoint rejects effort fields.
+Its model manager configures context windows per model with the shared
+`SettingsChoiceList`: known models default to Tinybot's automatic value,
+unknown models show the runtime fallback, and either can store a custom positive
+Token limit. Agent Defaults retains the compaction strategy but no longer
+presents one editable window as if it applied to every model.

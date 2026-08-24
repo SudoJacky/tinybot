@@ -28,11 +28,14 @@ pub struct NativeProviderCatalogEntry {
 pub struct NativeProviderProfile {
     pub provider_id: String,
     pub display_name: String,
+    pub is_custom: bool,
     pub api_base: Option<String>,
     pub api_key: Option<String>,
     pub api_key_configured: bool,
     pub models: Vec<String>,
+    pub model_context_windows: BTreeMap<String, i64>,
     pub supports_model_discovery: bool,
+    pub supports_reasoning_effort: bool,
     pub capabilities: Value,
     pub request_timeout_ms: u64,
     pub stream_idle_timeout_ms: u64,
@@ -53,6 +56,12 @@ impl NativeProviderProfile {
                 self.provider_id
             )
         })
+    }
+
+    pub fn context_window_tokens_for_model(&self, model: &str) -> Option<i64> {
+        self.model_context_windows
+            .get(&model.trim().to_ascii_lowercase())
+            .copied()
     }
 }
 
@@ -480,6 +489,8 @@ pub fn resolve_provider_profile(
     let models = string_array_field(provider_config.unwrap_or(&Value::Null), "models")
         .or_else(|| string_array_field(provider_config.unwrap_or(&Value::Null), "model_ids"))
         .unwrap_or_default();
+    let model_context_windows =
+        model_context_windows_field(provider_config.unwrap_or(&Value::Null));
     let request_timeout_ms = u64_field(provider_config.unwrap_or(&Value::Null), "timeout_ms")
         .or_else(|| u64_field(provider_config.unwrap_or(&Value::Null), "timeoutMs"))
         .or_else(|| {
@@ -513,12 +524,14 @@ pub fn resolve_provider_profile(
                     .map(|entry| entry.display_name.to_string())
                     .unwrap_or_else(|| provider_id.to_string())
             }),
+        is_custom: catalog.is_none(),
         api_base,
         api_key_configured: api_key
             .as_deref()
             .is_some_and(|value| !value.trim().is_empty()),
         api_key,
         models,
+        model_context_windows,
         supports_model_discovery: bool_field(
             provider_config.unwrap_or(&Value::Null),
             "supports_model_discovery",
@@ -534,6 +547,17 @@ pub fn resolve_provider_profile(
                 .map(|entry| entry.supports_model_discovery)
                 .unwrap_or(true)
         }),
+        supports_reasoning_effort: bool_field(
+            provider_config.unwrap_or(&Value::Null),
+            "supports_reasoning_effort",
+        )
+        .or_else(|| {
+            bool_field(
+                provider_config.unwrap_or(&Value::Null),
+                "supportsReasoningEffort",
+            )
+        })
+        .unwrap_or(true),
         capabilities: provider_config
             .and_then(|provider| provider.get("capabilities"))
             .cloned()
@@ -699,6 +723,27 @@ pub(super) fn string_field(value: &Value, key: &str) -> Option<String> {
 
 fn u64_field(value: &Value, key: &str) -> Option<u64> {
     value.get(key).and_then(Value::as_u64)
+}
+
+fn model_context_windows_field(value: &Value) -> BTreeMap<String, i64> {
+    value
+        .get("modelContextWindows")
+        .or_else(|| value.get("model_context_windows"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let model = string_field(entry, "model")
+                .or_else(|| string_field(entry, "modelId"))
+                .or_else(|| string_field(entry, "model_id"))?;
+            let tokens = entry
+                .get("contextWindowTokens")
+                .or_else(|| entry.get("context_window_tokens"))
+                .and_then(Value::as_i64)
+                .filter(|tokens| *tokens > 0)?;
+            Some((model.to_ascii_lowercase(), tokens))
+        })
+        .collect()
 }
 
 fn bool_field(value: &Value, key: &str) -> Option<bool> {

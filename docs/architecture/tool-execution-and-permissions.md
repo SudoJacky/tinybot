@@ -11,7 +11,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:aa9677ae9a2bd66396986865041244647c48a58a91d0b5795acb4ba7e449373f -->
+<!-- tinybot-doc-fingerprint: sha256:18b37498a15f3639902d366ef52efc524c531aa4b3d5a8343e3500bd8a1effd2 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -35,7 +35,7 @@ Provider adapter encodes visible tool definitions
 Model tool-call batch
     |-- resolve provider name
     |-- reject any disallowed call before batch execution
-    |-- validate and prepare arguments
+    |-- prepare arguments or return one error result per call ID
     |-- run trusted PreToolUse hooks (deny or replace arguments)
     |-- plan parallel read waves and exclusive mutation waves
     v
@@ -63,6 +63,11 @@ Every registry entry declares:
 - required capabilities and current availability;
 - execution target;
 - parallelism, mutation, cancellation, and cleanup policy.
+
+Provider-visible schemas describe nested argument contracts, not only their
+top-level names. For example, `publish_data_view` exposes the supported view
+kinds and requires table `defaultSort` to use `{field, direction}` so providers
+can construct the same shape the native validator accepts.
 
 Ordered contributors assemble built-in, workspace, MCP, runtime-control, and
 eligible project-group tools. Duplicate contributor IDs, tool IDs, or methods
@@ -111,6 +116,12 @@ any call is not permitted. Prepared calls are then scheduled according to
 registry policy: compatible read-only calls may run in parallel, while
 workspace or session mutations form exclusive waves.
 
+Provider-authored argument preparation is also a recoverable batch boundary.
+If any call contains malformed JSON or a non-object argument, no call in that
+batch is dispatched. The invalid call retains its parser error, otherwise-valid
+calls receive an explicit batch-rejection error, and every provider call ID is
+committed as a model-visible tool result before the next provider iteration.
+
 Cancellation behavior is part of the registry entry. Tools may cooperate,
 terminate an owned process, or require bounded cleanup. A timeout, cancellation,
 runtime failure, and ordinary tool error remain distinct outcomes so the model,
@@ -133,6 +144,8 @@ pairing.
 - Model-visible output is bounded independently from richer live projection
   data.
 - A tool batch is fully recorded before the next provider request.
+- Every provider tool-call ID has exactly one model-visible result, including
+  pre-dispatch batch rejection.
 - User command hooks cannot widen registry exposure or capability grants.
 
 ## Source modules and verification

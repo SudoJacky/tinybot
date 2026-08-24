@@ -241,6 +241,18 @@ pub struct AgentUsageItem {
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
     pub total_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_window_remaining_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_window_strategy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_window_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_window_used_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub estimated_context_tokens: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub percent: Option<f64>,
     pub provider_payload: Value,
 }
 
@@ -621,8 +633,70 @@ impl AgentUsageItem {
                 ],
             )?,
             total_tokens: optional_usage_number(object, &["total_tokens", "totalTokens"])?,
+            context_window_remaining_tokens: None,
+            context_window_strategy: None,
+            context_window_tokens: None,
+            context_window_used_tokens: None,
+            estimated_context_tokens: None,
+            percent: None,
             provider_payload,
         })
+    }
+
+    pub fn from_runtime_usage(
+        provider_payload: Value,
+        normalized_usage: Value,
+    ) -> Result<Self, String> {
+        let mut item = Self::from_provider_payload(provider_payload)?;
+        let object = normalized_usage
+            .as_object()
+            .ok_or_else(|| "normalized usage must be an object".to_string())?;
+        item.input_tokens = item.input_tokens.or(optional_usage_number(
+            object,
+            &[
+                "prompt_tokens",
+                "promptTokens",
+                "input_tokens",
+                "inputTokens",
+            ],
+        )?);
+        item.output_tokens = item.output_tokens.or(optional_usage_number(
+            object,
+            &[
+                "completion_tokens",
+                "completionTokens",
+                "output_tokens",
+                "outputTokens",
+            ],
+        )?);
+        item.total_tokens = item.total_tokens.or(optional_usage_number(
+            object,
+            &["total_tokens", "totalTokens"],
+        )?);
+        item.context_window_remaining_tokens = optional_usage_number(
+            object,
+            &[
+                "context_window_remaining_tokens",
+                "contextWindowRemainingTokens",
+            ],
+        )?;
+        item.context_window_strategy = optional_string_field(
+            object,
+            &["context_window_strategy", "contextWindowStrategy"],
+            "context window strategy",
+        )?;
+        item.context_window_tokens =
+            optional_usage_number(object, &["context_window_tokens", "contextWindowTokens"])?;
+        item.context_window_used_tokens = optional_usage_number(
+            object,
+            &["context_window_used_tokens", "contextWindowUsedTokens"],
+        )?;
+        item.estimated_context_tokens = optional_usage_number(
+            object,
+            &["estimated_context_tokens", "estimatedContextTokens"],
+        )?;
+        item.percent = optional_usage_float(object, &["percent"])?;
+        Ok(item)
     }
 }
 
@@ -731,6 +805,22 @@ fn optional_usage_number(
         .as_i64()
         .map(Some)
         .ok_or_else(|| format!("provider usage `{key}` must be an integer"))
+}
+
+fn optional_usage_float(
+    object: &serde_json::Map<String, Value>,
+    keys: &[&str],
+) -> Result<Option<f64>, String> {
+    let Some((key, value)) = keys
+        .iter()
+        .find_map(|key| object.get(*key).map(|value| (*key, value)))
+    else {
+        return Ok(None);
+    };
+    value
+        .as_f64()
+        .map(Some)
+        .ok_or_else(|| format!("provider usage `{key}` must be a number"))
 }
 
 fn optional_string_field(

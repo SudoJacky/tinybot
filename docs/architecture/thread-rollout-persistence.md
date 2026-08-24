@@ -9,7 +9,7 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:6868fac23ce24e9eeb1cb9c77b26a8ae33d2c2ce425555df731e4cd92b56c042 -->
+<!-- tinybot-doc-fingerprint: sha256:240ff156e75d16e84b052c74c36ca6151472ae85341e3e3eb3ebd7fb88a71f63 -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
@@ -93,6 +93,11 @@ are durable barriers. Eligible events may be appended in bounded batches while
 preserving their causal order, identity, timestamp, and sequence; streaming
 deltas and non-blocking status updates remain live-only.
 
+When Agent execution or trace flushing returns an error, the bridge appends a
+failed terminal boundary with the original runtime error before returning to
+the desktop caller. Startup orphan recovery is reserved for genuinely
+interrupted active Turns, not ordinary failures observed by the running app.
+
 Live desktop patches and reloaded timeline snapshots must converge on the same
 Item identities. Renderer state is never used to reconstruct canonical
 conversation history. Legacy response records without an explicit Item ID use
@@ -103,6 +108,12 @@ Provider API modes share the same Rollout envelope. A Thread pins its provider
 mode so configuration changes do not silently reinterpret existing history.
 Protocol-specific response records are projected at the persistence seam while
 the user-facing Thread history remains protocol-neutral.
+
+Usage persistence keeps one typed usage Item with explicit context-window metrics and the
+original provider usage payload, plus a canonical token-count record for normalized last-call
+and Turn-total counters. Redundant outer enriched usage copies are removed at the persistence
+seam. Replay still accepts older records that contain those copies and rehydrates compact Items
+that lack context metrics from their adjacent token-count record.
 
 Graph Agent nodes use this exact store. Each invocation creates a parentless
 Thread with `source: "agent_graph"` and Graph, Run, node, and node-run IDs in

@@ -83,6 +83,7 @@ function createDesktopSettingsFullPatch(
     providers.profiles = {
       ...existingProfiles,
       [profileId]: {
+        ...asRecord(existingProfiles[profileId]),
         provider: providerName,
         enabled: state.providerSummaries.find((provider) => provider.id === providerName)?.enabled,
         api_key: providerEditor.apiKey || "",

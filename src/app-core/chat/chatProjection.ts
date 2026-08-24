@@ -339,12 +339,13 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem): void {
     return;
   }
   if (item.kind === "usage") {
-    const providerUsage = normalizeUsage(payload.providerPayload);
+    const providerPayload = recordValue(payload.providerPayload);
+    const usage = normalizeUsage({ ...providerPayload, ...payload });
     turn.usage = {
-      ...(providerUsage ?? {}),
-      promptTokens: numberValue(payload.inputTokens) ?? providerUsage?.promptTokens,
-      completionTokens: numberValue(payload.outputTokens) ?? providerUsage?.completionTokens,
-      totalTokens: numberValue(payload.totalTokens) ?? providerUsage?.totalTokens,
+      ...(usage ?? {}),
+      promptTokens: numberValue(payload.inputTokens) ?? usage?.promptTokens,
+      completionTokens: numberValue(payload.outputTokens) ?? usage?.completionTokens,
+      totalTokens: numberValue(payload.totalTokens) ?? usage?.totalTokens,
     };
     return;
   }
@@ -768,6 +769,21 @@ function normalizeUsage(value: unknown): TokenUsage | undefined {
   const totalTokens = numberValue(payload.total_tokens ?? payload.totalTokens);
   const reportedContextWindowUsedTokens = numberValue(payload.context_window_used_tokens ?? payload.contextWindowUsedTokens);
   const estimatedContextTokens = numberValue(payload.estimated_context_tokens ?? payload.estimatedContextTokens);
+  const inputTokenDetails = recordValue(payload.input_tokens_details ?? payload.inputTokensDetails);
+  const promptTokenDetails = recordValue(payload.prompt_tokens_details ?? payload.promptTokensDetails);
+  const cachedTokenCandidates = [
+    payload.cached_tokens,
+    payload.cachedTokens,
+    inputTokenDetails.cached_tokens,
+    inputTokenDetails.cachedTokens,
+    inputTokenDetails.cached_input_tokens,
+    inputTokenDetails.cachedInputTokens,
+    promptTokenDetails.cached_tokens,
+    promptTokenDetails.cachedTokens,
+    promptTokenDetails.cached_input_tokens,
+    promptTokenDetails.cachedInputTokens,
+  ].map(numberValue).filter((value): value is number => value !== undefined);
+  const cachedTokens = cachedTokenCandidates.length ? Math.max(...cachedTokenCandidates) : undefined;
   const contextWindowUsedTokens = normalizeContextWindowUsedTokens(
     reportedContextWindowUsedTokens,
     estimatedContextTokens,
@@ -775,7 +791,7 @@ function normalizeUsage(value: unknown): TokenUsage | undefined {
     totalTokens,
   );
   return {
-    cachedTokens: numberValue(payload.cached_tokens ?? payload.cachedTokens),
+    cachedTokens,
     completionTokens: numberValue(payload.completion_tokens ?? payload.completionTokens),
     contextWindowRemainingTokens: numberValue(payload.context_window_remaining_tokens ?? payload.contextWindowRemainingTokens),
     contextWindowStrategy: stringValue(payload.context_window_strategy ?? payload.contextWindowStrategy) || undefined,

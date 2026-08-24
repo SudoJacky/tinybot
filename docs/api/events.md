@@ -6,7 +6,7 @@ src/app-core/chat/chatTurnContracts.ts
 src/app-core/native/desktopNativeTauriEvents.ts
 src/app-core/native/desktopNativeTauriEvents.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:ffd1c9d255cf0a664375aaea18d8ed8227aa3c095077c513af4865ca311501a8 -->
+<!-- tinybot-doc-fingerprint: sha256:d220fb3338c15549a9d9e7250e34e44fafc2785d9e4d553137112f1bfb728f61 -->
 
 This document lists frontend-visible events emitted by the native runtime. It
 is part of the [Rust backend API reference](rust-backend-api.md), which defines
@@ -80,23 +80,33 @@ use `referenceKind: "image"` and file references use `referenceKind: "file"`.
 
 `agent.usage` payloads preserve provider-returned OpenAI-compatible usage fields such as
 `prompt_tokens`, `completion_tokens`, and `total_tokens`. The Rust agent runtime also appends
-context-window budget fields:
+context-window budget fields to the typed `payload.agentItem`, while
+`payload.agentItem.providerPayload` retains only the original provider usage. Durable
+Rollouts omit redundant outer enriched copies. Replay of earlier compact usage Items restores
+missing context-window fields from the adjacent `agent.token_count` record; that record also
+remains authoritative for normalized cache and reasoning counters.
 
-- `context_window_tokens` / `contextWindowTokens`: effective context window from
-  `agents.defaults.contextWindowTokens` or the backend default.
-- `context_window_used_tokens` / `contextWindowUsedTokens`: provider `prompt_tokens` when present,
-  then provider `total_tokens`, otherwise the local request estimate.
+- `context_window_tokens` / `contextWindowTokens`: effective per-model context window from the
+  turn, provider profile, known-model catalog, legacy unknown-model fallback, or backend default.
+- `context_window_used_tokens` / `contextWindowUsedTokens`: provider `total_tokens` when present,
+  then provider prompt/input usage, otherwise the local request estimate.
 - `context_window_remaining_tokens` / `contextWindowRemainingTokens`: remaining context budget.
 - `estimated_context_tokens` / `estimatedContextTokens`: local approximate token count for the
-  request sent after context-window trimming.
+  messages, instructions, and provider-visible tool definitions sent after context-window
+  trimming.
 - `context_window_strategy` / `contextWindowStrategy`: effective strategy, currently `discard` or
   `compact`.
 - `percent`: context-window usage percentage.
 
-Rust agent context-window controls are read from `agents.defaults` or the turn specification:
+Rust agent context-window controls are resolved from the turn, active provider profile, known-model
+catalog, and legacy Agent defaults:
 
-- `contextWindowTokens` / `context_window_tokens`: effective context window. When unset,
-  `deepseek-v4-flash` and `deepseek-v4-pro` use `1000000`; other models fall back to `128000`.
+- Turn `contextWindowTokens` / `context_window_tokens`: an explicit override for that turn.
+- Profile `modelContextWindows`: per-model overrides containing `model` and
+  `contextWindowTokens`. When unset, `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`, and
+  `deepseek-v4-pro` use `1000000` automatically.
+- `agents.defaults.contextWindowTokens` / `context_window_tokens`: legacy fallback for unknown
+  models only. Unknown models fall back to `128000` when it is absent.
 - `contextWindowStrategy` / `context_window_strategy`: `discard` or `compact`. The fallback is
   `compact`.
 - `compactTriggerPercent` / `compact_trigger_percent`: percentage threshold for `compact`; default
