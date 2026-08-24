@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:1cd8d46d7993a0f90e9f3ca6921689e1a3094699c4d328d234491c7fa81a65ed -->
+<!-- tinybot-module-fingerprint: sha256:3290b05b2e1aeb2dd9afd8ab46fa29bd7fa7844a0763c8ef317975877435be0f -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -31,7 +31,9 @@ Thread data model. Those belong to `agent::runtime` and `threads::domain`.
 5. Build tool, context-checkpoint, trace, and workspace command-hook services,
    selecting the Thread-owned or direct-session trace path.
 6. Execute the native agent loop and flush the trace sink.
-7. Persist the terminal boundary or resumable checkpoint as applicable.
+7. Persist the terminal boundary or resumable checkpoint as applicable. If
+   runtime execution or trace flush fails, persist a failed terminal with the
+   original error before returning it to the caller.
 8. Schedule memory extraction only after a completed turn is durably persisted.
 
 Changing this order requires care. In particular, a turn must be recoverable
@@ -56,6 +58,8 @@ when it failed.
 - Persist turn start before starting provider work.
 - Do not execute a terminal turn again under the same durable identity.
 - Flush trace output before final persistence reports success.
+- Runtime and trace errors must leave a durable failed terminal state rather
+  than an active Turn that requires startup recovery.
 - Keep Thread-owned events on the Thread path; avoid duplicating them through
   the direct-session trace sink.
 - Send lossless runtime events to the canonical persistence boundary. Bound or

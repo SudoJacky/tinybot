@@ -16,6 +16,10 @@ use crate::agent::runtime::{
 use std::path::PathBuf;
 use std::sync::Arc;
 
+#[cfg(test)]
+#[path = "agent_flow_tests.rs"]
+mod tests;
+
 pub(crate) async fn run_agent_with_services(
     base_services: NativeAgentRuntimeServices,
     mut spec: serde_json::Value,
@@ -86,12 +90,31 @@ pub(crate) async fn run_agent_with_services(
     let flush_result = services.flush_trace_sink();
     let mut result = match (turn_result, flush_result) {
         (Ok(result), Ok(())) => result,
-        (Err(turn_error), Ok(())) => return Err(turn_error),
-        (Ok(_), Err(flush_error)) => return Err(flush_error),
+        (Err(turn_error), Ok(())) => {
+            return Err(persist_failed_agent_turn(
+                &persistence_spec,
+                &thread_store,
+                config_snapshot,
+                turn_error,
+            ))
+        }
+        (Ok(_), Err(flush_error)) => {
+            return Err(persist_failed_agent_turn(
+                &persistence_spec,
+                &thread_store,
+                config_snapshot,
+                flush_error,
+            ))
+        }
         (Err(turn_error), Err(flush_error)) => {
-            return Err(format!(
-            "native agent turn failed: {turn_error}; trace persistence flush failed: {flush_error}"
-        ))
+            return Err(persist_failed_agent_turn(
+                &persistence_spec,
+                &thread_store,
+                config_snapshot,
+                format!(
+                    "native agent turn failed: {turn_error}; trace persistence flush failed: {flush_error}"
+                ),
+            ))
         }
     };
     persist_native_agent_turn_terminal_if_present(
@@ -111,6 +134,33 @@ pub(crate) async fn run_agent_with_services(
         &config_snapshot,
     );
     Ok(result)
+}
+
+fn persist_failed_agent_turn(
+    persistence_spec: &serde_json::Value,
+    thread_store: &crate::threads::workspace_store::WorkspaceThreadStore,
+    config_snapshot: serde_json::Value,
+    runtime_error: String,
+) -> String {
+    let mut failure = serde_json::json!({
+        "runtime": "rust",
+        "stopReason": "runtime_error",
+        "error": {
+            "code": "runtime_error",
+            "message": runtime_error,
+        },
+    });
+    if let Err(persistence_error) = persist_native_agent_turn_terminal_if_present(
+        persistence_spec.clone(),
+        &mut failure,
+        thread_store,
+        config_snapshot,
+    ) {
+        return format!(
+            "{runtime_error}; failed to persist terminal turn state: {persistence_error}"
+        );
+    }
+    runtime_error
 }
 
 #[cfg(not(test))]

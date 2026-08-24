@@ -9,7 +9,7 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:82508d0c5eb64aa68d34bec5d8a201638131e3646a1e09bf272508d3b48b30b1 -->
+<!-- tinybot-doc-fingerprint: sha256:240ff156e75d16e84b052c74c36ca6151472ae85341e3e3eb3ebd7fb88a71f63 -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
@@ -92,6 +92,11 @@ diagnostic redaction or truncation. Blocking status boundaries and Turn exits
 are durable barriers. Eligible events may be appended in bounded batches while
 preserving their causal order, identity, timestamp, and sequence; streaming
 deltas and non-blocking status updates remain live-only.
+
+When Agent execution or trace flushing returns an error, the bridge appends a
+failed terminal boundary with the original runtime error before returning to
+the desktop caller. Startup orphan recovery is reserved for genuinely
+interrupted active Turns, not ordinary failures observed by the running app.
 
 Live desktop patches and reloaded timeline snapshots must converge on the same
 Item identities. Renderer state is never used to reconstruct canonical

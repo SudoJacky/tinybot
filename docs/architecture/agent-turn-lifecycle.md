@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:91eaded0c026ee7d1c10c54ce53fe4da2af9b16f6f7389765b869d341f3c356e -->
+<!-- tinybot-doc-fingerprint: sha256:18ded05172cf1a4ff38b87a159ef745c4253abf636576658dc06bab36de986cf -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -61,7 +61,10 @@ Rollout reconstruction and live timeline events -> React projection
 
 The bridge persists the Turn start before provider work. This ordering makes a
 visible Turn recoverable after interruption. Trace output is flushed before a
-successful terminal result is persisted.
+successful terminal result is persisted. If runtime execution or trace flush
+fails, the bridge persists a failed terminal state with `runtime_error` before
+returning the original error to the desktop caller; the renderer can then
+reload the canonical Rollout instead of leaving the Turn active.
 
 ## Runtime loop
 
@@ -122,7 +125,7 @@ reconstruct the updated log before recovery decisions are made.
 - Preserve Thread, Turn, Item, tool-call, request, trace, and client-event IDs
   across seams.
 - Persist Turn start before provider work and flush trace before terminal
-  success.
+  success; persist a failed terminal before returning a runtime or trace error.
 - Do not append the same user, assistant, or tool item again during terminal
   persistence.
 - Keep provider failures, tool failures, trace failures, cancellation, and

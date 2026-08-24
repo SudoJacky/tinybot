@@ -11,7 +11,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:80589300f8fe9768aae3c2c0555743aa26273eca009448fe093a286f82201c90 -->
+<!-- tinybot-doc-fingerprint: sha256:c3f5cdccee6509fd640de77f3f449eabaa883f1b47634110f5adfe661d54c0a7 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -63,6 +63,11 @@ Every registry entry declares:
 - required capabilities and current availability;
 - execution target;
 - parallelism, mutation, cancellation, and cleanup policy.
+
+Provider-visible schemas describe nested argument contracts, not only their
+top-level names. For example, `publish_data_view` exposes the supported view
+kinds and requires table `defaultSort` to use `{field, direction}` so providers
+can construct the same shape the native validator accepts.
 
 Ordered contributors assemble built-in, workspace, MCP, runtime-control, and
 eligible project-group tools. Duplicate contributor IDs, tool IDs, or methods

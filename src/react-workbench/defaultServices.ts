@@ -260,10 +260,21 @@ export function createDesktopAppServices(
           notifySession(sessionId, { type: "timeline.patch", timeline });
           nativeEvents.notifyTerminalTimelineState(sessionId, timeline);
         })
-        .catch((error) => {
+        .catch(async (error) => {
+          let recoveryError = "";
+          try {
+            const timeline = await controller.reloadTimeline(sessionId);
+            notifySession(sessionId, { type: "timeline.patch", timeline });
+            nativeEvents.notifyTerminalTimelineState(sessionId, timeline);
+          } catch (timelineError) {
+            recoveryError = timelineError instanceof Error ? timelineError.message : String(timelineError);
+          }
+          const message = error instanceof Error ? error.message : String(error);
           notifySession(sessionId, {
             type: "timeline.error",
-            error: error instanceof Error ? error.message : String(error),
+            error: recoveryError
+              ? `${message}; failed to reload terminal timeline state: ${recoveryError}`
+              : message,
           });
         });
     }

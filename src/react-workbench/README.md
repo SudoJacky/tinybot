@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:ef0419a1038e3a159a495cc65e9b83926e09926d1275c9ef78f7ab9a0480c730 -->
+<!-- tinybot-module-fingerprint: sha256:30d07c1dc50628a1c845fa04c9bdb783ce669e1a83b3734a11c3be9f0764f74f -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App` for the main window and selects lightweight
@@ -63,3 +63,7 @@ diagnostics does not wait for Chat initialization, so a slow session restore
 cannot make its own diagnostics unavailable.
 Browser-only runs retain the same service shape but surface native-runtime
 unavailability explicitly.
+
+Native Chat submission failures reload the canonical timeline before emitting
+the renderer error. This projects a backend-persisted failed Turn immediately
+instead of leaving the optimistic active state visible until restart.

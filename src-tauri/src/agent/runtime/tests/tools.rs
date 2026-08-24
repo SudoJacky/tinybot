@@ -2222,6 +2222,83 @@ fn publish_data_view_emits_a_persistable_artifact_and_continues_the_turn() {
 }
 
 #[test]
+fn invalid_publish_data_view_sort_still_emits_a_terminal_result() {
+    let arguments = json!({
+        "schemaVersion": "tinybot.data_view.v1",
+        "title": "Agent projects",
+        "insight": "Compare three projects.",
+        "dataset": {
+            "columns": [
+                { "key": "name", "label": "Project", "type": "string" },
+                { "key": "stars", "label": "Stars", "type": "number", "format": "compact" }
+            ],
+            "rows": [
+                { "id": "openhands", "values": { "name": "OpenHands", "stars": 84937 } }
+            ]
+        },
+        "view": {
+            "kind": "table",
+            "fields": ["name", "stars"],
+            "defaultSort": "stars"
+        },
+        "provenance": {
+            "status": "sourced",
+            "asOf": "2026-08-24",
+            "sources": [{
+                "id": "github",
+                "kind": "url",
+                "title": "GitHub API",
+                "uri": "https://api.github.com/repos/OpenHands/OpenHands"
+            }]
+        }
+    })
+    .to_string();
+    let services = NativeAgentRuntimeServices::default();
+    let result = run_native_agent_turn_with_config(
+        &services,
+        json!({
+            "runtime": "rust",
+            "turnId": "turn-invalid-data-view-sort",
+            "sessionId": "websocket:chat-invalid-data-view-sort",
+            "maxIterations": 2,
+            "messages": [{ "role": "user", "content": "compare projects" }]
+        }),
+        json!({
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+            "providers": {
+                "fixture": {
+                    "responses": [
+                        {
+                            "content": "",
+                            "toolCalls": [{
+                                "id": "call-invalid-data-view-sort",
+                                "name": "publish_data_view",
+                                "argumentsJson": arguments
+                            }]
+                        },
+                        { "content": "The data view was rejected." }
+                    ]
+                }
+            }
+        }),
+    )
+    .expect("invalid data view should be returned to the model instead of stalling");
+
+    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result["completedToolResults"][0]["status"], "error");
+    assert!(result["runtimeEvents"]
+        .as_array()
+        .expect("events should be an array")
+        .iter()
+        .any(|event| {
+            event["eventName"] == "agent.tool.result"
+                && event["payload"]["toolCallId"] == "call-invalid-data-view-sort"
+                && event["payload"]["status"] == "completed"
+                && event["payload"]["resultStatus"] == "error"
+        }));
+}
+
+#[test]
 fn publish_data_view_handles_multiple_calls_from_one_provider_response() {
     let tool_calls = [
         ("call-data-view-1", "Revenue", "bar"),

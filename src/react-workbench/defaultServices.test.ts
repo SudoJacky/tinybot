@@ -809,6 +809,50 @@ describe("desktop native app services", () => {
     expect(events).toContainEqual({ type: "agent.event", eventType: "agent.turn.completed" });
   });
 
+  test("reloads a persisted failed turn when native submission rejects", async () => {
+    let failedTurnId = "";
+    mocks.invoke.mockImplementation(async (command: string, args?: Record<string, unknown>) => {
+      if (command === "worker_threads_list") return { threads: [thread], total: 1 };
+      if (command === "thread_list_turns") {
+        return { turns: failedTurnId ? [{ turnId: failedTurnId }] : [] };
+      }
+      if (command === "thread_get_turn_runtime_state") {
+        return canonicalRuntimeState(failedTurnId, "failed");
+      }
+      if (command === "worker_submit_thread_turn") {
+        const input = args?.input as { spec?: { turnId?: string } } | undefined;
+        failedTurnId = input?.spec?.turnId ?? "";
+        throw new Error("simulated runtime failure after tool delta");
+      }
+      return {};
+    });
+    const services = createDesktopAppServices();
+    await services.chatStore.load("thread-1");
+    const events: ChatEvent[] = [];
+    services.chatStore.subscribe("thread-1", (event) => events.push(event));
+
+    await services.chatStore.dispatch(createDesktopTurnSubmitCommand({
+      commandId: "command-failed-result",
+      message: { text: "hello" },
+      sessionId: "thread-1",
+      source: { control: "test", surface: "chat" },
+    }));
+    await vi.waitFor(() => {
+      expect(events).toContainEqual(expect.objectContaining({
+        type: "timeline.patch",
+        timeline: expect.objectContaining({
+          turns: [expect.objectContaining({ id: failedTurnId, status: "failed" })],
+        }),
+      }));
+    });
+
+    expect(events).toContainEqual({ type: "agent.event", eventType: "agent.turn.failed" });
+    expect(events).toContainEqual({
+      type: "timeline.error",
+      error: "simulated runtime failure after tool delta",
+    });
+  });
+
   test("consumes typed Tauri timeline patches without a transport frame", async () => {
     mocks.invoke.mockImplementation(async (command: string) => {
       if (command === "worker_threads_list") return { threads: [thread], total: 1 };

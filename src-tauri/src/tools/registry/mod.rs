@@ -414,7 +414,58 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
                     "view": {
                         "type": "object",
                         "required": ["kind"],
-                        "description": "metrics: items[{field,comparisonField?,direction?}]; table: fields? and defaultSort?; cartesian: x, series[{field,mark:line|bar|area,axis:left|right?}], stack:none|normal?; waterfall: category, value, totalField?. At most six metrics or series."
+                        "properties": {
+                            "kind": {
+                                "type": "string",
+                                "enum": ["metrics", "table", "cartesian", "waterfall"]
+                            },
+                            "items": {
+                                "type": "array", "minItems": 1, "maxItems": 6,
+                                "items": {
+                                    "type": "object", "required": ["field"],
+                                    "properties": {
+                                        "field": { "type": "string" },
+                                        "comparisonField": { "type": "string" },
+                                        "direction": {
+                                            "type": "string",
+                                            "enum": ["higher_is_better", "lower_is_better", "neutral"]
+                                        }
+                                    },
+                                    "additionalProperties": false
+                                }
+                            },
+                            "fields": {
+                                "type": "array", "maxItems": 20,
+                                "items": { "type": "string" }
+                            },
+                            "defaultSort": {
+                                "type": "object", "required": ["field", "direction"],
+                                "properties": {
+                                    "field": { "type": "string" },
+                                    "direction": { "type": "string", "enum": ["asc", "desc"] }
+                                },
+                                "additionalProperties": false
+                            },
+                            "x": { "type": "string" },
+                            "series": {
+                                "type": "array", "minItems": 1, "maxItems": 6,
+                                "items": {
+                                    "type": "object", "required": ["field", "mark"],
+                                    "properties": {
+                                        "field": { "type": "string" },
+                                        "mark": { "type": "string", "enum": ["line", "bar", "area"] },
+                                        "axis": { "type": "string", "enum": ["left", "right"] }
+                                    },
+                                    "additionalProperties": false
+                                }
+                            },
+                            "stack": { "type": "string", "enum": ["none", "normal"] },
+                            "category": { "type": "string" },
+                            "value": { "type": "string" },
+                            "totalField": { "type": "string" }
+                        },
+                        "additionalProperties": false,
+                        "description": "Choose the fields that match kind: metrics uses items; table uses fields and optional defaultSort {field,direction}; cartesian uses x, series and optional stack; waterfall uses category, value and optional totalField."
                     },
                     "provenance": {
                         "type": "object", "required": ["status"],
