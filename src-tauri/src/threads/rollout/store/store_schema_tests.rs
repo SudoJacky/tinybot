@@ -1,6 +1,98 @@
 use super::*;
 
 #[test]
+fn historical_compacted_usage_recovers_context_metrics_from_token_count() {
+    let thread_id = "thread-usage-recovery";
+    let turn_id = "turn-usage";
+    let lines = [
+        serde_json::json!({
+            "timestamp": "2026-08-24T09:33:10.393Z",
+            "ordinal": 11,
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "payload": {
+                    "turnId": turn_id,
+                    "info": {
+                        "modelContextWindow": 1000000,
+                        "usage": {
+                            "cachedInputTokens": 4096,
+                            "inputTokens": 4130,
+                            "outputTokens": 85,
+                            "totalTokens": 4215
+                        }
+                    }
+                }
+            }
+        }),
+        serde_json::json!({
+            "timestamp": "2026-08-24T09:33:10.411Z",
+            "ordinal": 12,
+            "type": "event_msg",
+            "payload": {
+                "type": "thread_item",
+                "payload": {
+                    "item": {
+                        "createdAt": "2026-08-24T09:33:10.411Z",
+                        "itemId": "semantic-usage",
+                        "kind": {
+                            "type": "event",
+                            "payload": {
+                                "eventName": "agent.usage",
+                                "payload": {
+                                    "agentItem": {
+                                        "id": "turn-usage:usage:0",
+                                        "inputTokens": 4130,
+                                        "outputTokens": 85,
+                                        "providerPayload": {
+                                            "input_tokens": 4130,
+                                            "input_tokens_details": { "cached_tokens": 4096 },
+                                            "output_tokens": 85,
+                                            "total_tokens": 4215
+                                        },
+                                        "totalTokens": 4215,
+                                        "type": "usage"
+                                    }
+                                }
+                            }
+                        },
+                        "parentItemId": null,
+                        "sequence": 0,
+                        "threadId": thread_id,
+                        "turnId": turn_id
+                    }
+                }
+            }
+        }),
+    ]
+    .into_iter()
+    .map(|value| serde_json::from_value::<ThreadLogLine>(value).unwrap())
+    .collect::<Vec<_>>();
+
+    let items = thread_items_from_effective_rollout(&lines, &[0, 1], thread_id).unwrap();
+    let ThreadItemKind::Event(usage) = &items[0].kind else {
+        panic!("usage should reconstruct as an event item");
+    };
+    let agent_item = &usage["payload"]["agentItem"];
+
+    assert_eq!(agent_item["contextWindowTokens"], 1_000_000);
+    assert_eq!(agent_item["contextWindowUsedTokens"], 4_215);
+    assert_eq!(agent_item["contextWindowRemainingTokens"], 995_785);
+    assert_eq!(agent_item["percent"], 0.4215);
+
+    let events =
+        crate::threads::domain::runtime_events_from_thread_items(&items, thread_id, turn_id);
+    let projected = crate::agent::runtime_protocol::project_turn_items_from_trace_events(&events);
+    let usage = serde_json::to_value(&projected[0].data).unwrap();
+    assert_eq!(usage["contextWindowTokens"], 1_000_000);
+    assert_eq!(usage["contextWindowUsedTokens"], 4_215);
+    assert_eq!(
+        usage["providerPayload"]["input_tokens_details"]["cached_tokens"],
+        4_096
+    );
+}
+
+#[test]
 fn future_thread_log_schema_is_rejected_explicitly() {
     let error = thread_meta_from_lines(&[ThreadLogLine {
         timestamp: "2026-07-10T00:00:00Z".to_string(),

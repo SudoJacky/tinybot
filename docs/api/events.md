@@ -6,7 +6,7 @@ src/app-core/chat/chatTurnContracts.ts
 src/app-core/native/desktopNativeTauriEvents.ts
 src/app-core/native/desktopNativeTauriEvents.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:0638eb0320df3c3c7aa285317184e09a786c8cfe5c9031e65809a782f0385c3b -->
+<!-- tinybot-doc-fingerprint: sha256:d220fb3338c15549a9d9e7250e34e44fafc2785d9e4d553137112f1bfb728f61 -->
 
 This document lists frontend-visible events emitted by the native runtime. It
 is part of the [Rust backend API reference](rust-backend-api.md), which defines
@@ -80,10 +80,11 @@ use `referenceKind: "image"` and file references use `referenceKind: "file"`.
 
 `agent.usage` payloads preserve provider-returned OpenAI-compatible usage fields such as
 `prompt_tokens`, `completion_tokens`, and `total_tokens`. The Rust agent runtime also appends
-context-window budget fields for live compatibility consumers. Its typed
-`payload.agentItem.providerPayload` retains the original provider usage; durable
-Rollouts omit the redundant outer enriched copies and rely on the adjacent
-`agent.token_count` record for normalized cache and reasoning counters.
+context-window budget fields to the typed `payload.agentItem`, while
+`payload.agentItem.providerPayload` retains only the original provider usage. Durable
+Rollouts omit redundant outer enriched copies. Replay of earlier compact usage Items restores
+missing context-window fields from the adjacent `agent.token_count` record; that record also
+remains authoritative for normalized cache and reasoning counters.
 
 - `context_window_tokens` / `contextWindowTokens`: effective per-model context window from the
   turn, provider profile, known-model catalog, legacy unknown-model fallback, or backend default.

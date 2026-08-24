@@ -1,5 +1,5 @@
 # Worker Thread Log
-<!-- tinybot-module-fingerprint: sha256:5ae88e6ad415f3fe0783695687496fab7fb45211aa5d22ba85de6cff6cc46805 -->
+<!-- tinybot-module-fingerprint: sha256:83ff06ddca1d06a527ab2a395f7ba31ea0551fc73bcf1fdd03ca2a42ac122351 -->
 
 `threads::rollout::store` owns Tinybot's canonical append-only Rollout. It validates
 paths, records typed lines, reconstructs Thread and runtime projections,
@@ -58,6 +58,8 @@ successful append.
   independently of the Agent's content workspace.
 - Append complete JSON lines and flush them before reporting success.
 - Replay log history without mutating the source log.
+- Rehydrate context metrics in historical compact usage Items from their adjacent
+  canonical token-count event.
 - Project replayed state into typed Thread history and runtime context shapes.
 - Maintain the `ThreadStateIndex` used for listing and lookup.
 - Rebuild the process-local index from canonical logs at startup.

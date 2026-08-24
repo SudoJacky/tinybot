@@ -153,15 +153,18 @@ fn agent_item_for_runtime_event(kind: AgentEventKind, payload: &Value) -> Option
         }
         AgentEventKind::Usage => {
             let turn_id = required_string(payload, &["turnId", "turn_id"], kind);
-            let mut usage = AgentUsageItem::from_provider_payload(
-                payload
-                    .get("providerUsage")
-                    .or_else(|| payload.get("provider_usage"))
-                    .or_else(|| payload.get("usage"))
-                    .cloned()
-                    .unwrap_or_else(|| serde_json::json!({})),
-            )
-            .expect("runtime usage payload must be an object");
+            let provider_usage = payload
+                .get("providerUsage")
+                .or_else(|| payload.get("provider_usage"))
+                .or_else(|| payload.get("usage"))
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({}));
+            let normalized_usage = payload
+                .get("usage")
+                .cloned()
+                .unwrap_or_else(|| provider_usage.clone());
+            let mut usage = AgentUsageItem::from_runtime_usage(provider_usage, normalized_usage)
+                .expect("runtime usage payload must be an object");
             usage.id = Some(format!(
                 "{turn_id}:usage:{}",
                 payload
@@ -225,5 +228,51 @@ fn subagent_default_status(kind: AgentEventKind) -> &'static str {
         AgentEventKind::DelegateResult => "completed",
         AgentEventKind::DelegateWait | AgentEventKind::DelegateNotification => "waiting",
         _ => "running",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn usage_item_keeps_normalized_context_metrics_separate_from_provider_payload() {
+        let payload = attach_agent_item(
+            AgentEventKind::Usage,
+            serde_json::json!({
+                "turnId": "turn-usage",
+                "iteration": 0,
+                "usage": {
+                    "inputTokens": 4130,
+                    "outputTokens": 85,
+                    "totalTokens": 4215,
+                    "contextWindowRemainingTokens": 995785,
+                    "contextWindowStrategy": "compact",
+                    "contextWindowTokens": 1000000,
+                    "contextWindowUsedTokens": 4215,
+                    "estimatedContextTokens": 971,
+                    "percent": 0.4215
+                },
+                "providerUsage": {
+                    "input_tokens": 4130,
+                    "input_tokens_details": { "cached_tokens": 4096 },
+                    "output_tokens": 85,
+                    "total_tokens": 4215
+                }
+            }),
+        );
+
+        let item = &payload["agentItem"];
+        assert_eq!(item["contextWindowTokens"], 1_000_000);
+        assert_eq!(item["contextWindowUsedTokens"], 4_215);
+        assert_eq!(item["contextWindowRemainingTokens"], 995_785);
+        assert_eq!(item["contextWindowStrategy"], "compact");
+        assert_eq!(item["estimatedContextTokens"], 971);
+        assert_eq!(item["percent"], 0.4215);
+        assert_eq!(
+            item["providerPayload"]["input_tokens_details"]["cached_tokens"],
+            4_096
+        );
+        assert!(item["providerPayload"].get("contextWindowTokens").is_none());
     }
 }

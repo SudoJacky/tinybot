@@ -261,6 +261,18 @@ pub enum AgentTurnItemData {
         input_tokens: Option<i64>,
         output_tokens: Option<i64>,
         total_tokens: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        context_window_remaining_tokens: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        context_window_strategy: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        context_window_tokens: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        context_window_used_tokens: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        estimated_context_tokens: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        percent: Option<f64>,
         provider_payload: Value,
     },
     FileReference {

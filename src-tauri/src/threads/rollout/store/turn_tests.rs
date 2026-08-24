@@ -491,7 +491,19 @@ fn persisted_usage_preserves_the_live_timeline_item_identity() {
             "usage": {
                 "inputTokens": 4469,
                 "outputTokens": 219,
-                "totalTokens": 4688
+                "totalTokens": 4688,
+                "contextWindowRemainingTokens": 123312,
+                "contextWindowStrategy": "compact",
+                "contextWindowTokens": 128000,
+                "contextWindowUsedTokens": 4688,
+                "estimatedContextTokens": 1024,
+                "percent": 3.6625
+            },
+            "providerUsage": {
+                "input_tokens": 4469,
+                "input_tokens_details": { "cached_tokens": 4096 },
+                "output_tokens": 219,
+                "total_tokens": 4688
             },
             "agentItem": {
                 "type": "usage",
@@ -499,10 +511,17 @@ fn persisted_usage_preserves_the_live_timeline_item_identity() {
                 "inputTokens": 4469,
                 "outputTokens": 219,
                 "totalTokens": 4688,
+                "contextWindowRemainingTokens": 123312,
+                "contextWindowStrategy": "compact",
+                "contextWindowTokens": 128000,
+                "contextWindowUsedTokens": 4688,
+                "estimatedContextTokens": 1024,
+                "percent": 3.6625,
                 "providerPayload": {
-                    "inputTokens": 4469,
-                    "outputTokens": 219,
-                    "totalTokens": 4688
+                    "input_tokens": 4469,
+                    "input_tokens_details": { "cached_tokens": 4096 },
+                    "output_tokens": 219,
+                    "total_tokens": 4688
                 }
             }
         }
@@ -522,10 +541,18 @@ fn persisted_usage_preserves_the_live_timeline_item_identity() {
         panic!("usage should remain a semantic event");
     };
     assert!(persisted_event["payload"].get("usage").is_none());
+    assert!(persisted_event["payload"].get("providerUsage").is_none());
     assert_eq!(
-        persisted_event["payload"]["agentItem"]["providerPayload"]["totalTokens"],
+        persisted_event["payload"]["agentItem"]["contextWindowTokens"],
+        128_000
+    );
+    assert_eq!(
+        persisted_event["payload"]["agentItem"]["providerPayload"]["total_tokens"],
         4688
     );
+    assert!(persisted_event["payload"]["agentItem"]["providerPayload"]
+        .get("contextWindowTokens")
+        .is_none());
 
     rpc.append_turn_semantic_event(
         session_id,

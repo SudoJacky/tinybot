@@ -339,12 +339,13 @@ function applyTurnItemToTurn(turn: ChatTurn, item: BackendAgentTurnItem): void {
     return;
   }
   if (item.kind === "usage") {
-    const providerUsage = normalizeUsage(payload.providerPayload);
+    const providerPayload = recordValue(payload.providerPayload);
+    const usage = normalizeUsage({ ...providerPayload, ...payload });
     turn.usage = {
-      ...(providerUsage ?? {}),
-      promptTokens: numberValue(payload.inputTokens) ?? providerUsage?.promptTokens,
-      completionTokens: numberValue(payload.outputTokens) ?? providerUsage?.completionTokens,
-      totalTokens: numberValue(payload.totalTokens) ?? providerUsage?.totalTokens,
+      ...(usage ?? {}),
+      promptTokens: numberValue(payload.inputTokens) ?? usage?.promptTokens,
+      completionTokens: numberValue(payload.outputTokens) ?? usage?.completionTokens,
+      totalTokens: numberValue(payload.totalTokens) ?? usage?.totalTokens,
     };
     return;
   }

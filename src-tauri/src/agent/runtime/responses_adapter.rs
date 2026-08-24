@@ -540,6 +540,12 @@ fn responses_usage(value: &Value) -> Result<AgentUsageItem, String> {
         input_tokens: usage_number(usage, "input_tokens")?,
         output_tokens: usage_number(usage, "output_tokens")?,
         total_tokens: usage_number(usage, "total_tokens")?,
+        context_window_remaining_tokens: None,
+        context_window_strategy: None,
+        context_window_tokens: None,
+        context_window_used_tokens: None,
+        estimated_context_tokens: None,
+        percent: None,
         provider_payload: value.clone(),
     })
 }

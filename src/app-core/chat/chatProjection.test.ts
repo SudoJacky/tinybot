@@ -339,6 +339,12 @@ describe("chat projection", () => {
         inputTokens: 4216,
         outputTokens: 60,
         totalTokens: 4276,
+        contextWindowRemainingTokens: 995724,
+        contextWindowStrategy: "compact",
+        contextWindowTokens: 1000000,
+        contextWindowUsedTokens: 4276,
+        estimatedContextTokens: 978,
+        percent: 0.4276,
         providerPayload: {
           input_tokens: 4216,
           input_tokens_details: { cached_tokens: 4096 },
@@ -352,6 +358,12 @@ describe("chat projection", () => {
 
     expect(turn.usage).toMatchObject({
       cachedTokens: 4096,
+      contextWindowRemainingTokens: 995724,
+      contextWindowStrategy: "compact",
+      contextWindowTokens: 1000000,
+      contextWindowUsedTokens: 4276,
+      estimatedContextTokens: 978,
+      percent: 0.4276,
       promptTokens: 4216,
     });
   });

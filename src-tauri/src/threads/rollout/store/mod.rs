@@ -3015,6 +3015,7 @@ fn thread_items_from_effective_rollout(
     let mut items = Vec::new();
     let mut item_ids = HashSet::new();
     let mut active_turn_id = None::<String>;
+    let mut token_usage_by_turn = HashMap::<String, Value>::new();
     for index in effective_indexes
         .iter()
         .copied()
@@ -3022,6 +3023,16 @@ fn thread_items_from_effective_rollout(
     {
         let line = &lines[index];
         let sequence = line.ordinal.unwrap_or_else(|| index as u64);
+        if let ThreadLogItem::EventMsg(event) = &line.item {
+            if event.kind() == &EventKind::TokenCount {
+                if let Some((turn_id, info)) = string_value(event.payload(), "turnId")
+                    .or_else(|| string_value(event.payload(), "turn_id"))
+                    .zip(event.payload().get("info").cloned())
+                {
+                    token_usage_by_turn.insert(turn_id, info);
+                }
+            }
+        }
         let projected = match &line.item {
             ThreadLogItem::ResponseItem(item) => {
                 let item_sequence = item
@@ -3164,9 +3175,12 @@ fn thread_items_from_effective_rollout(
                 active_turn_id = None;
             }
         }
-        let Some(item) = projected else {
+        let Some(mut item) = projected else {
             continue;
         };
+        if let Some(info) = token_usage_by_turn.get(&item.turn_id) {
+            restore_usage_context_from_token_count(&mut item, info);
+        }
         if !item_ids.insert(item.item_id.clone()) {
             return Err(thread_log_consistency_error(
                 "canonical Rollout projects duplicate thread item identities",
@@ -3183,6 +3197,56 @@ fn thread_items_from_effective_rollout(
     items = collapse_logical_user_messages(items);
     items.sort_by_key(|item| item.sequence);
     Ok(items)
+}
+
+fn restore_usage_context_from_token_count(item: &mut ThreadItem, info: &Value) {
+    let ThreadItemKind::Event(event) = &mut item.kind else {
+        return;
+    };
+    if event.get("eventName").and_then(Value::as_str) != Some("agent.usage") {
+        return;
+    }
+    let Some(agent_item) = event
+        .pointer_mut("/payload/agentItem")
+        .and_then(Value::as_object_mut)
+        .filter(|item| item.get("type").and_then(Value::as_str) == Some("usage"))
+    else {
+        return;
+    };
+    let usage = info
+        .get("usage")
+        .or_else(|| info.get("lastTokenUsage"))
+        .or_else(|| info.get("last_token_usage"));
+    let context_window = usage_i64_field(info, &["modelContextWindow", "model_context_window"]);
+    let used_tokens = usage.and_then(|usage| {
+        usage_i64_field(
+            usage,
+            &["totalTokens", "total_tokens", "inputTokens", "input_tokens"],
+        )
+    });
+    let (Some(context_window), Some(used_tokens)) = (context_window, used_tokens) else {
+        return;
+    };
+    let used_tokens = used_tokens.clamp(0, context_window.max(0));
+    agent_item
+        .entry("contextWindowTokens".to_string())
+        .or_insert_with(|| Value::from(context_window));
+    agent_item
+        .entry("contextWindowUsedTokens".to_string())
+        .or_insert_with(|| Value::from(used_tokens));
+    agent_item
+        .entry("contextWindowRemainingTokens".to_string())
+        .or_insert_with(|| Value::from(context_window.saturating_sub(used_tokens).max(0)));
+    if context_window > 0 {
+        agent_item
+            .entry("percent".to_string())
+            .or_insert_with(|| Value::from((used_tokens as f64 / context_window as f64) * 100.0));
+    }
+}
+
+fn usage_i64_field(value: &Value, keys: &[&str]) -> Option<i64> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_i64))
 }
 
 fn thread_item_from_event_payload(

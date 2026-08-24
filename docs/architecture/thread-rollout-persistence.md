@@ -9,7 +9,7 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:8ae37168bdc47bbdcb23a0aacc065644f124286b05362a660f0ec00d894f9686 -->
+<!-- tinybot-doc-fingerprint: sha256:82508d0c5eb64aa68d34bec5d8a201638131e3646a1e09bf272508d3b48b30b1 -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
@@ -104,11 +104,11 @@ mode so configuration changes do not silently reinterpret existing history.
 Protocol-specific response records are projected at the persistence seam while
 the user-facing Thread history remains protocol-neutral.
 
-Usage persistence keeps one typed usage Item with the original provider usage
-payload plus a canonical token-count record for normalized last-call and
-Turn-total counters. Redundant enriched usage copies used by live compatibility
-consumers are removed at the persistence seam; replay still accepts older
-records that contain them.
+Usage persistence keeps one typed usage Item with explicit context-window metrics and the
+original provider usage payload, plus a canonical token-count record for normalized last-call
+and Turn-total counters. Redundant outer enriched usage copies are removed at the persistence
+seam. Replay still accepts older records that contain those copies and rehydrates compact Items
+that lack context metrics from their adjacent token-count record.
 
 Graph Agent nodes use this exact store. Each invocation creates a parentless
 Thread with `source: "agent_graph"` and Graph, Run, node, and node-run IDs in
