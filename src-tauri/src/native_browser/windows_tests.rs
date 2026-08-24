@@ -17,7 +17,23 @@ async fn navigation_completion_waits_for_a_new_finished_revision() {
     });
     tokio::task::yield_now().await;
     assert!(!waiter.is_finished());
-    completion.mark_completed();
+    completion.mark_completed("about:blank");
+    waiter.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn initial_navigation_completion_ignores_the_bootstrap_page() {
+    let completion = Arc::new(NavigationCompletion::default());
+    let baseline = completion.revision();
+    let waiter = tokio::spawn({
+        let completion = completion.clone();
+        async move { completion.wait_for_non_blank_after(baseline).await }
+    });
+    completion.mark_completed("about:blank");
+    tokio::task::yield_now().await;
+    assert!(!waiter.is_finished());
+
+    completion.mark_completed("https://example.com/");
     waiter.await.unwrap().unwrap();
 }
 

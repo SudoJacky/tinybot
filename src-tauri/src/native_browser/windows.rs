@@ -42,6 +42,7 @@ const CONTENT_DIRTY_MESSAGE: &str = "tinybot-browser-content-dirty-v1";
 const MAX_SEMANTIC_NODES: usize = 500;
 const BACKGROUND_VIEWPORT_WIDTH: u32 = 1024;
 const BACKGROUND_VIEWPORT_HEIGHT: u32 = 768;
+const PARKED_SURFACE_SIZE: f64 = 1.0;
 const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(15);
 const BROWSER_PROCESS_EXIT_TIMEOUT: Duration = Duration::from_secs(30);
 const PROFILE_DELETE_RETRY_DELAY: Duration = Duration::from_millis(50);
@@ -188,25 +189,34 @@ struct BrowserTabPresentation {
 }
 
 #[derive(Default)]
+struct NavigationCompletionState {
+    revision: u64,
+    non_blank_revision: u64,
+}
+
+#[derive(Default)]
 struct NavigationCompletion {
-    completed: Mutex<u64>,
+    state: Mutex<NavigationCompletionState>,
     notify: tokio::sync::Notify,
 }
 
 impl NavigationCompletion {
     fn revision(&self) -> u64 {
-        *self
-            .completed
+        self.state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .revision
     }
 
-    fn mark_completed(&self) {
-        let mut completed = self
-            .completed
+    fn mark_completed(&self, url: &str) {
+        let mut state = self
+            .state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        *completed = completed.saturating_add(1);
+        state.revision = state.revision.saturating_add(1);
+        if url != "about:blank" {
+            state.non_blank_revision = state.revision;
+        }
         self.notify.notify_one();
     }
 
@@ -215,6 +225,25 @@ impl NavigationCompletion {
             loop {
                 let notified = self.notify.notified();
                 if self.revision() > revision {
+                    return;
+                }
+                notified.await;
+            }
+        })
+        .await
+        .map_err(|_| "Native browser navigation completion timed out".to_string())
+    }
+
+    async fn wait_for_non_blank_after(&self, revision: u64) -> Result<(), String> {
+        tokio::time::timeout(NAVIGATION_TIMEOUT, async {
+            loop {
+                let notified = self.notify.notified();
+                let non_blank_revision = self
+                    .state
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .non_blank_revision;
+                if non_blank_revision > revision {
                     return;
                 }
                 notified.await;
@@ -374,10 +403,11 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
         let popup_sink = navigation_sink.clone();
         let download_tab_id = tab_id.clone();
         let download_sink = navigation_sink.clone();
+        let bootstrap_url = safe_browser_url("about:blank")?;
 
         let builder = WebviewBuilder::new(
             format!("tinyos-browser-{}", safe_label(tab_id.as_str())),
-            WebviewUrl::External(url.clone()),
+            WebviewUrl::External(bootstrap_url),
         )
         .data_directory(request.profile.data_directory.clone())
         .incognito(request.profile.persistence == BrowserProfilePersistence::Incognito)
@@ -420,13 +450,14 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
                     tauri::async_runtime::spawn(async move {
                         let (can_go_back, can_go_forward) =
                             navigation_state(&webview).await.unwrap_or((false, false));
+                        let completed_url = url.clone();
+                        navigation_completion.mark_completed(&completed_url);
                         sink(BrowserPlatformEvent::NavigationFinished {
                             tab_id,
                             url,
                             can_go_back,
                             can_go_forward,
                         });
-                        navigation_completion.mark_completed();
                     });
                 }
             }
@@ -481,15 +512,12 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
             .add_child(
                 builder,
                 LogicalPosition::new(0.0, 0.0),
-                LogicalSize::new(
-                    f64::from(BACKGROUND_VIEWPORT_WIDTH),
-                    f64::from(BACKGROUND_VIEWPORT_HEIGHT),
-                ),
+                LogicalSize::new(PARKED_SURFACE_SIZE, PARKED_SURFACE_SIZE),
             )
             .map_err(|error| format!("Failed to create native browser WebView2 child: {error}"))?;
         webview
-            .hide()
-            .map_err(|error| format!("Failed to hide new native browser surface: {error}"))?;
+            .show()
+            .map_err(|error| format!("Failed to park new native browser surface: {error}"))?;
         let event_sink = {
             self.event_sink
                 .read()
@@ -497,9 +525,23 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
                 .clone()
         };
         register_webview2_events(&webview, tab_id.clone(), event_sink, process_exit).await?;
+        if let Err(error) = set_agent_viewport(&webview).await {
+            let _ = webview.close();
+            return Err(error);
+        }
 
         if url.as_str() != "about:blank" {
-            if let Err(error) = navigation_completion.wait_after(0).await {
+            let revision = navigation_completion.revision();
+            if let Err(error) = webview.navigate(url.clone()) {
+                let _ = webview.close();
+                return Err(format!(
+                    "Failed to navigate new native browser tab: {error}"
+                ));
+            }
+            if let Err(error) = navigation_completion
+                .wait_for_non_blank_after(revision)
+                .await
+            {
                 let _ = webview.close();
                 return Err(error);
             }
@@ -563,6 +605,13 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
                 .webview
                 .show()
                 .map_err(|error| format!("Failed to show native browser surface: {error}"))?;
+            set_browser_viewport(
+                &handle.webview,
+                surface.rect.width.round() as u32,
+                surface.rect.height.round() as u32,
+                surface.rect.device_scale,
+            )
+            .await?;
             if surface.focus {
                 handle
                     .webview
@@ -570,10 +619,8 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
                     .map_err(|error| format!("Failed to focus native browser surface: {error}"))?;
             }
         } else {
-            handle
-                .webview
-                .hide()
-                .map_err(|error| format!("Failed to hide native browser surface: {error}"))?;
+            set_agent_viewport(&handle.webview).await?;
+            park_browser_surface(&handle.webview)?;
         }
         wait_for_webview_dispatch(&handle.webview, "surface update").await?;
         handle
@@ -585,13 +632,18 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
 
     async fn navigate(&self, tab_id: &BrowserTabId, url: &str) -> Result<(), String> {
         let url = safe_browser_url(url)?;
+        let blank_navigation = url.as_str() == "about:blank";
         let handle = self.tab(tab_id)?;
         let revision = handle.navigation.revision();
         handle
             .webview
             .navigate(url)
             .map_err(|error| format!("Failed to navigate native browser tab: {error}"))?;
-        handle.navigation.wait_after(revision).await
+        if blank_navigation {
+            handle.navigation.wait_after(revision).await
+        } else {
+            handle.navigation.wait_for_non_blank_after(revision).await
+        }
     }
 
     async fn back(&self, tab_id: &BrowserTabId) -> Result<(), String> {
@@ -646,7 +698,7 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
 
         let observation = observe_webview(&handle.webview, capture, semantic).await;
         let restore = if background_observation {
-            restore_hidden_surface(&handle.webview).await
+            restore_parked_surface(&handle.webview).await
         } else {
             Ok(())
         };
@@ -675,7 +727,7 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
 
         let page_text = read_page_text_webview(&handle.webview, text_offset, max_chars).await;
         let restore = if background_read {
-            restore_hidden_surface(&handle.webview).await
+            restore_parked_surface(&handle.webview).await
         } else {
             Ok(())
         };
@@ -932,6 +984,48 @@ fn selector_action(selector: &str, kind: &str, text: Option<&str>) -> Result<Str
     }
 }
 
+async fn set_agent_viewport(webview: &Webview<Wry>) -> Result<(), String> {
+    set_browser_viewport(
+        webview,
+        BACKGROUND_VIEWPORT_WIDTH,
+        BACKGROUND_VIEWPORT_HEIGHT,
+        1.0,
+    )
+    .await
+}
+
+async fn set_browser_viewport(
+    webview: &Webview<Wry>,
+    width: u32,
+    height: u32,
+    device_scale: f64,
+) -> Result<(), String> {
+    call_cdp(
+        webview,
+        "Emulation.setDeviceMetricsOverride",
+        json!({
+            "width": width.max(1),
+            "height": height.max(1),
+            "deviceScaleFactor": device_scale,
+            "mobile": false,
+        }),
+    )
+    .await?;
+    Ok(())
+}
+
+fn park_browser_surface(webview: &Webview<Wry>) -> Result<(), String> {
+    webview
+        .set_bounds(Rect {
+            position: LogicalPosition::new(0.0, 0.0).into(),
+            size: LogicalSize::new(PARKED_SURFACE_SIZE, PARKED_SURFACE_SIZE).into(),
+        })
+        .map_err(|error| format!("Failed to park native browser surface: {error}"))?;
+    webview
+        .show()
+        .map_err(|error| format!("Failed to keep native browser surface active: {error}"))
+}
+
 async fn prepare_background_observation(webview: &Webview<Wry>) -> Result<(), String> {
     webview
         .set_bounds(Rect {
@@ -948,16 +1042,14 @@ async fn prepare_background_observation(webview: &Webview<Wry>) -> Result<(), St
         .show()
         .map_err(|error| format!("Failed to enable background browser rendering: {error}"))?;
     if let Err(error) = wait_for_webview_dispatch(webview, "background observation").await {
-        let _ = webview.hide();
+        let _ = park_browser_surface(webview);
         return Err(error);
     }
     Ok(())
 }
 
-async fn restore_hidden_surface(webview: &Webview<Wry>) -> Result<(), String> {
-    webview
-        .hide()
-        .map_err(|error| format!("Failed to restore hidden browser surface: {error}"))?;
+async fn restore_parked_surface(webview: &Webview<Wry>) -> Result<(), String> {
+    park_browser_surface(webview)?;
     wait_for_webview_dispatch(webview, "background observation cleanup").await
 }
 

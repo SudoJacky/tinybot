@@ -39,9 +39,12 @@ const ROOT_HTML: &str = r#"<!doctype html>
   <p id="dynamic-text" aria-live="polite">idle</p>
   <p id="key-output">no key</p>
   <p id="ipc-status" role="status">ipc-pending</p>
+  <p id="initial-viewport"></p>
   <div style="height: 1400px"></div>
   <button id="scroll-target" type="button">Scroll target</button>
   <script>
+    document.querySelector('#initial-viewport').textContent =
+      `initial-viewport-${window.innerWidth}x${window.innerHeight}`;
     let updates = 0;
     document.querySelector('#dynamic-button').addEventListener('click', () => {
       document.querySelector('#dynamic-text').textContent = `updated-${++updates}`;

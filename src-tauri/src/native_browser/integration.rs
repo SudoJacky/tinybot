@@ -196,6 +196,9 @@ async fn exercise_lazy_agent_open(
     let browser_session_id = snapshot.data.browser_session_id.clone();
     let valid = opened["status"] == "completed"
         && opened["snapshot"]["url"] == fixture.url("/")
+        && opened["snapshot"]["content"]["text"]
+            .as_str()
+            .is_some_and(|text| text.contains("initial-viewport-1024x768"))
         && opened["snapshot"]["targets"]
             .as_array()
             .is_some_and(|targets| !targets.is_empty());
@@ -292,6 +295,12 @@ async fn exercise_open_session(
     {
         return Err("Public observe capture was not a PNG data URL".to_string());
     }
+    if capture.viewport_width != 720 || capture.viewport_height != 520 {
+        return Err(format!(
+            "Visible browser surface did not use its real viewport: {}x{}",
+            capture.viewport_width, capture.viewport_height
+        ));
+    }
     let mut semantic = observed
         .semantic
         .clone()
@@ -372,6 +381,47 @@ async fn exercise_open_session(
         &tab_id,
         &fixture.url("/history/b"),
     )?;
+
+    browser_update_surface(
+        runtime_state(app),
+        BrowserSurfaceUpdate {
+            browser_session_id: browser_session_id.clone(),
+            tab_id: tab_id.clone(),
+            surface_id: BrowserSurfaceId::new("native-browser-integration-surface")?,
+            layout_revision: 2,
+            rect: BrowserSurfaceRect {
+                x: 20.0,
+                y: 20.0,
+                width: 720.0,
+                height: 520.0,
+                device_scale: 1.0,
+            },
+            visible: false,
+            live: false,
+            topmost: false,
+            unobscured: false,
+        },
+    )
+    .await?;
+    let detached_open = crate::tools::web::dispatch_web_open(
+        &runtime,
+        "native-browser-integration",
+        None,
+        json!({
+            "commandId": "native-browser-detached-reopen",
+            "url": fixture.url("/"),
+        }),
+    )
+    .await
+    .map_err(|error| format!("Re-detached Agent web.open failed: {error}"))?;
+    if detached_open["snapshot"]["content"]["text"]
+        .as_str()
+        .is_none_or(|text| !text.contains("initial-viewport-1024x768"))
+    {
+        return Err(format!(
+            "Re-detached Agent web.open did not restore the fixed viewport: {detached_open}"
+        ));
+    }
 
     Ok(semantic.nodes.len())
 }

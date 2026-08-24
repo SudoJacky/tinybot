@@ -1,5 +1,5 @@
 # Native Browser Runtime
-<!-- tinybot-module-fingerprint: sha256:9db1c068d76da4e23c1965b54f23a4df1f27672d23fa6e0d0da5bf0dc72daf97 -->
+<!-- tinybot-module-fingerprint: sha256:23904818829f80cd1201ad38474e0af0ae8dd626109b951cafd05a79cc7cfa4a -->
 
 `native_browser` owns the managed WebView2 session used by native Agent browser
 tools and attachable desktop browser surfaces. Direct user input and Agent
@@ -32,11 +32,14 @@ Agent cancellation is forwarded to the matching in-flight browser command.
 Capture bytes remain available for native Agent observation but are not
 returned in model tool results.
 
-Agent observation does not require a desktop browser surface to be open. On Windows,
-detached tabs are rendered offscreen only for the duration of a serialized
-observation and return to the hidden state before the tool call continues.
-Surface updates and background observations share the same presentation lock,
-so attaching or detaching a surface cannot race screenshot capture.
+Agent observation does not require a desktop browser surface to be open. On
+Windows, a detached tab remains render-active in a one-pixel parked child
+surface while CDP device metrics preserve a 1024 by 768 Agent viewport. A
+serialized observation temporarily expands the physical surface offscreen and
+then parks it again; an attached desktop surface instead applies its real
+dimensions. Surface updates and background observations share the same
+presentation lock, so attaching or detaching a surface cannot race screenshot
+capture.
 
 See [`tools::web`](../tools/web/README.md) for the model-facing snapshot and
 action contract.
@@ -108,6 +111,7 @@ Windows desktop with WebView2 installed, run:
 cargo run -j 4 --features native-browser-integration --bin native-browser-integration
 ```
 
-The harness exercises the public Rust commands, real capture, semantic privacy,
-navigation history, action validation, stale-observation rejection, protected
-file-picker handoff, and cleanup.
+The harness exercises lazy Agent opening without an attached surface, detached
+and attached viewport dimensions, public Rust commands, real capture, semantic
+privacy, navigation history, action validation, stale-observation rejection,
+protected file-picker handoff, and cleanup.
