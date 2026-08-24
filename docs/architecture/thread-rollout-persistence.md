@@ -9,7 +9,7 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:746e277974435fce3795c7d41e86be8c80e077617c14468a27fe72e076b10bbd -->
+<!-- tinybot-doc-fingerprint: sha256:6868fac23ce24e9eeb1cb9c77b26a8ae33d2c2ce425555df731e4cd92b56c042 -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
@@ -71,6 +71,12 @@ barriers own filesystem durability. Startup rebuilds the process-local index
 and typed Thread projection from Rollouts before accepting new Agent work.
 Named legacy migrations may run during startup; unexpected divergence is a
 visible failure or explicit repair operation.
+
+During startup, index reconstruction, Thread projection, and persisted Turn
+recovery reuse the same bounded cache of Rollout source lines and canonical
+reconstruction. Cache entries are keyed by the current Rollout head, so an
+append or replacement causes the next reader to reconstruct from disk instead
+of serving stale projection state.
 
 Managed image files are content-addressed supporting data, not a second
 conversation log. The originating user-message Item stores a `tinyos.image`

@@ -1,5 +1,5 @@
 # Worker Thread Log
-<!-- tinybot-module-fingerprint: sha256:7f36e69dc0c8bcb596b239e1a9695ea7c97854c805fce9a9f0bea98c370b4305 -->
+<!-- tinybot-module-fingerprint: sha256:786b19af60301269396f71aa8b56c4cd63468230063d6122069a9731eb38d4b2 -->
 
 `threads::rollout::store` owns Tinybot's canonical append-only Rollout. It validates
 paths, records typed lines, reconstructs Thread and runtime projections,
@@ -61,6 +61,8 @@ successful append.
 - Project replayed state into typed Thread history and runtime context shapes.
 - Maintain the `ThreadStateIndex` used for listing and lookup.
 - Rebuild the process-local index from canonical logs at startup.
+- Reuse Rollout lines and canonical reconstruction across startup index,
+  projection, and turn-recovery consumers while the Rollout head is unchanged.
 - Detect and repair divergence between the live index and canonical Rollouts.
 - Reconcile persisted agent turns during runtime startup.
 
@@ -93,6 +95,8 @@ successful append.
   in-memory index.
 - Log lines are appended, not edited in place.
 - Reconstruction is deterministic and side-effect free.
+- Cached reconstruction is keyed by the current Rollout head; an append or
+  replacement must cause the next reader to reconstruct from disk.
 - Index inconsistency is reported. Startup and the explicit repair path rebuild
   the in-memory index from canonical Rollouts.
 - Archived state, titles, previews, token usage, and timestamps in the index

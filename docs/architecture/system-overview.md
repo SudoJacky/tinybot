@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:e847a1587b190e7d4cfb1c27278add5be620eee00245b0b149e72db016b07b72 -->
+<!-- tinybot-doc-fingerprint: sha256:63d480020260b79639772da9d4867f2d8cf93ae2b1cd10abe9309a34b24c0164 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -73,7 +73,9 @@ Desktop Commands / Desktop Host
 ## Authority map
 
 - Canonical conversation history: Rollouts under the Tinybot application data
-  root.
+  root. Startup index, Thread projection, and Turn recovery readers reuse a
+  bounded Rollout-head-keyed cache; an append invalidates the matching cached
+  content on its next access without changing Rollout authority.
 - Managed chat image bytes: content-addressed files under
   `~/.tinybot/chat-attachments/images/`; Rollouts remain authoritative for the
   typed reference and never persist the Base64 request payload.
