@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:18ded05172cf1a4ff38b87a159ef745c4253abf636576658dc06bab36de986cf -->
+<!-- tinybot-doc-fingerprint: sha256:29787e2dff303c938cdf1dfc55664dd16a309c9451b4480a1ffe99f3389036c0 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -76,8 +76,11 @@ For each provider iteration, the runtime:
 4. Decodes assistant text, reasoning metadata, usage (including nested cache
    and reasoning detail counters), and tool calls.
 5. Records the complete tool batch before the next provider request.
-6. Emits correlated runtime events through the injected trace sink.
-7. Stops at a terminal result or creates a resumable checkpoint.
+6. Converts provider-authored argument preparation failures into correlated
+   tool results for every call in the batch, then continues planning without
+   dispatching partial side effects.
+7. Emits correlated runtime events through the injected trace sink.
+8. Stops at a terminal result or creates a resumable checkpoint.
 
 The bridge loads additive global and effective-working-directory command hooks
 for each Turn. `UserPromptSubmit` runs after the durable Turn start, so a denied
@@ -130,6 +133,8 @@ reconstruct the updated log before recovery decisions are made.
   persistence.
 - Keep provider failures, tool failures, trace failures, cancellation, and
   typed waiting states distinguishable.
+- Preserve one model-visible result for every provider tool-call ID, including
+  calls rejected before dispatch because another call in the batch is invalid.
 - Keep trusted command-hook decisions correlated to the same Turn without
   persisting command text, raw stdout, or stderr in diagnostic events; an
   explicit bounded `systemMessage` remains intentional user-facing output.

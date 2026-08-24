@@ -11,7 +11,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:c3f5cdccee6509fd640de77f3f449eabaa883f1b47634110f5adfe661d54c0a7 -->
+<!-- tinybot-doc-fingerprint: sha256:18b37498a15f3639902d366ef52efc524c531aa4b3d5a8343e3500bd8a1effd2 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -35,7 +35,7 @@ Provider adapter encodes visible tool definitions
 Model tool-call batch
     |-- resolve provider name
     |-- reject any disallowed call before batch execution
-    |-- validate and prepare arguments
+    |-- prepare arguments or return one error result per call ID
     |-- run trusted PreToolUse hooks (deny or replace arguments)
     |-- plan parallel read waves and exclusive mutation waves
     v
@@ -116,6 +116,12 @@ any call is not permitted. Prepared calls are then scheduled according to
 registry policy: compatible read-only calls may run in parallel, while
 workspace or session mutations form exclusive waves.
 
+Provider-authored argument preparation is also a recoverable batch boundary.
+If any call contains malformed JSON or a non-object argument, no call in that
+batch is dispatched. The invalid call retains its parser error, otherwise-valid
+calls receive an explicit batch-rejection error, and every provider call ID is
+committed as a model-visible tool result before the next provider iteration.
+
 Cancellation behavior is part of the registry entry. Tools may cooperate,
 terminate an owned process, or require bounded cleanup. A timeout, cancellation,
 runtime failure, and ordinary tool error remain distinct outcomes so the model,
@@ -138,6 +144,8 @@ pairing.
 - Model-visible output is bounded independently from richer live projection
   data.
 - A tool batch is fully recorded before the next provider request.
+- Every provider tool-call ID has exactly one model-visible result, including
+  pre-dispatch batch rejection.
 - User command hooks cannot widen registry exposure or capability grants.
 
 ## Source modules and verification

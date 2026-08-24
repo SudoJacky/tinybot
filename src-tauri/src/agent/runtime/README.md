@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:40af130712228af150ab3868d5c366cf761326f6f8be1164b8a4d91d296a9a80 -->
+<!-- tinybot-module-fingerprint: sha256:1907da50bf368aa312b4074b86eaedf4ff50efbe5ab6540430017dac214cedd9 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -48,9 +48,11 @@ decide which durable conversation store a caller uses.
    the request and decode provider output into runtime concepts.
 5. Assistant items are appended. Tool calls are routed through
    `tool_router.rs`, `tool_dispatcher.rs`, and `tool_runtime.rs`.
-6. Tools dispatch directly after validation. Forms use their dedicated
-   resumable mechanism. A tool batch is fully recorded before the next provider
-   call.
+6. Tools dispatch directly after validation. Provider-authored argument JSON
+   that cannot be prepared blocks dispatch for that batch and produces one
+   model-visible error result for every call ID before the provider loop
+   continues. Forms use their dedicated resumable mechanism. A tool batch is
+   fully recorded before the next provider call.
 7. Usage and runtime events are emitted through the injected trace sink, and
    `result.rs` builds the terminal response.
 
@@ -171,6 +173,9 @@ conditionals throughout those shared runtime modules.
   boundaries; late work must not overwrite a terminal outcome.
 - Tool execution goes through the dispatcher so capability, ownership, trace,
   and cleanup behavior remain consistent.
+- Every provider tool-call ID receives exactly one model-visible result before
+  the next provider request, including calls rejected before dispatch because
+  their argument JSON is invalid.
 - Model-visible shell results keep one compact process-control view with the
   interleaved output. The full process snapshot is available to live runtime
   projections, but durable response items use that compact view as their sole
@@ -295,8 +300,11 @@ Each tool call runs under an owned task and child cancellation token. Calls
 marked parallel-safe by registry policy share a wave; exclusive calls split the
 batch into sequential waves. Every wave is awaited and results are projected in
 model order before the next provider call. Rejected batches also project one
-terminal result per provider call ID. Tool cleanup comes from the registry
-policy:
+terminal result per provider call ID. If any call has malformed or non-object
+argument JSON, the whole batch is rejected without side effects: the malformed
+call keeps its parser error and every otherwise-valid call receives a batch
+rejection result so protocol call/result pairing remains complete. Tool cleanup
+comes from the registry policy:
 
 - `cooperative`: notify and wait through the cleanup bound;
 - `terminate_process`: terminate the owned process after cancellation;
