@@ -11,7 +11,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:19ac5a7b3f18c1d6e9bcbb76f25bbe0a575bfbc7d20470e6bacb93bf70f811a7 -->
+<!-- tinybot-doc-fingerprint: sha256:30a4c0cc22f0f43124f54552d60e94e59290c91e6da979df11910dd450b0f438 -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -111,7 +111,10 @@ raw text in hook diagnostic events.
 The runtime estimates the provider request against the effective context
 window. The fixed request budget includes composed instructions and the
 serialized definitions of tools visible to the provider, while the remaining
-budget belongs to message history. When no strategy is configured, the
+budget belongs to message history. Window resolution is model-specific: an
+explicit Turn value wins, followed by the active Provider Profile's model
+override, Tinybot's known-model catalog, the legacy unknown-model fallback,
+and finally the 128K runtime default. When no strategy is configured, the
 strategy is `compact`. Compaction summarizes older context through the
 provider, persists a context checkpoint, and retains recent messages. Explicit
 `discard` remains available and keeps the newest messages that fit without

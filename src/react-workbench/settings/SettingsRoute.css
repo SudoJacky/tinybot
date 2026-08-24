@@ -2780,10 +2780,76 @@
 
 .react-provider-model-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-columns: minmax(0, 1fr) auto minmax(156px, 190px) auto auto;
   min-height: 44px;
   border-radius: 8px;
   padding: 7px 8px;
+}
+
+.react-provider-model-context {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.react-provider-model-context input {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 6px;
+  background: var(--color-panel);
+  padding: 0 8px;
+  color: var(--color-ink);
+  font-size: 11px;
+}
+
+.react-provider-model-context .react-settings-choice {
+  gap: 0;
+}
+
+.react-provider-model-context .react-settings-choice__label {
+  display: none;
+}
+
+.react-provider-model-context .react-settings-choice-trigger {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  align-items: center;
+  min-height: 30px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 6px;
+  background: var(--color-panel);
+  padding: 4px 8px;
+}
+
+.react-provider-model-context .react-settings-choice-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 18px;
+  width: 100%;
+  min-height: 36px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  padding: 4px 10px;
+}
+
+.react-provider-model-context .react-settings-choice-trigger strong,
+.react-provider-model-context .react-settings-choice-item strong {
+  font-size: 11px;
+}
+
+.react-provider-model-context .react-settings-choice-popover {
+  min-width: 190px;
+}
+
+.react-provider-model-context input[aria-invalid="true"] {
+  border-color: var(--color-danger, #b42318);
+}
+
+.react-provider-model-context > small {
+  color: var(--color-danger, #b42318);
+  font: 500 11px/1.3 var(--font-ui, sans-serif);
 }
 
 .react-provider-model-row:hover {

@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:346e4de7b439d9d1ad720472b4ddad0dbaf968100030f391caa2fa41fc2e06cc -->
+<!-- tinybot-module-fingerprint: sha256:2ede148122ac01b060a53a6fad124007c7428d2e7a576a34513c70ec095bdc0b -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
@@ -29,7 +29,9 @@ versioned quick-chat request to the independent `desktop-pet-chat` window.
 submission, and timeline presentation; dropped attachments remain removable,
 and the composer file picker uses the same native importer. It keeps the draft
 editable, exposes the same model picker and context-token usage, and persists
-model changes to the selected Thread. It lazily creates a standard Thread on
+model changes to the selected Thread. Its initial context display uses the
+unknown-model fallback until runtime usage reports the effective per-model
+window. It lazily creates a standard Thread on
 first send without workspace or project metadata. Opening an existing recent
 chat or handing the new Thread to the main window always carries its explicit
 Thread ID; `DesktopShell` refreshes the main renderer's session list before

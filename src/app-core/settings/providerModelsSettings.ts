@@ -37,6 +37,7 @@ export type ProviderCardModel = {
   modelCount: number;
   defaultModel: string | null;
   models: ProviderModelItem[];
+  modelContextWindows: Record<string, number>;
   modelDiscovery: ProviderModelDiscovery;
 };
 
@@ -45,6 +46,7 @@ export type ProviderModelsSettingsData = {
   revision?: string;
   activeProfileId: string | null;
   agentDefaultModel: string | null;
+  fallbackContextWindowTokens: number;
   providers: ProviderCardModel[];
 };
 
@@ -78,6 +80,7 @@ export type ProviderModelsPatchInput = {
   profileId?: string | null;
   models: string[];
   defaultModel?: string | null;
+  modelContextWindows?: Array<{ model: string; contextWindowTokens: number }>;
   setAgentDefault?: boolean;
 };
 
@@ -102,6 +105,14 @@ export type ProviderModelFetchResult = {
 };
 
 type JsonRecord = Record<string, unknown>;
+
+export const DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS = 128_000;
+
+const BUILT_IN_MODEL_CONTEXT_WINDOW_TOKENS: Record<string, number> = {
+  "deepseek-v4-flash": 1_000_000,
+  "deepseek-v4-flash-vision-exp": 1_000_000,
+  "deepseek-v4-pro": 1_000_000,
+};
 
 export const BUILT_IN_PROVIDER_PRESETS: BuiltInProviderPreset[] = [
   {
@@ -137,6 +148,11 @@ export function buildProviderModelsSettings(config: unknown): ProviderModelsSett
   const profiles = asRecord(providersRoot.profiles);
   const activeProfileId = stringOrNull(pick(defaults, "activeProfile", "active_profile"));
   const agentDefaultModel = stringOrNull(defaults.model);
+  const configuredContextWindowFallback = Number(pick(defaults, "contextWindowTokens", "context_window_tokens"));
+  const fallbackContextWindowTokens = Number.isSafeInteger(configuredContextWindowFallback)
+    && configuredContextWindowFallback > 0
+    ? configuredContextWindowFallback
+    : DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS;
 
   const builtInProviders = BUILT_IN_PROVIDER_PRESETS.map((preset) => (
     buildProviderCard(preset, profiles, activeProfileId, agentDefaultModel)
@@ -159,6 +175,7 @@ export function buildProviderModelsSettings(config: unknown): ProviderModelsSett
     revision: stringOrUndefined(root.revision) ?? stringOrUndefined(asRecord(root.configMetadata).revision),
     activeProfileId,
     agentDefaultModel,
+    fallbackContextWindowTokens,
     providers: [...builtInProviders, ...customProviders],
   };
 }
@@ -235,6 +252,9 @@ export function buildProviderModelsPatch(input: ProviderModelsPatchInput): JsonR
   if (defaultModel) {
     profile.defaultModel = defaultModel;
   }
+  if (input.modelContextWindows !== undefined) {
+    profile.modelContextWindows = uniqueModelContextWindows(input.modelContextWindows);
+  }
   return withOptionalAgentsPatch(input.setAgentDefault && defaultModel ? { activeProfile: profileId, model: defaultModel } : null, {
     providers: {
       profiles: {
@@ -242,6 +262,16 @@ export function buildProviderModelsPatch(input: ProviderModelsPatchInput): JsonR
       },
     },
   });
+}
+
+export function automaticModelContextWindow(
+  model: string,
+  fallbackTokens = DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS,
+): { known: boolean; tokens: number } {
+  const tokens = BUILT_IN_MODEL_CONTEXT_WINDOW_TOKENS[model.trim().toLowerCase()];
+  return tokens
+    ? { known: true, tokens }
+    : { known: false, tokens: fallbackTokens };
 }
 
 export function buildProviderDefaultLlmPatch(input: ProviderDefaultLlmPatchInput): JsonRecord {
@@ -284,6 +314,7 @@ function buildProviderCard(
   const apiKeyConfigured = configured && hasConfiguredApiKey(profile);
   const enabled = pick(profile, "enabled") !== false;
   const manualModels = parseModelList(profile.models);
+  const modelContextWindows = parseModelContextWindows(profile);
   const builtInModels = preset.defaultModels.filter((model) => !manualModels.includes(model));
   const models = [
     ...preset.defaultModels.map((model) => ({ id: model, label: model, source: "built-in" as const })),
@@ -317,6 +348,7 @@ function buildProviderCard(
     modelCount: models.length,
     defaultModel,
     models,
+    modelContextWindows,
     modelDiscovery: preset.modelDiscovery,
   };
 }
@@ -328,6 +360,7 @@ function buildCustomProviderCard(
   agentDefaultModel: string | null,
 ): ProviderCardModel {
   const providerId = stringValue(profile.provider) || profileId;
+  const modelContextWindows = parseModelContextWindows(profile);
   const models = parseModelList(profile.models).map((model) => ({
     id: model,
     label: model,
@@ -360,6 +393,7 @@ function buildCustomProviderCard(
     modelCount: models.length,
     defaultModel,
     models,
+    modelContextWindows,
     modelDiscovery: supportsModelDiscovery
       ? { status: "openai-compatible", endpoint: "/models" }
       : { status: "static", endpoint: null },
@@ -418,6 +452,38 @@ function parseModelList(value: unknown): string[] {
     return uniqueStrings(value.split(/\r?\n|,/));
   }
   return [];
+}
+
+function parseModelContextWindows(profile: JsonRecord): Record<string, number> {
+  const entries = pick(profile, "modelContextWindows", "model_context_windows");
+  if (!Array.isArray(entries)) {
+    return {};
+  }
+  const windows: Record<string, number> = {};
+  for (const value of entries) {
+    const entry = asRecord(value);
+    const model = stringValue(pick(entry, "model", "modelId", "model_id")).trim();
+    const tokens = Number(pick(entry, "contextWindowTokens", "context_window_tokens"));
+    if (model && Number.isSafeInteger(tokens) && tokens > 0) {
+      windows[model] = tokens;
+    }
+  }
+  return windows;
+}
+
+function uniqueModelContextWindows(
+  entries: Array<{ model: string; contextWindowTokens: number }>,
+): Array<{ model: string; contextWindowTokens: number }> {
+  const windows = new Map<string, number>();
+  for (const entry of entries) {
+    const model = entry.model.trim();
+    if (model && Number.isSafeInteger(entry.contextWindowTokens) && entry.contextWindowTokens > 0) {
+      windows.set(model, entry.contextWindowTokens);
+    }
+  }
+  return [...windows.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([model, contextWindowTokens]) => ({ model, contextWindowTokens }));
 }
 
 function uniqueStrings(values: unknown[]): string[] {

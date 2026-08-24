@@ -85,8 +85,8 @@ context-window budget fields for live compatibility consumers. Its typed
 Rollouts omit the redundant outer enriched copies and rely on the adjacent
 `agent.token_count` record for normalized cache and reasoning counters.
 
-- `context_window_tokens` / `contextWindowTokens`: effective context window from
-  `agents.defaults.contextWindowTokens` or the backend default.
+- `context_window_tokens` / `contextWindowTokens`: effective per-model context window from the
+  turn, provider profile, known-model catalog, legacy unknown-model fallback, or backend default.
 - `context_window_used_tokens` / `contextWindowUsedTokens`: provider `total_tokens` when present,
   then provider prompt/input usage, otherwise the local request estimate.
 - `context_window_remaining_tokens` / `contextWindowRemainingTokens`: remaining context budget.
@@ -97,10 +97,15 @@ Rollouts omit the redundant outer enriched copies and rely on the adjacent
   `compact`.
 - `percent`: context-window usage percentage.
 
-Rust agent context-window controls are read from `agents.defaults` or the turn specification:
+Rust agent context-window controls are resolved from the turn, active provider profile, known-model
+catalog, and legacy Agent defaults:
 
-- `contextWindowTokens` / `context_window_tokens`: effective context window. When unset,
-  `deepseek-v4-flash` and `deepseek-v4-pro` use `1000000`; other models fall back to `128000`.
+- Turn `contextWindowTokens` / `context_window_tokens`: an explicit override for that turn.
+- Profile `modelContextWindows`: per-model overrides containing `model` and
+  `contextWindowTokens`. When unset, `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`, and
+  `deepseek-v4-pro` use `1000000` automatically.
+- `agents.defaults.contextWindowTokens` / `context_window_tokens`: legacy fallback for unknown
+  models only. Unknown models fall back to `128000` when it is absent.
 - `contextWindowStrategy` / `context_window_strategy`: `discard` or `compact`. The fallback is
   `compact`.
 - `compactTriggerPercent` / `compact_trigger_percent`: percentage threshold for `compact`; default

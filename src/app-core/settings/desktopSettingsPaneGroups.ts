@@ -213,7 +213,7 @@ export function buildDesktopSettingsPaneGroups(
           min: 1,
           step: 1,
         }),
-        field("contextWindowTokens", "Context window tokens", state.agent.contextWindowTokens, {
+        field("contextWindowTokens", "Unknown-model context fallback", state.agent.contextWindowTokens, {
           control: "number",
           requirement: "optional",
           configurationMode: "numeric",

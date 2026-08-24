@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:3f8801ef39fd097b4d7676334192a97011c6acab3061886841024c7de6fac215 -->
+<!-- tinybot-module-fingerprint: sha256:4ad5c4b244f9ecb0ab64093213a1e213a4d9a0385e5a1cf5e52f16adb411505b -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -56,6 +56,11 @@ When a Turn does not configure a context-window strategy, the runtime defaults
 to `compact`. Explicit `discard` remains supported. Compaction failure is
 reported through the typed failure path and never silently falls back to
 discarding history.
+
+`context_window_config.rs` resolves the effective window behind one runtime
+interface. Turn overrides win over Provider Profile model overrides; known
+DeepSeek V4 models then use 1M automatically, while the legacy global value is
+retained only as an unknown-model fallback before the 128K default.
 
 Project-group coordinator Turns receive `spawn_workspace_thread` and
 `send_thread_message`. Each call authorizes the target workspace against the
@@ -139,6 +144,7 @@ conditionals throughout those shared runtime modules.
 - `items.rs`, `item_event_projection.rs`, `subagent_projection.rs`: canonical
   items and compatibility projections.
 - `context.rs`, `context_manager.rs`, `context_contributors.rs`,
+  `context_window_config.rs`,
   `instructions.rs`, `usage.rs`: model-visible context, compaction, usage, and
   instruction composition.
 - `tool_router.rs`, `tool_dispatcher.rs`, `tool_runtime.rs`: discovery,

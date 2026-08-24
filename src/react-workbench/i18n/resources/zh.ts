@@ -278,15 +278,15 @@ export const zh = {
     },
     agent: {
       loading: "正在加载 Agent 默认设置…", title: "Agent 默认设置", description: "会话未指定值时使用的运行时兜底配置和执行上限。",
-      fallbackTitle: "兜底 Provider", fallbackDescription: "模型由每个会话选择。请在 Provider 与模型中修改连接。", activeProfile: "当前 Profile",
+      fallbackTitle: "兜底 Provider", fallbackDescription: "模型由每个会话选择；请在 Provider 与模型中管理连接和每个模型的上下文窗口。", activeProfile: "当前 Profile",
       notConfigured: "未配置", manageProviders: "管理 Provider 与模型", providerModels: "Provider 与模型", runtime: "运行时",
-      timezone: "时区", temperature: "Temperature", maxTokens: "最大输出 Token", contextBudget: "上下文窗口预算",
+      timezone: "时区", temperature: "Temperature", maxTokens: "最大输出 Token",
       contextStrategy: "上下文窗口策略", discard: "丢弃旧消息", discardDescription: "保持当前上下文精简。", compact: "压缩旧消息",
       compactDescription: "裁剪前先总结较早的会话。", maxToolIterations: "最大工具迭代次数", revision: "配置版本 {{revision}}", saveLabel: "保存 Agent 默认设置",
       saving: "正在保存…", saved: "已保存", saveFailed: "保存失败：{{message}}",
       validation: {
         temperatureNumber: "Temperature 必须是 0 到 2 之间的数字。", temperatureRange: "Temperature 必须在 0 到 2 之间。",
-        maxTokens: "最大输出 Token 必须是正整数。", contextBudget: "上下文窗口预算必须是正整数。",
+        maxTokens: "最大输出 Token 必须是正整数。",
         contextStrategy: "上下文窗口策略必须是丢弃或压缩。", maxToolIterations: "最大工具迭代次数必须是正整数。",
       },
     },
@@ -322,6 +322,9 @@ export const zh = {
         close: "关闭模型", description: "管理此连接提供的模型。", sourceBuiltIn: "内置", sourceLive: "Provider 获取", sourceUser: "用户添加",
         remove: "移除 {{name}}", empty: "没有符合搜索条件的模型。", addId: "添加模型 ID", add: "添加模型", fetched: "已获取 {{count}} 个模型。",
         noneReturned: "Provider 没有返回模型。", staticList: "静态列表", refreshing: "正在刷新", refresh: "刷新模型",
+        contextWindow: "上下文窗口", contextMode: "{{name}} 的上下文窗口模式", contextOptions: "{{name}} 的上下文窗口选项",
+        contextAuto: "自动 · {{tokens}}", contextDefault: "默认 · {{tokens}}", contextCustom: "自定义",
+        contextTokens: "{{name}} 的自定义上下文窗口", contextInvalid: "请输入正整数。",
       },
     },
     config: {

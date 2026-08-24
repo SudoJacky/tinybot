@@ -845,9 +845,9 @@ export function ChatPage({
     }
     let cancelled = false;
     void settingsStore.loadAgentDefaultsSettings().then((settings) => {
-      const contextWindowTokens = Number(settings.values.contextWindowTokens);
+      const contextWindowTokens = settings.fallbackContextWindowTokens;
       if (!Number.isSafeInteger(contextWindowTokens) || contextWindowTokens <= 0) {
-        throw new Error(`Invalid context window token budget: ${settings.values.contextWindowTokens}`);
+        throw new Error(`Invalid context window token fallback: ${contextWindowTokens}`);
       }
       if (!cancelled) {
         setContextUsageDefaults({

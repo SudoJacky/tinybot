@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:755b630a626f5f383a48f68598e88a45a0bfaa2abcdc24d734340acdc622ad83 -->
+<!-- tinybot-module-fingerprint: sha256:e163c30df90304ae1e71ec287ee08a8920976387812b920dd4d12ec28995ef5b -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -32,6 +32,9 @@ protocol for bounded previews, while ordinary files use compact metadata cards.
 Composer removal remains independent from this persisted timeline presentation.
 The composer context indicator derives its cache hit rate from the latest
 projected Provider-call usage rather than cumulative Thread totals.
+Before a Turn reports its effective per-model window, Chat uses the legacy
+unknown-model fallback only as an initial display estimate; runtime usage then
+becomes authoritative.
 While the initial session list is loading, the composer keeps its draft editor
 available but disables sending. A startup draft remains selected after session
 hydration instead of being replaced by the restored active conversation.

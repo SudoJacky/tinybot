@@ -577,6 +577,7 @@ fn canonical_config_segment(parent: &[String], _index: usize, segment: &str) -> 
             "api_mode" => "apiMode".to_string(),
             "request_timeout_ms" => "requestTimeoutMs".to_string(),
             "default_model" => "defaultModel".to_string(),
+            "model_context_windows" => "modelContextWindows".to_string(),
             "supports_model_discovery" => "supportsModelDiscovery".to_string(),
             "supports_reasoning_effort" => "supportsReasoningEffort".to_string(),
             other => other.to_string(),

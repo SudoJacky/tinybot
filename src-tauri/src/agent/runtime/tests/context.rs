@@ -306,6 +306,7 @@ fn system_prompt_survives_context_window_trimming() {
         json!({
             "agents": {
                 "defaults": {
+                    "model": "fixture-model",
                     "contextWindowTokens": 32,
                     "contextWindowStrategy": "discard"
                 }
@@ -1300,7 +1301,11 @@ fn context_estimate_includes_provider_visible_tool_definitions() {
 
 #[test]
 fn context_window_uses_whitelisted_model_default_when_unconfigured() {
-    for model in ["deepseek-v4-flash", "deepseek-v4-pro"] {
+    for model in [
+        "deepseek-v4-flash",
+        "deepseek-v4-flash-vision-exp",
+        "deepseek-v4-pro",
+    ] {
         let context = AgentTurnContext::from_spec(json!({ "model": model }), json!({}));
 
         let usage = enrich_usage_with_context_window(&context, json!({}), 10, 0);
@@ -1319,13 +1324,56 @@ fn context_window_keeps_generic_default_for_unlisted_models() {
 }
 
 #[test]
-fn configured_context_window_overrides_whitelisted_model_default() {
+fn legacy_global_context_window_is_only_an_unknown_model_fallback() {
     let context = AgentTurnContext::from_spec(
         json!({ "model": "deepseek-v4-pro" }),
         json!({
             "agents": {
                 "defaults": {
                     "contextWindowTokens": 64_000
+                }
+            }
+        }),
+    );
+
+    let usage = enrich_usage_with_context_window(&context, json!({}), 10, 0);
+
+    assert_eq!(usage["contextWindowTokens"], 1_000_000);
+
+    let unknown_context = AgentTurnContext::from_spec(
+        json!({ "model": "custom-model" }),
+        json!({
+            "agents": {
+                "defaults": {
+                    "contextWindowTokens": 64_000
+                }
+            }
+        }),
+    );
+    let unknown_usage = enrich_usage_with_context_window(&unknown_context, json!({}), 10, 0);
+    assert_eq!(unknown_usage["contextWindowTokens"], 64_000);
+}
+
+#[test]
+fn provider_profile_model_context_window_overrides_automatic_default() {
+    let context = AgentTurnContext::from_spec(
+        json!({ "model": "deepseek-v4-pro", "provider": "deepseek" }),
+        json!({
+            "agents": {
+                "defaults": {
+                    "activeProfile": "deepseek-default",
+                    "contextWindowTokens": 128_000
+                }
+            },
+            "providers": {
+                "profiles": {
+                    "deepseek-default": {
+                        "provider": "deepseek",
+                        "modelContextWindows": [{
+                            "model": "deepseek-v4-pro",
+                            "contextWindowTokens": 64_000
+                        }]
+                    }
                 }
             }
         }),

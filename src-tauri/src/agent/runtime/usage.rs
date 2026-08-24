@@ -1,3 +1,4 @@
+use super::context_window_config::resolve_context_window_tokens;
 use super::{
     agent_provider_config, bool_field, chat_completion_content, AgentTurnContext,
     NativeAgentProviderFailure,
@@ -10,11 +11,6 @@ use crate::agent::runtime_protocol::AgentEventKind;
 use serde_json::Value;
 use std::sync::Arc;
 
-const DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS: i64 = 128_000;
-const DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS: &[(&str, i64)] = &[
-    ("deepseek-v4-flash", 1_000_000),
-    ("deepseek-v4-pro", 1_000_000),
-];
 const DEFAULT_COMPACT_TRIGGER_PERCENT: i64 = 90;
 const DEFAULT_COMPACT_SUMMARY_MAX_TOKENS: i64 = 1024;
 const COMPACT_USER_MESSAGE_MAX_TOKENS: i64 = 20_000;
@@ -106,7 +102,7 @@ pub(super) fn context_window_projection(
 pub(super) async fn context_window_projection_async(
     context: &AgentTurnContext,
 ) -> Result<ContextWindowProjection, NativeAgentProviderFailure> {
-    let context_window_tokens = effective_context_window_tokens(context);
+    let context_window_tokens = resolve_context_window_tokens(context);
     let fixed_request_tokens =
         estimate_fixed_request_tokens(context).map_err(NativeAgentProviderFailure::provider)?;
     let message_budget = context_window_tokens
@@ -284,7 +280,7 @@ pub(super) fn enrich_usage_with_context_window(
         other => serde_json::json!({ "raw": other }),
     };
     normalize_provider_usage_fields(&mut usage);
-    let context_window_tokens = effective_context_window_tokens(context);
+    let context_window_tokens = resolve_context_window_tokens(context);
     let usage_source = if usage_context_used_tokens(&usage).is_some() {
         "provider_usage"
     } else {
@@ -344,29 +340,6 @@ pub(super) fn latest_cumulative_usage_tokens(usages: &[Value]) -> Option<i64> {
                 .rev()
                 .find_map(|usage| positive_i64_field(usage, "cumulativeUsageTokens"))
         })
-}
-
-fn effective_context_window_tokens(context: &AgentTurnContext) -> i64 {
-    positive_i64_field(&context.spec, "contextWindowTokens")
-        .or_else(|| positive_i64_field(&context.spec, "context_window_tokens"))
-        .or_else(|| {
-            context
-                .config_snapshot
-                .get("agents")
-                .and_then(|agents| agents.get("defaults"))
-                .and_then(|defaults| {
-                    positive_i64_field(defaults, "contextWindowTokens")
-                        .or_else(|| positive_i64_field(defaults, "context_window_tokens"))
-                })
-        })
-        .or_else(|| default_context_window_tokens_for_model(&context.model))
-        .unwrap_or(DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS)
-}
-
-fn default_context_window_tokens_for_model(model: &str) -> Option<i64> {
-    DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS
-        .iter()
-        .find_map(|(model_id, tokens)| (*model_id == model).then_some(*tokens))
 }
 
 fn context_window_strategy(context: &AgentTurnContext) -> String {
@@ -803,7 +776,7 @@ fn compaction_summary_request_fits(
 }
 
 fn compaction_summary_request_limit(context: &AgentTurnContext) -> i64 {
-    effective_context_window_tokens(context)
+    resolve_context_window_tokens(context)
         .saturating_mul(COMPACTION_REQUEST_LIMIT_PERCENT)
         .saturating_div(100)
         .max(1)
@@ -811,7 +784,7 @@ fn compaction_summary_request_limit(context: &AgentTurnContext) -> i64 {
 
 fn effective_compact_summary_max_tokens(context: &AgentTurnContext) -> i64 {
     compact_summary_max_tokens(context).min(
-        effective_context_window_tokens(context)
+        resolve_context_window_tokens(context)
             .saturating_div(4)
             .max(1),
     )

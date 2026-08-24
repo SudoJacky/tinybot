@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   BUILT_IN_PROVIDER_PRESETS,
+  automaticModelContextWindow,
   buildCustomProviderPatch,
   buildProviderConfigurePatch,
   buildProviderDefaultLlmPatch,
@@ -31,6 +32,7 @@ describe("provider models settings", () => {
 
     expect(settings.revision).toBe("hash:1");
     expect(settings.activeProfileId).toBe("deepseek-default");
+    expect(settings.fallbackContextWindowTokens).toBe(128_000);
     expect(settings.providers.map((provider) => provider.id)).toEqual(["deepseek", "dashscope", "openai"]);
     expect(settings.providers.find((provider) => provider.id === "deepseek")).toMatchObject({
       label: "DeepSeek",
@@ -212,6 +214,63 @@ describe("provider models settings", () => {
             provider: "deepseek",
             models: ["deepseek-v4-pro", "custom-model"],
             defaultModel: "custom-model",
+          },
+        },
+      },
+    });
+  });
+
+  test("resolves known model windows and persists per-model overrides", () => {
+    expect(automaticModelContextWindow("deepseek-v4-flash-vision-exp")).toEqual({
+      known: true,
+      tokens: 1_000_000,
+    });
+    expect(automaticModelContextWindow("custom-small-model")).toEqual({
+      known: false,
+      tokens: 128_000,
+    });
+    expect(automaticModelContextWindow("custom-small-model", 64_000)).toEqual({
+      known: false,
+      tokens: 64_000,
+    });
+
+    const settings = buildProviderModelsSettings({
+      agents: { defaults: { contextWindowTokens: 64_000 } },
+      providers: {
+        profiles: {
+          "deepseek-default": {
+            provider: "deepseek",
+            models: ["deepseek-v4-flash-vision-exp", "custom-small-model"],
+            modelContextWindows: [{
+              model: "custom-small-model",
+              contextWindowTokens: 32_000,
+            }],
+          },
+        },
+      },
+    });
+    expect(settings.providers.find((provider) => provider.id === "deepseek")?.modelContextWindows)
+      .toEqual({ "custom-small-model": 32_000 });
+    expect(settings.fallbackContextWindowTokens).toBe(64_000);
+
+    expect(buildProviderModelsPatch({
+      providerId: "deepseek",
+      profileId: "deepseek-default",
+      models: ["custom-small-model", "deepseek-v4-flash-vision-exp"],
+      modelContextWindows: [
+        { model: "custom-small-model", contextWindowTokens: 32_000 },
+        { model: "custom-small-model", contextWindowTokens: 64_000 },
+      ],
+    })).toEqual({
+      providers: {
+        profiles: {
+          "deepseek-default": {
+            provider: "deepseek",
+            models: ["custom-small-model", "deepseek-v4-flash-vision-exp"],
+            modelContextWindows: [{
+              model: "custom-small-model",
+              contextWindowTokens: 64_000,
+            }],
           },
         },
       },

@@ -751,7 +751,9 @@ describe("DesktopShell", () => {
         },
       },
     };
-    const saveProviderSettings = vi.fn(async (_currentConfig: unknown, _patch: unknown) => buildProviderModelsSettings(savedProviderConfig));
+    const saveProviderSettings = vi.fn()
+      .mockResolvedValueOnce(buildProviderModelsSettings(initialProviderConfig))
+      .mockResolvedValue(buildProviderModelsSettings(savedProviderConfig));
     const fetchProviderModels = vi.fn(async () => ({
       ok: true,
       models: ["deepseek-v4-pro", "deepseek-live"],
@@ -800,6 +802,9 @@ describe("DesktopShell", () => {
     const modelsDialog = screen.getByRole("dialog", { name: "DeepSeek models" });
     expect(modelsDialog).toBeTruthy();
     expect(within(modelsDialog).getAllByText("deepseek-v4-pro").length).toBeGreaterThan(0);
+    expect(within(modelsDialog).getByRole("button", {
+      name: "Context window mode for deepseek-v4-pro: Auto · 1M",
+    })).toBeTruthy();
     await user.click(within(modelsDialog).getByRole("button", { name: "Refresh models" }));
     await waitFor(() => expect(fetchProviderModels).toHaveBeenCalledWith({
       providerId: "deepseek",
@@ -808,7 +813,28 @@ describe("DesktopShell", () => {
       modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
     }));
     await waitFor(() => expect(within(modelsDialog).getAllByText("deepseek-live").length).toBeGreaterThan(0));
-    await user.click(screen.getByRole("button", { name: "Close models" }));
+    await user.click(within(modelsDialog).getByRole("button", {
+      name: "Context window mode for deepseek-live: Default · 128K",
+    }));
+    await user.click(within(modelsDialog).getByRole("menuitemradio", { name: "Custom" }));
+    const customContextWindow = within(modelsDialog).getByLabelText("Custom context window for deepseek-live");
+    await user.clear(customContextWindow);
+    await user.type(customContextWindow, "32000");
+    await user.click(within(modelsDialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(1));
+    expect(saveProviderSettings.mock.calls[0][1]).toEqual({
+      providers: {
+        profiles: {
+          "deepseek-default": {
+            provider: "deepseek",
+            models: ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-live"],
+            defaultModel: "deepseek-v4-pro",
+            modelContextWindows: [{ model: "deepseek-live", contextWindowTokens: 32000 }],
+          },
+        },
+      },
+    });
 
     await user.click(screen.getByRole("button", { name: "More actions for OpenAI" }));
     const providerActions = screen.getByRole("menu", { name: "OpenAI provider actions" });
@@ -826,8 +852,8 @@ describe("DesktopShell", () => {
     expect(saveChanges.disabled).toBe(false);
     await user.click(saveChanges);
 
-    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(1));
-    expect(saveProviderSettings.mock.calls[0][1]).toEqual({
+    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(2));
+    expect(saveProviderSettings.mock.calls[1][1]).toEqual({
       providers: {
         profiles: {
           "openai-default": {
@@ -1007,7 +1033,6 @@ describe("DesktopShell", () => {
           timezone: "Asia/Singapore",
           temperature: 0.6,
           maxTokens: 2048,
-          contextWindowTokens: 128000,
           contextWindowStrategy: "compact",
           maxIterations: 12,
         },
