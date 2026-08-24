@@ -104,6 +104,92 @@ describe("desktop native app services", () => {
     expect(commands).toContain("worker_threads_list");
   });
 
+  test("reports native event and session startup phases", async () => {
+    const startupTrace = {
+      complete: vi.fn(),
+      fail: vi.fn(),
+      mark: vi.fn(),
+      start: vi.fn(),
+    };
+    const services = createDesktopAppServices({ startupTrace });
+
+    await services.sessionStore.list();
+
+    expect(startupTrace.start).toHaveBeenCalledWith("events.register");
+    expect(startupTrace.complete).toHaveBeenCalledWith("events.register");
+    expect(startupTrace.start).toHaveBeenCalledWith("sessions.load");
+    expect(startupTrace.complete).toHaveBeenCalledWith("sessions.load", {
+      pageCount: 1,
+      sessionCount: 1,
+    });
+    expect(startupTrace.mark).toHaveBeenCalledWith("services.ready");
+  });
+
+  test("loads performance diagnostics without waiting for chat initialization", async () => {
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === "desktop_performance_snapshot") {
+        return {
+          schemaVersion: "tinybot.performance_trace.v1",
+          generatedAtUnixMs: 1,
+          metrics: {
+            schemaVersion: 1,
+            generatedAtUnixMs: 1,
+            counters: {},
+            durations: {},
+            gauges: {},
+          },
+          recentEvents: [],
+        };
+      }
+      if (command === "worker_threads_list") {
+        throw new Error("chat initialization should not run");
+      }
+      return {};
+    });
+    const services = createDesktopAppServices();
+
+    await expect(services.performanceStore!.load()).resolves.toMatchObject({
+      schemaVersion: "tinybot.performance_trace.v1",
+    });
+
+    expect(mocks.invoke).toHaveBeenCalledWith("desktop_performance_snapshot");
+    expect(mocks.invoke).not.toHaveBeenCalledWith("worker_threads_list", expect.anything());
+  });
+
+  test("exports a performance snapshot without waiting for chat initialization", async () => {
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === "save_export_file") {
+        return { path: "C:\\Temp\\tinybot-performance-trace.json" };
+      }
+      if (command === "worker_threads_list") {
+        throw new Error("chat initialization should not run");
+      }
+      return {};
+    });
+    const services = createDesktopAppServices();
+    const snapshot = {
+      schemaVersion: "tinybot.performance_trace.v1" as const,
+      generatedAtUnixMs: 1,
+      metrics: {
+        schemaVersion: 1,
+        generatedAtUnixMs: 1,
+        counters: {},
+        durations: {},
+        gauges: {},
+      },
+      recentEvents: [],
+    };
+
+    await expect(services.performanceStore!.exportSnapshot(snapshot)).resolves.toEqual({
+      path: "C:\\Temp\\tinybot-performance-trace.json",
+    });
+
+    expect(mocks.invoke).toHaveBeenCalledWith("save_export_file", expect.objectContaining({
+      options: expect.objectContaining({ contents: `${JSON.stringify(snapshot, null, 2)}\n` }),
+    }));
+    expect(mocks.invoke).not.toHaveBeenCalledWith("worker_threads_list", expect.anything());
+  });
+
   test("loads the canonical active memory snapshot", async () => {
     const snapshot = {
       currentWorkspacePath: "D:\\Code\\py\\tinybot",

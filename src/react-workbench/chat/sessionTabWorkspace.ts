@@ -36,8 +36,21 @@ export function reduceSessionTabWorkspace(
   event: SessionTabWorkspaceEvent,
 ): SessionTabWorkspaceState {
   switch (event.type) {
-    case "hydrate":
-      return hydrateWorkspace(event.availableSessionIds, event.persisted);
+    case "hydrate": {
+      const hydrated = hydrateWorkspace(event.availableSessionIds, event.persisted);
+      const startupDraft = state.draftsBySession[DRAFT_SESSION_KEY];
+      if (!startupDraft) {
+        return hydrated;
+      }
+      return {
+        ...hydrated,
+        activeSessionId: "",
+        draftsBySession: {
+          ...hydrated.draftsBySession,
+          [DRAFT_SESSION_KEY]: startupDraft,
+        },
+      };
+    }
     case "open":
     case "activate": {
       const openSessionIds = state.openSessionIds.includes(event.sessionId)

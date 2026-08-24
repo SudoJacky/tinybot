@@ -221,6 +221,7 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
         },
         recentEvents: [],
       })),
+      exportSnapshot: vi.fn(async () => null),
       exportDiagnosticBundle: vi.fn(async () => null),
     },
   };

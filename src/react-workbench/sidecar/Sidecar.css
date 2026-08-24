@@ -263,6 +263,23 @@
   overflow: hidden;
 }
 
+.react-sidecar__deferred {
+  align-items: center;
+  color: var(--color-muted);
+  display: flex;
+  gap: 8px;
+  height: 100%;
+  justify-content: center;
+}
+
+.react-sidecar__deferred svg {
+  animation: react-sidecar-deferred-spin 900ms linear infinite;
+}
+
+@keyframes react-sidecar-deferred-spin {
+  to { transform: rotate(360deg); }
+}
+
 .react-sidecar-placeholder {
   display: grid;
   height: 100%;

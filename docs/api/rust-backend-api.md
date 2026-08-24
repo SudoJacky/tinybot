@@ -10,7 +10,7 @@ src/app-core/native/desktopNativeUpdate.ts
 src/app-core/native/desktopNativeWebui.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:6e6c3edf3ea3f39fecd16dc940273b9fe124f7026f0606c8dfcf8ff1db1b90c8 -->
+<!-- tinybot-doc-fingerprint: sha256:344f596d5c858af16b9d52c79a1c2a3ce4296d6a725e190e8bcfdde7037ef26a -->
 
 This document describes the API surfaces exposed by the Rust/Tauri backend in `src-tauri`.
 It is intended for frontend callers and integrators who need command names, invocation
@@ -130,6 +130,7 @@ Prefer these wrappers instead of direct command strings:
 | `createDesktopNativeHooksApi` | `src/app-core/native/desktopNativeHooks.ts` | Workspace hook catalog, managed-hook save/test/archive, constrained script editing, and exact-definition trust |
 | `createDesktopNativePetFileDropImporter` | `src/app-core/native/desktopNativePetFileDrop.ts` | Bounded Windows WebView2 file-drop result handshake, timeout, and strict attachment-metadata parsing |
 | `createDesktopNativePetQuickChatHost` / quick-chat clients | `src/app-core/native/desktopNativePetQuickChat.ts` | Validated desktop-pet draft-and-attachment handoff, panel presentation, dismissal, and explicit Thread handoff to `main` through scoped Tauri events |
+| `createDesktopNativePerformanceTraceApi` | `src/app-core/native/desktopNativePerformanceTrace.ts` | Process-local performance snapshots, native JSON save, and diagnostic-bundle export |
 | `createDesktopNativeUpdateClient` | `src/app-core/native/desktopNativeUpdate.ts` | Desktop update status, check, install, and status events |
 | `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread, Turn timeline, and effective-capability commands |
 | `createDesktopNativeHostCommandApi` | `src/app-core/native/desktopNativeHostCommand.ts` | Transitional Chat `operation.retry` dispatch |

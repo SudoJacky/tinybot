@@ -16,6 +16,28 @@ import {
 } from "./test/ChatPageTestHarness";
 
 describe("ChatPage", () => {
+  it("allows drafting while sessions load but prevents sending", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({ sessions: [] });
+    let resolveSessions: ((sessions: SessionSummary[]) => void) | undefined;
+    stores.sessionStore.list = vi.fn(() => new Promise<SessionSummary[]>((resolve) => {
+      resolveSessions = resolve;
+    }));
+
+    render(<ChatPage chatStore={stores.chatStore} sessionStore={stores.sessionStore} />);
+
+    const input = screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
+    const send = screen.getByRole("button", { name: /send message/i }) as HTMLButtonElement;
+    expect(input.disabled).toBe(false);
+    await user.type(input, "Draft before startup completes");
+    expect(send.disabled).toBe(true);
+    expect(send.title).toBe("Loading conversations…");
+
+    act(() => resolveSessions?.([]));
+    await waitFor(() => expect(send.disabled).toBe(false));
+    expect(input.value).toBe("Draft before startup completes");
+  });
+
   it("hides the plugin installation prompt while migration is still running", async () => {
     const migrationDirectory = "C:\\Users\\test\\.tinybot\\plugins\\migrations\\migration-1";
     const stores = createStores({

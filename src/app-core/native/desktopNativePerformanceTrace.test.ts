@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { createDesktopNativePerformanceTraceApi } from "./desktopNativePerformanceTrace";
+import {
+  createDesktopNativePerformanceTraceApi,
+  mergeRendererStartupTrace,
+} from "./desktopNativePerformanceTrace";
 
 describe("desktopNativePerformanceTrace", () => {
   it("loads and validates a bounded native performance snapshot", async () => {
@@ -54,6 +57,92 @@ describe("desktopNativePerformanceTrace", () => {
     });
 
     await expect(api.snapshot()).rejects.toThrow("unsupported level");
+  });
+
+  it("merges bounded renderer startup phases into the performance snapshot", () => {
+    const snapshot = mergeRendererStartupTrace({
+      schemaVersion: "tinybot.performance_trace.v1",
+      generatedAtUnixMs: 1_723_772_923_000,
+      metrics: {
+        schemaVersion: 1,
+        generatedAtUnixMs: 1_723_772_923_000,
+        counters: {},
+        durations: {},
+        gauges: {},
+      },
+      recentEvents: [],
+    }, [{
+      schemaVersion: "tinybot.renderer_log.v1",
+      at: "2026-08-24T01:02:03.000Z",
+      level: "info",
+      stage: "startup.sessions.load.complete",
+      details: { durationMs: 128.4, sessionCount: 7, sinceStartMs: 181.2 },
+    }, {
+      schemaVersion: "tinybot.renderer_log.v1",
+      at: "2026-08-24T01:02:04.000Z",
+      level: "info",
+      stage: "chat.message.sent",
+      details: { durationMs: 5 },
+    }]);
+
+    expect(snapshot.metrics.durations["renderer.startup.sessions.load.durationMs"]).toEqual({
+      averageMs: 128.4,
+      count: 1,
+      maxMs: 128.4,
+      totalMs: 128.4,
+    });
+    expect(snapshot.metrics.gauges["renderer.startup.sessions.load.complete.sinceStartMs"]).toBe(181.2);
+    expect(snapshot.recentEvents).toHaveLength(1);
+    expect(snapshot.recentEvents[0]).toMatchObject({
+      event: "startup.sessions.load.complete",
+      stream: "renderer",
+    });
+  });
+
+  it("exports a performance snapshot through the native save flow", async () => {
+    const invoke = vi.fn(async () => ({ path: "C:\\Temp\\tinybot-performance-trace.json" }));
+    const api = createDesktopNativePerformanceTraceApi({ invoke });
+    const snapshot = {
+      schemaVersion: "tinybot.performance_trace.v1" as const,
+      generatedAtUnixMs: Date.UTC(2026, 7, 24, 1, 2, 3),
+      metrics: {
+        schemaVersion: 1,
+        generatedAtUnixMs: Date.UTC(2026, 7, 24, 1, 2, 3),
+        counters: {},
+        durations: {},
+        gauges: {},
+      },
+      recentEvents: [],
+    };
+
+    const result = await api.exportSnapshot(snapshot);
+
+    expect(invoke).toHaveBeenCalledWith("save_export_file", {
+      options: {
+        title: "Export Tinybot performance trace",
+        defaultPath: "tinybot-performance-trace-2026-08-24T01-02-03.000Z.json",
+        filters: [{ name: "JSON", extensions: ["json"] }],
+        contents: `${JSON.stringify(snapshot, null, 2)}\n`,
+      },
+    });
+    expect(result).toEqual({ path: "C:\\Temp\\tinybot-performance-trace.json" });
+  });
+
+  it("returns null when the performance snapshot save dialog is cancelled", async () => {
+    const api = createDesktopNativePerformanceTraceApi({ invoke: vi.fn(async () => null) });
+
+    await expect(api.exportSnapshot({
+      schemaVersion: "tinybot.performance_trace.v1",
+      generatedAtUnixMs: 1,
+      metrics: {
+        schemaVersion: 1,
+        generatedAtUnixMs: 1,
+        counters: {},
+        durations: {},
+        gauges: {},
+      },
+      recentEvents: [],
+    })).resolves.toBeNull();
   });
 
   it("exports a diagnostic bundle through the native save flow", async () => {

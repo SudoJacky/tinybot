@@ -55,10 +55,10 @@ export async function traceDesktopNativeDebugAsync<T>(
 }
 
 export function createDesktopNativeStartupTrace(
-  options: { now?: () => number } = {},
+  options: { now?: () => number; startedAt?: number } = {},
 ): DesktopNativeStartupTrace {
   const now = options.now ?? readMonotonicNow;
-  const startedAt = now();
+  const startedAt = options.startedAt ?? now();
   const activePhases = new Map<string, number>();
 
   const elapsedDetails = (at: number, details: Record<string, unknown> = {}) => ({
@@ -68,18 +68,18 @@ export function createDesktopNativeStartupTrace(
 
   return {
     mark(stage, details = {}) {
-      logDesktopNativeDebug(`startup.${stage}`, elapsedDetails(now(), details));
+      logRendererEvent("info", `startup.${stage}`, elapsedDetails(now(), details));
     },
     start(phase, details = {}) {
       const phaseStartedAt = now();
       activePhases.set(phase, phaseStartedAt);
-      logDesktopNativeDebug(`startup.${phase}.start`, elapsedDetails(phaseStartedAt, details));
+      logRendererEvent("info", `startup.${phase}.start`, elapsedDetails(phaseStartedAt, details));
     },
     complete(phase, details = {}) {
       const completedAt = now();
       const phaseStartedAt = activePhases.get(phase) ?? completedAt;
       activePhases.delete(phase);
-      logDesktopNativeDebug(`startup.${phase}.complete`, elapsedDetails(completedAt, {
+      logRendererEvent("info", `startup.${phase}.complete`, elapsedDetails(completedAt, {
         ...details,
         durationMs: roundedDuration(completedAt - phaseStartedAt),
       }));
@@ -88,7 +88,7 @@ export function createDesktopNativeStartupTrace(
       const failedAt = now();
       const phaseStartedAt = activePhases.get(phase) ?? failedAt;
       activePhases.delete(phase);
-      logDesktopNativeDebug(`startup.${phase}.failed`, elapsedDetails(failedAt, {
+      logRendererEvent("info", `startup.${phase}.failed`, elapsedDetails(failedAt, {
         ...details,
         durationMs: roundedDuration(failedAt - phaseStartedAt),
         error: stringifyDebugError(error),

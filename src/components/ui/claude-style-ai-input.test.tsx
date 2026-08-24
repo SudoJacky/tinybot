@@ -23,6 +23,27 @@ const slashCommands = [
 afterEach(cleanup);
 
 describe("ClaudeStyleAiInput slash commands", () => {
+  it("keeps the draft editable while sending is temporarily unavailable", async () => {
+    const user = userEvent.setup();
+    const onSendMessage = vi.fn();
+    render(<ClaudeStyleAiInput
+      onSendMessage={onSendMessage}
+      sendDisabled
+      sendDisabledReason="Loading sessions…"
+    />);
+
+    const input = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    const send = screen.getByRole("button", { name: "Send message" }) as HTMLButtonElement;
+    expect(input.disabled).toBe(false);
+
+    await user.type(input, "Draft while loading");
+
+    expect(input.value).toBe("Draft while loading");
+    expect(send.disabled).toBe(true);
+    expect(send.title).toBe("Loading sessions…");
+    expect(onSendMessage).not.toHaveBeenCalled();
+  });
+
   it("navigates commands with arrow keys and expands the selected prompt", async () => {
     const user = userEvent.setup();
     const onSendMessage = vi.fn();

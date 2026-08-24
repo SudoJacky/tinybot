@@ -53,9 +53,8 @@ describe("desktop native debug logger", () => {
     );
   });
 
-  test("records startup trace phase timings", () => {
+  test("retains startup trace phase timings without diagnostic mode", () => {
     vi.spyOn(console, "info").mockImplementation(() => undefined);
-    window.localStorage.setItem("tinybot.desktop.nativeDebug", "on");
     const times = [0, 5, 10, 40, 50, 80];
     const trace = createDesktopNativeStartupTrace({
       now: () => times.shift() ?? 220.3,
@@ -74,6 +73,9 @@ describe("desktop native debug logger", () => {
       "startup.chatRuntime.start",
       "startup.chatRuntime.failed",
     ]);
+    expect(window.__tinybotNativeDebug?.every((entry) => (
+      (entry as { level?: string }).level === "info"
+    ))).toBe(true);
     expect(window.__tinybotNativeDebug?.[2].details).toMatchObject({
       durationMs: 30,
       sinceStartMs: 40,

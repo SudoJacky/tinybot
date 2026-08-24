@@ -21,7 +21,11 @@ import { createDesktopNativeBrowserApi } from "../app-core/native/desktopNativeB
 import { createDesktopNativeTerminalApi } from "../app-core/native/desktopNativeTerminal";
 import { createDesktopNativeWebuiApi } from "../app-core/native/desktopNativeWebui";
 import { createDesktopNativeWorkspaceApi } from "../app-core/native/desktopNativeWorkspace";
-import { createDesktopNativePerformanceTraceApi } from "../app-core/native/desktopNativePerformanceTrace";
+import {
+  createDesktopNativePerformanceTraceApi,
+  mergeRendererStartupTrace,
+} from "../app-core/native/desktopNativePerformanceTrace";
+import type { DesktopNativeStartupTrace } from "../app-core/native/desktopNativeChatDebug";
 import { createDesktopNativePetHost } from "../app-core/native/desktopNativePet";
 import { createDesktopNativePetQuickChatHost } from "../app-core/native/desktopNativePetQuickChat";
 import {
@@ -52,7 +56,10 @@ import { normalizeTinyOsEffectiveCapabilities } from "../app-core/chat/tinyOsCap
 
 type Listener = (event: ChatEvent) => void;
 
-export function createDesktopAppServices(): AppServices {
+export function createDesktopAppServices(
+  { startupTrace }: { startupTrace?: DesktopNativeStartupTrace } = {},
+): AppServices {
+  startupTrace?.mark("services.created");
   const nativeMode = hasTauriRuntime();
   const desktopPetHost = createDesktopNativePetHost();
   const desktopPetQuickChatHost = createDesktopNativePetQuickChatHost();
@@ -71,6 +78,7 @@ export function createDesktopAppServices(): AppServices {
   const nativeWorkspace = nativeMode ? createDesktopNativeWorkspaceApi({ invoke }) : undefined;
   const nativePerformanceTrace = nativeMode ? createDesktopNativePerformanceTraceApi({ invoke }) : undefined;
   let initialized: Promise<void> | null = null;
+  let conversationThreadPageCount = 0;
   const listeners = new Map<string, Set<Listener>>();
 
   const controller = createDesktopChatSessionController({
@@ -98,6 +106,7 @@ export function createDesktopAppServices(): AppServices {
 
   async function listConversationThreads() {
     const threads: NativeThreadRecord[] = [];
+    let pageCount = 0;
     let offset: number | undefined;
     let result: NativeThreadListResult;
     while (true) {
@@ -105,6 +114,7 @@ export function createDesktopAppServices(): AppServices {
         includeChildThreads: true,
         ...(offset === undefined ? {} : { offset }),
       });
+      pageCount += 1;
       threads.push(...result.threads.filter((thread) => {
         const parentThreadId = stringValue(thread.parentThreadId ?? thread.parent_thread_id);
         const source = stringValue(thread.source);
@@ -120,6 +130,7 @@ export function createDesktopAppServices(): AppServices {
       }
       offset = nextOffset;
     }
+    conversationThreadPageCount = pageCount;
     return {
       ...result,
       threads,
@@ -133,8 +144,26 @@ export function createDesktopAppServices(): AppServices {
       if (!nativeMode) {
         throw new Error("Tinybot chat requires the Tauri native runtime");
       }
-      await nativeEvents.register();
-      await controller.loadSessions();
+      startupTrace?.start("events.register");
+      try {
+        await nativeEvents.register();
+        startupTrace?.complete("events.register");
+      } catch (error) {
+        startupTrace?.fail("events.register", error);
+        throw error;
+      }
+      startupTrace?.start("sessions.load");
+      try {
+        await controller.loadSessions();
+        startupTrace?.complete("sessions.load", {
+          pageCount: conversationThreadPageCount,
+          sessionCount: controller.state.threads.length,
+        });
+      } catch (error) {
+        startupTrace?.fail("sessions.load", error);
+        throw error;
+      }
+      startupTrace?.mark("services.ready");
     })();
     return initialized;
   }
@@ -622,11 +651,13 @@ export function createDesktopAppServices(): AppServices {
     }),
     performanceStore: {
       async load() {
-        await initialize();
-        return requireNative(nativePerformanceTrace, "Performance trace").snapshot();
+        const snapshot = await requireNative(nativePerformanceTrace, "Performance trace").snapshot();
+        return mergeRendererStartupTrace(snapshot, rendererLogSnapshot());
+      },
+      async exportSnapshot(snapshot) {
+        return requireNative(nativePerformanceTrace, "Performance trace").exportSnapshot(snapshot);
       },
       async exportDiagnosticBundle() {
-        await initialize();
         return requireNative(nativePerformanceTrace, "Performance trace").exportDiagnosticBundle({
           diagnosticModeEnabled: isRendererDiagnosticModeEnabled(),
           locale: navigator.language || undefined,

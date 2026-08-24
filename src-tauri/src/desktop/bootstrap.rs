@@ -2,6 +2,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
+use std::time::Instant;
 use tauri::{Emitter, Manager, State, WindowEvent};
 
 use crate::config::application::{
@@ -108,6 +109,10 @@ pub(crate) fn run() {
         .manage(terminal_runtime)
         .manage(update_state)
         .setup(move |app| {
+            let setup_started = Instant::now();
+            let startup_metrics = crate::runtime::observability::global_agent_runtime_metrics();
+
+            let browser_runtime_started = Instant::now();
             let browser_runtime = native_browser::create_runtime(app.handle())?;
             {
                 let mut runtime = lock_runtime(&setup_state);
@@ -117,11 +122,29 @@ pub(crate) fn run() {
                     .with_browser_runtime(browser_runtime.clone());
             }
             app.manage(browser_runtime);
+            startup_metrics.record_duration(
+                "desktop.startup.browserRuntime.durationMs",
+                browser_runtime_started.elapsed(),
+            );
+
+            let menu_started = Instant::now();
             install_desktop_application_menu(app)?;
+            startup_metrics.record_duration(
+                "desktop.startup.menu.durationMs",
+                menu_started.elapsed(),
+            );
+
+            let auxiliary_windows_started = Instant::now();
             #[cfg(windows)]
             super::pet::create_desktop_pet_window(app)?;
             #[cfg(windows)]
             super::pet::create_desktop_pet_quick_chat_window(app)?;
+            startup_metrics.record_duration(
+                "desktop.startup.auxiliaryWindows.durationMs",
+                auxiliary_windows_started.elapsed(),
+            );
+
+            let default_files_started = Instant::now();
             match ensure_default_config_file(&default_tinybot_config_path()) {
                 Ok(diagnostics) => {
                     for diagnostic in diagnostics {
@@ -166,6 +189,12 @@ pub(crate) fn run() {
                     &format!("failed to initialize tool notes: {error}"),
                 ),
             }
+            startup_metrics.record_duration(
+                "desktop.startup.defaultFiles.durationMs",
+                default_files_started.elapsed(),
+            );
+
+            let bundled_plugins_started = Instant::now();
             match crate::plugins::PluginStore::default_global().ensure_bundled_plugins() {
                 Ok(installed) => {
                     for plugin in installed {
@@ -184,6 +213,12 @@ pub(crate) fn run() {
                     &format!("failed to initialize bundled plugins: {error}"),
                 ),
             }
+            startup_metrics.record_duration(
+                "desktop.startup.bundledPlugins.durationMs",
+                bundled_plugins_started.elapsed(),
+            );
+
+            let native_runtime_started = Instant::now();
             if let Err(error) =
                 start_native_runtime_with_workspace_root(&setup_state, workspace_root.clone())
             {
@@ -194,11 +229,19 @@ pub(crate) fn run() {
                     ),
                 );
             }
+            startup_metrics.record_duration(
+                "desktop.startup.nativeRuntime.durationMs",
+                native_runtime_started.elapsed(),
+            );
             #[cfg(windows)]
             super::update::spawn_startup_update_check(
                 app.handle().clone(),
                 setup_update_state.clone(),
                 setup_state.clone(),
+            );
+            startup_metrics.record_duration(
+                "desktop.startup.setup.durationMs",
+                setup_started.elapsed(),
             );
             Ok(())
         })

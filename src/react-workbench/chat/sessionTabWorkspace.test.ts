@@ -42,6 +42,22 @@ describe("sessionTabWorkspace", () => {
     expect(sessionTabDraft(state, "")).toBe("new");
   });
 
+  it("keeps a startup draft active when session hydration completes", () => {
+    const drafting = reduceSessionTabWorkspace(INITIAL_SESSION_TAB_WORKSPACE, {
+      type: "draft.changed",
+      sessionId: "",
+      value: "Draft while loading",
+    });
+    const state = reduceSessionTabWorkspace(drafting, {
+      type: "hydrate",
+      availableSessionIds: ["s1"],
+    });
+
+    expect(state.activeSessionId).toBe("");
+    expect(state.openSessionIds).toEqual(["s1"]);
+    expect(sessionTabDraft(state, "")).toBe("Draft while loading");
+  });
+
   it("opens, activates, and closes tabs without deleting their drafts", () => {
     let state = reduceSessionTabWorkspace(INITIAL_SESSION_TAB_WORKSPACE, {
       type: "hydrate",

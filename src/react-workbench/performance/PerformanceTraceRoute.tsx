@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   DiagnosticBundleExportResult,
+  PerformanceTraceExportResult,
   PerformanceTraceDuration,
   PerformanceTraceSnapshot,
 } from "../../app-core/native/desktopNativePerformanceTrace";
@@ -24,6 +25,8 @@ export default function PerformanceTraceRoute({ services }: { services: AppServi
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<TraceState>({ status: "loading" });
   const [exportError, setExportError] = useState<Error | null>(null);
+  const [snapshotExporting, setSnapshotExporting] = useState(false);
+  const [snapshotResult, setSnapshotResult] = useState<PerformanceTraceExportResult | null>(null);
   const [bundleExporting, setBundleExporting] = useState(false);
   const [bundleResult, setBundleResult] = useState<DiagnosticBundleExportResult | null>(null);
   const [diagnosticModeEnabled, setDiagnosticModeEnabled] = useState(isRendererDiagnosticModeEnabled);
@@ -55,25 +58,36 @@ export default function PerformanceTraceRoute({ services }: { services: AppServi
 
   const refresh = () => {
     setExportError(null);
+    setSnapshotResult(null);
     setBundleResult(null);
     setAttempt((value) => value + 1);
   };
 
-  const exportSnapshot = () => {
-    if (state.status !== "ready") return;
+  const exportSnapshot = async () => {
+    if (!performanceStore || state.status !== "ready") return;
     setExportError(null);
+    setSnapshotResult(null);
+    setBundleResult(null);
+    setSnapshotExporting(true);
     try {
-      downloadPerformanceTrace(state.snapshot);
+      const result = await performanceStore.exportSnapshot(state.snapshot);
+      if (result) {
+        setSnapshotResult(result);
+        logRendererEvent("info", "performance_trace.snapshot.exported");
+      }
     } catch (cause: unknown) {
       const error = cause instanceof Error ? cause : new Error(String(cause));
-      console.error("[tinybot-performance-trace-export]", { error });
+      logRendererEvent("error", "performance_trace.snapshot.export_failed", { error });
       setExportError(error);
+    } finally {
+      setSnapshotExporting(false);
     }
   };
 
   const exportDiagnosticBundle = async () => {
     if (!performanceStore || state.status !== "ready") return;
     setExportError(null);
+    setSnapshotResult(null);
     setBundleResult(null);
     setBundleExporting(true);
     try {
@@ -125,12 +139,16 @@ export default function PerformanceTraceRoute({ services }: { services: AppServi
             <RefreshCw aria-hidden="true" size={15} />
             {state.status === "loading" ? t("performanceTrace.refreshing") : t("generic.refresh")}
           </button>
-          <button disabled={state.status !== "ready"} type="button" onClick={exportSnapshot}>
+          <button
+            disabled={state.status !== "ready" || snapshotExporting || bundleExporting}
+            type="button"
+            onClick={() => void exportSnapshot()}
+          >
             <Download aria-hidden="true" size={15} />
-            {t("performanceTrace.export")}
+            {snapshotExporting ? t("performanceTrace.exportingSnapshot") : t("performanceTrace.export")}
           </button>
           <button
-            disabled={state.status !== "ready" || bundleExporting}
+            disabled={state.status !== "ready" || snapshotExporting || bundleExporting}
             type="button"
             onClick={() => void exportDiagnosticBundle()}
           >
@@ -163,6 +181,11 @@ export default function PerformanceTraceRoute({ services }: { services: AppServi
       {bundleResult ? (
         <p className="react-performance-trace-success" role="status">
           {t("performanceTrace.bundleSaved", { path: bundleResult.path })}
+        </p>
+      ) : null}
+      {snapshotResult ? (
+        <p className="react-performance-trace-success" role="status">
+          {t("performanceTrace.snapshotSaved", { path: snapshotResult.path })}
         </p>
       ) : null}
       {state.status === "loading" ? (
@@ -282,21 +305,6 @@ function MetricList({ empty, entries, title }: { empty: string; entries: Array<[
 
 function EmptyState({ children }: { children: string }) {
   return <p className="react-performance-trace-empty">{children}</p>;
-}
-
-export function downloadPerformanceTrace(snapshot: PerformanceTraceSnapshot): void {
-  const blob = new Blob([`${JSON.stringify(snapshot, null, 2)}\n`], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `tinybot-performance-trace-${new Date(snapshot.generatedAtUnixMs).toISOString().replace(/:/g, "-")}.json`;
-  document.body.append(anchor);
-  try {
-    anchor.click();
-  } finally {
-    anchor.remove();
-    URL.revokeObjectURL(url);
-  }
 }
 
 function byName(left: [string, number], right: [string, number]): number {
