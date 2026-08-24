@@ -525,7 +525,7 @@ export const zh = {
       },
       stop: "停止生成", stopUnavailable: "停止生成不可用：{{reason}}",
       unsupported: "不支持", stoppingUnavailable: "当前无法停止", send: "发送消息", sendDisabled: "输入内容后发送",
-      context: { title: "上下文窗口", used: "已使用 {{percent}}%（剩余 {{left}}%）", strategy: "策略：{{strategy}}", aria: "上下文窗口已使用 {{percent}}%，剩余 {{left}}%", tokens: "已使用 {{used}} / {{window}} Token", zero: "已使用 0 Token", provider: "Provider 报告的 Token 预算" },
+      context: { title: "上下文窗口", used: "已使用 {{percent}}%（剩余 {{left}}%）", strategy: "策略：{{strategy}}", aria: "上下文窗口已使用 {{percent}}%，剩余 {{left}}%", tokens: "已使用 {{used}} / {{window}} Token", zero: "已使用 0 Token", provider: "Provider 报告的 Token 预算", cacheHit: "最近调用缓存命中率：{{percent}}%", cacheUnavailable: "最近调用缓存命中率：暂无数据" },
     },
     friendlyError: { taskFailed: "任务执行失败", maxIterations: "执行达到迭代上限，已保留当前计划和上下文。", cancelled: "执行已取消，已完成的内容仍然保留。" },
   },

@@ -1027,7 +1027,7 @@ export const en = {
       },
       stop: "Stop generation", stopUnavailable: "Stop generation unavailable: {{reason}}",
       unsupported: "unsupported", stoppingUnavailable: "Stopping is unavailable", send: "Send message", sendDisabled: "Enter content to send",
-      context: { title: "Context window", used: "{{percent}}% used ({{left}}% left)", strategy: "Strategy: {{strategy}}", aria: "Context window {{percent}}% used, {{left}}% left", tokens: "{{used}} / {{window}} tokens used", zero: "0 tokens used", provider: "Token budget reported by provider" },
+      context: { title: "Context window", used: "{{percent}}% used ({{left}}% left)", strategy: "Strategy: {{strategy}}", aria: "Context window {{percent}}% used, {{left}}% left", tokens: "{{used}} / {{window}} tokens used", zero: "0 tokens used", provider: "Token budget reported by provider", cacheHit: "Last call cache hit rate: {{percent}}%", cacheUnavailable: "Last call cache hit rate: No data" },
     },
     friendlyError: { taskFailed: "Task execution failed", maxIterations: "Execution reached the iteration limit. The current plan and context were preserved.", cancelled: "Execution was cancelled. Completed work remains available." },
   },

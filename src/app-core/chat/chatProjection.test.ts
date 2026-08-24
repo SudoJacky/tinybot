@@ -328,6 +328,34 @@ describe("chat projection", () => {
     });
   });
 
+  test("projects cached input tokens from persisted provider input details", () => {
+    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("turn-cached", [{
+      itemId: "turn-cached:usage",
+      kind: "usage",
+      status: "completed",
+      data: {
+        type: "usage",
+        id: "usage-1",
+        inputTokens: 4216,
+        outputTokens: 60,
+        totalTokens: 4276,
+        providerPayload: {
+          input_tokens: 4216,
+          input_tokens_details: { cached_tokens: 4096 },
+          output_tokens: 60,
+          total_tokens: 4276,
+        },
+      },
+    }]));
+
+    const [turn] = projectBackendTimeline("WebSocket:chat-1", [runtimeState]);
+
+    expect(turn.usage).toMatchObject({
+      cachedTokens: 4096,
+      promptTokens: 4216,
+    });
+  });
+
   test("uses the completed turn boundary for a restored standalone compaction", () => {
     const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState(
       "turn-compact-completed",

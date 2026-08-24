@@ -916,6 +916,7 @@ export function ClaudeStyleAiInput({
 
 type ContextUsageView = {
   ariaLabel: string;
+  cacheHitLabel: string;
   leftPercent: number;
   percent: number;
   state: "normal" | "warn" | "critical";
@@ -927,6 +928,7 @@ function ContextUsageIndicator({ view }: { view: ContextUsageView }) {
   const { t } = useTranslation("chat");
   return (
     <div
+      aria-description={view.cacheHitLabel}
       aria-label={view.ariaLabel}
       className="claude-ai-input__context-usage"
       data-state={view.state}
@@ -948,6 +950,7 @@ function ContextUsageIndicator({ view }: { view: ContextUsageView }) {
         <strong>{t("composer.context.title")}</strong>
         <span>{t("composer.context.used", { percent: view.percent, left: view.leftPercent })}</span>
         <span>{view.tokenLabel}</span>
+        <span>{view.cacheHitLabel}</span>
         {view.strategy ? <span>{t("composer.context.strategy", { strategy: view.strategy })}</span> : null}
       </span>
     </div>
@@ -955,9 +958,11 @@ function ContextUsageIndicator({ view }: { view: ContextUsageView }) {
 }
 
 function buildContextUsageView(usage: TokenUsage | undefined, t: TFunction<"chat">): ContextUsageView | undefined {
+  const cacheHitLabel = buildCacheHitLabel(usage, t);
   if (!usage) {
     return {
       ariaLabel: t("composer.context.aria", { percent: 0, left: 100 }),
+      cacheHitLabel,
       leftPercent: 100,
       percent: 0,
       state: "normal",
@@ -979,12 +984,23 @@ function buildContextUsageView(usage: TokenUsage | undefined, t: TFunction<"chat
     : t("composer.context.provider");
   return {
     ariaLabel: t("composer.context.aria", { percent, left: leftPercent }),
+    cacheHitLabel,
     leftPercent,
     percent,
     state: percent >= 85 ? "critical" : percent >= 60 ? "warn" : "normal",
     strategy: usage.contextWindowStrategy,
     tokenLabel,
   };
+}
+
+function buildCacheHitLabel(usage: TokenUsage | undefined, t: TFunction<"chat">): string {
+  const cachedTokens = nonNegativeNumber(usage?.cachedTokens);
+  const promptTokens = positiveNumber(usage?.promptTokens);
+  if (cachedTokens === undefined || promptTokens === undefined) {
+    return t("composer.context.cacheUnavailable");
+  }
+  const percent = boundedPercent((cachedTokens / promptTokens) * 100) ?? 0;
+  return t("composer.context.cacheHit", { percent });
 }
 
 function boundedPercent(value: number | undefined): number | undefined {
@@ -996,6 +1012,10 @@ function boundedPercent(value: number | undefined): number | undefined {
 
 function positiveNumber(value: number | undefined): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function nonNegativeNumber(value: number | undefined): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 function formatTokenCount(value: number): string {

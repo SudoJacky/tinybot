@@ -269,11 +269,13 @@ describe("ChatPage", () => {
         text: "Yes.",
         status: "complete",
         usage: {
-          contextWindowRemainingTokens: 168000,
+          cachedTokens: 4096,
+          contextWindowRemainingTokens: 123724,
           contextWindowStrategy: "compact",
-          contextWindowTokens: 256000,
-          contextWindowUsedTokens: 88000,
-          percent: 34.4,
+          contextWindowTokens: 128000,
+          contextWindowUsedTokens: 4276,
+          percent: 3.340625,
+          promptTokens: 4216,
         },
       },
     ];
@@ -281,10 +283,12 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
-    const indicator = await screen.findByLabelText("Context window 34% used, 66% left");
+    const indicator = await screen.findByLabelText("Context window 3% used, 97% left");
     expect(indicator.classList.contains("claude-ai-input__context-usage")).toBe(true);
+    expect(indicator.getAttribute("aria-description")).toBe("Last call cache hit rate: 97%");
     expect(indicator.getAttribute("data-state")).toBe("normal");
-    expect(indicator.textContent).toContain("88k / 256k tokens used");
+    expect(indicator.textContent).toContain("4.3k / 128k tokens used");
+    expect(indicator.textContent).toContain("Last call cache hit rate: 97%");
     expect(indicator.textContent).toContain("Strategy: compact");
   });
 
@@ -297,6 +301,7 @@ describe("ChatPage", () => {
     expect(indicator.classList.contains("claude-ai-input__context-usage")).toBe(true);
     expect(indicator.getAttribute("data-state")).toBe("normal");
     expect(indicator.textContent).toContain("0 tokens used");
+    expect(indicator.textContent).toContain("Last call cache hit rate: No data");
   });
 
   it("restores the post-compaction context usage when a session is loaded", async () => {
@@ -496,6 +501,7 @@ describe("ChatPage", () => {
           text: "Yes.",
           status: "complete",
           usage: {
+            cachedTokens: 0,
             contextWindowRemainingTokens: 127893,
             contextWindowTokens: 128000,
             contextWindowUsedTokens: 107,
@@ -510,6 +516,7 @@ describe("ChatPage", () => {
 
     const indicator = await screen.findByLabelText("Context window 0% used, 100% left");
     expect(indicator.textContent).toContain("107 / 128k tokens used");
+    expect(indicator.textContent).toContain("Last call cache hit rate: 0%");
 
     act(() => {
       listener?.({ type: "agent.event", eventType: "agent.turn.completed" });

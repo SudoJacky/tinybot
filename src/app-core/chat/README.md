@@ -1,5 +1,5 @@
 # Chat Application Core
-<!-- tinybot-module-fingerprint: sha256:a824ade991950edde7dbf073e6068e4b674c57e54b8ef5c934e616c2f4924d91 -->
+<!-- tinybot-module-fingerprint: sha256:66fb94ee9d39cb51a52290df4733fb693c65af9130bc5fb61f18708cdcff9836 -->
 
 `chat` contains framework-independent chat and TinyOS contracts, command
 construction, canonical timeline validation, UI projection, input state, and
@@ -13,6 +13,11 @@ they never store an encoded payload.
 The module does not render React views or invoke Tauri directly. Renderer code
 consumes these interfaces from `react-workbench/chat`, while native transport
 is isolated in `app-core/native` and workbench adapters.
+
+Canonical usage projection preserves cached input Token counts from both
+normalized top-level fields and persisted Provider `prompt_tokens_details` or
+`input_tokens_details` payloads, so historical and new Threads share one
+cache-hit-rate contract.
 
 `desktopChatSessionController` requires every submission to name its target
 Thread explicitly. The controller validates that target and never derives a

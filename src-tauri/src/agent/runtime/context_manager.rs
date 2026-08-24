@@ -119,6 +119,27 @@ fn token_usage_from_provider(usage: &Value) -> TokenUsage {
             "completion_tokens",
         ],
     );
+    let detailed_cached_input_tokens = [
+        "inputTokensDetails",
+        "input_tokens_details",
+        "promptTokensDetails",
+        "prompt_tokens_details",
+    ]
+    .iter()
+    .filter_map(|key| usage.get(key))
+    .map(|details| {
+        i64_field(
+            details,
+            &[
+                "cachedInputTokens",
+                "cached_input_tokens",
+                "cachedTokens",
+                "cached_tokens",
+            ],
+        )
+    })
+    .max()
+    .unwrap_or_default();
     TokenUsage {
         input_tokens,
         cached_input_tokens: i64_field(
@@ -129,7 +150,8 @@ fn token_usage_from_provider(usage: &Value) -> TokenUsage {
                 "cachedTokens",
                 "cached_tokens",
             ],
-        ),
+        )
+        .max(detailed_cached_input_tokens),
         output_tokens,
         reasoning_output_tokens: i64_field(
             usage,
