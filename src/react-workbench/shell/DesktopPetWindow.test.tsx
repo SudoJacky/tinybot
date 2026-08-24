@@ -22,6 +22,7 @@ describe("DesktopPetWindow", () => {
       startDragging: vi.fn(async () => undefined),
     };
     const quickChatClient: DesktopPetQuickChatDropClient = {
+      openWithFiles: vi.fn(async () => undefined),
       openWithDraft: vi.fn(async () => undefined),
     };
     const user = userEvent.setup();
@@ -60,6 +61,7 @@ describe("DesktopPetWindow", () => {
       startDragging: vi.fn(async () => undefined),
     };
     const quickChatClient: DesktopPetQuickChatDropClient = {
+      openWithFiles: vi.fn(async () => undefined),
       openWithDraft: vi.fn(async () => undefined),
     };
     const view = render(<DesktopPetWindow client={client} quickChatClient={quickChatClient} />);
@@ -85,5 +87,49 @@ describe("DesktopPetWindow", () => {
 
     await waitFor(() => expect(quickChatClient.openWithDraft).toHaveBeenCalledWith("Selected browser text"));
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("opens quick chat with local files dropped from Explorer", async () => {
+    let stateListener: ((snapshot: DesktopPetWindowSnapshot) => void) | undefined;
+    const client: DesktopPetWindowClient = {
+      listen: vi.fn(async (listener) => {
+        stateListener = listener;
+        return () => undefined;
+      }),
+      moveBy: vi.fn(async () => undefined),
+      requestPreferences: vi.fn(async () => undefined),
+      startDragging: vi.fn(async () => undefined),
+    };
+    const quickChatClient: DesktopPetQuickChatDropClient = {
+      openWithFiles: vi.fn(async () => undefined),
+      openWithDraft: vi.fn(async () => undefined),
+    };
+    const view = render(<DesktopPetWindow client={client} quickChatClient={quickChatClient} />);
+    await waitFor(() => expect(stateListener).toBeTypeOf("function"));
+    stateListener?.({
+      label: "Tinybot is calm",
+      mood: "calm",
+      preferences: { visible: true, size: "medium", position: null },
+    });
+    const surface = await screen.findByRole("group", {
+      name: "Move Tinybot desktop pet. Drag it or use the arrow keys.",
+    });
+    const files = [
+      new File(["image"], "diagram.png", { type: "image/png" }),
+      new File(["notes"], "notes.md", { type: "text/markdown" }),
+    ];
+    const dataTransfer = {
+      dropEffect: "none",
+      files,
+      getData: vi.fn(() => "D:\\diagram.png"),
+      types: ["Files", "text/plain"],
+    };
+
+    fireEvent.dragEnter(view.container.firstElementChild as Element, { dataTransfer });
+    fireEvent.dragOver(surface, { dataTransfer });
+    fireEvent.drop(surface, { dataTransfer });
+
+    await waitFor(() => expect(quickChatClient.openWithFiles).toHaveBeenCalledWith(files));
+    expect(quickChatClient.openWithDraft).not.toHaveBeenCalled();
   });
 });

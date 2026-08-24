@@ -104,6 +104,8 @@ export interface ClaudeStyleAiInputProps {
   disabledReason?: string;
   placeholder?: string;
   maxFiles?: number;
+  files?: ComposerFileReference[];
+  onFilesChange?: (files: ComposerFileReference[]) => void;
   onSelectFiles?: () => Promise<ComposerFileSelection[]>;
   models?: ModelOption[];
   defaultModel?: string;
@@ -159,6 +161,7 @@ export function ClaudeStyleAiInput({
   defaultReasoningEffort,
   disabled = false,
   disabledReason,
+  files: controlledFiles,
   maxFiles = MAX_FILES,
   models = EMPTY_MODELS,
   onModelChange,
@@ -166,6 +169,7 @@ export function ClaudeStyleAiInput({
   onAddSessionMention,
   onClearContextReferences,
   onClearSessionMentions,
+  onFilesChange,
   onRemoveContextReference,
   onRemoveSessionMention,
   onSelectFiles,
@@ -188,7 +192,7 @@ export function ClaudeStyleAiInput({
   const modelTriggerRef = useRef<HTMLButtonElement | null>(null);
   const toolMenuRef = useRef<HTMLDivElement | null>(null);
   const [message, setMessage] = useState("");
-  const [files, setFiles] = useState<ComposerFileReference[]>([]);
+  const [uncontrolledFiles, setUncontrolledFiles] = useState<ComposerFileReference[]>([]);
   const [pastedContent, setPastedContent] = useState<PastedContent[]>([]);
   const [selectedModelId, setSelectedModelId] = useState(defaultModel ?? models[0]?.id ?? "");
   const [selectedReasoningEffort, setSelectedReasoningEffort] = useState<ReasoningEffort>(
@@ -208,6 +212,8 @@ export function ClaudeStyleAiInput({
   const slashListboxId = useId();
   const sessionMentionListboxId = useId();
   const currentMessage = value ?? message;
+  const files = controlledFiles ?? uncontrolledFiles;
+  const filesRef = useRef(files);
   const selectedModel = useMemo(
     () => models.find((model) => model.id === selectedModelId)
       ?? models.find((model) => model.id === defaultModel)
@@ -275,6 +281,17 @@ export function ClaudeStyleAiInput({
     setMessage(nextMessage);
     onValueChange?.(nextMessage);
   }
+
+  function updateFiles(update: (current: ComposerFileReference[]) => ComposerFileReference[]): void {
+    const nextFiles = update(filesRef.current);
+    filesRef.current = nextFiles;
+    if (controlledFiles === undefined) setUncontrolledFiles(nextFiles);
+    else onFilesChange?.(nextFiles);
+  }
+
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
 
   useEffect(() => {
     const nextModelId = defaultModel || models[0]?.id || "";
@@ -353,7 +370,7 @@ export function ClaudeStyleAiInput({
         reasoningEffort: selectedReasoningEffort,
       });
       updateMessage("");
-      setFiles([]);
+      updateFiles(() => []);
       setPastedContent([]);
       onClearContextReferences?.();
       onClearSessionMentions?.();
@@ -470,7 +487,7 @@ export function ClaudeStyleAiInput({
       if (!selectedFiles.length) {
         return;
       }
-      setFiles((current) => {
+      updateFiles((current) => {
         const remainingSlots = Math.max(0, maxFiles - current.length);
         if (selectedFiles.length > remainingSlots) {
           setError(t("composer.fileLimit", { count: maxFiles }));
@@ -491,7 +508,7 @@ export function ClaudeStyleAiInput({
   }
 
   function removeFile(id: string) {
-    setFiles((current) => current.filter((file) => file.id !== id));
+    updateFiles((current) => current.filter((file) => file.id !== id));
   }
 
   function removePastedContent(id: string) {

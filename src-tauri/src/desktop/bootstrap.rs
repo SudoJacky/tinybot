@@ -294,6 +294,7 @@ pub(crate) fn run() {
             crate::desktop_commands::config::apply_config_patch_result,
             crate::desktop_commands::config::apply_config_operations,
             crate::desktop::files::pick_chat_files,
+            crate::desktop::pet_file_drop::desktop_pet_drop_signal,
             crate::desktop::files::pick_workspace_directory,
             crate::desktop::files::pick_upload_file,
             crate::desktop::files::reveal_workspace_file,

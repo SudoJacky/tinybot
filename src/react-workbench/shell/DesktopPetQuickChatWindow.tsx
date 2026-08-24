@@ -31,6 +31,7 @@ import {
   type ModelOption,
   type PastedContent,
 } from "../../components/ui/claude-style-ai-input";
+import { pickDesktopChatFiles } from "../../app-core/native/desktopNativeFilePicker";
 import type { ChatModelOption, ChatStore, SessionStore, SessionSummary, SettingsStore } from "../services";
 import { ChatTimeline } from "../chat/ChatTimeline";
 import {
@@ -69,6 +70,7 @@ export function DesktopPetQuickChatWindow({
   const conversationEndRef = useRef<HTMLDivElement | null>(null);
   const [activeRequestId, setActiveRequestId] = useState("");
   const [draft, setDraft] = useState("");
+  const [composerFiles, setComposerFiles] = useState<ComposerFileReference[]>([]);
   const [session, setSession] = useState<SessionSummary | null>(null);
   const [recentSessions, setRecentSessions] = useState<SessionSummary[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
@@ -119,9 +121,14 @@ export function DesktopPetQuickChatWindow({
     console.info("[desktop-pet-quick-chat] request.received", {
       requestId: request.requestId,
       textLength: request.draft.length,
+      attachmentCount: request.attachments.length,
     });
     setActiveRequestId(request.requestId);
     setDraft(request.draft);
+    setComposerFiles(request.attachments.map((attachment, index) => ({
+      ...attachment,
+      id: `${request.requestId}-attachment-${index}`,
+    })));
     setSession(null);
     setOptimisticMessages([]);
     setLoadError("");
@@ -235,7 +242,6 @@ export function DesktopPetQuickChatWindow({
     pastedContent: PastedContent[],
     options: ComposerSendOptions,
   ) {
-    if (files.length) throw new Error(t("desktopPet.quickChat.filesUnsupported"));
     const prepared = await prepareChatSubmission({
       availableSessionIds: new Set(),
       files,
@@ -301,6 +307,7 @@ export function DesktopPetQuickChatWindow({
   function selectRecentSession(nextSession: SessionSummary) {
     setSession(nextSession);
     setDraft("");
+    setComposerFiles([]);
     setOptimisticMessages([]);
     setLoadError("");
   }
@@ -397,7 +404,9 @@ export function DesktopPetQuickChatWindow({
         contextUsage={activeContextUsage}
         defaultModel={composerModel}
         defaultReasoningEffort={reasoningEffort}
+        files={composerFiles}
         models={models}
+        onFilesChange={setComposerFiles}
         placeholder={t("desktopPet.quickChat.placeholder")}
         responding={sessionRunning}
         value={draft}
@@ -431,6 +440,7 @@ export function DesktopPetQuickChatWindow({
           setReasoningEffort(effort);
           writeCurrentChatReasoningEffort(effort);
         }}
+        onSelectFiles={pickDesktopChatFiles}
         onSendMessage={handleSend}
         onStopResponding={handleStop}
         onValueChange={setDraft}

@@ -40,7 +40,7 @@ pub(crate) struct PickedUploadFile {
     pub(crate) bytes: Vec<u8>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PickedChatFile {
     pub(crate) name: String,
@@ -95,12 +95,10 @@ pub(crate) fn pick_chat_files(
         let extensions: Vec<&str> = filter.extensions.iter().map(String::as_str).collect();
         dialog = dialog.add_filter(&filter.name, &extensions);
     }
-    dialog
-        .pick_files()
-        .unwrap_or_default()
-        .iter()
-        .map(|path| chat_file_from_path(path, &crate::config::application::tinybot_data_root()))
-        .collect()
+    chat_files_from_paths(
+        &dialog.pick_files().unwrap_or_default(),
+        &crate::config::application::tinybot_data_root(),
+    )
 }
 
 #[tauri::command]
@@ -168,6 +166,16 @@ pub(crate) fn upload_file_from_path(path: &Path) -> Result<PickedUploadFile, Str
     })
 }
 
+pub(crate) fn chat_files_from_paths(
+    paths: &[PathBuf],
+    data_root: &Path,
+) -> Result<Vec<PickedChatFile>, String> {
+    paths
+        .iter()
+        .map(|path| chat_file_from_path(path, data_root))
+        .collect()
+}
+
 fn chat_file_from_path(path: &Path, data_root: &Path) -> Result<PickedChatFile, String> {
     let path = if path.is_absolute() {
         path.to_path_buf()
@@ -178,6 +186,12 @@ fn chat_file_from_path(path: &Path, data_root: &Path) -> Result<PickedChatFile, 
     };
     let metadata = std::fs::metadata(&path)
         .map_err(|error| format!("failed to inspect selected file: {error}"))?;
+    if !metadata.is_file() {
+        return Err(format!(
+            "selected attachment is not a regular file: {}",
+            path.display()
+        ));
+    }
     let managed_image = crate::chat_attachments::store_image_attachment(&path, data_root)?;
     let (stored_path, mime_type, size_bytes, content_hash) = match managed_image {
         Some(image) => (
@@ -328,4 +342,52 @@ fn safe_export_file_name(default_path: &str) -> String {
         .trim()
         .trim_matches('-')
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn chat_file_import_rejects_directories_before_attachment_storage() {
+        let directory = unique_temp_path("directory");
+        std::fs::create_dir_all(&directory).expect("create test directory");
+
+        let error = chat_file_from_path(&directory, &directory)
+            .expect_err("directories must not become chat attachments");
+
+        assert!(error.contains("not a regular file"), "{error}");
+        std::fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    #[test]
+    fn chat_file_import_preserves_non_image_metadata_without_copying_bytes() {
+        let directory = unique_temp_path("text-file");
+        std::fs::create_dir_all(&directory).expect("create test directory");
+        let path = directory.join("notes.md");
+        std::fs::write(&path, b"hello").expect("write test attachment");
+
+        let imported = chat_files_from_paths(std::slice::from_ref(&path), &directory)
+            .expect("import text attachment");
+
+        assert_eq!(imported.len(), 1);
+        assert_eq!(imported[0].name, "notes.md");
+        assert_eq!(imported[0].path, path.display().to_string());
+        assert_eq!(imported[0].mime_type, "text/markdown");
+        assert_eq!(imported[0].size_bytes, 5);
+        assert_eq!(imported[0].content_hash, None);
+        std::fs::remove_dir_all(directory).expect("remove test directory");
+    }
+
+    fn unique_temp_path(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time after Unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "tinybot-chat-file-{label}-{}-{nonce}",
+            std::process::id()
+        ))
+    }
 }

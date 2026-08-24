@@ -75,4 +75,22 @@ describe("AssistantMarkdown", () => {
     expect(screen.queryByRole("link", { name: "Local file" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Relative" })).toBeNull();
   });
+
+  it("adds quiet source icons without changing link names", () => {
+    const { container } = render(
+      <AssistantMarkdown
+        streaming={false}
+        text={'https://github.com/SudoJacky/tinybot/releases [Web docs](https://example.com/docs) [Email us](mailto:hello@example.com)'}
+      />,
+    );
+
+    const githubLink = screen.getByRole("link", { name: "https://github.com/SudoJacky/tinybot/releases" });
+    expect(githubLink.querySelector(".react-message-markdown__link-label")?.textContent)
+      .toBe("https://github.com/SudoJacky/tinybot/releases");
+    expect(screen.getByRole("link", { name: "Web docs" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Email us" })).toBeTruthy();
+    expect(container.querySelector('[data-link-kind="github"] [data-link-icon="github"][aria-hidden="true"]')).toBeTruthy();
+    expect(container.querySelector('[data-link-kind="web"] [data-link-icon="web"][aria-hidden="true"]')).toBeTruthy();
+    expect(container.querySelector('[data-link-kind="email"] [data-link-icon="email"][aria-hidden="true"]')).toBeTruthy();
+  });
 });

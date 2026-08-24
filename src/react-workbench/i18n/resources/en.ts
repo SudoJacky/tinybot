@@ -74,7 +74,6 @@ export const en = {
         today: "Today",
         placeholder: "Message Tinybot",
         needsInput: "Continue in Tinybot to provide the requested input",
-        filesUnsupported: "Quick chat does not support file attachments yet.",
         commandUnsupported: "This command is not available in quick chat.",
       },
       sizes: { small: "Small", medium: "Medium", large: "Large" },

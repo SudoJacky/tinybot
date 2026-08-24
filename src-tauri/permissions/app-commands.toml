@@ -93,6 +93,7 @@ commands.allow = [
   "apply_config_patch_result",
   "apply_config_operations",
   "pick_chat_files",
+  "desktop_pet_drop_signal",
   "pick_workspace_directory",
   "pick_upload_file",
   "reveal_workspace_file",
@@ -124,6 +125,11 @@ commands.allow = [
 ]
 
 [[permission]]
+identifier = "desktop-pet-drop-app-commands"
+description = "Allows the desktop pet webview to signal a WebView2 file drop without broader application command access."
+commands.allow = ["desktop_pet_drop_signal"]
+
+[[permission]]
 identifier = "desktop-pet-quick-chat-app-commands"
 description = "Allows the desktop pet quick chat webview to load, create, configure, and run chat threads."
 commands.allow = [
@@ -131,6 +137,7 @@ commands.allow = [
   "record_renderer_log",
   "get_settings_snapshot",
   "get_config_editor_snapshot",
+  "pick_chat_files",
   "worker_webui_route",
   "worker_threads_list",
   "worker_thread_create",

@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:ce1ea4469cf906030a216de6b46f87f24bb35f68aa22b8a9f9f061a2c67807b0 -->
+<!-- tinybot-doc-fingerprint: sha256:b706237fb478e81f795251ee736d3c125db592898e826a1ac0666c0e76921d98 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -60,6 +60,7 @@ Desktop Commands / Desktop Host
 | `graph_runs` | Linear Graph preflight, Run status files, Agent node sequencing, and standard Thread creation | Renderer state, definition editing, or the Agent Loop implementation |
 | `app-core/native` | Typed renderer adapters for native commands and events | Product state or backend behavior |
 | `desktop_commands` | Thin Tauri input/output adaptation | Reusable domain behavior |
+| `desktop/pet_file_drop` and `desktop/files` | Windows WebView2 dropped-path extraction plus shared chat-attachment validation/import | Chat state, file-byte transport, or renderer presentation |
 | `desktop_terminal` | User-only Sidecar PTY lifecycle and resource ownership | Agent shell sessions or renderer presentation |
 | `chat_attachments` | Content-addressed managed image storage, validation, and request-local Data URL encoding | Conversation authority or provider protocol selection |
 | `agent::bridge` | Complete Turn orchestration and persistence coordination | Provider iteration or the Thread data model |
@@ -115,8 +116,12 @@ Desktop Commands / Desktop Host
   never becomes a second authority.
 - Desktop pet quick-chat state: canonical Threads and Rollouts remain
   authoritative. The `desktop-pet-chat` webview owns only its editable draft,
-  selected recent Thread, and shared composer/timeline projection; explicit
-  Tauri events carry draft presentation and main-window Thread activation.
+  removable attachment selection, selected recent Thread, and shared
+  composer/timeline projection. The native `pet_file_drop` Adapter extracts
+  local paths from WebView2 additional objects, while the shared attachment
+  importer owns validation and managed-image storage; explicit Tauri events
+  carry versioned draft-and-attachment presentation and main-window Thread
+  activation.
 
 An adapter may translate at a seam, but it must not become a second authority.
 
@@ -141,9 +146,10 @@ receives snapshots from `DesktopShell` through `app-core/native`, so showing a
 global desktop pet does not duplicate routes, stores, or native runtimes. The
 `?surface=desktop-pet-chat` path mounts `DesktopPetQuickChatWindow` with a
 bounded service composition and a least-privilege Tauri command permission so
-it can create and continue canonical Threads; the scoped native event seam
-positions it next to the pet and hands an explicit Thread ID back to
-`DesktopShell` when the user opens the conversation in the main Chat route.
+it can pick attachments and create and continue canonical Threads; the scoped
+native event seam positions it next to the pet and hands an explicit Thread ID
+back to `DesktopShell` when the user opens the conversation in the main Chat
+route.
 
 ## Cross-module flows
 

@@ -74,6 +74,15 @@ describe("ChatPage", () => {
     expect(css).toMatch(
       /\.react-message-markdown \[data-streamdown="code-block-body"\] pre,\s*\.react-message-markdown \[data-streamdown="code-block-body"\] code\s*{[^}]*font-family:\s*var\(--font-code\);/s,
     );
+    expect(css).toMatch(
+      /\.react-message-markdown__link-icon\s*{[^}]*flex:\s*0 0 auto;[^}]*width:\s*14px;[^}]*height:\s*14px;[^}]*margin-inline-end:\s*4px;/s,
+    );
+    expect(css).toMatch(
+      /\.react-message-markdown \[data-streamdown="link"\]\s*{[^}]*display:\s*inline-flex;[^}]*align-items:\s*baseline;[^}]*max-width:\s*100%;/s,
+    );
+    expect(css).toMatch(
+      /\.react-message-markdown__link-label\s*{[^}]*min-width:\s*0;[^}]*overflow-wrap:\s*anywhere;/s,
+    );
   });
 
   it("renders assistant Markdown tables instead of raw pipe text", async () => {

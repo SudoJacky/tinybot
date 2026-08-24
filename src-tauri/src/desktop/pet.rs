@@ -33,6 +33,9 @@ fn isolated_desktop_window_menu<R: tauri::Runtime>(
 pub(crate) fn create_desktop_pet_window<R: tauri::Runtime>(
     app: &mut tauri::App<R>,
 ) -> tauri::Result<()> {
+    let drop_script = super::pet_file_drop::initialization_script(app.invoke_key());
+    let app_handle = app.handle().clone();
+    let invoke_key = app.invoke_key().to_string();
     let window = tauri::WebviewWindowBuilder::new(
         app,
         DESKTOP_PET_WINDOW_LABEL,
@@ -51,8 +54,10 @@ pub(crate) fn create_desktop_pet_window<R: tauri::Runtime>(
     .skip_taskbar(true)
     .visible(false)
     .disable_drag_drop_handler()
+    .initialization_script(drop_script)
     .build()?;
     window.hide_menu()?;
+    super::pet_file_drop::register_bridge(&window, app_handle, invoke_key)?;
     eprintln!("desktop_pet_window_created visible=false menu_scope=isolated");
     Ok(())
 }

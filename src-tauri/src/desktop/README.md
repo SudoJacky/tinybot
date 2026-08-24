@@ -1,13 +1,14 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:9cb23caa1a81ad7dafb49223d0fcd5bd19938db0a58ae08a1fb3675fcfdeca46 -->
+<!-- tinybot-module-fingerprint: sha256:3e88ff3e34f1c96757629c846101f1c96adf03b746bcd9e51963bded76573629 -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
 
-`files` detects supported images by content when the chat picker returns them,
-copies them into content-addressed application storage, and returns their hash
-with the managed path. Other selected files retain their original path, and no
-file bytes cross the Tauri command boundary.
+`files` is the shared chat-attachment importer for picker and desktop-pet
+drops. It rejects non-files, detects supported images by content, copies images
+into content-addressed application storage, and returns their hash with the
+managed path. Other files retain their original path, and no file bytes cross
+the Tauri command boundary.
 
 `bootstrap` also creates the Windows-only `desktop-pet` and
 `desktop-pet-chat` transparent webview windows through `pet`. Both remain
@@ -15,9 +16,13 @@ independent from the main window and stay available while it is minimized. A
 pet close request hides the pet; a quick-chat close request hides only the
 panel. Both auxiliary windows own an explicit empty native menu and keep it
 hidden so later application-menu updates cannot attach menu labels or alter
-their transparent client area. The quick-chat webview disables Tauri's native
-drag-drop handler so the pet can receive external browser text through frontend
-HTML5 drag events.
+their transparent client area. The pet webview disables Tauri's native
+drag-drop handler so frontend HTML5 events continue to receive browser text and
+Explorer files. On Windows, `pet_file_drop` owns a narrow WebView2
+additional-object bridge: it validates the Tauri invoke key, extracts local
+file paths, delegates to the shared attachment importer, and emits a bounded
+result back to the pet. `pet` depends only on its initialization and
+registration Interface.
 Closing the main window still shuts down the Sidecar terminal and native
 runtimes first, then destroys both auxiliary windows and the main window.
 

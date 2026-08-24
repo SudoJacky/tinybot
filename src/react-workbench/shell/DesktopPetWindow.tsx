@@ -96,7 +96,7 @@ export function DesktopPetWindow({
   }
 
   function handleDragEnter(event: DragEvent<HTMLDivElement>) {
-    if (!hasPlainText(event.dataTransfer.types)) return;
+    if (!hasSupportedDrop(event.dataTransfer.types)) return;
     event.preventDefault();
     dragDepth.current += 1;
     setDropError("");
@@ -104,22 +104,31 @@ export function DesktopPetWindow({
   }
 
   function handleDragOver(event: DragEvent<HTMLDivElement>) {
-    if (!hasPlainText(event.dataTransfer.types)) return;
+    if (!hasSupportedDrop(event.dataTransfer.types)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
   }
 
   function handleDragLeave(event: DragEvent<HTMLDivElement>) {
-    if (!hasPlainText(event.dataTransfer.types)) return;
+    if (!hasSupportedDrop(event.dataTransfer.types)) return;
     dragDepth.current = Math.max(0, dragDepth.current - 1);
     if (dragDepth.current === 0) setDropActive(false);
   }
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
-    if (!hasPlainText(event.dataTransfer.types)) return;
+    if (!hasSupportedDrop(event.dataTransfer.types)) return;
     event.preventDefault();
     dragDepth.current = 0;
     setDropActive(false);
+    const files = Array.from(event.dataTransfer.files ?? []);
+    if (files.length) {
+      void dropClient.openWithFiles(files).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        setDropError(message);
+        reportDesktopPetWindowError(error);
+      });
+      return;
+    }
     const draft = event.dataTransfer.getData("text/plain") || event.dataTransfer.getData("text");
     if (!draft.trim()) {
       setDropError(t("desktopPet.quickChat.emptyDrop"));
@@ -205,8 +214,8 @@ export function DesktopPetWindow({
   );
 }
 
-function hasPlainText(types: readonly string[] | DOMStringList): boolean {
-  return Array.from(types).some((type) => type === "text/plain" || type === "text");
+function hasSupportedDrop(types: readonly string[] | DOMStringList): boolean {
+  return Array.from(types).some((type) => type === "Files" || type === "text/plain" || type === "text");
 }
 
 function keyboardDirection(key: string): DesktopPetPosition | null {
