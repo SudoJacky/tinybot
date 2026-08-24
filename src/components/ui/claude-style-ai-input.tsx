@@ -102,6 +102,8 @@ export interface ClaudeStyleAiInputProps {
   ) => void | Promise<void>;
   disabled?: boolean;
   disabledReason?: string;
+  sendDisabled?: boolean;
+  sendDisabledReason?: string;
   placeholder?: string;
   maxFiles?: number;
   files?: ComposerFileReference[];
@@ -178,6 +180,8 @@ export function ClaudeStyleAiInput({
   onValueChange,
   placeholder,
   responding = false,
+  sendDisabled = false,
+  sendDisabledReason,
   selectedSessionMentionIds = [],
   sessionMentionOptions = EMPTY_SESSION_MENTIONS,
   slashCommands = EMPTY_SLASH_COMMANDS,
@@ -233,7 +237,7 @@ export function ClaudeStyleAiInput({
     () => sessionMentionOptions.filter((option) => selectedSessionMentionIdSet.has(option.id)),
     [selectedSessionMentionIdSet, sessionMentionOptions],
   );
-  const canSend = !disabled && !sending && Boolean(
+  const canSend = !disabled && !sendDisabled && !sending && Boolean(
     currentMessage.trim()
       || files.length
       || pastedContent.length
@@ -578,10 +582,10 @@ export function ClaudeStyleAiInput({
           <span>{error}</span>
         </div>
       ) : null}
-      {!error && disabled && disabledReason ? (
+      {!error && (disabled || sendDisabled) && (disabledReason || sendDisabledReason) ? (
         <div className="claude-ai-input__notice" role="status">
           <AlertCircle aria-hidden="true" size={15} />
-          <span>{disabledReason}</span>
+          <span>{disabledReason || sendDisabledReason}</span>
         </div>
       ) : null}
       {files.length || pastedContent.length || contextReferences.length || selectedSessionMentions.length ? (
@@ -896,7 +900,7 @@ export function ClaudeStyleAiInput({
                 : stopUnavailableReason || t("composer.stoppingUnavailable")
               : canSend
                 ? t("composer.send")
-                : disabledReason || t("composer.sendDisabled")}
+                : sendDisabledReason || disabledReason || t("composer.sendDisabled")}
             type={responding ? "button" : "submit"}
             onClick={responding ? () => void handleStopResponding() : undefined}
           >

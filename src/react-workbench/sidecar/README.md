@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:ff27ecdf12b0712a1b4425b690293708e7f48b5c6250c485566c5538d18f5c9c -->
+<!-- tinybot-module-fingerprint: sha256:4ca1c23abb9e5c238f72e9068e7c61b08d355fdca66ee863c233f31d04b1b0b8 -->
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
 thread-scoped Browser and Artifact resources, workspace-scoped Terminal
@@ -46,7 +46,9 @@ tab identity. Chat guards activation so a snapshot update cannot create a
 reverse activation feedback loop.
 
 `SidecarTerminal.tsx` attaches xterm.js to the dedicated user-only native PTY
-adapter. Mounting and unmounting the React view never terminate the process:
+adapter. Chat loads this terminal surface on demand and Sidecar presents a
+bounded pending state while its code chunk arrives, keeping xterm out of the
+main startup bundle. Mounting and unmounting the React view never terminate the process:
 hiding Sidecar and switching resources may remount the view, while closing the
 resource invokes termination through Chat. Terminal input is serialized with
 polling so cursor-based output cannot be reordered.

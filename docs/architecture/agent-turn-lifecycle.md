@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:6681c63d2eb02c047a610514b02dd01a7b43eab30b734c5ed3c50fe606669988 -->
+<!-- tinybot-doc-fingerprint: sha256:e2514dac7954ba67ed72463d6f24ada8be7f05e3d42521a562d3a95019d2ad3a -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -110,6 +110,11 @@ calls, and tool results are materialized before diagnostic truncation. Reloaded
 timeline state is reconstructed from the Rollout rather than from renderer
 state. Legacy response records without an explicit Item ID derive one from the
 Thread, Turn, and sequence so Turn-local sequence reuse remains distinct.
+
+Startup recovery shares one Rollout-head-keyed cache of source lines and
+canonical reconstruction across index, Thread projection, and persisted Turn
+classification. A changed Rollout head forces the next consumer to read and
+reconstruct the updated log before recovery decisions are made.
 
 ## Invariants
 

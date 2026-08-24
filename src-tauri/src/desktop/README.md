@@ -1,5 +1,5 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:3e88ff3e34f1c96757629c846101f1c96adf03b746bcd9e51963bded76573629 -->
+<!-- tinybot-module-fingerprint: sha256:4f8b2d07cb8e06a3bc987e986e1e751986258d431006b1d458216fca4bb80d7c -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
@@ -44,6 +44,11 @@ combines that bounded event ring with the process-local runtime metrics
 snapshot for the renderer's Performance Trace route. A collector failure is
 reported directly to stderr so a logging failure cannot recurse or disappear
 silently.
+
+`bootstrap` records process-local duration aggregates for browser runtime
+creation, menu installation, auxiliary windows, default files, bundled
+plugins, native runtime recovery, and total Tauri setup. These measurements
+contain timing only and reuse the existing Performance Trace metrics store.
 
 `diagnostics` owns the Performance Trace command and the native save-dialog
 flow for local diagnostic ZIPs. It revalidates and redacts the bounded renderer

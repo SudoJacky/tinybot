@@ -4,7 +4,7 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AppServices } from "../services";
-import PerformanceTraceRoute, { downloadPerformanceTrace } from "./PerformanceTraceRoute";
+import PerformanceTraceRoute from "./PerformanceTraceRoute";
 
 afterEach(() => {
   cleanup();
@@ -42,16 +42,22 @@ describe("PerformanceTraceRoute", () => {
     expect(load).toHaveBeenCalledTimes(2);
   });
 
-  it("exports the loaded snapshot as a timestamped JSON download", () => {
-    const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:trace");
-    const revokeObjectURL = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
-    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+  it("exports the loaded snapshot through the native save flow and reports the saved path", async () => {
+    const snapshot = fixtureSnapshot();
+    const exportSnapshot = vi.fn(async () => ({ path: "C:\\Temp\\tinybot-performance-trace.json" }));
+    render(<PerformanceTraceRoute services={{
+      performanceStore: {
+        load: vi.fn(async () => snapshot),
+        exportSnapshot,
+        exportDiagnosticBundle: vi.fn(async () => null),
+      },
+    } as unknown as AppServices} />);
 
-    downloadPerformanceTrace(fixtureSnapshot());
+    await screen.findByText("tool.duration");
+    await userEvent.setup().click(screen.getByRole("button", { name: "Export JSON" }));
 
-    expect(createObjectURL).toHaveBeenCalledTimes(1);
-    expect(click).toHaveBeenCalledTimes(1);
-    expect(revokeObjectURL).toHaveBeenCalledWith("blob:trace");
+    await waitFor(() => expect(exportSnapshot).toHaveBeenCalledWith(snapshot));
+    expect((await screen.findByRole("status")).textContent).toContain("C:\\Temp\\tinybot-performance-trace.json");
   });
 
   it("exports a local diagnostic bundle and reports the saved path", async () => {

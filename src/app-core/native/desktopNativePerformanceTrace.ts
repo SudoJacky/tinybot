@@ -45,6 +45,10 @@ export type DiagnosticBundleExportResult = {
   includedFiles: string[];
 };
 
+export type PerformanceTraceExportResult = {
+  path: string;
+};
+
 type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>;
 
 export function createDesktopNativePerformanceTraceApi({ invoke }: { invoke: Invoke }) {
@@ -52,6 +56,19 @@ export function createDesktopNativePerformanceTraceApi({ invoke }: { invoke: Inv
     async snapshot(): Promise<PerformanceTraceSnapshot> {
       const value = await invoke("desktop_performance_snapshot");
       return normalizePerformanceTraceSnapshot(value);
+    },
+    async exportSnapshot(
+      snapshot: PerformanceTraceSnapshot,
+    ): Promise<PerformanceTraceExportResult | null> {
+      const value = await invoke("save_export_file", {
+        options: {
+          title: "Export Tinybot performance trace",
+          defaultPath: `tinybot-performance-trace-${new Date(snapshot.generatedAtUnixMs).toISOString().replace(/:/g, "-")}.json`,
+          filters: [{ name: "JSON", extensions: ["json"] }],
+          contents: `${JSON.stringify(snapshot, null, 2)}\n`,
+        },
+      });
+      return value === null ? null : normalizePerformanceTraceExportResult(value);
     },
     async exportDiagnosticBundle(
       input: DiagnosticBundleExportInput,
@@ -68,6 +85,11 @@ export function createDesktopNativePerformanceTraceApi({ invoke }: { invoke: Inv
       return value === null ? null : normalizeDiagnosticBundleExportResult(value);
     },
   };
+}
+
+export function normalizePerformanceTraceExportResult(value: unknown): PerformanceTraceExportResult {
+  const result = requireRecord(value, "performance trace export result");
+  return { path: requireString(result.path, "performance trace export path") };
 }
 
 export function normalizeDiagnosticBundleExportResult(value: unknown): DiagnosticBundleExportResult {
@@ -102,6 +124,69 @@ export function normalizePerformanceTraceSnapshot(value: unknown): PerformanceTr
       gauges: normalizeNumericRecord(metrics.gauges, "metrics gauges"),
     },
     recentEvents: recentEvents.map(normalizePerformanceTraceEvent),
+  };
+}
+
+const MAX_MERGED_RECENT_EVENTS = 300;
+
+export function mergeRendererStartupTrace(
+  snapshot: PerformanceTraceSnapshot,
+  rendererLogs: readonly RendererLogEntry[],
+): PerformanceTraceSnapshot {
+  const startupLogs = rendererLogs.filter((entry) => entry.stage.startsWith("startup."));
+  if (!startupLogs.length) {
+    return snapshot;
+  }
+
+  const durations = { ...snapshot.metrics.durations };
+  const gauges = { ...snapshot.metrics.gauges };
+  for (const entry of startupLogs) {
+    const phaseMatch = /^startup\.(.+)\.(?:complete|failed)$/.exec(entry.stage);
+    const durationMs = finiteNumber(entry.details.durationMs);
+    if (phaseMatch && durationMs !== undefined) {
+      const name = `renderer.startup.${phaseMatch[1]}.durationMs`;
+      const current = durations[name];
+      const count = (current?.count ?? 0) + 1;
+      const totalMs = (current?.totalMs ?? 0) + durationMs;
+      durations[name] = {
+        count,
+        totalMs,
+        maxMs: Math.max(current?.maxMs ?? 0, durationMs),
+        averageMs: totalMs / count,
+      };
+    }
+    const sinceStartMs = finiteNumber(entry.details.sinceStartMs);
+    if (sinceStartMs !== undefined) {
+      gauges[`renderer.${entry.stage}.sinceStartMs`] = sinceStartMs;
+    }
+  }
+
+  const existingRendererEvents = new Set(snapshot.recentEvents.map((event) => {
+    const rendererAt = typeof event.context.rendererAt === "string" ? event.context.rendererAt : "";
+    return `${event.event}\u0000${rendererAt}`;
+  }));
+  const rendererEvents = startupLogs
+    .filter((entry) => !existingRendererEvents.has(`${entry.stage}\u0000${entry.at}`))
+    .map((entry): PerformanceTraceEvent => ({
+      schemaVersion: entry.schemaVersion,
+      timestampUnixMs: parsedTimestamp(entry.at, snapshot.generatedAtUnixMs),
+      stream: "renderer",
+      level: entry.level,
+      event: entry.stage,
+      context: { details: entry.details, rendererAt: entry.at },
+    }));
+  const recentEvents = [...snapshot.recentEvents, ...rendererEvents]
+    .sort((left, right) => left.timestampUnixMs - right.timestampUnixMs)
+    .slice(-MAX_MERGED_RECENT_EVENTS);
+
+  return {
+    ...snapshot,
+    metrics: {
+      ...snapshot.metrics,
+      durations,
+      gauges,
+    },
+    recentEvents,
   };
 }
 
@@ -172,4 +257,13 @@ function requireFiniteNumber(value: unknown, label: string): number {
 
 function isPerformanceTraceLevel(value: string): value is PerformanceTraceEvent["level"] {
   return value === "debug" || value === "info" || value === "warn" || value === "error";
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function parsedTimestamp(value: string, fallback: number): number {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : fallback;
 }

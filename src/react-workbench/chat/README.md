@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:6066cd49e88bbea1162462527ffe166b59e847781add5a55e9aef2325140c1eb -->
+<!-- tinybot-module-fingerprint: sha256:1504e0b222f1b58cd752cf52ce3c935460e4a38e3a168b165017799a6137e5ef -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -30,6 +30,9 @@ images into typed `tinyos.image` references. User attachments render as a
 separate stack above the text bubble: managed images use the scoped Tauri asset
 protocol for bounded previews, while ordinary files use compact metadata cards.
 Composer removal remains independent from this persisted timeline presentation.
+While the initial session list is loading, the composer keeps its draft editor
+available but disables sending. A startup draft remains selected after session
+hydration instead of being replaced by the restored active conversation.
 Browser runtime snapshots are retained by the
 session runtime and projected into Sidecar Browser resources. Each resource tab
 maps to one native WebView2 tab in the Chat-owned shared Browser Session, so user
@@ -51,6 +54,8 @@ viewport gutter instead.
 Sidecar Terminal resources are workspace-scoped rather than Thread-scoped.
 Chat passes their stable resource ID, selected PowerShell or Command Prompt
 shell, and workspace path to the typed native terminal adapter. Renderer
+startup defers the xterm implementation until a Terminal resource is first
+opened, with a localized pending state at that component boundary. Renderer
 mounting never owns process termination: hiding Sidecar and switching tabs may
 remount the xterm.js view, while only resource close invokes native terminate.
 Regular chats share a stable default-workspace Sidecar scope; they omit the

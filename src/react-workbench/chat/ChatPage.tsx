@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import type { TFunction } from "i18next";
 import {
   Check,
@@ -128,7 +128,6 @@ import {
 import { projectTinybotMascotMood, type TinybotMascotMood } from "./TinybotMascot";
 import { Sidecar } from "../sidecar/Sidecar";
 import { SidecarBrowser } from "../sidecar/SidecarBrowser";
-import { SidecarTerminal } from "../sidecar/SidecarTerminal";
 import {
   activeSidecarTab,
   createInitialSidecarState,
@@ -176,6 +175,11 @@ type ArtifactSidecarContent = {
 };
 
 type BrowserSnapshot = TinyOsNativeSnapshot<TinyOsNativeBrowserSession>;
+
+const LazySidecarTerminal = lazy(async () => {
+  const module = await import("../sidecar/SidecarTerminal");
+  return { default: module.SidecarTerminal };
+});
 
 type ConversationViewState = {
   scrollTop: number;
@@ -1808,12 +1812,19 @@ export function ChatPage({
 
   function renderSidecarTerminal(tab: SidecarTerminalTab) {
     return (
-      <SidecarTerminal
-        externalError={terminalErrors[tab.id]}
-        tab={tab}
-        terminalRuntime={chatStore.terminalRuntime}
-        workspaceLabel={activeWorkspaceLabel}
-      />
+      <Suspense fallback={(
+        <div aria-busy="true" className="react-sidecar__deferred" role="status">
+          <Loader2 aria-hidden="true" size={18} />
+          <span>{t("sidecar.terminalStarting")}</span>
+        </div>
+      )}>
+        <LazySidecarTerminal
+          externalError={terminalErrors[tab.id]}
+          tab={tab}
+          terminalRuntime={chatStore.terminalRuntime}
+          workspaceLabel={activeWorkspaceLabel}
+        />
+      </Suspense>
     );
   }
 
@@ -2140,8 +2151,10 @@ export function ChatPage({
           ) : null}
           <ClaudeStyleAiInput
             className={["react-composer", emptyActiveSession ? "react-composer--raised" : ""].filter(Boolean).join(" ")}
-          disabled={!activeSession && !draftNewSession}
-          disabledReason={!sessionsLoaded ? t("shell.loadingSessions") : !activeSession && !draftNewSession ? t("shell.createOrSelect") : undefined}
+          disabled={sessionsLoaded && !activeSession && !draftNewSession}
+          disabledReason={sessionsLoaded && !activeSession && !draftNewSession ? t("shell.createOrSelect") : undefined}
+          sendDisabled={!sessionsLoaded}
+          sendDisabledReason={!sessionsLoaded ? t("shell.loadingSessions") : undefined}
           defaultModel={composerModel}
           defaultReasoningEffort={composerReasoningEffort}
           contextUsage={activeContextUsage}

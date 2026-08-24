@@ -79,6 +79,111 @@ fn new_thread_pins_responses_mode_in_session_meta() {
 }
 
 #[test]
+fn startup_consumers_read_each_rollout_once() {
+    let root = std::env::temp_dir().join(format!(
+        "tinybot-startup-rollout-reuse-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let policy = CapabilityPolicy::new([
+        WorkerCapability::SessionMetadataRead,
+        WorkerCapability::SessionWrite,
+    ]);
+    let writer = WorkerThreadLogRpc::new(root.clone(), policy.clone());
+    for index in 0..20 {
+        writer
+            .create_from_thread_record(&ThreadRecord {
+                thread_id: format!("thread-startup-reuse-{index}"),
+                title: format!("Startup reuse {index}"),
+                status: ThreadStatus::Empty,
+                session_key: Some(format!("session-startup-reuse-{index}")),
+                root_turn_id: None,
+                active_turn_id: None,
+                parent_thread_id: None,
+                source: "test".to_string(),
+                created_at: "2026-08-24T00:00:00Z".to_string(),
+                updated_at: "2026-08-24T00:00:00Z".to_string(),
+                archived_at: None,
+                metadata: ThreadMetadata::default(),
+            })
+            .unwrap();
+    }
+    writer.flush_all().unwrap();
+    drop(writer);
+
+    let rpc = WorkerThreadLogRpc::new(root.clone(), policy);
+    rpc.reset_rollout_read_count();
+    rpc.thread_projection().unwrap();
+    rpc.prepare_state_index_for_startup().unwrap();
+    rpc.check_state_index().unwrap();
+    rpc.thread_projection().unwrap();
+    rpc.reconcile_orphaned_turns().unwrap();
+    rpc.invalidate_state_index();
+    rpc.thread_projection().unwrap();
+
+    assert_eq!(rpc.rollout_read_count(), 20);
+    drop(rpc);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn rollout_cache_refreshes_after_an_append_changes_the_log_head() {
+    let root = std::env::temp_dir().join(format!(
+        "tinybot-rollout-cache-refresh-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let policy = CapabilityPolicy::new([
+        WorkerCapability::SessionMetadataRead,
+        WorkerCapability::SessionWrite,
+    ]);
+    let writer = WorkerThreadLogRpc::new(root.clone(), policy.clone());
+    writer
+        .create_from_thread_record(&ThreadRecord {
+            thread_id: "thread-cache-refresh".to_string(),
+            title: "Before append".to_string(),
+            status: ThreadStatus::Empty,
+            session_key: Some("session-cache-refresh".to_string()),
+            root_turn_id: None,
+            active_turn_id: None,
+            parent_thread_id: None,
+            source: "test".to_string(),
+            created_at: "2026-08-24T00:00:00Z".to_string(),
+            updated_at: "2026-08-24T00:00:00Z".to_string(),
+            archived_at: None,
+            metadata: ThreadMetadata::default(),
+        })
+        .unwrap();
+    writer.flush_all().unwrap();
+    drop(writer);
+
+    let rpc = WorkerThreadLogRpc::new(root.clone(), policy);
+    rpc.reset_rollout_read_count();
+    let (mut threads, _) = rpc.thread_projection().unwrap();
+    assert_eq!(rpc.rollout_read_count(), 1);
+
+    let mut updated = threads.pop().unwrap();
+    updated.title = "After append".to_string();
+    updated.updated_at = "2026-08-24T00:00:01Z".to_string();
+    rpc.create_from_thread_record(&updated).unwrap();
+    rpc.flush_all().unwrap();
+
+    let (threads, _) = rpc.thread_projection().unwrap();
+    assert_eq!(rpc.rollout_read_count(), 2);
+    assert_eq!(threads[0].title, "After append");
+    drop(rpc);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn rollout_reconstruction_rejects_turnless_thread_items() {
     let lines = vec![ThreadLogLine {
         timestamp: "2026-07-23T00:00:00Z".to_string(),

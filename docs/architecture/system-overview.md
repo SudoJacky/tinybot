@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:b706237fb478e81f795251ee736d3c125db592898e826a1ac0666c0e76921d98 -->
+<!-- tinybot-doc-fingerprint: sha256:63d480020260b79639772da9d4867f2d8cf93ae2b1cd10abe9309a34b24c0164 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -73,12 +73,18 @@ Desktop Commands / Desktop Host
 ## Authority map
 
 - Canonical conversation history: Rollouts under the Tinybot application data
-  root.
+  root. Startup index, Thread projection, and Turn recovery readers reuse a
+  bounded Rollout-head-keyed cache; an append invalidates the matching cached
+  content on its next access without changing Rollout authority.
 - Managed chat image bytes: content-addressed files under
   `~/.tinybot/chat-attachments/images/`; Rollouts remain authoritative for the
   typed reference and never persist the Base64 request payload.
 - Typed in-process conversation projection: `threads::domain`.
 - Current execution generation for a Turn: `TurnExecutionRuntime`.
+- Process-local performance diagnostics: the native runtime metric/event ring,
+  augmented with the renderer's bounded startup trace at the workbench seam.
+  JSON snapshots and diagnostic bundles are saved locally through native file
+  dialogs and are never uploaded automatically.
 - Runtime model-and-tool history: typed `AgentItem` values inside
   `agent::runtime`.
 - Tool metadata and exposure: the backend tool registry.

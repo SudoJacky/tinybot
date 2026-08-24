@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { createRoot } from "react-dom/client";
 import { installRendererDiagnosticHandlers } from "../app-core/native/rendererDiagnostics";
+import { createDesktopNativeStartupTrace } from "../app-core/native/desktopNativeChatDebug";
 import { App, TinybotErrorBoundary } from "./App";
 import { createDesktopAppServices } from "./defaultServices";
 import { AppAppearanceProvider } from "./settings/AppAppearanceContext";
@@ -24,7 +25,10 @@ if (surface === "desktop-pet") {
   document.documentElement.dataset.surface = "desktop-pet-chat";
   createRoot(root).render(<DesktopPetQuickChatApp />);
 } else {
-  createRoot(root).render(<App />);
+  const startupTrace = createDesktopNativeStartupTrace({ startedAt: 0 });
+  startupTrace.mark("renderer.ready", { surface: "main" });
+  startupTrace.start("react.commit");
+  createRoot(root).render(<App startupTrace={startupTrace} />);
 }
 
 function DesktopPetQuickChatApp() {

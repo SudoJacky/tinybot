@@ -1,16 +1,19 @@
 # Performance Trace Route
-<!-- tinybot-module-fingerprint: sha256:4c859a5b4c7b41f620ddc6b912432331ecdcf85b7128bb96f8d5fe2e5592f94d -->
+<!-- tinybot-module-fingerprint: sha256:72aea557cf92952d8aa84d5035748557d9d2715b84b5a993927fa624c36f9186 -->
 
 `performance` owns the System > Performance Trace surface. It loads one
 versioned, process-local snapshot through `AppServices.performanceStore` and
-renders duration aggregates, counters, gauges, and the bounded recent native
-event ring.
+renders duration aggregates, counters, gauges, and the bounded recent event
+ring. The default store merges Rust startup phases with the renderer's bounded
+startup trace, so process setup, React commit, first frame, native event
+registration, and session restoration can be compared on the same page.
 
 Refresh is user-driven so the observer does not create a polling workload.
-The JSON action downloads exactly the currently displayed snapshot. A separate
-diagnostic-bundle action delegates to the native exporter through the
-parameterless route-facing store method, while the default service supplies
-the renderer ring and device locale metadata.
+The JSON action saves exactly the currently displayed snapshot through the
+native desktop file dialog and reports the selected path after the write
+completes. A separate diagnostic-bundle action delegates to the native exporter
+through the parameterless route-facing store method, while the default service
+supplies the renderer ring and device locale metadata.
 
 The route also owns the explicit diagnostic-mode toggle. Enabling it persists
 renderer debug and info events in addition to the default warning and error

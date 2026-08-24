@@ -15,7 +15,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:71fcce8c46b56e033db235f644c47a2d3bf56543d908d203b24657c0d520a08e -->
+<!-- tinybot-doc-fingerprint: sha256:c78ea538607619f7b202bf334d39113386af396d5fae7227c591a5dff000ea42 -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -201,6 +201,12 @@ recent structured events collected through shared desktop state. Events carry
 their timestamp, stream, level, event identifier, and already bounded/redacted
 context. The snapshot is read-only, resets with the app process, and does not
 start a background sampler.
+
+Startup duration metrics cover desktop setup, native runtime startup, auxiliary
+window creation, and orphaned-Turn recovery. The renderer adapter merges its
+bounded startup phases for React commit, first frame, event registration, and
+session restoration into the returned snapshot. Loading or exporting this
+diagnostic state does not wait for Chat initialization.
 
 `DiagnosticBundleInput` uses schema `tinybot.diagnostic_bundle_input.v1` and
 contains the current diagnostic-mode flag, optional locale and time zone, and

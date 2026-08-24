@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:588fb856535d22d965f238c80349dcc5a1ef4d60def2a67e705f381d16a88f31 -->
+<!-- tinybot-module-fingerprint: sha256:ef0419a1038e3a159a495cc65e9b83926e09926d1275c9ef78f7ab9a0480c730 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App` for the main window and selects lightweight
@@ -55,5 +55,11 @@ container; narrow windows retain the overlay gutter instead.
 store backed by the typed app-core native adapter. Its diagnostic export method
 accepts no page parameters: the service owns renderer-log, locale, time-zone,
 and diagnostic-mode collection before delegating ZIP creation to native code.
+The main renderer passes one startup trace through `App` into this service
+graph, recording React commit, first frame, native event registration, and
+session restoration (including fetched page and session counts) before merging
+those timings into the native snapshot. Loading or exporting performance
+diagnostics does not wait for Chat initialization, so a slow session restore
+cannot make its own diagnostics unavailable.
 Browser-only runs retain the same service shape but surface native-runtime
 unavailability explicitly.

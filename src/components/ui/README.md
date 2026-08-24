@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:291d1a6f9095b049aaf772ebb31282f479ac09243dc11dcbf63a5fed81f2acc9 -->
+<!-- tinybot-module-fingerprint: sha256:b930d4872de530d00bddca3ca4407a89b1283b6ad97b4c7add9185efdf9aaccf -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -9,6 +9,9 @@ interaction independent from native storage. The composer supports internal
 attachment state for ordinary Chat and controlled attachment state for native
 entry points such as desktop-pet quick chat; both paths share selection limits,
 removal, file-only submission, and successful-send clearing.
+The composer separates full control disabling from temporary send disabling,
+so a route can preserve editable drafts while an asynchronous prerequisite is
+still loading.
 
 Route orchestration and domain-specific state stay in `react-workbench` and
 `app-core`; shared UI receives data and actions through explicit props.

@@ -676,9 +676,8 @@ impl WorkerThreadLogRpc {
         }) {
             let path = PathBuf::from(record.thread_path);
             self.recorder.validate_thread_path(&path)?;
-            let lines = read_thread_lines(&path)?;
-            let reconstructed = super::reconstruction::reconstruct_canonical_rollout(&lines)?;
-            for turn in reconstructed.turns {
+            let cached = self.rollout_cached(&path)?;
+            for turn in cached.reconstruction.turns.iter().cloned() {
                 match turns_by_id.entry(turn.turn_id.clone()) {
                     std::collections::hash_map::Entry::Vacant(entry) => {
                         entry.insert(turn);

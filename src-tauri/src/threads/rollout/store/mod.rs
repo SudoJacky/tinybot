@@ -25,6 +25,8 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -33,6 +35,7 @@ mod checkpoint_lock;
 static CONTEXT_CHECKPOINT_COMMIT_LOCK: Mutex<()> = Mutex::new(());
 static THREAD_RECORD_CACHE: OnceLock<Mutex<HashMap<PathBuf, CachedThreadRecord>>> = OnceLock::new();
 const THREAD_RECORD_CACHE_CAPACITY: usize = 64;
+const ROLLOUT_RECONSTRUCTION_CACHE_CAPACITY: usize = 64;
 pub use self::reader::read_thread_lines;
 use self::reader::read_thread_lines_for_discovery;
 use self::recorder::ThreadLogHead;
@@ -59,8 +62,10 @@ pub struct WorkerThreadLogRpc {
     thread_root: PathBuf,
     archive_root: PathBuf,
     policy: CapabilityPolicy,
-    reconstruction_cache: Arc<Mutex<HashMap<PathBuf, CachedRolloutReconstruction>>>,
+    reconstruction_cache: Arc<Mutex<HashMap<PathBuf, Arc<CachedRolloutReconstruction>>>>,
     state_index_ready: Arc<AtomicBool>,
+    #[cfg(test)]
+    rollout_read_count: Arc<AtomicUsize>,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -124,9 +129,10 @@ struct CanonicalThreadState {
     log_head: ThreadLogHeadRecord,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 struct CachedRolloutReconstruction {
     head: ThreadLogHead,
+    lines: Vec<ThreadLogLine>,
     reconstruction: reconstruction::CanonicalRolloutReconstruction,
 }
 
@@ -192,7 +198,25 @@ impl WorkerThreadLogRpc {
             policy,
             reconstruction_cache: Arc::new(Mutex::new(HashMap::new())),
             state_index_ready: Arc::new(AtomicBool::new(false)),
+            #[cfg(test)]
+            rollout_read_count: Arc::new(AtomicUsize::new(0)),
         }
+    }
+
+    fn read_rollout_lines(&self, path: &Path) -> Result<Vec<ThreadLogLine>, WorkerProtocolError> {
+        #[cfg(test)]
+        self.rollout_read_count.fetch_add(1, Ordering::Relaxed);
+        read_thread_lines(path)
+    }
+
+    #[cfg(test)]
+    fn reset_rollout_read_count(&self) {
+        self.rollout_read_count.store(0, Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    fn rollout_read_count(&self) -> usize {
+        self.rollout_read_count.load(Ordering::Relaxed)
     }
 
     pub(super) fn new_thread_memory_snapshot(
@@ -249,9 +273,13 @@ impl WorkerThreadLogRpc {
         for record in self.state.list_all_threads()? {
             let path = PathBuf::from(&record.thread_path);
             self.recorder.validate_thread_path(&path)?;
-            let reconstructed = self.reconstruct_cached(&path)?;
-            let thread = self.thread_record_from_rollout(&record, &path, &reconstructed)?;
-            items.insert(thread.thread_id.clone(), reconstructed.thread_items);
+            let cached = self.rollout_cached(&path)?;
+            let thread =
+                self.thread_record_from_rollout(&record, &cached.lines, &cached.reconstruction)?;
+            items.insert(
+                thread.thread_id.clone(),
+                cached.reconstruction.thread_items.clone(),
+            );
             threads.push(thread);
         }
         Ok((threads, items))
@@ -273,18 +301,18 @@ impl WorkerThreadLogRpc {
             })?;
         let path = PathBuf::from(&record.thread_path);
         self.recorder.validate_thread_path(&path)?;
-        let reconstructed = self.reconstruct_cached(&path)?;
-        let thread = self.thread_record_from_rollout(&record, &path, &reconstructed)?;
-        Ok((thread, reconstructed.thread_items))
+        let cached = self.rollout_cached(&path)?;
+        let thread =
+            self.thread_record_from_rollout(&record, &cached.lines, &cached.reconstruction)?;
+        Ok((thread, cached.reconstruction.thread_items.clone()))
     }
 
     fn thread_record_from_rollout(
         &self,
         record: &ThreadStateRecord,
-        path: &Path,
+        lines: &[ThreadLogLine],
         reconstructed: &reconstruction::CanonicalRolloutReconstruction,
     ) -> Result<ThreadRecord, WorkerProtocolError> {
-        let lines = read_thread_lines(path)?;
         let mut thread = ThreadRecord {
             thread_id: record.id.clone(),
             title: record.title.clone(),
@@ -612,8 +640,9 @@ impl WorkerThreadLogRpc {
                     serde_json::json!({ "threadId": thread_id }),
                 )
             })?;
-        let reconstructed = self.reconstruct_cached(path)?;
-        let record = self.thread_record_from_rollout(&state, path, &reconstructed)?;
+        let cached = self.rollout_cached(path)?;
+        let record =
+            self.thread_record_from_rollout(&state, &cached.lines, &cached.reconstruction)?;
         cache_thread_record_checked(path, head, record.clone())?;
         Ok(record)
     }
@@ -1142,12 +1171,10 @@ impl WorkerThreadLogRpc {
         Ok(snapshot)
     }
 
-    fn reconstruct_cached(
+    fn rollout_cached(
         &self,
         path: &Path,
-    ) -> Result<reconstruction::CanonicalRolloutReconstruction, WorkerProtocolError> {
-        const MAX_CACHED_ROLLOUTS: usize = 16;
-
+    ) -> Result<Arc<CachedRolloutReconstruction>, WorkerProtocolError> {
         let head = self.recorder.thread_log_head(path)?;
         {
             let cache = self.reconstruction_cache.lock().map_err(|_| {
@@ -1158,11 +1185,11 @@ impl WorkerThreadLogRpc {
             })?;
             if let Some(cached) = cache.get(path) {
                 if cached.head == head {
-                    return Ok(cached.reconstruction.clone());
+                    return Ok(Arc::clone(cached));
                 }
             }
         }
-        let lines = read_thread_lines(path)?;
+        let lines = self.read_rollout_lines(path)?;
         let reconstruction = reconstruction::reconstruct_canonical_rollout(&lines)?;
         let mut cache = self.reconstruction_cache.lock().map_err(|_| {
             thread_log_consistency_error(
@@ -1170,19 +1197,25 @@ impl WorkerThreadLogRpc {
                 serde_json::json!({ "threadPath": path.display().to_string() }),
             )
         })?;
-        if cache.len() >= MAX_CACHED_ROLLOUTS && !cache.contains_key(path) {
+        if cache.len() >= ROLLOUT_RECONSTRUCTION_CACHE_CAPACITY && !cache.contains_key(path) {
             if let Some(evicted) = cache.keys().next().cloned() {
                 cache.remove(&evicted);
             }
         }
-        cache.insert(
-            path.to_path_buf(),
-            CachedRolloutReconstruction {
-                head,
-                reconstruction: reconstruction.clone(),
-            },
-        );
-        Ok(reconstruction)
+        let cached = Arc::new(CachedRolloutReconstruction {
+            head,
+            lines,
+            reconstruction,
+        });
+        cache.insert(path.to_path_buf(), Arc::clone(&cached));
+        Ok(cached)
+    }
+
+    fn reconstruct_cached(
+        &self,
+        path: &Path,
+    ) -> Result<reconstruction::CanonicalRolloutReconstruction, WorkerProtocolError> {
+        Ok(self.rollout_cached(path)?.reconstruction.clone())
     }
 
     pub fn check_state_index(
@@ -1474,40 +1507,41 @@ impl WorkerThreadLogRpc {
         path: &Path,
     ) -> Result<CanonicalThreadState, WorkerProtocolError> {
         self.recorder.validate_thread_path(path)?;
-        let lines = read_thread_lines(path)?;
-        let reconstructed = reconstruction::reconstruct_canonical_rollout(&lines)?;
-        let meta = reconstructed.meta;
-        let replay = reconstructed.semantic;
-        let latest_checkpoint = latest_context_checkpoint_from_lines(&meta.thread_id, &lines)?;
-        let log_head = self.recorder.thread_log_head(path)?;
+        let cached = self.rollout_cached(path)?;
+        let lines = &cached.lines;
+        let reconstructed = &cached.reconstruction;
+        let meta = &reconstructed.meta;
+        let replay = &reconstructed.semantic;
+        let latest_checkpoint = latest_context_checkpoint_from_lines(&meta.thread_id, lines)?;
+        let log_head = &cached.head;
         let updated_at = state_projection_updated_at(&meta.created_at, &lines);
         let archived = self.recorder.is_archived_path(path);
         let model_provider = replay
             .previous_turn_settings
             .as_ref()
             .and_then(|settings| settings.provider.clone())
-            .or(meta.model_provider);
+            .or_else(|| meta.model_provider.clone());
         let model = replay
             .previous_turn_settings
             .as_ref()
             .map(|settings| settings.model.clone())
             .filter(|model| !model.trim().is_empty())
-            .or(meta.model);
+            .or_else(|| meta.model.clone());
         let title = if is_default_thread_title(&replay.title) {
-            title_from_messages(&replay.messages).unwrap_or(replay.title)
+            title_from_messages(&replay.messages).unwrap_or_else(|| replay.title.clone())
         } else {
-            replay.title
+            replay.title.clone()
         };
         let mut record = ThreadStateRecord {
-            id: meta.thread_id,
-            session_id: meta.session_id,
+            id: meta.thread_id.clone(),
+            session_id: meta.session_id.clone(),
             thread_path: path.display().to_string(),
-            created_at: meta.created_at,
+            created_at: meta.created_at.clone(),
             updated_at: updated_at.clone(),
-            source: meta.source,
+            source: meta.source.clone(),
             title,
             preview: preview_from_messages(&replay.messages),
-            cwd: meta.cwd,
+            cwd: meta.cwd.clone(),
             model_provider,
             model,
             tokens_used: replay
@@ -1534,7 +1568,7 @@ impl WorkerThreadLogRpc {
             log_head: ThreadLogHeadRecord {
                 thread_id: record.id.clone(),
                 byte_length: log_head.byte_length,
-                tail_hash: log_head.tail_hash,
+                tail_hash: log_head.tail_hash.clone(),
                 projection_hash,
             },
             record,
