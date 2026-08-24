@@ -249,9 +249,13 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
   const desktopPetHost = services.desktopPetHost ?? null;
   const desktopPetQuickChatHost = services.desktopPetQuickChatHost ?? null;
   const desktopPetLabel = t(`desktopPet.status.${desktopPetMood}`);
+  const [startChatInNewSession, setStartChatInNewSession] = useState(true);
   const stopGenerationSessionIdRef = useRef("");
   const frameControls = useMemo(() => windowControls ?? resolveWindowFrameControls(), [windowControls]);
   const topMenuItems = createTopMenuItems(t, routeLabels, shortcuts, desktopPetPreferences.visible);
+  const handleStartupSessionHydrated = useCallback(() => {
+    setStartChatInNewSession(false);
+  }, []);
 
   const updateDesktopPetPreferences = useCallback((
     update: DesktopPetPreferences | ((current: DesktopPetPreferences) => DesktopPetPreferences),
@@ -727,6 +731,8 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
               },
               onMascotMoodChange: setDesktopPetMood,
               onStopGenerationTargetChange: handleStopGenerationTargetChange,
+              onStartupSessionHydrated: handleStartupSessionHydrated,
+              startInNewSession: startChatInNewSession,
             }}
             route={route}
             services={services}

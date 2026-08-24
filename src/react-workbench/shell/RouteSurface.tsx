@@ -15,6 +15,8 @@ type ChatRouteProps = {
   onSessionSidebarCollapsedChange: (collapsed: boolean) => void;
   onStopGenerationTargetChange: (sessionId: string) => void;
   onMascotMoodChange: (mood: TinybotMascotMood) => void;
+  onStartupSessionHydrated?: () => void;
+  startInNewSession?: boolean;
 };
 
 type FilesState =
@@ -60,7 +62,9 @@ export function RouteSurface({
           onOpenSettings={() => onNavigate("settings")}
           onMascotMoodChange={chat.onMascotMoodChange}
           onSessionSidebarCollapsedChange={chat.onSessionSidebarCollapsedChange}
+          onStartupSessionHydrated={chat.onStartupSessionHydrated}
           onStopGenerationTargetChange={chat.onStopGenerationTargetChange}
+          startInNewSession={chat.startInNewSession}
         />
       );
     case "graphs":

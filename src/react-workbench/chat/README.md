@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:e163c30df90304ae1e71ec287ee08a8920976387812b920dd4d12ec28995ef5b -->
+<!-- tinybot-module-fingerprint: sha256:dac3e81ef01d3376719819ef3f40e3ce3c03e79c8b90a08ad83a9e39ead7c168 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -36,8 +36,11 @@ Before a Turn reports its effective per-model window, Chat uses the legacy
 unknown-model fallback only as an initial display estimate; runtime usage then
 becomes authoritative.
 While the initial session list is loading, the composer keeps its draft editor
-available but disables sending. A startup draft remains selected after session
-hydration instead of being replaced by the restored active conversation.
+available but disables sending. The first Chat mount in each desktop app
+lifetime ignores the persisted tab workspace and starts with an uncreated empty
+conversation. Later route remounts may restore tabs opened during that same app
+lifetime. The empty conversation continues to use the persisted composer model
+preference, and changing its model updates that preference for future chats.
 Browser runtime snapshots are retained by the
 session runtime and projected into Sidecar Browser resources. Each resource tab
 maps to one native WebView2 tab in the Chat-owned shared Browser Session, so user

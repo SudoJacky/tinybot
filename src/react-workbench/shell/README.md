@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:2ede148122ac01b060a53a6fad124007c7428d2e7a576a34513c70ec095bdc0b -->
+<!-- tinybot-module-fingerprint: sha256:e5b3d1726896778c0e275a01d10eb713c86741ba99877caffdcf277ca32759be -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
@@ -7,6 +7,9 @@ selection, deferred route loading, and update dialogs.
 `DesktopShell.tsx` coordinates shell state, while `RouteSurface.tsx` selects
 the active route and preserves lazy seams for optional surfaces. Route-specific
 behavior remains in the route module rather than moving into the shell.
+The shell also marks only the first Chat mount in an app lifetime as a fresh,
+uncreated conversation. Once Chat finishes session hydration, later route
+remounts can restore the tabs opened during that same app lifetime.
 
 Resources > Agent Graphs opens a dedicated lazy route. The shell knows only the
 route label, loader, and shared renderer stores passed to it; workspace catalog

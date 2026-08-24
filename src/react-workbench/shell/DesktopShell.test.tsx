@@ -9,6 +9,7 @@ import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefault
 import { buildProviderModelsSettings } from "../../app-core/settings/providerModelsSettings";
 import type { AppServices, PersonalizationInstructionsSaveInput, SessionSummary } from "../services";
 import type { ReactChatMessage } from "../chat/messageActions";
+import { CHAT_SESSION_TABS_STORAGE_KEY } from "../chat/sessionTabWorkspace";
 import { timelineFromReactMessages } from "../chat/test/timelineFixtures";
 import { unavailableTinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
 import type { DesktopUpdateClient, DesktopUpdateSnapshot } from "../../app-core/native/desktopNativeUpdate";
@@ -253,6 +254,29 @@ function createUpdateClient(
 }
 
 describe("DesktopShell", () => {
+  it("starts with an uncreated conversation even when a previous tab was saved", async () => {
+    const services = createServices({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Previously open",
+        updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+        status: "idle",
+      }],
+    });
+    window.localStorage.setItem(CHAT_SESSION_TABS_STORAGE_KEY, JSON.stringify({
+      activeSessionId: "s1",
+      draftsBySession: {},
+      openSessionIds: ["s1"],
+    }));
+
+    render(<DesktopShell services={services} />);
+
+    expect(await screen.findByRole("heading", { name: "New chat" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Previously open" })).toBeTruthy();
+    expect(services.chatStore.load).not.toHaveBeenCalled();
+  });
+
   it("keeps the React window frame draggable and top menus compact", () => {
     const controls = {
       close: vi.fn(async () => undefined),
@@ -1152,6 +1176,7 @@ describe("DesktopShell", () => {
     });
     render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
 
+    await user.click(await screen.findByRole("button", { name: "Running chat" }));
     await screen.findByRole("heading", { name: "Running chat" });
     await user.click(screen.getByRole("button", { name: "App" }));
     const stopCommand = within(screen.getByRole("menu", { name: "Application menu" })).getByRole("menuitem", { name: /Stop Generation/ });
@@ -1167,6 +1192,7 @@ describe("DesktopShell", () => {
   });
 
   it("runs Stop Generation from the keyboard shortcut for the active running chat", async () => {
+    const user = userEvent.setup();
     const services = createServices({
       messages: [{
         id: "u1",
@@ -1185,6 +1211,7 @@ describe("DesktopShell", () => {
     });
     render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
 
+    await user.click(await screen.findByRole("button", { name: "Running chat" }));
     const stopButton = await screen.findByRole("button", { name: "Stop generation" });
     await waitFor(() => expect((stopButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.keyDown(window, { ctrlKey: true, key: "." });
