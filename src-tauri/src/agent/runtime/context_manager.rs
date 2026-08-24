@@ -140,6 +140,27 @@ fn token_usage_from_provider(usage: &Value) -> TokenUsage {
     })
     .max()
     .unwrap_or_default();
+    let detailed_reasoning_output_tokens = [
+        "outputTokensDetails",
+        "output_tokens_details",
+        "completionTokensDetails",
+        "completion_tokens_details",
+    ]
+    .iter()
+    .filter_map(|key| usage.get(key))
+    .map(|details| {
+        i64_field(
+            details,
+            &[
+                "reasoningOutputTokens",
+                "reasoning_output_tokens",
+                "reasoningTokens",
+                "reasoning_tokens",
+            ],
+        )
+    })
+    .max()
+    .unwrap_or_default();
     TokenUsage {
         input_tokens,
         cached_input_tokens: i64_field(
@@ -161,7 +182,8 @@ fn token_usage_from_provider(usage: &Value) -> TokenUsage {
                 "reasoningTokens",
                 "reasoning_tokens",
             ],
-        ),
+        )
+        .max(detailed_reasoning_output_tokens),
         total_tokens: i64_field(
             usage,
             &[

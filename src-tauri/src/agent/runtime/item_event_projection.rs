@@ -155,7 +155,9 @@ fn agent_item_for_runtime_event(kind: AgentEventKind, payload: &Value) -> Option
             let turn_id = required_string(payload, &["turnId", "turn_id"], kind);
             let mut usage = AgentUsageItem::from_provider_payload(
                 payload
-                    .get("usage")
+                    .get("providerUsage")
+                    .or_else(|| payload.get("provider_usage"))
+                    .or_else(|| payload.get("usage"))
                     .cloned()
                     .unwrap_or_else(|| serde_json::json!({})),
             )

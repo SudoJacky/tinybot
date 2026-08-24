@@ -11,7 +11,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:7977835c584b42ddec72e8330260884f4a027f1ef294a892659bf875c69c850f -->
+<!-- tinybot-doc-fingerprint: sha256:19ac5a7b3f18c1d6e9bcbb76f25bbe0a575bfbc7d20470e6bacb93bf70f811a7 -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -109,10 +109,13 @@ checkpoints; they do not become another project-instruction source or appear as
 raw text in hook diagnostic events.
 
 The runtime estimates the provider request against the effective context
-window. When no strategy is configured, the strategy is `compact`. Compaction
-summarizes older context through the provider, persists a context checkpoint,
-and retains recent messages. Explicit `discard` remains available and keeps the
-newest messages that fit without creating a summary.
+window. The fixed request budget includes composed instructions and the
+serialized definitions of tools visible to the provider, while the remaining
+budget belongs to message history. When no strategy is configured, the
+strategy is `compact`. Compaction summarizes older context through the
+provider, persists a context checkpoint, and retains recent messages. Explicit
+`discard` remains available and keeps the newest messages that fit without
+creating a summary.
 
 Exact configuration names and defaults belong in the
 [desktop command reference](../api/desktop.md#config-commands).

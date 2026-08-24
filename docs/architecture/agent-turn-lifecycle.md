@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:3a7e7b836594d76cd07c541aef1fe719c3a643d533796ce6df3ee4d9137512fa -->
+<!-- tinybot-doc-fingerprint: sha256:6c4279c80b6adaac1da84cc0a0516dfb35caa3f1dee16bdaf64286f4127b0ade -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -70,7 +70,8 @@ For each provider iteration, the runtime:
 1. Restores any continuation and prepares typed `AgentItem` history.
 2. Builds the bounded request context and records provenance.
 3. Invokes the configured provider adapter.
-4. Decodes assistant text, reasoning metadata, usage, and tool calls.
+4. Decodes assistant text, reasoning metadata, usage (including nested cache
+   and reasoning detail counters), and tool calls.
 5. Records the complete tool batch before the next provider request.
 6. Emits correlated runtime events through the injected trace sink.
 7. Stops at a terminal result or creates a resumable checkpoint.

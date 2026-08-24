@@ -6,7 +6,7 @@ src/app-core/chat/chatTurnContracts.ts
 src/app-core/native/desktopNativeTauriEvents.ts
 src/app-core/native/desktopNativeTauriEvents.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:ffd1c9d255cf0a664375aaea18d8ed8227aa3c095077c513af4865ca311501a8 -->
+<!-- tinybot-doc-fingerprint: sha256:0638eb0320df3c3c7aa285317184e09a786c8cfe5c9031e65809a782f0385c3b -->
 
 This document lists frontend-visible events emitted by the native runtime. It
 is part of the [Rust backend API reference](rust-backend-api.md), which defines
@@ -80,15 +80,19 @@ use `referenceKind: "image"` and file references use `referenceKind: "file"`.
 
 `agent.usage` payloads preserve provider-returned OpenAI-compatible usage fields such as
 `prompt_tokens`, `completion_tokens`, and `total_tokens`. The Rust agent runtime also appends
-context-window budget fields:
+context-window budget fields for live compatibility consumers. Its typed
+`payload.agentItem.providerPayload` retains the original provider usage; durable
+Rollouts omit the redundant outer enriched copies and rely on the adjacent
+`agent.token_count` record for normalized cache and reasoning counters.
 
 - `context_window_tokens` / `contextWindowTokens`: effective context window from
   `agents.defaults.contextWindowTokens` or the backend default.
-- `context_window_used_tokens` / `contextWindowUsedTokens`: provider `prompt_tokens` when present,
-  then provider `total_tokens`, otherwise the local request estimate.
+- `context_window_used_tokens` / `contextWindowUsedTokens`: provider `total_tokens` when present,
+  then provider prompt/input usage, otherwise the local request estimate.
 - `context_window_remaining_tokens` / `contextWindowRemainingTokens`: remaining context budget.
 - `estimated_context_tokens` / `estimatedContextTokens`: local approximate token count for the
-  request sent after context-window trimming.
+  messages, instructions, and provider-visible tool definitions sent after context-window
+  trimming.
 - `context_window_strategy` / `contextWindowStrategy`: effective strategy, currently `discard` or
   `compact`.
 - `percent`: context-window usage percentage.

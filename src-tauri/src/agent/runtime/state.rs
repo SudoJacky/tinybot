@@ -539,7 +539,7 @@ impl AgentTurnState {
         self.emit(ModelOutputEvent::ModelCallCompleted(serde_json::json!({
             "iteration": iteration,
             "modelCallId": model_call_id,
-            "tokenUsage": provider_usage,
+            "tokenUsage": provider_usage.clone(),
         })))?;
         self.emit(PendingAgentEvent::new(
             AgentEventKind::TokenCount,
@@ -553,6 +553,7 @@ impl AgentTurnState {
             "iteration": iteration,
             "modelCallId": model_call_id,
             "usage": usage,
+            "providerUsage": provider_usage,
         })))
     }
 }

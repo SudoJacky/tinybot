@@ -1,3 +1,4 @@
+use super::super::protocol_projection::semantic_thread_item_from_runtime_event;
 use super::{
     completed_tool_result_from_response_item, response_item_from_runtime_event,
     response_items_from_runtime_event,
@@ -491,12 +492,40 @@ fn persisted_usage_preserves_the_live_timeline_item_identity() {
                 "inputTokens": 4469,
                 "outputTokens": 219,
                 "totalTokens": 4688
+            },
+            "agentItem": {
+                "type": "usage",
+                "id": "turn-usage:usage:0",
+                "inputTokens": 4469,
+                "outputTokens": 219,
+                "totalTokens": 4688,
+                "providerPayload": {
+                    "inputTokens": 4469,
+                    "outputTokens": 219,
+                    "totalTokens": 4688
+                }
             }
         }
     }))
     .unwrap();
     let live_timeline =
         project_timeline_snapshot(session_id, turn_id, std::slice::from_ref(&live_event)).unwrap();
+    let persisted_item = semantic_thread_item_from_runtime_event(
+        session_id,
+        turn_id,
+        started_at,
+        &serde_json::to_value(&live_event).unwrap(),
+        SessionApiMode::ChatCompletions,
+    )
+    .expect("usage event should be persisted");
+    let crate::threads::domain::ThreadItemKind::Event(persisted_event) = persisted_item.kind else {
+        panic!("usage should remain a semantic event");
+    };
+    assert!(persisted_event["payload"].get("usage").is_none());
+    assert_eq!(
+        persisted_event["payload"]["agentItem"]["providerPayload"]["totalTokens"],
+        4688
+    );
 
     rpc.append_turn_semantic_event(
         session_id,

@@ -1,4 +1,6 @@
-use super::super::usage::{context_window_action_payload, context_window_projection};
+use super::super::usage::{
+    context_window_action_payload, context_window_projection, estimate_context_tokens_for_request,
+};
 use super::*;
 
 #[test]
@@ -396,7 +398,7 @@ fn agent_chat_request_requests_stream_usage() {
 
 #[test]
 fn agent_chat_request_compacts_old_messages_when_strategy_is_compact() {
-    let context = AgentTurnContext::from_spec(
+    let mut context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
             "turnId": "turn-context-compact",
@@ -421,6 +423,7 @@ fn agent_chat_request_compacts_old_messages_when_strategy_is_compact() {
             "providers": { "fixture": { "responses": [{ "content": "summary of earlier turns" }] } }
         }),
     );
+    context.tool_router = NativeToolRouter::new(Vec::new());
 
     let request = agent_chat_completion_request(&context).expect("request should build");
     let messages = request["messages"]
@@ -529,8 +532,12 @@ fn agent_turn_emits_compaction_failed_without_installing_a_checkpoint() {
 
 #[test]
 fn agent_turn_emits_context_compaction_event_when_old_messages_are_summarized() {
+    let services = NativeAgentRuntimeServices {
+        test_tool_registry_entries: Some(Vec::new()),
+        ..NativeAgentRuntimeServices::default()
+    };
     let result = run_native_agent_turn_with_config(
-        &NativeAgentRuntimeServices::default(),
+        &services,
         json!({
             "runtime": "rust",
             "turnId": "turn-context-compact-event",
@@ -1171,7 +1178,12 @@ fn compacted_context_becomes_the_next_tool_iteration_baseline() {
             contexts: contexts.clone(),
         }),
         tools: Arc::new(ReadDispatcher),
-        test_tool_registry_entries: Some(test_registry_with_model_tools(&["workspace.read_file"])),
+        test_tool_registry_entries: Some(
+            test_registry_with_model_tools(&["workspace.read_file"])
+                .into_iter()
+                .filter(|entry| entry.method == "workspace.read_file")
+                .collect(),
+        ),
         ..NativeAgentRuntimeServices::default()
     };
     let result = run_native_agent_turn_with_config(
@@ -1261,10 +1273,29 @@ fn agent_usage_event_includes_context_window_budget() {
     assert!(usage["context_window_remaining_tokens"].is_number());
     assert!(usage["context_window_used_tokens"].is_number());
     assert_eq!(usage_event["payload"]["agentItem"]["type"], "usage");
-    assert_eq!(
-        usage_event["payload"]["agentItem"]["providerPayload"],
-        *usage
+    assert!(usage_event["payload"]["agentItem"]["providerPayload"]
+        .get("contextWindowTokens")
+        .is_none());
+}
+
+#[test]
+fn context_estimate_includes_provider_visible_tool_definitions() {
+    let mut without_tools = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({}),
     );
+    without_tools.tool_router = NativeToolRouter::new(Vec::new());
+    let mut with_tools = without_tools.clone();
+    with_tools.tool_router =
+        NativeToolRouter::new(test_registry_with_model_tools(&["workspace.read_file"]));
+
+    let estimate_without_tools = estimate_context_tokens_for_request(&without_tools).unwrap();
+    let estimate_with_tools = estimate_context_tokens_for_request(&with_tools).unwrap();
+
+    assert!(estimate_with_tools > estimate_without_tools + 500);
 }
 
 #[test]

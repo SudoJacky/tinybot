@@ -1011,8 +1011,24 @@ fn projected_item_payload(
         AgentEventKind::AwaitingForm | AgentEventKind::FormResolution => {
             projected_form_payload(existing_payload, event, event_kind)
         }
+        AgentEventKind::Usage => projected_usage_payload(event),
         _ => event.payload.clone(),
     }
+}
+
+fn projected_usage_payload(event: &AgentRuntimeEventEnvelope) -> Value {
+    let mut payload = event.payload.as_object().cloned().unwrap_or_default();
+    let has_typed_usage = payload
+        .get("agentItem")
+        .and_then(|item| item.get("type"))
+        .and_then(Value::as_str)
+        == Some("usage");
+    if has_typed_usage {
+        payload.remove("usage");
+        payload.remove("providerUsage");
+        payload.remove("provider_usage");
+    }
+    Value::Object(payload)
 }
 
 fn projected_completed_message_payload(event: &AgentRuntimeEventEnvelope) -> Value {
