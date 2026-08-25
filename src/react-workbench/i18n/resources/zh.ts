@@ -391,10 +391,9 @@ export const zh = {
     },
     runtime: {
       loadingCapabilities: "正在加载有效能力。", staleCapabilities: "有效能力与当前 Agent 轮次不一致。", cancelUnavailable: "当前 Agent 轮次不可取消。", noSessionSelected: "未选择会话。", commandRejected: "命令被拒绝",
-      failedTurnRetryUnavailable: "这个失败的 Agent 轮次不可重试。", failedItemUnavailable: "无法重试：找不到失败的规范项目。", cancelActiveTurnUnavailable: "无法取消：找不到当前规范轮次。",
+      cancelActiveTurnUnavailable: "无法取消：找不到当前规范轮次。",
       submitFormTurnUnavailable: "无法提交表单：找不到当前规范轮次。", submitFormStaleTurn: "无法提交表单：请求指向已过期的轮次 {{turnId}}。", cancelFormTurnUnavailable: "无法取消表单：找不到当前规范轮次。", cancelFormStaleTurn: "无法取消表单：请求指向已过期的轮次 {{turnId}}。",
     },
-    continuePrompt: "请从刚才中断的位置继续，沿用现有上下文和计划；先确认当前进度，再完成剩余任务。",
     lifecycle: {
       operation: { cancel: "取消", cancellation: "取消操作", formCancellation: "表单取消", formSubmission: "表单提交", retry: "重试" },
       sending: "正在发送{{operation}}命令…", waiting: "{{operation}}已送达，正在等待运行时确认…", acknowledged: "{{operation}}已由规范项目 {{itemId}} 确认，正在等待完成。", completed: "{{operation}}已于规范项目 {{itemId}} 结束，状态：{{status}}。",
@@ -404,7 +403,7 @@ export const zh = {
       newChat: "新会话", sessionRows: "会话列表", workspace: "工作区 {{name}}", generalSessions: "常规会话", newSessionIn: "在 {{name}} 中新建会话", confirmDelete: "确认删除 {{name}}",
       delete: "删除 {{name}}", noSessions: "还没有会话。", noSelection: "未选择会话", conversationMenu: "打开会话菜单",
       unpin: "取消置顶", pin: "置顶会话", rename: "重命名会话", copyId: "复制 ID", copyMarkdown: "复制 Markdown", archive: "归档会话",
-      sideChat: "打开侧边会话", branch: "创建分支", newWindow: "在新窗口中打开", conversation: "会话", errorDetails: "错误详情",
+      sideChat: "打开侧边会话", branch: "创建分支", newWindow: "在新窗口中打开", conversation: "会话",
       selectSession: "请选择或新建一个会话。", backToLatest: "回到最新消息", compacting: "正在压缩上下文", loadingSessions: "正在加载会话…",
       createOrSelect: "请先创建或选择一个会话", taskPlaceholder: "输入任务，或粘贴/拖入文件", messagePlaceholder: "输入消息给 Tinybot",
       detailsDrawer: "详情抽屉", closeDetails: "关闭详情抽屉",
@@ -460,14 +459,12 @@ export const zh = {
     },
     execution: {
       actionCount: "{{count}} 个操作", plan: "计划 {{completed}}/{{total}}", attention: "需要处理",
-      status: { completed: "已完成", failed: "失败", interrupted: "已中断", awaiting: "等待输入", running: "执行中" },
+      status: { failed: "失败", interrupted: "已中断", awaiting: "等待输入", running: "执行中" },
     },
     form: { submitted: "已提交", cancelled: "已取消", resolved: "已解决", waiting: "等待输入" },
     compaction: { before: "压缩前：{{value}} Token", after: "压缩后：{{value}} Token", dropped: "已丢弃项目：{{value}}" },
     recovery: {
-      label: "任务执行失败", cancelled: "任务已取消", interrupted: "任务已中断", failedAt: "中断位置", progress: "计划进度",
-      completedSteps: "已完成 {{count}} 个步骤", validResults: "仍然有效的结果", actions: "错误恢复操作", continue: "继续执行",
-      retry: "重试当前步骤", restart: "重新开始", details: "查看详情", copyError: "复制错误",
+      label: "任务执行失败", cancelled: "任务已取消", interrupted: "任务已中断", copyError: "复制错误",
     },
     plan: {
       label: "执行计划", completed: "已完成 {{completed}}/{{total}}", status: { completed: "已完成", inProgress: "执行中", failed: "失败", cancelled: "已取消", pending: "待执行" },
@@ -484,7 +481,7 @@ export const zh = {
     context: { attachments: "附件", context: "上下文" },
     steps: { count: "{{count}} 个步骤", title: "执行详情", label: "Agent 步骤", openDetails: "打开 {{name}} 的详情", status: { active: "执行中", success: "已完成", waiting: "等待确认", cancelled: "已取消", error: "失败", pending: "待执行" } },
     details: {
-      turnId: "Turn ID", status: "状态", stopReason: "停止原因", interruptedAt: "中断位置", originalTask: "原始任务", originalError: "原始错误信息",
+      status: "状态", interruptedAt: "中断位置",
       unavailable: "详情不可用。", id: "ID", trace: "Trace", childTurn: "子任务轮次", loadingTrace: "正在加载 Trace…", finalOutput: "最终输出",
       type: "类型", loadingArtifact: "正在加载产物…", noPreview: "没有可预览的内容。", subagentTrace: "子 Agent Trace",
       fileOutsideWorkspace: "该文件位于当前工作区之外。", filePreviewUnavailable: "当前运行环境无法预览工作区文件。",
@@ -500,8 +497,8 @@ export const zh = {
       editedFiles: "编辑了 {{count}} 个文件", moved: "移动了 {{name}}", created: "创建了 {{name}}", deleted: "删除了 {{name}}", edited: "编辑了 {{name}}",
     },
     toolActivity: {
-      openDetails: "打开 {{title}} 的详情", viewDetails: "查看完整工具详情", toggleDetails: "展开或收起 {{title}} 的详情", truncated: "预览已截断",
-      status: { completed: "已完成", running: "执行中", waiting: "等待中", failed: "失败", cancelled: "已取消", pending: "待执行" },
+      toggleDetails: "展开或收起 {{title}} 的详情", truncated: "预览已截断",
+      status: { running: "执行中", waiting: "等待中", failed: "失败", cancelled: "已取消", pending: "待执行" },
       category: { terminal: "终端", fileRead: "读取文件", web: "网页", planning: "计划", presentation: "数据视图", subagent: "子 Agent", interaction: "交互", tool: "工具" },
       command: "命令", workspaceFile: "工作区文件", currentPage: "当前页面", usedTool: "使用了工具",
       updatedPlan: "更新了执行计划", preparingDataView: "正在准备数据视图…", publishedDataView: "已发布数据视图", dataViewFailed: "数据视图发布失败", dataViewCancelled: "已取消发布数据视图", delegated: "委派了任务", waitedSubagents: "等待子 Agent", updatedSubagent: "更新了子 Agent", requestedInput: "请求用户输入",

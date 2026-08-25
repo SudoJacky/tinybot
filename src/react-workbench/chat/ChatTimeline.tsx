@@ -15,9 +15,6 @@ import {
   ListCollapse,
   Loader2,
   PanelRightOpen,
-  Play,
-  RefreshCw,
-  RotateCcw,
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -43,16 +40,12 @@ import { isApplyPatchToolCall, PatchDiffCard, patchChangeSetFromToolResult } fro
 import { ToolActivityItem } from "./ToolActivityItem";
 import { DataViewCard } from "./DataViewCard";
 
-export type RecoveryAction = "continue" | "retry" | "restart";
-
 export type ChatTimelineActions = {
   onBranch?: (messageId: string) => void;
   onOpenArtifact?: (artifact: ArtifactRef) => void;
-  onOpenError?: (turn: ChatTurn, step: ChatStep) => void;
   onOpenFileLink?: (link: AssistantFileLink) => void;
   onOpenSubagent?: (delegate: DelegatedAgentState) => void;
   onOpenTool?: (toolCall: ToolCallSummary) => void;
-  onRecover?: (turn: ChatTurn, action: RecoveryAction) => void;
 };
 
 export function ChatTimeline({
@@ -62,7 +55,6 @@ export function ChatTimeline({
   interactiveFormIds,
   latestFailedTurnId,
   optimisticMessages,
-  recoveringTurnId,
   sessionRunning,
   turns,
 }: {
@@ -72,7 +64,6 @@ export function ChatTimeline({
   interactiveFormIds: ReadonlySet<string>;
   latestFailedTurnId: string;
   optimisticMessages: readonly ReactChatMessage[];
-  recoveringTurnId: string;
   sessionRunning: boolean;
   turns: readonly ChatTurn[];
 }) {
@@ -85,15 +76,12 @@ export function ChatTimeline({
           interactiveFormIds={interactiveFormIds}
           key={turn.id}
           hookResults={hookResults.filter((result) => result.turnId === turn.id)}
-          recovering={recoveringTurnId === turn.id}
           turn={turn}
           onBranch={actions.onBranch}
           onOpenArtifact={actions.onOpenArtifact}
-          onOpenError={actions.onOpenError ? (step) => actions.onOpenError?.(turn, step) : undefined}
           onOpenFileLink={actions.onOpenFileLink}
           onOpenSubagent={actions.onOpenSubagent}
           onOpenTool={actions.onOpenTool}
-          onRecover={actions.onRecover ? (action) => actions.onRecover?.(turn, action) : undefined}
         />
       ))}
       {optimisticMessages.map((message) => (
@@ -120,26 +108,20 @@ function CanonicalChatTurn({
   hookResults,
   interactiveFormIds,
   onBranch,
-  onOpenError,
   onOpenArtifact,
   onOpenFileLink,
-  onRecover,
   onOpenSubagent,
   onOpenTool,
-  recovering,
   turn,
 }: {
   focusError: boolean;
   hookResults: readonly HookExecutionResult[];
   interactiveFormIds: ReadonlySet<string>;
   onBranch?: (messageId: string) => void;
-  onOpenError?: (step: ChatStep) => void;
   onOpenArtifact?: (artifact: ArtifactRef) => void;
   onOpenFileLink?: (link: AssistantFileLink) => void;
-  onRecover?: (action: RecoveryAction) => void;
   onOpenSubagent?: (delegate: DelegatedAgentState) => void;
   onOpenTool?: (toolCall: ToolCallSummary) => void;
-  recovering: boolean;
   turn: ChatTurn;
 }) {
   const { t } = useTranslation("chat");
@@ -174,17 +156,13 @@ function CanonicalChatTurn({
           executionItems={executionItems}
           focusError={focusError}
           onOpenArtifact={onOpenArtifact}
-          onOpenError={onOpenError}
           onOpenSubagent={onOpenSubagent}
-          onOpenTool={onOpenTool}
-          onRecover={onRecover}
-          recovering={recovering}
           turn={turn}
         />
       ) : !turn.executionItems ? (
         <>
           {planSteps.map((step) => (
-            <CanonicalChatStep key={step.id} onOpenArtifact={onOpenArtifact} onOpenFileLink={onOpenFileLink} onOpenSubagent={onOpenSubagent} onOpenTool={onOpenTool} step={step} />
+            <CanonicalChatStep key={step.id} onOpenArtifact={onOpenArtifact} onOpenFileLink={onOpenFileLink} onOpenSubagent={onOpenSubagent} step={step} />
           ))}
           {groupCanonicalSteps(legacyProcessSteps).map((group) => (
             Array.isArray(group) ? (
@@ -194,18 +172,15 @@ function CanonicalChatTurn({
                 <CanonicalScopedErrors errors={group.flatMap((step) => step.scopedErrors ?? [])} />
               </div>
             ) : (
-              <CanonicalChatStep key={group.id} onOpenArtifact={onOpenArtifact} onOpenFileLink={onOpenFileLink} onOpenSubagent={onOpenSubagent} onOpenTool={onOpenTool} step={group} />
+              <CanonicalChatStep key={group.id} onOpenArtifact={onOpenArtifact} onOpenFileLink={onOpenFileLink} onOpenSubagent={onOpenSubagent} step={group} />
             )
           ))}
           {errorSteps.map((step, index) => (
-            <ErrorRecoveryCard
+            <InlineExecutionError
               focusOnMount={focusError && index === errorSteps.length - 1}
               key={step.id}
-              recovering={recovering}
               step={step}
               turn={turn}
-              onOpenDetails={onOpenError ? () => onOpenError(step) : undefined}
-              onRecover={onRecover}
             />
           ))}
         </>
@@ -314,21 +289,13 @@ function ExecutionTimeline({
   executionItems,
   focusError,
   onOpenArtifact,
-  onOpenError,
   onOpenSubagent,
-  onOpenTool,
-  onRecover,
-  recovering,
   turn,
 }: {
   executionItems: ChatStep[];
   focusError: boolean;
   onOpenArtifact?: (artifact: ArtifactRef) => void;
-  onOpenError?: (step: ChatStep) => void;
   onOpenSubagent?: (delegate: DelegatedAgentState) => void;
-  onOpenTool?: (toolCall: ToolCallSummary) => void;
-  onRecover?: (action: RecoveryAction) => void;
-  recovering: boolean;
   turn: ChatTurn;
 }) {
   const { t } = useTranslation("chat");
@@ -394,25 +361,21 @@ function ExecutionTimeline({
           <strong>{t("turn.workPerformed")}</strong>
           <small aria-live="polite">{summary}</small>
         </span>
-        <ChevronDown aria-hidden="true" className="react-execution-timeline__chevron" size={18} />
+        <ChevronRight aria-hidden="true" className="react-execution-timeline__chevron" size={16} />
       </button>
       <div className="react-execution-timeline__content" hidden={!open} id={contentId}>
         {visibleExecutionItems.map((step) => (
           <div className="react-execution-timeline__item" data-kind={step.kind} data-status={step.status} key={step.id}>
             {step.kind === "error" ? (
-              <ErrorRecoveryCard
+              <InlineExecutionError
                 focusOnMount={focusError && step.id === errorItems[errorItems.length - 1]?.id}
-                recovering={recovering}
                 step={step}
                 turn={turn}
-                onOpenDetails={onOpenError ? () => onOpenError(step) : undefined}
-                onRecover={onRecover}
               />
             ) : (
               <CanonicalChatStep
                 onOpenArtifact={onOpenArtifact}
                 onOpenSubagent={onOpenSubagent}
-                onOpenTool={onOpenTool}
                 step={step}
               />
             )}
@@ -428,7 +391,8 @@ function executionTimelineSummary(turn: ChatTurn, items: ChatStep[], abnormal: b
   const durationMs = turn.completedAt
     ? Math.max(0, Date.parse(turn.completedAt) - Date.parse(turn.startedAt))
     : undefined;
-  const parts = [executionStatusLabel(turn.status, t), t("execution.actionCount", { count: items.length })];
+  const parts = [executionStatusLabel(turn.status, t), t("execution.actionCount", { count: items.length })]
+    .filter((part): part is string => Boolean(part));
   if (plan) {
     parts.push(t("execution.plan", { completed: plan.completed, total: plan.total }));
   }
@@ -442,9 +406,9 @@ function executionTimelineSummary(turn: ChatTurn, items: ChatStep[], abnormal: b
   return parts.join(" · ");
 }
 
-function executionStatusLabel(status: ChatTurn["status"], t: TFunction<"chat">): string {
+function executionStatusLabel(status: ChatTurn["status"], t: TFunction<"chat">): string | undefined {
   switch (status) {
-    case "completed": return t("execution.status.completed");
+    case "completed": return undefined;
     case "failed": return t("execution.status.failed");
     case "interrupted": return t("execution.status.interrupted");
     case "awaiting_user": return t("execution.status.awaiting");
@@ -524,13 +488,11 @@ function CanonicalChatStep({
   onOpenArtifact,
   onOpenFileLink,
   onOpenSubagent,
-  onOpenTool,
   step,
 }: {
   onOpenArtifact?: (artifact: ArtifactRef) => void;
   onOpenFileLink?: (link: AssistantFileLink) => void;
   onOpenSubagent?: (delegate: DelegatedAgentState) => void;
-  onOpenTool?: (toolCall: ToolCallSummary) => void;
   step: ChatStep;
 }) {
   const { i18n, t } = useTranslation("chat");
@@ -555,7 +517,6 @@ function CanonicalChatStep({
         <PatchDiffCard
           status={step.status}
           toolCall={step.toolCall}
-          onOpenDetails={onOpenTool ? () => onOpenTool(toolCallSummaryFromStep(step, step.toolCall!, t)) : undefined}
         />
       );
     }
@@ -564,7 +525,6 @@ function CanonicalChatStep({
         fallbackSummary={step.summary}
         status={step.status}
         toolCall={step.toolCall}
-        onOpenDetails={onOpenTool ? () => onOpenTool(toolCallSummaryFromStep(step, step.toolCall!, t)) : undefined}
       />
     );
   }
@@ -675,26 +635,10 @@ function CanonicalChatStep({
   );
 }
 
-function ErrorRecoveryCard({
-  focusOnMount,
-  onOpenDetails,
-  onRecover,
-  recovering,
-  step,
-  turn,
-}: {
-  focusOnMount: boolean;
-  onOpenDetails?: () => void;
-  onRecover?: (action: RecoveryAction) => void;
-  recovering: boolean;
-  step: ChatStep;
-  turn: ChatTurn;
-}) {
+function InlineExecutionError({ focusOnMount, step, turn }: { focusOnMount: boolean; step: ChatStep; turn: ChatTurn }) {
   const { t } = useTranslation("chat");
   const cardRef = useRef<HTMLElement | null>(null);
   const error = canonicalErrorInfo(step, t);
-  const failedStep = failedPlanStep(turn);
-  const completedSteps = completedPlanStepCount(turn);
 
   useEffect(() => {
     if (focusOnMount) {
@@ -706,38 +650,19 @@ function ErrorRecoveryCard({
     <section
       ref={cardRef}
       aria-label={t("recovery.label")}
-      className="react-error-recovery"
+      className="react-execution-error"
       role="alert"
       tabIndex={-1}
     >
-      <div className="react-error-recovery__heading">
-        <AlertTriangle aria-hidden="true" size={18} />
-        <div>
-          <strong>{turn.status === "interrupted" ? t("recovery.cancelled") : t("recovery.interrupted")}</strong>
-          <p>{friendlyErrorMessage(error.code, error.message, t)}</p>
-        </div>
+      <AlertTriangle aria-hidden="true" className="react-execution-error__icon" size={16} />
+      <div className="react-execution-error__message">
+        <strong>{turn.status === "interrupted" ? t("recovery.cancelled") : t("recovery.interrupted")}</strong>
+        <p>{friendlyErrorMessage(error.code, error.message, t)}</p>
       </div>
-      <dl className="react-error-recovery__summary">
-        {failedStep ? <div><dt>{t("recovery.failedAt")}</dt><dd>{failedStep}</dd></div> : null}
-        <div><dt>{t("recovery.progress")}</dt><dd>{t("recovery.completedSteps", { count: completedSteps })}</dd></div>
-      </dl>
-      {completedPlanSteps(turn).length ? (
-        <div className="react-error-recovery__valid-results">
-          <strong>{t("recovery.validResults")}</strong>
-          <ul>{completedPlanSteps(turn).map((item) => <li key={item}>{item}</li>)}</ul>
-        </div>
-      ) : null}
-      <div className="react-error-recovery__actions" aria-label={t("recovery.actions")}>
-        {onRecover ? (
-          <>
-            <button disabled={recovering} type="button" onClick={() => onRecover("continue")}><Play aria-hidden="true" size={15} />{t("recovery.continue")}</button>
-            <button disabled={recovering} type="button" onClick={() => onRecover("retry")}><RotateCcw aria-hidden="true" size={15} />{t("recovery.retry")}</button>
-            <button disabled={recovering} type="button" onClick={() => onRecover("restart")}><RefreshCw aria-hidden="true" size={15} />{t("recovery.restart")}</button>
-          </>
-        ) : null}
-        {onOpenDetails ? <button type="button" onClick={onOpenDetails}>{t("recovery.details")}</button> : null}
-        <button type="button" onClick={() => void writeClipboardText(formatFailureDetails(step, turn, t))}><Copy aria-hidden="true" size={15} />{t("recovery.copyError")}</button>
-      </div>
+      <button className="react-execution-error__copy" type="button" onClick={() => void writeClipboardText(formatFailureDetails(step, turn, t))}>
+        <Copy aria-hidden="true" size={14} />
+        {t("recovery.copyError")}
+      </button>
     </section>
   );
 }
@@ -1324,18 +1249,6 @@ function failedPlanStep(turn: ChatTurn): string {
   return "";
 }
 
-function completedPlanStepCount(turn: ChatTurn): number {
-  return turn.steps.reduce((count, step) => (
-    count + (step.plan?.steps.filter((planStep) => planStep.status === "completed").length ?? 0)
-  ), 0);
-}
-
-function completedPlanSteps(turn: ChatTurn): string[] {
-  return turn.steps.flatMap((step) => (
-    step.plan?.steps.filter((planStep) => planStep.status === "completed").map((planStep) => planStep.step) ?? []
-  ));
-}
-
 function canonicalErrorInfo(step: ChatStep, t: TFunction<"chat">): { code: string; message: string } {
   const error = step.error && typeof step.error === "object" ? step.error as Record<string, unknown> : {};
   return {
@@ -1367,24 +1280,4 @@ function formatFailureDetails(step: ChatStep, turn: ChatTurn, t: TFunction<"chat
     `${t("details.errorMessage")}: ${error.message}`,
     failedPlanStep(turn) ? `${t("details.interruptedAt")}: ${failedPlanStep(turn)}` : "",
   ].filter(Boolean).join("\n");
-}
-
-export function ChatErrorDetails({ step, turn }: { step: ChatStep; turn: ChatTurn }) {
-  const { t } = useTranslation("chat");
-  const error = canonicalErrorInfo(step, t);
-  return (
-    <div className="react-error-detail">
-      <dl>
-        <div><dt>{t("details.turnId")}</dt><dd><code>{turn.id}</code></dd></div>
-        <div><dt>{t("details.status")}</dt><dd>{turn.status}</dd></div>
-        <div><dt>{t("details.stopReason")}</dt><dd><code>{error.code}</code></dd></div>
-        {failedPlanStep(turn) ? <div><dt>{t("details.interruptedAt")}</dt><dd>{failedPlanStep(turn)}</dd></div> : null}
-        <div><dt>{t("details.originalTask")}</dt><dd>{turn.userMessage.text}</dd></div>
-      </dl>
-      <section>
-        <h3>{t("details.originalError")}</h3>
-        <pre>{error.message}</pre>
-      </section>
-    </div>
-  );
 }

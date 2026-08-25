@@ -895,10 +895,9 @@ export const en = {
     },
     runtime: {
       loadingCapabilities: "Loading effective capabilities.", staleCapabilities: "Effective capabilities are stale for the current Agent turn.", cancelUnavailable: "Cancellation is unavailable for this Agent turn.", noSessionSelected: "No session is selected.", commandRejected: "Command rejected",
-      failedTurnRetryUnavailable: "Retry is unavailable for this failed Agent turn.", failedItemUnavailable: "Cannot retry: the failed canonical item is not available.", cancelActiveTurnUnavailable: "Cannot cancel: canonical active turn is not available.",
+      cancelActiveTurnUnavailable: "Cannot cancel: canonical active turn is not available.",
       submitFormTurnUnavailable: "Cannot submit form: canonical active turn is not available.", submitFormStaleTurn: "Cannot submit form: request targets stale turn {{turnId}}.", cancelFormTurnUnavailable: "Cannot cancel form: canonical active turn is not available.", cancelFormStaleTurn: "Cannot cancel form: request targets stale turn {{turnId}}.",
     },
-    continuePrompt: "Continue from where you were interrupted using the existing context and plan. Confirm the current progress first, then finish the remaining work.",
     lifecycle: {
       operation: { cancel: "Cancel", cancellation: "Cancellation", formCancellation: "Form cancellation", formSubmission: "Form submission", retry: "Retry" },
       sending: "Sending {{operation}} command…", waiting: "{{operation}} delivered. Waiting for runtime confirmation…", acknowledged: "{{operation}} acknowledged by canonical item {{itemId}}. Waiting for completion.", completed: "{{operation}} {{status}} at canonical item {{itemId}}.",
@@ -909,7 +908,7 @@ export const en = {
       newSessionIn: "New session in {{name}}", confirmDelete: "Confirm delete {{name}}", delete: "Delete {{name}}", noSessions: "No sessions yet.",
       noSelection: "No conversation selected", conversationMenu: "Open conversation menu", unpin: "Unpin conversation", pin: "Pin conversation",
       rename: "Rename conversation", copyId: "Copy ID", copyMarkdown: "Copy Markdown", archive: "Archive conversation", sideChat: "Open side chat",
-      branch: "Branch", newWindow: "Open in new window", conversation: "Conversation", errorDetails: "Error details", selectSession: "Select or create a conversation.",
+      branch: "Branch", newWindow: "Open in new window", conversation: "Conversation", selectSession: "Select or create a conversation.",
       backToLatest: "Back to latest", compacting: "Compacting context", loadingSessions: "Loading conversations…", createOrSelect: "Create or select a conversation first",
       taskPlaceholder: "Enter a task, or paste/drop files", messagePlaceholder: "Message Tinybot", detailsDrawer: "Details drawer", closeDetails: "Close details drawer",
     },
@@ -965,14 +964,12 @@ export const en = {
     },
     execution: {
       actionCount: "{{count}} actions", plan: "plan {{completed}}/{{total}}", attention: "attention required",
-      status: { completed: "Completed", failed: "Failed", interrupted: "Interrupted", awaiting: "Awaiting input", running: "Running" },
+      status: { failed: "Failed", interrupted: "Interrupted", awaiting: "Awaiting input", running: "Running" },
     },
     form: { submitted: "Submitted", cancelled: "Cancelled", resolved: "Resolved", waiting: "Waiting for input" },
     compaction: { before: "Before: {{value}} tokens", after: "After: {{value}} tokens", dropped: "Dropped items: {{value}}" },
     recovery: {
-      label: "Task execution failed", cancelled: "Task cancelled", interrupted: "Task interrupted", failedAt: "Interrupted at", progress: "Plan progress",
-      completedSteps: "{{count}} steps completed", validResults: "Results that remain valid", actions: "Error recovery actions", continue: "Continue",
-      retry: "Retry current step", restart: "Start over", details: "View details", copyError: "Copy error",
+      label: "Task execution failed", cancelled: "Task cancelled", interrupted: "Task interrupted", copyError: "Copy error",
     },
     plan: {
       label: "Execution plan", completed: "{{completed}} of {{total}} completed", status: { completed: "Completed", inProgress: "In progress", failed: "Failed", cancelled: "Cancelled", pending: "Pending" },
@@ -989,7 +986,7 @@ export const en = {
     context: { attachments: "Attachments", context: "Context" },
     steps: { count: "{{count}} steps", title: "Execution details", label: "Agent steps", openDetails: "Open details for {{name}}", status: { active: "In progress", success: "Completed", waiting: "Waiting for confirmation", cancelled: "Cancelled", error: "Failed", pending: "Pending" } },
     details: {
-      turnId: "Turn ID", status: "Status", stopReason: "Stop reason", interruptedAt: "Interrupted at", originalTask: "Original task", originalError: "Original error",
+      status: "Status", interruptedAt: "Interrupted at",
       unavailable: "Details unavailable.", id: "ID", trace: "Trace", childTurn: "Child turn", loadingTrace: "Loading trace…", finalOutput: "Final output",
       type: "Type", loadingArtifact: "Loading artifact…", noPreview: "No preview content is available.", subagentTrace: "Subagent trace",
       fileOutsideWorkspace: "This file is outside the active workspace.", filePreviewUnavailable: "Workspace file preview is unavailable in this runtime.",
@@ -1005,8 +1002,8 @@ export const en = {
       editedFiles: "Edited {{count}} files", moved: "Moved {{name}}", created: "Created {{name}}", deleted: "Deleted {{name}}", edited: "Edited {{name}}",
     },
     toolActivity: {
-      openDetails: "Open details for {{title}}", viewDetails: "View full tool details", toggleDetails: "Toggle details for {{title}}", truncated: "preview truncated",
-      status: { completed: "Completed", running: "Running", waiting: "Waiting", failed: "Failed", cancelled: "Cancelled", pending: "Pending" },
+      toggleDetails: "Toggle details for {{title}}", truncated: "preview truncated",
+      status: { running: "Running", waiting: "Waiting", failed: "Failed", cancelled: "Cancelled", pending: "Pending" },
       category: { terminal: "Terminal", fileRead: "File read", web: "Web", planning: "Planning", presentation: "Data view", subagent: "Subagent", interaction: "Interaction", tool: "Tool" },
       command: "command", workspaceFile: "workspace file", currentPage: "current page", usedTool: "Used a tool",
       updatedPlan: "Updated execution plan", preparingDataView: "Preparing data view…", publishedDataView: "Published data view", dataViewFailed: "Data view publication failed", dataViewCancelled: "Data view publication cancelled", delegated: "Delegated a task", waitedSubagents: "Waited for subagents", updatedSubagent: "Updated a subagent", requestedInput: "Requested user input",

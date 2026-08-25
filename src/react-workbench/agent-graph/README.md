@@ -1,5 +1,5 @@
 # Agent Graph Workbench
-<!-- tinybot-module-fingerprint: sha256:3011942a085766f991ecde82e922a0925280be99cf01648966659d57bc4223b0 -->
+<!-- tinybot-module-fingerprint: sha256:731da7c61b01357edf598c8c36476f71eb6d11285632ab770afb0a55f6ba323d -->
 
 `agent-graph` owns the standalone Agent Graph route and its React presentation.
 The page creates one honest in-memory starter draft and exposes an unbounded

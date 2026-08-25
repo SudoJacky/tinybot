@@ -21,7 +21,6 @@ describe("ChatTimeline", () => {
         interactiveFormIds={new Set()}
         latestFailedTurnId=""
         optimisticMessages={[optimisticMessage()]}
-        recoveringTurnId=""
         sessionRunning={false}
         turns={[turn]}
       />,
@@ -35,7 +34,12 @@ describe("ChatTimeline", () => {
     expect(actions.onBranch).toHaveBeenCalledWith("assistant-1");
   });
 
-  test("keeps failed-turn recovery and error details behind timeline actions", () => {
+  test("shows failed turns inline with copy as the only error action", () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
     const actions = createActions();
     const turn = failedTurn();
     render(
@@ -45,20 +49,19 @@ describe("ChatTimeline", () => {
         interactiveFormIds={new Set()}
         latestFailedTurnId={turn.id}
         optimisticMessages={[]}
-        recoveringTurnId=""
         sessionRunning={false}
         turns={[turn]}
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /retry/i }));
-    expect(actions.onRecover).toHaveBeenCalledWith(turn, "retry");
-
-    fireEvent.click(screen.getByRole("button", { name: /details/i }));
-    expect(actions.onOpenError).toHaveBeenCalledWith(turn, turn.steps[0]);
+    const error = screen.getByRole("alert", { name: "Task execution failed" });
+    fireEvent.click(screen.getByRole("button", { name: "Copy error" }));
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("Error message: Execution failed"));
+    expect(error.querySelector(".react-execution-error__message")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /retry|continue|details/i })).toBeNull();
   });
 
-  test("omits unavailable actions when embedded as a read-only timeline", () => {
+  test("keeps inline errors available when embedded as a read-only timeline", () => {
     render(
       <ChatTimeline
         actions={{}}
@@ -66,7 +69,6 @@ describe("ChatTimeline", () => {
         interactiveFormIds={new Set()}
         latestFailedTurnId=""
         optimisticMessages={[]}
-        recoveringTurnId=""
         sessionRunning={false}
         turns={[completedTurn(), failedTurn()]}
       />,
@@ -75,6 +77,7 @@ describe("ChatTimeline", () => {
     expect(screen.queryByRole("button", { name: /branch/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /retry/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /^details$/i })).toBeNull();
+    expect(screen.getByRole("button", { name: "Copy error" })).toBeTruthy();
     expect(screen.getByText("Canonical answer")).toBeTruthy();
     expect(screen.getByText("Execution failed")).toBeTruthy();
   });
@@ -105,7 +108,6 @@ describe("ChatTimeline", () => {
         interactiveFormIds={new Set()}
         latestFailedTurnId=""
         optimisticMessages={[]}
-        recoveringTurnId=""
         sessionRunning={false}
         turns={[turn]}
       />,
@@ -124,10 +126,8 @@ function createActions(): ChatTimelineActions {
   return {
     onBranch: vi.fn(),
     onOpenArtifact: vi.fn(),
-    onOpenError: vi.fn(),
     onOpenSubagent: vi.fn(),
     onOpenTool: vi.fn(),
-    onRecover: vi.fn(),
   };
 }
 

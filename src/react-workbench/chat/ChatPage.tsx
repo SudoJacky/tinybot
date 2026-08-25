@@ -75,8 +75,6 @@ import {
 } from "../../app-core/chat/chatProjection";
 import type {
   ArtifactRef,
-  ChatStep,
-  ChatTurn,
   DelegatedAgentState,
   LoadedArtifactDetail,
 } from "../../app-core/chat/chatTurnContracts";
@@ -92,7 +90,6 @@ import {
   createTinyOsAgentCancelCommand,
   createTinyOsFormCancelCommand,
   createTinyOsFormSubmitCommand,
-  createTinyOsOperationRetryCommand,
   isTinyOsCommandInFlight,
   reduceTinyOsCommandLifecycle,
   type TinyOsCommandLifecycle,
@@ -111,11 +108,7 @@ import {
   prepareChatSubmission,
   type QueuedComposerInput,
 } from "./chatSubmission";
-import {
-  ChatErrorDetails,
-  ChatTimeline,
-  type RecoveryAction,
-} from "./ChatTimeline";
+import { ChatTimeline } from "./ChatTimeline";
 import {
   AssistantFileLinkError,
   assistantFileArtifact,
@@ -173,7 +166,6 @@ export type ChatPageProps = {
 type DrawerState =
   | { kind: "tool"; title: string; toolCall: ToolCallSummary }
   | { kind: "subagent"; title: string; delegate: DelegatedAgentState; loading: boolean; error?: string }
-  | { kind: "error"; title: string; step: ChatStep; turn: ChatTurn }
   | null;
 
 type ArtifactSidecarContent = {
@@ -315,7 +307,6 @@ export function ChatPage({
   const [queuedInputsBySession, setQueuedInputsBySession] = useState<Map<string, QueuedComposerInput[]>>(() => new Map());
   const [queueMessage, setQueueMessage] = useState("");
   const [composerSessionMentionIds, setComposerSessionMentionIds] = useState<string[]>([]);
-  const [recoveringTurnId, setRecoveringTurnId] = useState("");
   const [installingMigrationJobId, setInstallingMigrationJobId] = useState("");
   const [migrationInstallError, setMigrationInstallError] = useState("");
   const [showBackToLatest, setShowBackToLatest] = useState(false);
@@ -1249,73 +1240,6 @@ export function ChatPage({
     await handleSessionStoreRefresh(optimisticSession);
   }
 
-  async function handleRecoverTurn(
-    turn: ChatTurn,
-    action: RecoveryAction,
-    retryItemId?: string,
-  ): Promise<void> {
-    if (!activeSession || recoveringTurnId || isTinyOsCommandInFlight(commandLifecycle)) {
-      return;
-    }
-    setRecoveringTurnId(turn.id);
-    try {
-      if (action === "retry") {
-        if (tinyOsCapabilities.threadId !== activeSession.id
-          || tinyOsCapabilities.evaluatedTurnId !== turn.id
-          || !tinyOsCapabilities.capabilities.agent.retry.available) {
-          reportTimelineError(tinyOsCapabilities.capabilities.agent.retry.reason || t("runtime.failedTurnRetryUnavailable"));
-          return;
-        }
-        const failedItem = retryItemId
-          ? (turn.executionItems ?? turn.steps).find((step) => step.id === retryItemId && step.status === "failed")
-          : [...(turn.executionItems ?? turn.steps)].reverse().find((step) => step.status === "failed");
-        if (!failedItem) {
-          reportTimelineError(t("runtime.failedItemUnavailable"));
-          return;
-        }
-        const command = createTinyOsOperationRetryCommand({
-          itemId: failedItem.id,
-          sessionId: activeSession.id,
-          source: { control: "error-recovery", surface: "chat" },
-          threadId: turn.canonicalItems?.find((item) => item.threadId)?.threadId,
-          turnId: turn.id,
-        });
-        clearTimelineError();
-        dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
-        try {
-          await chatStore.dispatch(command);
-        } catch (error) {
-          dispatchCommandLifecycle({
-            commandId: command.commandId,
-            error: error instanceof Error ? error.message : String(error),
-            type: "rejected",
-          });
-        }
-        return;
-      }
-      if (action === "restart") {
-        const created = await sessionStore.create({
-          title: deriveSessionTitle(turn.userMessage.text, t),
-          ...(activeSession.model
-            ? {
-                model: activeSession.model,
-                ...(activeSession.modelProvider ? { modelProvider: activeSession.modelProvider } : {}),
-              }
-            : composerSessionModelInput(composerModels, composerModel)),
-        });
-        activateCreatedSession(created);
-        await dispatchTurn(created.id, { text: turn.userMessage.text }, "recovery-restart");
-        await handleSessionStoreRefresh(created);
-        return;
-      }
-      const text = t("continuePrompt");
-      await dispatchTurn(activeSession.id, { text }, "recovery-continue");
-      await handleSessionStoreRefresh(activeSession);
-    } finally {
-      setRecoveringTurnId("");
-    }
-  }
-
   function handleConversationScroll(): void {
     const element = conversationRef.current;
     if (!element) {
@@ -2168,18 +2092,15 @@ export function ChatPage({
             actions={{
               onBranch: (messageId) => activeSession && void handleBranchFromMessage(activeSession, messageId),
               onOpenArtifact: (artifact) => void handleOpenArtifact(artifact),
-              onOpenError: (turn, step) => setDrawer({ kind: "error", title: t("shell.errorDetails"), step, turn }),
               onOpenFileLink: (link) => void handleOpenAssistantFileLink(link),
               onOpenSubagent: (delegate) => void handleOpenSubagent(delegate),
               onOpenTool: (toolCall) => setDrawer({ kind: "tool", title: toolCall.name, toolCall }),
-              onRecover: (turn, action) => void handleRecoverTurn(turn, action),
             }}
             error={timelineError}
             hookResults={hookResults}
             interactiveFormIds={interactiveFormIds}
             latestFailedTurnId={latestFailedTurnId}
             optimisticMessages={optimisticMessages}
-            recoveringTurnId={recoveringTurnId}
             sessionRunning={sessionRunning}
             turns={activeSession ? timeline?.turns ?? [] : []}
           />
@@ -2360,10 +2281,8 @@ export function ChatPage({
           <div className="react-right-drawer__content">
             {drawer.kind === "tool" ? (
               <ToolCallDetails toolCall={drawer.toolCall} />
-            ) : drawer.kind === "subagent" ? (
-              <SubagentDetails delegate={drawer.delegate} error={drawer.error} loading={drawer.loading} />
             ) : (
-              <ChatErrorDetails step={drawer.step} turn={drawer.turn} />
+              <SubagentDetails delegate={drawer.delegate} error={drawer.error} loading={drawer.loading} />
             )}
           </div>
         </aside>

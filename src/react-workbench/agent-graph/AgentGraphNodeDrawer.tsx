@@ -114,7 +114,6 @@ export function AgentGraphNodeDrawer({
         interactiveFormIds={EMPTY_INTERACTIVE_FORM_IDS}
         latestFailedTurnId=""
         optimisticMessages={[]}
-        recoveringTurnId=""
         sessionRunning={nodeRun?.status === "running"}
         turns={timeline.turns}
       />
