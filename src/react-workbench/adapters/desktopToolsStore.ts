@@ -23,9 +23,13 @@ export function createDesktopToolsStore({
   nativeWebui?: NativeToolsCatalogApi;
 }): ToolsStore {
   return {
-    async loadCatalog() {
+    async loadCatalog(options) {
       await initialize();
-      const payload = await requireNative(nativeWebui, "WebUI").route({ method: "GET", path: "/api/tools" });
+      const workingDirectory = options?.workingDirectory?.trim();
+      const path = workingDirectory
+        ? `/api/tools?workingDirectory=${encodeURIComponent(workingDirectory)}`
+        : "/api/tools";
+      const payload = await requireNative(nativeWebui, "WebUI").route({ method: "GET", path });
       return normalizeToolCatalog(payload);
     },
     async loadSkillDetail(id) {

@@ -1,5 +1,5 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:749f69bb1d8a00500a013305945105aee589722d2e26554c8e0093a8a3c949c1 -->
+<!-- tinybot-module-fingerprint: sha256:1c5c66fc1c462876fad2cb9226e377e5284df02e3240a75edfe9406863d7ea0a -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,
@@ -13,7 +13,9 @@ The Rust-owned `GET /api/tools` route combines the callable tool catalog with
 separate MCP server and Skill summaries. Workspace Skills come from
 `.agents/skills`; full Skill documents remain outside the list response and
 are loaded on demand through `GET /api/tools/skills/{id}` for workspace and
-enabled-plugin entries only.
+enabled-plugin entries only. Both Tools routes accept an optional
+`workingDirectory` query so Chat can catalog the active Thread workspace while
+callers that omit it continue to use the configured backend workspace.
 
 Workspace file queries normally use the configured default workspace. The
 Thread file-preview command is the scoped exception: it accepts a Thread ID,

@@ -26,12 +26,13 @@ import {
   type ComposerFileReference,
   type ComposerSendOptions,
   type ComposerSessionMentionOption,
+  type ComposerSkillOption,
   type ComposerSlashCommand,
   type ModelOption,
   type PastedContent,
 } from "../../components/ui/claude-style-ai-input";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
-import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, ToolsStore, WorkspaceStore } from "../services";
+import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, SkillSummary, ToolsStore, WorkspaceStore } from "../services";
 import { createDesktopCompactCommand, createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import {
   clearDefaultChatModel,
@@ -148,7 +149,7 @@ export type ChatPageProps = {
   sessionStore: SessionStore;
   projectGroupStore?: ProjectGroupStore;
   settingsStore?: SettingsStore;
-  toolsStore?: Pick<ToolsStore, "installPluginMigration">;
+  toolsStore?: Partial<Pick<ToolsStore, "installPluginMigration" | "loadCatalog">>;
   workspaceStore?: Pick<WorkspaceStore, "readThreadFile">;
   createSessionSignal?: number;
   activateSessionRequest?: { sessionId: string; signal: number } | null;
@@ -234,14 +235,31 @@ function composerSessionModelInput(
 }
 
 function composerSlashCommands(t: TFunction<"chat">): readonly ComposerSlashCommand[] {
-  return [
-    { command: "/compact", description: t("commands.compact.description"), label: t("commands.compact.label"), prompt: "/compact", submitOnSelect: true },
-    { command: "/plan", description: t("commands.plan.description"), label: t("commands.plan.label"), prompt: t("commands.plan.prompt") },
-    { command: "/review", description: t("commands.review.description"), label: t("commands.review.label"), prompt: t("commands.review.prompt") },
-    { command: "/fix", description: t("commands.fix.description"), label: t("commands.fix.label"), prompt: t("commands.fix.prompt") },
-    { command: "/test", description: t("commands.test.description"), label: t("commands.test.label"), prompt: t("commands.test.prompt") },
-    { command: "/explain", description: t("commands.explain.description"), label: t("commands.explain.label"), prompt: t("commands.explain.prompt") },
-  ];
+  return [{
+    command: "/compact",
+    description: t("commands.compact.description"),
+    label: t("commands.compact.label"),
+    prompt: "/compact",
+    submitOnSelect: true,
+  }];
+}
+
+function buildComposerSkillOptions(
+  skills: readonly SkillSummary[],
+  t: TFunction<"chat">,
+): readonly ComposerSkillOption[] {
+  return skills.map((skill) => ({
+    description: skill.description,
+    id: skill.source === "workspace" ? skill.name : skill.id,
+    label: skill.name
+      .split(/[-_.]+/u)
+      .filter(Boolean)
+      .map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`)
+      .join(" "),
+    sourceLabel: skill.source === "workspace"
+      ? t("composer.skill.workspace")
+      : skill.source.replace(/^plugin:/u, ""),
+  }));
 }
 
 const SESSION_DELETE_DISSOLVE_MS = 180;
@@ -284,6 +302,7 @@ export function ChatPage({
   const [composerModels, setComposerModels] = useState<ModelOption[]>([]);
   const [composerModel, setComposerModel] = useState("");
   const [composerReasoningEffort, setComposerReasoningEffort] = useState(readCurrentChatReasoningEffort);
+  const [composerSkills, setComposerSkills] = useState<SkillSummary[]>([]);
   const [contextUsageDefaults, setContextUsageDefaults] = useState<ContextUsageDefaults>({});
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [sessionWorkspaceError, setSessionWorkspaceError] = useState("");
@@ -307,6 +326,7 @@ export function ChatPage({
   const [queuedInputsBySession, setQueuedInputsBySession] = useState<Map<string, QueuedComposerInput[]>>(() => new Map());
   const [queueMessage, setQueueMessage] = useState("");
   const [composerSessionMentionIds, setComposerSessionMentionIds] = useState<string[]>([]);
+  const [composerSelectedSkillIds, setComposerSelectedSkillIds] = useState<string[]>([]);
   const [installingMigrationJobId, setInstallingMigrationJobId] = useState("");
   const [migrationInstallError, setMigrationInstallError] = useState("");
   const [showBackToLatest, setShowBackToLatest] = useState(false);
@@ -363,6 +383,10 @@ export function ChatPage({
     () => sessions.find((session) => session.id === activeSessionId),
     [activeSessionId, sessions],
   );
+  const composerSkillOptions = useMemo(
+    () => buildComposerSkillOptions(composerSkills, t),
+    [composerSkills, t],
+  );
   const sidecarTabs = useMemo(() => visibleSidecarTabs(sidecar), [sidecar]);
   const sidecarActiveTab = useMemo(() => activeSidecarTab(sidecar), [sidecar]);
   const explicitWorkspaceId = activeSession?.workingDirectory?.trim() ?? "";
@@ -372,6 +396,30 @@ export function ChatPage({
   const activeWorkspaceLabel = explicitWorkspaceId
     ? sessionWorkspaceName(explicitWorkspaceId)
     : activeSession ? t("shell.generalSessions") : "";
+
+  useEffect(() => {
+    if (!toolsStore?.loadCatalog) {
+      setComposerSkills([]);
+      return;
+    }
+    let cancelled = false;
+    const workingDirectory = activeSession?.pluginMigration
+      ? undefined
+      : activeSession?.workingDirectory?.trim() || undefined;
+    setComposerSkills([]);
+    void toolsStore.loadCatalog({ workingDirectory }).then((catalog) => {
+      if (!cancelled) setComposerSkills(catalog.skills);
+    }).catch((error) => {
+      if (cancelled) return;
+      console.error("[chat] composer.skills.load.failed", {
+        error: error instanceof Error ? error.message : String(error),
+        workingDirectory,
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSession?.pluginMigration, activeSession?.workingDirectory, toolsStore]);
   const unboundBrowserResource = useMemo(() => sidecar.tabs.find((tab): tab is SidecarBrowserTab => (
     tab.kind === "browser"
       && tab.threadId === activeSession?.id
@@ -657,6 +705,7 @@ export function ChatPage({
 
   useEffect(() => {
     setComposerSessionMentionIds([]);
+    setComposerSelectedSkillIds([]);
     dispatchCommandLifecycle({ type: "reset" });
   }, [activeSession?.id]);
 
@@ -968,7 +1017,7 @@ export function ChatPage({
 
   async function handleInstallPluginMigration(session: SessionSummary): Promise<void> {
     const migration = session.pluginMigration;
-    if (!migration || !toolsStore) return;
+    if (!migration || !toolsStore?.installPluginMigration) return;
     setInstallingMigrationJobId(migration.jobId);
     setMigrationInstallError("");
     try {
@@ -1179,6 +1228,7 @@ export function ChatPage({
       options,
       pastedContent,
       queuedInputs: activeQueuedInputs,
+      selectedSkillIds: composerSelectedSkillIds,
       selectedSessionIds: composerSessionMentionIds,
       sessions: sessionsRef.current.map((session) => ({
         id: session.id,
@@ -2132,7 +2182,7 @@ export function ChatPage({
               </span>
               {activeSession.pluginMigration.status === "pending" ? (
                 <button
-                  disabled={Boolean(installingMigrationJobId) || !toolsStore}
+                  disabled={Boolean(installingMigrationJobId) || !toolsStore?.installPluginMigration}
                   type="button"
                   onClick={() => void handleInstallPluginMigration(activeSession)}
                 >
@@ -2231,11 +2281,18 @@ export function ChatPage({
           onAddSessionMention={(id) => setComposerSessionMentionIds((current) => (
             current.includes(id) || current.length >= MAX_COMPOSER_SESSION_REFERENCES ? current : [...current, id]
           ))}
+          onAddSkill={(id) => setComposerSelectedSkillIds((current) => (
+            current.includes(id) ? current : [...current, id]
+          ))}
           onClearSessionMentions={() => setComposerSessionMentionIds([])}
+          onClearSkills={() => setComposerSelectedSkillIds([])}
           onRemoveSessionMention={(id) => setComposerSessionMentionIds((current) => current.filter((sessionId) => sessionId !== id))}
+          onRemoveSkill={(id) => setComposerSelectedSkillIds((current) => current.filter((skillId) => skillId !== id))}
           responding={sessionResponding}
           selectedSessionMentionIds={composerSessionMentionIds}
+          selectedSkillIds={composerSelectedSkillIds}
           sessionMentionOptions={composerSessionMentionOptions}
+          skillOptions={composerSkillOptions}
           slashCommands={slashCommands}
           canStopResponding={canCancelTurn}
           stopUnavailableReason={cancelUnavailableReason}

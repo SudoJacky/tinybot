@@ -382,11 +382,6 @@ export const zh = {
     prompts: ["规划一个任务并列出执行步骤", "分析当前项目并提出改进建议", "整理资料并形成一份简短摘要", "检查方案中可能遗漏的问题"],
     commands: {
       compact: { label: "压缩上下文", description: "立即总结较早上下文并释放窗口空间" },
-      plan: { label: "规划任务", description: "先分析目标、风险和验证方式", prompt: "请先分析这个任务，列出实施步骤、风险和验证方式，暂时不要修改代码。" },
-      review: { label: "审查改动", description: "检查缺陷、回归风险和缺失测试", prompt: "请审查当前工作区的代码改动，优先报告明确的缺陷、回归风险和缺失测试。" },
-      fix: { label: "修复问题", description: "定位根因并用回归测试验证修复", prompt: "请定位当前问题的根因，补充可复现的回归测试并完成修复。" },
-      test: { label: "运行测试", description: "运行相关测试并处理失败项", prompt: "请运行与当前改动相关的测试，定位并修复失败项。" },
-      explain: { label: "解释代码", description: "梳理代码的数据流和关键风险", prompt: "请解释当前代码的工作方式、关键数据流和主要风险。" },
     },
     errors: {
       compactWithAttachments: "/compact 不能与附件或上下文引用一起使用。", compactNeedsSession: "请先打开一个已有会话，再使用 /compact。",
@@ -520,6 +515,11 @@ export const zh = {
         emptyTranscript: "此会话没有已持久化的消息。",
         referenceDetail: "会话快照",
         unavailable: "引用的会话已不在当前工作区中。",
+      },
+      skill: {
+        attachedPrompt: "请使用所选 Skills。",
+        heading: "Skills",
+        workspace: "工作区",
       },
       placeholder: "输入消息给 Tinybot", sendFailed: "消息发送失败。", stopFailed: "无法停止生成。", fileLimit: "最多只能附加 {{count}} 个文件。", filesFailed: "无法选择文件。",
       label: "消息输入框", attachments: "输入附件", remove: "移除 {{name}}", words: "{{count}} 个词", pastedText: "粘贴文本", removePasted: "移除粘贴内容", pastedContentLabel: "粘贴内容", attachedFilesPrompt: "请查看附加的文件。", configuredModel: "已配置模型",

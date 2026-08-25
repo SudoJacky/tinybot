@@ -124,10 +124,18 @@ async fn worker_webui_rust_route_with_options(
         }
     }
 
+    let tools_workspace_root = query
+        .get("workingDirectory")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| workspace_root.clone());
+
     if method == "GET" {
         if let Some(skill_id) = webui_tool_skill_detail_id(&path) {
             let detail =
-                worker_webui_tool_skill_detail_body(skill_id, workspace_root.clone()).await?;
+                worker_webui_tool_skill_detail_body(skill_id, tools_workspace_root.clone()).await?;
             let (status, body) = match detail {
                 Some(detail) => (200, detail),
                 None => (
@@ -146,7 +154,7 @@ async fn worker_webui_rust_route_with_options(
 
     let result = match (method.as_str(), path.as_str()) {
         ("GET", "/api/tools") => Some(
-            worker_webui_tools_body(shared, workspace_root.clone(), config_snapshot.clone()).await,
+            worker_webui_tools_body(shared, tools_workspace_root, config_snapshot.clone()).await,
         ),
         ("GET", "/api/providers") => Some(Ok(crate::agent::provider::provider_catalog_body(
             &config_snapshot,

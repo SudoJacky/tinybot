@@ -118,24 +118,64 @@ describe("ChatPage", () => {
     });
   });
 
-  it("expands a filtered slash command without sending it immediately", async () => {
+  it("lists workspace Skills beside the real compact command and submits the selected Skill", async () => {
     const user = userEvent.setup();
-    const stores = createStores();
-    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+    const workingDirectory = "D:\\Code\\tinybot";
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Planning notes",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "idle",
+        workingDirectory,
+      }],
+    });
+    const loadCatalog = vi.fn(async () => ({
+      mcpServers: [],
+      skills: [{
+        description: "Apple-style interface design and fluid physical motion.",
+        id: "workspace:apple-design",
+        name: "apple-design",
+        path: `${workingDirectory}\\.agents\\skills\\apple-design\\SKILL.md`,
+        source: "workspace",
+      }],
+      tools: [],
+    }));
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
+        sessionStore={stores.sessionStore}
+        toolsStore={{ loadCatalog }}
+      />,
+    );
 
-    const input = await screen.findByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
-    await user.clear(input);
-    await user.type(input, "/rev");
+    await screen.findByRole("textbox", { name: /message/i });
+    await waitFor(() => expect(loadCatalog).toHaveBeenCalledWith({ workingDirectory }));
+    const input = screen.getByRole("textbox", { name: /message/i });
+    await user.type(input, "/");
 
     const commands = screen.getByRole("listbox", { name: "Slash commands" });
-    expect(within(commands).getByRole("option", { name: /\/review Review changes/ })).toBeTruthy();
-    expect(within(commands).queryByRole("option", { name: /\/plan/ })).toBeNull();
+    expect(within(commands).getByRole("option", { name: /\/compact Compact context/ })).toBeTruthy();
+    expect(within(commands).getByRole("option", { name: /Apple Design.*Workspace/ })).toBeTruthy();
+    expect(within(commands).queryByRole("option", { name: /\/plan|\/review|\/fix|\/test|\/explain/ })).toBeNull();
 
-    await user.keyboard("{Enter}");
+    await user.click(within(commands).getByRole("option", { name: /Apple Design.*Workspace/ }));
 
-    expect(input.value).toBe("Review the current workspace changes. Prioritize concrete defects, regression risks, and missing tests.");
     expect(screen.queryByRole("listbox", { name: "Slash commands" })).toBeNull();
-    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
+    expect(within(input).getByText("Apple Design")).toBeTruthy();
+    expect(screen.queryByLabelText("Composer attachments")).toBeNull();
+
+    await user.keyboard("Polish this interaction");
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+
+    expectTurnSubmit(stores.chatStore, "s1", {
+      reasoningEffort: "medium",
+      selectedSkills: ["apple-design"],
+      text: "Polish this interaction",
+    });
+    expect(screen.queryByText("Apple Design")).toBeNull();
   });
 
   it("runs /compact as a control command without creating a user message", async () => {

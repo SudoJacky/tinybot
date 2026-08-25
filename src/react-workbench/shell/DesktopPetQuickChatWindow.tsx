@@ -252,6 +252,7 @@ export function DesktopPetQuickChatWindow({
       options,
       pastedContent,
       queuedInputs: [],
+      selectedSkillIds: [],
       selectedSessionIds: [],
       sessions: [],
       t: tChat,

@@ -2,7 +2,7 @@
 
 import type { ClipboardEvent, FormEvent, KeyboardEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import type { TFunction } from "i18next";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DEFAULT_REASONING_EFFORT, type ReasoningEffort } from "../../app-core/chat/reasoningEffort";
 import type { TokenUsage } from "../../app-core/chat/chatTurnContracts";
@@ -11,6 +11,7 @@ import {
   AlertCircle,
   Archive,
   ArrowUp,
+  Box,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -72,6 +73,13 @@ export interface ComposerSlashCommand {
   submitOnSelect?: boolean;
 }
 
+export interface ComposerSkillOption {
+  description: string;
+  id: string;
+  label: string;
+  sourceLabel: string;
+}
+
 export interface ComposerSendOptions {
   model?: string;
   provider?: string;
@@ -117,11 +125,16 @@ export interface ClaudeStyleAiInputProps {
   onClearContextReferences?: () => void;
   onRemoveContextReference?: (id: string) => void;
   onAddSessionMention?: (id: string) => void;
+  onAddSkill?: (id: string) => void;
   onClearSessionMentions?: () => void;
+  onClearSkills?: () => void;
   onRemoveSessionMention?: (id: string) => void;
+  onRemoveSkill?: (id: string) => void;
   contextUsage?: TokenUsage;
   selectedSessionMentionIds?: readonly string[];
+  selectedSkillIds?: readonly string[];
   sessionMentionOptions?: readonly ComposerSessionMentionOption[];
+  skillOptions?: readonly ComposerSkillOption[];
   tools?: ComposerToolOption[];
   responding?: boolean;
   canStopResponding?: boolean;
@@ -137,7 +150,9 @@ const PASTE_THRESHOLD = 200;
 const EMPTY_MODELS: ModelOption[] = [];
 const EMPTY_TOOLS: ComposerToolOption[] = [];
 const EMPTY_SLASH_COMMANDS: readonly ComposerSlashCommand[] = [];
+const EMPTY_SKILLS: readonly ComposerSkillOption[] = [];
 const EMPTY_SESSION_MENTIONS: readonly ComposerSessionMentionOption[] = [];
+const EMPTY_SELECTED_IDS: readonly string[] = [];
 const MAX_SESSION_MENTIONS = 4;
 type ReasoningEffortOption = {
   description: string;
@@ -146,6 +161,20 @@ type ReasoningEffortOption = {
 };
 
 type ModelMenuView = "advanced" | "effort" | "models";
+
+type ComposerSlashMenuOption =
+  | { command: ComposerSlashCommand; kind: "command" }
+  | { kind: "skill"; skill: ComposerSkillOption };
+
+interface InlineComposerCaret {
+  offset: number;
+  skillsBefore: number;
+}
+
+interface InlineSkillPlacement {
+  id: string;
+  offset: number;
+}
 
 let generatedId = 0;
 
@@ -169,11 +198,14 @@ export function ClaudeStyleAiInput({
   onModelChange,
   onReasoningEffortChange,
   onAddSessionMention,
+  onAddSkill,
   onClearContextReferences,
   onClearSessionMentions,
+  onClearSkills,
   onFilesChange,
   onRemoveContextReference,
   onRemoveSessionMention,
+  onRemoveSkill,
   onSelectFiles,
   onSendMessage,
   onStopResponding,
@@ -182,8 +214,10 @@ export function ClaudeStyleAiInput({
   responding = false,
   sendDisabled = false,
   sendDisabledReason,
-  selectedSessionMentionIds = [],
+  selectedSessionMentionIds = EMPTY_SELECTED_IDS,
+  selectedSkillIds = EMPTY_SELECTED_IDS,
   sessionMentionOptions = EMPTY_SESSION_MENTIONS,
+  skillOptions = EMPTY_SKILLS,
   slashCommands = EMPTY_SLASH_COMMANDS,
   stopUnavailableReason,
   tools = EMPTY_TOOLS,
@@ -192,6 +226,9 @@ export function ClaudeStyleAiInput({
   const { t } = useTranslation("chat");
   const panelRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const inlineEditorRef = useRef<HTMLDivElement | null>(null);
+  const inlineEditorComposingRef = useRef(false);
+  const pendingInlineCaretRef = useRef<InlineComposerCaret | null>(null);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const modelTriggerRef = useRef<HTMLButtonElement | null>(null);
   const toolMenuRef = useRef<HTMLDivElement | null>(null);
@@ -213,6 +250,8 @@ export function ClaudeStyleAiInput({
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
   const [activeSessionMentionIndex, setActiveSessionMentionIndex] = useState(0);
   const [sessionMentionMenuDismissed, setSessionMentionMenuDismissed] = useState(false);
+  const [inlineCaret, setInlineCaret] = useState<InlineComposerCaret>({ offset: 0, skillsBefore: 0 });
+  const [inlineSkillPlacements, setInlineSkillPlacements] = useState<InlineSkillPlacement[]>([]);
   const slashListboxId = useId();
   const sessionMentionListboxId = useId();
   const currentMessage = value ?? message;
@@ -237,32 +276,67 @@ export function ClaudeStyleAiInput({
     () => sessionMentionOptions.filter((option) => selectedSessionMentionIdSet.has(option.id)),
     [selectedSessionMentionIdSet, sessionMentionOptions],
   );
+  const selectedSkillIdSet = useMemo(() => new Set(selectedSkillIds), [selectedSkillIds]);
+  const selectedSkills = useMemo(
+    () => skillOptions.filter((option) => selectedSkillIdSet.has(option.id)),
+    [selectedSkillIdSet, skillOptions],
+  );
+  const inlineEditorEnabled = skillOptions.length > 0 || selectedSkills.length > 0;
+  const visibleInlineSkillPlacements = useMemo(() => {
+    const placements = inlineSkillPlacements
+      .filter((placement) => selectedSkillIdSet.has(placement.id))
+      .map((placement) => ({
+        ...placement,
+        offset: clampOffset(placement.offset, currentMessage),
+      }));
+    for (const id of selectedSkillIds) {
+      if (!placements.some((placement) => placement.id === id)) {
+        placements.push({ id, offset: currentMessage.length });
+      }
+    }
+    return placements;
+  }, [currentMessage, inlineSkillPlacements, selectedSkillIdSet, selectedSkillIds]);
   const canSend = !disabled && !sendDisabled && !sending && Boolean(
     currentMessage.trim()
       || files.length
       || pastedContent.length
       || contextReferences.length
-      || selectedSessionMentions.length,
+      || selectedSessionMentions.length
+      || selectedSkills.length,
   );
-  const slashQuery = useMemo(() => {
-    const match = /^\/([^\s]*)$/.exec(currentMessage);
-    return match?.[1].toLocaleLowerCase();
-  }, [currentMessage]);
-  const filteredSlashCommands = useMemo(() => {
+  const composerCaretOffset = inlineEditorEnabled ? inlineCaret.offset : currentMessage.length;
+  const slashMatch = useMemo(
+    () => slashTriggerMatch(currentMessage, composerCaretOffset),
+    [composerCaretOffset, currentMessage],
+  );
+  const slashQuery = slashMatch?.query.toLocaleLowerCase();
+  const filteredSlashOptions = useMemo<ComposerSlashMenuOption[]>(() => {
     if (slashQuery === undefined) return [];
-    return slashCommands.filter((command) => {
+    const commands = slashMatch?.start === 0 && slashMatch.end === currentMessage.length
+      ? slashCommands.filter((command) => {
       const name = command.command.slice(1).toLocaleLowerCase();
       const searchText = `${name} ${command.label} ${command.description}`.toLocaleLowerCase();
       return name.startsWith(slashQuery) || searchText.includes(slashQuery);
-    });
-  }, [slashCommands, slashQuery]);
+      }).map((command) => ({ command, kind: "command" as const }))
+      : [];
+    const skills = skillOptions
+      .filter((skill) => !selectedSkillIdSet.has(skill.id))
+      .filter((skill) => `${skill.label} ${skill.description} ${skill.sourceLabel}`
+        .toLocaleLowerCase()
+        .includes(slashQuery))
+      .map((skill) => ({ kind: "skill" as const, skill }));
+    return [...commands, ...skills];
+  }, [currentMessage.length, selectedSkillIdSet, skillOptions, slashCommands, slashMatch, slashQuery]);
   const slashMenuOpen = !disabled
     && !sending
     && !slashMenuDismissed
     && slashQuery !== undefined
-    && filteredSlashCommands.length > 0;
-  const activeSlashOptionIndex = Math.min(activeSlashCommandIndex, Math.max(0, filteredSlashCommands.length - 1));
-  const mentionMatch = useMemo(() => sessionMentionMatch(currentMessage), [currentMessage]);
+    && filteredSlashOptions.length > 0;
+  const activeSlashOptionIndex = Math.min(activeSlashCommandIndex, Math.max(0, filteredSlashOptions.length - 1));
+  const mentionMatch = useMemo(
+    () => sessionMentionMatch(currentMessage, composerCaretOffset),
+    [composerCaretOffset, currentMessage],
+  );
   const filteredSessionMentions = useMemo(() => {
     if (!mentionMatch || selectedSessionMentions.length >= MAX_SESSION_MENTIONS) return [];
     const query = mentionMatch.query.toLocaleLowerCase();
@@ -309,6 +383,30 @@ export function ClaudeStyleAiInput({
   useEffect(() => {
     setEnabledToolIds(tools.filter((tool) => tool.enabled).map((tool) => tool.id));
   }, [tools]);
+
+  useEffect(() => {
+    setInlineSkillPlacements((current) => {
+      const next = current.filter((placement) => selectedSkillIdSet.has(placement.id));
+      return next.length === current.length ? current : next;
+    });
+  }, [selectedSkillIdSet]);
+
+  useLayoutEffect(() => {
+    const editor = inlineEditorRef.current;
+    if (!editor) return;
+    renderInlineComposerDom(
+      editor,
+      currentMessage,
+      visibleInlineSkillPlacements,
+      selectedSkills,
+      (skill) => t("composer.remove", { name: skill.label }),
+    );
+    const pendingCaret = pendingInlineCaretRef.current;
+    if (!pendingCaret) return;
+    pendingInlineCaretRef.current = null;
+    editor.focus();
+    restoreInlineComposerCaret(editor, pendingCaret);
+  }, [currentMessage, selectedSkills, t, visibleInlineSkillPlacements]);
 
   useEffect(() => {
     setActiveSlashCommandIndex(0);
@@ -378,6 +476,7 @@ export function ClaudeStyleAiInput({
       setPastedContent([]);
       onClearContextReferences?.();
       onClearSessionMentions?.();
+      onClearSkills?.();
     } catch (error) {
       setError(error instanceof Error ? error.message : t("composer.sendFailed"));
     } finally {
@@ -399,7 +498,68 @@ export function ClaudeStyleAiInput({
     }
   }
 
-  function handleTextareaKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+  function updateInlineEditorSelection(): InlineComposerCaret | undefined {
+    const editor = inlineEditorRef.current;
+    if (!editor) return undefined;
+    const caret = readInlineComposerCaret(editor);
+    if (!caret) return undefined;
+    setInlineCaret((current) => (
+      current.offset === caret.offset && current.skillsBefore === caret.skillsBefore ? current : caret
+    ));
+    return caret;
+  }
+
+  function syncInlineEditorInput(): void {
+    const editor = inlineEditorRef.current;
+    if (!editor) return;
+    const content = readInlineComposerContent(editor);
+    const caret = readInlineComposerCaret(editor) ?? {
+      offset: content.message.length,
+      skillsBefore: content.placements.filter((placement) => placement.offset === content.message.length).length,
+    };
+    const renderedSkillIds = new Set(content.placements.map((placement) => placement.id));
+    for (const skill of selectedSkills) {
+      if (!renderedSkillIds.has(skill.id)) onRemoveSkill?.(skill.id);
+    }
+    pendingInlineCaretRef.current = caret;
+    setInlineCaret(caret);
+    setInlineSkillPlacements(content.placements);
+    updateMessage(content.message);
+  }
+
+  function removeInlineSkill(skillId: string): void {
+    const placementIndex = visibleInlineSkillPlacements.findIndex((placement) => placement.id === skillId);
+    const placement = visibleInlineSkillPlacements[placementIndex];
+    if (!placement) return;
+    const skillsBefore = visibleInlineSkillPlacements
+      .slice(0, placementIndex)
+      .filter((candidate) => candidate.offset === placement.offset)
+      .length;
+    const caret = { offset: placement.offset, skillsBefore };
+    pendingInlineCaretRef.current = caret;
+    setInlineCaret(caret);
+    setInlineSkillPlacements((current) => current.filter((candidate) => candidate.id !== skillId));
+    onRemoveSkill?.(skillId);
+  }
+
+  function removeAdjacentInlineSkill(event: KeyboardEvent<HTMLDivElement>): boolean {
+    if (event.key !== "Backspace" && event.key !== "Delete") return false;
+    const caret = readInlineComposerCaret(event.currentTarget);
+    if (!caret) return false;
+    const skillsAtCaret = visibleInlineSkillPlacements.filter((placement) => placement.offset === caret.offset);
+    const skill = event.key === "Backspace"
+      ? skillsAtCaret[caret.skillsBefore - 1]
+      : skillsAtCaret[caret.skillsBefore];
+    if (!skill) return false;
+    event.preventDefault();
+    removeInlineSkill(skill.id);
+    return true;
+  }
+
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement | HTMLDivElement>) {
+    if (event.currentTarget instanceof HTMLDivElement && removeAdjacentInlineSkill(event as KeyboardEvent<HTMLDivElement>)) {
+      return;
+    }
     if (sessionMentionMenuOpen) {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         event.preventDefault();
@@ -425,13 +585,13 @@ export function ClaudeStyleAiInput({
         event.preventDefault();
         const direction = event.key === "ArrowDown" ? 1 : -1;
         setActiveSlashCommandIndex((current) => (
-          (current + direction + filteredSlashCommands.length) % filteredSlashCommands.length
+          (current + direction + filteredSlashOptions.length) % filteredSlashOptions.length
         ));
         return;
       }
       if (event.key === "Enter" || event.key === "Tab") {
         event.preventDefault();
-        selectSlashCommand(filteredSlashCommands[activeSlashOptionIndex] ?? filteredSlashCommands[0]);
+        selectSlashOption(filteredSlashOptions[activeSlashOptionIndex] ?? filteredSlashOptions[0]);
         return;
       }
       if (event.key === "Escape") {
@@ -440,35 +600,87 @@ export function ClaudeStyleAiInput({
         return;
       }
     }
+    if (event.key === "Enter" && event.shiftKey && event.currentTarget instanceof HTMLDivElement) {
+      event.preventDefault();
+      insertPlainTextAtSelection(event.currentTarget, "\n");
+      syncInlineEditorInput();
+      return;
+    }
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      event.currentTarget.form?.requestSubmit();
+      event.currentTarget.closest("form")?.requestSubmit();
     }
   }
 
-  function selectSlashCommand(command: ComposerSlashCommand | undefined) {
-    if (!command) return;
+  function selectSlashOption(option: ComposerSlashMenuOption | undefined) {
+    if (!option) return;
     setSlashMenuDismissed(true);
-    updateMessage(command.prompt);
-    if (command.submitOnSelect) {
-      window.requestAnimationFrame(() => textareaRef.current?.form?.requestSubmit());
+    if (option.kind === "skill") {
+      if (!slashMatch) return;
+      const nextMessage = `${currentMessage.slice(0, slashMatch.start)}${currentMessage.slice(slashMatch.end)}`;
+      const nextPlacements = rebaseInlineSkillPlacements(
+        visibleInlineSkillPlacements.filter((placement) => placement.id !== option.skill.id),
+        slashMatch.start,
+        slashMatch.end,
+      );
+      nextPlacements.push({ id: option.skill.id, offset: slashMatch.start });
+      const caret = {
+        offset: slashMatch.start,
+        skillsBefore: nextPlacements.filter((placement) => placement.offset === slashMatch.start).length,
+      };
+      pendingInlineCaretRef.current = caret;
+      setInlineCaret(caret);
+      setInlineSkillPlacements(nextPlacements);
+      updateMessage(nextMessage);
+      onAddSkill?.(option.skill.id);
       return;
     }
-    textareaRef.current?.focus();
+    updateMessage(option.command.prompt);
+    if (option.command.submitOnSelect) {
+      window.requestAnimationFrame(() => panelRef.current?.closest("form")?.requestSubmit());
+      return;
+    }
+    if (inlineEditorEnabled) {
+      const caret = { offset: option.command.prompt.length, skillsBefore: 0 };
+      pendingInlineCaretRef.current = caret;
+      setInlineCaret(caret);
+    } else {
+      textareaRef.current?.focus();
+    }
   }
 
   function selectSessionMention(option: ComposerSessionMentionOption | undefined) {
-    const match = sessionMentionMatch(currentMessage);
+    const match = sessionMentionMatch(currentMessage, composerCaretOffset);
     if (!option || !match) return;
     setSessionMentionMenuDismissed(true);
-    updateMessage(currentMessage.slice(0, match.start));
+    const nextMessage = `${currentMessage.slice(0, match.start)}${currentMessage.slice(match.end)}`;
+    if (inlineEditorEnabled) {
+      const nextPlacements = rebaseInlineSkillPlacements(
+        visibleInlineSkillPlacements,
+        match.start,
+        match.end,
+      );
+      const caret = {
+        offset: match.start,
+        skillsBefore: nextPlacements.filter((placement) => placement.offset === match.start).length,
+      };
+      pendingInlineCaretRef.current = caret;
+      setInlineCaret(caret);
+      setInlineSkillPlacements(nextPlacements);
+    }
+    updateMessage(nextMessage);
     onAddSessionMention?.(option.id);
-    window.requestAnimationFrame(() => textareaRef.current?.focus());
+    if (!inlineEditorEnabled) window.requestAnimationFrame(() => textareaRef.current?.focus());
   }
 
-  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement | HTMLDivElement>) {
     const text = event.clipboardData.getData("text");
     if (text.length < PASTE_THRESHOLD) {
+      if (event.currentTarget instanceof HTMLDivElement) {
+        event.preventDefault();
+        insertPlainTextAtSelection(event.currentTarget, text);
+        syncInlineEditorInput();
+      }
       return;
     }
     event.preventDefault();
@@ -679,7 +891,9 @@ export function ClaudeStyleAiInput({
             id={slashListboxId}
             role="listbox"
           >
-            {filteredSlashCommands.map((command, index) => {
+            {filteredSlashOptions.map((option, index) => {
+              if (option.kind !== "command") return null;
+              const { command } = option;
               const selected = index === activeSlashOptionIndex;
               const optionId = `${slashListboxId}-option-${index}`;
               return (
@@ -691,7 +905,7 @@ export function ClaudeStyleAiInput({
                   key={command.command}
                   role="option"
                   type="button"
-                  onClick={() => selectSlashCommand(command)}
+                  onClick={() => selectSlashOption(option)}
                   onMouseDown={(event) => event.preventDefault()}
                 >
                   <Command aria-hidden="true" size={16} />
@@ -703,27 +917,107 @@ export function ClaudeStyleAiInput({
                 </button>
               );
             })}
+            {filteredSlashOptions.some((option) => option.kind === "skill") ? (
+              <div
+                aria-label={t("composer.skill.heading")}
+                className="claude-ai-input__slash-group"
+                role="group"
+              >
+                <div aria-hidden="true" className="claude-ai-input__slash-heading">{t("composer.skill.heading")}</div>
+                {filteredSlashOptions.map((option, index) => {
+                  if (option.kind !== "skill") return null;
+                  const { skill } = option;
+                  const selected = index === activeSlashOptionIndex;
+                  const optionId = `${slashListboxId}-option-${index}`;
+                  return (
+                    <button
+                      aria-label={`${skill.label}: ${skill.description}. ${skill.sourceLabel}`}
+                      aria-selected={selected}
+                      className="claude-ai-input__slash-option claude-ai-input__slash-option--skill"
+                      id={optionId}
+                      key={`skill:${skill.id}`}
+                      role="option"
+                      type="button"
+                      onClick={() => selectSlashOption(option)}
+                      onMouseDown={(event) => event.preventDefault()}
+                    >
+                      <Box aria-hidden="true" size={16} />
+                      <span>
+                        <strong>{skill.label}</strong>
+                        <small>{skill.description}</small>
+                      </span>
+                      <span className="claude-ai-input__slash-option-meta">
+                        <em>{skill.sourceLabel}</em>
+                        {selected ? <kbd>Enter</kbd> : null}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
         ) : null}
-        <textarea
-          aria-label={t("composer.message")}
-          aria-activedescendant={sessionMentionMenuOpen
-            ? `${sessionMentionListboxId}-option-${activeSessionMentionOptionIndex}`
-            : slashMenuOpen ? `${slashListboxId}-option-${activeSlashOptionIndex}` : undefined}
-          aria-autocomplete="list"
-          aria-controls={sessionMentionMenuOpen ? sessionMentionListboxId : slashMenuOpen ? slashListboxId : undefined}
-          aria-expanded={sessionMentionMenuOpen || slashMenuOpen}
-          aria-haspopup="listbox"
-          className="claude-ai-input__textarea"
-          disabled={disabled || sending}
-          placeholder={resolvedPlaceholder}
-          rows={2}
-          value={currentMessage}
-          onChange={(event) => updateMessage(event.currentTarget.value)}
-          onKeyDown={handleTextareaKeyDown}
-          onPaste={handlePaste}
-          ref={textareaRef}
-        />
+        {inlineEditorEnabled ? (
+          <div
+            aria-activedescendant={sessionMentionMenuOpen
+              ? `${sessionMentionListboxId}-option-${activeSessionMentionOptionIndex}`
+              : slashMenuOpen ? `${slashListboxId}-option-${activeSlashOptionIndex}` : undefined}
+            aria-autocomplete="list"
+            aria-controls={sessionMentionMenuOpen ? sessionMentionListboxId : slashMenuOpen ? slashListboxId : undefined}
+            aria-disabled={disabled || sending}
+            aria-expanded={sessionMentionMenuOpen || slashMenuOpen}
+            aria-haspopup="listbox"
+            aria-label={t("composer.message")}
+            aria-multiline="true"
+            className="claude-ai-input__textarea claude-ai-input__inline-editor"
+            contentEditable={!disabled && !sending}
+            data-empty={!currentMessage && !selectedSkills.length}
+            data-placeholder={resolvedPlaceholder}
+            ref={inlineEditorRef}
+            role="textbox"
+            spellCheck="true"
+            suppressContentEditableWarning
+            tabIndex={disabled || sending ? -1 : 0}
+            onCompositionEnd={() => {
+              inlineEditorComposingRef.current = false;
+              syncInlineEditorInput();
+            }}
+            onCompositionStart={() => {
+              inlineEditorComposingRef.current = true;
+            }}
+            onInput={() => {
+              if (!inlineEditorComposingRef.current) syncInlineEditorInput();
+            }}
+            onKeyDown={handleComposerKeyDown}
+            onKeyUp={updateInlineEditorSelection}
+            onPaste={handlePaste}
+            onPointerUp={updateInlineEditorSelection}
+            onClick={(event) => {
+              const button = (event.target as Element).closest<HTMLElement>("[data-remove-skill-id]");
+              if (button?.dataset.removeSkillId) removeInlineSkill(button.dataset.removeSkillId);
+            }}
+          />
+        ) : (
+          <textarea
+            aria-label={t("composer.message")}
+            aria-activedescendant={sessionMentionMenuOpen
+              ? `${sessionMentionListboxId}-option-${activeSessionMentionOptionIndex}`
+              : slashMenuOpen ? `${slashListboxId}-option-${activeSlashOptionIndex}` : undefined}
+            aria-autocomplete="list"
+            aria-controls={sessionMentionMenuOpen ? sessionMentionListboxId : slashMenuOpen ? slashListboxId : undefined}
+            aria-expanded={sessionMentionMenuOpen || slashMenuOpen}
+            aria-haspopup="listbox"
+            className="claude-ai-input__textarea"
+            disabled={disabled || sending}
+            placeholder={resolvedPlaceholder}
+            ref={textareaRef}
+            rows={2}
+            value={currentMessage}
+            onChange={(event) => updateMessage(event.currentTarget.value)}
+            onKeyDown={handleComposerKeyDown}
+            onPaste={handlePaste}
+          />
+        )}
 
         <div className="claude-ai-input__toolbar">
           <div className="claude-ai-input__tools">
@@ -1046,14 +1340,260 @@ function reasoningEffortLabel(effort: ReasoningEffort, options: readonly Reasoni
   return options.find((option) => option.value === effort)?.label ?? options[1]?.label ?? "Medium";
 }
 
-function sessionMentionMatch(message: string): { query: string; start: number } | undefined {
-  const match = /(?:^|\s)@([^\s@]*)$/u.exec(message);
+function clampOffset(offset: number, message: string): number {
+  return Math.max(0, Math.min(message.length, offset));
+}
+
+function slashTriggerMatch(
+  message: string,
+  caretOffset: number,
+): { end: number; query: string; start: number } | undefined {
+  const end = clampOffset(caretOffset, message);
+  const match = /(?:^|\s)\/([^\s/]*)$/u.exec(message.slice(0, end));
+  if (!match) return undefined;
+  const slashOffset = match[0].lastIndexOf("/");
+  return {
+    end,
+    query: match[1] ?? "",
+    start: match.index + slashOffset,
+  };
+}
+
+function sessionMentionMatch(
+  message: string,
+  caretOffset = message.length,
+): { end: number; query: string; start: number } | undefined {
+  const end = clampOffset(caretOffset, message);
+  const match = /(?:^|\s)@([^\s@]*)$/u.exec(message.slice(0, end));
   if (!match) return undefined;
   const atOffset = match[0].lastIndexOf("@");
   return {
+    end,
     query: match[1] ?? "",
     start: match.index + atOffset,
   };
+}
+
+function rebaseInlineSkillPlacements(
+  placements: readonly InlineSkillPlacement[],
+  start: number,
+  end: number,
+): InlineSkillPlacement[] {
+  const removedLength = end - start;
+  return placements.map((placement) => {
+    if (placement.offset <= start) return placement;
+    if (placement.offset >= end) return { ...placement, offset: placement.offset - removedLength };
+    return { ...placement, offset: start };
+  });
+}
+
+function renderInlineComposerDom(
+  editor: HTMLDivElement,
+  message: string,
+  placements: readonly InlineSkillPlacement[],
+  skills: readonly ComposerSkillOption[],
+  removeLabel: (skill: ComposerSkillOption) => string,
+): void {
+  const skillsById = new Map(skills.map((skill) => [skill.id, skill]));
+  const sortedPlacements = placements
+    .map((placement, index) => ({ ...placement, index }))
+    .sort((left, right) => left.offset - right.offset || left.index - right.index);
+  const fragment = document.createDocumentFragment();
+  let textOffset = 0;
+
+  for (const placement of sortedPlacements) {
+    const skill = skillsById.get(placement.id);
+    if (!skill) continue;
+    if (placement.offset > textOffset) {
+      fragment.append(document.createTextNode(message.slice(textOffset, placement.offset)));
+    }
+
+    const token = document.createElement("span");
+    token.className = "claude-ai-input__inline-skill";
+    token.contentEditable = "false";
+    token.dataset.composerSkillId = skill.id;
+    token.title = `${skill.label} · ${skill.description} · ${skill.sourceLabel}`;
+    token.append(createInlineSkillIcon());
+
+    const label = document.createElement("span");
+    label.textContent = skill.label;
+    token.append(label);
+
+    const remove = document.createElement("button");
+    remove.setAttribute("aria-label", removeLabel(skill));
+    remove.dataset.removeSkillId = skill.id;
+    remove.type = "button";
+    remove.append(createInlineSkillRemoveIcon());
+    token.append(remove);
+    fragment.append(token);
+    textOffset = placement.offset;
+  }
+
+  if (textOffset < message.length) fragment.append(document.createTextNode(message.slice(textOffset)));
+  editor.replaceChildren(fragment);
+}
+
+function createInlineSkillIcon(): SVGSVGElement {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("height", "13");
+  icon.setAttribute("stroke", "currentColor");
+  icon.setAttribute("stroke-linecap", "round");
+  icon.setAttribute("stroke-linejoin", "round");
+  icon.setAttribute("stroke-width", "2");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("width", "13");
+  for (const points of ["21 16 21 8 12 3 3 8 3 16 12 21 21 16", "3.3 7 12 12 20.7 7", "12 22 12 12"]) {
+    const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    polyline.setAttribute("points", points);
+    icon.append(polyline);
+  }
+  return icon;
+}
+
+function createInlineSkillRemoveIcon(): SVGSVGElement {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("fill", "none");
+  icon.setAttribute("height", "11");
+  icon.setAttribute("stroke", "currentColor");
+  icon.setAttribute("stroke-linecap", "round");
+  icon.setAttribute("stroke-width", "2");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("width", "11");
+  for (const [x1, y1, x2, y2] of [[6, 6, 18, 18], [18, 6, 6, 18]]) {
+    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    line.setAttribute("x1", String(x1));
+    line.setAttribute("x2", String(x2));
+    line.setAttribute("y1", String(y1));
+    line.setAttribute("y2", String(y2));
+    icon.append(line);
+  }
+  return icon;
+}
+
+function readInlineComposerContent(root: Node): {
+  message: string;
+  placements: InlineSkillPlacement[];
+} {
+  let message = "";
+  const placements: InlineSkillPlacement[] = [];
+
+  function visit(node: Node): void {
+    if (node.nodeType === Node.TEXT_NODE) {
+      message += node.textContent ?? "";
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE && node.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return;
+    const element = node.nodeType === Node.ELEMENT_NODE ? node as HTMLElement : undefined;
+    const skillId = element?.dataset.composerSkillId;
+    if (skillId) {
+      placements.push({ id: skillId, offset: message.length });
+      return;
+    }
+    if (element?.tagName === "BR") {
+      message += "\n";
+      return;
+    }
+    for (const child of node.childNodes) visit(child);
+  }
+
+  visit(root);
+  return { message, placements };
+}
+
+function readInlineComposerCaret(editor: HTMLDivElement): InlineComposerCaret | undefined {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount) return undefined;
+  const range = selection.getRangeAt(0);
+  if (!range.collapsed || !editor.contains(range.endContainer)) return undefined;
+  const prefix = range.cloneRange();
+  prefix.selectNodeContents(editor);
+  prefix.setEnd(range.endContainer, range.endOffset);
+  const content = readInlineComposerContent(prefix.cloneContents());
+  return {
+    offset: content.message.length,
+    skillsBefore: content.placements.filter((placement) => placement.offset === content.message.length).length,
+  };
+}
+
+function restoreInlineComposerCaret(editor: HTMLDivElement, caret: InlineComposerCaret): void {
+  const selection = window.getSelection();
+  if (!selection) return;
+  const range = document.createRange();
+  let textOffset = 0;
+  let skillsAtOffset = 0;
+
+  function placeAtEditorBoundary(index: number): void {
+    range.setStart(editor, index);
+    range.collapse(true);
+  }
+
+  function placeInText(node: Node, offset: number): boolean {
+    if (node.nodeType === Node.TEXT_NODE) {
+      range.setStart(node, Math.min(offset, node.textContent?.length ?? 0));
+      range.collapse(true);
+      return true;
+    }
+    let remaining = offset;
+    for (const child of node.childNodes) {
+      const length = readInlineComposerContent(child).message.length;
+      if (remaining <= length && placeInText(child, remaining)) return true;
+      remaining -= length;
+    }
+    return false;
+  }
+
+  let placed = false;
+  for (const [index, child] of [...editor.childNodes].entries()) {
+    const element = child.nodeType === Node.ELEMENT_NODE ? child as HTMLElement : undefined;
+    if (element?.dataset.composerSkillId) {
+      if (textOffset === caret.offset && skillsAtOffset === caret.skillsBefore) {
+        placeAtEditorBoundary(index);
+        placed = true;
+        break;
+      }
+      if (textOffset === caret.offset) skillsAtOffset += 1;
+      if (textOffset === caret.offset && skillsAtOffset === caret.skillsBefore) {
+        placeAtEditorBoundary(index + 1);
+        placed = true;
+        break;
+      }
+      continue;
+    }
+
+    const textLength = readInlineComposerContent(child).message.length;
+    const textEnd = textOffset + textLength;
+    const atTextStart = caret.offset === textOffset && caret.skillsBefore === skillsAtOffset;
+    const insideText = caret.offset > textOffset && caret.offset < textEnd;
+    const atTextEnd = caret.offset === textEnd && caret.skillsBefore === 0;
+    if ((atTextStart || insideText || atTextEnd) && placeInText(child, caret.offset - textOffset)) {
+      placed = true;
+      break;
+    }
+    textOffset = textEnd;
+    skillsAtOffset = 0;
+  }
+  if (!placed) placeAtEditorBoundary(editor.childNodes.length);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function insertPlainTextAtSelection(editor: HTMLDivElement, text: string): void {
+  const selection = window.getSelection();
+  const range = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
+  if (!selection || !range || !editor.contains(range.commonAncestorContainer)) {
+    editor.append(document.createTextNode(text));
+    return;
+  }
+  range.deleteContents();
+  const node = document.createTextNode(text);
+  range.insertNode(node);
+  range.setStartAfter(node);
+  range.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(range);
 }
 
 function AttachmentChip({

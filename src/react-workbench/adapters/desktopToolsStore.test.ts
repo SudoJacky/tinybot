@@ -103,6 +103,18 @@ describe("desktop tools store", () => {
     expect(route).toHaveBeenCalledWith({ method: "GET", path: "/api/tools" });
   });
 
+  it("scopes the catalog request to the active working directory", async () => {
+    const route = vi.fn(async () => ({ mcpServers: [], skills: [], tools: [] }));
+    const store = createDesktopToolsStore({ initialize: async () => undefined, nativeWebui: { route } });
+
+    await store.loadCatalog({ workingDirectory: "D:\\Code\\workspace with spaces" });
+
+    expect(route).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/api/tools?workingDirectory=D%3A%5CCode%5Cworkspace%20with%20spaces",
+    });
+  });
+
   it("delegates plugin lifecycle operations after initialization", async () => {
     const initialize = vi.fn(async () => undefined);
     const nativePlugins = createNativePlugins();

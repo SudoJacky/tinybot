@@ -15,6 +15,7 @@ describe("prepareChatSubmission", () => {
       message: "Review these references",
       options: { model: "gpt-5", provider: "openai", reasoningEffort: "high" },
       pastedContent: [{ content: "pasted detail", id: "paste-1", timestamp: new Date(0), wordCount: 2 }],
+      selectedSkillIds: ["apple-design"],
       selectedSessionIds: ["session-2"],
     }));
 
@@ -24,6 +25,7 @@ describe("prepareChatSubmission", () => {
       model: "gpt-5",
       provider: "openai",
       reasoningEffort: "high",
+      selectedSkills: ["apple-design"],
       text: "Review these references\n\nPasted content:\npasted detail",
     });
     expect(prepared.turnInput.references).toEqual([
@@ -110,6 +112,37 @@ describe("prepareChatSubmission", () => {
     }))).resolves.toEqual({ kind: "queue_limit_reached" });
     await expect(prepareChatSubmission(input({ message: "/compact" }))).resolves.toEqual({ kind: "compact" });
   });
+
+  test("uses selected Skills as request context without copying their content into the message", async () => {
+    const prepared = await prepareChatSubmission(input({
+      message: "Polish this interaction",
+      selectedSkillIds: ["apple-design"],
+    }));
+
+    expect(prepared).toEqual({
+      kind: "send_message",
+      turnInput: {
+        selectedSkills: ["apple-design"],
+        text: "Polish this interaction",
+      },
+      visibleText: "Polish this interaction",
+    });
+
+    await expect(prepareChatSubmission(input({
+      message: "",
+      selectedSkillIds: ["apple-design"],
+    }))).resolves.toMatchObject({
+      kind: "send_message",
+      turnInput: {
+        selectedSkills: ["apple-design"],
+        text: "Use the selected Skills",
+      },
+    });
+    await expect(prepareChatSubmission(input({
+      message: "/compact",
+      selectedSkillIds: ["apple-design"],
+    }))).rejects.toThrow("Compact cannot include attachments");
+  });
 });
 
 function input(overrides: Partial<PrepareChatSubmissionInput> = {}): PrepareChatSubmissionInput {
@@ -123,6 +156,7 @@ function input(overrides: Partial<PrepareChatSubmissionInput> = {}): PrepareChat
     options: {},
     pastedContent: [],
     queuedInputs: [],
+    selectedSkillIds: [],
     selectedSessionIds: [],
     sessions: [{ id: "session-2", title: "Architecture review", updatedAtMs: 42 }],
     t,
@@ -133,6 +167,7 @@ function input(overrides: Partial<PrepareChatSubmissionInput> = {}): PrepareChat
 const t = ((key: string) => ({
   "composer.attachedFilesPrompt": "Review attached files",
   "composer.pastedContentLabel": "Pasted content",
+  "composer.skill.attachedPrompt": "Use the selected Skills",
   "composer.sessionMention.attachedPrompt": "Review attached sessions",
   "composer.sessionMention.emptyTranscript": "Empty transcript",
   "composer.sessionMention.referenceDetail": "Referenced conversation",

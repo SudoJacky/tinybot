@@ -8,7 +8,7 @@ src-tauri/src/rpc/method.rs
 src-tauri/src/rpc/runtime.rs
 src-tauri/tests/crate/transport.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:37e4d51ab43c0b873f27311cded641a0f6b738652b70c8bf7309aa1b44552843 -->
+<!-- tinybot-doc-fingerprint: sha256:91ad944d31181cad4436011a2e214b53181e4f3ba3a22d74b786eaae5d742ac5 -->
 
 This document covers the Rust-owned WebUI route wrapper and Worker RPC protocol.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -152,7 +152,9 @@ schemas, and a separate Skill catalog. Skill entries include enabled Agent Plugi
 `.agents/skills/*/SKILL.md` files for the catalog workspace. One failed or disabled server remains
 visible without hiding tools from healthy servers. The list contains Skill metadata and paths, not
 full documents; `GET /api/tools/skills/{id}` reads the selected `SKILL.md` on demand and returns
-`404` when the ID is no longer cataloged.
+`404` when the ID is no longer cataloged. Renderer callers can add a URL-encoded
+`workingDirectory` query to either Tools route so workspace entries resolve against the active
+conversation directory instead of the configured backend default.
 
 Stdio configuration example:
 

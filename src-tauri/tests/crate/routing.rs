@@ -368,6 +368,10 @@ fn worker_webui_tools_route_returns_effective_catalog() {
         ".mcp.json",
         r#"{"mcpServers":{"workspace-docs":{"command":"docs-server","enabled":false}}}"#,
     );
+    fixture.write(
+        "packages/ui/.agents/skills/ui-review/SKILL.md",
+        "---\nname: ui-review\ndescription: Review workspace UI.\n---\nReview the interaction.\n",
+    );
     let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
@@ -422,6 +426,24 @@ fn worker_webui_tools_route_returns_effective_catalog() {
     assert!(detail["body"]["content"]
         .as_str()
         .is_some_and(|content| content.contains("Review the diff.")));
+
+    let nested_workspace = fixture.root.join("packages").join("ui");
+    let scoped = worker_webui_route_with_options(
+        &shared,
+        WorkerWebuiRouteInput {
+            method: "GET".to_string(),
+            path: format!("/api/tools?workingDirectory={}", nested_workspace.display()),
+            headers: None,
+            body: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_secs(1),
+    )
+    .expect("tools route should honor the requested working directory");
+    assert!(scoped["body"]["skills"]
+        .as_array()
+        .is_some_and(|skills| skills.iter().any(|skill| skill["name"] == "ui-review")));
 }
 
 #[test]

@@ -263,7 +263,7 @@ export type ToolCatalogSummary = {
 };
 
 export type ToolsStore = {
-  loadCatalog(): Promise<ToolCatalogSummary>;
+  loadCatalog(options?: { workingDirectory?: string }): Promise<ToolCatalogSummary>;
   loadSkillDetail(id: string): Promise<SkillDetail>;
   listPlugins(): Promise<PluginSummary[]>;
   installPlugin(path: string): Promise<PluginSummary>;

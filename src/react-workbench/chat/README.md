@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:68006b04ca3bc371385ea2400de05e829cacf96b0a8547e6aec662ba23cc2af6 -->
+<!-- tinybot-module-fingerprint: sha256:ca6d2891fc9dc67e6a2dbf39c1efedc72cc6229bc24066fe5ac93d606c797d30 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -35,6 +35,12 @@ images into typed `tinyos.image` references. User attachments render as a
 separate stack above the text bubble: managed images use the scoped Tauri asset
 protocol for bounded previews, while ordinary files use compact metadata cards.
 Composer removal remains independent from this persisted timeline presentation.
+The slash menu exposes only executable controls such as `/compact` plus the
+Skills catalog for the active conversation working directory. Selecting a
+Skill creates an atomic removable token inline with the user's editable text and submits its activation name
+through `selectedSkills`; Rust resolves and injects the full Skill document
+while assembling the native Turn request, so the visible user message remains
+unchanged.
 The composer context indicator derives its cache hit rate from the latest
 projected Provider-call usage rather than cumulative Thread totals.
 Before a Turn reports its effective per-model window, Chat uses the legacy

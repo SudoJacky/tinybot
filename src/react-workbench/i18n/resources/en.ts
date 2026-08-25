@@ -896,11 +896,6 @@ export const en = {
     ],
     commands: {
       compact: { label: "Compact context", description: "Summarize older context now and free window space" },
-      plan: { label: "Plan task", description: "Analyze the goal, risks, and verification first", prompt: "Analyze this task first. List the implementation steps, risks, and verification approach without modifying code yet." },
-      review: { label: "Review changes", description: "Check defects, regression risks, and missing tests", prompt: "Review the current workspace changes. Prioritize concrete defects, regression risks, and missing tests." },
-      fix: { label: "Fix issue", description: "Find the root cause and verify the fix with a regression test", prompt: "Find the root cause of the current issue, add a reproducible regression test, and implement the fix." },
-      test: { label: "Run tests", description: "Run relevant tests and address failures", prompt: "Run tests relevant to the current changes, diagnose failures, and fix them." },
-      explain: { label: "Explain code", description: "Describe the data flow and key risks", prompt: "Explain how the current code works, including its key data flow and main risks." },
     },
     errors: {
       compactWithAttachments: "/compact cannot be used with attachments or context references.",
@@ -1038,6 +1033,11 @@ export const en = {
         emptyTranscript: "This conversation has no persisted messages.",
         referenceDetail: "Conversation snapshot",
         unavailable: "The referenced conversation is no longer available in this workspace.",
+      },
+      skill: {
+        attachedPrompt: "Use the selected Skills.",
+        heading: "Skills",
+        workspace: "Workspace",
       },
       placeholder: "Message Tinybot", sendFailed: "Message could not be sent.", stopFailed: "Generation could not be stopped.", fileLimit: "Only {{count}} files can be attached.", filesFailed: "Files could not be selected.",
       label: "Message composer", attachments: "Composer attachments", remove: "Remove {{name}}", words: "{{count}} words", pastedText: "Pasted text", removePasted: "Remove pasted content", pastedContentLabel: "Pasted content", attachedFilesPrompt: "Review the attached files.", configuredModel: "Configured model",
