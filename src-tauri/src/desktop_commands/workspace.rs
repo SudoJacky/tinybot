@@ -2,7 +2,9 @@ use crate::config::application::{native_backend_workspace_root, native_config_sn
 use crate::desktop::{lock_runtime, SharedNativeRuntime};
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
-use crate::rpc::{call_rust_state_service, native_request_router};
+use crate::rpc::{
+    call_rust_state_service, native_request_router, native_request_router_with_workspace_root,
+};
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Duration};
 use tauri::State;
@@ -37,6 +39,14 @@ pub(crate) struct WorkerWorkspaceDirectoryInput {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkerWorkspaceFileChunkInput {
+    path: String,
+    cursor: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkerThreadWorkspaceFileChunkInput {
+    thread_id: String,
     path: String,
     cursor: Option<String>,
 }
@@ -119,6 +129,22 @@ pub(crate) fn worker_workspace_file_chunk(
 ) -> Result<serde_json::Value, String> {
     worker_workspace_file_chunk_with_options(
         state.inner(),
+        input.path,
+        input.cursor,
+        native_backend_workspace_root(),
+        native_config_snapshot(),
+        Duration::from_secs(10),
+    )
+}
+
+#[tauri::command]
+pub(crate) fn worker_thread_workspace_file_chunk(
+    input: WorkerThreadWorkspaceFileChunkInput,
+    state: State<'_, SharedNativeRuntime>,
+) -> Result<serde_json::Value, String> {
+    worker_thread_workspace_file_chunk_with_options(
+        state.inner(),
+        input.thread_id,
         input.path,
         input.cursor,
         native_backend_workspace_root(),
@@ -290,3 +316,87 @@ pub(crate) fn worker_workspace_file_chunk_with_options(
     serde_json::to_value(response)
         .map_err(|error| format!("worker workspace file chunk failed: {error}"))
 }
+
+pub(crate) fn worker_thread_workspace_file_chunk_with_options(
+    shared: &SharedNativeRuntime,
+    thread_id: String,
+    path: String,
+    cursor: Option<String>,
+    default_workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    _timeout: Duration,
+) -> Result<serde_json::Value, String> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
+    let workspace_root = {
+        let operation = thread_store.begin_operation().map_err(|error| {
+            format!(
+                "thread workspace file lookup failed: {}; details={}",
+                error.message, error.details
+            )
+        })?;
+        let (thread, _) = operation
+            .thread_log()
+            .thread_projection_for(&thread_id)
+            .map_err(|error| {
+                format!(
+                    "thread workspace file lookup failed: {}; details={}",
+                    error.message, error.details
+                )
+            })?;
+        thread
+            .metadata
+            .working_directory
+            .map(PathBuf::from)
+            .unwrap_or(default_workspace_root)
+    };
+    let path = thread_workspace_file_path(&workspace_root, &path)?;
+    let request_id = next_worker_request_correlation();
+    let response =
+        native_request_router_with_workspace_root(thread_store, workspace_root, config_snapshot)
+            .dispatch(&WorkerRequest::new(
+                request_id.id("thread-workspace-file-chunk"),
+                request_id.trace_id("thread-workspace-file-chunk"),
+                "workspace.read_file_chunk",
+                serde_json::json!({ "path": path, "cursor": cursor }),
+            ));
+    serde_json::to_value(response)
+        .map_err(|error| format!("thread workspace file chunk failed: {error}"))
+}
+
+fn thread_workspace_file_path(
+    workspace_root: &std::path::Path,
+    requested: &str,
+) -> Result<String, String> {
+    let requested_path = PathBuf::from(requested);
+    if !requested_path.is_absolute() {
+        return Ok(requested.to_string());
+    }
+    let canonical_root = workspace_root.canonicalize().map_err(|error| {
+        format!(
+            "thread workspace file lookup failed: workspace root is unavailable: {error}; workspaceRoot={}",
+            workspace_root.display()
+        )
+    })?;
+    let canonical_file = requested_path.canonicalize().map_err(|error| {
+        format!(
+            "thread workspace file lookup failed: file is unavailable: {error}; path={requested}"
+        )
+    })?;
+    let relative = canonical_file.strip_prefix(&canonical_root).map_err(|_| {
+        format!(
+            "thread workspace file lookup failed: file is outside the thread workspace; path={requested}; workspaceRoot={}",
+            canonical_root.display()
+        )
+    })?;
+    let relative = relative.to_string_lossy().replace('\\', "/");
+    if relative.is_empty() {
+        return Err(
+            "thread workspace file lookup failed: path identifies the workspace root".to_string(),
+        );
+    }
+    Ok(relative)
+}
+
+#[cfg(test)]
+#[path = "workspace_tests.rs"]
+mod tests;

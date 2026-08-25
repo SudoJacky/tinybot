@@ -8,7 +8,7 @@ import type {
   WorkspaceStore,
 } from "../services";
 
-type NativeWorkspaceQueryApi = Pick<NativeWorkspaceApi, "directory" | "fileChunk" | "files">;
+type NativeWorkspaceQueryApi = Pick<NativeWorkspaceApi, "directory" | "fileChunk" | "files" | "threadFileChunk">;
 
 export function createDesktopWorkspaceStore({
   initialize,
@@ -29,6 +29,10 @@ export function createDesktopWorkspaceStore({
     async readFile(request) {
       await initialize();
       return normalizeWorkspaceFileChunk(await requireNativeWorkspace(nativeWorkspace).fileChunk(request));
+    },
+    async readThreadFile(request) {
+      await initialize();
+      return normalizeWorkspaceFileChunk(await requireNativeWorkspace(nativeWorkspace).threadFileChunk(request));
     },
   };
 }

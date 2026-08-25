@@ -44,7 +44,7 @@ describe("PatchDiffCard", () => {
     expect(screen.getByRole("button", { name: "Toggle details for Edited lib.rs" })
       .getAttribute("aria-expanded"))
       .toBe("true");
-    expect(screen.getByText("Completed")).toBeTruthy();
+    expect(screen.queryByText("Completed")).toBeNull();
     const file = screen.getByRole("article", { name: "Diff for src/lib.rs" });
     expect(within(file).getByText("fn before() {}").closest("[data-diff-kind='remove']"))
       .not.toBeNull();

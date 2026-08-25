@@ -1,5 +1,5 @@
 # Native Browser Runtime
-<!-- tinybot-module-fingerprint: sha256:23904818829f80cd1201ad38474e0af0ae8dd626109b951cafd05a79cc7cfa4a -->
+<!-- tinybot-module-fingerprint: sha256:baa288f30235abad5ee45c15bed9be1915f219e2d9064bcb40472b52163a255d -->
 
 `native_browser` owns the managed WebView2 session used by native Agent browser
 tools and attachable desktop browser surfaces. Direct user input and Agent
@@ -58,10 +58,14 @@ desktop surface explicitly requests one, so chats that never browse do not
 retain WebView2 processes.
 
 Calling `browser_create_session` again with the same owner identity rehydrates
-the existing session. Agent actions include navigation, coordinate or semantic
-click, focused type, semantic fill, key, scroll, bounded wait, user handoff, and
-resume. Accepted dispatch is not completion: the host records the eventual
-completed, failed, cancelled, timed-out, or user-required result.
+the existing ready session. A WebView initialization failure remains observable
+as a failed snapshot, is retried once after a short delay, and is replaced by a
+fresh session on a later create request instead of being returned as a
+successful rehydration. Retry and recovery attempts retain structured
+diagnostics and counters. Agent actions include navigation, coordinate or
+semantic click, focused type, semantic fill, key, scroll, bounded wait, user
+handoff, and resume. Accepted dispatch is not completion: the host records the
+eventual completed, failed, cancelled, timed-out, or user-required result.
 
 ## Navigation and protected handoff
 

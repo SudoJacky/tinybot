@@ -1,5 +1,5 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:12234348f39cb4d54c32d6231b221193b0e27125b81cd8292663996d90ea80c3 -->
+<!-- tinybot-module-fingerprint: sha256:e5b97809d3eb1a37bf07b7778119a3b0070dfcacd23bdf4640bbff348860ec13 -->
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.

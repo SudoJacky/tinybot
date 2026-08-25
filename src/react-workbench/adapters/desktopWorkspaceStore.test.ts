@@ -7,6 +7,7 @@ function createNativeWorkspace() {
     files: vi.fn<NativeWorkspaceApi["files"]>(async () => ({ files: [] })),
     directory: vi.fn<NativeWorkspaceApi["directory"]>(async () => ({ result: { entries: [], listing_revision: "revision-1", path: "." } })),
     fileChunk: vi.fn<NativeWorkspaceApi["fileChunk"]>(async () => ({ result: { content_type: "text", path: "README.md", revision: "revision-1", size_bytes: 0 } })),
+    threadFileChunk: vi.fn<NativeWorkspaceApi["threadFileChunk"]>(async () => ({ result: { content_type: "text", path: "README.md", revision: "revision-1", size_bytes: 0 } })),
   };
 }
 
@@ -58,6 +59,19 @@ describe("desktop workspace store", () => {
         updated_at: "2026-08-15T00:00:00.000Z",
       },
     });
+    nativeWorkspace.threadFileChunk.mockResolvedValue({
+      result: {
+        content: "hello",
+        content_type: "text",
+        line_end: 2,
+        line_start: 1,
+        next_cursor: "cursor-2",
+        path: "src/main.ts",
+        revision: "revision-3",
+        size_bytes: 5,
+        updated_at: "2026-08-15T00:00:00.000Z",
+      },
+    });
     const store = createDesktopWorkspaceStore({ initialize: async () => undefined, nativeWorkspace });
 
     await expect(store.listDirectory({ path: "src" })).resolves.toEqual({
@@ -81,6 +95,19 @@ describe("desktop workspace store", () => {
       sizeBytes: 5,
       updatedAt: "2026-08-15T00:00:00.000Z",
     });
+
+    await expect(store.readThreadFile({ threadId: "thread-1", path: "src/main.ts" })).resolves.toEqual({
+      content: "hello",
+      contentType: "text",
+      lineEnd: 2,
+      lineStart: 1,
+      nextCursor: "cursor-2",
+      path: "src/main.ts",
+      revision: "revision-3",
+      sizeBytes: 5,
+      updatedAt: "2026-08-15T00:00:00.000Z",
+    });
+    expect(nativeWorkspace.threadFileChunk).toHaveBeenCalledWith({ threadId: "thread-1", path: "src/main.ts" });
   });
 
   it("preserves structured workspace query failures", async () => {

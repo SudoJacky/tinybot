@@ -903,7 +903,7 @@ pub(crate) fn native_request_router(
     .with_builtin_skills_root(crate::config::application::repo_root())
 }
 
-fn native_request_router_with_workspace_root(
+pub(crate) fn native_request_router_with_workspace_root(
     threads: WorkspaceThreadStore,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,

@@ -48,10 +48,10 @@ describe("ChatPage", () => {
     );
   });
 
-  it("does not use colored left accent strips on error cards", () => {
+  it("renders execution errors without a card or colored accent strip", () => {
     const css = readWorkbenchCss();
 
-    expect(css).not.toMatch(/\.react-error-recovery\s*{[^}]*border-left:/s);
+    expect(css).not.toMatch(/\.react-execution-error\s*{[^}]*(?:border|background):/s);
     expect(css).not.toMatch(/\.react-canonical-scoped-errors\s*{[^}]*border-left:/s);
   });
 

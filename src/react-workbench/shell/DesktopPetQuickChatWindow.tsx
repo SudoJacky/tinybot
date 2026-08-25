@@ -366,7 +366,6 @@ export function DesktopPetQuickChatWindow({
               interactiveFormIds={EMPTY_INTERACTIVE_FORM_IDS}
               latestFailedTurnId={latestFailedTurnId}
               optimisticMessages={optimisticMessages}
-              recoveringTurnId=""
               sessionRunning={sessionRunning}
               turns={timeline?.turns ?? []}
             />

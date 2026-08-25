@@ -55,11 +55,9 @@ export function patchChangeSetFromToolResult(value: unknown): PatchChangeSet | u
 }
 
 export function PatchDiffCard({
-  onOpenDetails,
   status,
   toolCall,
 }: {
-  onOpenDetails?: () => void;
   status: ChatStepStatus;
   toolCall: ToolCallState;
 }) {
@@ -83,7 +81,6 @@ export function PatchDiffCard({
         category={t("patch.category")}
         durationMs={toolCall.durationMs}
         icon={<FileDiff size={17} />}
-        onOpenDetails={onOpenDetails}
         status={status}
         title={title}
       >

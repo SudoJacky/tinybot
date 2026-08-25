@@ -4,14 +4,12 @@ import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   Bot,
-  CheckCircle2,
-  ChevronDown,
+  ChevronRight,
   Circle,
   FileText,
   Globe2,
   ListChecks,
   Loader2,
-  PanelRightOpen,
   SquareTerminal,
   Wrench,
   XCircle,
@@ -37,12 +35,10 @@ type ToolActivityPreview = {
 
 export function ToolActivityItem({
   fallbackSummary,
-  onOpenDetails,
   status,
   toolCall,
 }: {
   fallbackSummary?: string;
-  onOpenDetails?: () => void;
   status: ChatStepStatus;
   toolCall: ToolCallState;
 }) {
@@ -58,7 +54,6 @@ export function ToolActivityItem({
       defaultOpen={descriptor.kind !== "web" && previews.length > 0}
       durationMs={toolCall.durationMs}
       icon={<ToolActivityIcon kind={descriptor.kind} />}
-      onOpenDetails={onOpenDetails}
       status={status}
       title={descriptor.title}
     >
@@ -75,7 +70,6 @@ export function ToolActivityFrame({
   defaultOpen = true,
   durationMs,
   icon,
-  onOpenDetails,
   status,
   title,
 }: {
@@ -84,7 +78,6 @@ export function ToolActivityFrame({
   defaultOpen?: boolean;
   durationMs?: number;
   icon: ReactNode;
-  onOpenDetails?: () => void;
   status: ChatStepStatus;
   title: string;
 }) {
@@ -93,40 +86,32 @@ export function ToolActivityFrame({
   const hasContent = Children.count(children) > 0;
   const [open, setOpen] = useState(defaultOpen && hasContent);
   const meta = [category, durationMs === undefined ? "" : formatToolDuration(durationMs)].filter(Boolean).join(" · ");
+  const headerContent = (
+    <>
+      <span aria-hidden="true" className="react-tool-activity__icon">{icon}</span>
+      <span className="react-tool-activity__copy">
+        <strong>{title}</strong>
+        {meta ? <small>{meta}</small> : null}
+      </span>
+      <ToolActivityStatus status={status} />
+      {hasContent ? <ChevronRight aria-hidden="true" className="react-tool-activity__chevron" size={15} /> : null}
+    </>
+  );
 
   return (
     <section className="react-tool-activity" data-open={open ? "true" : undefined} data-status={status}>
-      <header className="react-tool-activity__header">
-        <span aria-hidden="true" className="react-tool-activity__icon">{icon}</span>
-        <span className="react-tool-activity__copy">
-          <strong>{title}</strong>
-          {meta ? <small>{meta}</small> : null}
-        </span>
-        <ToolActivityStatus status={status} />
-        {onOpenDetails ? (
-          <button
-            aria-label={t("toolActivity.openDetails", { title })}
-            className="react-tool-activity__open-details"
-            title={t("toolActivity.viewDetails")}
-            type="button"
-            onClick={onOpenDetails}
-          >
-            <PanelRightOpen aria-hidden="true" size={15} />
-          </button>
-        ) : <span aria-hidden="true" className="react-tool-activity__action-spacer" />}
-        {hasContent ? (
-          <button
-            aria-controls={contentId}
-            aria-expanded={open}
-            aria-label={t("toolActivity.toggleDetails", { title })}
-            className="react-tool-activity__toggle"
-            type="button"
-            onClick={() => setOpen((current) => !current)}
-          >
-            <ChevronDown aria-hidden="true" size={17} />
-          </button>
-        ) : <span aria-hidden="true" className="react-tool-activity__action-spacer" />}
-      </header>
+      {hasContent ? (
+        <button
+          aria-controls={contentId}
+          aria-expanded={open}
+          aria-label={t("toolActivity.toggleDetails", { title })}
+          className="react-tool-activity__header"
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+        >
+          {headerContent}
+        </button>
+      ) : <div className="react-tool-activity__header">{headerContent}</div>}
       {hasContent ? (
         <div className="react-tool-activity__details" data-testid="tool-activity-details" hidden={!open} id={contentId}>
           {children}
@@ -171,6 +156,9 @@ function PreviewMeta({ meta, truncated }: { meta?: string; truncated: boolean })
 function ToolActivityStatus({ status }: { status: ChatStepStatus }) {
   const { t } = useTranslation("chat");
   const normalized = toolActivityStatus(status, t);
+  if (!normalized) {
+    return null;
+  }
   return (
     <span className="react-tool-activity__status" data-status={normalized.kind}>
       {normalized.icon}
@@ -417,9 +405,9 @@ function clippedPreview(value: string): { lines: string[]; text: string; truncat
   return { lines: text.split("\n"), text, truncated };
 }
 
-function toolActivityStatus(status: ChatStepStatus, t: TFunction<"chat">): { icon: ReactNode; kind: string; label: string } {
+function toolActivityStatus(status: ChatStepStatus, t: TFunction<"chat">): { icon: ReactNode; kind: string; label: string } | undefined {
   switch (status) {
-    case "completed": return { icon: <CheckCircle2 aria-hidden="true" size={16} />, kind: "success", label: t("toolActivity.status.completed") };
+    case "completed": return undefined;
     case "running": return { icon: <Loader2 aria-hidden="true" size={16} />, kind: "active", label: t("toolActivity.status.running") };
     case "blocked": return { icon: <AlertTriangle aria-hidden="true" size={16} />, kind: "waiting", label: t("toolActivity.status.waiting") };
     case "failed": return { icon: <XCircle aria-hidden="true" size={16} />, kind: "error", label: t("toolActivity.status.failed") };

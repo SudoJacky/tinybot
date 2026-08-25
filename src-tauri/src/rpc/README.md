@@ -1,5 +1,5 @@
 # Worker RPC Router
-<!-- tinybot-module-fingerprint: sha256:67ca26670914eb0e9c5d690bdb543409cf465059f130cced7234162eaa2038d4 -->
+<!-- tinybot-module-fingerprint: sha256:8f2f1d4b2846aef358a49d27ab934465a855fcf981abe129be28e72ab86e6613 -->
 
 `rpc` is the versioned method-routing boundary for native backend services.
 The module root is `mod.rs`; protocol envelopes and parameter validation live
@@ -18,6 +18,11 @@ in the sibling `protocol/` module.
 The router should coordinate services, not become the implementation of every
 service. `workspace/`, `tools/`, and `threads/` own their domain
 behavior.
+
+Desktop boundaries that already resolved an authoritative workspace may build
+a router with that explicit root. The Thread Artifact preview command uses
+this narrow constructor after loading the canonical Thread projection; path
+containment and file reads still belong to the workspace service.
 
 ## Dispatch flow
 

@@ -39,18 +39,36 @@ describe("workbench CSS interaction contracts", () => {
     expect(queueListRule?.[1]).toContain("overflow-y: auto");
   });
 
-  test("keeps tool activity rows compact without shrinking their action controls", () => {
+  test("keeps execution summaries and tool activity compact without shrinking action controls", () => {
+    const timelineTriggerRule = chatStylesheet.match(/\.react-execution-timeline__trigger\s*\{([^}]+)\}/);
+    const timelineHeadingRule = chatStylesheet.match(/\.react-execution-timeline__heading\s*\{([^}]+)\}/);
+    const timelineTitleRule = chatStylesheet.match(/\.react-execution-timeline__heading strong\s*\{([^}]+)\}/);
     const headerRule = chatStylesheet.match(/\.react-tool-activity__header\s*\{([^}]+)\}/);
-    const actionRule = chatStylesheet.match(
-      /\.react-tool-activity__open-details,\s*\.react-tool-activity__toggle,\s*\.react-patch-file__copy\s*\{([^}]+)\}/,
-    );
+    const actionRule = chatStylesheet.match(/\.react-patch-file__copy\s*\{([^}]+)\}/);
     const detailsRule = chatStylesheet.match(/\.react-tool-activity__details\s*\{([^}]+)\}/);
+    const previewRule = chatStylesheet.match(/\.react-tool-activity__preview\s*\{([^}]+)\}/);
+    const toolTitleRule = chatStylesheet.match(/\.react-tool-activity__copy strong\s*\{([^}]+)\}/);
+    const toolChevronRule = chatStylesheet.match(/\.react-tool-activity\[data-open="true"\] \.react-tool-activity__chevron\s*\{([^}]+)\}/);
 
-    expect(headerRule?.[1]).toContain("min-height: 44px");
-    expect(headerRule?.[1]).toContain("padding: 6px 0");
+    expect(timelineTriggerRule?.[1]).toContain("min-height: 40px");
+    expect(timelineTriggerRule?.[1]).toContain("padding: 0 0 4px");
+    expect(timelineTriggerRule?.[1]).toContain("justify-content: flex-start");
+    expect(timelineHeadingRule?.[1]).toContain("display: flex");
+    expect(timelineTitleRule?.[1]).toContain("color: var(--color-body)");
+    expect(timelineTitleRule?.[1]).toContain("font-weight: 600");
+    expect(headerRule?.[1]).toContain("min-height: 34px");
+    expect(headerRule?.[1]).toContain("padding: 2px 0");
+    expect(headerRule?.[1]).toContain("display: flex");
+    expect(headerRule?.[1]).toContain("justify-content: flex-start");
     expect(actionRule?.[1]).toContain("width: 30px");
     expect(actionRule?.[1]).toContain("height: 30px");
-    expect(detailsRule?.[1]).toContain("padding: 0 0 12px 26px");
+    expect(detailsRule?.[1]).toContain("gap: 4px");
+    expect(detailsRule?.[1]).toContain("padding: 0 0 6px 22px");
+    expect(previewRule?.[1]).toContain("min-height: 32px");
+    expect(previewRule?.[1]).toContain("padding: 6px 10px");
+    expect(toolTitleRule?.[1]).toContain("font-size: 12px");
+    expect(toolTitleRule?.[1]).toContain("font-weight: 600");
+    expect(toolChevronRule?.[1]).toContain("transform: rotate(90deg)");
   });
 
   test("routes appearance controls through shared theme tokens", () => {

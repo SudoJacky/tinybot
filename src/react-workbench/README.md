@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:30d07c1dc50628a1c845fa04c9bdb783ce669e1a83b3734a11c3be9f0764f74f -->
+<!-- tinybot-module-fingerprint: sha256:cd143fe6b7514b514808aa34218238c0c773fa5d14e7721324b30f84188d6408 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App` for the main window and selects lightweight
@@ -47,6 +47,9 @@ web tools. Terminal resources attach to a separate user-only PTY runtime;
 switching or hiding resources preserves the process, while closing the
 Terminal tab ends it. Regular chats share the native default-workspace Sidecar
 scope even though their Thread metadata has no explicit working directory.
+Assistant Markdown file links open contextual Artifact tabs backed by bounded,
+Thread-scoped workspace reads. Artifact remains absent from the empty-resource
+menu, while binary, truncated, and failed reads stay visible in the preview.
 Docked Sidecar widths are measured against the Chat workspace so persisted
 sizes and live resizing cannot displace the resource surface beyond its
 container; narrow windows retain the overlay gutter instead.

@@ -23,12 +23,13 @@ describe("ToolActivityItem", () => {
 
     expect(screen.getByText("Ran npm test")).toBeTruthy();
     expect(screen.getByText("Terminal · 2.4s")).toBeTruthy();
-    expect(screen.getByText("Completed")).toBeTruthy();
+    expect(screen.queryByText("Completed")).toBeNull();
     expect(screen.getByText("$", { selector: ".react-tool-activity__prompt" })).toBeTruthy();
     expect(screen.getByText(/248 tests passed/)).toBeTruthy();
     expect(document.querySelectorAll(".react-tool-activity__preview")).toHaveLength(2);
 
     const toggle = screen.getByRole("button", { name: "Toggle details for Ran npm test" });
+    expect(screen.getByText("Ran npm test").closest("button")).toBe(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     await user.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");

@@ -75,8 +75,6 @@ import {
 } from "../../app-core/chat/chatProjection";
 import type {
   ArtifactRef,
-  ChatStep,
-  ChatTurn,
   DelegatedAgentState,
   LoadedArtifactDetail,
 } from "../../app-core/chat/chatTurnContracts";
@@ -92,7 +90,6 @@ import {
   createTinyOsAgentCancelCommand,
   createTinyOsFormCancelCommand,
   createTinyOsFormSubmitCommand,
-  createTinyOsOperationRetryCommand,
   isTinyOsCommandInFlight,
   reduceTinyOsCommandLifecycle,
   type TinyOsCommandLifecycle,
@@ -111,11 +108,14 @@ import {
   prepareChatSubmission,
   type QueuedComposerInput,
 } from "./chatSubmission";
+import { ChatTimeline } from "./ChatTimeline";
 import {
-  ChatErrorDetails,
-  ChatTimeline,
-  type RecoveryAction,
-} from "./ChatTimeline";
+  AssistantFileLinkError,
+  assistantFileArtifact,
+  assistantFileLinkTitle,
+  resolveAssistantFileLink,
+  type AssistantFileLink,
+} from "./assistantFileLinks";
 import {
   ChatSessionWorkspace,
   type ProjectSessionContext,
@@ -149,7 +149,7 @@ export type ChatPageProps = {
   projectGroupStore?: ProjectGroupStore;
   settingsStore?: SettingsStore;
   toolsStore?: Pick<ToolsStore, "installPluginMigration">;
-  workspaceStore?: Pick<WorkspaceStore, "listDirectory" | "readFile">;
+  workspaceStore?: Pick<WorkspaceStore, "readThreadFile">;
   createSessionSignal?: number;
   activateSessionRequest?: { sessionId: string; signal: number } | null;
   sessionSidebarCollapsed?: boolean;
@@ -166,7 +166,6 @@ export type ChatPageProps = {
 type DrawerState =
   | { kind: "tool"; title: string; toolCall: ToolCallSummary }
   | { kind: "subagent"; title: string; delegate: DelegatedAgentState; loading: boolean; error?: string }
-  | { kind: "error"; title: string; step: ChatStep; turn: ChatTurn }
   | null;
 
 type ArtifactSidecarContent = {
@@ -174,6 +173,7 @@ type ArtifactSidecarContent = {
   detail?: LoadedArtifactDetail;
   error?: string;
   loading: boolean;
+  notice?: string;
 };
 
 type BrowserSnapshot = TinyOsNativeSnapshot<TinyOsNativeBrowserSession>;
@@ -264,6 +264,7 @@ export function ChatPage({
   projectGroupStore,
   settingsStore,
   toolsStore,
+  workspaceStore,
 }: ChatPageProps) {
   const { i18n, t } = useTranslation("chat");
   const slashCommands = useMemo(() => composerSlashCommands(t), [t]);
@@ -306,7 +307,6 @@ export function ChatPage({
   const [queuedInputsBySession, setQueuedInputsBySession] = useState<Map<string, QueuedComposerInput[]>>(() => new Map());
   const [queueMessage, setQueueMessage] = useState("");
   const [composerSessionMentionIds, setComposerSessionMentionIds] = useState<string[]>([]);
-  const [recoveringTurnId, setRecoveringTurnId] = useState("");
   const [installingMigrationJobId, setInstallingMigrationJobId] = useState("");
   const [migrationInstallError, setMigrationInstallError] = useState("");
   const [showBackToLatest, setShowBackToLatest] = useState(false);
@@ -1240,73 +1240,6 @@ export function ChatPage({
     await handleSessionStoreRefresh(optimisticSession);
   }
 
-  async function handleRecoverTurn(
-    turn: ChatTurn,
-    action: RecoveryAction,
-    retryItemId?: string,
-  ): Promise<void> {
-    if (!activeSession || recoveringTurnId || isTinyOsCommandInFlight(commandLifecycle)) {
-      return;
-    }
-    setRecoveringTurnId(turn.id);
-    try {
-      if (action === "retry") {
-        if (tinyOsCapabilities.threadId !== activeSession.id
-          || tinyOsCapabilities.evaluatedTurnId !== turn.id
-          || !tinyOsCapabilities.capabilities.agent.retry.available) {
-          reportTimelineError(tinyOsCapabilities.capabilities.agent.retry.reason || t("runtime.failedTurnRetryUnavailable"));
-          return;
-        }
-        const failedItem = retryItemId
-          ? (turn.executionItems ?? turn.steps).find((step) => step.id === retryItemId && step.status === "failed")
-          : [...(turn.executionItems ?? turn.steps)].reverse().find((step) => step.status === "failed");
-        if (!failedItem) {
-          reportTimelineError(t("runtime.failedItemUnavailable"));
-          return;
-        }
-        const command = createTinyOsOperationRetryCommand({
-          itemId: failedItem.id,
-          sessionId: activeSession.id,
-          source: { control: "error-recovery", surface: "chat" },
-          threadId: turn.canonicalItems?.find((item) => item.threadId)?.threadId,
-          turnId: turn.id,
-        });
-        clearTimelineError();
-        dispatchCommandLifecycle({ command, nowMs: now(), type: "dispatch" });
-        try {
-          await chatStore.dispatch(command);
-        } catch (error) {
-          dispatchCommandLifecycle({
-            commandId: command.commandId,
-            error: error instanceof Error ? error.message : String(error),
-            type: "rejected",
-          });
-        }
-        return;
-      }
-      if (action === "restart") {
-        const created = await sessionStore.create({
-          title: deriveSessionTitle(turn.userMessage.text, t),
-          ...(activeSession.model
-            ? {
-                model: activeSession.model,
-                ...(activeSession.modelProvider ? { modelProvider: activeSession.modelProvider } : {}),
-              }
-            : composerSessionModelInput(composerModels, composerModel)),
-        });
-        activateCreatedSession(created);
-        await dispatchTurn(created.id, { text: turn.userMessage.text }, "recovery-restart");
-        await handleSessionStoreRefresh(created);
-        return;
-      }
-      const text = t("continuePrompt");
-      await dispatchTurn(activeSession.id, { text }, "recovery-continue");
-      await handleSessionStoreRefresh(activeSession);
-    } finally {
-      setRecoveringTurnId("");
-    }
-  }
-
   function handleConversationScroll(): void {
     const element = conversationRef.current;
     if (!element) {
@@ -1737,6 +1670,101 @@ export function ChatPage({
     }
   }
 
+  async function handleOpenAssistantFileLink(link: AssistantFileLink) {
+    if (!activeSession) {
+      return;
+    }
+
+    let artifact: ArtifactRef;
+    try {
+      artifact = assistantFileArtifact(resolveAssistantFileLink(link.href, activeSession.workingDirectory));
+    } catch (error) {
+      artifact = assistantFileArtifact({ path: link.href, title: assistantFileLinkTitle(link.href) });
+      const tabId = sidecarArtifactTabId(activeSession.id, artifact.id);
+      dispatchSidecar({
+        artifactId: artifact.id,
+        threadId: activeSession.id,
+        title: artifact.title,
+        type: "tab.openArtifact",
+      });
+      const message = error instanceof AssistantFileLinkError && error.code === "outside_workspace"
+        ? t("details.fileOutsideWorkspace")
+        : errorMessage(error);
+      console.error("[artifact-preview] workspace file link resolution failed", {
+        error,
+        href: link.href,
+        sessionId: activeSession.id,
+        workspaceRoot: activeSession.workingDirectory,
+      });
+      setArtifactSidecarContent((current) => ({
+        ...current,
+        [tabId]: { artifact, error: message, loading: false },
+      }));
+      return;
+    }
+
+    const tabId = sidecarArtifactTabId(activeSession.id, artifact.id);
+    dispatchSidecar({
+      artifactId: artifact.id,
+      threadId: activeSession.id,
+      title: artifact.title,
+      type: "tab.openArtifact",
+    });
+    if (!workspaceStore) {
+      const message = t("details.filePreviewUnavailable");
+      console.error("[artifact-preview] workspace file API unavailable", {
+        path: artifact.fetchPath,
+        sessionId: activeSession.id,
+      });
+      setArtifactSidecarContent((current) => ({
+        ...current,
+        [tabId]: { artifact, error: message, loading: false },
+      }));
+      return;
+    }
+
+    setArtifactSidecarContent((current) => ({
+      ...current,
+      [tabId]: { artifact, loading: true },
+    }));
+    try {
+      const file = await workspaceStore.readThreadFile({
+        path: artifact.fetchPath!,
+        threadId: activeSession.id,
+      });
+      if (file.contentType !== "text") {
+        throw new Error(t("details.binaryFilePreviewUnsupported"));
+      }
+      const detail: LoadedArtifactDetail = {
+        id: artifact.id,
+        mimeType: artifact.mimeType,
+        textContent: file.content ?? "",
+        title: artifact.title,
+      };
+      setArtifactSidecarContent((current) => current[tabId]
+        ? {
+            ...current,
+            [tabId]: {
+              ...current[tabId],
+              detail,
+              loading: false,
+              ...(file.nextCursor ? { notice: t("details.filePreviewTruncated") } : {}),
+            },
+          }
+        : current);
+    } catch (error) {
+      const message = errorMessage(error);
+      console.error("[artifact-preview] workspace file read failed", {
+        error,
+        path: artifact.fetchPath,
+        sessionId: activeSession.id,
+      });
+      setArtifactSidecarContent((current) => current[tabId]
+        ? { ...current, [tabId]: { ...current[tabId], error: message, loading: false } }
+        : current);
+    }
+  }
+
   async function handleCloseSidecarTab(tab: SidecarTab) {
     if (tab.kind === "browser") {
       setBrowserProvisionErrors((current) => omitRecordKey(current, tab.id));
@@ -1799,6 +1827,7 @@ export function ChatPage({
         detail={content.detail}
         error={content.error}
         loading={content.loading}
+        notice={content.notice}
       />
     );
   }
@@ -2063,17 +2092,15 @@ export function ChatPage({
             actions={{
               onBranch: (messageId) => activeSession && void handleBranchFromMessage(activeSession, messageId),
               onOpenArtifact: (artifact) => void handleOpenArtifact(artifact),
-              onOpenError: (turn, step) => setDrawer({ kind: "error", title: t("shell.errorDetails"), step, turn }),
+              onOpenFileLink: (link) => void handleOpenAssistantFileLink(link),
               onOpenSubagent: (delegate) => void handleOpenSubagent(delegate),
               onOpenTool: (toolCall) => setDrawer({ kind: "tool", title: toolCall.name, toolCall }),
-              onRecover: (turn, action) => void handleRecoverTurn(turn, action),
             }}
             error={timelineError}
             hookResults={hookResults}
             interactiveFormIds={interactiveFormIds}
             latestFailedTurnId={latestFailedTurnId}
             optimisticMessages={optimisticMessages}
-            recoveringTurnId={recoveringTurnId}
             sessionRunning={sessionRunning}
             turns={activeSession ? timeline?.turns ?? [] : []}
           />
@@ -2254,10 +2281,8 @@ export function ChatPage({
           <div className="react-right-drawer__content">
             {drawer.kind === "tool" ? (
               <ToolCallDetails toolCall={drawer.toolCall} />
-            ) : drawer.kind === "subagent" ? (
-              <SubagentDetails delegate={drawer.delegate} error={drawer.error} loading={drawer.loading} />
             ) : (
-              <ChatErrorDetails step={drawer.step} turn={drawer.turn} />
+              <SubagentDetails delegate={drawer.delegate} error={drawer.error} loading={drawer.loading} />
             )}
           </div>
         </aside>
@@ -2524,11 +2549,13 @@ function ArtifactDetails({
   detail,
   error,
   loading,
+  notice,
 }: {
   artifact: ArtifactRef;
   detail?: LoadedArtifactDetail;
   error?: string;
   loading: boolean;
+  notice?: string;
 }) {
   const { t } = useTranslation("chat");
   return (
@@ -2539,6 +2566,7 @@ function ArtifactDetails({
       </dl>
       {loading ? <p aria-live="polite">{t("details.loadingArtifact")}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
+      {notice ? <p className="react-artifact-detail__notice">{notice}</p> : null}
       {detail?.imageDataUrl ? <img alt={detail.title} src={detail.imageDataUrl} /> : null}
       {detail?.dataView ? <DataViewCard artifact={{ ...artifact, dataView: detail.dataView }} expanded /> : null}
       {detail?.textContent ? <pre>{detail.textContent}</pre> : null}

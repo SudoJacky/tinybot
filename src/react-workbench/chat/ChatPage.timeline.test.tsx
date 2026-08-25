@@ -10,10 +10,7 @@ import { timelineFromReactMessages } from "./test/timelineFixtures";
 import {
   ChatPageUnderTest as ChatPage,
   createStores,
-  effectiveCapabilities,
-  expectTurnSubmit,
   failedPlanTimeline,
-  turnSubmitCommands,
 } from "./test/ChatPageTestHarness";
 
 describe("ChatPage", () => {
@@ -596,7 +593,7 @@ describe("ChatPage", () => {
     requestFrame.mockRestore();
   });
 
-  it("renders Plan first, collapses execution details, and exposes failure recovery", async () => {
+  it("renders Plan first and shows failures as a lightweight inline error", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     stores.chatStore.load = vi.fn(async () => failedPlanTimeline());
@@ -615,14 +612,10 @@ describe("ChatPage", () => {
     await user.click(planToggle);
     expect(details.getAttribute("aria-expanded")).toBe("false");
     expect(error.textContent).toContain("Execution reached the iteration limit");
-    expect(error.textContent).toContain("Read project files");
-    expect(error.textContent).toContain("1 steps completed");
-    expect(within(error).getByRole("button", { name: "Continue" })).toBeTruthy();
-    expect(within(error).getByRole("button", { name: "Retry current step" })).toBeTruthy();
-    expect(within(error).getByRole("button", { name: "Start over" })).toBeTruthy();
-
-    await user.click(within(error).getByRole("button", { name: "View details" }));
-    expect(screen.getByLabelText("Details drawer").textContent).toContain("max_iterations");
+    expect(error.textContent).not.toContain("Read project files");
+    expect(error.textContent).not.toContain("1 steps completed");
+    expect(within(error).getByRole("button", { name: "Copy error" })).toBeTruthy();
+    expect(within(error).queryByRole("button", { name: /Continue|Retry|Start over|View details/ })).toBeNull();
   });
 
   it("renders canonical execution items chronologically and restores completed turns folded", async () => {
@@ -694,7 +687,7 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    const toggle = await screen.findByRole("button", { name: /Work performed Completed · 4 actions/ });
+    const toggle = await screen.findByRole("button", { name: /Work performed 4 actions/ });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.getByText("Verification passed.")).toBeTruthy();
     await user.click(toggle);
@@ -714,7 +707,6 @@ describe("ChatPage", () => {
   });
 
   it("renders apply_patch tool results as an inline file diff", async () => {
-    const user = userEvent.setup();
     const stores = createStores();
     const timeline = timelineFromReactMessages("s1", [{
       id: "u-patch-preview",
@@ -762,8 +754,7 @@ describe("ChatPage", () => {
     expect(screen.getByText("let marker = line.trim();")).toBeTruthy();
     expect(screen.getByText("let marker = line.trim_end();")).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: "Open details for Edited parser.rs" }));
-    expect(screen.getByLabelText("Details drawer").textContent).toContain("apply_patch");
+    expect(screen.queryByRole("button", { name: "Open details for Edited parser.rs" })).toBeNull();
   });
 
   it("auto-folds untouched execution on final answer and preserves explicit user-open intent", async () => {
@@ -852,7 +843,7 @@ describe("ChatPage", () => {
       return 1;
     });
     act(() => listener?.({ type: "timeline.patch", timeline: timelineFor(true) }));
-    toggle = await screen.findByRole("button", { name: /Work performed Completed · 1 action/ });
+    toggle = await screen.findByRole("button", { name: /Work performed 1 action/ });
     await waitFor(() => expect(toggle.getAttribute("aria-expanded")).toBe("false"));
     act(() => animationFrame?.(0));
     expect(conversation.scrollTop).toBe(450);
@@ -911,7 +902,7 @@ describe("ChatPage", () => {
     await waitFor(() => expect(toggle.getAttribute("aria-expanded")).toBe("false"));
   });
 
-  it("keeps abnormal canonical execution expanded with recovery controls visible", async () => {
+  it("keeps abnormal canonical execution expanded with the inline error visible", async () => {
     const stores = createStores();
     const timeline = failedPlanTimeline();
     timeline.turns[0].executionItems = timeline.turns[0].steps;
@@ -922,7 +913,7 @@ describe("ChatPage", () => {
     const toggle = await screen.findByRole("button", { name: /Work performed Failed · 3 actions/ });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     const error = screen.getByRole("alert", { name: "Task execution failed" });
-    expect(within(error).getByRole("button", { name: "Continue" })).toBeTruthy();
+    expect(within(error).getByRole("button", { name: "Copy error" })).toBeTruthy();
   });
 
   it("keeps interrupted work visible without rendering a failure recovery card", async () => {
@@ -939,56 +930,23 @@ describe("ChatPage", () => {
     expect(screen.queryByRole("alert", { name: "Task execution failed" })).toBeNull();
   });
 
-  it("sends a contextual recovery prompt for continue", async () => {
+  it("copies contextual failure details from the inline error", async () => {
     const user = userEvent.setup();
-    const stores = createStores();
-    stores.chatStore.load = vi.fn(async () => failedPlanTimeline());
-
-    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
-
-    const error = await screen.findByRole("alert", { name: "Task execution failed" });
-    await user.click(within(error).getByRole("button", { name: "Continue" }));
-
-    expectTurnSubmit(stores.chatStore, "s1", {
-      text: "Continue from where you were interrupted using the existing context and plan. Confirm the current progress first, then finish the remaining work.",
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
     });
-  });
-
-  it("dispatches retry as a correlated TinyOS command instead of a synthetic chat prompt", async () => {
-    const user = userEvent.setup();
-    const stores = createStores();
-    const timeline = failedPlanTimeline();
-    const capabilities = effectiveCapabilities("s1");
-    capabilities.evaluatedTurnId = timeline.turns[0].id;
-    capabilities.capabilities.agent.retry = { available: true };
-    stores.chatStore.load = vi.fn(async () => timeline);
-    stores.chatStore.loadTinyOsCapabilities = vi.fn(async () => capabilities);
-
-    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
-
-    const error = await screen.findByRole("alert", { name: "Task execution failed" });
-    await user.click(within(error).getByRole("button", { name: "Retry current step" }));
-
-    expect(stores.chatStore.dispatch).toHaveBeenCalledWith(expect.objectContaining({
-      kind: "operation.retry",
-      operation: { itemId: "error-failed-plan", turnId: timeline.turns[0].id },
-      target: expect.objectContaining({ sessionId: "s1" }),
-    }));
-    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
-  });
-
-  it("restarts a failed task in a new titled session", async () => {
-    const user = userEvent.setup();
     const stores = createStores();
     stores.chatStore.load = vi.fn(async () => failedPlanTimeline());
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
     const error = await screen.findByRole("alert", { name: "Task execution failed" });
-    await user.click(within(error).getByRole("button", { name: "Start over" }));
+    await user.click(within(error).getByRole("button", { name: "Copy error" }));
 
-    expect(stores.sessionStore.create).toHaveBeenCalledWith({ title: "Inspect the project and repo…" });
-    expectTurnSubmit(stores.chatStore, "s2", { text: "Inspect the project and report findings" });
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("Error code: max_iterations"));
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("Interrupted at: Read project files"));
   });
 
   it("loads owner-associated image references through the artifact API before previewing", async () => {
@@ -1034,5 +992,152 @@ describe("ChatPage", () => {
     const sidecar = await screen.findByLabelText("Sidecar");
     const image = await within(sidecar).findByRole("img", { name: "chart.png" });
     expect(image.getAttribute("src")).toBe("data:image/png;base64,aGVsbG8=");
+  });
+
+  it("opens assistant workspace file links as contextual artifact tabs", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Tinybot workspace",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "idle",
+        workingDirectory: "D:\\Code\\py\\tinybot",
+      }],
+    });
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, [{
+      id: "a-file-link",
+      role: "assistant",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "See [the renderer entry](src/main.ts:12).",
+      status: "complete",
+    }]));
+    const readThreadFile = vi.fn(async () => ({
+      content: "import { mount } from './react-workbench/main';",
+      contentType: "text" as const,
+      lineEnd: 1,
+      lineStart: 1,
+      path: "src/main.ts",
+      revision: "rev-1",
+      sizeBytes: 48,
+    }));
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 2, 0)}
+        sessionStore={stores.sessionStore}
+        workspaceStore={{ readThreadFile }}
+      />,
+    );
+
+    await user.click(await screen.findByRole("link", { name: "the renderer entry" }));
+
+    expect(readThreadFile).toHaveBeenCalledWith({ path: "src/main.ts", threadId: "s1" });
+    const sidecar = await screen.findByLabelText("Sidecar");
+    expect(within(sidecar).getByRole("tab", { name: "main.ts" })).toBeTruthy();
+    expect(await within(sidecar).findByText("import { mount } from './react-workbench/main';")).toBeTruthy();
+  });
+
+  it("surfaces truncated and binary workspace file previews in the artifact tab", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Tinybot workspace",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "idle",
+        workingDirectory: "D:\\Code\\py\\tinybot",
+      }],
+    });
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, [{
+      id: "a-file-preview-boundaries",
+      role: "assistant",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Inspect [the full log](logs/full.log) or [the executable](dist/tinybot.exe).",
+      status: "complete",
+    }]));
+    const readThreadFile = vi.fn(async ({ path }: { path: string }) => path.endsWith(".exe")
+      ? {
+          contentType: "binary" as const,
+          path,
+          revision: "rev-binary",
+          sizeBytes: 1024,
+        }
+      : {
+          content: "first chunk",
+          contentType: "text" as const,
+          lineEnd: 1,
+          lineStart: 1,
+          nextCursor: "cursor-2",
+          path,
+          revision: "rev-log",
+          sizeBytes: 2048,
+        });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 2, 0)}
+        sessionStore={stores.sessionStore}
+        workspaceStore={{ readThreadFile }}
+      />,
+    );
+
+    await user.click(await screen.findByRole("link", { name: "the full log" }));
+    let sidecar = await screen.findByLabelText("Sidecar");
+    expect(await within(sidecar).findByText("first chunk")).toBeTruthy();
+    expect(within(sidecar).getByText(/Preview truncated/)).toBeTruthy();
+
+    await user.click(screen.getByRole("link", { name: "the executable" }));
+    sidecar = await screen.findByLabelText("Sidecar");
+    await waitFor(() => {
+      expect(within(sidecar).getByRole("alert").textContent).toContain("Binary files cannot be previewed");
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      "[artifact-preview] workspace file read failed",
+      expect.objectContaining({ path: "dist/tinybot.exe", sessionId: "s1" }),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("shows workspace file preview failures inside the artifact tab", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Tinybot workspace",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "idle",
+        workingDirectory: "D:\\Code\\py\\tinybot",
+      }],
+    });
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, [{
+      id: "a-bad-file-link",
+      role: "assistant",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "See [private file](C:/Users/private.txt).",
+      status: "complete",
+    }]));
+    const readThreadFile = vi.fn();
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 2, 0)}
+        sessionStore={stores.sessionStore}
+        workspaceStore={{ readThreadFile }}
+      />,
+    );
+
+    await user.click(await screen.findByRole("link", { name: "private file" }));
+
+    const sidecar = await screen.findByLabelText("Sidecar");
+    expect(within(sidecar).getByRole("alert").textContent).toContain("outside the active workspace");
+    expect(readThreadFile).not.toHaveBeenCalled();
   });
 });
