@@ -28,6 +28,7 @@ struct FakeAdapter {
     page_text: Mutex<Option<String>>,
     page_text_revision: std::sync::atomic::AtomicU64,
     fail_create: std::sync::atomic::AtomicBool,
+    create_failures_remaining: std::sync::atomic::AtomicU64,
     fail_observe: std::sync::atomic::AtomicBool,
 }
 
@@ -100,7 +101,15 @@ impl BrowserRuntimeAdapter for FakeAdapter {
         if delay_ms > 0 {
             tokio::time::sleep(Duration::from_millis(delay_ms)).await;
         }
-        if self.fail_create.load(std::sync::atomic::Ordering::Relaxed) {
+        let transient_create_failure = self
+            .create_failures_remaining
+            .fetch_update(
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+                |remaining| remaining.checked_sub(1),
+            )
+            .is_ok();
+        if self.fail_create.load(std::sync::atomic::Ordering::Relaxed) || transient_create_failure {
             return Err("fixture WebView initialization failed".to_string());
         }
         self.created.lock().unwrap().push(request.tab_id.clone());
@@ -1199,6 +1208,82 @@ async fn failed_session_snapshot_never_advertises_interaction() {
     assert!(!snapshot.data.interaction.navigate);
     assert!(!snapshot.data.interaction.click);
     assert!(!snapshot.data.interaction.semantic);
+}
+
+#[tokio::test]
+async fn transient_session_creation_failure_is_retried() {
+    let adapter = Arc::new(FakeAdapter::default());
+    adapter
+        .create_failures_remaining
+        .store(1, std::sync::atomic::Ordering::Relaxed);
+    let manager = manager(adapter.clone());
+
+    let snapshot = manager
+        .create_session(BrowserCreateSessionInput {
+            owner_session_id: "thread-transient-create-failure".to_string(),
+            profile_id: None,
+            persistence: BrowserProfilePersistence::Persistent,
+            initial_url: None,
+        })
+        .await
+        .expect("a transient WebView initialization failure should be retried");
+
+    assert_eq!(snapshot.data.lifecycle, BrowserSessionLifecycle::Ready);
+    assert_eq!(adapter.created.lock().unwrap().len(), 1);
+    assert_eq!(adapter.closed.lock().unwrap().len(), 1);
+    let metrics = manager.metrics();
+    assert_eq!(
+        metrics.counters.get("browser.session.create.failed"),
+        Some(&1)
+    );
+    assert_eq!(
+        metrics.counters.get("browser.session.create.completed"),
+        Some(&1)
+    );
+}
+
+#[tokio::test]
+async fn failed_session_can_be_recreated_for_the_same_owner() {
+    let adapter = Arc::new(FakeAdapter::default());
+    adapter
+        .fail_create
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+    let manager = manager(adapter.clone());
+    let input = BrowserCreateSessionInput {
+        owner_session_id: "thread-recover-create-failure".to_string(),
+        profile_id: None,
+        persistence: BrowserProfilePersistence::Persistent,
+        initial_url: None,
+    };
+
+    manager
+        .create_session(input.clone())
+        .await
+        .expect_err("persistent fixture failure should remain visible");
+    let failed_session_id = manager
+        .snapshot_for_owner("thread-recover-create-failure")
+        .expect("failed session should remain observable")
+        .data
+        .browser_session_id;
+    adapter
+        .fail_create
+        .store(false, std::sync::atomic::Ordering::Relaxed);
+
+    let recovered = manager
+        .create_session(input)
+        .await
+        .expect("a later create request should replace the failed session");
+
+    assert_eq!(recovered.data.lifecycle, BrowserSessionLifecycle::Ready);
+    assert_ne!(recovered.data.browser_session_id, failed_session_id);
+    assert_eq!(
+        manager
+            .snapshot_for_owner("thread-recover-create-failure")
+            .unwrap()
+            .data
+            .browser_session_id,
+        recovered.data.browser_session_id
+    );
 }
 
 #[tokio::test]

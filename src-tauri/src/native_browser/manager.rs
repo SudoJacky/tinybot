@@ -32,6 +32,7 @@ use std::{
 const CAPTURE_RETENTION: usize = 12;
 const MAX_CAPTURE_BASE64_BYTES: usize = 12 * 1024 * 1024;
 const DEFAULT_AGENT_TIMEOUT: Duration = Duration::from_secs(15);
+const SESSION_CREATE_RETRY_DELAY: Duration = Duration::from_millis(250);
 pub(crate) const AGENT_SNAPSHOT_STALE: &str = "Browser page snapshot is stale";
 
 pub(crate) type BrowserSnapshotSink = Arc<dyn Fn(BrowserNativeSnapshot) + Send + Sync>;
@@ -380,9 +381,66 @@ impl BrowserSessionManager {
         self: &Arc<Self>,
         input: BrowserCreateSessionInput,
     ) -> Result<BrowserNativeSnapshot, String> {
+        let owner_session_id = input.owner_session_id.trim().to_string();
+        let first_error = match self.create_session_attempt(input.clone()).await {
+            Ok(snapshot) => return Ok(snapshot),
+            Err(error) => error,
+        };
+        let Some(failed_snapshot) = self
+            .snapshot_for_owner(&owner_session_id)
+            .filter(|snapshot| {
+                snapshot.data.lifecycle == BrowserSessionLifecycle::Failed
+                    && snapshot.data.control.reason.as_deref() == Some(first_error.as_str())
+            })
+        else {
+            return Err(first_error);
+        };
+        {
+            let mut state = self.lock_state();
+            increment_counter(&mut state, "browser.session.create.retry.started");
+        }
+        self.diagnostic(
+            "browser.session.create_retry_started",
+            Some(failed_snapshot.data.browser_session_id),
+            Some(failed_snapshot.data.active_tab_id),
+            None,
+            Some("adapter_initialization_failed"),
+            None,
+            diagnostic_details([
+                (
+                    "delayMs",
+                    serde_json::Value::from(SESSION_CREATE_RETRY_DELAY.as_millis() as u64),
+                ),
+                ("message", serde_json::Value::String(first_error.clone())),
+            ]),
+        );
+        tokio::time::sleep(SESSION_CREATE_RETRY_DELAY).await;
+        match self.create_session_attempt(input).await {
+            Ok(snapshot) => {
+                let mut state = self.lock_state();
+                increment_counter(&mut state, "browser.session.create.retry.completed");
+                Ok(snapshot)
+            }
+            Err(retry_error) => {
+                let mut state = self.lock_state();
+                increment_counter(&mut state, "browser.session.create.retry.failed");
+                Err(format!(
+                    "Native browser session creation failed after one retry: {retry_error} (initial failure: {first_error})"
+                ))
+            }
+        }
+    }
+
+    async fn create_session_attempt(
+        self: &Arc<Self>,
+        input: BrowserCreateSessionInput,
+    ) -> Result<BrowserNativeSnapshot, String> {
         let owner_session_id = required_text(input.owner_session_id, "Browser owner session id")?;
         if let Some(snapshot) = self.snapshot_for_owner(&owner_session_id) {
-            if snapshot.data.lifecycle != BrowserSessionLifecycle::Creating {
+            if !matches!(
+                snapshot.data.lifecycle,
+                BrowserSessionLifecycle::Creating | BrowserSessionLifecycle::Failed
+            ) {
                 return Ok(snapshot);
             }
         }
@@ -390,27 +448,53 @@ impl BrowserSessionManager {
         let wait_started = Instant::now();
         let _creation_guard = creation_lock.lock().await;
         if let Some(snapshot) = self.snapshot_for_owner(&owner_session_id) {
-            let mut state = self.lock_state();
-            increment_counter(&mut state, "browser.session.create.coalesced");
-            record_duration(
-                &mut state,
-                "browser.session.create.wait",
-                wait_started.elapsed(),
-            );
-            drop(state);
-            self.diagnostic(
-                "browser.session.create.coalesced",
-                Some(snapshot.data.browser_session_id.clone()),
-                Some(snapshot.data.active_tab_id.clone()),
-                None,
-                None,
-                None,
-                diagnostic_details([(
-                    "waitMs",
-                    serde_json::Value::from(wait_started.elapsed().as_millis() as u64),
-                )]),
-            );
-            return Ok(snapshot);
+            if snapshot.data.lifecycle == BrowserSessionLifecycle::Failed {
+                {
+                    let mut state = self.lock_state();
+                    increment_counter(&mut state, "browser.session.recovery.started");
+                }
+                self.diagnostic(
+                    "browser.session.recovery_started",
+                    Some(snapshot.data.browser_session_id.clone()),
+                    Some(snapshot.data.active_tab_id.clone()),
+                    None,
+                    Some("failed_session_replaced"),
+                    None,
+                    diagnostic_details([(
+                        "message",
+                        serde_json::Value::String(
+                            snapshot.data.control.reason.clone().unwrap_or_default(),
+                        ),
+                    )]),
+                );
+                self.close_session_after_creation(&snapshot.data.browser_session_id)
+                    .await
+                    .map_err(|error| {
+                        format!("Failed to clean up the failed browser session: {error}")
+                    })?;
+            } else {
+                let mut state = self.lock_state();
+                increment_counter(&mut state, "browser.session.create.coalesced");
+                record_duration(
+                    &mut state,
+                    "browser.session.create.wait",
+                    wait_started.elapsed(),
+                );
+                drop(state);
+                self.diagnostic(
+                    "browser.session.create.coalesced",
+                    Some(snapshot.data.browser_session_id.clone()),
+                    Some(snapshot.data.active_tab_id.clone()),
+                    None,
+                    None,
+                    None,
+                    diagnostic_details([(
+                        "waitMs",
+                        serde_json::Value::from(wait_started.elapsed().as_millis() as u64),
+                    )]),
+                );
+                return Ok(snapshot);
+            }
         }
         let initial_url = safe_browser_url(input.initial_url.as_deref().unwrap_or("about:blank"))?;
         let profile_id = validated_profile_id(input.profile_id.as_deref(), &owner_session_id)?;
