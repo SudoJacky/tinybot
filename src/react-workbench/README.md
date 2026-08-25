@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:6398547c0e317d4fffd701f21331b1e35452f25dedd5b6229b2f9b638fefe9b2 -->
+<!-- tinybot-module-fingerprint: sha256:df8a8f62558bc7b4765c22e46bfced3544161feedb594d7adc914b9bf7d36b11 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App` for the main window and selects lightweight
@@ -41,7 +41,8 @@ read-only in the renderer.
 - Framework-independent contracts and projections belong in `app-core/`.
 
 The Tools & Plugins route presents Plugins, Skills, MCP servers, and callable
-Tools as separate resource views over one normalized catalog.
+Tools as separate resource views over one normalized catalog. Skill rows load
+their full `SKILL.md` detail only when selected.
 
 The retired TinyOS desktop and its embedded files, terminal, and monitor
 applications are not renderer routes. Chat now hosts Sidecar, whose Browser

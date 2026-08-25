@@ -124,6 +124,26 @@ async fn worker_webui_rust_route_with_options(
         }
     }
 
+    if method == "GET" {
+        if let Some(skill_id) = webui_tool_skill_detail_id(&path) {
+            let detail =
+                worker_webui_tool_skill_detail_body(skill_id, workspace_root.clone()).await?;
+            let (status, body) = match detail {
+                Some(detail) => (200, detail),
+                None => (
+                    404,
+                    serde_json::json!({ "error": { "message": "Skill not found" } }),
+                ),
+            };
+            return Ok(Some(webui_route_response(
+                status,
+                body,
+                "rust",
+                webui_route_group(&path),
+            )));
+        }
+    }
+
     let result = match (method.as_str(), path.as_str()) {
         ("GET", "/api/tools") => Some(
             worker_webui_tools_body(shared, workspace_root.clone(), config_snapshot.clone()).await,
@@ -367,6 +387,50 @@ async fn worker_webui_tools_body(
     .map_err(|error| format!("worker webui tools task failed: {error}"))?
 }
 
+async fn worker_webui_tool_skill_detail_body(
+    skill_id: String,
+    workspace_root: PathBuf,
+) -> Result<Option<serde_json::Value>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(skill) =
+            crate::workspace_extensions::discover_workspace_skills(&workspace_root)?
+                .into_iter()
+                .find(|skill| format!("workspace:{}", skill.name) == skill_id)
+        {
+            return Ok(Some(serde_json::json!({
+                "id": skill_id,
+                "name": skill.name,
+                "description": skill.description,
+                "source": "workspace",
+                "path": skill.path.display().to_string(),
+                "content": skill.content,
+            })));
+        }
+        for plugin in crate::plugins::PluginStore::default_global()
+            .enabled()
+            .map_err(|error| format!("failed to discover Agent Plugin skills: {error}"))?
+        {
+            if let Some(skill) = plugin
+                .skills
+                .into_iter()
+                .find(|skill| skill.qualified_name() == skill_id)
+            {
+                return Ok(Some(serde_json::json!({
+                    "id": skill_id,
+                    "name": skill.name,
+                    "description": skill.description,
+                    "source": format!("plugin:{}", skill.plugin_name),
+                    "path": skill.path.display().to_string(),
+                    "content": skill.content,
+                })));
+            }
+        }
+        Ok(None)
+    })
+    .await
+    .map_err(|error| format!("worker webui Skill detail task failed: {error}"))?
+}
+
 pub(crate) async fn native_webui_agent_ui_form_resolution_body_async(
     shared: &SharedNativeRuntime,
     form_id: String,
@@ -470,6 +534,14 @@ fn webui_skill_item_name(path: &str) -> Option<String> {
     Some(percent_decode(rest))
 }
 
+fn webui_tool_skill_detail_id(path: &str) -> Option<String> {
+    let rest = path.strip_prefix("/api/tools/skills/")?;
+    if rest.is_empty() || rest.contains('/') {
+        return None;
+    }
+    Some(percent_decode(rest))
+}
+
 fn webui_agent_ui_form_route(path: &str) -> Option<(String, bool)> {
     webui_agent_ui_form_route_id(path, "/submit")
         .map(|form_id| (form_id, false))
@@ -490,7 +562,7 @@ fn webui_route_group(path: &str) -> &'static str {
         "workspace"
     } else if path.starts_with("/api/skills") {
         "skills"
-    } else if path == "/api/tools" {
+    } else if path.starts_with("/api/tools") {
         "tools"
     } else if path == "/api/providers" || path == "/api/provider-models" {
         "providers"

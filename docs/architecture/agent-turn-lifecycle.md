@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:b0d431421743e922032458b43e8c75956e130ef5ce20f15f0968788235d8f2ce -->
+<!-- tinybot-doc-fingerprint: sha256:24730d890c8c5e280bf621aa714b9250d4d9836e3419a89022b910be833cbd51 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -48,6 +48,7 @@ agent::bridge
 agent::runtime
     |-- evaluate UserPromptSubmit before the first provider request
     |-- build bounded model context
+    |-- assemble and estimate the provider-protocol request
     |-- call provider
     |-- append assistant items
     |-- evaluate PreToolUse, dispatch, then evaluate PostToolUse
@@ -72,13 +73,18 @@ establishes the effective working directory and before runtime services are
 installed. The merged snapshot is Turn-local: persistence, discovery, and tool
 dispatch share it, while the saved global configuration remains unchanged.
 
+After context projection, the runtime encodes one final Chat Completions or
+Responses request, estimates its serialized size, and retains that same value
+for provider dispatch. Provider-visible expansions therefore cannot diverge
+between usage estimation and the request that is sent.
+
 ## Runtime loop
 
 For each provider iteration, the runtime:
 
 1. Restores any continuation and prepares typed `AgentItem` history.
 2. Builds the bounded request context and records provenance.
-3. Invokes the configured provider adapter.
+3. Encodes and estimates the final provider request, then dispatches that same value.
 4. Decodes assistant text, reasoning metadata, usage (including nested cache
    and reasoning detail counters), and tool calls.
 5. Records the complete tool batch before the next provider request.

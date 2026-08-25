@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:b54696822f30701858f286b4438edac45e6a187ebbdfb65e8b3ec435023a8884 -->
+<!-- tinybot-module-fingerprint: sha256:aaed1b9739f7ae351ca650220835735c349cf375ab36b7180bba1ab9363815e2 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -27,10 +27,12 @@ to [`agent::bridge`](../bridge/README.md).
 - Track token usage, cancellation, and resumable form checkpoints. Provider
   cache-read and reasoning-output counts are normalized from both top-level
   usage fields and the Chat Completions/Responses prompt, input, completion,
-  or output Token detail objects. Context-window estimates include serialized
-  provider-visible tool definitions as well as messages and instructions. Typed
-  usage Items keep those normalized context metrics separate from the untouched
-  provider payload.
+  or output Token detail objects. Context-window estimates serialize the fully
+  assembled provider request after protocol encoding, so workspace instructions,
+  replay items, references, images, tool definitions, and structured-output schemas
+  share one accounting boundary. The final assembled request is retained and reused
+  for dispatch instead of being encoded a second time. Typed usage Items keep those
+  normalized context metrics separate from the untouched provider payload.
 
 This module does **not** choose the desktop transport, mutate Tauri state, or
 decide which durable conversation store a caller uses.

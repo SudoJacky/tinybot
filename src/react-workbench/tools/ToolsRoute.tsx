@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BookOpen, Network, PackagePlus, Puzzle, Search, WandSparkles } from "lucide-react";
+import { BookOpen, ChevronRight, Network, PackagePlus, Puzzle, Search, WandSparkles, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import { readDefaultChatModel } from "../../app-core/chat/chatModelPreference";
@@ -11,6 +11,7 @@ import type {
   AppServices,
   PluginMigrationJob,
   PluginSummary,
+  SkillDetail,
   ToolCatalogSummary,
 } from "../services";
 import "./ToolsRoute.css";
@@ -96,6 +97,7 @@ export default function ToolsRoute({ services, onOpenChat }: ToolsRouteProps) {
         ) : (
           <ToolCatalogPanel
             onRetry={() => setCatalogRevision((revision) => revision + 1)}
+            services={services}
             state={catalogState}
             view={activeView}
           />
@@ -107,10 +109,12 @@ export default function ToolsRoute({ services, onOpenChat }: ToolsRouteProps) {
 
 function ToolCatalogPanel({
   onRetry,
+  services,
   state,
   view,
 }: {
   onRetry: () => void;
+  services: AppServices;
   state: ToolCatalogState;
   view: Exclude<ResourceView, "plugins">;
 }) {
@@ -127,13 +131,45 @@ function ToolCatalogPanel({
       </div>
     );
   }
-  if (view === "skills") return <SkillsCatalogView catalog={state.catalog} />;
+  if (view === "skills") return <SkillsCatalogView catalog={state.catalog} services={services} />;
   if (view === "mcp") return <McpCatalogView catalog={state.catalog} />;
   return <ToolsCatalogView catalog={state.catalog} />;
 }
 
-function SkillsCatalogView({ catalog }: { catalog: ToolCatalogSummary }) {
+type SkillDetailState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready"; detail: SkillDetail }
+  | { status: "failed"; error: Error };
+
+function SkillsCatalogView({ catalog, services }: { catalog: ToolCatalogSummary; services: AppServices }) {
   const { t } = useTranslation("common");
+  const [selectedSkillId, setSelectedSkillId] = useState<string>();
+  const [detailRevision, setDetailRevision] = useState(0);
+  const [detailState, setDetailState] = useState<SkillDetailState>({ status: "idle" });
+  useEffect(() => {
+    if (!selectedSkillId) {
+      setDetailState({ status: "idle" });
+      return;
+    }
+    let cancelled = false;
+    setDetailState({ status: "loading" });
+    void services.toolsStore.loadSkillDetail(selectedSkillId)
+      .then((detail) => {
+        if (!cancelled) setDetailState({ status: "ready", detail });
+      })
+      .catch((cause) => {
+        if (cancelled) return;
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        console.error("[tinybot-tools-route] Skill detail load failed", { error, skillId: selectedSkillId });
+        setDetailState({ status: "failed", error });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [detailRevision, selectedSkillId, services]);
+
+  const detailPanelId = selectedSkillId ? `skill-detail-${cssIdentifier(selectedSkillId)}` : undefined;
   return (
     <div className="react-resource-panel" role="region" aria-label={t("tools.skillsLabel")}>
       <section className="react-tool-group" aria-labelledby="available-skills-heading">
@@ -144,21 +180,71 @@ function SkillsCatalogView({ catalog }: { catalog: ToolCatalogSummary }) {
           </span>
           <span className="react-resource-count">{catalog.skills.length}</span>
         </div>
-        <DataList
-          empty={t("tools.skillsEmpty")}
-          items={catalog.skills}
-          renderItem={(skill) => (
-            <article className="react-data-row react-tool-row" key={skill.id}>
-              <span className="react-data-row__content">
-                <strong>{skill.name}</strong>
-                <small>{skill.description}</small>
-              </span>
-              <span className="react-tool-row__meta">
-                <small title={skill.path}>{skill.source}</small>
-              </span>
-            </article>
-          )}
-        />
+        {catalog.skills.length ? (
+          <div className="react-skill-browser" data-detail-open={Boolean(selectedSkillId)}>
+            <div className="react-data-list react-skill-list">
+              {catalog.skills.map((skill) => {
+                const selected = skill.id === selectedSkillId;
+                return (
+                  <button
+                    aria-controls={selected ? detailPanelId : undefined}
+                    aria-expanded={selected}
+                    aria-label={t("tools.viewSkillDetails", { name: skill.name })}
+                    className="react-data-row react-tool-row react-skill-row"
+                    data-selected={selected}
+                    key={skill.id}
+                    type="button"
+                    onClick={() => setSelectedSkillId(selected ? undefined : skill.id)}
+                  >
+                    <span className="react-data-row__content">
+                      <strong>{skill.name}</strong>
+                      <small>{skill.description}</small>
+                    </span>
+                    <span className="react-tool-row__meta">
+                      <small title={skill.path}>{skill.source}</small>
+                      <ChevronRight aria-hidden="true" size={15} />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {selectedSkillId ? (
+              <section
+                aria-busy={detailState.status === "loading"}
+                aria-label={t("tools.skillDetails")}
+                className="react-skill-detail"
+                id={detailPanelId}
+              >
+                <header>
+                  <strong>{detailState.status === "ready" ? detailState.detail.name : t("tools.skillDetails")}</strong>
+                  <button
+                    aria-label={t("tools.closeSkillDetails")}
+                    type="button"
+                    onClick={() => setSelectedSkillId(undefined)}
+                  >
+                    <X aria-hidden="true" size={15} />
+                  </button>
+                </header>
+                {detailState.status === "loading" ? <p role="status">{t("tools.loadingSkillDetails")}</p> : null}
+                {detailState.status === "failed" ? (
+                  <div className="react-skill-detail__error" role="alert">
+                    <p>{t("tools.skillDetailsFailed", { message: detailState.error.message })}</p>
+                    <button type="button" onClick={() => setDetailRevision((revision) => revision + 1)}>{t("tools.retrySkillDetails")}</button>
+                  </div>
+                ) : null}
+                {detailState.status === "ready" ? (
+                  <div className="react-skill-detail__body">
+                    <dl>
+                      <div><dt>{t("tools.skillSource")}</dt><dd>{detailState.detail.source}</dd></div>
+                      <div><dt>{t("tools.skillPath")}</dt><dd title={detailState.detail.path}>{detailState.detail.path}</dd></div>
+                    </dl>
+                    <pre tabIndex={0}>{detailState.detail.content}</pre>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+          </div>
+        ) : <p className="react-empty-state">{t("tools.skillsEmpty")}</p>}
       </section>
     </div>
   );
@@ -565,4 +651,8 @@ function DataList<T>({ empty, items, renderItem }: {
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+function cssIdentifier(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, "-");
 }

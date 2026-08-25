@@ -49,22 +49,23 @@ impl ProviderProtocolAdapter {
         })
     }
 
-    pub fn from_runtime_context(context: &AgentTurnContext) -> Result<Self, String> {
-        let Some(api_mode) = context.api_mode.as_deref() else {
-            return Ok(if context.responses_input_items.is_some() {
-                Self::Responses
-            } else {
-                Self::ChatCompletions
-            });
-        };
-        Ok(
-            match NativeProviderApiMode::parse(api_mode)
-                .map_err(|_| format!("agent session has unsupported api_mode `{api_mode}`"))?
-            {
-                NativeProviderApiMode::ChatCompletions => Self::ChatCompletions,
-                NativeProviderApiMode::Responses => Self::Responses,
-            },
-        )
+    pub fn for_runtime_request(context: &AgentTurnContext) -> Result<Self, String> {
+        let provider_config = super::agent_provider_config(context);
+        if context.api_mode.is_some()
+            || crate::agent::provider::resolve_provider_profile(
+                &provider_config,
+                context.settings.provider.as_deref(),
+                None,
+            )
+            .is_some()
+        {
+            return Self::resolve(context, &provider_config);
+        }
+        Ok(if context.responses_input_items.is_some() {
+            Self::Responses
+        } else {
+            Self::ChatCompletions
+        })
     }
 
     #[cfg(test)]
@@ -88,7 +89,7 @@ impl ProviderProtocolAdapter {
             .map_err(NativeAgentProviderFailure::provider)
     }
 
-    fn build_request_from_window(
+    pub(super) fn build_request_from_window(
         self,
         context: &AgentTurnContext,
         messages: Vec<Value>,

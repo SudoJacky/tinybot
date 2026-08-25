@@ -252,6 +252,10 @@ export type SkillSummary = {
   path: string;
 };
 
+export type SkillDetail = SkillSummary & {
+  content: string;
+};
+
 export type ToolCatalogSummary = {
   tools: ToolSummary[];
   mcpServers: McpServerSummary[];
@@ -260,6 +264,7 @@ export type ToolCatalogSummary = {
 
 export type ToolsStore = {
   loadCatalog(): Promise<ToolCatalogSummary>;
+  loadSkillDetail(id: string): Promise<SkillDetail>;
   listPlugins(): Promise<PluginSummary[]>;
   installPlugin(path: string): Promise<PluginSummary>;
   preparePluginMigration(path: string): Promise<PluginMigrationJob>;

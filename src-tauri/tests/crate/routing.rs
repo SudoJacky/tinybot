@@ -397,10 +397,31 @@ fn worker_webui_tools_route_returns_effective_catalog() {
         .and_then(|skills| skills.iter().find(|skill| skill["name"] == "review-work"))
         .expect("workspace skill should be cataloged");
     assert_eq!(workspace_skill["source"], "workspace");
+    assert!(workspace_skill.get("content").is_none());
     assert_eq!(response["body"]["mcpServers"][0]["id"], "workspace-docs");
     assert!(response["body"]["mcpServers"][0]["source"]
         .as_str()
         .is_some_and(|source| source.ends_with(".mcp.json")));
+
+    let detail = worker_webui_route_with_options(
+        &shared,
+        WorkerWebuiRouteInput {
+            method: "GET".to_string(),
+            path: "/api/tools/skills/workspace%3Areview-work".to_string(),
+            headers: None,
+            body: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_secs(1),
+    )
+    .expect("workspace skill detail route should be Rust-owned");
+
+    assert_eq!(detail["status"], 200);
+    assert_eq!(detail["body"]["id"], "workspace:review-work");
+    assert!(detail["body"]["content"]
+        .as_str()
+        .is_some_and(|content| content.contains("Review the diff.")));
 }
 
 #[test]

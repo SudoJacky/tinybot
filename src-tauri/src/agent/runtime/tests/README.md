@@ -1,5 +1,5 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:ed50c5430e9288a5542c4f581f930df4bf87294d6f5436e83487a9a0133c7b24 -->
+<!-- tinybot-module-fingerprint: sha256:851e3ccc3dba27679bf647f794850b9e9f4ad5c50dce7768f0e638fec1a2f44b -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.
@@ -7,10 +7,11 @@ configuration, context, interactions, lifecycle, and tools.
 Configuration coverage includes runtime fallbacks and precedence between Turn
 settings and configured Agent defaults.
 
-Context coverage includes compaction and trimming budgets, provider-visible
-tool-definition estimates, and normalization of nested cache and reasoning
-usage details. It also verifies known-model context defaults, the legacy
-unknown-model fallback, and Provider Profile per-model overrides.
+Context coverage includes compaction and trimming budgets, estimates of the
+fully assembled provider request (including Responses-native replay), and
+normalization of nested cache and reasoning usage details. It also verifies
+known-model context defaults, the legacy unknown-model fallback, and Provider
+Profile per-model overrides.
 
 Shared fixtures and helpers live in `mod.rs`.
 

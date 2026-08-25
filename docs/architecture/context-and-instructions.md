@@ -11,7 +11,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:b03c3eae3f74fb2f67f7d29794426cf8d33c104ef1420ca1ade93f54fdb56621 -->
+<!-- tinybot-doc-fingerprint: sha256:039e7918bfed4ba0c22cadefb20865d34cef1fd127490db38fb4cadfe431fc5d -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -117,9 +117,12 @@ checkpoints; they do not become another project-instruction source or appear as
 raw text in hook diagnostic events.
 
 The runtime estimates the provider request against the effective context
-window. The fixed request budget includes composed instructions and the
-serialized definitions of tools visible to the provider, while the remaining
-budget belongs to message history. Window resolution is model-specific: an
+window. Pre-projection budgeting separates fixed instructions and tool
+definitions from message history. After projection, the runtime performs
+protocol encoding once and estimates the complete serialized request that will
+be dispatched, including composed workspace instructions, Responses replay
+items, expanded references and images, provider-visible tools, and output
+schemas. The same assembled value is reused for dispatch. Window resolution is model-specific: an
 explicit Turn value wins, followed by the active Provider Profile's model
 override, Tinybot's known-model catalog, the legacy unknown-model fallback,
 and finally the 128K runtime default. When no strategy is configured, the

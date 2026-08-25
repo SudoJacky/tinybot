@@ -123,6 +123,29 @@ describe("desktop tools store", () => {
     expect(nativePlugins.uninstall).toHaveBeenCalledWith("existing");
   });
 
+  it("loads and normalizes skill details through the dedicated route", async () => {
+    const initialize = vi.fn(async () => undefined);
+    const route = vi.fn(async () => ({
+      id: "workspace:review-work",
+      name: "review-work",
+      description: "Review workspace changes.",
+      source: "workspace",
+      path: "workspace/.agents/skills/review-work/SKILL.md",
+      content: "---\nname: review-work\n---\nReview the diff.\n",
+    }));
+    const store = createDesktopToolsStore({ initialize, nativeWebui: { route } });
+
+    await expect(store.loadSkillDetail("workspace:review-work")).resolves.toMatchObject({
+      id: "workspace:review-work",
+      content: expect.stringContaining("Review the diff."),
+    });
+    expect(initialize).toHaveBeenCalledTimes(1);
+    expect(route).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/api/tools/skills/workspace%3Areview-work",
+    });
+  });
+
   it("preserves native catalog failures", async () => {
     const failure = new Error("tool catalog unavailable");
     const route = vi.fn(async () => Promise.reject(failure));

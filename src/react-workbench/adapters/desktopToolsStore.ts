@@ -2,6 +2,7 @@ import type { NativePluginsApi } from "../../app-core/native/desktopNativePlugin
 import type { NativeWebuiRouteRequest } from "../../app-core/native/desktopNativeWebui";
 import type {
   McpServerSummary,
+  SkillDetail,
   SkillSummary,
   ToolCatalogSummary,
   ToolSummary,
@@ -26,6 +27,14 @@ export function createDesktopToolsStore({
       await initialize();
       const payload = await requireNative(nativeWebui, "WebUI").route({ method: "GET", path: "/api/tools" });
       return normalizeToolCatalog(payload);
+    },
+    async loadSkillDetail(id) {
+      await initialize();
+      const payload = await requireNative(nativeWebui, "WebUI").route({
+        method: "GET",
+        path: `/api/tools/skills/${encodeURIComponent(id)}`,
+      });
+      return normalizeSkillDetail(payload);
     },
     async listPlugins() {
       await initialize();
@@ -98,6 +107,14 @@ function normalizeSkillSummary(item: Record<string, unknown>): SkillSummary {
     description: stringValue(item.description),
     source: stringValue(item.source) || "workspace",
     path: stringValue(item.path),
+  };
+}
+
+function normalizeSkillDetail(payload: unknown): SkillDetail {
+  const item = isRecord(payload) ? payload : {};
+  return {
+    ...normalizeSkillSummary(item),
+    content: stringValue(item.content),
   };
 }
 

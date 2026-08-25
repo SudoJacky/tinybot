@@ -8,7 +8,7 @@ src-tauri/src/rpc/method.rs
 src-tauri/src/rpc/runtime.rs
 src-tauri/tests/crate/transport.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:e90b35c0e6f68ee220ba7d5b293a047f46fd7c5cd8dc0615c978ec9b33906fe0 -->
+<!-- tinybot-doc-fingerprint: sha256:37e4d51ab43c0b873f27311cded641a0f6b738652b70c8bf7309aa1b44552843 -->
 
 This document covers the Rust-owned WebUI route wrapper and Worker RPC protocol.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -51,6 +51,7 @@ Use `routeResponse()` if the status and headers are needed.
 | Method | Path | Group | Notes |
 | --- | --- | --- | --- |
 | `GET` | `/api/tools` | tools | Effective built-in and MCP capability catalog |
+| `GET` | `/api/tools/skills/{id}` | tools | Full detail for one cataloged workspace or enabled-plugin Skill |
 | `GET` | `/api/providers` | providers | Provider catalog |
 | `POST` | `/api/provider-models` | providers | Async provider model resolution, including optional live OpenAI-compatible `GET /models` discovery |
 | `POST` | `/api/agent-ui/forms/{form_id}/submit` | agent-ui | Form continuation |
@@ -149,7 +150,9 @@ turn-local. `.codex` is not scanned.
 servers, runtime status, discovered tools, allowlist state, callable state, denial reasons, input
 schemas, and a separate Skill catalog. Skill entries include enabled Agent Plugin skills and
 `.agents/skills/*/SKILL.md` files for the catalog workspace. One failed or disabled server remains
-visible without hiding tools from healthy servers.
+visible without hiding tools from healthy servers. The list contains Skill metadata and paths, not
+full documents; `GET /api/tools/skills/{id}` reads the selected `SKILL.md` on demand and returns
+`404` when the ID is no longer cataloged.
 
 Stdio configuration example:
 

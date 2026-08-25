@@ -75,6 +75,39 @@ describe("ToolsRoute", () => {
     expect(await screen.findByText("docs")).toBeTruthy();
     expect(screen.getByText(".mcp.json")).toBeTruthy();
   });
+
+  it("loads full Skill content only after the user opens its details", async () => {
+    const toolsStore = createToolsStore();
+    toolsStore.loadCatalog.mockResolvedValue({
+      skills: [{
+        id: "workspace:review-work",
+        name: "review-work",
+        description: "Review changes in this workspace.",
+        source: "workspace",
+        path: "D:\\project\\.agents\\skills\\review-work\\SKILL.md",
+      }],
+      mcpServers: [],
+      tools: [],
+    });
+    toolsStore.loadSkillDetail.mockResolvedValue({
+      id: "workspace:review-work",
+      name: "review-work",
+      description: "Review changes in this workspace.",
+      source: "workspace",
+      path: "D:\\project\\.agents\\skills\\review-work\\SKILL.md",
+      content: "---\nname: review-work\n---\nReview the full diff.\n",
+    });
+    const user = userEvent.setup();
+
+    render(<ToolsRoute onOpenChat={vi.fn()} services={{ toolsStore } as unknown as AppServices} />);
+    await user.click(await screen.findByRole("button", { name: "Skills" }));
+
+    expect(toolsStore.loadSkillDetail).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "View review-work details" }));
+
+    expect(await screen.findByText(/Review the full diff\./)).toBeTruthy();
+    expect(toolsStore.loadSkillDetail).toHaveBeenCalledWith("workspace:review-work");
+  });
 });
 
 function createToolsStore() {
@@ -83,6 +116,7 @@ function createToolsStore() {
     installPluginMigration: vi.fn(),
     listPlugins: vi.fn().mockResolvedValue([]),
     loadCatalog: vi.fn(),
+    loadSkillDetail: vi.fn(),
     preparePluginMigration: vi.fn(),
     setPluginEnabled: vi.fn(),
     uninstallPlugin: vi.fn(),

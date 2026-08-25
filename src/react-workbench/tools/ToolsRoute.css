@@ -573,6 +573,179 @@
   gap: 8px;
 }
 
+.react-skill-browser {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+}
+
+.react-skill-browser[data-detail-open="true"] {
+  grid-template-columns: minmax(260px, 0.85fr) minmax(320px, 1.15fr);
+  align-items: start;
+}
+
+.react-skill-list {
+  min-width: 0;
+}
+
+.react-skill-row {
+  width: 100%;
+  border: 1px solid transparent;
+  color: inherit;
+  text-align: left;
+  transition:
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    background var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-skill-row:hover,
+.react-skill-row:focus-visible {
+  border-color: color-mix(in srgb, var(--color-primary) 28%, var(--color-hairline));
+}
+
+.react-skill-row:focus-visible,
+.react-skill-detail header button:focus-visible,
+.react-skill-detail__error button:focus-visible,
+.react-skill-detail pre:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 58%, transparent);
+  outline-offset: 2px;
+}
+
+.react-skill-row[data-selected="true"] {
+  border-color: color-mix(in srgb, var(--color-primary) 38%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-panel));
+}
+
+.react-skill-row .react-tool-row__meta svg {
+  color: var(--color-muted-soft);
+  transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-skill-row[data-selected="true"] .react-tool-row__meta svg {
+  color: var(--color-primary-active);
+  transform: rotate(90deg);
+}
+
+.react-skill-detail {
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-hairline));
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--color-panel) 92%, transparent);
+  box-shadow: 0 5px 18px rgb(20 20 19 / 5%);
+}
+
+.react-skill-detail > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 0 10px 0 13px;
+}
+
+.react-skill-detail > header strong {
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-skill-detail > header button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  color: var(--color-muted);
+}
+
+.react-skill-detail > header button:hover {
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+}
+
+.react-skill-detail > p,
+.react-skill-detail__error {
+  margin: 0;
+  padding: 18px 13px;
+  color: var(--color-muted);
+  font-size: 12px;
+  white-space: normal;
+}
+
+.react-skill-detail__error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--color-error);
+}
+
+.react-skill-detail__error p {
+  margin: 0;
+}
+
+.react-skill-detail__error button {
+  flex: none;
+  min-height: 28px;
+  border: 1px solid currentColor;
+  border-radius: 7px;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.react-skill-detail__body {
+  display: grid;
+  min-width: 0;
+}
+
+.react-skill-detail dl {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 11px 13px;
+}
+
+.react-skill-detail dl > div {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 10px;
+}
+
+.react-skill-detail dt {
+  color: var(--color-muted);
+}
+
+.react-skill-detail dd {
+  overflow: hidden;
+  margin: 0;
+  color: var(--color-body);
+  font-family: var(--font-code);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-skill-detail pre {
+  max-height: min(58vh, 620px);
+  overflow: auto;
+  margin: 0;
+  padding: 14px;
+  color: var(--color-body);
+  font: 11px/1.55 var(--font-code);
+  tab-size: 2;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .react-status-pill {
   display: inline-flex;
   align-items: center;
@@ -635,6 +808,10 @@
     border-left: 0;
     padding: 8px 12px;
   }
+
+  .react-skill-browser[data-detail-open="true"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -651,6 +828,11 @@
   .react-plugin-switch i {
     transition-duration: 0ms;
   }
+
+  .react-skill-row,
+  .react-skill-row .react-tool-row__meta svg {
+    transition-duration: 0ms;
+  }
 }
 
 @media (prefers-reduced-transparency: reduce) {
@@ -664,6 +846,10 @@
     background: var(--color-panel);
     backdrop-filter: none;
   }
+
+  .react-skill-detail {
+    background: var(--color-panel);
+  }
 }
 
 @media (prefers-contrast: more) {
@@ -672,6 +858,11 @@
   .react-tool-search,
   .react-mcp-card,
   .react-tool-row {
+    border-color: var(--color-body);
+  }
+
+  .react-skill-detail,
+  .react-skill-row {
     border-color: var(--color-body);
   }
 }

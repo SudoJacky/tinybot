@@ -156,6 +156,7 @@ impl AgentTurnContext {
             system_prompt: None,
             instructions: None,
             assembled_system_prompt: None,
+            prepared_provider_request: None,
             context_contributions: Vec::new(),
             stream,
             max_iterations,
@@ -275,6 +276,14 @@ impl AgentTurnContext {
                 .map(ComposedInstructions::rendered_prompt)
                 .or(self.system_prompt.as_deref())
         })
+    }
+
+    pub(super) fn prepared_provider_request(&self) -> Option<&Value> {
+        self.prepared_provider_request.as_ref()
+    }
+
+    pub(super) fn set_prepared_provider_request(&mut self, request: Value) {
+        self.prepared_provider_request = Some(request);
     }
 
     pub(super) fn apply_context_hydration(&mut self, hydration: AgentContextHydration) {
