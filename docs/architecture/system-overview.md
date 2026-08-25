@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:9bba20486a83a9226ceb16d12e02e21c4989e7cb1f4c435e2c9abeff99e7e5dc -->
+<!-- tinybot-doc-fingerprint: sha256:690f2e84908964d05479a916219836232d87111da65542b43b234b58768e265b -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -63,6 +63,7 @@ Desktop Commands / Desktop Host
 | `desktop/pet_file_drop` and `desktop/files` | Windows WebView2 dropped-path extraction plus shared chat-attachment validation/import | Chat state, file-byte transport, or renderer presentation |
 | `desktop_terminal` | User-only Sidecar PTY lifecycle and resource ownership | Agent shell sessions or renderer presentation |
 | `chat_attachments` | Content-addressed managed image storage, validation, and request-local Data URL encoding | Conversation authority or provider protocol selection |
+| `workspace_extensions` | Project-local `.agents/skills` and supported MCP configuration discovery for an effective working directory | Global plugin installation or saved configuration mutation |
 | `agent::bridge` | Complete Turn orchestration and persistence coordination | Provider iteration or the Thread data model |
 | `agent::runtime` | Provider-and-tool loop, context, checkpoints, and runtime events | Tauri state or durable-store selection |
 | `command_hooks` | Hand-written and managed Hook discovery, managed manifest/script generation and constrained editing, exact definition-and-script trust, bounded command execution, and event output parsing | Agent capability policy or renderer state |

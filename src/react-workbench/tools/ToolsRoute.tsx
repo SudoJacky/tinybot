@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { PackagePlus, Puzzle, Search, WandSparkles } from "lucide-react";
+import { BookOpen, Network, PackagePlus, Puzzle, Search, WandSparkles } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import { readDefaultChatModel } from "../../app-core/chat/chatModelPreference";
@@ -15,7 +15,7 @@ import type {
 } from "../services";
 import "./ToolsRoute.css";
 
-type ResourceView = "plugins" | "tools";
+type ResourceView = "plugins" | "skills" | "mcp" | "tools";
 
 type ToolCatalogState =
   | { status: "loading" }
@@ -33,6 +33,8 @@ export default function ToolsRoute({ services, onOpenChat }: ToolsRouteProps) {
   const [catalogRevision, setCatalogRevision] = useState(0);
   const catalogState = useToolCatalog(services, catalogRevision);
   const toolCount = catalogState.status === "ready" ? catalogState.catalog.tools.length : null;
+  const skillCount = catalogState.status === "ready" ? catalogState.catalog.skills.length : null;
+  const mcpCount = catalogState.status === "ready" ? catalogState.catalog.mcpServers.length : null;
 
   return (
     <WorkbenchPage title={t("tools.title")}>
@@ -47,6 +49,26 @@ export default function ToolsRoute({ services, onOpenChat }: ToolsRouteProps) {
             {t("tools.plugins")}
           </button>
           <button
+            aria-label={t("tools.skills")}
+            aria-pressed={activeView === "skills"}
+            onClick={() => setActiveView("skills")}
+            type="button"
+          >
+            <BookOpen aria-hidden="true" size={14} />
+            {t("tools.skills")}
+            <span>{skillCount ?? "—"}</span>
+          </button>
+          <button
+            aria-label={t("tools.mcp")}
+            aria-pressed={activeView === "mcp"}
+            onClick={() => setActiveView("mcp")}
+            type="button"
+          >
+            <Network aria-hidden="true" size={14} />
+            {t("tools.mcp")}
+            <span>{mcpCount ?? "—"}</span>
+          </button>
+          <button
             aria-label={t("tools.tools")}
             aria-pressed={activeView === "tools"}
             onClick={() => setActiveView("tools")}
@@ -59,7 +81,11 @@ export default function ToolsRoute({ services, onOpenChat }: ToolsRouteProps) {
         <p className="react-resource-view__description">
           {activeView === "plugins"
             ? t("tools.pluginDescription")
-            : t("tools.toolsDescription")}
+            : activeView === "skills"
+              ? t("tools.skillsDescription")
+              : activeView === "mcp"
+                ? t("tools.mcpDescription")
+                : t("tools.toolsDescription")}
         </p>
         {activeView === "plugins" ? (
           <PluginsSection
@@ -71,6 +97,7 @@ export default function ToolsRoute({ services, onOpenChat }: ToolsRouteProps) {
           <ToolCatalogPanel
             onRetry={() => setCatalogRevision((revision) => revision + 1)}
             state={catalogState}
+            view={activeView}
           />
         )}
       </div>
@@ -81,23 +108,91 @@ export default function ToolsRoute({ services, onOpenChat }: ToolsRouteProps) {
 function ToolCatalogPanel({
   onRetry,
   state,
+  view,
 }: {
   onRetry: () => void;
   state: ToolCatalogState;
+  view: Exclude<ResourceView, "plugins">;
 }) {
   const { t } = useTranslation("common");
+  const viewName = t(`tools.${view}`);
   if (state.status === "loading") {
-    return <p className="react-plugin-section__loading" role="status">{t("deferredSurface.loading", { name: t("tools.tools") })}</p>;
+    return <p className="react-plugin-section__loading" role="status">{t("deferredSurface.loading", { name: viewName })}</p>;
   }
   if (state.status === "failed") {
     return (
       <div className="react-plugin-section__error" role="alert">
-        <p>{t("deferredSurface.loadFailed", { message: state.error.message, name: t("tools.tools") })}</p>
-        <button onClick={onRetry} type="button">{t("deferredSurface.retry", { name: t("tools.tools") })}</button>
+        <p>{t("deferredSurface.loadFailed", { message: state.error.message, name: viewName })}</p>
+        <button onClick={onRetry} type="button">{t("deferredSurface.retry", { name: viewName })}</button>
       </div>
     );
   }
+  if (view === "skills") return <SkillsCatalogView catalog={state.catalog} />;
+  if (view === "mcp") return <McpCatalogView catalog={state.catalog} />;
   return <ToolsCatalogView catalog={state.catalog} />;
+}
+
+function SkillsCatalogView({ catalog }: { catalog: ToolCatalogSummary }) {
+  const { t } = useTranslation("common");
+  return (
+    <div className="react-resource-panel" role="region" aria-label={t("tools.skillsLabel")}>
+      <section className="react-tool-group" aria-labelledby="available-skills-heading">
+        <div className="react-resource-panel__heading">
+          <span>
+            <h2 id="available-skills-heading">{t("tools.availableSkills")}</h2>
+            <small>{t("tools.availableSkillsDescription")}</small>
+          </span>
+          <span className="react-resource-count">{catalog.skills.length}</span>
+        </div>
+        <DataList
+          empty={t("tools.skillsEmpty")}
+          items={catalog.skills}
+          renderItem={(skill) => (
+            <article className="react-data-row react-tool-row" key={skill.id}>
+              <span className="react-data-row__content">
+                <strong>{skill.name}</strong>
+                <small>{skill.description}</small>
+              </span>
+              <span className="react-tool-row__meta">
+                <small title={skill.path}>{skill.source}</small>
+              </span>
+            </article>
+          )}
+        />
+      </section>
+    </div>
+  );
+}
+
+function McpCatalogView({ catalog }: { catalog: ToolCatalogSummary }) {
+  const { t } = useTranslation("common");
+  return (
+    <div className="react-resource-panel" role="region" aria-label={t("tools.mcpServers")}>
+      <section className="react-tool-group" aria-labelledby="mcp-server-heading">
+        <div className="react-resource-panel__heading">
+          <span>
+            <h2 id="mcp-server-heading">{t("tools.mcpServers")}</h2>
+            <small>{t("tools.mcpServersDescription")}</small>
+          </span>
+          <span className="react-resource-count">{catalog.mcpServers.length}</span>
+        </div>
+        {catalog.mcpServers.length ? (
+          <div className="react-mcp-grid">
+            {catalog.mcpServers.map((server) => (
+              <article className="react-mcp-card" key={server.id}>
+                <span>
+                  <strong>{server.id}</strong>
+                  {server.source ? <small title={server.source}>{server.source}</small> : null}
+                  <small>{server.error || t("tools.transportSummary", { count: server.toolCount, transport: server.transport })}</small>
+                </span>
+                <span className="react-status-pill" data-state={server.state}>{server.state}</span>
+              </article>
+            ))}
+          </div>
+        ) : <p className="react-empty-state">{t("tools.mcpEmpty")}</p>}
+      </section>
+    </div>
+  );
 }
 
 function ToolsCatalogView({ catalog }: { catalog: ToolCatalogSummary }) {
@@ -117,28 +212,6 @@ function ToolsCatalogView({ catalog }: { catalog: ToolCatalogSummary }) {
 
   return (
     <div className="react-resource-panel" role="region" aria-label={t("tools.availableToolsLabel")}>
-      {catalog.mcpServers.length ? (
-        <section className="react-tool-group" aria-labelledby="mcp-server-heading">
-          <div className="react-resource-panel__heading">
-            <span>
-              <h2 id="mcp-server-heading">{t("tools.mcpServers")}</h2>
-              <small>{t("tools.mcpServersDescription")}</small>
-            </span>
-            <span className="react-resource-count">{catalog.mcpServers.length}</span>
-          </div>
-          <div className="react-mcp-grid">
-            {catalog.mcpServers.map((server) => (
-              <article className="react-mcp-card" key={server.id}>
-                <span>
-                  <strong>{server.id}</strong>
-                  <small>{server.error || t("tools.transportSummary", { count: server.toolCount, transport: server.transport })}</small>
-                </span>
-                <span className="react-status-pill" data-state={server.state}>{server.state}</span>
-              </article>
-            ))}
-          </div>
-        </section>
-      ) : null}
       <section className="react-tool-group" aria-labelledby="available-tools-heading">
         <div className="react-resource-panel__heading react-resource-panel__heading--tools">
           <span>

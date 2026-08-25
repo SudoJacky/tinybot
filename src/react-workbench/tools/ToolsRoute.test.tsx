@@ -19,6 +19,7 @@ describe("ToolsRoute", () => {
       .mockRejectedValueOnce(error)
       .mockResolvedValueOnce({
         mcpServers: [],
+        skills: [],
         tools: [{
           available: true,
           displayName: "Read file",
@@ -40,6 +41,39 @@ describe("ToolsRoute", () => {
     await user.click(screen.getByRole("button", { name: "Retry loading Tools" }));
     expect(await screen.findByText("Read file")).toBeTruthy();
     expect(toolsStore.loadCatalog).toHaveBeenCalledTimes(2);
+  });
+
+  it("exposes Skills and MCP as separate resource views", async () => {
+    const toolsStore = createToolsStore();
+    toolsStore.loadCatalog.mockResolvedValue({
+      skills: [{
+        id: "workspace:review-work",
+        name: "review-work",
+        description: "Review changes in this workspace.",
+        source: "workspace",
+        path: "D:\\project\\.agents\\skills\\review-work\\SKILL.md",
+      }],
+      mcpServers: [{
+        id: "docs",
+        enabled: true,
+        transport: "stdio",
+        state: "ready",
+        toolCount: 2,
+        source: ".mcp.json",
+      }],
+      tools: [],
+    });
+    const user = userEvent.setup();
+
+    render(<ToolsRoute onOpenChat={vi.fn()} services={{ toolsStore } as unknown as AppServices} />);
+
+    await user.click(await screen.findByRole("button", { name: "Skills" }));
+    expect(await screen.findByText("review-work")).toBeTruthy();
+    expect(screen.getByText("Review changes in this workspace.")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "MCP" }));
+    expect(await screen.findByText("docs")).toBeTruthy();
+    expect(screen.getByText(".mcp.json")).toBeTruthy();
   });
 });
 

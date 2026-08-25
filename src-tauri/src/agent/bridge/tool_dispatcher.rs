@@ -20,7 +20,6 @@ use std::sync::Arc;
 struct NativeAgentToolExecutorDispatcher {
     workspace_root: PathBuf,
     thread_store: WorkspaceThreadStore,
-    config_snapshot: serde_json::Value,
     fallback: Arc<dyn NativeAgentToolDispatcher>,
     mcp_runtime: McpRuntime,
     shell_runtime: WorkerShellRuntime,
@@ -83,6 +82,11 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
                     .clone()
                     .unwrap_or_else(|| self.workspace_root.clone())
             }
+            Some(ToolExecutionTarget::Mcp { .. }) => context
+                .settings
+                .working_directory
+                .clone()
+                .unwrap_or_else(|| self.workspace_root.clone()),
             _ => self.workspace_root.clone(),
         };
         let (method, params, label) = match execution_target {
@@ -110,7 +114,7 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
         let executor_result = call_rust_state_service_with_mcp_runtime(
             &self.thread_store,
             tool_workspace_root,
-            self.config_snapshot.clone(),
+            context.config_snapshot.clone(),
             self.mcp_runtime.clone(),
             self.shell_runtime.clone(),
             self.subagent_manager.clone(),
@@ -349,7 +353,11 @@ impl NativeAgentToolExecutorDispatcher {
         let result = self
             .mcp_runtime
             .call_tool(
-                &self.workspace_root,
+                context
+                    .settings
+                    .working_directory
+                    .as_deref()
+                    .unwrap_or(&self.workspace_root),
                 &server_name,
                 server_config,
                 &tool_name,
@@ -492,7 +500,6 @@ fn native_web_tool_outcome(tool_name: &str, raw: &serde_json::Value) -> Option<N
 pub(crate) fn native_agent_services_with_tool_executor(
     services: NativeAgentRuntimeServices,
     workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
 ) -> Result<NativeAgentRuntimeServices, String> {
     let fallback = services.tool_dispatcher();
     let thread_store = services.thread_store()?;
@@ -504,7 +511,6 @@ pub(crate) fn native_agent_services_with_tool_executor(
         services.with_tool_dispatcher(Arc::new(NativeAgentToolExecutorDispatcher {
             workspace_root,
             thread_store,
-            config_snapshot,
             fallback,
             mcp_runtime,
             shell_runtime,

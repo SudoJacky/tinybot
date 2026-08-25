@@ -57,7 +57,15 @@ describe("desktop tools store", () => {
       mcpServers: [{
         id: "filesystem",
         enabled: false,
+        source: "workspace/.mcp.json",
         status: { state: "failed", toolCount: "3", lastError: "Connection failed" },
+      }],
+      skills: [{
+        id: "workspace:review-work",
+        name: "review-work",
+        description: "Review workspace changes.",
+        source: "workspace",
+        path: "workspace/.agents/skills/review-work/SKILL.md",
       }],
     }));
     const store = createDesktopToolsStore({ initialize, nativeWebui: { route } });
@@ -80,7 +88,15 @@ describe("desktop tools store", () => {
         transport: "stdio",
         state: "failed",
         toolCount: 3,
+        source: "workspace/.mcp.json",
         error: "Connection failed",
+      }],
+      skills: [{
+        id: "workspace:review-work",
+        name: "review-work",
+        description: "Review workspace changes.",
+        source: "workspace",
+        path: "workspace/.agents/skills/review-work/SKILL.md",
       }],
     });
     expect(initialize).toHaveBeenCalledTimes(1);

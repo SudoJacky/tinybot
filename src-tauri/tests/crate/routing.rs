@@ -360,6 +360,14 @@ fn thread_clear_removes_persisted_history() {
 #[test]
 fn worker_webui_tools_route_returns_effective_catalog() {
     let fixture = WorkspaceFixture::new();
+    fixture.write(
+        ".agents/skills/review-work/SKILL.md",
+        "---\nname: review-work\ndescription: Review workspace changes.\n---\nReview the diff.\n",
+    );
+    fixture.write(
+        ".mcp.json",
+        r#"{"mcpServers":{"workspace-docs":{"command":"docs-server","enabled":false}}}"#,
+    );
     let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
@@ -384,7 +392,15 @@ fn worker_webui_tools_route_returns_effective_catalog() {
         .as_u64()
         .is_some_and(|total| total > 0));
     assert!(response["body"]["tools"].as_array().is_some());
-    assert_eq!(response["body"]["mcpServers"], serde_json::json!([]));
+    let workspace_skill = response["body"]["skills"]
+        .as_array()
+        .and_then(|skills| skills.iter().find(|skill| skill["name"] == "review-work"))
+        .expect("workspace skill should be cataloged");
+    assert_eq!(workspace_skill["source"], "workspace");
+    assert_eq!(response["body"]["mcpServers"][0]["id"], "workspace-docs");
+    assert!(response["body"]["mcpServers"][0]["source"]
+        .as_str()
+        .is_some_and(|source| source.ends_with(".mcp.json")));
 }
 
 #[test]

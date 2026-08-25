@@ -28,6 +28,7 @@ mod tool_notes;
 mod tools;
 mod transport;
 mod workspace;
+mod workspace_extensions;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

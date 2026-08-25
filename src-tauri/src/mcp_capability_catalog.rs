@@ -18,6 +18,7 @@ pub(crate) struct McpServerCapability {
     pub(crate) transport: String,
     pub(crate) status: Value,
     pub(crate) tool_count: usize,
+    pub(crate) source: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) error: Option<String>,
 }
@@ -63,6 +64,18 @@ pub(crate) async fn build_mcp_capability_catalog(
             .and_then(Value::as_str)
             .unwrap_or("stdio")
             .to_ascii_lowercase();
+        let source = server_config
+            .get("workspace_source")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| {
+                server_config
+                    .get("agent_plugin")
+                    .and_then(Value::as_bool)
+                    .filter(|enabled| *enabled)
+                    .map(|_| "plugin".to_string())
+            })
+            .unwrap_or_else(|| "configuration".to_string());
         if !enabled || !mcp_capability_allowed {
             let reason = if enabled {
                 "MCP capability is denied by the active permission profile"
@@ -82,6 +95,7 @@ pub(crate) async fn build_mcp_capability_catalog(
                     "reason": reason,
                 }),
                 tool_count: 0,
+                source,
                 error: None,
             });
             continue;
@@ -143,6 +157,7 @@ pub(crate) async fn build_mcp_capability_catalog(
             transport,
             status,
             tool_count: definitions.len(),
+            source,
             error: server_error,
         });
     }

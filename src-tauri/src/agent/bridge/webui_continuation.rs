@@ -263,20 +263,16 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
     let continuation_spec =
         native_agent_ui_form_continuation_spec(&checkpoint, body, &form_id, &values, cancelled);
     base_services.save_checkpoint(session_key, checkpoint);
-    let services = native_agent_services_with_tool_executor(
-        base_services,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )?
-    .with_context_checkpoint_committer(native_agent_context_checkpoint_committer(
-        thread_store.clone(),
-        config_snapshot.clone(),
-    ))
-    .with_trace_sink(native_agent_trace_sink(
-        thread_store.clone(),
-        config_snapshot.clone(),
-        None,
-    ));
+    let services = native_agent_services_with_tool_executor(base_services, workspace_root.clone())?
+        .with_context_checkpoint_committer(native_agent_context_checkpoint_committer(
+            thread_store.clone(),
+            config_snapshot.clone(),
+        ))
+        .with_trace_sink(native_agent_trace_sink(
+            thread_store.clone(),
+            config_snapshot.clone(),
+            None,
+        ));
     let turn_result = run_native_agent_turn_with_workspace_async(
         &services,
         continuation_spec.clone(),

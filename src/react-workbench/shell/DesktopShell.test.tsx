@@ -153,6 +153,7 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
           },
         ],
         mcpServers: [],
+        skills: [],
       })),
       listPlugins: vi.fn(async () => [{
         name: "review-tools",

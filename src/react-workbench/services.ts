@@ -240,12 +240,22 @@ export type McpServerSummary = {
   transport: string;
   state: string;
   toolCount: number;
+  source?: string;
   error?: string;
+};
+
+export type SkillSummary = {
+  id: string;
+  name: string;
+  description: string;
+  source: string;
+  path: string;
 };
 
 export type ToolCatalogSummary = {
   tools: ToolSummary[];
   mcpServers: McpServerSummary[];
+  skills: SkillSummary[];
 };
 
 export type ToolsStore = {

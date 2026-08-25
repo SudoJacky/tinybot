@@ -7,7 +7,7 @@
 
 .react-resource-switcher {
   display: inline-grid;
-  grid-template-columns: repeat(2, minmax(112px, 1fr));
+  grid-template-columns: repeat(4, minmax(100px, 1fr));
   justify-self: start;
   gap: 2px;
   padding: 3px;
@@ -605,6 +605,10 @@
 }
 
 @media (max-width: 860px) {
+  .react-resource-switcher {
+    grid-template-columns: repeat(2, minmax(100px, 1fr));
+  }
+
   .react-resource-panel__heading,
   .react-resource-panel__heading--tools {
     flex-wrap: wrap;

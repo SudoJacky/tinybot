@@ -302,14 +302,49 @@ async fn worker_webui_rust_dynamic_route(
 
 async fn worker_webui_tools_body(
     shared: &SharedNativeRuntime,
-    _workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
+    workspace_root: PathBuf,
+    mut config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let (mcp_runtime, thread_store) = {
         let runtime = lock_runtime(shared);
         (runtime.mcp_runtime.clone(), runtime.thread_store.clone())
     };
     tauri::async_runtime::spawn_blocking(move || {
+        crate::workspace_extensions::merge_workspace_mcp_servers(
+            &mut config_snapshot,
+            &workspace_root,
+        )?;
+        let mut skills = crate::workspace_extensions::discover_workspace_skills(&workspace_root)?
+            .into_iter()
+            .map(|skill| {
+                serde_json::json!({
+                    "id": format!("workspace:{}", skill.name),
+                    "name": skill.name,
+                    "description": skill.description,
+                    "source": "workspace",
+                    "path": skill.path.display().to_string(),
+                })
+            })
+            .collect::<Vec<_>>();
+        for plugin in crate::plugins::PluginStore::default_global()
+            .enabled()
+            .map_err(|error| format!("failed to discover Agent Plugin skills: {error}"))?
+        {
+            for skill in plugin.skills {
+                skills.push(serde_json::json!({
+                    "id": skill.qualified_name(),
+                    "name": skill.name,
+                    "description": skill.description,
+                    "source": format!("plugin:{}", skill.plugin_name),
+                    "path": skill.path.display().to_string(),
+                }));
+            }
+        }
+        skills.sort_by(|left, right| {
+            left.get("id")
+                .and_then(serde_json::Value::as_str)
+                .cmp(&right.get("id").and_then(serde_json::Value::as_str))
+        });
         let request_id = next_worker_request_correlation();
         let mut router =
             native_request_router(thread_store, config_snapshot).with_mcp_runtime(mcp_runtime);
@@ -322,9 +357,11 @@ async fn worker_webui_tools_body(
         if let Some(error) = response.error {
             return Err(format!("worker webui tools failed: {}", error.message));
         }
-        response
+        let mut result = response
             .result
-            .ok_or_else(|| "worker webui tools failed: missing response result".to_string())
+            .ok_or_else(|| "worker webui tools failed: missing response result".to_string())?;
+        result["skills"] = serde_json::Value::Array(skills);
+        Ok(result)
     })
     .await
     .map_err(|error| format!("worker webui tools task failed: {error}"))?

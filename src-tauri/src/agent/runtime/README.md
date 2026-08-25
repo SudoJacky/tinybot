@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:1907da50bf368aa312b4074b86eaedf4ff50efbe5ab6540430017dac214cedd9 -->
+<!-- tinybot-module-fingerprint: sha256:b54696822f30701858f286b4438edac45e6a187ebbdfb65e8b3ec435023a8884 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -14,6 +14,8 @@ to [`agent::bridge`](../bridge/README.md).
 
 - Normalize turn settings, input history, and context-window behavior.
 - Compose bounded context contributions and instruction provenance.
+- Catalog project-local `.agents/skills` alongside enabled Agent Plugin skills,
+  injecting full Skill content only for explicit selections.
 - Call the configured provider and adapt provider-specific responses.
 - Maintain the typed `AgentItem` history used inside the runtime.
 - Route model-requested tools through injected dispatch services.
@@ -37,7 +39,8 @@ decide which durable conversation store a caller uses.
 
 1. The caller provides `NativeAgentRuntimeServices`, a turn specification, the
    effective configuration, workspace context, and composed instructions.
-2. `provider_loop.rs` validates turn settings and prepares the typed history.
+2. `provider_loop.rs` merges project-local MCP definitions for the effective
+   working directory, validates turn settings, and prepares the typed history.
    A standalone manual-compaction turn summarizes older history through the
    same context path, installs its checkpoint, and finishes without a normal
    assistant message.
@@ -55,6 +58,9 @@ decide which durable conversation store a caller uses.
    fully recorded before the next provider call.
 7. Usage and runtime events are emitted through the injected trace sink, and
    `result.rs` builds the terminal response.
+
+MCP discovery and calls use the effective working directory as their runtime
+key and stdio default cwd.
 
 When a Turn does not configure a context-window strategy, the runtime defaults
 to `compact`. Explicit `discard` remains supported. Compaction failure is

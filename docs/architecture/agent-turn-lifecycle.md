@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:29787e2dff303c938cdf1dfc55664dd16a309c9451b4480a1ffe99f3389036c0 -->
+<!-- tinybot-doc-fingerprint: sha256:b0d431421743e922032458b43e8c75956e130ef5ce20f15f0968788235d8f2ce -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -40,6 +40,7 @@ Thread target and Turn identity validation
     v
 agent::bridge
     |-- hydrate the fixed Thread memory snapshot and compose instructions
+    |-- merge project-local MCP definitions for the effective working directory
     |-- persist Turn start
     |-- hydrate canonical history
     |-- install tool, checkpoint, trace, and trusted command-hook adapters
@@ -65,6 +66,11 @@ successful terminal result is persisted. If runtime execution or trace flush
 fails, the bridge persists a failed terminal state with `runtime_error` before
 returning the original error to the desktop caller; the renderer can then
 reload the canonical Rollout instead of leaving the Turn active.
+
+Project-local MCP configuration is discovered after instruction composition
+establishes the effective working directory and before runtime services are
+installed. The merged snapshot is Turn-local: persistence, discovery, and tool
+dispatch share it, while the saved global configuration remains unchanged.
 
 ## Runtime loop
 

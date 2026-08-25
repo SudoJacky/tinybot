@@ -61,7 +61,10 @@ fn composes_editable_workspace_identity_user_and_tool_instructions() {
     )
     .expect("tool instructions should write");
 
+    let plugin_store_root = fixture.root.join("plugin-store");
+    fs::create_dir_all(&plugin_store_root).expect("empty plugin store should create");
     let composed = InstructionComposer::default()
+        .with_plugin_store_root(plugin_store_root)
         .compose(&fixture.root, &serde_json::json!({ "cwd": fixture.root }))
         .expect("editable workspace instructions should compose");
 
@@ -235,6 +238,54 @@ fn exposes_enabled_plugin_skill_metadata_without_eagerly_loading_its_body() {
     assert!(!disabled
         .rendered_prompt()
         .contains("workspace-tools:workspace-rules"));
+}
+
+#[test]
+fn exposes_workspace_agent_skills_from_the_working_directory_hierarchy() {
+    let fixture = InstructionFixture::new("workspace-agent-skills");
+    fs::create_dir_all(fixture.root.join(".git")).expect("project marker should create");
+    let nested = fixture.root.join("services").join("api");
+    let root_skill = fixture
+        .root
+        .join(".agents")
+        .join("skills")
+        .join("review-work");
+    let nested_skill = nested.join(".agents").join("skills").join("api-rules");
+    fs::create_dir_all(&root_skill).expect("root workspace skill should create");
+    fs::create_dir_all(&nested_skill).expect("nested workspace skill should create");
+    fs::write(
+        root_skill.join("SKILL.md"),
+        "---\nname: review-work\ndescription: Review changes in this repository.\n---\nRead the real diff.\n",
+    )
+    .expect("root workspace skill should write");
+    fs::write(
+        nested_skill.join("SKILL.md"),
+        "---\nname: api-rules\ndescription: Apply API-specific rules.\n---\nPreserve API compatibility.\n",
+    )
+    .expect("nested workspace skill should write");
+
+    let catalog = InstructionComposer::default()
+        .compose(&fixture.root, &serde_json::json!({ "cwd": nested }))
+        .expect("workspace skill catalog should compose");
+    assert!(catalog.rendered_prompt().contains("review-work"));
+    assert!(catalog.rendered_prompt().contains("api-rules"));
+    assert!(!catalog.rendered_prompt().contains("Read the real diff."));
+    assert!(!catalog
+        .rendered_prompt()
+        .contains("Preserve API compatibility."));
+
+    let selected = InstructionComposer::default()
+        .compose(
+            &fixture.root,
+            &serde_json::json!({
+                "cwd": nested,
+                "selectedSkills": ["api-rules"]
+            }),
+        )
+        .expect("selected workspace skill should compose");
+    assert!(selected
+        .rendered_prompt()
+        .contains("Preserve API compatibility."));
 }
 
 #[test]

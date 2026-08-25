@@ -11,7 +11,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:7d3212b75d49027f7009f4c978a0d7018cca4258952201cd6daf67fece853d13 -->
+<!-- tinybot-doc-fingerprint: sha256:b03c3eae3f74fb2f67f7d29794426cf8d33c104ef1420ca1ade93f54fdb56621 -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -45,7 +45,8 @@ exist and must be a directory.
 5. Project instructions discovered from the effective working directory.
 6. The Thread's fixed long-term-memory snapshot, explicitly marked as
    historical context rather than instructions.
-7. Enabled Agent Plugin skill catalog and selected skill content.
+7. Project-local `.agents/skills` catalog (`640`), enabled Agent Plugin skill
+   catalog (`650`), and explicitly selected skill content (`700 + index`).
 8. Turn-scoped collaboration-mode and agent-role instructions.
 9. Runtime environment facts, including the effective working directory and
    operating system.
@@ -66,6 +67,13 @@ working-directory hierarchy. Tinybot finds the nearest ancestor containing a
 project root down to the working directory. `AGENTS.override.md` wins over
 `AGENTS.md` within the same directory, and deeper files have higher
 precedence.
+
+The same project hierarchy discovers immediate child Skills at
+`.agents/skills/<name>/SKILL.md`. Catalog injection includes only Skill metadata
+and its absolute path; the full file is read when the Skill applies or injected
+when its unqualified name appears in `selectedSkills`. A deeper Skill with the
+same name replaces the outer definition. `.codex` directories and the legacy
+managed `<backend-workspace>/skills` directory are outside this path.
 
 This gives two distinct scopes:
 

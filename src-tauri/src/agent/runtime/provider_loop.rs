@@ -70,13 +70,17 @@ pub fn run_native_agent_turn_with_workspace(
 pub async fn run_native_agent_turn_with_workspace_async(
     services: &NativeAgentRuntimeServices,
     spec: Value,
-    config_snapshot: Value,
+    mut config_snapshot: Value,
     workspace_root: &Path,
 ) -> Result<Value, String> {
     let instructions = InstructionComposer::default().compose_with_config(
         workspace_root,
         &spec,
         &config_snapshot,
+    )?;
+    crate::workspace_extensions::merge_workspace_mcp_servers(
+        &mut config_snapshot,
+        &instructions.working_directory,
     )?;
     run_owned_native_agent_turn_async(
         services,
@@ -492,12 +496,17 @@ impl<'a> NativeAgentTurnExecution<'a> {
             ));
         }
         if let Some(workspace_root) = workspace_root {
+            let mcp_workspace_root = context
+                .settings
+                .working_directory
+                .as_deref()
+                .unwrap_or(workspace_root);
             let cancellation = context.cancellation.clone().map(|cancellation| {
                 Arc::new(cancellation) as Arc<dyn crate::protocol::WorkerRequestCancellation>
             });
             let discovered = match dependencies
                 .mcp_runtime
-                .discover_configured_tools(workspace_root, &config_snapshot, cancellation)
+                .discover_configured_tools(mcp_workspace_root, &config_snapshot, cancellation)
                 .await
             {
                 Ok(discovered) => discovered,

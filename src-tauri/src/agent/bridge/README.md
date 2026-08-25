@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:3290b05b2e1aeb2dd9afd8ab46fa29bd7fa7844a0763c8ef317975877435be0f -->
+<!-- tinybot-module-fingerprint: sha256:f90b02fe99c16a2b63dd4dc0687650c670a48fc4c58b1d8c3333362ee1cb3690 -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -10,6 +10,7 @@ loop.
 
 - Hydrate runtime history from the appropriate persistence surface.
 - Compose instructions using the effective workspace configuration.
+- Merge project-local MCP definitions for the effective working directory.
 - Reject invalid re-entry into an already terminal turn.
 - Build tool-dispatch and trace-sink services for the turn owner.
 - Persist turn start, runtime trace, checkpoints, and terminal turn state.
@@ -24,8 +25,9 @@ Thread data model. Those belong to `agent::runtime` and `threads::domain`.
 `agent_flow::run_agent_with_services` is the main orchestration path:
 
 1. Ensure the turn has a trace context and reject terminal re-entry.
-2. Hydrate the Thread's fixed memory snapshot, compose instructions, and attach
-   instruction diagnostics to the persisted spec.
+2. Hydrate the Thread's fixed memory snapshot, compose instructions, merge the
+   working directory's project-local MCP definitions, and attach instruction
+   diagnostics to the persisted spec.
 3. Persist the turn start before history loading or provider work begins.
 4. Hydrate the runtime history from the canonical Thread projection.
 5. Build tool, context-checkpoint, trace, and workspace command-hook services,

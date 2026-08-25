@@ -11,7 +11,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:18b37498a15f3639902d366ef52efc524c531aa4b3d5a8343e3500bd8a1effd2 -->
+<!-- tinybot-doc-fingerprint: sha256:7e37468ef15cccbe627cf4b52310df3e3f8da8ee1e9dc6a214cb0c7a82f62306 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -97,6 +97,11 @@ This is an allow/deny capability model. A denied or unavailable tool fails
 explicitly; it is not executed through a fallback path. Workspace path guards,
 MCP allowlists, and service-specific authorization remain enforced by the
 owning execution module after generic capability checks.
+
+MCP discovery and calls are keyed by the Turn's effective working directory,
+not Tinybot's backend state directory. The dispatcher also reads the current
+Turn configuration snapshot, which includes project-local MCP definitions,
+instead of retaining a potentially stale cross-workspace snapshot.
 
 Project-coordinator Turns intentionally have no local workspace or shell
 authority. Their persistent cross-workspace Thread tools perform separate

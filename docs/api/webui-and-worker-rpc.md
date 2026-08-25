@@ -8,7 +8,7 @@ src-tauri/src/rpc/method.rs
 src-tauri/src/rpc/runtime.rs
 src-tauri/tests/crate/transport.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:834e06c3b65fcb233f0e98229b209e7006cd888884af5eef413e04a6000ab59f -->
+<!-- tinybot-doc-fingerprint: sha256:e90b35c0e6f68ee220ba7d5b293a047f46fd7c5cd8dc0615c978ec9b33906fe0 -->
 
 This document covers the Rust-owned WebUI route wrapper and Worker RPC protocol.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -139,9 +139,17 @@ Configured server maps are normalized from `tools.mcp_servers`, `tools.mcpServer
 `mcp.servers`. All MCP status, discovery, reconciliation, Worker RPC, and native-agent dispatch
 paths use the same normalized map.
 
+For a workspace-backed native turn, Tinybot additionally reads `mcp.json`, `.mcp.json`, and
+`.github/mcp.json` from the nearest Git root through the effective working directory. Documents may
+use a `mcpServers` or `servers` object. Inner scopes override same-named outer or global servers,
+relative stdio working directories resolve from the declaring scope, and the merge remains
+turn-local. `.codex` is not scanned.
+
 `mcp.capability_catalog` and `GET /api/tools` expose one effective snapshot containing configured
-servers, runtime status, discovered tools, allowlist state, callable state, denial reasons, and input
-schemas. One failed or disabled server remains visible without hiding tools from healthy servers.
+servers, runtime status, discovered tools, allowlist state, callable state, denial reasons, input
+schemas, and a separate Skill catalog. Skill entries include enabled Agent Plugin skills and
+`.agents/skills/*/SKILL.md` files for the catalog workspace. One failed or disabled server remains
+visible without hiding tools from healthy servers.
 
 Stdio configuration example:
 
