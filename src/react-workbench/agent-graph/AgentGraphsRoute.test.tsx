@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -17,6 +18,20 @@ import AgentGraphsRoute from "./AgentGraphsRoute";
 afterEach(cleanup);
 
 describe("AgentGraphsRoute", () => {
+  it("stacks choice copy inside the narrow node configuration popover", () => {
+    const css = readFileSync("src/react-workbench/agent-graph/AgentGraphsRoute.css", "utf8");
+
+    expect(css).toMatch(/\.react-agent-graph-node-config \.react-settings-choice-item \.react-top-menu__menu-label\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s);
+    expect(css).toMatch(/\.react-agent-graph-node-config \.react-settings-choice-item small\s*{[^}]*white-space:\s*normal;[^}]*overflow-wrap:\s*anywhere;/s);
+  });
+
+  it("reuses the configured field appearance for the run input", () => {
+    const css = readFileSync("src/react-workbench/agent-graph/AgentGraphsRoute.css", "utf8");
+
+    expect(css).toMatch(/\.react-agent-graph-router-route input,\s*\.react-agent-graph-router-route textarea,\s*\.react-agent-graph-run__input input\s*{[^}]*border:\s*1px solid var\(--graph-border\);[^}]*border-radius:\s*7px;[^}]*background:\s*var\(--graph-panel-solid\);/s);
+    expect(css).toMatch(/\.react-agent-graph-router-route input:focus-visible,\s*\.react-agent-graph-router-route textarea:focus-visible,\s*\.react-agent-graph-run__input input:focus-visible\s*{[^}]*box-shadow:/s);
+  });
+
   it("creates and discards an isolated in-memory graph draft", async () => {
     const user = userEvent.setup();
     render(<AgentGraphsRoute services={createServices()} />);

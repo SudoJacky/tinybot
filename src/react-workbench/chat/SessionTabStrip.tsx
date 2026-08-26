@@ -15,6 +15,7 @@ export type SessionTabStripProps = {
   onActivate: (sessionId: string) => void;
   onClose: (sessionId: string) => void;
   onCreate: () => void;
+  showCreate: boolean;
 };
 
 export function SessionTabStrip({
@@ -22,6 +23,7 @@ export function SessionTabStrip({
   onActivate,
   onClose,
   onCreate,
+  showCreate,
   tabs,
 }: SessionTabStripProps) {
   const { t } = useTranslation("chat");
@@ -163,41 +165,45 @@ export function SessionTabStrip({
           </div>
         )}
       </div>
-      <div className="react-session-tabs__controls">
-        <button aria-label={t("tabs.newTab")} title={t("tabs.newConversation")} type="button" onClick={onCreate}>
-          <Plus aria-hidden="true" size={16} />
-        </button>
-        {tabs.length > 1 ? (
-          <div className="react-session-tabs__overflow">
-            <button
-              aria-expanded={menuOpen}
-              aria-haspopup="menu"
-              aria-label={t("tabs.menu")}
-              title={t("tabs.openTabs")}
-              type="button"
-              onClick={() => setMenuOpen((open) => !open)}
-            >
-              <List aria-hidden="true" size={15} />
+      {showCreate || tabs.length > 1 ? (
+        <div className="react-session-tabs__controls">
+          {showCreate ? (
+            <button aria-label={t("tabs.newTab")} title={t("tabs.newConversation")} type="button" onClick={onCreate}>
+              <Plus aria-hidden="true" size={16} />
             </button>
-            {menuOpen ? (
-              <div className="react-session-tabs__menu" role="menu">
-                {tabs.map((tab) => (
-                  <button
-                    aria-current={tab.id === activeSessionId ? "page" : undefined}
-                    key={tab.id}
-                    role="menuitem"
-                    type="button"
-                    onClick={() => onActivate(tab.id)}
-                  >
-                    <SessionTabStatus tab={tab} />
-                    <span className="react-session-tabs__menu-title">{tab.title}</span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+          ) : null}
+          {tabs.length > 1 ? (
+            <div className="react-session-tabs__overflow">
+              <button
+                aria-expanded={menuOpen}
+                aria-haspopup="menu"
+                aria-label={t("tabs.menu")}
+                title={t("tabs.openTabs")}
+                type="button"
+                onClick={() => setMenuOpen((open) => !open)}
+              >
+                <List aria-hidden="true" size={15} />
+              </button>
+              {menuOpen ? (
+                <div className="react-session-tabs__menu" role="menu">
+                  {tabs.map((tab) => (
+                    <button
+                      aria-current={tab.id === activeSessionId ? "page" : undefined}
+                      key={tab.id}
+                      role="menuitem"
+                      type="button"
+                      onClick={() => onActivate(tab.id)}
+                    >
+                      <SessionTabStatus tab={tab} />
+                      <span className="react-session-tabs__menu-title">{tab.title}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

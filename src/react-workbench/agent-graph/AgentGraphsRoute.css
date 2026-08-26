@@ -993,6 +993,20 @@
   margin-top: 6px;
 }
 
+.react-agent-graph-node-config .react-settings-choice-item .react-top-menu__menu-label {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 2px;
+}
+
+.react-agent-graph-node-config .react-settings-choice-item small {
+  justify-self: start;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .react-agent-graph-node-config__textarea-field {
   display: grid;
   gap: 7px;
@@ -1118,7 +1132,8 @@
 }
 
 .react-agent-graph-router-route input,
-.react-agent-graph-router-route textarea {
+.react-agent-graph-router-route textarea,
+.react-agent-graph-run__input input {
   width: 100%;
   padding: 8px 9px;
   resize: vertical;
@@ -1136,7 +1151,8 @@
 }
 
 .react-agent-graph-router-route input:focus-visible,
-.react-agent-graph-router-route textarea:focus-visible {
+.react-agent-graph-router-route textarea:focus-visible,
+.react-agent-graph-run__input input:focus-visible {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 20%, transparent);
   outline: none;
@@ -2062,15 +2078,6 @@
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-run__status-dot {
   flex: 0 0 auto;
   color: var(--color-muted-soft);
-}
-
-.react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-run__input input {
-  width: 100%;
-  min-height: 38px;
-  border-color: var(--graph-border);
-  background: var(--graph-panel-deep);
-  color: var(--color-ink);
-  font-size: 11px;
 }
 
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-run[data-status="running"] .react-agent-graph-run__status-dot {

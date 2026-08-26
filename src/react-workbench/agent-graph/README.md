@@ -1,5 +1,5 @@
 # Agent Graph Workbench
-<!-- tinybot-module-fingerprint: sha256:7cfbd908279ca5b0aed7abe506327321d400b08eeed3c20131e21fada69449e7 -->
+<!-- tinybot-module-fingerprint: sha256:bdce3621e62aa933519df83bffdfdb29eb8b4c5f2186de931f95dfbe7a73df34 -->
 
 `agent-graph` owns the standalone Agent Graph route and its React presentation.
 The page creates one honest in-memory starter draft and exposes an unbounded
@@ -32,7 +32,10 @@ selection descriptions. Each route renders its own accessible source handle,
 while generated `ROUTE_A`, `ROUTE_B`, and later tokens stay runtime-only.
 Definition workspace, execution workspace, Provider, model, and reasoning
 controls reuse the workbench's canonical `SettingsChoiceList` appearance and
-interaction; Graph only owns their placement.
+interaction; Graph only owns their placement. Option titles and descriptions
+stack inside the narrow node configuration popover so localized copy cannot
+collide with the selected-state indicator. The compact Run input reuses the
+same field treatment as Router route inputs.
 The route lists, explicitly saves, opens, and deletes
 workspace definitions through `AgentGraphStore`; dirty state and revision
 conflicts stay visible. A separate Run panel accepts the required transient

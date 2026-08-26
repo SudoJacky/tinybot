@@ -828,7 +828,6 @@ button:disabled {
 .react-session-list__header h2,
 .react-session-list__add-workspace,
 .react-session-list__search,
-.react-session-list__new span,
 .react-session-row__title,
 .react-session-row__select small,
 .react-session-row__delete {
@@ -843,30 +842,6 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.react-session-list__new {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 34px;
-  background: var(--color-primary);
-  color: var(--color-on-primary);
-  padding: 0 10px;
-  font-size: 12px;
-}
-
-.react-session-list__new span {
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.react-session-list__new:hover,
-.react-session-list__new:focus-visible {
-  background: var(--color-primary-active);
 }
 
 .react-session-list__collapse {
@@ -920,7 +895,6 @@ button:disabled {
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list__header h2,
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list__add-workspace,
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list__search,
-.react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list__new span,
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-row__title,
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-row__select small,
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-row__delete,
@@ -939,8 +913,7 @@ button:disabled {
 
 .react-session-list[data-collapsed="true"] .react-session-list__header h2,
 .react-session-list[data-collapsed="true"] .react-session-list__add-workspace,
-.react-session-list[data-collapsed="true"] .react-session-list__search,
-.react-session-list[data-collapsed="true"] .react-session-list__new span {
+.react-session-list[data-collapsed="true"] .react-session-list__search {
   max-width: 0;
   opacity: 0;
   pointer-events: none;
@@ -953,7 +926,6 @@ button:disabled {
   min-width: 0;
 }
 
-.react-session-list[data-collapsed="true"] .react-session-list__new,
 .react-session-list[data-collapsed="true"] .react-session-list__collapse {
   width: 40px;
   min-width: 40px;
@@ -1916,12 +1888,10 @@ button:disabled {
   gap: 3px;
 }
 
-.react-session-list__new,
 [data-press-feedback="true"] {
   transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
-.react-session-list__new:active:not(:disabled),
 [data-press-feedback="true"]:active:not(:disabled) {
   transform: scale(.97);
 }
@@ -2108,7 +2078,6 @@ button:disabled {
   .react-session-list__header h2,
 .react-session-list__add-workspace,
 .react-session-list__search,
-.react-session-list__new span,
 .react-session-row__title,
 .react-session-row__select small,
 .react-session-row__delete {
@@ -2117,8 +2086,7 @@ button:disabled {
 
   .react-session-list[data-collapsed="true"] .react-session-list__header h2,
 .react-session-list[data-collapsed="true"] .react-session-list__add-workspace,
-.react-session-list[data-collapsed="true"] .react-session-list__search,
-.react-session-list[data-collapsed="true"] .react-session-list__new span {
+.react-session-list[data-collapsed="true"] .react-session-list__search {
     transform: none;
   }
 
@@ -2129,7 +2097,6 @@ button:disabled {
     transition-duration: 140ms;
   }
 
-  .react-session-list__new:active:not(:disabled),
 [data-press-feedback="true"]:active:not(:disabled) {
     transform: none;
   }

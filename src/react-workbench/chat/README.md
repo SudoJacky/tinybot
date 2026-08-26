@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:abdaa063ff9d1c2602ac0558558f9d9e5a6660afab32ccbae52cdbf3499ed872 -->
+<!-- tinybot-module-fingerprint: sha256:4d389cd321b9106778ecee74b4283e08bcb7f2406e62c09b5acbb6f67930ebb8 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -96,10 +96,12 @@ this module while delegating modal focus, keyboard, dismissal, and scroll-lock
 behavior to `components/ui/useModalDialog`.
 
 Session creation follows the entry point's target. Workspace and project
-actions pass their workspace and project context explicitly. Global, tab, and
-search actions may inherit an ordinary active workspace, but never an active
-project coordinator; coordinator sessions are created only by the project's
-coordinator action.
+actions pass their workspace and project context explicitly. With the session
+sidebar expanded, those contextual actions and the draft's first submission are
+the primary creation paths; the tab-strip create action appears only while the
+sidebar is collapsed. Collapsed-tab, search, menu, and keyboard actions may
+inherit an ordinary active workspace, but never an active project coordinator;
+coordinator sessions are created only by the project's coordinator action.
 
 Composer model selection has two scopes. Selecting a model in a draft or an
 empty Thread updates the default used by future chats as well as that Thread.

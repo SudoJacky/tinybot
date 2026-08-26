@@ -2112,6 +2112,7 @@ export function ChatPage({
             onActivate={handleActivateSessionTab}
             onClose={handleCloseSessionTab}
             onCreate={() => void handleCreateSession()}
+            showCreate={resolvedSessionSidebarCollapsed}
           />
           <div className="react-chat-header__actions">
             <button

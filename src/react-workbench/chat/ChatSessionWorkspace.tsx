@@ -13,7 +13,6 @@ import {
   FolderOpen,
   FolderPlus,
   GitBranch,
-  Loader2,
   MoreHorizontal,
   Plus,
   Search,
@@ -318,16 +317,6 @@ export function ChatSessionWorkspace({
               </button>
             </div>
           </div>
-          <button
-            aria-label={t("shell.newChat")}
-            className="react-session-list__new"
-            disabled={createPending}
-            type="button"
-            onClick={() => void actions.onCreateSession()}
-          >
-            {createPending ? <Loader2 aria-hidden="true" className="react-session-list__pending" size={15} /> : <Plus aria-hidden="true" size={15} />}
-            <span>{t("shell.newChat")}</span>
-          </button>
           {displayError ? (
             <p className="react-session-list__error" role="alert">{displayError}</p>
           ) : null}
