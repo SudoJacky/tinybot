@@ -1,9 +1,14 @@
 // @vitest-environment happy-dom
 
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ClaudeStyleAiInput, type ComposerSlashCommand } from "./claude-style-ai-input";
+import {
+  ClaudeStyleAiInput,
+  type ComposerSkillOption,
+  type ComposerSlashCommand,
+} from "./claude-style-ai-input";
 
 const slashCommands = [
   {
@@ -19,6 +24,21 @@ const slashCommands = [
     prompt: "Review the current changes.",
   },
 ] as const satisfies readonly ComposerSlashCommand[];
+
+const skillOptions = [
+  {
+    description: "Apple-style interface design and fluid physical motion.",
+    id: "apple-design",
+    label: "Apple Design",
+    sourceLabel: "Workspace",
+  },
+  {
+    description: "Name unfamiliar animation and motion effects.",
+    id: "animation-vocabulary",
+    label: "Animation Vocabulary",
+    sourceLabel: "Personal",
+  },
+] as const satisfies readonly ComposerSkillOption[];
 
 afterEach(cleanup);
 
@@ -61,6 +81,97 @@ describe("ClaudeStyleAiInput slash commands", () => {
     await user.keyboard("{Enter}");
     expect(input.value).toBe("Review the current changes.");
     expect(onSendMessage).not.toHaveBeenCalled();
+  });
+
+  it("starts a new query from any slash immediately behind the caret", async () => {
+    const user = userEvent.setup();
+    render(<ClaudeStyleAiInput slashCommands={slashCommands} />);
+
+    const input = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    await user.type(input, "//////");
+    input.setSelectionRange(3, 3);
+    fireEvent.select(input);
+
+    let listbox = screen.getByRole("listbox", { name: "Slash commands" });
+    expect(within(listbox).getByRole("option", { name: /\/plan Plan/ })).toBeTruthy();
+    expect(within(listbox).getByRole("option", { name: /\/review Review/ })).toBeTruthy();
+
+    await user.keyboard("rev");
+
+    listbox = screen.getByRole("listbox", { name: "Slash commands" });
+    expect(input.value).toBe("///rev///");
+    expect(within(listbox).queryByRole("option", { name: /\/plan Plan/ })).toBeNull();
+    expect(within(listbox).getByRole("option", { name: /\/review Review/ })).toBeTruthy();
+  });
+
+  it("does not invoke a slash query when the caret first enters text after a slash", () => {
+    render(<ClaudeStyleAiInput slashCommands={slashCommands} value="foo/rev" />);
+
+    const input = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    input.setSelectionRange(input.value.length, input.value.length);
+    fireEvent.select(input);
+    expect(screen.queryByRole("listbox", { name: "Slash commands" })).toBeNull();
+
+    input.setSelectionRange(4, 4);
+    fireEvent.select(input);
+    const listbox = screen.getByRole("listbox", { name: "Slash commands" });
+    expect(within(listbox).getByRole("option", { name: /\/plan Plan/ })).toBeTruthy();
+    expect(within(listbox).getByRole("option", { name: /\/review Review/ })).toBeTruthy();
+  });
+
+  it("renders selected Skills inline with user text while submitting only the plain message", async () => {
+    const user = userEvent.setup();
+    const onSendMessage = vi.fn();
+
+    function Harness() {
+      const [message, setMessage] = useState("");
+      const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+      return <ClaudeStyleAiInput
+        onAddSkill={(id) => setSelectedSkills((current) => [...current, id])}
+        onClearSkills={() => setSelectedSkills([])}
+        onRemoveSkill={(id) => setSelectedSkills((current) => current.filter((skillId) => skillId !== id))}
+        onSendMessage={onSendMessage}
+        onValueChange={setMessage}
+        selectedSkillIds={selectedSkills}
+        skillOptions={skillOptions}
+        slashCommands={slashCommands}
+        value={message}
+      />;
+    }
+
+    render(<Harness />);
+
+    const input = screen.getByRole("textbox", { name: "Message" });
+    await user.type(input, "/apple");
+
+    const listbox = screen.getByRole("listbox", { name: "Slash commands" });
+    expect(within(listbox).getByText("Skills")).toBeTruthy();
+    expect(within(listbox).getByRole("option", { name: /Apple Design.*Workspace/ })).toBeTruthy();
+
+    await user.keyboard("{Enter}");
+    expect(within(input).getByText("Apple Design")).toBeTruthy();
+    expect(screen.queryByLabelText("Composer attachments")).toBeNull();
+
+    await user.keyboard("{Backspace}");
+    expect(within(input).queryByText("Apple Design")).toBeNull();
+    await user.keyboard("/apple{Enter}");
+    expect(within(input).getByText("Apple Design")).toBeTruthy();
+    expect(within(input).getByRole("button", { name: "Remove Apple Design" })).toBeTruthy();
+
+    await user.keyboard("我希望这样显示 /animation");
+    await user.keyboard("{Enter}");
+    await user.keyboard("在用户的输入内容中显示");
+
+    expect(within(input).getByText("Animation Vocabulary")).toBeTruthy();
+    expect(input.textContent).toBe("Apple Design我希望这样显示 Animation Vocabulary在用户的输入内容中显示");
+
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    expect(onSendMessage).toHaveBeenCalledWith(
+      "我希望这样显示 在用户的输入内容中显示",
+      [],
+      [],
+      expect.any(Object),
+    );
   });
 
   it("selects workspace conversations with @ and exposes a removable reference chip", async () => {

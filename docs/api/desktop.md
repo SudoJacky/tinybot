@@ -167,7 +167,7 @@ source provenance. Increasing precedence is:
 5. project `AGENTS.md` scopes from the nearest `.git` root to the effective working directory
    (`500 + depth`), with `AGENTS.override.md` replacing `AGENTS.md` at the same scope;
 6. the Thread's fixed long-term-memory snapshot (`600`);
-7. effective skill files selected explicitly or autoloaded from `always: true` metadata (`700 + index`);
+7. project-local `.agents/skills` catalog (`640`), enabled Agent Plugin skill catalog (`650`), and explicitly selected skill files (`700 + index`);
 8. `collaborationMode` and `agentRole` instructions (`800`, `810`);
 9. generated working-directory and operating-system facts (`900`).
 
@@ -178,11 +178,12 @@ stable prompt prefix of an existing Thread.
 
 Turn instruction fields may appear at the turn specification root or under
 `metadata`; snake_case aliases are also accepted. `selectedSkills` is an
-ordered array of qualified Agent Plugin skill names such as
-`create-agent-plugin:migrate-agent-plugin`. The composer injects a bounded
-catalog of skills from enabled global plugins, then injects the full content
-of explicitly selected skills in array order. Missing, disabled, invalid, or
-duplicate selections fail before provider dispatch. Workspace profile files
+ordered array containing either unqualified project-local skill names such as
+`review-work` or qualified Agent Plugin skill names such as
+`create-agent-plugin:migrate-agent-plugin`. The composer injects catalogs from
+the effective working directory's `.agents/skills` hierarchy and enabled global
+plugins, then injects the full content of explicitly selected skills in array
+order. Missing, disabled, invalid, or duplicate selections fail before provider dispatch. Workspace profile files
 have a 64 KiB per-file limit, while project instructions share a 64 KiB
 aggregate budget. Invalid UTF-8, unreadable paths, invalid field types,
 truncation, and empty sources are surfaced instead of silently disappearing.

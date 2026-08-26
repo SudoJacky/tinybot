@@ -176,6 +176,7 @@ pub struct AgentTurnContext {
     pub system_prompt: Option<String>,
     pub instructions: Option<ComposedInstructions>,
     assembled_system_prompt: Option<String>,
+    prepared_provider_request: Option<Value>,
     context_contributions: Vec<Value>,
     pub stream: bool,
     pub max_iterations: i64,

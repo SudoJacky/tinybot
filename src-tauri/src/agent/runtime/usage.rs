@@ -108,8 +108,8 @@ pub(super) async fn context_window_projection_async(
     let message_budget = context_window_tokens
         .saturating_sub(fixed_request_tokens)
         .max(1);
-    let full_estimate =
-        estimate_messages_tokens(&context.messages).saturating_add(fixed_request_tokens);
+    let full_estimate = estimate_context_tokens_for_request(context)
+        .map_err(NativeAgentProviderFailure::provider)?;
     let manual_compaction = manual_context_compaction_requested(&context.spec);
     let automatic_compaction = context_window_strategy(context) == "compact"
         && compact_threshold_reached(context, full_estimate, context_window_tokens);
@@ -118,7 +118,8 @@ pub(super) async fn context_window_projection_async(
             compact_messages_to_context_window_async(context, message_budget).await?
         {
             let estimated_tokens_after =
-                estimate_messages_tokens(&compacted.messages).saturating_add(fixed_request_tokens);
+                estimate_context_tokens_for_messages(context, compacted.messages.clone())
+                    .map_err(NativeAgentProviderFailure::provider)?;
             let replacement_message_count = compacted.messages.len();
             return Ok(ContextWindowProjection {
                 messages: compacted.messages,
@@ -174,8 +175,8 @@ pub(super) async fn context_window_projection_async(
     let messages = trim_messages_to_context_window(&bounded_messages, message_budget);
     let dropped_message_count = context.messages.len().saturating_sub(messages.len());
     let retained_message_count = messages.len();
-    let estimated_tokens_after =
-        estimate_messages_tokens(&messages).saturating_add(fixed_request_tokens);
+    let estimated_tokens_after = estimate_context_tokens_for_messages(context, messages.clone())
+        .map_err(NativeAgentProviderFailure::provider)?;
     Ok(ContextWindowProjection {
         messages,
         action: (dropped_message_count > 0).then_some(ContextWindowAction {
@@ -255,18 +256,28 @@ pub(super) fn context_with_projected_messages(
     projected.messages = messages.clone();
     projected.spec["messages"] = Value::Array(messages);
     projected.spec["_contextWindowProjected"] = Value::Bool(true);
+    projected.prepared_provider_request = None;
     projected
 }
 
 pub(super) fn estimate_context_tokens_for_request(
     context: &AgentTurnContext,
 ) -> Result<i64, String> {
-    Ok(context
-        .messages
-        .iter()
-        .map(estimate_message_tokens)
-        .fold(0i64, i64::saturating_add)
-        .saturating_add(estimate_fixed_request_tokens(context)?))
+    prepare_provider_request(context).map(|(_, estimated_tokens)| estimated_tokens)
+}
+
+pub(super) fn prepare_provider_request(context: &AgentTurnContext) -> Result<(Value, i64), String> {
+    let adapter = ProviderProtocolAdapter::for_runtime_request(context)?;
+    let request = adapter.build_request_from_window(context, context.messages.clone())?;
+    let estimated_tokens = estimate_message_tokens(&request);
+    Ok((request, estimated_tokens))
+}
+
+fn estimate_context_tokens_for_messages(
+    context: &AgentTurnContext,
+    messages: Vec<Value>,
+) -> Result<i64, String> {
+    estimate_context_tokens_for_request(&context_with_projected_messages(context, messages))
 }
 
 pub(super) fn enrich_usage_with_context_window(
@@ -882,7 +893,7 @@ fn estimate_system_prompt_tokens(context: &AgentTurnContext) -> i64 {
 
 fn estimate_fixed_request_tokens(context: &AgentTurnContext) -> Result<i64, String> {
     let definitions = context.tool_router.tool_definitions()?;
-    let encoded_tools = match ProviderProtocolAdapter::from_runtime_context(context)? {
+    let encoded_tools = match ProviderProtocolAdapter::for_runtime_request(context)? {
         ProviderProtocolAdapter::ChatCompletions => {
             ChatCompletionsAdapter::encode_tools(&definitions)
         }

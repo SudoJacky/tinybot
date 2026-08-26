@@ -1007,6 +1007,70 @@
   color: var(--color-muted);
 }
 
+.claude-ai-input__inline-editor {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.claude-ai-input__inline-editor[data-empty="true"]::before {
+  color: var(--color-muted);
+  content: attr(data-placeholder);
+  pointer-events: none;
+}
+
+.claude-ai-input__inline-skill {
+  display: inline-flex;
+  position: relative;
+  align-items: center;
+  max-width: min(240px, 100%);
+  gap: 4px;
+  margin: 0 3px;
+  border-radius: 4px;
+  color: var(--color-primary);
+  font-weight: 600;
+  line-height: 1.45;
+  vertical-align: baseline;
+}
+
+.claude-ai-input__inline-skill > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.claude-ai-input__inline-skill > button {
+  display: inline-grid;
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--color-panel-strong);
+  color: var(--color-muted);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: 0 1px 4px rgb(20 20 19 / 18%);
+}
+
+.claude-ai-input__inline-skill:is(:hover, :focus-within) > button {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.claude-ai-input__inline-skill > button:hover {
+  color: var(--color-ink);
+}
+
+.claude-ai-input__inline-skill > button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
 .claude-ai-input__slash-menu {
   position: absolute;
   right: 0;
@@ -1024,12 +1088,18 @@
   box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
 }
 
-.claude-ai-input__mention-heading {
+.claude-ai-input__mention-heading,
+.claude-ai-input__slash-heading {
   padding: 5px 10px 3px;
   color: var(--color-muted);
   font-size: 11px;
   font-weight: 650;
   letter-spacing: 0.02em;
+}
+
+.claude-ai-input__slash-group {
+  display: grid;
+  gap: 2px;
 }
 
 .claude-ai-input__slash-option {
@@ -1098,6 +1168,27 @@
 
 .claude-ai-input__slash-option[aria-selected="true"] > svg {
   color: var(--color-primary);
+}
+
+.claude-ai-input__slash-option--skill {
+  min-height: 48px;
+}
+
+.claude-ai-input__slash-option > .claude-ai-input__slash-option-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.claude-ai-input__slash-option-meta em {
+  overflow: hidden;
+  max-width: 120px;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .claude-ai-input__toolbar,

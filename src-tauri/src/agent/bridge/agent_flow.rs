@@ -24,7 +24,7 @@ pub(crate) async fn run_agent_with_services(
     base_services: NativeAgentRuntimeServices,
     mut spec: serde_json::Value,
     workspace_root: PathBuf,
-    config_snapshot: serde_json::Value,
+    mut config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<serde_json::Value, String> {
     let thread_store = base_services.thread_store()?;
@@ -43,6 +43,10 @@ pub(crate) async fn run_agent_with_services(
         &spec,
         &config_snapshot,
     )?;
+    crate::workspace_extensions::merge_workspace_mcp_servers(
+        &mut config_snapshot,
+        &instructions.working_directory,
+    )?;
     #[cfg(not(test))]
     let memory_scope_root = instructions.working_directory.clone();
     instructions.attach_diagnostics(&mut persistence_spec)?;
@@ -55,15 +59,11 @@ pub(crate) async fn run_agent_with_services(
     )?;
     let runtime_spec =
         hydrate_native_agent_history_for_runtime(spec, &thread_store, config_snapshot.clone())?;
-    let services = native_agent_services_with_tool_executor(
-        base_services,
-        workspace_root.clone(),
-        config_snapshot.clone(),
-    )?
-    .with_context_checkpoint_committer(native_agent_context_checkpoint_committer(
-        thread_store.clone(),
-        config_snapshot.clone(),
-    ));
+    let services = native_agent_services_with_tool_executor(base_services, workspace_root.clone())?
+        .with_context_checkpoint_committer(native_agent_context_checkpoint_committer(
+            thread_store.clone(),
+            config_snapshot.clone(),
+        ));
     let services = match live_trace_sink {
         Some(live_trace_sink) => services.with_trace_sink(native_agent_trace_sink(
             thread_store.clone(),

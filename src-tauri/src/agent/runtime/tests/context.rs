@@ -1,5 +1,6 @@
 use super::super::usage::{
     context_window_action_payload, context_window_projection, estimate_context_tokens_for_request,
+    prepare_provider_request,
 };
 use super::*;
 
@@ -1297,6 +1298,55 @@ fn context_estimate_includes_provider_visible_tool_definitions() {
     let estimate_with_tools = estimate_context_tokens_for_request(&with_tools).unwrap();
 
     assert!(estimate_with_tools > estimate_without_tools + 500);
+}
+
+#[test]
+fn context_estimate_uses_the_fully_assembled_provider_request() {
+    let replayed_content = "replayed provider context ".repeat(400);
+    let context = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "apiMode": "responses",
+            "turnId": "turn-final-request-estimate",
+            "messages": [{ "role": "user", "content": "continue" }],
+            "responseItems": [{
+                "type": "message",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": replayed_content }]
+            }]
+        }),
+        json!({}),
+    );
+    let request = agent_responses_request(&context).expect("Responses request should assemble");
+    let serialized = serde_json::to_string(&request).expect("request should serialize");
+    let expected = i64::try_from((serialized.len() + 3) / 4).unwrap();
+
+    assert_eq!(
+        estimate_context_tokens_for_request(&context).unwrap(),
+        expected
+    );
+}
+
+#[test]
+fn rust_provider_dispatches_the_request_used_for_the_final_estimate() {
+    let mut context = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "provider": "fixture",
+            "model": "fixture-model",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        fixture_provider_config("fixture answer"),
+    );
+    let (request, _) = prepare_provider_request(&context).expect("request should prepare");
+    context.set_prepared_provider_request(request);
+    context.messages.clear();
+
+    let response = RustNativeAgentProvider
+        .complete(&context)
+        .expect("provider should dispatch the retained request");
+
+    assert_eq!(response.final_content, "fixture answer");
 }
 
 #[test]

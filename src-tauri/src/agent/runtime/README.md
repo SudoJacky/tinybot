@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:1907da50bf368aa312b4074b86eaedf4ff50efbe5ab6540430017dac214cedd9 -->
+<!-- tinybot-module-fingerprint: sha256:aaed1b9739f7ae351ca650220835735c349cf375ab36b7180bba1ab9363815e2 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -14,6 +14,8 @@ to [`agent::bridge`](../bridge/README.md).
 
 - Normalize turn settings, input history, and context-window behavior.
 - Compose bounded context contributions and instruction provenance.
+- Catalog project-local `.agents/skills` alongside enabled Agent Plugin skills,
+  injecting full Skill content only for explicit selections.
 - Call the configured provider and adapt provider-specific responses.
 - Maintain the typed `AgentItem` history used inside the runtime.
 - Route model-requested tools through injected dispatch services.
@@ -25,10 +27,12 @@ to [`agent::bridge`](../bridge/README.md).
 - Track token usage, cancellation, and resumable form checkpoints. Provider
   cache-read and reasoning-output counts are normalized from both top-level
   usage fields and the Chat Completions/Responses prompt, input, completion,
-  or output Token detail objects. Context-window estimates include serialized
-  provider-visible tool definitions as well as messages and instructions. Typed
-  usage Items keep those normalized context metrics separate from the untouched
-  provider payload.
+  or output Token detail objects. Context-window estimates serialize the fully
+  assembled provider request after protocol encoding, so workspace instructions,
+  replay items, references, images, tool definitions, and structured-output schemas
+  share one accounting boundary. The final assembled request is retained and reused
+  for dispatch instead of being encoded a second time. Typed usage Items keep those
+  normalized context metrics separate from the untouched provider payload.
 
 This module does **not** choose the desktop transport, mutate Tauri state, or
 decide which durable conversation store a caller uses.
@@ -37,7 +41,8 @@ decide which durable conversation store a caller uses.
 
 1. The caller provides `NativeAgentRuntimeServices`, a turn specification, the
    effective configuration, workspace context, and composed instructions.
-2. `provider_loop.rs` validates turn settings and prepares the typed history.
+2. `provider_loop.rs` merges project-local MCP definitions for the effective
+   working directory, validates turn settings, and prepares the typed history.
    A standalone manual-compaction turn summarizes older history through the
    same context path, installs its checkpoint, and finishes without a normal
    assistant message.
@@ -55,6 +60,9 @@ decide which durable conversation store a caller uses.
    fully recorded before the next provider call.
 7. Usage and runtime events are emitted through the injected trace sink, and
    `result.rs` builds the terminal response.
+
+MCP discovery and calls use the effective working directory as their runtime
+key and stdio default cwd.
 
 When a Turn does not configure a context-window strategy, the runtime defaults
 to `compact`. Explicit `discard` remains supported. Compaction failure is

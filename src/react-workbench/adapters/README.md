@@ -1,5 +1,5 @@
 # Desktop Adapters
-<!-- tinybot-module-fingerprint: sha256:a78ca49c13f167e89cb7a264e3a6a93eb2f4056f33701088d65f5610959e3ce3 -->
+<!-- tinybot-module-fingerprint: sha256:505cf24c8acab1a94281c30e9e9393608fede0d354958737bcc998bad83df6e5 -->
 
 `adapters` implements renderer store interfaces over Tinybot's native and
 app-core modules. It owns event projection and the Settings, Tools, and
@@ -18,6 +18,12 @@ The desktop Settings adapter projects the native Provider catalog into the
 shared Chat model catalog. Only enabled Providers whose runtime status is
 `available` or `ready` contribute selectable models, so Chat and Agent Graph
 cannot select models from configured-but-unavailable connections.
+
+The desktop Tools adapter normalizes callable tools, MCP server source/status,
+and Skill summaries into the renderer-facing `ToolCatalogSummary`. It uses the
+dedicated Skill-detail route when the UI requests one entry; filesystem reads
+remain in Rust. Catalog callers may provide a conversation working directory,
+which the adapter URL-encodes for Rust-owned workspace Skill and MCP discovery.
 
 The native event bridge records opt-in lifecycle stages through
 `tinybot.desktop.nativeDebug`. Entries contain only correlation identities,

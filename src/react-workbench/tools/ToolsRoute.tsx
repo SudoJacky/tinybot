@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { PackagePlus, Puzzle, Search, WandSparkles } from "lucide-react";
+import { BookOpen, ChevronRight, Network, PackagePlus, Puzzle, Search, WandSparkles, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import { readDefaultChatModel } from "../../app-core/chat/chatModelPreference";
@@ -11,11 +11,12 @@ import type {
   AppServices,
   PluginMigrationJob,
   PluginSummary,
+  SkillDetail,
   ToolCatalogSummary,
 } from "../services";
 import "./ToolsRoute.css";
 
-type ResourceView = "plugins" | "tools";
+type ResourceView = "plugins" | "skills" | "mcp" | "tools";
 
 type ToolCatalogState =
   | { status: "loading" }
@@ -33,6 +34,8 @@ export default function ToolsRoute({ services, onOpenChat }: ToolsRouteProps) {
   const [catalogRevision, setCatalogRevision] = useState(0);
   const catalogState = useToolCatalog(services, catalogRevision);
   const toolCount = catalogState.status === "ready" ? catalogState.catalog.tools.length : null;
+  const skillCount = catalogState.status === "ready" ? catalogState.catalog.skills.length : null;
+  const mcpCount = catalogState.status === "ready" ? catalogState.catalog.mcpServers.length : null;
 
   return (
     <WorkbenchPage title={t("tools.title")}>
@@ -47,6 +50,26 @@ export default function ToolsRoute({ services, onOpenChat }: ToolsRouteProps) {
             {t("tools.plugins")}
           </button>
           <button
+            aria-label={t("tools.skills")}
+            aria-pressed={activeView === "skills"}
+            onClick={() => setActiveView("skills")}
+            type="button"
+          >
+            <BookOpen aria-hidden="true" size={14} />
+            {t("tools.skills")}
+            <span>{skillCount ?? "—"}</span>
+          </button>
+          <button
+            aria-label={t("tools.mcp")}
+            aria-pressed={activeView === "mcp"}
+            onClick={() => setActiveView("mcp")}
+            type="button"
+          >
+            <Network aria-hidden="true" size={14} />
+            {t("tools.mcp")}
+            <span>{mcpCount ?? "—"}</span>
+          </button>
+          <button
             aria-label={t("tools.tools")}
             aria-pressed={activeView === "tools"}
             onClick={() => setActiveView("tools")}
@@ -59,7 +82,11 @@ export default function ToolsRoute({ services, onOpenChat }: ToolsRouteProps) {
         <p className="react-resource-view__description">
           {activeView === "plugins"
             ? t("tools.pluginDescription")
-            : t("tools.toolsDescription")}
+            : activeView === "skills"
+              ? t("tools.skillsDescription")
+              : activeView === "mcp"
+                ? t("tools.mcpDescription")
+                : t("tools.toolsDescription")}
         </p>
         {activeView === "plugins" ? (
           <PluginsSection
@@ -70,7 +97,9 @@ export default function ToolsRoute({ services, onOpenChat }: ToolsRouteProps) {
         ) : (
           <ToolCatalogPanel
             onRetry={() => setCatalogRevision((revision) => revision + 1)}
+            services={services}
             state={catalogState}
+            view={activeView}
           />
         )}
       </div>
@@ -80,24 +109,176 @@ export default function ToolsRoute({ services, onOpenChat }: ToolsRouteProps) {
 
 function ToolCatalogPanel({
   onRetry,
+  services,
   state,
+  view,
 }: {
   onRetry: () => void;
+  services: AppServices;
   state: ToolCatalogState;
+  view: Exclude<ResourceView, "plugins">;
 }) {
   const { t } = useTranslation("common");
+  const viewName = t(`tools.${view}`);
   if (state.status === "loading") {
-    return <p className="react-plugin-section__loading" role="status">{t("deferredSurface.loading", { name: t("tools.tools") })}</p>;
+    return <p className="react-plugin-section__loading" role="status">{t("deferredSurface.loading", { name: viewName })}</p>;
   }
   if (state.status === "failed") {
     return (
       <div className="react-plugin-section__error" role="alert">
-        <p>{t("deferredSurface.loadFailed", { message: state.error.message, name: t("tools.tools") })}</p>
-        <button onClick={onRetry} type="button">{t("deferredSurface.retry", { name: t("tools.tools") })}</button>
+        <p>{t("deferredSurface.loadFailed", { message: state.error.message, name: viewName })}</p>
+        <button onClick={onRetry} type="button">{t("deferredSurface.retry", { name: viewName })}</button>
       </div>
     );
   }
+  if (view === "skills") return <SkillsCatalogView catalog={state.catalog} services={services} />;
+  if (view === "mcp") return <McpCatalogView catalog={state.catalog} />;
   return <ToolsCatalogView catalog={state.catalog} />;
+}
+
+type SkillDetailState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready"; detail: SkillDetail }
+  | { status: "failed"; error: Error };
+
+function SkillsCatalogView({ catalog, services }: { catalog: ToolCatalogSummary; services: AppServices }) {
+  const { t } = useTranslation("common");
+  const [selectedSkillId, setSelectedSkillId] = useState<string>();
+  const [detailRevision, setDetailRevision] = useState(0);
+  const [detailState, setDetailState] = useState<SkillDetailState>({ status: "idle" });
+  useEffect(() => {
+    if (!selectedSkillId) {
+      setDetailState({ status: "idle" });
+      return;
+    }
+    let cancelled = false;
+    setDetailState({ status: "loading" });
+    void services.toolsStore.loadSkillDetail(selectedSkillId)
+      .then((detail) => {
+        if (!cancelled) setDetailState({ status: "ready", detail });
+      })
+      .catch((cause) => {
+        if (cancelled) return;
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        console.error("[tinybot-tools-route] Skill detail load failed", { error, skillId: selectedSkillId });
+        setDetailState({ status: "failed", error });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [detailRevision, selectedSkillId, services]);
+
+  const detailPanelId = selectedSkillId ? `skill-detail-${cssIdentifier(selectedSkillId)}` : undefined;
+  return (
+    <div className="react-resource-panel" role="region" aria-label={t("tools.skillsLabel")}>
+      <section className="react-tool-group" aria-labelledby="available-skills-heading">
+        <div className="react-resource-panel__heading">
+          <span>
+            <h2 id="available-skills-heading">{t("tools.availableSkills")}</h2>
+            <small>{t("tools.availableSkillsDescription")}</small>
+          </span>
+          <span className="react-resource-count">{catalog.skills.length}</span>
+        </div>
+        {catalog.skills.length ? (
+          <div className="react-skill-browser" data-detail-open={Boolean(selectedSkillId)}>
+            <div className="react-data-list react-skill-list">
+              {catalog.skills.map((skill) => {
+                const selected = skill.id === selectedSkillId;
+                return (
+                  <button
+                    aria-controls={selected ? detailPanelId : undefined}
+                    aria-expanded={selected}
+                    aria-label={t("tools.viewSkillDetails", { name: skill.name })}
+                    className="react-data-row react-tool-row react-skill-row"
+                    data-selected={selected}
+                    key={skill.id}
+                    type="button"
+                    onClick={() => setSelectedSkillId(selected ? undefined : skill.id)}
+                  >
+                    <span className="react-data-row__content">
+                      <strong>{skill.name}</strong>
+                      <small>{skill.description}</small>
+                    </span>
+                    <span className="react-tool-row__meta">
+                      <small title={skill.path}>{skill.source}</small>
+                      <ChevronRight aria-hidden="true" size={15} />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {selectedSkillId ? (
+              <section
+                aria-busy={detailState.status === "loading"}
+                aria-label={t("tools.skillDetails")}
+                className="react-skill-detail"
+                id={detailPanelId}
+              >
+                <header>
+                  <strong>{detailState.status === "ready" ? detailState.detail.name : t("tools.skillDetails")}</strong>
+                  <button
+                    aria-label={t("tools.closeSkillDetails")}
+                    type="button"
+                    onClick={() => setSelectedSkillId(undefined)}
+                  >
+                    <X aria-hidden="true" size={15} />
+                  </button>
+                </header>
+                {detailState.status === "loading" ? <p role="status">{t("tools.loadingSkillDetails")}</p> : null}
+                {detailState.status === "failed" ? (
+                  <div className="react-skill-detail__error" role="alert">
+                    <p>{t("tools.skillDetailsFailed", { message: detailState.error.message })}</p>
+                    <button type="button" onClick={() => setDetailRevision((revision) => revision + 1)}>{t("tools.retrySkillDetails")}</button>
+                  </div>
+                ) : null}
+                {detailState.status === "ready" ? (
+                  <div className="react-skill-detail__body">
+                    <dl>
+                      <div><dt>{t("tools.skillSource")}</dt><dd>{detailState.detail.source}</dd></div>
+                      <div><dt>{t("tools.skillPath")}</dt><dd title={detailState.detail.path}>{detailState.detail.path}</dd></div>
+                    </dl>
+                    <pre tabIndex={0}>{detailState.detail.content}</pre>
+                  </div>
+                ) : null}
+              </section>
+            ) : null}
+          </div>
+        ) : <p className="react-empty-state">{t("tools.skillsEmpty")}</p>}
+      </section>
+    </div>
+  );
+}
+
+function McpCatalogView({ catalog }: { catalog: ToolCatalogSummary }) {
+  const { t } = useTranslation("common");
+  return (
+    <div className="react-resource-panel" role="region" aria-label={t("tools.mcpServers")}>
+      <section className="react-tool-group" aria-labelledby="mcp-server-heading">
+        <div className="react-resource-panel__heading">
+          <span>
+            <h2 id="mcp-server-heading">{t("tools.mcpServers")}</h2>
+            <small>{t("tools.mcpServersDescription")}</small>
+          </span>
+          <span className="react-resource-count">{catalog.mcpServers.length}</span>
+        </div>
+        {catalog.mcpServers.length ? (
+          <div className="react-mcp-grid">
+            {catalog.mcpServers.map((server) => (
+              <article className="react-mcp-card" key={server.id}>
+                <span>
+                  <strong>{server.id}</strong>
+                  {server.source ? <small title={server.source}>{server.source}</small> : null}
+                  <small>{server.error || t("tools.transportSummary", { count: server.toolCount, transport: server.transport })}</small>
+                </span>
+                <span className="react-status-pill" data-state={server.state}>{server.state}</span>
+              </article>
+            ))}
+          </div>
+        ) : <p className="react-empty-state">{t("tools.mcpEmpty")}</p>}
+      </section>
+    </div>
+  );
 }
 
 function ToolsCatalogView({ catalog }: { catalog: ToolCatalogSummary }) {
@@ -117,28 +298,6 @@ function ToolsCatalogView({ catalog }: { catalog: ToolCatalogSummary }) {
 
   return (
     <div className="react-resource-panel" role="region" aria-label={t("tools.availableToolsLabel")}>
-      {catalog.mcpServers.length ? (
-        <section className="react-tool-group" aria-labelledby="mcp-server-heading">
-          <div className="react-resource-panel__heading">
-            <span>
-              <h2 id="mcp-server-heading">{t("tools.mcpServers")}</h2>
-              <small>{t("tools.mcpServersDescription")}</small>
-            </span>
-            <span className="react-resource-count">{catalog.mcpServers.length}</span>
-          </div>
-          <div className="react-mcp-grid">
-            {catalog.mcpServers.map((server) => (
-              <article className="react-mcp-card" key={server.id}>
-                <span>
-                  <strong>{server.id}</strong>
-                  <small>{server.error || t("tools.transportSummary", { count: server.toolCount, transport: server.transport })}</small>
-                </span>
-                <span className="react-status-pill" data-state={server.state}>{server.state}</span>
-              </article>
-            ))}
-          </div>
-        </section>
-      ) : null}
       <section className="react-tool-group" aria-labelledby="available-tools-heading">
         <div className="react-resource-panel__heading react-resource-panel__heading--tools">
           <span>
@@ -492,4 +651,8 @@ function DataList<T>({ empty, items, renderItem }: {
 
 function errorMessage(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+function cssIdentifier(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, "-");
 }

@@ -2,6 +2,8 @@ import type { NativePluginsApi } from "../../app-core/native/desktopNativePlugin
 import type { NativeWebuiRouteRequest } from "../../app-core/native/desktopNativeWebui";
 import type {
   McpServerSummary,
+  SkillDetail,
+  SkillSummary,
   ToolCatalogSummary,
   ToolSummary,
   ToolsStore,
@@ -21,10 +23,22 @@ export function createDesktopToolsStore({
   nativeWebui?: NativeToolsCatalogApi;
 }): ToolsStore {
   return {
-    async loadCatalog() {
+    async loadCatalog(options) {
       await initialize();
-      const payload = await requireNative(nativeWebui, "WebUI").route({ method: "GET", path: "/api/tools" });
+      const workingDirectory = options?.workingDirectory?.trim();
+      const path = workingDirectory
+        ? `/api/tools?workingDirectory=${encodeURIComponent(workingDirectory)}`
+        : "/api/tools";
+      const payload = await requireNative(nativeWebui, "WebUI").route({ method: "GET", path });
       return normalizeToolCatalog(payload);
+    },
+    async loadSkillDetail(id) {
+      await initialize();
+      const payload = await requireNative(nativeWebui, "WebUI").route({
+        method: "GET",
+        path: `/api/tools/skills/${encodeURIComponent(id)}`,
+      });
+      return normalizeSkillDetail(payload);
     },
     async listPlugins() {
       await initialize();
@@ -57,6 +71,7 @@ function normalizeToolCatalog(payload: unknown): ToolCatalogSummary {
   return {
     tools: payloadItems(payload, ["tools", "items"]).map(normalizeToolSummary),
     mcpServers: payloadItems(payload, ["mcpServers", "servers"]).map(normalizeMcpServerSummary),
+    skills: payloadItems(payload, ["skills"]).map(normalizeSkillSummary),
   };
 }
 
@@ -83,7 +98,27 @@ function normalizeMcpServerSummary(item: Record<string, unknown>): McpServerSumm
     transport: stringValue(item.transport) || "stdio",
     state: stringValue(status.state) || (item.enabled === false ? "disabled" : "unknown"),
     toolCount: numberValue(item.toolCount ?? status.toolCount) ?? 0,
+    source: stringValue(item.source) || undefined,
     error: stringValue(item.error ?? status.lastError) || undefined,
+  };
+}
+
+function normalizeSkillSummary(item: Record<string, unknown>): SkillSummary {
+  const name = stringValue(item.name ?? item.id);
+  return {
+    id: stringValue(item.id) || name,
+    name,
+    description: stringValue(item.description),
+    source: stringValue(item.source) || "workspace",
+    path: stringValue(item.path),
+  };
+}
+
+function normalizeSkillDetail(payload: unknown): SkillDetail {
+  const item = isRecord(payload) ? payload : {};
+  return {
+    ...normalizeSkillSummary(item),
+    content: stringValue(item.content),
   };
 }
 

@@ -39,6 +39,7 @@ export type PrepareChatSubmissionInput = {
   options: ComposerSendOptions;
   pastedContent: readonly PastedContent[];
   queuedInputs: readonly QueuedInput[];
+  selectedSkillIds: readonly string[];
   selectedSessionIds: readonly string[];
   sessions: readonly ComposerMentionedSession[];
   t: TFunction<"chat">;
@@ -52,6 +53,7 @@ export async function prepareChatSubmission(
     if (
       input.files.length
       || input.pastedContent.length
+      || input.selectedSkillIds.length
       || input.selectedSessionIds.length
     ) {
       throw new Error(input.t("errors.compactWithAttachments"));
@@ -78,7 +80,9 @@ export async function prepareChatSubmission(
     ? input.t("composer.attachedFilesPrompt")
     : mentionedSessions.length
       ? input.t("composer.sessionMention.attachedPrompt")
-      : "";
+      : input.selectedSkillIds.length
+        ? input.t("composer.skill.attachedPrompt")
+        : "";
   const visibleText = formatComposerMessage(
     input.message || fallbackMessage,
     input.pastedContent,
@@ -98,7 +102,7 @@ export async function prepareChatSubmission(
   const content = queuedResult.kind === "send_message"
     ? queuedResult.content
     : queuedResult.input.content;
-  const turnInput = createComposerChatInput(content, input.options, references);
+  const turnInput = createComposerChatInput(content, input.options, references, input.selectedSkillIds);
   if (queuedResult.kind === "queue_input") {
     return {
       input: { ...queuedResult.input, turnInput },
@@ -113,6 +117,7 @@ function createComposerChatInput(
   text: string,
   options: ComposerSendOptions,
   references: AgentInputReference[],
+  selectedSkillIds: readonly string[],
 ): DesktopChatInput {
   return {
     text,
@@ -120,6 +125,7 @@ function createComposerChatInput(
     ...(options.provider ? { provider: options.provider } : {}),
     ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
     ...(references.length ? { references } : {}),
+    ...(selectedSkillIds.length ? { selectedSkills: [...selectedSkillIds] } : {}),
   };
 }
 

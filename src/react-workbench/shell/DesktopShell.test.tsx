@@ -43,6 +43,7 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
   };
   toolsStore: {
     loadCatalog: ReturnType<typeof vi.fn>;
+    loadSkillDetail: ReturnType<typeof vi.fn>;
     listPlugins: ReturnType<typeof vi.fn>;
     installPlugin: ReturnType<typeof vi.fn>;
     preparePluginMigration: ReturnType<typeof vi.fn>;
@@ -153,6 +154,15 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
           },
         ],
         mcpServers: [],
+        skills: [],
+      })),
+      loadSkillDetail: vi.fn(async () => ({
+        id: "workspace:test-skill",
+        name: "test-skill",
+        description: "Test Skill",
+        source: "workspace",
+        path: "D:\\workspace\\.agents\\skills\\test-skill\\SKILL.md",
+        content: "---\nname: test-skill\n---\n",
       })),
       listPlugins: vi.fn(async () => [{
         name: "review-tools",

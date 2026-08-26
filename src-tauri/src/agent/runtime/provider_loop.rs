@@ -8,7 +8,7 @@ use super::tool_runtime::{execute_tool_calls_for_iteration, NativeAgentToolExecu
 use super::usage::{
     context_window_action_payload, context_window_projection_async,
     context_with_projected_messages, estimate_context_tokens_for_request,
-    manual_context_compaction_requested,
+    manual_context_compaction_requested, prepare_provider_request,
 };
 use super::user_input::{
     prepare_user_input_continuation, UserInputContinuationOutcome, UserInputResume,
@@ -70,13 +70,17 @@ pub fn run_native_agent_turn_with_workspace(
 pub async fn run_native_agent_turn_with_workspace_async(
     services: &NativeAgentRuntimeServices,
     spec: Value,
-    config_snapshot: Value,
+    mut config_snapshot: Value,
     workspace_root: &Path,
 ) -> Result<Value, String> {
     let instructions = InstructionComposer::default().compose_with_config(
         workspace_root,
         &spec,
         &config_snapshot,
+    )?;
+    crate::workspace_extensions::merge_workspace_mcp_servers(
+        &mut config_snapshot,
+        &instructions.working_directory,
     )?;
     run_owned_native_agent_turn_async(
         services,
@@ -492,12 +496,17 @@ impl<'a> NativeAgentTurnExecution<'a> {
             ));
         }
         if let Some(workspace_root) = workspace_root {
+            let mcp_workspace_root = context
+                .settings
+                .working_directory
+                .as_deref()
+                .unwrap_or(workspace_root);
             let cancellation = context.cancellation.clone().map(|cancellation| {
                 Arc::new(cancellation) as Arc<dyn crate::protocol::WorkerRequestCancellation>
             });
             let discovered = match dependencies
                 .mcp_runtime
-                .discover_configured_tools(workspace_root, &config_snapshot, cancellation)
+                .discover_configured_tools(mcp_workspace_root, &config_snapshot, cancellation)
                 .await
             {
                 Ok(discovered) => discovered,
@@ -864,8 +873,22 @@ impl<'a> NativeAgentTurnExecution<'a> {
             )?));
         }
 
-        let provider_context = context_with_projected_messages(&self.context, projection.messages);
-        let estimated_context_tokens = estimate_context_tokens_for_request(&provider_context)?;
+        let mut provider_context =
+            context_with_projected_messages(&self.context, projection.messages);
+        let (provider_request, estimated_context_tokens) =
+            match prepare_provider_request(&provider_context) {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    return Ok(ExecutionStage::Finished(provider_failure_result(
+                        self.dependencies,
+                        &self.context,
+                        &mut self.state,
+                        iteration,
+                        NativeAgentProviderFailure::provider(error),
+                    )?));
+                }
+            };
+        provider_context.set_prepared_provider_request(provider_request);
         let attempt = ProviderAttempt::new(&self.context, iteration, estimated_context_tokens);
         let before_provider_invocation = AgentHookInvocation::provider(
             AgentHookStage::BeforeProviderRequest,
@@ -1355,7 +1378,7 @@ fn append_response_tool_outputs(
 }
 
 fn provider_protocol(context: &AgentTurnContext) -> Result<ProviderProtocolAdapter, String> {
-    ProviderProtocolAdapter::from_runtime_context(context)
+    ProviderProtocolAdapter::for_runtime_request(context)
 }
 
 fn turn_context_is_cancelled(context: &AgentTurnContext) -> bool {

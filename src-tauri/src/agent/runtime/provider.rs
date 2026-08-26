@@ -25,7 +25,11 @@ impl NativeAgentProvider for RustNativeAgentProvider {
     ) -> Result<NativeAgentProviderResponse, String> {
         let provider_config = agent_provider_config(context);
         let adapter = ProviderProtocolAdapter::resolve(context, &provider_config)?;
-        let request = adapter.build_request(context)?;
+        let request = context
+            .prepared_provider_request()
+            .cloned()
+            .map(Ok)
+            .unwrap_or_else(|| adapter.build_request(context))?;
         let mut provider_observer =
             |event: crate::agent::provider::NativeProviderStreamEvent| match event {
                 crate::agent::provider::NativeProviderStreamEvent::MessagePhase(phase) => {
@@ -61,7 +65,10 @@ impl NativeAgentProvider for RustNativeAgentProvider {
             let provider_config = agent_provider_config(context);
             let adapter = ProviderProtocolAdapter::resolve(context, &provider_config)
                 .map_err(NativeAgentProviderFailure::provider)?;
-            let request = adapter.build_request_async(context).await?;
+            let request = match context.prepared_provider_request() {
+                Some(request) => request.clone(),
+                None => adapter.build_request_async(context).await?,
+            };
             let cancellation = context.cancellation.clone().map(|cancellation| {
                 Arc::new(cancellation) as Arc<dyn crate::protocol::WorkerRequestCancellation>
             });

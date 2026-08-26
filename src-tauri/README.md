@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:1ff29e7c852024b8c66f95441acbb8f20d406bd89a4dbff8899487303f6fdeb7 -->
+<!-- tinybot-module-fingerprint: sha256:7b978fc82db971466cc466e469ad52f9acf6e5a33570c643dbf3df92a80d76bd -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -137,10 +137,14 @@ The main layers are:
    - [`threads/rollout/store/`](src/threads/rollout/store/README.md) owns
      canonical append-only Rollouts and their process-local Thread index.
 5. **Domain services**
-   - `workspace/`, `tools/`, `automation/`, `collaboration/`, `config/`,
+   - `workspace/`, `workspace_extensions.rs`, `tools/`, `automation/`, `collaboration/`, `config/`,
      `agent_graphs.rs`, `graph_runs.rs`, `project_groups.rs`, `plugins/`,
      `skills/`, and `memory/` own their business rules and do not depend on RPC
      or Tauri.
+   - `workspace_extensions.rs` discovers project-local `.agents/skills` and
+     supported MCP configuration files from the effective working-directory
+     hierarchy, normalizing them for one Turn without mutating saved global
+     configuration.
 6. **Process and transport infrastructure**
    - [`runtime/`](src/runtime/README.md) owns live tasks, shared MCP state,
      startup recovery, shutdown, and operational metrics.

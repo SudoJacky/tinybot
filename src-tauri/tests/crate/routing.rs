@@ -360,6 +360,18 @@ fn thread_clear_removes_persisted_history() {
 #[test]
 fn worker_webui_tools_route_returns_effective_catalog() {
     let fixture = WorkspaceFixture::new();
+    fixture.write(
+        ".agents/skills/review-work/SKILL.md",
+        "---\nname: review-work\ndescription: Review workspace changes.\n---\nReview the diff.\n",
+    );
+    fixture.write(
+        ".mcp.json",
+        r#"{"mcpServers":{"workspace-docs":{"command":"docs-server","enabled":false}}}"#,
+    );
+    fixture.write(
+        "packages/ui/.agents/skills/ui-review/SKILL.md",
+        "---\nname: ui-review\ndescription: Review workspace UI.\n---\nReview the interaction.\n",
+    );
     let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
@@ -384,7 +396,54 @@ fn worker_webui_tools_route_returns_effective_catalog() {
         .as_u64()
         .is_some_and(|total| total > 0));
     assert!(response["body"]["tools"].as_array().is_some());
-    assert_eq!(response["body"]["mcpServers"], serde_json::json!([]));
+    let workspace_skill = response["body"]["skills"]
+        .as_array()
+        .and_then(|skills| skills.iter().find(|skill| skill["name"] == "review-work"))
+        .expect("workspace skill should be cataloged");
+    assert_eq!(workspace_skill["source"], "workspace");
+    assert!(workspace_skill.get("content").is_none());
+    assert_eq!(response["body"]["mcpServers"][0]["id"], "workspace-docs");
+    assert!(response["body"]["mcpServers"][0]["source"]
+        .as_str()
+        .is_some_and(|source| source.ends_with(".mcp.json")));
+
+    let detail = worker_webui_route_with_options(
+        &shared,
+        WorkerWebuiRouteInput {
+            method: "GET".to_string(),
+            path: "/api/tools/skills/workspace%3Areview-work".to_string(),
+            headers: None,
+            body: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_secs(1),
+    )
+    .expect("workspace skill detail route should be Rust-owned");
+
+    assert_eq!(detail["status"], 200);
+    assert_eq!(detail["body"]["id"], "workspace:review-work");
+    assert!(detail["body"]["content"]
+        .as_str()
+        .is_some_and(|content| content.contains("Review the diff.")));
+
+    let nested_workspace = fixture.root.join("packages").join("ui");
+    let scoped = worker_webui_route_with_options(
+        &shared,
+        WorkerWebuiRouteInput {
+            method: "GET".to_string(),
+            path: format!("/api/tools?workingDirectory={}", nested_workspace.display()),
+            headers: None,
+            body: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_secs(1),
+    )
+    .expect("tools route should honor the requested working directory");
+    assert!(scoped["body"]["skills"]
+        .as_array()
+        .is_some_and(|skills| skills.iter().any(|skill| skill["name"] == "ui-review")));
 }
 
 #[test]

@@ -240,16 +240,31 @@ export type McpServerSummary = {
   transport: string;
   state: string;
   toolCount: number;
+  source?: string;
   error?: string;
+};
+
+export type SkillSummary = {
+  id: string;
+  name: string;
+  description: string;
+  source: string;
+  path: string;
+};
+
+export type SkillDetail = SkillSummary & {
+  content: string;
 };
 
 export type ToolCatalogSummary = {
   tools: ToolSummary[];
   mcpServers: McpServerSummary[];
+  skills: SkillSummary[];
 };
 
 export type ToolsStore = {
-  loadCatalog(): Promise<ToolCatalogSummary>;
+  loadCatalog(options?: { workingDirectory?: string }): Promise<ToolCatalogSummary>;
+  loadSkillDetail(id: string): Promise<SkillDetail>;
   listPlugins(): Promise<PluginSummary[]>;
   installPlugin(path: string): Promise<PluginSummary>;
   preparePluginMigration(path: string): Promise<PluginMigrationJob>;

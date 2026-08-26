@@ -33,7 +33,9 @@ policy for this reference set.
 | `worker_skills_delete` | `{ input: { name } }` | delete result |
 | `worker_skills_validate` | `{ input: { name } }` | validation result |
 
-These commands belong to the legacy skills API. Native agent turns discover active skills from enabled global Agent Plugins instead.
+These commands belong to the legacy skills API. Native agent turns do not use that managed `<backend-workspace>/skills` directory. They discover enabled global Agent Plugin skills plus project-local `.agents/skills/*/SKILL.md` files from the effective working-directory hierarchy. Project-local skill names are unqualified; plugin skill names remain qualified as `<plugin-name>:<skill-name>`.
+
+Native turns also merge project-local MCP definitions from `mcp.json`, `.mcp.json`, and `.github/mcp.json`. The files may expose a `mcpServers` or `servers` object. Discovery walks from the nearest Git root to the effective working directory, and deeper same-named definitions win without mutating the saved global configuration. `.codex` directories are not scanned.
 
 ## Agent Plugin Commands
 

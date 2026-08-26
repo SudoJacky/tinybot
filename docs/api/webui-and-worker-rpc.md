@@ -8,7 +8,7 @@ src-tauri/src/rpc/method.rs
 src-tauri/src/rpc/runtime.rs
 src-tauri/tests/crate/transport.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:834e06c3b65fcb233f0e98229b209e7006cd888884af5eef413e04a6000ab59f -->
+<!-- tinybot-doc-fingerprint: sha256:91ad944d31181cad4436011a2e214b53181e4f3ba3a22d74b786eaae5d742ac5 -->
 
 This document covers the Rust-owned WebUI route wrapper and Worker RPC protocol.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -51,6 +51,7 @@ Use `routeResponse()` if the status and headers are needed.
 | Method | Path | Group | Notes |
 | --- | --- | --- | --- |
 | `GET` | `/api/tools` | tools | Effective built-in and MCP capability catalog |
+| `GET` | `/api/tools/skills/{id}` | tools | Full detail for one cataloged workspace or enabled-plugin Skill |
 | `GET` | `/api/providers` | providers | Provider catalog |
 | `POST` | `/api/provider-models` | providers | Async provider model resolution, including optional live OpenAI-compatible `GET /models` discovery |
 | `POST` | `/api/agent-ui/forms/{form_id}/submit` | agent-ui | Form continuation |
@@ -139,9 +140,21 @@ Configured server maps are normalized from `tools.mcp_servers`, `tools.mcpServer
 `mcp.servers`. All MCP status, discovery, reconciliation, Worker RPC, and native-agent dispatch
 paths use the same normalized map.
 
+For a workspace-backed native turn, Tinybot additionally reads `mcp.json`, `.mcp.json`, and
+`.github/mcp.json` from the nearest Git root through the effective working directory. Documents may
+use a `mcpServers` or `servers` object. Inner scopes override same-named outer or global servers,
+relative stdio working directories resolve from the declaring scope, and the merge remains
+turn-local. `.codex` is not scanned.
+
 `mcp.capability_catalog` and `GET /api/tools` expose one effective snapshot containing configured
-servers, runtime status, discovered tools, allowlist state, callable state, denial reasons, and input
-schemas. One failed or disabled server remains visible without hiding tools from healthy servers.
+servers, runtime status, discovered tools, allowlist state, callable state, denial reasons, input
+schemas, and a separate Skill catalog. Skill entries include enabled Agent Plugin skills and
+`.agents/skills/*/SKILL.md` files for the catalog workspace. One failed or disabled server remains
+visible without hiding tools from healthy servers. The list contains Skill metadata and paths, not
+full documents; `GET /api/tools/skills/{id}` reads the selected `SKILL.md` on demand and returns
+`404` when the ID is no longer cataloged. Renderer callers can add a URL-encoded
+`workingDirectory` query to either Tools route so workspace entries resolve against the active
+conversation directory instead of the configured backend default.
 
 Stdio configuration example:
 

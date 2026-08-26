@@ -14,6 +14,7 @@ const WORKSPACE_USER_PRECEDENCE: u32 = 410;
 const WORKSPACE_TOOLS_PRECEDENCE: u32 = 420;
 const PROJECT_INSTRUCTION_PRECEDENCE: u32 = 500;
 const LONG_TERM_MEMORY_PRECEDENCE: u32 = 600;
+const WORKSPACE_SKILL_CATALOG_PRECEDENCE: u32 = 640;
 const PLUGIN_SKILL_CATALOG_PRECEDENCE: u32 = 650;
 const SELECTED_SKILL_PRECEDENCE: u32 = 700;
 const COLLABORATION_PRECEDENCE: u32 = 800;
@@ -37,6 +38,7 @@ pub enum InstructionSourceKind {
     ProjectAgents,
     ProjectOverride,
     LongTermMemory,
+    WorkspaceSkillCatalog,
     PluginSkillCatalog,
     SelectedSkill,
     CollaborationMode,
@@ -268,6 +270,23 @@ impl InstructionComposer {
         }
 
         let selected_skills = selected_skill_names(spec)?;
+        let workspace_skills =
+            crate::workspace_extensions::discover_workspace_skills(&working_directory)?;
+        if !workspace_skills.is_empty() {
+            push_instruction_source(
+                &mut messages,
+                &mut sources,
+                InstructionSourceKind::WorkspaceSkillCatalog,
+                PathBuf::from("workspace:skill-catalog"),
+                working_directory.clone(),
+                WORKSPACE_SKILL_CATALOG_PRECEDENCE,
+                loaded_at_ms,
+                render_workspace_skill_catalog(&workspace_skills),
+                false,
+                Vec::new(),
+                false,
+            );
+        }
         let plugin_skills = self
             .plugin_store
             .enabled()
@@ -292,29 +311,44 @@ impl InstructionComposer {
         }
         let mut activated = Vec::new();
         for selected in &selected_skills {
-            let skill = plugin_skills
+            if let Some(skill) = plugin_skills
                 .iter()
                 .find(|skill| skill.qualified_name() == *selected)
-                .ok_or_else(|| {
-                    format!(
-                        "selected Agent Plugin skill `{selected}` does not exist or is disabled"
-                    )
-                })?;
-            activated.push(skill.clone());
+            {
+                activated.push((
+                    skill.path.clone(),
+                    skill.root.clone(),
+                    skill.content.clone(),
+                    format!("Agent Plugin skill activation: {}", skill.qualified_name()),
+                ));
+            } else if let Some(skill) = workspace_skills
+                .iter()
+                .find(|skill| skill.name == *selected)
+            {
+                activated.push((
+                    skill.path.clone(),
+                    skill.root.clone(),
+                    skill.content.clone(),
+                    format!("Workspace skill activation: {}", skill.name),
+                ));
+            } else {
+                return Err(format!(
+                    "selected skill `{selected}` does not exist or is disabled"
+                ));
+            }
         }
-        for (index, skill) in activated.into_iter().enumerate() {
-            let qualified_name = skill.qualified_name();
+        for (index, (path, root, content, warning)) in activated.into_iter().enumerate() {
             push_instruction_source(
                 &mut messages,
                 &mut sources,
                 InstructionSourceKind::SelectedSkill,
-                skill.path,
-                skill.root,
+                path,
+                root,
                 SELECTED_SKILL_PRECEDENCE.saturating_add(index as u32),
                 loaded_at_ms,
-                skill.content,
+                content,
                 false,
-                vec![format!("Agent Plugin skill activation: {qualified_name}")],
+                vec![warning],
                 false,
             );
         }
@@ -409,6 +443,27 @@ fn render_plugin_skill_catalog(skills: &[crate::plugins::PluginSkill]) -> String
         content.push_str(&format!(
             "\n- `{}`: {} (file: `{}`)",
             skill.qualified_name(),
+            skill.description,
+            skill.path.display()
+        ));
+    }
+    content
+}
+
+fn render_workspace_skill_catalog(
+    skills: &[crate::workspace_extensions::WorkspaceSkill],
+) -> String {
+    let mut content = String::from(
+        "# Available workspace skills\n\n\
+         The following Agent Skills apply to the current working directory. \
+         When a skill clearly applies, read its `SKILL.md` from the listed absolute path before \
+         acting, then follow its instructions. Load referenced resources relative to the skill \
+         directory only as needed.\n",
+    );
+    for skill in skills {
+        content.push_str(&format!(
+            "\n- `{}`: {} (file: `{}`)",
+            skill.name,
             skill.description,
             skill.path.display()
         ));
@@ -611,40 +666,8 @@ fn instruction_working_directory(spec: &Value, workspace_root: &Path) -> Result<
 fn project_instruction_paths(
     working_directory: &Path,
 ) -> Result<Vec<ProjectInstructionCandidate>, String> {
-    let mut project_root = None;
-    for directory in working_directory.ancestors() {
-        let marker = directory.join(".git");
-        match fs::metadata(&marker) {
-            Ok(_) => {
-                project_root = Some(directory);
-                break;
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(format!(
-                    "failed to inspect project root marker `{}`: {error}",
-                    marker.display()
-                ));
-            }
-        }
-    }
-    let project_root = project_root.unwrap_or(working_directory);
-    let mut directories = Vec::new();
-    let mut cursor = working_directory;
-    loop {
-        directories.push(cursor.to_path_buf());
-        if cursor == project_root {
-            break;
-        }
-        let Some(parent) = cursor.parent() else {
-            break;
-        };
-        cursor = parent;
-    }
-    directories.reverse();
-
     let mut candidates = Vec::new();
-    for directory in directories {
+    for directory in crate::workspace_extensions::project_scope_directories(working_directory)? {
         if let Some((path, kind)) = instruction_candidate_in_directory(&directory)? {
             candidates.push(ProjectInstructionCandidate {
                 path,

@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:f4015daaaa6f60dec52710478dd71ac955ac3200c60646672c508bd6e97b559a -->
+<!-- tinybot-module-fingerprint: sha256:0c2331de7ecc06d0c22906b5b35d2815c1c9dcd15592014b6a32f293aa1f0ee2 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
@@ -18,6 +18,10 @@ remain untranslated.
 
 User-visible copy belongs in `resources/`. Domain identifiers, persisted
 values, protocol fields, and diagnostic codes must remain language-neutral.
+The Tools & Plugins resource-view labels, Skill/MCP descriptions, and empty
+states are localized here; Skill names, MCP IDs, and source paths remain
+language-neutral. Chat also localizes the slash-menu Skills heading, workspace
+source label, inline Skill removal label, and Skill-only fallback prompt.
 Context-window usage and latest-call cache-hit labels are localized here while
 their Token counts and computed percentage remain language-neutral values.
 Provider model settings also localize automatic, fallback, and custom
