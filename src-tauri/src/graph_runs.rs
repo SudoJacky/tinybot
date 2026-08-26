@@ -1,6 +1,6 @@
 use crate::agent::bridge::{execute_thread_turn_with_services, SubmitThreadTurnInput};
 use crate::agent::router;
-use crate::agent::runtime::NativeAgentRuntimeServices;
+use crate::agent::runtime::{NativeAgentCancellationContext, NativeAgentRuntimeServices};
 #[cfg(test)]
 use crate::agent_graphs::AgentLoopReasoningEffort;
 use crate::agent_graphs::{
@@ -41,6 +41,7 @@ pub(crate) enum AgentGraphNodeRunStatus {
     Running,
     Completed,
     Failed,
+    Cancelled,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -94,14 +95,14 @@ pub(crate) struct ListAgentGraphRunsInput {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct StartAgentGraphRunInput {
-    graph_id: String,
-    graph_revision: String,
-    definition_workspace_path: String,
+    pub(crate) graph_id: String,
+    pub(crate) graph_revision: String,
+    pub(crate) definition_workspace_path: String,
+    pub(crate) input: String,
 }
 
 #[derive(Clone, Debug)]
 struct AgentGraphPlan {
-    input: String,
     input_node_id: String,
     nodes: HashMap<String, PlannedNode>,
     outgoing: HashMap<String, Vec<PlannedEdge>>,
@@ -187,7 +188,11 @@ pub(crate) async fn start(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     input: StartAgentGraphRunInput,
+    cancellation: Option<NativeAgentCancellationContext>,
 ) -> Result<AgentGraphRun, String> {
+    if input.input.trim().is_empty() {
+        return Err("Agent Graph Run input must not be empty".to_string());
+    }
     let definition_workspace = canonical_workspace(Path::new(&input.definition_workspace_path))?;
     let definition_workspace_path = workspace_id(&definition_workspace);
     let stored = agent_graphs::load(
@@ -196,7 +201,7 @@ pub(crate) async fn start(
         &input.graph_revision,
     )?;
     let plan = agent_graph_plan(&stored.definition)?;
-    let graph_input = plan.input.clone();
+    let graph_input = input.input;
     let run_id = generate_run_id(data_root, &stored.definition.id);
     let mut run = AgentGraphRun {
         schema_version: AGENT_GRAPH_RUN_SCHEMA_VERSION.to_string(),
@@ -218,6 +223,12 @@ pub(crate) async fn start(
         .target
         .clone();
     loop {
+        if cancellation
+            .as_ref()
+            .is_some_and(NativeAgentCancellationContext::is_cancelled)
+        {
+            return finish_cancelled_run(data_root, run, None);
+        }
         let node = plan
             .nodes
             .get(&cursor)
@@ -257,8 +268,21 @@ pub(crate) async fn start(
                     workspace_root.clone(),
                     config_snapshot.clone(),
                     None,
-                )
-                .await;
+                );
+                tokio::pin!(result);
+                let result = if let Some(cancellation) = cancellation.as_ref() {
+                    tokio::select! {
+                        biased;
+                        _ = cancellation.cancelled() => {
+                            base_services.cancel(&turn_id);
+                            let _ = (&mut result).await;
+                            return finish_cancelled_run(data_root, run, Some(index));
+                        }
+                        result = &mut result => result,
+                    }
+                } else {
+                    result.await
+                };
                 let result = match result {
                     Ok(result) => result,
                     Err(error) => return finish_failed_run(data_root, run, index, error),
@@ -300,11 +324,23 @@ pub(crate) async fn start(
             }
             PlannedNode::Router(router_config) => {
                 let index = begin_node_run(data_root, &mut run, &cursor)?;
-                let decision =
-                    match router::route(&config_snapshot, &current_input, &router_config).await {
-                        Ok(decision) => decision,
-                        Err(error) => return finish_failed_run(data_root, run, index, error),
-                    };
+                let decision = router::route(&config_snapshot, &current_input, &router_config);
+                tokio::pin!(decision);
+                let decision = if let Some(cancellation) = cancellation.as_ref() {
+                    tokio::select! {
+                        biased;
+                        _ = cancellation.cancelled() => {
+                            return finish_cancelled_run(data_root, run, Some(index));
+                        }
+                        decision = &mut decision => decision,
+                    }
+                } else {
+                    decision.await
+                };
+                let decision = match decision {
+                    Ok(decision) => decision,
+                    Err(error) => return finish_failed_run(data_root, run, index, error),
+                };
                 let edge = match plan
                     .outgoing
                     .get(&cursor)
@@ -358,16 +394,6 @@ fn agent_graph_plan(definition: &AgentGraphDefinition) -> Result<AgentGraphPlan,
         .iter()
         .find(|node| node.kind == AgentGraphNodeKind::Input)
         .ok_or_else(|| "Agent Graph Run requires an Input node".to_string())?;
-    let AgentGraphNodeConfig::Input(input_config) = input
-        .config
-        .as_ref()
-        .ok_or_else(|| "Agent Graph Input node has no configuration".to_string())?
-    else {
-        return Err("Agent Graph Input node has invalid configuration".to_string());
-    };
-    if input_config.prompt.trim().is_empty() {
-        return Err("Agent Graph Input prompt must not be empty".to_string());
-    }
 
     let mut nodes = HashMap::new();
     for node in &definition.nodes {
@@ -490,7 +516,6 @@ fn agent_graph_plan(definition: &AgentGraphDefinition) -> Result<AgentGraphPlan,
     ensure_acyclic(&nodes, &outgoing, &incoming)?;
 
     Ok(AgentGraphPlan {
-        input: input_config.prompt.clone(),
         input_node_id: input.id.clone(),
         nodes,
         outgoing,
@@ -685,6 +710,23 @@ fn finish_failed_run(
     Ok(run)
 }
 
+fn finish_cancelled_run(
+    data_root: &Path,
+    mut run: AgentGraphRun,
+    node_index: Option<usize>,
+) -> Result<AgentGraphRun, String> {
+    run.status = AgentGraphRunStatus::Cancelled;
+    if let Some(node_index) = node_index {
+        run.node_runs[node_index].status = AgentGraphNodeRunStatus::Cancelled;
+    }
+    write_run(data_root, &run)?;
+    eprintln!(
+        "agent_graph_run_cancelled graph_id={} run_id={}",
+        run.graph_id, run.id
+    );
+    Ok(run)
+}
+
 fn generate_run_id(data_root: &Path, graph_id: &str) -> String {
     loop {
         let millis = SystemTime::now()
@@ -797,7 +839,7 @@ mod tests {
                 "id": "graph-1",
                 "name": "Pipeline",
                 "nodes": [
-                    { "id": "input", "kind": "input", "position": { "x": 0, "y": 0 }, "config": { "prompt": "Research the repository." } },
+                    { "id": "input", "kind": "input", "position": { "x": 0, "y": 0 } },
                     { "id": "agent-1", "kind": "agent", "position": { "x": 100, "y": 0 }, "config": { "workspacePath": self.first_workspace, "instructions": "" } },
                     { "id": "agent-2", "kind": "agent", "position": { "x": 200, "y": 0 }, "config": { "workspacePath": self.second_workspace, "instructions": "" } },
                     { "id": "output", "kind": "output", "position": { "x": 300, "y": 0 } }
@@ -824,7 +866,6 @@ mod tests {
 
         let plan = agent_graph_plan(&fixture.definition()).unwrap();
 
-        assert_eq!(plan.input, "Research the repository.");
         let PlannedNode::Agent(first) = &plan.nodes["agent-1"] else {
             panic!("agent-1 should be planned as an Agent node");
         };
@@ -932,7 +973,7 @@ mod tests {
             "id": "graph-router",
             "name": "Router",
             "nodes": [
-                { "id": "input", "kind": "input", "position": { "x": 0, "y": 0 }, "config": { "prompt": "Classify this request." } },
+                { "id": "input", "kind": "input", "position": { "x": 0, "y": 0 } },
                 { "id": "router", "kind": "condition", "position": { "x": 100, "y": 0 }, "config": {
                     "task": "Choose the best specialist.",
                     "routes": [
@@ -972,7 +1013,7 @@ mod tests {
             "id": "graph-cycle",
             "name": "Cycle",
             "nodes": [
-                { "id": "input", "kind": "input", "position": { "x": 0, "y": 0 }, "config": { "prompt": "Route this." } },
+                { "id": "input", "kind": "input", "position": { "x": 0, "y": 0 } },
                 { "id": "router", "kind": "condition", "position": { "x": 100, "y": 0 }, "config": { "routes": [
                     { "id": "again", "label": "Again", "description": "Repeat." },
                     { "id": "done", "label": "Done", "description": "Finish." }
@@ -1033,6 +1074,59 @@ mod tests {
         )
         .unwrap()
         .is_empty());
+    }
+
+    #[test]
+    fn completed_run_uses_the_runtime_input() {
+        let fixture = Fixture::new();
+        let graph_directory = fixture.first_workspace.join(".tinybot/graphs");
+        fs::create_dir_all(&graph_directory).unwrap();
+        fs::write(
+            graph_directory.join("runtime-input.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "schemaVersion": "tinybot.agent_graph.v1",
+                "id": "runtime-input",
+                "name": "Runtime input",
+                "nodes": [
+                    { "id": "input", "kind": "input", "position": { "x": 0, "y": 0 } },
+                    { "id": "output", "kind": "output", "position": { "x": 100, "y": 0 } }
+                ],
+                "edges": [{ "id": "edge", "source": "input", "target": "output" }]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let stored = agent_graphs::list_for_workspace(&fixture.first_workspace)
+            .unwrap()
+            .remove(0);
+        let data_root = fixture.root.join("data");
+        let services = NativeAgentRuntimeServices::with_subagent_manager(Default::default())
+            .with_thread_store(
+                crate::threads::workspace_store::WorkspaceThreadStore::new_with_data_root(
+                    fixture.first_workspace.clone(),
+                    data_root.clone(),
+                    crate::protocol::capability::default_desktop_capability_policy(),
+                ),
+            );
+
+        let run = tauri::async_runtime::block_on(start(
+            &data_root,
+            services,
+            fixture.root.clone(),
+            serde_json::json!({}),
+            StartAgentGraphRunInput {
+                graph_id: stored.definition.id,
+                graph_revision: stored.revision,
+                definition_workspace_path: fixture.first_workspace.display().to_string(),
+                input: "Analyze alert 42".to_string(),
+            },
+            None,
+        ))
+        .unwrap();
+
+        assert_eq!(run.status, AgentGraphRunStatus::Completed);
+        assert_eq!(run.input, "Analyze alert 42");
+        assert_eq!(run.output.as_deref(), Some("Analyze alert 42"));
     }
 
     #[test]

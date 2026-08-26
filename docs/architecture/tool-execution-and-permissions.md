@@ -11,7 +11,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:5d4f9899d5a368839f939b12134be6405f18774c59ef2531f1b8ce5cbb9c48ef -->
+<!-- tinybot-doc-fingerprint: sha256:9f4a8625b8ad11297f66d665d46d7cd090a8bc650a849fde2f082d0be7b8ace5 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -41,6 +41,7 @@ Model tool-call batch
     v
 Injected dispatcher
     |-- runtime-control tool
+    |-- workspace Agent Graph Run
     |-- Worker RPC tool executor
     |-- MCP runtime
     |-- native browser
@@ -70,8 +71,13 @@ kinds and requires table `defaultSort` to use `{field, direction}` so providers
 can construct the same shape the native validator accepts.
 
 Ordered contributors assemble built-in, workspace, MCP, runtime-control, and
-eligible project-group tools. Duplicate contributor IDs, tool IDs, or methods
-fail registry construction.
+eligible project-group tools. For ordinary workspace-backed Chat Turns, they
+also assemble one deferred tool per saved Agent Graph in that exact canonical
+working directory. The configured backend workspace fallback alone does not
+make a Turn workspace-backed. Per-file Graph parse or validation failures are
+diagnosed and skipped at this discovery boundary so valid tools remain usable;
+Graph management operations retain strict validation. Duplicate contributor
+IDs, tool IDs, or methods fail registry construction.
 
 ## Exposure and availability
 
@@ -102,6 +108,14 @@ MCP discovery and calls are keyed by the Turn's effective working directory,
 not Tinybot's backend state directory. The dispatcher also reads the current
 Turn configuration snapshot, which includes project-local MCP definitions,
 instead of retaining a potentially stale cross-workspace snapshot.
+
+Agent Graph execution uses a bound registry target containing the definition
+workspace, Graph ID, and revision. The provider can supply only a non-empty
+runtime `input`, so it cannot redirect a call to another Graph or workspace.
+The dispatcher waits for completion and projects only the Graph's final output
+as model-visible content while retaining the Run ID and status in structured
+tool data. Graph node Turns suppress Graph contributors to prevent recursion;
+parent cancellation propagates into the active Run.
 
 Project-coordinator Turns intentionally have no local workspace or shell
 authority. Their persistent cross-workspace Thread tools perform separate

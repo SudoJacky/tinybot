@@ -1,5 +1,5 @@
 # Worker RPC Router
-<!-- tinybot-module-fingerprint: sha256:8f2f1d4b2846aef358a49d27ab934465a855fcf981abe129be28e72ab86e6613 -->
+<!-- tinybot-module-fingerprint: sha256:7a831f64e757b5f7b1136a73b38011f2edddf968e0d2cce7f25eca44ee689719 -->
 
 `rpc` is the versioned method-routing boundary for native backend services.
 The module root is `mod.rs`; protocol envelopes and parameter validation live
@@ -76,5 +76,8 @@ tools/MCP/permissions, and runtime operations.
 - Unknown methods fail explicitly; dispatch must not silently no-op.
 - Tool methods validate typed parameters, capability grants, and availability
   before dispatch.
+- Runtime-control and Agent Graph targets stay owned by the Agent runtime's
+  asynchronous dispatcher and are rejected by the generic Worker RPC tool
+  executor.
 - Shared runtimes such as shell and MCP must be injected rather than recreated
   per request.

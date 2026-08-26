@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:24730d890c8c5e280bf621aa714b9250d4d9836e3419a89022b910be833cbd51 -->
+<!-- tinybot-doc-fingerprint: sha256:549fd76f9c28d4743007f8f9053fed32e671b6de7ebe4d3a821fe7d2e299aea7 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -41,6 +41,7 @@ Thread target and Turn identity validation
 agent::bridge
     |-- hydrate the fixed Thread memory snapshot and compose instructions
     |-- merge project-local MCP definitions for the effective working directory
+    |-- discover same-workspace Agent Graph tools for ordinary Chat Turns
     |-- persist Turn start
     |-- hydrate canonical history
     |-- install tool, checkpoint, trace, and trusted command-hook adapters
@@ -72,6 +73,14 @@ Project-local MCP configuration is discovered after instruction composition
 establishes the effective working directory and before runtime services are
 installed. The merged snapshot is Turn-local: persistence, discovery, and tool
 dispatch share it, while the saved global configuration remains unchanged.
+
+Saved Agent Graphs are discovered only when the Thread or Turn explicitly
+declares a working directory; the backend default is not treated as Graph
+scope. They are contributed as deferred tools bound to the canonical
+definition workspace, Graph ID, and revision; provider arguments contain only
+the Run input. Graph-created Agent node Turns carry Graph Run metadata and skip
+this contribution, so Graph execution cannot recursively expose Graph tools.
+Cancelling the parent Turn cancels the active Graph Run and child Agent Turn.
 
 After context projection, the runtime encodes one final Chat Completions or
 Responses request, estimates its serialized size, and retains that same value

@@ -24,7 +24,9 @@ use crate::agent::runtime_protocol::{
     ModelOutputEvent, PendingAgentEvent, TerminalEvent,
 };
 use crate::runtime::turn_execution::StartAgentTurn;
-use crate::tools::registry::{McpToolContributor, WorkerToolRegistryRpc};
+use crate::tools::registry::{
+    AgentGraphToolContributor, McpToolContributor, WorkerToolRegistryRpc,
+};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -542,6 +544,28 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 context.settings.capability_policy()?,
                 config_snapshot,
             );
+            let graph_node_turn = ["graphRunId", "graph_run_id"]
+                .iter()
+                .any(|key| context.metadata.get(*key).is_some());
+            if !graph_node_turn && turn_declares_working_directory(&context.spec, &context.metadata)
+            {
+                if let Some(definition_workspace_root) =
+                    context.settings.working_directory.as_deref()
+                {
+                    let definition_workspace =
+                        crate::project_groups::canonical_workspace(definition_workspace_root)?;
+                    let discovery =
+                        crate::agent_graphs::discover_tools_for_workspace(&definition_workspace)?;
+                    if !discovery.graphs.is_empty() {
+                        tool_registry = tool_registry.with_contributor(Arc::new(
+                            AgentGraphToolContributor::new(
+                                crate::project_groups::workspace_id(&definition_workspace),
+                                discovery.graphs,
+                            )?,
+                        ))?;
+                    }
+                }
+            }
             if let Some(contributor) =
                 super::workspace_threads::tool_contributor(dependencies, &context)?
             {
@@ -565,7 +589,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         }
         context
             .tool_router
-            .configure_for_turn(&context.settings.selected_tools)?;
+            .configure_for_turn(context.settings.selected_tools.as_deref())?;
         #[cfg(test)]
         context
             .tool_router
@@ -1350,6 +1374,36 @@ impl<'a> NativeAgentTurnExecution<'a> {
             result["contextCheckpoint"] = context_checkpoint;
         }
         Ok(result)
+    }
+}
+
+fn turn_declares_working_directory(spec: &Value, metadata: &Value) -> bool {
+    ["cwd", "workingDirectory", "working_directory", "workspace"]
+        .iter()
+        .any(|key| {
+            [spec, metadata].iter().any(|source| {
+                source
+                    .get(*key)
+                    .and_then(Value::as_str)
+                    .is_some_and(|value| !value.trim().is_empty())
+            })
+        })
+}
+
+#[cfg(test)]
+mod workspace_graph_tests {
+    use super::turn_declares_working_directory;
+
+    #[test]
+    fn workspace_graphs_require_a_turn_declared_workspace() {
+        assert!(!turn_declares_working_directory(
+            &serde_json::json!({}),
+            &serde_json::json!({})
+        ));
+        assert!(turn_declares_working_directory(
+            &serde_json::json!({}),
+            &serde_json::json!({ "workingDirectory": "D:\\work\\alerts" })
+        ));
     }
 }
 

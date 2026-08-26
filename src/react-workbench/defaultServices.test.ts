@@ -504,6 +504,7 @@ describe("desktop native app services", () => {
         provider: "openai",
         reasoningEffort: "xhigh",
         selectedSkills: ["create-agent-plugin:migrate-agent-plugin"],
+        selectedTools: ["agent_graph.run.review"],
       },
       sessionId: "thread-1",
       source: { control: "test", surface: "chat" },
@@ -522,6 +523,7 @@ describe("desktop native app services", () => {
           metadata: expect.objectContaining({
             clientEventId: "command-turn-1",
             selectedSkills: ["create-agent-plugin:migrate-agent-plugin"],
+            selectedTools: ["agent_graph.run.review"],
           }),
         }),
       }),

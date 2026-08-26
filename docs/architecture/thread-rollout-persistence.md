@@ -9,7 +9,7 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:98102a7ddd7d58f307f0af4a029b880ac6d0d9e3829faa0bf66d7d5145835b12 -->
+<!-- tinybot-doc-fingerprint: sha256:9861aa7bf9150bfa7ce2925e12e0e67ee499a2dd64618cdfbae47e2ef19f011c -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
@@ -118,7 +118,10 @@ that lack context metrics from their adjacent token-count record.
 Graph Agent nodes use this exact store. Each invocation creates a parentless
 Thread with `source: "agent_graph"` and Graph, Run, node, and node-run IDs in
 `metadata.extra`; Chat filters that source while explicit Thread APIs and
-diagnostics retain normal access.
+diagnostics retain normal access. That metadata also prevents the child Turn
+from receiving Agent Graph tools. Parent cancellation is forwarded to the
+active child Turn, and its terminal state is persisted as cancelled rather
+than completed.
 
 Lifecycle command hooks do not introduce a second conversation store. Prompt
 hooks run only after the Turn start is durable; an explicit hook denial follows

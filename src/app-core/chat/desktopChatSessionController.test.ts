@@ -178,6 +178,7 @@ describe("desktop native chat session controller", () => {
         detail: "selected file",
       }],
       selectedSkills: ["create-agent-plugin:migrate-agent-plugin"],
+      selectedTools: ["agent_graph.run.review"],
     });
     expect(result).toEqual({
       status: "sent",
@@ -213,6 +214,7 @@ describe("desktop native chat session controller", () => {
           clientEventId: "client-1",
           references: [{ kind: "reference", title: "README", detail: "selected file" }],
           selectedSkills: ["create-agent-plugin:migrate-agent-plugin"],
+          selectedTools: ["agent_graph.run.review"],
         },
       },
     });

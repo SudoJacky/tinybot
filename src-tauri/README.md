@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:7b978fc82db971466cc466e469ad52f9acf6e5a33570c643dbf3df92a80d76bd -->
+<!-- tinybot-module-fingerprint: sha256:94ebbae4f877e29bc132ad232e526bb3bd8d9d5eda3cee370ba5ed005e4c804d -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -190,7 +190,7 @@ roles:
 | `~/.tinybot/project-groups.json` | `project_groups` | Named groups and their workspace memberships |
 | `~/.tinybot/chat-attachments/images/<sha256>.<ext>` | `chat_attachments` | Content-addressed local image copies referenced by durable chat messages and encoded only while building provider requests |
 | `<workspace>/.tinybot/graphs/<graph-id>.json` | `agent_graphs` | Versioned Agent Graph definitions |
-| `~/.tinybot/graph-runs/<graph-id>/<run-id>.json` | `graph_runs` | Saved Input prompt, execution, output, and node-to-Thread status |
+| `~/.tinybot/graph-runs/<graph-id>/<run-id>.json` | `graph_runs` | Runtime input, execution, output, and node-to-Thread status |
 | `~/.tinybot/hooks.json` | `command_hooks` | Global user command-hook definitions |
 | `~/.tinybot/hook-trust.json` | `command_hooks` | Trusted exact-definition hashes |
 | `<workspace>/.tinybot/hooks.json` | `command_hooks` | Workspace-scoped command-hook definitions |
@@ -203,14 +203,26 @@ exact-byte SHA-256 revision for optimistic saves and deletes. Agent nodes may
 store additional role instructions plus a provider/model/reasoning override;
 the Graph runtime maps them onto the existing Turn instruction and settings
 interfaces, while omitted overrides inherit application defaults. The Input
-node stores the required initial prompt; Run start reloads it from the saved
-definition instead of accepting a transient prompt.
+node has no saved configuration; Run start requires a non-empty transient input
+and records that exact value on the Run. Legacy Input prompts are ignored and
+removed on the next save.
 Graph Runs use separate atomically replaced status files. Every Agent node
 invocation creates a canonical parentless Thread with `source: "agent_graph"`;
 its Rollout remains under the standard Thread root. Router nodes instead make
 one non-streaming, tool-free model request with a dedicated routing prompt,
 strictly parse an exact generated route token, and persist the selected stable
 route ID without creating a Thread.
+
+For a Chat Thread with an explicitly declared working directory, the tool
+registry adds only Graphs stored in that same definition workspace. The global
+backend-workspace fallback does not expose Graph tools. Each Graph is a Deferred
+tool bound to its workspace, ID, and revision; the model supplies only the Run
+input. A selected tool waits for the Graph Run and projects its final output
+through the standard parent Turn tool-result path. Graph-created Agent Threads
+do not receive Graph tools, preventing nested or recursive Graph execution.
+Tool discovery skips invalid Graph files and emits a path-specific diagnostic,
+so one stale definition cannot abort an unrelated Chat Turn; Graph management
+listing remains strict so invalid saved definitions are not hidden.
 
 Desktop startup moves canonical Rollouts from the former
 `<workspace>/.tinybot/{threads,archived_threads}` layout into the application

@@ -124,12 +124,14 @@ async fn worker_webui_rust_route_with_options(
         }
     }
 
-    let tools_workspace_root = query
+    let tools_workspace_path = query
         .get("workingDirectory")
         .map(String::as_str)
         .map(str::trim)
         .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
+        .map(PathBuf::from);
+    let tools_workspace_root = tools_workspace_path
+        .clone()
         .unwrap_or_else(|| workspace_root.clone());
 
     if method == "GET" {
@@ -152,76 +154,78 @@ async fn worker_webui_rust_route_with_options(
         }
     }
 
-    let result = match (method.as_str(), path.as_str()) {
-        ("GET", "/api/tools") => Some(
-            worker_webui_tools_body(shared, tools_workspace_root, config_snapshot.clone()).await,
-        ),
-        ("GET", "/api/providers") => Some(Ok(crate::agent::provider::provider_catalog_body(
-            &config_snapshot,
-        ))),
-        ("POST", "/api/provider-models") => Some(Ok(crate::agent::provider::provider_models_body(
-            &config_snapshot,
-            &body,
-        )
-        .await)),
-        ("GET", "/api/skills") => Some(worker_skills_list_with_options(
-            shared,
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            timeout,
-        )),
-        ("POST", "/api/skills") => Some(worker_skills_create_with_options(
-            shared,
-            body,
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            timeout,
-        )),
-        ("GET", "/api/workspace/files") => Some(worker_workspace_files_with_options(
-            shared,
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            timeout,
-        )),
-        ("GET", "/api/workspace/directory") => Some(worker_workspace_directory_with_options(
-            shared,
-            query
-                .get("path")
-                .cloned()
-                .unwrap_or_else(|| ".".to_string()),
-            query.get("cursor").cloned(),
-            query
-                .get("nameQuery")
-                .or_else(|| query.get("name_query"))
-                .cloned(),
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            timeout,
-        )),
-        ("GET", "/api/workspace/read") => Some(worker_workspace_file_chunk_with_options(
-            shared,
-            query
-                .get("path")
-                .cloned()
-                .unwrap_or_else(|| ".".to_string()),
-            query.get("cursor").cloned(),
-            workspace_root.clone(),
-            config_snapshot.clone(),
-            timeout,
-        )),
-        _ => {
-            worker_webui_rust_dynamic_route(
+    let include_graphs = tools_workspace_path.is_some();
+    let tools_config = config_snapshot.clone();
+    let result =
+        match (method.as_str(), path.as_str()) {
+            ("GET", "/api/tools") => Some(
+                worker_webui_tools_body(shared, tools_workspace_root, include_graphs, tools_config)
+                    .await,
+            ),
+            ("GET", "/api/providers") => Some(Ok(crate::agent::provider::provider_catalog_body(
+                &config_snapshot,
+            ))),
+            ("POST", "/api/provider-models") => Some(Ok(
+                crate::agent::provider::provider_models_body(&config_snapshot, &body).await,
+            )),
+            ("GET", "/api/skills") => Some(worker_skills_list_with_options(
                 shared,
-                &method,
-                &path,
-                &body,
                 workspace_root.clone(),
                 config_snapshot.clone(),
                 timeout,
-            )
-            .await
-        }
-    };
+            )),
+            ("POST", "/api/skills") => Some(worker_skills_create_with_options(
+                shared,
+                body,
+                workspace_root.clone(),
+                config_snapshot.clone(),
+                timeout,
+            )),
+            ("GET", "/api/workspace/files") => Some(worker_workspace_files_with_options(
+                shared,
+                workspace_root.clone(),
+                config_snapshot.clone(),
+                timeout,
+            )),
+            ("GET", "/api/workspace/directory") => Some(worker_workspace_directory_with_options(
+                shared,
+                query
+                    .get("path")
+                    .cloned()
+                    .unwrap_or_else(|| ".".to_string()),
+                query.get("cursor").cloned(),
+                query
+                    .get("nameQuery")
+                    .or_else(|| query.get("name_query"))
+                    .cloned(),
+                workspace_root.clone(),
+                config_snapshot.clone(),
+                timeout,
+            )),
+            ("GET", "/api/workspace/read") => Some(worker_workspace_file_chunk_with_options(
+                shared,
+                query
+                    .get("path")
+                    .cloned()
+                    .unwrap_or_else(|| ".".to_string()),
+                query.get("cursor").cloned(),
+                workspace_root.clone(),
+                config_snapshot.clone(),
+                timeout,
+            )),
+            _ => {
+                worker_webui_rust_dynamic_route(
+                    shared,
+                    &method,
+                    &path,
+                    &body,
+                    workspace_root.clone(),
+                    config_snapshot.clone(),
+                    timeout,
+                )
+                .await
+            }
+        };
 
     match result {
         Some(Ok(body)) => Ok(Some(webui_route_response(
@@ -331,6 +335,7 @@ async fn worker_webui_rust_dynamic_route(
 async fn worker_webui_tools_body(
     shared: &SharedNativeRuntime,
     workspace_root: PathBuf,
+    include_workspace_graphs: bool,
     mut config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let (mcp_runtime, thread_store) = {
@@ -342,6 +347,51 @@ async fn worker_webui_tools_body(
             &mut config_snapshot,
             &workspace_root,
         )?;
+        let (graph_tools, graph_diagnostics) = if include_workspace_graphs {
+            let definition_workspace = crate::project_groups::canonical_workspace(&workspace_root)?;
+            let discovery =
+                crate::agent_graphs::discover_tools_for_workspace(&definition_workspace)?;
+            let graph_tools = if discovery.graphs.is_empty() {
+                Vec::new()
+            } else {
+                use crate::tools::registry::{AgentGraphToolContributor, WorkerToolRegistryRpc};
+                use std::sync::Arc;
+
+                WorkerToolRegistryRpc::new_with_config(
+                    crate::protocol::capability::default_desktop_capability_policy(),
+                    config_snapshot.clone(),
+                )
+                .with_contributor(Arc::new(AgentGraphToolContributor::new(
+                    crate::project_groups::workspace_id(&definition_workspace),
+                    discovery.graphs,
+                )?))?
+                .list_tools()
+                .tools
+                .into_iter()
+                .filter(|tool| tool.namespace == "agent_graph")
+                .map(|tool| {
+                    serde_json::json!({
+                        "id": tool.tool_id,
+                        "name": tool.method,
+                        "displayName": tool.title,
+                        "description": tool.description,
+                        "namespace": tool.namespace,
+                        "source": "agent_graph",
+                        "enabled": tool.available,
+                        "available": tool.available,
+                        "callable": tool.available,
+                        "parameters": tool.input_schema,
+                        "outputSchema": tool.output_schema,
+                        "exposure": tool.exposure,
+                        "dynamic": tool.dynamic,
+                    })
+                })
+                .collect::<Vec<_>>()
+            };
+            (graph_tools, discovery.diagnostics)
+        } else {
+            (Vec::new(), Vec::new())
+        };
         let mut skills = crate::workspace_extensions::discover_workspace_skills(&workspace_root)?
             .into_iter()
             .map(|skill| {
@@ -388,7 +438,15 @@ async fn worker_webui_tools_body(
         let mut result = response
             .result
             .ok_or_else(|| "worker webui tools failed: missing response result".to_string())?;
+        let tools = result
+            .get_mut("tools")
+            .and_then(serde_json::Value::as_array_mut)
+            .ok_or_else(|| "worker webui tools failed: tools must be an array".to_string())?;
+        tools.extend(graph_tools);
+        result["total"] = serde_json::json!(tools.len());
         result["skills"] = serde_json::Value::Array(skills);
+        result["agentGraphDiagnostics"] = serde_json::to_value(graph_diagnostics)
+            .map_err(|error| format!("failed to serialize Agent Graph diagnostics: {error}"))?;
         Ok(result)
     })
     .await

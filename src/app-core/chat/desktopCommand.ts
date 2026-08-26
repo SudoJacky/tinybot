@@ -9,6 +9,7 @@ export type DesktopChatInput = {
   reasoningEffort?: ReasoningEffort;
   references?: AgentInputReference[];
   selectedSkills?: string[];
+  selectedTools?: string[];
 };
 
 export type DesktopTurnSubmitCommand = {

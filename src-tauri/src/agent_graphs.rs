@@ -1,4 +1,4 @@
-use crate::project_groups::canonical_workspace;
+use crate::project_groups::{canonical_workspace, workspace_id};
 use crate::storage::atomic::{write_text_atomic, AtomicWriteOptions, WorkerStorageError};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -51,15 +51,16 @@ struct AgentGraphNodePosition {
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(untagged)]
 pub(crate) enum AgentGraphNodeConfig {
-    Input(AgentGraphInputNodeConfig),
+    Input(LegacyAgentGraphInputNodeConfig),
     Agent(AgentLoopNodeConfig),
     Router(AgentGraphRouterNodeConfig),
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct AgentGraphInputNodeConfig {
-    pub(crate) prompt: String,
+pub(crate) struct LegacyAgentGraphInputNodeConfig {
+    #[serde(rename = "prompt")]
+    _prompt: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -138,6 +139,19 @@ pub(crate) struct StoredAgentGraph {
     pub(crate) revision: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AgentGraphDiscoveryDiagnostic {
+    pub(crate) path: String,
+    pub(crate) error: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AgentGraphToolDiscovery {
+    pub(crate) graphs: Vec<StoredAgentGraph>,
+    pub(crate) diagnostics: Vec<AgentGraphDiscoveryDiagnostic>,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ListAgentGraphsInput {
@@ -162,15 +176,61 @@ pub(crate) struct DeleteAgentGraphInput {
 }
 
 pub(crate) fn list(input: ListAgentGraphsInput) -> Result<Vec<StoredAgentGraph>, String> {
-    let workspace = canonical_workspace(Path::new(&input.workspace_path))?;
+    list_for_workspace(Path::new(&input.workspace_path))
+}
+
+pub(crate) fn list_for_workspace(workspace_path: &Path) -> Result<Vec<StoredAgentGraph>, String> {
+    let workspace = canonical_workspace(workspace_path)?;
     let _guard = store_lock()?;
-    let directory = graph_directory(&workspace)?;
+    let mut graphs = graph_files(&workspace)?
+        .into_iter()
+        .map(|path| read_stored_graph(&path))
+        .collect::<Result<Vec<_>, _>>()?;
+    sort_graphs(&mut graphs);
+    Ok(graphs)
+}
+
+pub(crate) fn discover_tools_for_workspace(
+    workspace_path: &Path,
+) -> Result<AgentGraphToolDiscovery, String> {
+    let workspace = canonical_workspace(workspace_path)?;
+    let _guard = store_lock()?;
+    let mut graphs = Vec::new();
+    let mut diagnostics = Vec::new();
+    for path in graph_files(&workspace)? {
+        match read_stored_graph(&path) {
+            Ok(graph) => graphs.push(graph),
+            Err(error) => diagnostics.push(AgentGraphDiscoveryDiagnostic {
+                path: path.display().to_string(),
+                error,
+            }),
+        }
+    }
+    sort_graphs(&mut graphs);
+    for diagnostic in &diagnostics {
+        eprintln!(
+            "agent_graph_tool_discovery_skipped {}",
+            serde_json::json!({
+                "workspacePath": workspace_id(&workspace),
+                "path": diagnostic.path,
+                "error": diagnostic.error,
+            })
+        );
+    }
+    Ok(AgentGraphToolDiscovery {
+        graphs,
+        diagnostics,
+    })
+}
+
+fn graph_files(workspace: &Path) -> Result<Vec<PathBuf>, String> {
+    let directory = graph_directory(workspace)?;
     let entries = match fs::read_dir(&directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(io_error("read Agent Graph directory", &directory, error)),
     };
-    let mut graphs = Vec::new();
+    let mut paths = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|error| io_error("read Agent Graph entry", &directory, error))?;
         let path = entry.path();
@@ -182,8 +242,13 @@ pub(crate) fn list(input: ListAgentGraphsInput) -> Result<Vec<StoredAgentGraph>,
         {
             continue;
         }
-        graphs.push(read_stored_graph(&path)?);
+        paths.push(path);
     }
+    paths.sort();
+    Ok(paths)
+}
+
+fn sort_graphs(graphs: &mut [StoredAgentGraph]) {
     graphs.sort_by(|left, right| {
         left.definition
             .name
@@ -191,7 +256,6 @@ pub(crate) fn list(input: ListAgentGraphsInput) -> Result<Vec<StoredAgentGraph>,
             .cmp(&right.definition.name.to_lowercase())
             .then_with(|| left.definition.id.cmp(&right.definition.id))
     });
-    Ok(graphs)
 }
 
 pub(crate) fn load(
@@ -212,8 +276,9 @@ pub(crate) fn load(
     Ok(stored)
 }
 
-pub(crate) fn save(input: SaveAgentGraphInput) -> Result<StoredAgentGraph, String> {
+pub(crate) fn save(mut input: SaveAgentGraphInput) -> Result<StoredAgentGraph, String> {
     let workspace = canonical_workspace(Path::new(&input.workspace_path))?;
+    normalize_definition(&mut input.definition);
     validate_definition(&input.definition)?;
     let path = graph_path(&workspace, &input.definition.id)?;
     let _guard = store_lock()?;
@@ -244,8 +309,9 @@ pub(crate) fn delete(input: DeleteAgentGraphInput) -> Result<(), String> {
 
 fn read_stored_graph(path: &Path) -> Result<StoredAgentGraph, String> {
     let contents = fs::read(path).map_err(|error| io_error("read Agent Graph", path, error))?;
-    let definition: AgentGraphDefinition = serde_json::from_slice(&contents)
+    let mut definition: AgentGraphDefinition = serde_json::from_slice(&contents)
         .map_err(|error| format!("failed to parse Agent Graph {}: {error}", path.display()))?;
+    normalize_definition(&mut definition);
     validate_definition(&definition)
         .map_err(|error| format!("invalid Agent Graph {}: {error}", path.display()))?;
     let expected_name = format!("{}.json", definition.id);
@@ -286,14 +352,11 @@ fn validate_definition(definition: &AgentGraphDefinition) -> Result<(), String> 
         match node.kind {
             AgentGraphNodeKind::Input => {
                 input_count += 1;
-                let Some(AgentGraphNodeConfig::Input(config)) = &node.config else {
+                if node.config.is_some() {
                     return Err(format!(
-                        "Input node `{}` requires Input configuration",
+                        "Input node `{}` cannot have persisted configuration",
                         node.id
                     ));
-                };
-                if config.prompt.trim().is_empty() {
-                    return Err(format!("Input node `{}` requires a prompt", node.id));
                 }
             }
             AgentGraphNodeKind::Output => {
@@ -458,6 +521,14 @@ fn validate_definition(definition: &AgentGraphDefinition) -> Result<(), String> 
     Ok(())
 }
 
+fn normalize_definition(definition: &mut AgentGraphDefinition) {
+    for node in &mut definition.nodes {
+        if node.kind == AgentGraphNodeKind::Input {
+            node.config = None;
+        }
+    }
+}
+
 fn validate_model_config(
     node_id: &str,
     model: Option<&AgentLoopModelConfig>,
@@ -615,9 +686,7 @@ mod tests {
                         id: "input".to_string(),
                         kind: AgentGraphNodeKind::Input,
                         position: AgentGraphNodePosition { x: 0, y: 0 },
-                        config: Some(AgentGraphNodeConfig::Input(AgentGraphInputNodeConfig {
-                            prompt: "Research the repository.".to_string(),
-                        })),
+                        config: None,
                     },
                     AgentGraphNode {
                         id: "agent".to_string(),
@@ -712,16 +781,78 @@ mod tests {
     }
 
     #[test]
-    fn rejects_an_empty_input_prompt() {
+    fn ignores_legacy_input_prompts_when_loading_and_saving() {
         let fixture = Fixture::new();
-        let mut definition = fixture.definition();
-        definition.nodes[0].config = Some(AgentGraphNodeConfig::Input(AgentGraphInputNodeConfig {
-            prompt: "  ".to_string(),
-        }));
+        let directory = fixture.workspace.join(".tinybot/graphs");
+        fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("graph-1.json");
+        let mut legacy = serde_json::to_value(fixture.definition()).unwrap();
+        legacy["nodes"][0]["config"] = serde_json::json!({
+            "prompt": "This persisted prompt must be ignored."
+        });
+        fs::write(&path, serde_json::to_vec_pretty(&legacy).unwrap()).unwrap();
 
-        let error = validate_definition(&definition).unwrap_err();
+        let loaded = list(ListAgentGraphsInput {
+            workspace_path: fixture.workspace_path(),
+        })
+        .unwrap()
+        .remove(0);
+        assert!(loaded.definition.nodes[0].config.is_none());
 
-        assert!(error.contains("requires a prompt"));
+        let saved = save(SaveAgentGraphInput {
+            workspace_path: fixture.workspace_path(),
+            definition: loaded.definition,
+            expected_revision: Some(loaded.revision),
+        })
+        .unwrap();
+        assert!(saved.definition.nodes[0].config.is_none());
+        let contents = fs::read_to_string(path).unwrap();
+        assert!(!contents.contains("This persisted prompt must be ignored."));
+        assert!(!contents.contains("\"prompt\""));
+    }
+
+    #[test]
+    fn tool_discovery_skips_invalid_graphs_without_weakening_management_listing() {
+        let fixture = Fixture::new();
+        let stored = save(SaveAgentGraphInput {
+            workspace_path: fixture.workspace_path(),
+            definition: fixture.definition(),
+            expected_revision: None,
+        })
+        .unwrap();
+        let directory = fixture.workspace.join(".tinybot/graphs");
+        fs::write(
+            directory.join("broken.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "schemaVersion": "tinybot.agent_graph.v1",
+                "id": "broken",
+                "name": "Legacy broken Graph",
+                "nodes": [
+                    { "id": "input", "kind": "input", "position": { "x": 0, "y": 0 } },
+                    { "id": "agent", "kind": "agent", "position": { "x": 100, "y": 0 }, "config": {
+                        "workspacePath": fixture.workspace.display().to_string()
+                    } },
+                    { "id": "output", "kind": "output", "position": { "x": 200, "y": 0 } }
+                ],
+                "edges": [
+                    { "id": "input-agent", "source": "input", "target": "agent" },
+                    { "id": "agent-output", "source": "agent", "target": "output" }
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let strict_error = list_for_workspace(&fixture.workspace).unwrap_err();
+        assert!(strict_error.contains("failed to parse Agent Graph"));
+
+        let discovery = discover_tools_for_workspace(&fixture.workspace).unwrap();
+        assert_eq!(discovery.graphs, vec![stored]);
+        assert_eq!(discovery.diagnostics.len(), 1);
+        assert!(discovery.diagnostics[0].path.ends_with("broken.json"));
+        assert!(discovery.diagnostics[0]
+            .error
+            .contains("failed to parse Agent Graph"));
     }
 
     #[test]

@@ -118,7 +118,7 @@ describe("ChatPage", () => {
     });
   });
 
-  it("lists workspace Skills beside the real compact command and submits the selected Skill", async () => {
+  it("loads workspace Skills and Agent Graph tools for the active workspace", async () => {
     const user = userEvent.setup();
     const workingDirectory = "D:\\Code\\tinybot";
     const stores = createStores({
@@ -140,7 +140,15 @@ describe("ChatPage", () => {
         path: `${workingDirectory}\\.agents\\skills\\apple-design\\SKILL.md`,
         source: "workspace",
       }],
-      tools: [],
+      tools: [{
+        available: true,
+        description: "Run the saved incident analysis workflow.",
+        displayName: "Incident analysis",
+        enabled: true,
+        id: "agent_graph.run.incident-analysis",
+        name: "agent_graph.run.incident-analysis",
+        source: "agent_graph",
+      }],
     }));
     render(
       <ChatPage
@@ -153,6 +161,9 @@ describe("ChatPage", () => {
 
     await screen.findByRole("textbox", { name: /message/i });
     await waitFor(() => expect(loadCatalog).toHaveBeenCalledWith({ workingDirectory }));
+    await user.click(screen.getByRole("button", { name: "Tools" }));
+    expect(screen.getByRole("menuitemcheckbox", { name: /Incident analysis/ }).getAttribute("aria-checked")).toBe("true");
+    await user.click(screen.getByRole("button", { name: "Tools" }));
     const input = screen.getByRole("textbox", { name: /message/i });
     await user.type(input, "/");
 
@@ -173,9 +184,41 @@ describe("ChatPage", () => {
     expectTurnSubmit(stores.chatStore, "s1", {
       reasoningEffort: "medium",
       selectedSkills: ["apple-design"],
+      selectedTools: ["agent_graph.run.incident-analysis"],
       text: "Polish this interaction",
     });
     expect(screen.queryByText("Apple Design")).toBeNull();
+  });
+
+  it("does not expose Agent Graph tools to a workspace-less conversation", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const loadCatalog = vi.fn(async () => ({
+      mcpServers: [],
+      skills: [],
+      tools: [{
+        available: true,
+        displayName: "Incident analysis",
+        enabled: true,
+        id: "agent_graph.run.incident-analysis",
+        name: "agent_graph.run.incident-analysis",
+        source: "agent_graph",
+      }],
+    }));
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
+        sessionStore={stores.sessionStore}
+        toolsStore={{ loadCatalog }}
+      />,
+    );
+
+    await screen.findByRole("textbox", { name: /message/i });
+    await waitFor(() => expect(loadCatalog).toHaveBeenCalledWith({ workingDirectory: undefined }));
+    await user.click(screen.getByRole("button", { name: "Tools" }));
+    expect(screen.queryByRole("menuitemcheckbox", { name: /Incident analysis/ })).toBeNull();
   });
 
   it("runs /compact as a control command without creating a user message", async () => {

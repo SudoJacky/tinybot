@@ -43,6 +43,7 @@ pub(crate) async fn run_agent_with_services(
         &spec,
         &config_snapshot,
     )?;
+    let graph_base_config_snapshot = config_snapshot.clone();
     crate::workspace_extensions::merge_workspace_mcp_servers(
         &mut config_snapshot,
         &instructions.working_directory,
@@ -59,11 +60,15 @@ pub(crate) async fn run_agent_with_services(
     )?;
     let runtime_spec =
         hydrate_native_agent_history_for_runtime(spec, &thread_store, config_snapshot.clone())?;
-    let services = native_agent_services_with_tool_executor(base_services, workspace_root.clone())?
-        .with_context_checkpoint_committer(native_agent_context_checkpoint_committer(
-            thread_store.clone(),
-            config_snapshot.clone(),
-        ));
+    let services = native_agent_services_with_tool_executor(
+        base_services,
+        workspace_root.clone(),
+        graph_base_config_snapshot,
+    )?
+    .with_context_checkpoint_committer(native_agent_context_checkpoint_committer(
+        thread_store.clone(),
+        config_snapshot.clone(),
+    ));
     let services = match live_trace_sink {
         Some(live_trace_sink) => services.with_trace_sink(native_agent_trace_sink(
             thread_store.clone(),

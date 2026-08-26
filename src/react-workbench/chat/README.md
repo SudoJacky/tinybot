@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:ca6d2891fc9dc67e6a2dbf39c1efedc72cc6229bc24066fe5ac93d606c797d30 -->
+<!-- tinybot-module-fingerprint: sha256:abdaa063ff9d1c2602ac0558558f9d9e5a6660afab32ccbae52cdbf3499ed872 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -41,6 +41,10 @@ Skill creates an atomic removable token inline with the user's editable text and
 through `selectedSkills`; Rust resolves and injects the full Skill document
 while assembling the native Turn request, so the visible user message remains
 unchanged.
+Chat also maps the active workspace's callable catalog into composer tool
+controls. Saved Agent Graphs appear only when the conversation has that exact
+working directory. The submitted `selectedTools` list preserves every toggle,
+including the explicit empty selection needed to disable optional tools.
 The composer context indicator derives its cache hit rate from the latest
 projected Provider-call usage rather than cumulative Thread totals.
 Before a Turn reports its effective per-model window, Chat uses the legacy

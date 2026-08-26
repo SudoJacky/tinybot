@@ -56,6 +56,7 @@ fn strict_patch_search_and_real_dispatch_work_end_to_end() {
     let services = crate::agent::bridge::native_agent_services_with_tool_executor(
         services,
         persistence_workspace.root.clone(),
+        json!({}),
     )
     .expect("workspace thread store should configure the tool executor")
     .with_trace_sink(trace_sink.clone());
@@ -478,6 +479,7 @@ lines.on("line", (line) => {
             crate::protocol::capability::default_desktop_capability_policy(),
         )),
         workspace.root.clone(),
+        config.clone(),
     )
     .expect("workspace thread store should configure the tool executor")
     .with_trace_sink(trace_sink.clone());

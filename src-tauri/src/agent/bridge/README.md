@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:f90b02fe99c16a2b63dd4dc0687650c670a48fc4c58b1d8c3333362ee1cb3690 -->
+<!-- tinybot-module-fingerprint: sha256:3b7ad0ad3084c62cb17437008bfde50a53efe1b7113af6cdd01f3c812e6d8802 -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -11,6 +11,8 @@ loop.
 - Hydrate runtime history from the appropriate persistence surface.
 - Compose instructions using the effective workspace configuration.
 - Merge project-local MCP definitions for the effective working directory.
+- Execute bound Agent Graph tools through the Graph Run service and project
+  their final output into the parent Turn.
 - Reject invalid re-entry into an already terminal turn.
 - Build tool-dispatch and trace-sink services for the turn owner.
 - Persist turn start, runtime trace, checkpoints, and terminal turn state.
@@ -37,6 +39,12 @@ Thread data model. Those belong to `agent::runtime` and `threads::domain`.
    runtime execution or trace flush fails, persist a failed terminal with the
    original error before returning it to the caller.
 8. Schedule memory extraction only after a completed turn is durably persisted.
+
+The tool dispatcher retains the unmerged base configuration alongside the
+parent Turn's services. When a Graph Agent node targets another workspace, its
+fresh child Turn performs its own project-local MCP merge instead of inheriting
+the parent's workspace-local servers. Parent cancellation is forwarded through
+the Graph Run to the active child Turn.
 
 Changing this order requires care. In particular, a turn must be recoverable
 after its start is visible, and trace flushing must not be reported as success

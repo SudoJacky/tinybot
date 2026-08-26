@@ -28,11 +28,12 @@ import {
   type ComposerSessionMentionOption,
   type ComposerSkillOption,
   type ComposerSlashCommand,
+  type ComposerToolOption,
   type ModelOption,
   type PastedContent,
 } from "../../components/ui/claude-style-ai-input";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
-import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, SkillSummary, ToolsStore, WorkspaceStore } from "../services";
+import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, SkillSummary, ToolSummary, ToolsStore, WorkspaceStore } from "../services";
 import { createDesktopCompactCommand, createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import {
   clearDefaultChatModel,
@@ -262,6 +263,16 @@ function buildComposerSkillOptions(
   }));
 }
 
+function buildComposerToolOptions(tools: readonly ToolSummary[]): ComposerToolOption[] {
+  return tools.map((tool) => ({
+    description: tool.description,
+    disabled: !tool.available,
+    enabled: tool.enabled && tool.available,
+    id: tool.id,
+    name: tool.displayName || tool.name,
+  }));
+}
+
 const SESSION_DELETE_DISSOLVE_MS = 180;
 const EMPTY_OPTIMISTIC_MESSAGES: ReactChatMessage[] = [];
 
@@ -303,6 +314,7 @@ export function ChatPage({
   const [composerModel, setComposerModel] = useState("");
   const [composerReasoningEffort, setComposerReasoningEffort] = useState(readCurrentChatReasoningEffort);
   const [composerSkills, setComposerSkills] = useState<SkillSummary[]>([]);
+  const [composerTools, setComposerTools] = useState<ToolSummary[]>([]);
   const [contextUsageDefaults, setContextUsageDefaults] = useState<ContextUsageDefaults>({});
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [sessionWorkspaceError, setSessionWorkspaceError] = useState("");
@@ -387,6 +399,10 @@ export function ChatPage({
     () => buildComposerSkillOptions(composerSkills, t),
     [composerSkills, t],
   );
+  const composerToolOptions = useMemo(
+    () => buildComposerToolOptions(composerTools),
+    [composerTools],
+  );
   const sidecarTabs = useMemo(() => visibleSidecarTabs(sidecar), [sidecar]);
   const sidecarActiveTab = useMemo(() => activeSidecarTab(sidecar), [sidecar]);
   const explicitWorkspaceId = activeSession?.workingDirectory?.trim() ?? "";
@@ -400,6 +416,7 @@ export function ChatPage({
   useEffect(() => {
     if (!toolsStore?.loadCatalog) {
       setComposerSkills([]);
+      setComposerTools([]);
       return;
     }
     let cancelled = false;
@@ -407,11 +424,17 @@ export function ChatPage({
       ? undefined
       : activeSession?.workingDirectory?.trim() || undefined;
     setComposerSkills([]);
+    setComposerTools([]);
     void toolsStore.loadCatalog({ workingDirectory }).then((catalog) => {
-      if (!cancelled) setComposerSkills(catalog.skills);
+      if (!cancelled) {
+        setComposerSkills(catalog.skills);
+        setComposerTools(catalog.tools.filter((tool) => (
+          tool.source !== "agent_graph" || Boolean(workingDirectory)
+        )));
+      }
     }).catch((error) => {
       if (cancelled) return;
-      console.error("[chat] composer.skills.load.failed", {
+      console.error("[chat] composer.catalog.load.failed", {
         error: error instanceof Error ? error.message : String(error),
         workingDirectory,
       });
@@ -2294,6 +2317,7 @@ export function ChatPage({
           sessionMentionOptions={composerSessionMentionOptions}
           skillOptions={composerSkillOptions}
           slashCommands={slashCommands}
+          tools={composerToolOptions}
           canStopResponding={canCancelTurn}
           stopUnavailableReason={cancelUnavailableReason}
           placeholder={emptyActiveSession ? t("shell.taskPlaceholder") : t("shell.messagePlaceholder")}

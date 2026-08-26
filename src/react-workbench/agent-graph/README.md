@@ -1,5 +1,5 @@
 # Agent Graph Workbench
-<!-- tinybot-module-fingerprint: sha256:731da7c61b01357edf598c8c36476f71eb6d11285632ab770afb0a55f6ba323d -->
+<!-- tinybot-module-fingerprint: sha256:792a2f851855c19ae5395e06518c96a422acc883af2fb27bb2ba7a7b8b9f0208 -->
 
 `agent-graph` owns the standalone Agent Graph route and its React presentation.
 The page creates one honest in-memory starter draft and exposes an unbounded
@@ -21,8 +21,8 @@ Input-to-Agent-to-Output topology; saved definitions render their real nodes
 and edges as compact visual cards, with only persisted status and graph counts
 shown as metadata.
 Each Agent node defaults to that workspace and can select a different execution
-workspace. Input and Output remain unique protected boundaries. The selected
-Input node owns the required initial prompt sent to the first Agent. A selected
+workspace. Input and Output remain unique protected boundaries. Input has no
+saved task configuration; it receives the value supplied for each Run. A selected
 Agent node edits additional role instructions and chooses a currently
 available Provider, one of its models, and optional reasoning effort; the
 explicit inherit choice leaves model routing to the application defaults.
@@ -35,8 +35,8 @@ controls reuse the workbench's canonical `SettingsChoiceList` appearance and
 interaction; Graph only owns their placement.
 The route lists, explicitly saves, opens, and deletes
 workspace definitions through `AgentGraphStore`; dirty state and revision
-conflicts stay visible. A separate Run panel starts only saved definitions,
-without a second transient input field, and keeps a compact selectable Run
+conflicts stay visible. A separate Run panel accepts the required transient
+input, starts only saved definitions, and keeps a compact selectable Run
 history. Activating any canvas node opens a
 non-modal node-anchored inspector for that Run: Input and Output show their boundary
 content, while Agent nodes load their canonical Thread through the Chat store

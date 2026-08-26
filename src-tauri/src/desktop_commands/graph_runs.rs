@@ -35,6 +35,7 @@ pub(crate) async fn worker_agent_graph_run(
         native_backend_workspace_root(),
         native_runtime_config_snapshot(),
         input,
+        None,
     )
     .await
 }
