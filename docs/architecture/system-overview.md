@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:f6edec760272f9c250271058c20f83e9115e2ae56c71ed27436995705494868e -->
+<!-- tinybot-doc-fingerprint: sha256:703f7c0745a79d90c144dd769971c79478584a5617dc1cceae0d70cdefa0668f -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -94,7 +94,9 @@ Desktop Commands / Desktop Host
 - Chat startup selection: `DesktopShell` marks only the first Chat mount in a
   desktop app lifetime as an uncreated conversation. Persisted tab state may be
   reused by later route remounts in that same lifetime, but it is not the app
-  launch selection authority.
+  launch selection authority. User new-chat commands create renderer-owned draft
+  sessions; only drafts with composer text survive navigation, and the first
+  send replaces the draft with a canonical Thread before dispatching its Turn.
 - Agent Graph definitions: versioned `app-core/agent-graph` values stored under
   `<workspace>/.tinybot/graphs/` through the native `agent_graphs` Adapter.
   Node positions are signed world coordinates; viewport pan, zoom, and fit-to-view

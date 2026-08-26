@@ -66,6 +66,8 @@ import {
   reduceSessionTabWorkspace,
   sessionTabDraft,
   writePersistedSessionTabWorkspace,
+  type DraftSession,
+  type DraftSessionCreateInput,
 } from "./sessionTabWorkspace";
 import {
   groupSessionsByWorkspace,
@@ -354,6 +356,9 @@ export function ChatPage({
   const lastCreateSessionSignal = useRef(createSessionSignal);
   const lastActivateSessionSignal = useRef<number | null>(null);
   const draftSessionCreatePromise = useRef<Promise<SessionSummary> | null>(null);
+  const draftSessionSequence = useRef(0);
+  const sessionTabsRef = useRef(sessionTabs);
+  const sessionsLoadedRef = useRef(sessionsLoaded);
   const optimisticSessionTitlesRef = useRef<Map<string, string>>(new Map());
   const conversationRef = useRef<HTMLDivElement | null>(null);
   const conversationEndRef = useRef<HTMLDivElement | null>(null);
@@ -365,11 +370,30 @@ export function ChatPage({
   const browserProvisioningResourceIdRef = useRef("");
   const browserActivationTargetRef = useRef("");
   sidecarRef.current = sidecar;
+  sessionTabsRef.current = sessionTabs;
+  sessionsLoadedRef.current = sessionsLoaded;
   const activeSessionId = sessionTabs.activeSessionId;
+  const activeSession = useMemo(
+    () => sessions.find((session) => session.id === activeSessionId),
+    [activeSessionId, sessions],
+  );
+  const draftSessions = useMemo<SessionSummary[]>(() => (
+    Object.values(sessionTabs.draftSessionsById).map(projectDraftSessionSummary)
+  ), [sessionTabs.draftSessionsById]);
+  const activeDraftSession = useMemo(
+    () => draftSessions.find((session) => session.id === activeSessionId),
+    [activeSessionId, draftSessions],
+  );
+  const displayedSessions = useMemo(
+    () => [...draftSessions, ...sessions],
+    [draftSessions, sessions],
+  );
+  const activeDisplaySession = activeSession ?? activeDraftSession;
+  const activePersistedSessionId = activeSession?.id ?? "";
   const sessionRuntime = useChatSessionRuntime({
     chatStore,
     onEffect: handleChatSessionRuntimeEffect,
-    sessionId: activeSessionId,
+    sessionId: activePersistedSessionId,
   });
   const {
     agentUiForms,
@@ -391,10 +415,6 @@ export function ChatPage({
   const optimisticMessages = optimisticMessagesBySession.get(activeSessionId) ?? EMPTY_OPTIMISTIC_MESSAGES;
 
   const resolvedSessionSidebarCollapsed = sessionSidebarCollapsed ?? localSessionSidebarCollapsed;
-  const activeSession = useMemo(
-    () => sessions.find((session) => session.id === activeSessionId),
-    [activeSessionId, sessions],
-  );
   const composerSkillOptions = useMemo(
     () => buildComposerSkillOptions(composerSkills, t),
     [composerSkills, t],
@@ -405,13 +425,13 @@ export function ChatPage({
   );
   const sidecarTabs = useMemo(() => visibleSidecarTabs(sidecar), [sidecar]);
   const sidecarActiveTab = useMemo(() => activeSidecarTab(sidecar), [sidecar]);
-  const explicitWorkspaceId = activeSession?.workingDirectory?.trim() ?? "";
-  const activeWorkspaceId = activeSession
+  const explicitWorkspaceId = activeDisplaySession?.workingDirectory?.trim() ?? "";
+  const activeWorkspaceId = activeDisplaySession
     ? explicitWorkspaceId || DEFAULT_SIDECAR_WORKSPACE_ID
     : "";
   const activeWorkspaceLabel = explicitWorkspaceId
     ? sessionWorkspaceName(explicitWorkspaceId)
-    : activeSession ? t("shell.generalSessions") : "";
+    : activeDisplaySession ? t("shell.generalSessions") : "";
 
   useEffect(() => {
     if (!toolsStore?.loadCatalog) {
@@ -420,9 +440,9 @@ export function ChatPage({
       return;
     }
     let cancelled = false;
-    const workingDirectory = activeSession?.pluginMigration
+    const workingDirectory = activeDisplaySession?.pluginMigration
       ? undefined
-      : activeSession?.workingDirectory?.trim() || undefined;
+      : activeDisplaySession?.workingDirectory?.trim() || undefined;
     setComposerSkills([]);
     setComposerTools([]);
     void toolsStore.loadCatalog({ workingDirectory }).then((catalog) => {
@@ -442,7 +462,7 @@ export function ChatPage({
     return () => {
       cancelled = true;
     };
-  }, [activeSession?.pluginMigration, activeSession?.workingDirectory, toolsStore]);
+  }, [activeDisplaySession?.pluginMigration, activeDisplaySession?.workingDirectory, toolsStore]);
   const unboundBrowserResource = useMemo(() => sidecar.tabs.find((tab): tab is SidecarBrowserTab => (
     tab.kind === "browser"
       && tab.threadId === activeSession?.id
@@ -608,7 +628,7 @@ export function ChatPage({
   }, [activeSessionId]);
   const openSessionTabs = useMemo<SessionTabItem[]>(() => (
     sessionTabs.openSessionIds.flatMap((sessionId) => {
-      const session = sessions.find((candidate) => candidate.id === sessionId);
+      const session = displayedSessions.find((candidate) => candidate.id === sessionId);
       return session ? [{
         id: session.id,
         status: session.status,
@@ -616,7 +636,7 @@ export function ChatPage({
         unread: sessionTabs.unreadSessionIds.includes(session.id),
       }] : [];
     })
-  ), [sessionTabs.openSessionIds, sessionTabs.unreadSessionIds, sessions, t]);
+  ), [displayedSessions, sessionTabs.openSessionIds, sessionTabs.unreadSessionIds, t]);
   const allSessionWorkspaces = useMemo(() => groupSessionsByWorkspace(sessions).map((workspace) => ({
     ...workspace,
     label: workspace.label ?? t("shell.generalSessions"),
@@ -635,7 +655,9 @@ export function ChatPage({
         label: displaySessionTitle(session.title, t),
       }));
   }, [activeSession, allSessionWorkspaces, i18n.language, now, t]);
-  const draftNewSession = sessionsLoaded && !activeSession;
+  const draftNewSession = sessionsLoaded && !activeSession && (
+    Boolean(activeDraftSession) || !activeSessionId
+  );
   const timelineLoaded = Boolean(activeSession) && timeline?.sessionId === activeSession?.id;
   const emptyActiveSession = draftNewSession || (timelineLoaded && timeline?.turns.length === 0 && optimisticMessages.length === 0);
   const sessionRunning = activeSession?.status === "running";
@@ -700,22 +722,22 @@ export function ChatPage({
   }, [sessions]);
 
   useEffect(() => {
-    if (!activeSessionId) {
+    if (!activePersistedSessionId) {
       setTinyOsCapabilities(unavailableTinyOsEffectiveCapabilities("", "no_session", t("runtime.noSessionSelected")));
       return;
     }
     let cancelled = false;
     setTinyOsCapabilities(unavailableTinyOsEffectiveCapabilities(
-      activeSessionId,
+      activePersistedSessionId,
       "loading",
       t("runtime.loadingCapabilities"),
     ));
-    void chatStore.loadTinyOsCapabilities(activeSessionId).then((capabilities) => {
+    void chatStore.loadTinyOsCapabilities(activePersistedSessionId).then((capabilities) => {
       if (!cancelled) setTinyOsCapabilities(capabilities);
     }).catch((error) => {
       if (!cancelled) {
         setTinyOsCapabilities(unavailableTinyOsEffectiveCapabilities(
-          activeSessionId,
+          activePersistedSessionId,
           "capability_query_failed",
           error instanceof Error ? error.message : String(error),
         ));
@@ -724,13 +746,13 @@ export function ChatPage({
     return () => {
       cancelled = true;
     };
-  }, [activeTurn?.id, activeTurn?.status, activeSessionId, chatStore, t]);
+  }, [activeTurn?.id, activeTurn?.status, activePersistedSessionId, chatStore, t]);
 
   useEffect(() => {
     setComposerSessionMentionIds([]);
     setComposerSelectedSkillIds([]);
     dispatchCommandLifecycle({ type: "reset" });
-  }, [activeSession?.id]);
+  }, [activeSessionId]);
 
   useEffect(() => {
     if (!timeline || commandLifecycle.stage === "idle" || commandLifecycle.stage === "completed") return;
@@ -826,6 +848,12 @@ export function ChatPage({
     return () => window.clearTimeout(timer);
   }, [sessionTabs, sessionsLoaded]);
 
+  useEffect(() => () => {
+    if (sessionsLoadedRef.current) {
+      writePersistedSessionTabWorkspace(window.localStorage, sessionTabsRef.current);
+    }
+  }, []);
+
   const createSessionFromSignal = useEffectEvent(() => {
     void handleCreateSession();
   });
@@ -879,12 +907,14 @@ export function ChatPage({
   });
   useEffect(() => {
     const unsubscribes = sessionTabs.openSessionIds
-      .filter((sessionId) => sessionId !== activeSessionId)
+      .filter((sessionId) => (
+        sessionId !== activeSessionId && !(sessionId in sessionTabs.draftSessionsById)
+      ))
       .map((sessionId) => chatStore.subscribe(sessionId, (event) => {
         handleBackgroundChatEvent(sessionId, event);
       }));
     return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
-  }, [activeSessionId, chatStore, sessionTabs.openSessionIds]);
+  }, [activeSessionId, chatStore, sessionTabs.draftSessionsById, sessionTabs.openSessionIds]);
 
   useEffect(() => {
     if (!settingsStore?.loadChatModels) {
@@ -996,46 +1026,33 @@ export function ChatPage({
     workingDirectory?: string,
     projectContext?: ProjectSessionContext,
   ): Promise<SessionSummary | null> {
-    if (sessionCreatePending) {
-      return null;
-    }
-    setSessionCreatePending(true);
     setSessionWorkspaceError("");
     const inheritedProjectContext: ProjectSessionContext | undefined = workingDirectory === undefined
-      && activeSession?.projectGroupId
-      && !activeSession.projectCoordinator
+      && activeDisplaySession?.projectGroupId
+      && !activeDisplaySession.projectCoordinator
       ? {
-          projectCoordinator: activeSession.projectCoordinator,
-          projectGroupId: activeSession.projectGroupId,
+          projectCoordinator: activeDisplaySession.projectCoordinator,
+          projectGroupId: activeDisplaySession.projectGroupId,
         }
       : undefined;
     const resolvedProjectContext = projectContext ?? inheritedProjectContext;
     const resolvedWorkingDirectory = resolvedProjectContext?.projectCoordinator
       ? undefined
-      : workingDirectory ?? (activeSession?.pluginMigration ? undefined : activeSession?.workingDirectory);
-    const newSessionModel = resolveComposerModel(composerModels);
-    try {
-      const created = await sessionStore.create({
-        ...(resolvedWorkingDirectory ? { workingDirectory: resolvedWorkingDirectory } : {}),
-        ...(resolvedProjectContext?.projectGroupId ? { projectGroupId: resolvedProjectContext.projectGroupId } : {}),
-        ...(resolvedProjectContext?.projectCoordinator ? { projectCoordinator: true } : {}),
-        ...(resolvedProjectContext?.title ? { title: resolvedProjectContext.title } : {}),
-        ...composerSessionModelInput(composerModels, newSessionModel),
-      });
-      activateCreatedSession(created);
-      return created;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      setSessionWorkspaceError(message);
-      console.error("[session-workspaces] session.create.failed", {
-        error: message,
-        workingDirectory: resolvedWorkingDirectory ?? "",
-        projectGroupId: resolvedProjectContext?.projectGroupId ?? "",
-      });
-      return null;
-    } finally {
-      setSessionCreatePending(false);
-    }
+      : workingDirectory ?? (activeDisplaySession?.pluginMigration ? undefined : activeDisplaySession?.workingDirectory);
+    const createInput: DraftSessionCreateInput = {
+      ...(resolvedWorkingDirectory ? { workingDirectory: resolvedWorkingDirectory } : {}),
+      ...(resolvedProjectContext?.projectGroupId ? { projectGroupId: resolvedProjectContext.projectGroupId } : {}),
+      ...(resolvedProjectContext?.projectCoordinator ? { projectCoordinator: true } : {}),
+      ...(resolvedProjectContext?.title ? { title: resolvedProjectContext.title } : {}),
+    };
+    const draft: DraftSession = {
+      id: `draft:${now()}:${++draftSessionSequence.current}`,
+      createdAtMs: now(),
+      createInput,
+    };
+    dispatchDelete({ type: "session-selected", sessionId: draft.id });
+    dispatchSessionTabs({ type: "session-draft.open", draft });
+    return projectDraftSessionSummary(draft);
   }
 
   async function handleInstallPluginMigration(session: SessionSummary): Promise<void> {
@@ -1078,6 +1095,10 @@ export function ChatPage({
     const next = reduceSessionDeleteState(deleteState, { type: "delete-clicked", sessionId: session.id });
     dispatchDelete({ type: "delete-clicked", sessionId: session.id });
     if (next.confirmedSessionId) {
+      if (session.id in sessionTabs.draftSessionsById) {
+        dispatchSessionTabs({ type: "remove", sessionId: session.id });
+        return;
+      }
       await sessionStore.delete(session.id);
       optimisticSessionTitlesRef.current.delete(session.id);
       setDissolvingSessionIds((current) => new Set(current).add(session.id));
@@ -1226,12 +1247,42 @@ export function ChatPage({
     dispatchSessionTabs({ type: "open", sessionId: branched.id });
   }
 
-  function dispatchTurn(sessionId: string, input: ChatInput, control: string): Promise<void> {
-    return chatStore.dispatch(createDesktopTurnSubmitCommand({
+  async function dispatchTurn(
+    sessionId: string,
+    input: ChatInput,
+    control: string,
+    optimisticText?: string,
+  ): Promise<void> {
+    const command = createDesktopTurnSubmitCommand({
       message: input,
       sessionId,
       source: { control, surface: "chat" },
-    }));
+    });
+    if (optimisticText) {
+      setOptimisticMessagesBySession((current) => updateSessionMessages(
+        current,
+        sessionId,
+        (messages) => [...messages, {
+          createdAtMs: now(),
+          id: command.commandId,
+          role: "user",
+          status: "complete",
+          text: optimisticText,
+        }],
+      ));
+    }
+    try {
+      await chatStore.dispatch(command);
+    } catch (error) {
+      if (optimisticText) {
+        setOptimisticMessagesBySession((current) => updateSessionMessages(
+          current,
+          sessionId,
+          (messages) => messages.filter((message) => message.id !== command.commandId),
+        ));
+      }
+      throw error;
+    }
   }
 
   async function handleComposerSend(
@@ -1292,6 +1343,7 @@ export function ChatPage({
       setQueueMessage(t("queue.limit", { count: MAX_QUEUED_INPUTS }));
       return;
     }
+    const materializingDraft = !activeSession;
     const sendSession = activeSession ?? await createSessionForDraft();
     if (!sendSession) {
       return;
@@ -1309,7 +1361,12 @@ export function ChatPage({
       setSessions((current) => current.map((session) => session.id === sendSession.id ? optimisticSession : session));
       await sessionStore.rename(sendSession.id, optimisticSession.title);
     }
-    await dispatchTurn(sendSession.id, prepared.turnInput, "composer-send");
+    await dispatchTurn(
+      sendSession.id,
+      prepared.turnInput,
+      "composer-send",
+      materializingDraft ? visibleText : undefined,
+    );
     await handleSessionStoreRefresh(optimisticSession);
   }
 
@@ -1400,23 +1457,51 @@ export function ChatPage({
       return null;
     }
     if (!draftSessionCreatePromise.current) {
+      const draftSession = sessionTabs.draftSessionsById[activeSessionId];
       const modelInput = composerSessionModelInput(composerModels, composerModel);
-      draftSessionCreatePromise.current = sessionStore.create(Object.keys(modelInput).length ? modelInput : undefined)
+      const createInput = {
+        ...draftSession?.createInput,
+        ...modelInput,
+      };
+      const createArgument = draftSession || Object.keys(createInput).length
+        ? createInput
+        : undefined;
+      const materializingSessionId = activeSessionId;
+      setSessionCreatePending(true);
+      setSessionWorkspaceError("");
+      draftSessionCreatePromise.current = sessionStore.create(createArgument)
         .then((created) => {
-          activateCreatedSession(created);
+          activateCreatedSession(created, materializingSessionId);
           return created;
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          setSessionWorkspaceError(message);
+          console.error("[session-workspaces] session.create.failed", {
+            error: message,
+            workingDirectory: draftSession?.createInput.workingDirectory ?? "",
+            projectGroupId: draftSession?.createInput.projectGroupId ?? "",
+          });
+          return Promise.reject(error);
         })
         .finally(() => {
           draftSessionCreatePromise.current = null;
+          setSessionCreatePending(false);
         });
     }
-    return draftSessionCreatePromise.current;
+    try {
+      return await draftSessionCreatePromise.current;
+    } catch {
+      return null;
+    }
   }
 
-  function activateCreatedSession(created: SessionSummary): void {
+  function activateCreatedSession(created: SessionSummary, previousSessionId = ""): void {
     sessionsRef.current = [created, ...sessionsRef.current.filter((session) => session.id !== created.id)];
     setSessions((current) => [created, ...current.filter((session) => session.id !== created.id)]);
-    dispatchSessionTabs({ type: "open", sessionId: created.id });
+    dispatchSessionTabs(previousSessionId !== created.id
+      ? { type: "replace", previousSessionId, sessionId: created.id }
+      : { type: "open", sessionId: created.id });
   }
 
   function handleDeleteQueuedInput(sessionId: string, inputId: string) {
@@ -2062,7 +2147,9 @@ export function ChatPage({
 
   const visibleAgentUiForms = agentUiForms.filter(isVisibleAgentUiForm);
   const interactiveFormIds = new Set(visibleAgentUiForms.map((form) => form.form_id));
-  const headerTitle = activeSession ? displaySessionTitle(activeSession.title, t) : draftNewSession ? t("shell.newChat") : t("shell.noSelection");
+  const headerTitle = activeDisplaySession
+    ? displaySessionTitle(activeDisplaySession.title, t)
+    : draftNewSession ? t("shell.newChat") : t("shell.noSelection");
   const mascotMood = projectTinybotMascotMood({
     responding: sessionResponding,
     sessionStatus: activeSession?.status,
@@ -2096,7 +2183,7 @@ export function ChatPage({
         error={sessionWorkspaceError}
         now={now}
         projectGroupStore={projectGroupStore}
-        sessions={sessions}
+        sessions={displayedSessions}
       >
       <div
         className="react-chat-workspace"
@@ -2697,6 +2784,18 @@ function browserResourceTitle(title: string, url: string, fallback: string): str
   } catch {
     return url;
   }
+}
+
+function projectDraftSessionSummary(draft: DraftSession): SessionSummary {
+  return {
+    id: draft.id,
+    projectCoordinator: draft.createInput.projectCoordinator,
+    projectGroupId: draft.createInput.projectGroupId,
+    status: "idle",
+    title: draft.createInput.title ?? "New chat",
+    updatedAtMs: draft.createdAtMs,
+    workingDirectory: draft.createInput.workingDirectory,
+  };
 }
 
 function omitRecordKey<T>(record: Record<string, T>, key: string): Record<string, T> {

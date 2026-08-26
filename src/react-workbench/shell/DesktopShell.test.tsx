@@ -389,7 +389,8 @@ describe("DesktopShell", () => {
     expect(within(appMenu).getByText("Ctrl+N").classList.contains("react-top-menu__shortcut")).toBe(true);
 
     await user.click(within(appMenu).getByRole("menuitem", { name: /New Chat/ }));
-    await waitFor(() => expect(services.sessionStore.create).toHaveBeenCalledTimes(1));
+    expect(await screen.findByRole("heading", { name: "New chat" })).toBeTruthy();
+    expect(services.sessionStore.create).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     const resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });

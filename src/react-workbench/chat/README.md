@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:4d389cd321b9106778ecee74b4283e08bcb7f2406e62c09b5acbb6f67930ebb8 -->
+<!-- tinybot-module-fingerprint: sha256:854fac18ba759aec457cbca875764dc1fc0b1161fa742ed7e988cb85ffa03139 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -53,9 +53,14 @@ becomes authoritative.
 While the initial session list is loading, the composer keeps its draft editor
 available but disables sending. The first Chat mount in each desktop app
 lifetime ignores the persisted tab workspace and starts with an uncreated empty
-conversation. Later route remounts may restore tabs opened during that same app
-lifetime. The empty conversation continues to use the persisted composer model
-preference, and changing its model updates that preference for future chats.
+conversation. User-facing new-chat actions also open a local draft session
+without creating a native Thread. A pristine draft is removed when another
+conversation is selected or Chat is left; a draft with composer text remains in
+the local tab workspace and is restored on a later route mount. The first send
+materializes that draft with its captured workspace or project context, replaces
+the local tab with the returned Thread ID, and only then dispatches the Turn.
+The empty conversation continues to use the persisted composer model preference,
+and changing its model updates that preference for future chats.
 Browser runtime snapshots are retained by the
 session runtime and projected into Sidecar Browser resources. Each resource tab
 maps to one native WebView2 tab in the Chat-owned shared Browser Session, so user
@@ -96,12 +101,14 @@ this module while delegating modal focus, keyboard, dismissal, and scroll-lock
 behavior to `components/ui/useModalDialog`.
 
 Session creation follows the entry point's target. Workspace and project
-actions pass their workspace and project context explicitly. With the session
-sidebar expanded, those contextual actions and the draft's first submission are
-the primary creation paths; the tab-strip create action appears only while the
-sidebar is collapsed. Collapsed-tab, search, menu, and keyboard actions may
-inherit an ordinary active workspace, but never an active project coordinator;
-coordinator sessions are created only by the project's coordinator action.
+actions capture their workspace and project context on the local draft. With the
+session sidebar expanded, those contextual actions and the draft's first
+submission are the primary creation paths; the tab-strip create action appears
+only while the sidebar is collapsed. Collapsed-tab, search, menu, and keyboard
+actions may inherit an ordinary active workspace, but never an active project
+coordinator; coordinator sessions are created only by the project's coordinator
+action. System-owned flows such as plugin migration continue to create their
+required Thread immediately rather than entering the user draft lifecycle.
 
 Composer model selection has two scopes. Selecting a model in a draft or an
 empty Thread updates the default used by future chats as well as that Thread.

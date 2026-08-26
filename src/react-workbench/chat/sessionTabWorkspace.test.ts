@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DRAFT_SESSION_KEY,
   INITIAL_SESSION_TAB_WORKSPACE,
+  persistedSessionTabWorkspace,
   reduceSessionTabWorkspace,
   sessionTabDraft,
 } from "./sessionTabWorkspace";
@@ -20,6 +21,7 @@ describe("sessionTabWorkspace", () => {
 
     expect(state).toEqual({
       activeSessionId: "s2",
+      draftSessionsById: {},
       draftsBySession: { s2: "keep", [DRAFT_SESSION_KEY]: "new" },
       openSessionIds: ["s2"],
       unreadSessionIds: [],
@@ -121,5 +123,113 @@ describe("sessionTabWorkspace", () => {
     expect(state.activeSessionId).toBe("WebSocket:chat-2");
     expect(state.openSessionIds).toEqual(["WebSocket:chat-2"]);
     expect(sessionTabDraft(state, "WebSocket:chat-2")).toBe("keep this");
+  });
+
+  it("discards a pristine local session draft when another session is opened", () => {
+    let state = reduceSessionTabWorkspace(INITIAL_SESSION_TAB_WORKSPACE, {
+      type: "hydrate",
+      availableSessionIds: ["s1"],
+    });
+    state = reduceSessionTabWorkspace(state, {
+      type: "session-draft.open",
+      draft: {
+        id: "draft:1",
+        createdAtMs: 10,
+        createInput: { workingDirectory: "D:\\Code\\tinybot" },
+      },
+    });
+    state = reduceSessionTabWorkspace(state, { type: "open", sessionId: "s1" });
+
+    expect(state.activeSessionId).toBe("s1");
+    expect(state.openSessionIds).toEqual(["s1"]);
+    expect(state.draftSessionsById).toEqual({});
+  });
+
+  it("keeps a non-empty local session draft when another session is opened", () => {
+    let state = reduceSessionTabWorkspace(INITIAL_SESSION_TAB_WORKSPACE, {
+      type: "hydrate",
+      availableSessionIds: ["s1"],
+    });
+    state = reduceSessionTabWorkspace(state, {
+      type: "session-draft.open",
+      draft: {
+        id: "draft:1",
+        createdAtMs: 10,
+        createInput: { projectGroupId: "group-1", workingDirectory: "D:\\Code\\tinybot" },
+      },
+    });
+    state = reduceSessionTabWorkspace(state, {
+      type: "draft.changed",
+      sessionId: "draft:1",
+      value: "Keep this locally",
+    });
+    state = reduceSessionTabWorkspace(state, { type: "open", sessionId: "s1" });
+
+    expect(state.activeSessionId).toBe("s1");
+    expect(state.openSessionIds).toEqual(["s1", "draft:1"]);
+    expect(state.draftSessionsById["draft:1"]?.createInput).toEqual({
+      projectGroupId: "group-1",
+      workingDirectory: "D:\\Code\\tinybot",
+    });
+    expect(sessionTabDraft(state, "draft:1")).toBe("Keep this locally");
+  });
+
+  it("replaces a local session draft with the created Thread without losing composer text", () => {
+    let state = reduceSessionTabWorkspace(INITIAL_SESSION_TAB_WORKSPACE, {
+      type: "session-draft.open",
+      draft: {
+        id: "draft:1",
+        createdAtMs: 10,
+        createInput: { workingDirectory: "D:\\Code\\tinybot" },
+      },
+    });
+    state = reduceSessionTabWorkspace(state, {
+      type: "draft.changed",
+      sessionId: "draft:1",
+      value: "Create me",
+    });
+    state = reduceSessionTabWorkspace(state, {
+      type: "replace",
+      previousSessionId: "draft:1",
+      sessionId: "thread:1",
+    });
+
+    expect(state.activeSessionId).toBe("thread:1");
+    expect(state.openSessionIds).toEqual(["thread:1"]);
+    expect(state.draftSessionsById).toEqual({});
+    expect(sessionTabDraft(state, "thread:1")).toBe("Create me");
+  });
+
+  it("persists only local session drafts that contain composer text", () => {
+    let state = reduceSessionTabWorkspace(INITIAL_SESSION_TAB_WORKSPACE, {
+      type: "hydrate",
+      availableSessionIds: ["s1"],
+    });
+    state = reduceSessionTabWorkspace(state, {
+      type: "session-draft.open",
+      draft: { id: "draft:dirty", createdAtMs: 10, createInput: { workingDirectory: "D:\\Code\\one" } },
+    });
+    state = reduceSessionTabWorkspace(state, {
+      type: "draft.changed",
+      sessionId: "draft:dirty",
+      value: "Keep me",
+    });
+    state = reduceSessionTabWorkspace(state, {
+      type: "session-draft.open",
+      draft: { id: "draft:pristine", createdAtMs: 20, createInput: { workingDirectory: "D:\\Code\\two" } },
+    });
+
+    expect(persistedSessionTabWorkspace(state)).toEqual({
+      activeSessionId: "s1",
+      draftSessionsById: {
+        "draft:dirty": {
+          id: "draft:dirty",
+          createdAtMs: 10,
+          createInput: { workingDirectory: "D:\\Code\\one" },
+        },
+      },
+      draftsBySession: { "draft:dirty": "Keep me" },
+      openSessionIds: ["s1", "draft:dirty"],
+    });
   });
 });

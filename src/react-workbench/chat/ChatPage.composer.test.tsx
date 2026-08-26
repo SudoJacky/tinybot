@@ -1026,6 +1026,10 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: "Collapse session sidebar" }));
     await user.click(screen.getByRole("button", { name: "New conversation tab" }));
 
+    expect(stores.sessionStore.create).not.toHaveBeenCalled();
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "Use the saved model");
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+
     expect(stores.sessionStore.create).toHaveBeenCalledWith({
       model: "deepseek-v4-flash-vision-exp",
     });

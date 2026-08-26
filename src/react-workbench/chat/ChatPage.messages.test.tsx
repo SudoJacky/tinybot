@@ -375,7 +375,9 @@ describe("ChatPage", () => {
     await user.type(input, "Summarize this pending chat");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
-    expect((await screen.findByTestId("message-local-user")).textContent).toContain("Summarize this pending chat");
+    await waitFor(() => expect(screen.getAllByText("Summarize this pending chat").some((element) => (
+      Boolean(element.closest('[data-testid^="message-"]'))
+    ))).toBe(true));
     expect(screen.queryByText("No sessions yet.")).toBeNull();
   });
 
