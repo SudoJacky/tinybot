@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:abdaa063ff9d1c2602ac0558558f9d9e5a6660afab32ccbae52cdbf3499ed872 -->
+<!-- tinybot-module-fingerprint: sha256:a2c919cdb0430a8cb4a1e2e4774656553c4f276b1e9550c56cff5d6beff47685 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -53,9 +53,17 @@ becomes authoritative.
 While the initial session list is loading, the composer keeps its draft editor
 available but disables sending. The first Chat mount in each desktop app
 lifetime ignores the persisted tab workspace and starts with an uncreated empty
-conversation. Later route remounts may restore tabs opened during that same app
-lifetime. The empty conversation continues to use the persisted composer model
-preference, and changing its model updates that preference for future chats.
+conversation. User-facing new-chat actions also open a local draft session
+without creating a native Thread. A pristine draft is removed when another
+conversation is selected or Chat is left; a draft with composer text remains in
+the local tab workspace and is restored on a later route mount. Opening another
+draft materializes non-empty startup text as its own navigable local tab. The
+first send materializes that draft with its captured workspace or project
+context, replaces the local tab with the returned Thread ID, and only then
+dispatches the Turn. Creation failures remain visible and reject the submission
+so the controlled composer keeps the user's input.
+The empty conversation continues to use the persisted composer model preference,
+and changing its model updates that preference for future chats.
 Browser runtime snapshots are retained by the
 session runtime and projected into Sidecar Browser resources. Each resource tab
 maps to one native WebView2 tab in the Chat-owned shared Browser Session, so user
@@ -95,11 +103,27 @@ Desktop-level project and session-search dialogs keep their domain actions in
 this module while delegating modal focus, keyboard, dismissal, and scroll-lock
 behavior to `components/ui/useModalDialog`.
 
+The expanded session sidebar keeps a renderer-local, versioned user order for
+its top-level workspace/project blocks, each project's member workspaces, and
+each block's own session list.
+Dragging a session never changes its workspace or project membership. Workspace
+headers and complete session rows are the drag sources; there is no separate
+grip control. Their existing focus targets also support `Alt+ArrowUp` and
+`Alt+ArrowDown`, and announce the result through a polite live region. Newly
+discovered blocks and sessions appear ahead of a saved manual order; stale saved
+IDs are ignored. Invalid persisted state is reported through the
+`session-sidebar-order` diagnostic boundary before the sidebar returns to its
+natural recency order.
+
 Session creation follows the entry point's target. Workspace and project
-actions pass their workspace and project context explicitly. Global, tab, and
-search actions may inherit an ordinary active workspace, but never an active
-project coordinator; coordinator sessions are created only by the project's
-coordinator action.
+actions capture their workspace and project context on the local draft. With the
+session sidebar expanded, those contextual actions and the draft's first
+submission are the primary creation paths; the tab-strip create action appears
+only while the sidebar is collapsed. Collapsed-tab, search, menu, and keyboard
+actions may inherit an ordinary active workspace, but never an active project
+coordinator; coordinator sessions are created only by the project's coordinator
+action. System-owned flows such as plugin migration continue to create their
+required Thread immediately rather than entering the user draft lifecycle.
 
 Composer model selection has two scopes. Selecting a model in a draft or an
 empty Thread updates the default used by future chats as well as that Thread.

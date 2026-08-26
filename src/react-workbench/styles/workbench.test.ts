@@ -7,6 +7,21 @@ const settingsStylesheet = readFileSync(new URL("../settings/SettingsRoute.css",
 const memoryStylesheet = readFileSync(new URL("../memory/MemoryRoute.css", import.meta.url), "utf8");
 
 describe("workbench CSS interaction contracts", () => {
+  test("keeps document scrolling disabled while desktop surfaces own overflow", () => {
+    const documentRule = shellStylesheet.match(/html,\s*body,\s*#root\s*\{([^}]+)\}/);
+    const shellRule = shellStylesheet.match(/\.react-desktop-shell\s*\{([^}]+)\}/);
+    const sessionRowsRule = shellStylesheet.match(/\.react-session-list__rows\s*\{([^}]+)\}/);
+    const conversationRule = chatStylesheet.match(/\.react-conversation-view\s*\{([^}]+)\}/);
+
+    expect(documentRule?.[1]).toContain("width: 100%");
+    expect(documentRule?.[1]).toContain("height: 100%");
+    expect(documentRule?.[1]).toContain("overflow: hidden");
+    expect(shellRule?.[1]).toContain("width: 100%");
+    expect(shellRule?.[1]).toContain("height: 100%");
+    expect(sessionRowsRule?.[1]).toContain("overflow: auto");
+    expect(conversationRule?.[1]).toContain("overflow: auto");
+  });
+
   test("keeps conversation rows intrinsic and scopes drawer header layout", () => {
     const conversationRule = chatStylesheet.match(/\.react-conversation-view\s*\{([^}]+)\}/);
     const drawerHeaderRule = chatStylesheet.match(

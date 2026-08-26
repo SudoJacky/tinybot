@@ -36,10 +36,18 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
-  min-width: 720px;
-  min-height: 520px;
   background: var(--color-canvas);
   color: var(--color-body);
 }
@@ -79,6 +87,7 @@ button:disabled {
   align-content: center;
   justify-items: start;
   min-height: 100vh;
+  overflow: auto;
   gap: 12px;
   padding: 40px;
   background: var(--color-panel);
@@ -114,8 +123,8 @@ button:disabled {
 .react-desktop-shell {
   display: grid;
   grid-template-rows: 42px minmax(0, 1fr);
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
 }
 
@@ -828,7 +837,6 @@ button:disabled {
 .react-session-list__header h2,
 .react-session-list__add-workspace,
 .react-session-list__search,
-.react-session-list__new span,
 .react-session-row__title,
 .react-session-row__select small,
 .react-session-row__delete {
@@ -843,30 +851,6 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.react-session-list__new {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 34px;
-  background: var(--color-primary);
-  color: var(--color-on-primary);
-  padding: 0 10px;
-  font-size: 12px;
-}
-
-.react-session-list__new span {
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.react-session-list__new:hover,
-.react-session-list__new:focus-visible {
-  background: var(--color-primary-active);
 }
 
 .react-session-list__collapse {
@@ -920,7 +904,6 @@ button:disabled {
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list__header h2,
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list__add-workspace,
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list__search,
-.react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list__new span,
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-row__title,
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-row__select small,
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-row__delete,
@@ -939,8 +922,7 @@ button:disabled {
 
 .react-session-list[data-collapsed="true"] .react-session-list__header h2,
 .react-session-list[data-collapsed="true"] .react-session-list__add-workspace,
-.react-session-list[data-collapsed="true"] .react-session-list__search,
-.react-session-list[data-collapsed="true"] .react-session-list__new span {
+.react-session-list[data-collapsed="true"] .react-session-list__search {
   max-width: 0;
   opacity: 0;
   pointer-events: none;
@@ -953,7 +935,6 @@ button:disabled {
   min-width: 0;
 }
 
-.react-session-list[data-collapsed="true"] .react-session-list__new,
 .react-session-list[data-collapsed="true"] .react-session-list__collapse {
   width: 40px;
   min-width: 40px;
@@ -1199,6 +1180,10 @@ button:disabled {
 .react-project-group__coordinators,
 .react-project-workspace {
   min-width: 0;
+}
+
+.react-project-workspace {
+  position: relative;
 }
 
 .react-project-group__member-title {
@@ -1456,6 +1441,68 @@ button:disabled {
     transform 180ms var(--motion-ease-standard);
 }
 
+.react-session-workspace > summary[draggable="true"],
+.react-project-group > summary[draggable="true"],
+.react-project-group__member-title[draggable="true"],
+.react-session-row[draggable="true"] {
+  cursor: grab;
+  user-select: none;
+}
+
+.react-project-group__member-title[draggable="true"]:focus-visible {
+  border-radius: 7px;
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 72%, transparent);
+  outline-offset: -2px;
+}
+
+.react-session-workspace[data-dragging="true"],
+.react-project-group[data-dragging="true"],
+.react-project-workspace[data-dragging="true"],
+.react-session-row[data-dragging="true"] {
+  cursor: grabbing;
+  opacity: .52;
+}
+
+.react-session-workspace[data-dragging="true"] > summary,
+.react-project-group[data-dragging="true"] > summary,
+.react-project-workspace[data-dragging="true"] > .react-project-group__member-title {
+  cursor: grabbing;
+}
+
+.react-session-workspace[data-drop-position="before"]::before,
+.react-project-group[data-drop-position="before"]::before,
+.react-project-workspace[data-drop-position="before"]::before,
+.react-session-row[data-drop-position="before"]::before,
+.react-session-workspace[data-drop-position="after"]::after,
+.react-project-group[data-drop-position="after"]::after,
+.react-project-workspace[data-drop-position="after"]::after,
+.react-session-row[data-drop-position="after"]::after {
+  position: absolute;
+  z-index: 4;
+  right: 4px;
+  left: 4px;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--color-primary-active);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 12%, transparent);
+  content: "";
+  pointer-events: none;
+}
+
+.react-session-workspace[data-drop-position="before"]::before,
+.react-project-group[data-drop-position="before"]::before,
+.react-project-workspace[data-drop-position="before"]::before,
+.react-session-row[data-drop-position="before"]::before {
+  top: -3px;
+}
+
+.react-session-workspace[data-drop-position="after"]::after,
+.react-project-group[data-drop-position="after"]::after,
+.react-project-workspace[data-drop-position="after"]::after,
+.react-session-row[data-drop-position="after"]::after {
+  bottom: -3px;
+}
+
 .react-session-list__rows[data-motion="animated-list"] .react-session-row {
   animation: react-list-enter var(--motion-duration-medium) var(--motion-ease-standard) both;
   animation-delay: calc(var(--react-session-row-index, 0) * 22ms);
@@ -1478,6 +1525,7 @@ button:disabled {
   overflow: hidden;
   border-radius: inherit;
   padding: 0 10px;
+  cursor: inherit;
   text-align: left;
 }
 
@@ -1916,12 +1964,10 @@ button:disabled {
   gap: 3px;
 }
 
-.react-session-list__new,
 [data-press-feedback="true"] {
   transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
-.react-session-list__new:active:not(:disabled),
 [data-press-feedback="true"]:active:not(:disabled) {
   transform: scale(.97);
 }
@@ -2108,7 +2154,6 @@ button:disabled {
   .react-session-list__header h2,
 .react-session-list__add-workspace,
 .react-session-list__search,
-.react-session-list__new span,
 .react-session-row__title,
 .react-session-row__select small,
 .react-session-row__delete {
@@ -2117,8 +2162,7 @@ button:disabled {
 
   .react-session-list[data-collapsed="true"] .react-session-list__header h2,
 .react-session-list[data-collapsed="true"] .react-session-list__add-workspace,
-.react-session-list[data-collapsed="true"] .react-session-list__search,
-.react-session-list[data-collapsed="true"] .react-session-list__new span {
+.react-session-list[data-collapsed="true"] .react-session-list__search {
     transform: none;
   }
 
@@ -2129,7 +2173,6 @@ button:disabled {
     transition-duration: 140ms;
   }
 
-  .react-session-list__new:active:not(:disabled),
 [data-press-feedback="true"]:active:not(:disabled) {
     transform: none;
   }

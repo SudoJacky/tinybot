@@ -916,6 +916,8 @@ export const en = {
       label: "Chat", sessions: "Sessions", addWorkspace: "Add workspace folder", workspaceActions: "Workspace and project actions", searchChats: "Search chats", expandSidebar: "Expand session sidebar",
       collapseSidebar: "Collapse session sidebar", newChat: "New chat", sessionRows: "Session list rows", workspace: "Workspace {{name}}", generalSessions: "General chats",
       newSessionIn: "New session in {{name}}", confirmDelete: "Confirm delete {{name}}", delete: "Delete {{name}}", noSessions: "No sessions yet.",
+      reorderWorkspace: "Reorder workspace {{name}}. Drag or press Alt+Arrow Up or Down.", reorderProject: "Reorder project {{name}}. Drag or press Alt+Arrow Up or Down.",
+      reorderSession: "Reorder session {{name}}. Drag or press Alt+Arrow Up or Down.", reorderedBefore: "Moved {{item}} before {{target}}.", reorderedAfter: "Moved {{item}} after {{target}}.",
       noSelection: "No conversation selected", conversationMenu: "Open conversation menu", unpin: "Unpin conversation", pin: "Pin conversation",
       rename: "Rename conversation", copyId: "Copy ID", copyMarkdown: "Copy Markdown", archive: "Archive conversation", sideChat: "Open side chat",
       branch: "Branch", newWindow: "Open in new window", conversation: "Conversation", selectSession: "Select or create a conversation.",

@@ -369,12 +369,15 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     await screen.findByText("No sessions yet.");
-    await user.click(screen.getByRole("button", { name: "New chat" }));
+    await user.click(screen.getByRole("button", { name: "Collapse session sidebar" }));
+    await user.click(screen.getByRole("button", { name: "New conversation tab" }));
     const input = await screen.findByRole("textbox", { name: /message/i });
     await user.type(input, "Summarize this pending chat");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
-    expect((await screen.findByTestId("message-local-user")).textContent).toContain("Summarize this pending chat");
+    await waitFor(() => expect(screen.getAllByText("Summarize this pending chat").some((element) => (
+      Boolean(element.closest('[data-testid^="message-"]'))
+    ))).toBe(true));
     expect(screen.queryByText("No sessions yet.")).toBeNull();
   });
 

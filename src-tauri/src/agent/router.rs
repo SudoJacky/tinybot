@@ -330,6 +330,32 @@ mod tests {
     }
 
     #[test]
+    fn inherited_router_uses_active_custom_profile_for_a_custom_model() {
+        let decision = tauri::async_runtime::block_on(route(
+            &serde_json::json!({
+                "agents": {
+                    "defaults": {
+                        "activeProfile": "fixture-default",
+                        "model": "custom-routing-model"
+                    }
+                },
+                "providers": {
+                    "profiles": {
+                        "fixture-default": { "provider": "fixture" }
+                    },
+                    "fixture": { "responses": [{ "content": "ROUTE_B" }] }
+                }
+            }),
+            "Review found an actionable issue.",
+            &router_config(),
+        ))
+        .expect("the inherited active profile should handle the Router request");
+
+        assert_eq!(decision.route_id, "changes");
+        assert_eq!(decision.raw_response, "ROUTE_B");
+    }
+
+    #[test]
     fn generates_route_tokens_beyond_z() {
         assert_eq!(route_token(0), "ROUTE_A");
         assert_eq!(route_token(25), "ROUTE_Z");
