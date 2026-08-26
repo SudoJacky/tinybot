@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:b994a8790fc96018183ef5b9252377e0920eccefc1794d24fce586ce9a811751 -->
+<!-- tinybot-module-fingerprint: sha256:e238089d030f31c1c472f0a677476547ca9de70330b799b91f6d94a4ceda4e9a -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -11,6 +11,8 @@ entry points such as desktop-pet quick chat; both paths share selection limits,
 removal, file-only submission, and successful-send clearing.
 Its slash listbox combines route-provided executable commands with searchable
 Skill options, including shared arrow-key, Enter/Tab, and Escape behavior.
+Any slash immediately behind the caret starts or resets the active query; typing
+continues filtering until the query is dismissed or the caret leaves it.
 Selected Skills render as atomic removable tokens inline with editable user
 text without placing Skill documents in the submitted message.
 The composer separates full control disabling from temporary send disabling,

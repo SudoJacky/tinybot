@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -81,6 +81,42 @@ describe("ClaudeStyleAiInput slash commands", () => {
     await user.keyboard("{Enter}");
     expect(input.value).toBe("Review the current changes.");
     expect(onSendMessage).not.toHaveBeenCalled();
+  });
+
+  it("starts a new query from any slash immediately behind the caret", async () => {
+    const user = userEvent.setup();
+    render(<ClaudeStyleAiInput slashCommands={slashCommands} />);
+
+    const input = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    await user.type(input, "//////");
+    input.setSelectionRange(3, 3);
+    fireEvent.select(input);
+
+    let listbox = screen.getByRole("listbox", { name: "Slash commands" });
+    expect(within(listbox).getByRole("option", { name: /\/plan Plan/ })).toBeTruthy();
+    expect(within(listbox).getByRole("option", { name: /\/review Review/ })).toBeTruthy();
+
+    await user.keyboard("rev");
+
+    listbox = screen.getByRole("listbox", { name: "Slash commands" });
+    expect(input.value).toBe("///rev///");
+    expect(within(listbox).queryByRole("option", { name: /\/plan Plan/ })).toBeNull();
+    expect(within(listbox).getByRole("option", { name: /\/review Review/ })).toBeTruthy();
+  });
+
+  it("does not invoke a slash query when the caret first enters text after a slash", () => {
+    render(<ClaudeStyleAiInput slashCommands={slashCommands} value="foo/rev" />);
+
+    const input = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    input.setSelectionRange(input.value.length, input.value.length);
+    fireEvent.select(input);
+    expect(screen.queryByRole("listbox", { name: "Slash commands" })).toBeNull();
+
+    input.setSelectionRange(4, 4);
+    fireEvent.select(input);
+    const listbox = screen.getByRole("listbox", { name: "Slash commands" });
+    expect(within(listbox).getByRole("option", { name: /\/plan Plan/ })).toBeTruthy();
+    expect(within(listbox).getByRole("option", { name: /\/review Review/ })).toBeTruthy();
   });
 
   it("renders selected Skills inline with user text while submitting only the plain message", async () => {

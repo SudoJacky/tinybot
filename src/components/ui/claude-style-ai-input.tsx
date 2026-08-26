@@ -247,11 +247,13 @@ export function ClaudeStyleAiInput({
   const [sending, setSending] = useState(false);
   const [selectingFiles, setSelectingFiles] = useState(false);
   const [activeSlashCommandIndex, setActiveSlashCommandIndex] = useState(0);
+  const [activeSlashStart, setActiveSlashStart] = useState<number | null>(null);
   const [slashMenuDismissed, setSlashMenuDismissed] = useState(false);
   const [activeSessionMentionIndex, setActiveSessionMentionIndex] = useState(0);
   const [sessionMentionMenuDismissed, setSessionMentionMenuDismissed] = useState(false);
   const [inlineCaret, setInlineCaret] = useState<InlineComposerCaret>({ offset: 0, skillsBefore: 0 });
   const [inlineSkillPlacements, setInlineSkillPlacements] = useState<InlineSkillPlacement[]>([]);
+  const [textareaCaretOffset, setTextareaCaretOffset] = useState(0);
   const slashListboxId = useId();
   const sessionMentionListboxId = useId();
   const currentMessage = value ?? message;
@@ -304,21 +306,19 @@ export function ClaudeStyleAiInput({
       || selectedSessionMentions.length
       || selectedSkills.length,
   );
-  const composerCaretOffset = inlineEditorEnabled ? inlineCaret.offset : currentMessage.length;
+  const composerCaretOffset = inlineEditorEnabled ? inlineCaret.offset : textareaCaretOffset;
   const slashMatch = useMemo(
-    () => slashTriggerMatch(currentMessage, composerCaretOffset),
-    [composerCaretOffset, currentMessage],
+    () => slashTriggerMatch(currentMessage, composerCaretOffset, activeSlashStart),
+    [activeSlashStart, composerCaretOffset, currentMessage],
   );
   const slashQuery = slashMatch?.query.toLocaleLowerCase();
   const filteredSlashOptions = useMemo<ComposerSlashMenuOption[]>(() => {
     if (slashQuery === undefined) return [];
-    const commands = slashMatch?.start === 0 && slashMatch.end === currentMessage.length
-      ? slashCommands.filter((command) => {
+    const commands = slashCommands.filter((command) => {
       const name = command.command.slice(1).toLocaleLowerCase();
       const searchText = `${name} ${command.label} ${command.description}`.toLocaleLowerCase();
       return name.startsWith(slashQuery) || searchText.includes(slashQuery);
-      }).map((command) => ({ command, kind: "command" as const }))
-      : [];
+    }).map((command) => ({ command, kind: "command" as const }));
     const skills = skillOptions
       .filter((skill) => !selectedSkillIdSet.has(skill.id))
       .filter((skill) => `${skill.label} ${skill.description} ${skill.sourceLabel}`
@@ -326,7 +326,7 @@ export function ClaudeStyleAiInput({
         .includes(slashQuery))
       .map((skill) => ({ kind: "skill" as const, skill }));
     return [...commands, ...skills];
-  }, [currentMessage.length, selectedSkillIdSet, skillOptions, slashCommands, slashMatch, slashQuery]);
+  }, [selectedSkillIdSet, skillOptions, slashCommands, slashQuery]);
   const slashMenuOpen = !disabled
     && !sending
     && !slashMenuDismissed
@@ -437,6 +437,7 @@ export function ClaudeStyleAiInput({
       }
       if (slashMenuOpen && !panelRef.current?.contains(target)) {
         setSlashMenuDismissed(true);
+        setActiveSlashStart(null);
       }
       if (sessionMentionMenuOpen && !panelRef.current?.contains(target)) {
         setSessionMentionMenuDismissed(true);
@@ -472,6 +473,7 @@ export function ClaudeStyleAiInput({
         reasoningEffort: selectedReasoningEffort,
       });
       updateMessage("");
+      setActiveSlashStart(null);
       updateFiles(() => []);
       setPastedContent([]);
       onClearContextReferences?.();
@@ -506,6 +508,7 @@ export function ClaudeStyleAiInput({
     setInlineCaret((current) => (
       current.offset === caret.offset && current.skillsBefore === caret.skillsBefore ? current : caret
     ));
+    updateSlashTrigger(currentMessage, caret.offset);
     return caret;
   }
 
@@ -524,7 +527,14 @@ export function ClaudeStyleAiInput({
     pendingInlineCaretRef.current = caret;
     setInlineCaret(caret);
     setInlineSkillPlacements(content.placements);
+    updateSlashTrigger(content.message, caret.offset);
     updateMessage(content.message);
+  }
+
+  function updateSlashTrigger(messageValue: string, caretOffset: number): void {
+    const caret = clampOffset(caretOffset, messageValue);
+    if (caret > 0 && messageValue[caret - 1] === "/") setSlashMenuDismissed(false);
+    setActiveSlashStart((current) => nextSlashTriggerStart(messageValue, caret, current));
   }
 
   function removeInlineSkill(skillId: string): void {
@@ -597,6 +607,7 @@ export function ClaudeStyleAiInput({
       if (event.key === "Escape") {
         event.preventDefault();
         setSlashMenuDismissed(true);
+        setActiveSlashStart(null);
         return;
       }
     }
@@ -615,6 +626,7 @@ export function ClaudeStyleAiInput({
   function selectSlashOption(option: ComposerSlashMenuOption | undefined) {
     if (!option) return;
     setSlashMenuDismissed(true);
+    setActiveSlashStart(null);
     if (option.kind === "skill") {
       if (!slashMatch) return;
       const nextMessage = `${currentMessage.slice(0, slashMatch.start)}${currentMessage.slice(slashMatch.end)}`;
@@ -1013,9 +1025,17 @@ export function ClaudeStyleAiInput({
             ref={textareaRef}
             rows={2}
             value={currentMessage}
-            onChange={(event) => updateMessage(event.currentTarget.value)}
+            onChange={(event) => {
+              setTextareaCaretOffset(event.currentTarget.selectionStart);
+              updateSlashTrigger(event.currentTarget.value, event.currentTarget.selectionStart);
+              updateMessage(event.currentTarget.value);
+            }}
             onKeyDown={handleComposerKeyDown}
             onPaste={handlePaste}
+            onSelect={(event) => {
+              setTextareaCaretOffset(event.currentTarget.selectionStart);
+              updateSlashTrigger(event.currentTarget.value, event.currentTarget.selectionStart);
+            }}
           />
         )}
 
@@ -1042,6 +1062,7 @@ export function ClaudeStyleAiInput({
                 type="button"
                 onClick={() => {
                   setSlashMenuDismissed(true);
+                  setActiveSlashStart(null);
                   setToolMenuOpen((open) => !open);
                   setModelMenuOpen(false);
                 }}
@@ -1084,6 +1105,7 @@ export function ClaudeStyleAiInput({
                 type="button"
                 onClick={() => {
                   setSlashMenuDismissed(true);
+                  setActiveSlashStart(null);
                   setModelMenuOpen((open) => {
                     if (!open) setModelMenuView("advanced");
                     return !open;
@@ -1344,18 +1366,44 @@ function clampOffset(offset: number, message: string): number {
   return Math.max(0, Math.min(message.length, offset));
 }
 
+function nextSlashTriggerStart(
+  message: string,
+  caretOffset: number,
+  activeStart: number | null,
+): number | null {
+  const caret = clampOffset(caretOffset, message);
+  if (caret > 0 && message[caret - 1] === "/") return caret - 1;
+  if (
+    activeStart === null
+    || activeStart < 0
+    || activeStart >= caret
+    || message[activeStart] !== "/"
+  ) {
+    return null;
+  }
+  return /[\s/]/u.test(message.slice(activeStart + 1, caret)) ? null : activeStart;
+}
+
 function slashTriggerMatch(
   message: string,
   caretOffset: number,
+  activeStart: number | null,
 ): { end: number; query: string; start: number } | undefined {
   const end = clampOffset(caretOffset, message);
-  const match = /(?:^|\s)\/([^\s/]*)$/u.exec(message.slice(0, end));
-  if (!match) return undefined;
-  const slashOffset = match[0].lastIndexOf("/");
+  if (
+    activeStart === null
+    || activeStart < 0
+    || activeStart >= end
+    || message[activeStart] !== "/"
+  ) {
+    return undefined;
+  }
+  const query = message.slice(activeStart + 1, end);
+  if (/[\s/]/u.test(query)) return undefined;
   return {
     end,
-    query: match[1] ?? "",
-    start: match.index + slashOffset,
+    query,
+    start: activeStart,
   };
 }
 
