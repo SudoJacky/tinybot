@@ -366,10 +366,10 @@ impl WorkerRpcRouter {
                     "session_id": params.session_id,
                 }),
             ),
-            ToolExecutionTarget::RuntimeControl(_) => {
+            ToolExecutionTarget::RuntimeControl(_) | ToolExecutionTarget::AgentGraph { .. } => {
                 return Err(WorkerProtocolError::new(
                     WorkerProtocolErrorCode::InvalidProtocol,
-                    "runtime control tools cannot be dispatched through tool_executor.execute",
+                    "runtime-owned tools cannot be dispatched through tool_executor.execute",
                     serde_json::json!({ "toolId": tool.tool_id }),
                     false,
                     WorkerProtocolErrorSource::RustCore,

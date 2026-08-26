@@ -84,6 +84,7 @@ export interface ComposerSendOptions {
   model?: string;
   provider?: string;
   reasoningEffort?: ReasoningEffort;
+  selectedTools?: string[];
 }
 
 export interface ComposerContextReference {
@@ -243,6 +244,7 @@ export function ClaudeStyleAiInput({
   const [modelMenuView, setModelMenuView] = useState<ModelMenuView>("advanced");
   const [toolMenuOpen, setToolMenuOpen] = useState(false);
   const [enabledToolIds, setEnabledToolIds] = useState<string[]>(() => tools.filter((tool) => tool.enabled).map((tool) => tool.id));
+  const knownToolIdsRef = useRef(new Set(tools.map((tool) => tool.id)));
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const [selectingFiles, setSelectingFiles] = useState(false);
@@ -278,6 +280,21 @@ export function ClaudeStyleAiInput({
     () => sessionMentionOptions.filter((option) => selectedSessionMentionIdSet.has(option.id)),
     [selectedSessionMentionIdSet, sessionMentionOptions],
   );
+
+  useEffect(() => {
+    const selectableToolIds = new Set(tools.filter((tool) => !tool.disabled).map((tool) => tool.id));
+    const previousToolIds = knownToolIdsRef.current;
+    setEnabledToolIds((current) => {
+      const next = current.filter((id) => selectableToolIds.has(id));
+      for (const tool of tools) {
+        if (tool.enabled && !tool.disabled && !previousToolIds.has(tool.id) && !next.includes(tool.id)) {
+          next.push(tool.id);
+        }
+      }
+      return next;
+    });
+    knownToolIdsRef.current = new Set(tools.map((tool) => tool.id));
+  }, [tools]);
   const selectedSkillIdSet = useMemo(() => new Set(selectedSkillIds), [selectedSkillIds]);
   const selectedSkills = useMemo(
     () => skillOptions.filter((option) => selectedSkillIdSet.has(option.id)),
@@ -471,6 +488,11 @@ export function ClaudeStyleAiInput({
         ...(selectedModel ? { model: selectedModel.modelId || selectedModel.id } : {}),
         ...(selectedModel?.providerId ? { provider: selectedModel.providerId } : {}),
         reasoningEffort: selectedReasoningEffort,
+        ...(tools.length ? {
+          selectedTools: tools
+            .filter((tool) => !tool.disabled && enabledToolIdSet.has(tool.id))
+            .map((tool) => tool.id),
+        } : {}),
       });
       updateMessage("");
       setActiveSlashStart(null);

@@ -41,9 +41,12 @@ impl NativeToolRouter {
         Ok(definitions)
     }
 
-    pub(super) fn configure_for_turn(&mut self, selected_tools: &[String]) -> Result<(), String> {
+    pub(super) fn configure_for_turn(
+        &mut self,
+        selected_tools: Option<&[String]>,
+    ) -> Result<(), String> {
         let mut selected_tool_ids = BTreeSet::new();
-        if !selected_tools.is_empty() {
+        if let Some(selected_tools) = selected_tools {
             for selected in selected_tools {
                 let selected = selected.trim();
                 let Some(entry) = self
@@ -68,14 +71,14 @@ impl NativeToolRouter {
             });
         }
 
-        self.activated_tool_ids = if selected_tools.is_empty() {
-            BTreeSet::new()
-        } else {
+        self.activated_tool_ids = if selected_tools.is_some() {
             self.entries
                 .iter()
                 .filter(|entry| entry.exposure == ToolExposure::Deferred)
                 .map(|entry| entry.tool_id.clone())
                 .collect()
+        } else {
+            BTreeSet::new()
         };
         self.provider_name_map(&self.activated_tool_ids)?;
         Ok(())
@@ -365,5 +368,44 @@ fn registry_entry_to_tool_definition(
         name: provider_name.to_string(),
         description: entry.description.clone(),
         input_schema: entry.input_schema.clone(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn router() -> NativeToolRouter {
+        NativeToolRouter::new(
+            crate::tools::registry::WorkerToolRegistryRpc::new(
+                crate::protocol::capability::default_desktop_capability_policy(),
+            )
+            .list_tools()
+            .tools,
+        )
+    }
+
+    #[test]
+    fn missing_selection_uses_default_tools_but_explicit_empty_selection_disables_them() {
+        let mut default_router = router();
+        default_router.configure_for_turn(None).unwrap();
+        let default_names = default_router
+            .tool_definitions()
+            .unwrap()
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect::<Vec<_>>();
+        assert!(default_names.contains(&"apply_patch".to_string()));
+        assert!(!default_names.contains(&"mcp_call_tool".to_string()));
+
+        let mut empty_router = router();
+        empty_router.configure_for_turn(Some(&[])).unwrap();
+        let empty_names = empty_router
+            .tool_definitions()
+            .unwrap()
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect::<Vec<_>>();
+        assert_eq!(empty_names, vec![UPDATE_PLAN_METHOD.to_string()]);
     }
 }

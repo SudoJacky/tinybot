@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:d8f59683490cb0a7c59eb07c4e64edd177ac8fbade09bb8baa45bd78c0b9a25b -->
+<!-- tinybot-module-fingerprint: sha256:5b4f11297e40d94f8fca7c193c7b26c5f8791b88d976ae63ab202f3b236e35d6 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App` for the main window and selects lightweight
@@ -13,8 +13,10 @@ The standalone [`agent-graph/`](agent-graph/README.md) route owns the in-memory
 Agent Graph canvas editor without importing `ChatPage` or consuming Chat route
 state. It receives the shared stores only to derive definition and per-Agent
 execution workspace choices and to consume the dedicated `AgentGraphStore`.
-Graph definitions are persisted under the selected workspace while execution
-remains outside Chat. The Chat session projection explicitly excludes standard
+Graph definitions are persisted under the selected workspace. The standalone
+editor starts Runs directly, while ordinary Chat Agents may invoke Graphs from
+their exact working directory through deferred tools. The Chat session
+projection explicitly excludes standard
 Threads whose source is `agent_graph`; Graph execution discovers them through
 Graph Runs instead. The first Run surface accepts an input, executes a saved
 linear Agent path, and keeps a compact Run selector. A node inspector renders
@@ -44,7 +46,8 @@ The Tools & Plugins route presents Plugins, Skills, MCP servers, and callable
 Tools as separate resource views over one normalized catalog. Skill rows load
 their full `SKILL.md` detail only when selected.
 The shared Tools store accepts an optional working directory so Chat's slash
-menu can request the catalog scoped to its active conversation.
+menu and composer tool controls can request the catalog scoped to its active
+conversation. Workspace-less Chats filter Agent Graph tools.
 
 The retired TinyOS desktop and its embedded files, terminal, and monitor
 applications are not renderer routes. Chat now hosts Sidecar, whose Browser

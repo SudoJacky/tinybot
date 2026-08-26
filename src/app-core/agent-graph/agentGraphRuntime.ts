@@ -1,5 +1,5 @@
 export type AgentGraphRunStatus = "running" | "completed" | "failed" | "cancelled";
-export type AgentGraphNodeRunStatus = "pending" | "running" | "completed" | "failed";
+export type AgentGraphNodeRunStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
 export type AgentGraphNodeRun = {
   id: string;
@@ -37,5 +37,6 @@ export type AgentGraphRuntime = {
     graphId: string;
     graphRevision: string;
     definitionWorkspacePath: string;
+    input: string;
   }): Promise<AgentGraphRun>;
 };

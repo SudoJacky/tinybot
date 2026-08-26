@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:e238089d030f31c1c472f0a677476547ca9de70330b799b91f6d94a4ceda4e9a -->
+<!-- tinybot-module-fingerprint: sha256:a38e990058c44d117004a9bb56a4f5c1f7052b643fa973dbea99f96b600f152b -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -17,7 +17,10 @@ Selected Skills render as atomic removable tokens inline with editable user
 text without placing Skill documents in the submitted message.
 The composer separates full control disabling from temporary send disabling,
 so a route can preserve editable drafts while an asynchronous prerequisite is
-still loading. Its context-window indicator also presents the latest Provider
+still loading. A route-provided Tools list renders as checked controls and the
+composer submits the complete explicit selection, including an intentional
+empty selection. Tools discovered after mount are enabled by default without
+overwriting prior user toggles. Its context-window indicator also presents the latest Provider
 call's prompt-cache hit rate when cached and input Token counts are available,
 and distinguishes a reported zero-percent hit from unavailable usage data.
 

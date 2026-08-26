@@ -8,7 +8,7 @@ src-tauri/src/rpc/method.rs
 src-tauri/src/rpc/runtime.rs
 src-tauri/tests/crate/transport.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:91ad944d31181cad4436011a2e214b53181e4f3ba3a22d74b786eaae5d742ac5 -->
+<!-- tinybot-doc-fingerprint: sha256:9dba959a159ba35b192af1698208a31030852293b4c6b9e07b97c4e9ccb5509f -->
 
 This document covers the Rust-owned WebUI route wrapper and Worker RPC protocol.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -50,7 +50,7 @@ Use `routeResponse()` if the status and headers are needed.
 
 | Method | Path | Group | Notes |
 | --- | --- | --- | --- |
-| `GET` | `/api/tools` | tools | Effective built-in and MCP capability catalog |
+| `GET` | `/api/tools` | tools | Effective built-in, MCP, and workspace Agent Graph capability catalog |
 | `GET` | `/api/tools/skills/{id}` | tools | Full detail for one cataloged workspace or enabled-plugin Skill |
 | `GET` | `/api/providers` | providers | Provider catalog |
 | `POST` | `/api/provider-models` | providers | Async provider model resolution, including optional live OpenAI-compatible `GET /models` discovery |
@@ -155,6 +155,13 @@ full documents; `GET /api/tools/skills/{id}` reads the selected `SKILL.md` on de
 `404` when the ID is no longer cataloged. Renderer callers can add a URL-encoded
 `workingDirectory` query to either Tools route so workspace entries resolve against the active
 conversation directory instead of the configured backend default.
+
+When `/api/tools` receives an explicit `workingDirectory`, it also includes one
+deferred `agent_graph` tool for each saved Graph whose definition belongs to
+that exact canonical workspace. A request without an explicit working
+directory receives no Agent Graph tools; this prevents the backend default
+workspace from leaking into workspace-less Chat sessions. Each Graph tool
+accepts only a non-empty runtime `input` string.
 
 Stdio configuration example:
 

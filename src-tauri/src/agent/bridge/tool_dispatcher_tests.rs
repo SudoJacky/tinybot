@@ -1,10 +1,38 @@
 use super::{
-    apply_turn_working_directory, native_mcp_failure_result, native_mcp_runtime_error_result,
-    native_mcp_tool_result, native_tool_executor_model_content,
+    apply_turn_working_directory, native_agent_graph_tool_result, native_mcp_failure_result,
+    native_mcp_runtime_error_result, native_mcp_tool_result, native_tool_executor_model_content,
     native_tool_result_from_executor_response, native_web_tool_result,
 };
 use crate::agent::runtime::{NativeAgentToolCall, NativeToolRetry, PreparedToolCall};
 use crate::runtime::mcp::{McpRuntimeError, McpRuntimeErrorKind};
+
+#[test]
+fn completed_agent_graph_returns_only_the_final_output_to_the_model() {
+    let tool_call = PreparedToolCall::prepare(NativeAgentToolCall {
+        id: "call-graph".to_string(),
+        name: "agent_graph.run.graph-1".to_string(),
+        arguments_json: r#"{"input":"fresh alert"}"#.to_string(),
+        result: serde_json::Value::Null,
+    })
+    .expect("tool call should prepare");
+
+    let result = native_agent_graph_tool_result(
+        &tool_call,
+        serde_json::json!({
+            "id": "run-1",
+            "status": "completed",
+            "input": "fresh alert",
+            "output": "final analysis"
+        }),
+    )
+    .expect("completed graph run should become a tool result");
+
+    assert_eq!(result.envelope["modelContent"], "final analysis");
+    assert_eq!(result.envelope["raw"]["graphRunId"], "run-1");
+    assert_eq!(result.envelope["raw"]["status"], "completed");
+    assert_eq!(result.envelope["raw"]["output"], "final analysis");
+    assert!(result.envelope["raw"].get("input").is_none());
+}
 
 #[test]
 fn shell_process_output_uses_terminal_output_as_model_content() {

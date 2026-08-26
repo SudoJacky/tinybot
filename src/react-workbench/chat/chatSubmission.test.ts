@@ -13,7 +13,12 @@ describe("prepareChatSubmission", () => {
       files: [{ id: "file-1", mimeType: "text/plain", name: "notes.txt", path: "D:\\notes.txt", sizeBytes: 12 }],
       loadSessionTranscript: vi.fn(async () => longTranscript),
       message: "Review these references",
-      options: { model: "gpt-5", provider: "openai", reasoningEffort: "high" },
+      options: {
+        model: "gpt-5",
+        provider: "openai",
+        reasoningEffort: "high",
+        selectedTools: [],
+      },
       pastedContent: [{ content: "pasted detail", id: "paste-1", timestamp: new Date(0), wordCount: 2 }],
       selectedSkillIds: ["apple-design"],
       selectedSessionIds: ["session-2"],
@@ -26,6 +31,7 @@ describe("prepareChatSubmission", () => {
       provider: "openai",
       reasoningEffort: "high",
       selectedSkills: ["apple-design"],
+      selectedTools: [],
       text: "Review these references\n\nPasted content:\npasted detail",
     });
     expect(prepared.turnInput.references).toEqual([

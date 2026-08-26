@@ -7,7 +7,6 @@ import {
 } from "../../app-core/chat/reasoningEffort";
 import {
   addAgentGraphNode,
-  configureAgentGraphInput,
   configureAgentGraphNode,
   configureAgentGraphRouter,
   connectAgentGraphNodes,
@@ -22,7 +21,6 @@ import {
   type AgentGraphConditionNode,
   type AgentGraphEditError,
   type AgentGraphEditResult,
-  type AgentGraphInputNode,
   type AgentGraphModelConfig,
   type AgentGraphNode,
   type AgentGraphNodeKind,
@@ -71,6 +69,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   const [runsLoading, setRunsLoading] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
+  const [runInput, setRunInput] = useState("");
   const [draft, setDraft] = useState<AgentGraphDefinition | null>(null);
   const [draftRevision, setDraftRevision] = useState<string | null>(null);
   const [savedDefinition, setSavedDefinition] = useState<string | null>(null);
@@ -80,7 +79,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   const [editError, setEditError] = useState<AgentGraphEditError | null>(null);
   const issues = draft ? validateAgentGraphDefinition(draft) : [];
   const draftDirty = Boolean(draft && JSON.stringify(draft) !== savedDefinition);
-  const selectedInputNode = draft?.nodes.find((node): node is AgentGraphInputNode => (
+  const selectedInputNode = draft?.nodes.find((node) => (
     node.id === selectedConfigNodeId && node.kind === "input"
   ));
   const selectedAgentNode = draft?.nodes.find((node): node is AgentGraphAgentNode => (
@@ -245,6 +244,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     setPersistenceError(null);
     setDraftRevision(null);
     setSavedDefinition(null);
+    setRunInput("");
     setDraft(createAgentGraphDraft({
       id: `graph-${Date.now()}-${draftSequence.current}`,
       name: t("graphs.untitled"),
@@ -325,7 +325,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
       nodeId = `${kind}-${nodeSequence.current}`;
     } while (draft.nodes.some((node) => node.id === nodeId));
     const node: AgentGraphNode = kind === "input"
-      ? { id: nodeId, kind, position, config: { prompt: "" } }
+      ? { id: nodeId, kind, position }
       : kind === "agent"
         ? {
           id: nodeId,
@@ -372,6 +372,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     setSelectedConfigNodeId(null);
     setInspectedNodeId(null);
     setSelectedRunId(null);
+    setRunInput("");
     setDraft(graph.definition);
     setDraftRevision(graph.revision);
     setSavedDefinition(JSON.stringify(graph.definition));
@@ -422,7 +423,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   }
 
   async function startRun() {
-    if (!draft || !draftRevision || draftDirty || running) return;
+    if (!draft || !draftRevision || draftDirty || running || !runInput.trim()) return;
     setRunning(true);
     setRunError(null);
     try {
@@ -430,6 +431,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
         graphId: draft.id,
         graphRevision: draftRevision,
         definitionWorkspacePath,
+        input: runInput,
       });
       setSelectedRunId(run.id);
       setRuns((current) => [run, ...current.filter((candidate) => candidate.id !== run.id)]);
@@ -449,6 +451,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     setSelectedConfigNodeId(null);
     setInspectedNodeId(null);
     setSelectedRunId(null);
+    setRunInput("");
     setPersistenceError(null);
     setRuns([]);
     setRunError(null);
@@ -614,7 +617,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                 </button>
                 <button
                   className="react-agent-graph-run__start"
-                  disabled={!draftRevision || draftDirty || running}
+                  disabled={!draftRevision || draftDirty || running || !runInput.trim()}
                   onClick={() => void startRun()}
                   type="button"
                 >
@@ -645,25 +648,6 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                   </header>
                   <div className="react-agent-graph-node-config__body">
                     <p>{t("graphs.inputSettingsDescription")}</p>
-                    <label className="react-agent-graph-node-config__textarea-field">
-                      <span>
-                        <strong>{t("graphs.inputPrompt")}</strong>
-                        <small id={`agent-graph-input-prompt-help-${selectedInputNode.id}`}>
-                          {t("graphs.inputPromptDescription")}
-                        </small>
-                      </span>
-                      <textarea
-                        aria-describedby={`agent-graph-input-prompt-help-${selectedInputNode.id}`}
-                        aria-invalid={issues.includes("input_prompt_required")}
-                        onChange={(event) => applyEdit(configureAgentGraphInput(draft, selectedInputNode.id, {
-                          prompt: event.currentTarget.value,
-                        }))}
-                        placeholder={t("graphs.inputPromptPlaceholder")}
-                        required
-                        rows={6}
-                        value={selectedInputNode.config.prompt}
-                      />
-                    </label>
                   </div>
                 </section>
               ) : selectedAgentNode ? (
@@ -971,6 +955,16 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                   <small>{draftDirty ? t("graphs.saveBeforeRun") : t("graphs.runDescription")}</small>
                 </span>
               </span>
+              <label className="react-agent-graph-run__input">
+                <span className="sr-only">{t("graphs.runInput")}</span>
+                <input
+                  aria-label={t("graphs.runInput")}
+                  disabled={running}
+                  onChange={(event) => setRunInput(event.currentTarget.value)}
+                  placeholder={t("graphs.runInputPlaceholder")}
+                  value={runInput}
+                />
+              </label>
               {runError ? <p className="react-agent-graph-run__error" role="alert">{runError}</p> : null}
               <GraphRunHistory
                 loading={runsLoading}

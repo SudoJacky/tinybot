@@ -35,8 +35,8 @@ authority.
 
 ### Definition and execution workspaces
 
-The workspace containing the Graph file is its **definition workspace**. Each
-Input node owns the reusable initial task prompt, while each Agent node
+The workspace containing the Graph file is its **definition workspace**. The
+Input node is a configuration-free runtime boundary, while each Agent node
 separately owns an **execution workspace** and role configuration:
 
 ```ts
@@ -44,7 +44,6 @@ type AgentGraphInputNode = {
   id: string;
   kind: "input";
   position: AgentGraphNodePosition;
-  config: { prompt: string };
 };
 
 type AgentLoopNodeConfig = {
@@ -87,16 +86,17 @@ reports a node-specific error before starting work. Node instructions are
 appended through the existing turn-scoped agent-role instruction source; they
 do not replace Tinybot's base, workspace, project, memory, or runtime
 instructions. The preceding node's final output remains ordinary Turn input.
-The saved Input prompt is ordinary Turn input for the first Agent. Run start
-accepts only Graph identity and revision; it does not accept a second prompt
-that could diverge from the saved definition.
+Run start requires Graph identity, revision, definition workspace, and a
+non-empty runtime input. That input is ordinary Turn input for the first Agent
+and belongs to the Run rather than the reusable definition. Legacy `prompt`
+configuration on Input nodes is ignored and stripped instead of migrated or
+used as a fallback.
 
 The optional model tuple pins a node to a configured provider and model, with
 an optional reasoning effort. When it is absent, execution inherits normal
 application defaults. Display labels and credentials remain configuration
-concerns and are not copied into the Graph. Input, Agent, and new Router
-configuration fields are required by `tinybot.agent_graph.v1`; invalid test-era files are rejected
-rather than migrated or defaulted.
+concerns and are not copied into the Graph. Agent and Router configuration
+fields are required by `tinybot.agent_graph.v1`; Input has no configuration.
 
 Router route IDs are stable definition identity; edges reference them through
 `sourceRouteId`. User-facing labels and descriptions may change without
@@ -157,7 +157,7 @@ type AgentGraphRun = {
     id: string;
     nodeId: string;
     threadId?: string;
-    status: "pending" | "running" | "completed" | "failed";
+    status: "pending" | "running" | "completed" | "failed" | "cancelled";
     router?: {
       rawResponse: string;
       selectedRouteId: string;
@@ -212,8 +212,27 @@ and non-Router branching and cycles remain unsupported.
 The Graph revision identifies the definition loaded at run start and detects
 later divergence. The first version does not retain historical definition
 snapshots, so an old revision is traceable but not necessarily reconstructable
-after the definition is edited. The Run copies the saved Input prompt so node
+after the definition is edited. The Run copies the runtime input so node
 inspection still shows the exact task used for that execution.
+
+### Chat tool exposure
+
+A Chat Turn may select saved Graphs as tools only when the Thread or Turn
+declares a working directory. The runtime lists Graph definitions from exactly
+that canonical directory; the global backend-workspace fallback does not imply
+Graph scope. Graphs from other workspaces and Graphs for a workspace-less
+Thread are absent. Each registry entry is Deferred and binds the
+definition workspace, Graph ID, and exact revision. Its model-visible input
+schema contains only one required `input` string, so the model cannot substitute
+another workspace, Graph, or revision.
+
+The tool waits for the Graph Run to reach a terminal state. A completed Run's
+final output becomes the model-visible content of the normal tool result in the
+parent Turn, so subsequent context assembly and token estimation use the
+existing tool-history path. Failures remain failed tool results. Parent Turn
+cancellation cancels the active Graph node and records the Run as cancelled.
+Agent Threads created by a Graph do not receive Agent Graph tools; nested and
+recursive Graph execution is outside this decision.
 
 ### Conversation isolation
 

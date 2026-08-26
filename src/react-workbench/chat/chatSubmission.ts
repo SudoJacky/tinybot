@@ -126,6 +126,7 @@ function createComposerChatInput(
     ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}),
     ...(references.length ? { references } : {}),
     ...(selectedSkillIds.length ? { selectedSkills: [...selectedSkillIds] } : {}),
+    ...(options.selectedTools ? { selectedTools: [...options.selectedTools] } : {}),
   };
 }
 

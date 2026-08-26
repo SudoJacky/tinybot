@@ -47,7 +47,7 @@ pub struct AgentTurnSettings {
     pub output_schema: Option<AgentOutputSchema>,
     pub working_directory: Option<PathBuf>,
     pub permission_profile: Option<String>,
-    pub selected_tools: Vec<String>,
+    pub selected_tools: Option<Vec<String>>,
     pub parallel_tool_calls: Option<bool>,
     validation_errors: Vec<String>,
 }
@@ -149,8 +149,7 @@ impl AgentTurnSettings {
             &["selectedTools", "selected_tools"],
             "selected_tools",
             &mut validation_errors,
-        )
-        .unwrap_or_default();
+        );
         let parallel_tool_calls = optional_bool_setting(
             spec,
             metadata,

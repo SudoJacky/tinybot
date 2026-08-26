@@ -75,6 +75,96 @@ pub struct McpToolContributor {
 }
 
 #[derive(Clone, Debug)]
+pub struct AgentGraphToolContributor {
+    definition_workspace_path: String,
+    graphs: Vec<crate::agent_graphs::StoredAgentGraph>,
+}
+
+impl AgentGraphToolContributor {
+    pub fn new(
+        definition_workspace_path: String,
+        graphs: Vec<crate::agent_graphs::StoredAgentGraph>,
+    ) -> Result<Self, String> {
+        if definition_workspace_path.trim().is_empty() {
+            return Err("Agent Graph tools require a definition workspace".to_string());
+        }
+        Ok(Self {
+            definition_workspace_path,
+            graphs,
+        })
+    }
+}
+
+impl ToolContributor for AgentGraphToolContributor {
+    fn id(&self) -> &str {
+        "workspace.agent_graphs"
+    }
+
+    fn contribute(&self) -> Vec<ToolRegistryEntry> {
+        self.graphs
+            .iter()
+            .map(|graph| {
+                let method = format!("agent_graph.run.{}", graph.definition.id);
+                let runtime_policy = runtime_policy(
+                    false,
+                    ToolCancellationMode::DetachForbidden,
+                    true,
+                    true,
+                );
+                ToolRegistryEntry {
+                    tool_id: method.clone(),
+                    method,
+                    namespace: "agent_graph".to_string(),
+                    title: graph.definition.name.clone(),
+                    description: format!(
+                        "Run the saved Agent Graph `{}` with the supplied input and return its final output.",
+                        graph.definition.name
+                    ),
+                    exposure: ToolExposure::Deferred,
+                    dynamic: true,
+                    supports_parallel_tool_calls: runtime_policy.supports_parallel_tool_calls,
+                    runtime_policy,
+                    required_capabilities: vec![
+                        WorkerCapability::FsWorkspaceRead,
+                        WorkerCapability::FsWorkspaceWrite,
+                        WorkerCapability::SessionMetadataRead,
+                        WorkerCapability::SessionWrite,
+                    ],
+                    available: false,
+                    input_schema: json!({
+                        "type": "object",
+                        "required": ["input"],
+                        "properties": {
+                            "input": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "Input for this Agent Graph Run."
+                            }
+                        },
+                        "additionalProperties": false
+                    }),
+                    output_schema: json!({
+                        "type": "object",
+                        "required": ["graphRunId", "status", "output"],
+                        "properties": {
+                            "graphRunId": { "type": "string" },
+                            "status": { "type": "string", "enum": ["completed"] },
+                            "output": { "type": "string" }
+                        },
+                        "additionalProperties": false
+                    }),
+                    execution_target: ToolExecutionTarget::AgentGraph {
+                        definition_workspace_path: self.definition_workspace_path.clone(),
+                        graph_id: graph.definition.id.clone(),
+                        graph_revision: graph.revision.clone(),
+                    },
+                }
+            })
+            .collect()
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct WorkspaceThreadToolContributor {
     targets: Vec<WorkspaceThreadTarget>,
 }

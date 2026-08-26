@@ -11,7 +11,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:039e7918bfed4ba0c22cadefb20865d34cef1fd127490db38fb4cadfe431fc5d -->
+<!-- tinybot-doc-fingerprint: sha256:42d66e112f3376e961b2a899f6ba7e3b25afb13f031b574cfa1793244c72f104 -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -74,6 +74,12 @@ and its absolute path; the full file is read when the Skill applies or injected
 when its unqualified name appears in `selectedSkills`. A deeper Skill with the
 same name replaces the outer definition. `.codex` directories and the legacy
 managed `<backend-workspace>/skills` directory are outside this path.
+
+Tool selection is separate from instruction injection. An omitted
+`selectedTools` setting preserves the runtime's default model-visible tools;
+an explicitly supplied list is an allowlist and may activate deferred tools,
+including same-workspace Agent Graphs. An explicit empty list disables all
+optional tools while retaining runtime-required planning control.
 
 This gives two distinct scopes:
 

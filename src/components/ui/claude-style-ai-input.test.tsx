@@ -211,6 +211,35 @@ describe("ClaudeStyleAiInput slash commands", () => {
     expect(onRemoveSessionMention).toHaveBeenCalledWith("thread-2");
   });
 
+  it("enables asynchronously loaded tools and submits an explicit tool selection", async () => {
+    const user = userEvent.setup();
+    const onSendMessage = vi.fn();
+    const view = render(<ClaudeStyleAiInput onSendMessage={onSendMessage} tools={[]} />);
+
+    view.rerender(<ClaudeStyleAiInput
+      onSendMessage={onSendMessage}
+      tools={[{
+        description: "Run a saved workflow.",
+        enabled: true,
+        id: "agent_graph.run.review",
+        name: "Review workflow",
+      }]}
+    />);
+
+    await user.click(screen.getByRole("button", { name: "Tools" }));
+    const graphTool = screen.getByRole("menuitemcheckbox", { name: /Review workflow/ });
+    await vi.waitFor(() => expect(graphTool.getAttribute("aria-checked")).toBe("true"));
+    await user.click(graphTool);
+    expect(graphTool.getAttribute("aria-checked")).toBe("false");
+    await user.type(screen.getByRole("textbox", { name: "Message" }), "Review this incident");
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+
+    expect(onSendMessage).toHaveBeenCalledWith("Review this incident", [], [], {
+      reasoningEffort: "medium",
+      selectedTools: [],
+    });
+  });
+
   it("selects reasoning effort from the model menu and sends the API value", async () => {
     const user = userEvent.setup();
     const onReasoningEffortChange = vi.fn();

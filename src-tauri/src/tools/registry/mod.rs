@@ -4,7 +4,9 @@ mod contributors;
 use contributors::default_tool_contributors;
 #[cfg(test)]
 use contributors::workspace_tool_entries;
-pub use contributors::{McpToolContributor, ToolContributor, WorkspaceThreadToolContributor};
+pub use contributors::{
+    AgentGraphToolContributor, McpToolContributor, ToolContributor, WorkspaceThreadToolContributor,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -80,8 +82,18 @@ pub struct ToolRegistryEntry {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ToolExecutionTarget {
-    WorkerRpc { method: String },
-    Mcp { server: String, tool: String },
+    WorkerRpc {
+        method: String,
+    },
+    Mcp {
+        server: String,
+        tool: String,
+    },
+    AgentGraph {
+        definition_workspace_path: String,
+        graph_id: String,
+        graph_revision: String,
+    },
     RuntimeControl(ToolRuntimeControl),
 }
 

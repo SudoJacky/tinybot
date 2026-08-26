@@ -244,6 +244,7 @@ export function createDesktopAppServices(
       ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
       ...(input.references?.length ? { references: input.references } : {}),
       ...(input.selectedSkills?.length ? { selectedSkills: input.selectedSkills } : {}),
+      ...(input.selectedTools ? { selectedTools: input.selectedTools } : {}),
       clientEventId: command.commandId,
     });
     const optimisticText = result.status === "sent" ? result.content : "";

@@ -20,6 +20,8 @@ use std::sync::Arc;
 struct NativeAgentToolExecutorDispatcher {
     workspace_root: PathBuf,
     thread_store: WorkspaceThreadStore,
+    base_services: NativeAgentRuntimeServices,
+    base_config_snapshot: serde_json::Value,
     fallback: Arc<dyn NativeAgentToolDispatcher>,
     mcp_runtime: McpRuntime,
     shell_runtime: WorkerShellRuntime,
@@ -67,6 +69,15 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
         ) {
             return Err(format!(
                 "runtime control tool `{}` must be handled by the native agent runtime",
+                tool_call.name
+            ));
+        }
+        if matches!(
+            &execution_target,
+            Some(ToolExecutionTarget::AgentGraph { .. })
+        ) {
+            return Err(format!(
+                "native tool `{}` requires asynchronous Agent Graph dispatch",
                 tool_call.name
             ));
         }
@@ -146,6 +157,12 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
         Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
     > {
         Box::pin(async move {
+            if let Some(result) = self
+                .dispatch_agent_graph_if_needed(&context, &tool_call)
+                .await
+            {
+                return result;
+            }
             if let Some(result) = self.dispatch_web_if_needed(&context, &tool_call).await {
                 return result;
             }
@@ -195,6 +212,55 @@ fn apply_turn_working_directory(
 mod tests;
 
 impl NativeAgentToolExecutorDispatcher {
+    async fn dispatch_agent_graph_if_needed(
+        &self,
+        context: &AgentTurnContext,
+        tool_call: &PreparedToolCall,
+    ) -> Option<Result<NativeAgentToolResult, String>> {
+        let target = context.tool_execution_target(&tool_call.name);
+        let ToolExecutionTarget::AgentGraph {
+            definition_workspace_path,
+            graph_id,
+            graph_revision,
+        } = target?
+        else {
+            return None;
+        };
+        let arguments = tool_call.arguments_value();
+        let input = arguments
+            .as_object()
+            .filter(|object| object.len() == 1)
+            .and_then(|object| object.get("input"))
+            .and_then(serde_json::Value::as_str)
+            .filter(|input| !input.trim().is_empty())
+            .map(str::to_string);
+        let Some(input) = input else {
+            return Some(Ok(NativeAgentToolResult::generic_error(
+                tool_call,
+                "Agent Graph tool requires exactly one non-empty string field: `input`".to_string(),
+            )));
+        };
+        let run = crate::graph_runs::start(
+            self.thread_store.data_root(),
+            self.base_services.clone(),
+            self.workspace_root.clone(),
+            self.base_config_snapshot.clone(),
+            crate::graph_runs::StartAgentGraphRunInput {
+                graph_id,
+                graph_revision,
+                definition_workspace_path,
+                input,
+            },
+            context.cancellation.clone(),
+        )
+        .await;
+        Some(run.and_then(|run| {
+            let raw = serde_json::to_value(&run)
+                .map_err(|error| format!("Agent Graph Run serialization failed: {error}"))?;
+            native_agent_graph_tool_result(tool_call, raw)
+        }))
+    }
+
     async fn dispatch_web_if_needed(
         &self,
         context: &AgentTurnContext,
@@ -385,6 +451,45 @@ impl NativeAgentToolExecutorDispatcher {
     }
 }
 
+fn native_agent_graph_tool_result(
+    tool_call: &PreparedToolCall,
+    raw: serde_json::Value,
+) -> Result<NativeAgentToolResult, String> {
+    let status = raw
+        .get("status")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("failed");
+    if status != "completed" {
+        let error = raw
+            .get("error")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("Agent Graph Run did not complete");
+        return Ok(NativeAgentToolResult::generic_error(
+            tool_call,
+            format!("Agent Graph Run {status}: {error}"),
+        ));
+    }
+    let output = raw
+        .get("output")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "completed Agent Graph Run has no output".to_string())?
+        .to_string();
+    let run_id = raw
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    Ok(NativeAgentToolResult::generic_success_with_model_content(
+        tool_call,
+        format!("Agent Graph Run `{run_id}` completed."),
+        output.clone(),
+        serde_json::json!({
+            "graphRunId": run_id,
+            "status": status,
+            "output": output,
+        }),
+    ))
+}
+
 fn native_web_tool_result(
     tool_call: &PreparedToolCall,
     raw: serde_json::Value,
@@ -500,7 +605,9 @@ fn native_web_tool_outcome(tool_name: &str, raw: &serde_json::Value) -> Option<N
 pub(crate) fn native_agent_services_with_tool_executor(
     services: NativeAgentRuntimeServices,
     workspace_root: PathBuf,
+    base_config_snapshot: serde_json::Value,
 ) -> Result<NativeAgentRuntimeServices, String> {
+    let base_services = services.clone();
     let fallback = services.tool_dispatcher();
     let thread_store = services.thread_store()?;
     let mcp_runtime = services.mcp_runtime();
@@ -511,6 +618,8 @@ pub(crate) fn native_agent_services_with_tool_executor(
         services.with_tool_dispatcher(Arc::new(NativeAgentToolExecutorDispatcher {
             workspace_root,
             thread_store,
+            base_services,
+            base_config_snapshot,
             fallback,
             mcp_runtime,
             shell_runtime,

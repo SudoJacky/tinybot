@@ -1,5 +1,5 @@
 # Agent Graph Application Core
-<!-- tinybot-module-fingerprint: sha256:9d9079f9c72768fa5aaa434ccf1338f12407edf4a8d770c4ced76c478ea728f5 -->
+<!-- tinybot-module-fingerprint: sha256:eb622532aef6411ae0f3fde8f62270d48ba916b93ce396141603de18b0f335b6 -->
 
 `agent-graph` owns the framework-independent, versioned Agent Graph definition,
 its structural validation, and immutable edit operations. The definition
@@ -10,9 +10,9 @@ contains the minimal Input-to-Agent-to-Output flow.
 The edit interface adds, moves, connects, and removes nodes or edges while
 keeping the Input and Output boundaries unique and preventing invalid boundary
 edges. Node positions are rounded signed world coordinates, so the domain model
-does not impose a viewport boundary on spatial editors. The Input node owns the
-required initial prompt. Agent nodes own an
-execution workspace path, additional role instructions, and optional model
+does not impose a viewport boundary on spatial editors. The Input node is a
+configuration-free runtime boundary. Agent nodes own an execution workspace
+path, additional role instructions, and optional model
 settings. The edit interface updates those configurations without exposing
 mutable definition state. UI code translates gestures and settings changes
 into these operations instead of duplicating topology rules. This module does
@@ -29,9 +29,10 @@ nodes configure an execution `workspacePath`, node instructions, and
 an optional provider/model/reasoning override. Node instructions use the
 existing turn-scoped agent-role instruction source, so Tinybot's base and
 workspace instructions remain intact. Nodes without a model override inherit
-application defaults. The runtime reads its initial task only from the saved
-Input node and copies that prompt into the Run record for inspection. The first
-runtime accepts an acyclic Input-to-Output graph with model-driven Router
+application defaults. `AgentGraphRuntime.start` requires a non-empty input for
+each execution and copies that runtime value into the Run record; it is never
+part of the saved definition. Legacy persisted Input prompts are discarded when
+definitions are loaded or saved. The runtime accepts an acyclic Input-to-Output graph with model-driven Router
 branches and reconvergence. Router definitions contain an optional routing
 task, at least two stable route IDs with required labels and descriptions, and
 an optional provider/model/reasoning override. Every route owns exactly one

@@ -2019,7 +2019,7 @@
   display: grid;
   width: min(760px, calc(100% - 220px));
   min-height: 64px;
-  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  grid-template-columns: minmax(160px, 220px) minmax(180px, 1fr) minmax(0, 1fr);
   align-items: center;
   gap: 12px;
   margin: 0;
@@ -2062,6 +2062,15 @@
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-run__status-dot {
   flex: 0 0 auto;
   color: var(--color-muted-soft);
+}
+
+.react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-run__input input {
+  width: 100%;
+  min-height: 38px;
+  border-color: var(--graph-border);
+  background: var(--graph-panel-deep);
+  color: var(--color-ink);
+  font-size: 11px;
 }
 
 .react-agent-graphs-page[data-editor-open="true"] .react-agent-graph-run[data-status="running"] .react-agent-graph-run__status-dot {

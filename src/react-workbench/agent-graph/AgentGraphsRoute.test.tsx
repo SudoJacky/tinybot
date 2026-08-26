@@ -4,7 +4,6 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  configureAgentGraphInput,
   createAgentGraphDraft,
   type AgentGraphDefinition,
 } from "../../app-core/agent-graph/agentGraphDefinition";
@@ -33,9 +32,6 @@ describe("AgentGraphsRoute", () => {
     expect(screen.getByLabelText("Input node")).toBeTruthy();
     expect(screen.getByLabelText("Agent node")).toBeTruthy();
     expect(screen.getByLabelText("Output node")).toBeTruthy();
-    expect(screen.getByRole("alert").textContent).toContain("Enter an initial prompt");
-
-    await configureInputPrompt(user, "Review this repository");
     expect(screen.getByRole("status").textContent).toContain("valid");
 
     await user.clear(screen.getByRole("textbox", { name: "Graph name" }));
@@ -232,7 +228,6 @@ describe("AgentGraphsRoute", () => {
 
     await screen.findByRole("button", { name: "Definition workspace: tinybot" });
     await user.click(screen.getByRole("button", { name: "Create first graph" }));
-    await configureInputPrompt(user, "Research this repository");
     await user.click(screen.getByLabelText("Agent node"));
 
     await user.type(
@@ -263,10 +258,7 @@ describe("AgentGraphsRoute", () => {
             },
             workspacePath: "D:\\code\\tinybot",
           },
-        }), expect.objectContaining({
-          id: "input",
-          config: { prompt: "Research this repository" },
-        })]),
+        }), expect.objectContaining({ id: "input", kind: "input" })]),
       }),
     }));
   }, 10_000);
@@ -286,7 +278,6 @@ describe("AgentGraphsRoute", () => {
 
     await screen.findByRole("button", { name: "Definition workspace: tinybot" });
     await user.click(screen.getByRole("button", { name: "Create first graph" }));
-    await configureInputPrompt(user, "Route this request");
     await user.click(screen.getByRole("button", { name: "Add Router node" }));
     await user.click(screen.getByLabelText("Router node"));
 
@@ -403,12 +394,14 @@ describe("AgentGraphsRoute", () => {
     render(<AgentGraphsRoute services={services} />);
 
     await user.click(await screen.findByRole("button", { name: /Research flow/ }));
+    await enterRunInput(user, "Review this repository");
     await user.click(screen.getByRole("button", { name: "Run" }));
 
     expect(services.agentGraphRuntime.start).toHaveBeenCalledWith({
       graphId: "graph-research",
       graphRevision: "sha256:before",
       definitionWorkspacePath: "D:\\code\\tinybot",
+      input: "Review this repository",
     });
     await user.click(screen.getByRole("button", { name: "View" }));
     expect(screen.getByRole("button", { name: "View" }).getAttribute("aria-pressed")).toBe("true");
@@ -493,6 +486,7 @@ describe("AgentGraphsRoute", () => {
     })} />);
 
     await user.click(await screen.findByRole("button", { name: /Router view/ }));
+    await enterRunInput(user, "Explain the architecture.");
     await user.click(screen.getByRole("button", { name: "Run" }));
     await user.click(screen.getByRole("button", { name: "View" }));
     await user.click(screen.getByLabelText("Router node"));
@@ -503,9 +497,8 @@ describe("AgentGraphsRoute", () => {
   });
 });
 
-async function configureInputPrompt(user: ReturnType<typeof userEvent.setup>, prompt: string) {
-  await user.click(screen.getByLabelText("Input node"));
-  await user.type(screen.getByRole("textbox", { name: /Initial prompt/ }), prompt);
+async function enterRunInput(user: ReturnType<typeof userEvent.setup>, input: string) {
+  await user.type(screen.getByRole("textbox", { name: "Run input" }), input);
 }
 
 function createConfiguredGraph(input: {
@@ -513,10 +506,7 @@ function createConfiguredGraph(input: {
   name: string;
   workspacePath: string;
 }): AgentGraphDefinition {
-  const definition = createAgentGraphDraft(input);
-  const result = configureAgentGraphInput(definition, "input", { prompt: "Review this repository" });
-  if (!result.ok) throw new Error(`Could not configure Graph input: ${result.reason}`);
-  return result.definition;
+  return createAgentGraphDraft(input);
 }
 
 function createServices({

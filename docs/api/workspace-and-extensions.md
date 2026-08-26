@@ -15,7 +15,7 @@ src-tauri/src/skills/definition.rs
 src-tauri/src/workspace/types.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:7d81f627efe3963085d988be3a157b82c86578703bdfc94f01f6a648ad217e0a -->
+<!-- tinybot-doc-fingerprint: sha256:19774d460b4b07aecfd11d9111bb97e3ba8baab67c759567fc91eb9fa4b3ca6e -->
 
 This document covers workspace operations and the extension catalogs available
 to Agents. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -66,8 +66,10 @@ the versioned definition and atomically replaces one file. The returned
 must provide it so external edits fail visibly instead of being overwritten.
 The first save omits `expectedRevision`, and an existing file cannot be replaced
 without one. Listing rejects invalid Graph files rather than hiding them. An
-Input node stores the required initial `prompt`. An Agent node stores its
-execution `workspacePath`, additional `instructions`, and an optional `model`
+Input node has no configuration: the initial prompt is supplied for each Run
+instead of being part of the reusable definition. Loading and saving an older
+definition discards its legacy Input prompt. An Agent node stores its execution
+`workspacePath`, additional `instructions`, and an optional `model`
 tuple containing `modelId`, optional `providerId`, and optional
 `reasoningEffort`. Missing required node configuration makes the definition
 invalid; test-era files are not migrated or defaulted. Router nodes retain the
@@ -81,12 +83,12 @@ outgoing edge.
 | Command | Args | Response |
 | --- | --- | --- |
 | `worker_agent_graph_runs_list` | `{ input: { graphId, definitionWorkspacePath } }` | `AgentGraphRun[]` |
-| `worker_agent_graph_run` | `{ input: { graphId, graphRevision, definitionWorkspacePath } }` | `AgentGraphRun` |
+| `worker_agent_graph_run` | `{ input: { graphId, graphRevision, definitionWorkspacePath, input } }` | `AgentGraphRun` |
 
 Runs live at `~/.tinybot/graph-runs/<graph-id>/<run-id>.json` and are atomically
-updated as nodes transition. Start reloads the requested saved revision and
-uses the Input node's required prompt as the first Agent input. The Run copies
-that prompt so the Input node can be inspected later. It then
+updated as nodes transition. Start requires a non-empty runtime `input`,
+reloads the requested saved revision, and copies that runtime value into the
+Run so the Input node can be inspected later. It then
 canonicalizes every Agent workspace and validates an acyclic Input-to-Output
 graph. Router branches may reconverge, while non-Router branching, cycles,
 disconnected nodes, incomplete route connections, and missing workspaces fail
@@ -99,8 +101,16 @@ non-streaming provider request with a dedicated system prompt and no Agent
 instructions, tools, workspace context, or Thread. It maps an exact generated
 `ROUTE_A`-style response back to the route's stable ID; any other response
 fails that node without guessing or retrying. Agent terminal failures produce a failed Run
-rather than a successful empty result. Cancellation and crash recovery are not
-implemented in this first slice.
+rather than a successful empty result. Parent Turn cancellation propagates to
+the active Graph node and records a cancelled Run; crash recovery remains out
+of scope.
+
+A workspace-backed Chat Turn may expose each saved Graph from that exact
+canonical working directory as a deferred tool. The model supplies only the
+runtime `input`; the execution target binds the definition workspace, Graph ID,
+and revision so arguments cannot redirect the call. A completed Run's final
+output becomes the model-visible tool result. Graph-created Agent node Turns do
+not receive Graph tools, preventing nested Graph execution.
 
 The Graph renderer selects a durable Run before inspecting a node. Input and
 Output use the Run's boundary values. Agent nodes use the node invocation's

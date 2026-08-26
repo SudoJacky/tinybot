@@ -1,5 +1,5 @@
 # Chat Application Core
-<!-- tinybot-module-fingerprint: sha256:6fc460a999cb81e6c248fdee8e58b2db4022ac8619d64ecf9e02a38f26489af1 -->
+<!-- tinybot-module-fingerprint: sha256:f27aeb35109fcaa838a13c610b9ab8b42ebdc2daee59480bbbb5a5f0a687e171 -->
 
 `chat` contains framework-independent chat and TinyOS contracts, command
 construction, canonical timeline validation, UI projection, input state, and
@@ -25,3 +25,8 @@ Thread explicitly. The controller validates that target and never derives a
 send destination from mutable active-session state, so the main Chat window
 and the desktop pet quick-chat window can submit concurrently without routing
 one surface's message into the other surface's Thread.
+
+Submissions may also preserve an explicit `selectedTools` allowlist from the
+composer. Omission keeps backend default tool exposure, while an explicit empty
+list intentionally disables optional tools; this distinction survives the
+desktop command boundary.

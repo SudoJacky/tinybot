@@ -437,3 +437,45 @@ fn malformed_mcp_tool_schema_fails_explicitly() {
 
     assert!(error.contains("input schema type must be object"));
 }
+
+#[test]
+fn agent_graph_contributor_binds_workspace_identity_and_exposes_only_runtime_input() {
+    let definition = serde_json::from_value(serde_json::json!({
+        "schemaVersion": "tinybot.agent_graph.v1",
+        "id": "incident-analysis",
+        "name": "Incident analysis",
+        "nodes": [
+            { "id": "input", "kind": "input", "position": { "x": 0, "y": 0 } },
+            { "id": "output", "kind": "output", "position": { "x": 100, "y": 0 } }
+        ],
+        "edges": [{ "id": "edge", "source": "input", "target": "output" }]
+    }))
+    .unwrap();
+    let contributor = AgentGraphToolContributor::new(
+        "D:\\work\\alerts".to_string(),
+        vec![crate::agent_graphs::StoredAgentGraph {
+            definition,
+            revision: "sha256:bound".to_string(),
+        }],
+    )
+    .unwrap();
+    let registry = WorkerToolRegistryRpc::new(default_desktop_capability_policy())
+        .with_contributor(std::sync::Arc::new(contributor))
+        .unwrap();
+    let tool = registry
+        .get_tool("agent_graph.run.incident-analysis")
+        .expect("Agent Graph tool should be registered");
+
+    assert!(tool.available);
+    assert_eq!(tool.exposure, ToolExposure::Deferred);
+    assert_eq!(tool.input_schema["required"], json!(["input"]));
+    assert!(tool.input_schema["properties"].get("graphId").is_none());
+    assert_eq!(
+        tool.execution_target,
+        ToolExecutionTarget::AgentGraph {
+            definition_workspace_path: "D:\\work\\alerts".to_string(),
+            graph_id: "incident-analysis".to_string(),
+            graph_revision: "sha256:bound".to_string(),
+        }
+    );
+}
