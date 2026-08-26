@@ -1045,11 +1045,21 @@ export function ChatPage({
       ...(resolvedProjectContext?.projectCoordinator ? { projectCoordinator: true } : {}),
       ...(resolvedProjectContext?.title ? { title: resolvedProjectContext.title } : {}),
     };
-    const draft: DraftSession = {
-      id: `draft:${now()}:${++draftSessionSequence.current}`,
-      createdAtMs: now(),
-      createInput,
+    const createLocalDraft = (input: DraftSessionCreateInput): DraftSession => {
+      const createdAtMs = now();
+      return {
+        id: `draft:${createdAtMs}:${++draftSessionSequence.current}`,
+        createdAtMs,
+        createInput: input,
+      };
     };
+    if (!activeSessionId && composerDraft.trim()) {
+      dispatchSessionTabs({
+        type: "startup-draft.materialize",
+        draft: createLocalDraft({}),
+      });
+    }
+    const draft = createLocalDraft(createInput);
     dispatchDelete({ type: "session-selected", sessionId: draft.id });
     dispatchSessionTabs({ type: "session-draft.open", draft });
     return projectDraftSessionSummary(draft);
@@ -1489,11 +1499,7 @@ export function ChatPage({
           setSessionCreatePending(false);
         });
     }
-    try {
-      return await draftSessionCreatePromise.current;
-    } catch {
-      return null;
-    }
+    return draftSessionCreatePromise.current;
   }
 
   function activateCreatedSession(created: SessionSummary, previousSessionId = ""): void {

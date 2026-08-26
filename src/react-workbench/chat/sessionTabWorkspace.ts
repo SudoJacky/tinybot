@@ -37,6 +37,7 @@ export type SessionTabWorkspaceEvent =
   | { type: "remove"; sessionId: string }
   | { type: "activity"; sessionId: string }
   | { type: "draft.changed"; sessionId: string; value: string }
+  | { type: "startup-draft.materialize"; draft: DraftSession }
   | { type: "session-draft.open"; draft: DraftSession }
   | { type: "replace"; previousSessionId: string; sessionId: string }
   | { type: "reconcile"; availableSessionIds: string[] };
@@ -67,6 +68,26 @@ export function reduceSessionTabWorkspace(
           ...hydrated.draftsBySession,
           [DRAFT_SESSION_KEY]: startupDraft,
         },
+      };
+    }
+    case "startup-draft.materialize": {
+      const startupText = sessionTabDraft(state, "");
+      if (state.activeSessionId || !startupText.trim()) {
+        return state;
+      }
+      const draftsBySession = { ...state.draftsBySession };
+      delete draftsBySession[DRAFT_SESSION_KEY];
+      draftsBySession[event.draft.id] = startupText;
+      return {
+        ...state,
+        activeSessionId: event.draft.id,
+        draftSessionsById: {
+          ...state.draftSessionsById,
+          [event.draft.id]: event.draft,
+        },
+        draftsBySession,
+        openSessionIds: unique([...state.openSessionIds, event.draft.id]),
+        unreadSessionIds: withoutValue(state.unreadSessionIds, event.draft.id),
       };
     }
     case "session-draft.open": {

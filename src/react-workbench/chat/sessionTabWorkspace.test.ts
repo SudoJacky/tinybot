@@ -60,6 +60,28 @@ describe("sessionTabWorkspace", () => {
     expect(sessionTabDraft(state, "")).toBe("Draft while loading");
   });
 
+  it("materializes startup text as a navigable local draft", () => {
+    let state = reduceSessionTabWorkspace(INITIAL_SESSION_TAB_WORKSPACE, {
+      type: "draft.changed",
+      sessionId: "",
+      value: "Keep the startup draft",
+    });
+    state = reduceSessionTabWorkspace(state, {
+      type: "startup-draft.materialize",
+      draft: {
+        id: "draft:startup",
+        createdAtMs: 10,
+        createInput: {},
+      },
+    });
+
+    expect(state.activeSessionId).toBe("draft:startup");
+    expect(state.openSessionIds).toEqual(["draft:startup"]);
+    expect(state.draftSessionsById["draft:startup"]?.createInput).toEqual({});
+    expect(sessionTabDraft(state, "draft:startup")).toBe("Keep the startup draft");
+    expect(state.draftsBySession[DRAFT_SESSION_KEY]).toBeUndefined();
+  });
+
   it("opens, activates, and closes tabs without deleting their drafts", () => {
     let state = reduceSessionTabWorkspace(INITIAL_SESSION_TAB_WORKSPACE, {
       type: "hydrate",

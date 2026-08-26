@@ -330,6 +330,33 @@ describe("ChatPage", () => {
       .toBe("Keep this draft");
   });
 
+  it("materializes the startup draft before opening another local draft", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
+        sessionStore={stores.sessionStore}
+        startInNewSession
+      />,
+    );
+
+    await screen.findByLabelText("Sessions");
+    await user.click(screen.getByRole("button", { name: "Collapse session sidebar" }));
+    const input = screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
+    await user.type(input, "Keep the startup draft");
+    await user.click(screen.getByRole("button", { name: "New conversation tab" }));
+
+    const draftTabs = screen.getAllByRole("tab", { name: "New chat" });
+    expect(draftTabs).toHaveLength(2);
+    expect(input.value).toBe("");
+    await user.click(draftTabs[0]);
+    expect(input.value).toBe("Keep the startup draft");
+    expect(stores.sessionStore.create).not.toHaveBeenCalled();
+  });
+
   it("restores a non-empty local session draft after leaving and returning to Chat", async () => {
     const user = userEvent.setup();
     const stores = createStores();
@@ -457,7 +484,8 @@ describe("ChatPage", () => {
     expect(nativeWorkspacePickerMocks.pickDesktopWorkspaceDirectory).toHaveBeenCalledTimes(1);
     expect(stores.sessionStore.create).not.toHaveBeenCalled();
 
-    await user.type(screen.getByRole("textbox", { name: /message/i }), "Inspect this workspace");
+    const input = screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
+    await user.type(input, "Inspect this workspace");
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     expect(stores.sessionStore.create).toHaveBeenCalledWith({ workingDirectory: "Z:\\missing" });
@@ -471,6 +499,7 @@ describe("ChatPage", () => {
         workingDirectory: "Z:\\missing",
       }),
     );
+    expect(input.value).toBe("Inspect this workspace");
     consoleError.mockRestore();
   });
 
