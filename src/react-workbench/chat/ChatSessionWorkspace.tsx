@@ -4,6 +4,8 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type DragEvent as ReactDragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
 import {
@@ -30,8 +32,35 @@ import type {
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
 import { ProjectGroupDialog } from "./ProjectGroupDialog";
 import { projectSessionGroups } from "./projectSessionGroups";
+import {
+  INITIAL_SESSION_SIDEBAR_ORDER,
+  orderSidebarItems,
+  readSessionSidebarOrder,
+  reorderSidebarItems,
+  writeSessionSidebarOrder,
+  type SessionSidebarOrder,
+} from "./sessionSidebarOrder";
 import { displaySessionTitle } from "./sessionTitle";
-import { groupSessionsByWorkspace, sessionWorkspaceName } from "./sessionWorkspaces";
+import {
+  groupSessionsByWorkspace,
+  normalizedWorkspacePathKey,
+  sessionWorkspaceName,
+} from "./sessionWorkspaces";
+
+const SIDEBAR_ROOT_CONTAINER_ID = "sidebar:root";
+
+type SidebarOrderItem = {
+  itemId: string;
+  label: string;
+};
+
+type SidebarDragItem = SidebarOrderItem & {
+  containerId: string;
+};
+
+type SidebarDropTarget = SidebarDragItem & {
+  placement: "after" | "before";
+};
 
 export type ProjectSessionContext = {
   projectCoordinator?: boolean;
@@ -84,7 +113,16 @@ export function ChatSessionWorkspace({
   const [workspaceActionMenuOpen, setWorkspaceActionMenuOpen] = useState(false);
   const [workspaceError, setWorkspaceError] = useState("");
   const [workspacePickerPending, setWorkspacePickerPending] = useState(false);
+  const [sidebarOrder, setSidebarOrder] = useState<SessionSidebarOrder>(() => (
+    typeof window === "undefined"
+      ? INITIAL_SESSION_SIDEBAR_ORDER
+      : readSessionSidebarOrder(window.localStorage)
+  ));
+  const [draggedSidebarItem, setDraggedSidebarItem] = useState<SidebarDragItem>();
+  const [sidebarDropTarget, setSidebarDropTarget] = useState<SidebarDropTarget>();
+  const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const workspaceActionMenuRef = useRef<HTMLDivElement | null>(null);
+  const draggedSidebarItemRef = useRef<SidebarDragItem | undefined>(undefined);
 
   useEffect(() => {
     if (!projectGroupStore) {
@@ -119,6 +157,12 @@ export function ChatSessionWorkspace({
     return () => window.removeEventListener("pointerdown", closeOnOutsidePointer);
   }, [workspaceActionMenuOpen]);
 
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      writeSessionSidebarOrder(window.localStorage, sidebarOrder);
+    }
+  }, [sidebarOrder]);
+
   const projectProjection = useMemo(
     () => projectSessionGroups(projectGroups, [...sessions]),
     [projectGroups, sessions],
@@ -130,6 +174,28 @@ export function ChatSessionWorkspace({
     })),
     [projectProjection.ungroupedSessions, t],
   );
+  const rootGroups = useMemo(() => orderSidebarItems([
+    ...projectProjection.groups.map((group) => ({
+      group,
+      itemId: sidebarProjectGroupId(group.project.projectGroupId),
+      kind: "project" as const,
+      label: group.project.name,
+    })),
+    ...sessionWorkspaces.map((workspace) => ({
+      itemId: sidebarWorkspaceGroupId(workspace.key),
+      kind: "workspace" as const,
+      label: workspace.label,
+      workspace,
+    })),
+  ], sidebarOrder, SIDEBAR_ROOT_CONTAINER_ID, (item) => item.itemId), [
+    projectProjection.groups,
+    sessionWorkspaces,
+    sidebarOrder,
+  ]);
+  const rootOrderItems = useMemo<SidebarOrderItem[]>(() => rootGroups.map((group) => ({
+    itemId: group.itemId,
+    label: group.label,
+  })), [rootGroups]);
   const availableProjectWorkspaceIds = useMemo(() => Array.from(new Set([
     ...sessions.flatMap((session) => session.workingDirectory ? [session.workingDirectory] : []),
     ...projectGroups.flatMap((group) => group.workspaceIds),
@@ -139,34 +205,169 @@ export function ChatSessionWorkspace({
     : undefined;
   const displayError = error || workspaceError;
 
-  function renderSidebarSessionRow(session: SessionSummary, index: number) {
+  function beginSidebarDrag(
+    event: ReactDragEvent<HTMLElement>,
+    item: SidebarDragItem,
+  ): void {
+    draggedSidebarItemRef.current = item;
+    setDraggedSidebarItem(item);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", item.itemId);
+  }
+
+  function finishSidebarDrag(): void {
+    draggedSidebarItemRef.current = undefined;
+    setDraggedSidebarItem(undefined);
+    setSidebarDropTarget(undefined);
+  }
+
+  function updateSidebarDropTarget(
+    event: ReactDragEvent<HTMLElement>,
+    target: SidebarDragItem,
+  ): void {
+    const dragged = draggedSidebarItemRef.current;
+    if (!dragged || dragged.containerId !== target.containerId || dragged.itemId === target.itemId) {
+      setSidebarDropTarget(undefined);
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const placement = event.clientY < bounds.top + (bounds.height / 2) ? "before" : "after";
+    setSidebarDropTarget({ ...target, placement });
+  }
+
+  function moveSidebarItem(
+    dragged: SidebarDragItem,
+    target: SidebarOrderItem,
+    placement: "after" | "before",
+    currentItems: readonly SidebarOrderItem[],
+  ): void {
+    const nextOrder = reorderSidebarItems(sidebarOrder, {
+      containerId: dragged.containerId,
+      currentItemIds: currentItems.map((item) => item.itemId),
+      draggedItemId: dragged.itemId,
+      placement,
+      targetItemId: target.itemId,
+    });
+    if (nextOrder === sidebarOrder) return;
+    setSidebarOrder(nextOrder);
+    setReorderAnnouncement(t(
+      placement === "before" ? "shell.reorderedBefore" : "shell.reorderedAfter",
+      { item: dragged.label, target: target.label },
+    ));
+  }
+
+  function dropSidebarItem(
+    event: ReactDragEvent<HTMLElement>,
+    target: SidebarDragItem,
+    currentItems: readonly SidebarOrderItem[],
+  ): void {
+    const dragged = draggedSidebarItemRef.current;
+    if (!dragged || dragged.containerId !== target.containerId || dragged.itemId === target.itemId) {
+      finishSidebarDrag();
+      return;
+    }
+    event.preventDefault();
+    const placement = sidebarDropTarget?.containerId === target.containerId
+      && sidebarDropTarget.itemId === target.itemId
+      ? sidebarDropTarget.placement
+      : "before";
+    moveSidebarItem(dragged, target, placement, currentItems);
+    finishSidebarDrag();
+  }
+
+  function moveSidebarItemWithKeyboard(
+    event: ReactKeyboardEvent<HTMLElement>,
+    item: SidebarDragItem,
+    currentItems: readonly SidebarOrderItem[],
+  ): void {
+    if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const currentIndex = currentItems.findIndex((candidate) => candidate.itemId === item.itemId);
+    const targetIndex = currentIndex + (event.key === "ArrowUp" ? -1 : 1);
+    const target = currentItems[targetIndex];
+    if (!target) return;
+    moveSidebarItem(item, target, event.key === "ArrowUp" ? "before" : "after", currentItems);
+  }
+
+  function sidebarDropPosition(containerId: string, itemId: string): "after" | "before" | undefined {
+    return sidebarDropTarget?.containerId === containerId && sidebarDropTarget.itemId === itemId
+      ? sidebarDropTarget.placement
+      : undefined;
+  }
+
+  function renderSidebarSessionRows(
+    sessionsToRender: readonly SessionSummary[],
+    containerId: string,
+  ) {
+    const orderedSessions = orderSidebarItems(
+      sessionsToRender,
+      sidebarOrder,
+      containerId,
+      (session) => session.id,
+    );
+    const currentItems = orderedSessions.map((session) => ({
+      itemId: session.id,
+      label: displaySessionTitle(session.title, t),
+    }));
+    return orderedSessions.map((session, index) => renderSidebarSessionRow(
+      session,
+      index,
+      containerId,
+      currentItems,
+    ));
+  }
+
+  function renderSidebarSessionRow(
+    session: SessionSummary,
+    index: number,
+    containerId: string,
+    currentItems: readonly SidebarOrderItem[],
+  ) {
     const confirming = confirmingDeleteSessionId === session.id;
     const dissolving = dissolvingSessionIds.has(session.id);
+    const sessionLabel = displaySessionTitle(session.title, t);
+    const reorderItem = { containerId, itemId: session.id, label: sessionLabel };
     return (
       <div
         className="react-session-row"
         data-active={session.id === activeSessionId}
         data-confirming={confirming}
+        data-dragging={draggedSidebarItem?.containerId === containerId && draggedSidebarItem.itemId === session.id
+          ? "true"
+          : undefined}
+        data-drop-position={sidebarDropPosition(containerId, session.id)}
         data-dissolving={dissolving ? "true" : undefined}
         data-motion-role="item"
+        draggable={!dissolving}
         key={session.id}
+        onDragEnd={finishSidebarDrag}
+        onDragOver={(event) => updateSidebarDropTarget(event, reorderItem)}
+        onDragStart={(event) => beginSidebarDrag(event, reorderItem)}
+        onDrop={(event) => dropSidebarItem(event, reorderItem, currentItems)}
         onMouseLeave={() => actions.onCancelDeleteConfirmation(session.id)}
         style={{ "--react-session-row-index": String(index) } as CSSProperties}
       >
         <button
+          aria-description={t("shell.reorderSession", { name: sessionLabel })}
+          aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
           aria-label={session.title}
           className="react-session-row__select"
           type="button"
           disabled={dissolving}
           onClick={() => actions.onSelectSession(session)}
+          onKeyDown={(event) => moveSidebarItemWithKeyboard(event, reorderItem, currentItems)}
         >
-          <span className="react-session-row__title">{displaySessionTitle(session.title, t)}</span>
+          <span className="react-session-row__title">{sessionLabel}</span>
           <small>{formatRelativeUpdatedTime(session.updatedAtMs, now())}</small>
         </button>
         <button
           aria-label={t(confirming ? "shell.confirmDelete" : "shell.delete", { name: session.title })}
           className="react-session-row__delete"
           data-confirming={confirming}
+          draggable={false}
           type="button"
           disabled={dissolving}
           onClick={() => void actions.onDeleteSession(session)}
@@ -322,21 +523,109 @@ export function ChatSessionWorkspace({
           ) : null}
         </div>
         <div className="react-session-list__rows" aria-label={t("shell.sessionRows")} data-motion="animated-list">
-          {projectProjection.groups.map((projectGroup) => {
+          {rootGroups.map((rootGroup) => {
+            if (rootGroup.kind === "workspace") {
+              const { workspace } = rootGroup;
+              const reorderItem = {
+                containerId: SIDEBAR_ROOT_CONTAINER_ID,
+                itemId: rootGroup.itemId,
+                label: rootGroup.label,
+              };
+              return (
+                <details
+                  aria-label={t("shell.workspace", { name: workspace.label })}
+                  className="react-session-workspace"
+                  data-active={workspace.sessions.some((session) => session.id === activeSessionId) ? "true" : undefined}
+                  data-dragging={draggedSidebarItem?.containerId === SIDEBAR_ROOT_CONTAINER_ID
+                    && draggedSidebarItem.itemId === rootGroup.itemId ? "true" : undefined}
+                  data-drop-position={sidebarDropPosition(SIDEBAR_ROOT_CONTAINER_ID, rootGroup.itemId)}
+                  key={workspace.key}
+                  open
+                  role="group"
+                >
+                  <summary
+                    aria-description={t("shell.reorderWorkspace", { name: workspace.label })}
+                    aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                    draggable
+                    title={workspace.workingDirectory ?? workspace.label}
+                    onDragEnd={finishSidebarDrag}
+                    onDragOver={(event) => updateSidebarDropTarget(event, reorderItem)}
+                    onDragStart={(event) => beginSidebarDrag(event, reorderItem)}
+                    onDrop={(event) => dropSidebarItem(event, reorderItem, rootOrderItems)}
+                    onKeyDown={(event) => moveSidebarItemWithKeyboard(event, reorderItem, rootOrderItems)}
+                  >
+                    <ChevronRight aria-hidden="true" className="react-session-workspace__chevron" size={14} />
+                    <span aria-hidden="true" className="react-session-workspace__folder">
+                      <Folder className="react-session-workspace__folder-icon--collapsed" size={15} />
+                      <FolderOpen className="react-session-workspace__folder-icon--expanded" size={15} />
+                    </span>
+                    <span className="react-session-workspace__copy">
+                      <strong>{workspace.label}</strong>
+                      {workspace.workingDirectory ? <small>{workspace.workingDirectory}</small> : null}
+                    </span>
+                  </summary>
+                  <button
+                    aria-label={t("shell.newSessionIn", { name: workspace.label })}
+                    className="react-session-workspace__new"
+                    disabled={createPending}
+                    title={t("shell.newSessionIn", { name: workspace.label })}
+                    type="button"
+                    onClick={() => void actions.onCreateSession(workspace.workingDirectory)}
+                  >
+                    <Plus aria-hidden="true" size={15} />
+                  </button>
+                  <div className="react-session-workspace__sessions">
+                    {renderSidebarSessionRows(workspace.sessions, sidebarWorkspaceSessionsId(workspace.key))}
+                  </div>
+                </details>
+              );
+            }
+            const projectGroup = rootGroup.group;
             const projectSessions = [
               ...projectGroup.coordinatorSessions,
               ...projectGroup.workspaces.flatMap((workspace) => workspace.sessions),
             ];
+            const projectWorkspacesContainerId = sidebarProjectWorkspacesId(
+              projectGroup.project.projectGroupId,
+            );
+            const orderedProjectWorkspaces = orderSidebarItems(
+              projectGroup.workspaces,
+              sidebarOrder,
+              projectWorkspacesContainerId,
+              (workspace) => sidebarProjectWorkspaceItemId(workspace.workspaceId),
+            );
+            const projectWorkspaceOrderItems = orderedProjectWorkspaces.map((workspace) => ({
+              itemId: sidebarProjectWorkspaceItemId(workspace.workspaceId),
+              label: workspace.label,
+            }));
+            const reorderItem = {
+              containerId: SIDEBAR_ROOT_CONTAINER_ID,
+              itemId: rootGroup.itemId,
+              label: rootGroup.label,
+            };
             return (
               <details
                 aria-label={t("projectGroups.groupLabel", { name: projectGroup.project.name })}
                 className="react-project-group"
                 data-active={projectSessions.some((session) => session.id === activeSessionId) ? "true" : undefined}
+                data-dragging={draggedSidebarItem?.containerId === SIDEBAR_ROOT_CONTAINER_ID
+                  && draggedSidebarItem.itemId === rootGroup.itemId ? "true" : undefined}
+                data-drop-position={sidebarDropPosition(SIDEBAR_ROOT_CONTAINER_ID, rootGroup.itemId)}
                 key={projectGroup.project.projectGroupId}
                 open
                 role="group"
               >
-                <summary title={projectGroup.project.name}>
+                <summary
+                  aria-description={t("shell.reorderProject", { name: projectGroup.project.name })}
+                  aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                  draggable
+                  title={projectGroup.project.name}
+                  onDragEnd={finishSidebarDrag}
+                  onDragOver={(event) => updateSidebarDropTarget(event, reorderItem)}
+                  onDragStart={(event) => beginSidebarDrag(event, reorderItem)}
+                  onDrop={(event) => dropSidebarItem(event, reorderItem, rootOrderItems)}
+                  onKeyDown={(event) => moveSidebarItemWithKeyboard(event, reorderItem, rootOrderItems)}
+                >
                   <ChevronRight aria-hidden="true" className="react-project-group__chevron" size={14} />
                   <GitBranch aria-hidden="true" className="react-project-group__icon" size={15} />
                   <strong>{projectGroup.project.name}</strong>
@@ -367,12 +656,52 @@ export function ChatSessionWorkspace({
                         <GitBranch aria-hidden="true" size={13} />
                         <span>{t("projectGroups.coordination")}</span>
                       </div>
-                      {projectGroup.coordinatorSessions.map(renderSidebarSessionRow)}
+                      {renderSidebarSessionRows(
+                        projectGroup.coordinatorSessions,
+                        sidebarProjectCoordinatorSessionsId(projectGroup.project.projectGroupId),
+                      )}
                     </section>
                   ) : null}
-                  {projectGroup.workspaces.map((workspace) => (
-                    <section className="react-project-workspace" key={workspace.workspaceId}>
-                      <div className="react-project-group__member-title" title={workspace.workspaceId}>
+                  {orderedProjectWorkspaces.map((workspace) => {
+                    const workspaceReorderItem = {
+                      containerId: projectWorkspacesContainerId,
+                      itemId: sidebarProjectWorkspaceItemId(workspace.workspaceId),
+                      label: workspace.label,
+                    };
+                    return (
+                    <section
+                      aria-label={t("shell.workspace", { name: workspace.label })}
+                      className="react-project-workspace"
+                      data-dragging={draggedSidebarItem?.containerId === projectWorkspacesContainerId
+                        && draggedSidebarItem.itemId === workspaceReorderItem.itemId ? "true" : undefined}
+                      data-drop-position={sidebarDropPosition(
+                        projectWorkspacesContainerId,
+                        workspaceReorderItem.itemId,
+                      )}
+                      key={workspace.workspaceId}
+                      role="group"
+                    >
+                      <div
+                        aria-description={t("shell.reorderWorkspace", { name: workspace.label })}
+                        aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                        className="react-project-group__member-title"
+                        draggable
+                        tabIndex={0}
+                        title={workspace.workspaceId}
+                        onDragEnd={finishSidebarDrag}
+                        onDragOver={(event) => updateSidebarDropTarget(event, workspaceReorderItem)}
+                        onDragStart={(event) => beginSidebarDrag(event, workspaceReorderItem)}
+                        onDrop={(event) => dropSidebarItem(event, workspaceReorderItem, projectWorkspaceOrderItems)}
+                        onKeyDown={(event) => {
+                          if (event.target === event.currentTarget) {
+                            moveSidebarItemWithKeyboard(
+                              event,
+                              workspaceReorderItem,
+                              projectWorkspaceOrderItems,
+                            );
+                          }
+                        }}
+                      >
                         <Folder aria-hidden="true" size={13} />
                         <span>
                           <strong>{workspace.label}</strong>
@@ -381,6 +710,7 @@ export function ChatSessionWorkspace({
                         <button
                           aria-label={t("projectGroups.newWorkspaceSession", { name: workspace.label })}
                           disabled={createPending}
+                          draggable={false}
                           onClick={() => void actions.onCreateSession(workspace.workspaceId, {
                             projectGroupId: projectGroup.project.projectGroupId,
                           })}
@@ -391,52 +721,25 @@ export function ChatSessionWorkspace({
                         </button>
                       </div>
                       <div className="react-project-workspace__sessions">
-                        {workspace.sessions.map(renderSidebarSessionRow)}
+                        {renderSidebarSessionRows(
+                          workspace.sessions,
+                          sidebarProjectWorkspaceSessionsId(
+                            projectGroup.project.projectGroupId,
+                            workspace.workspaceId,
+                          ),
+                        )}
                       </div>
                     </section>
-                  ))}
+                    );
+                  })}
                 </div>
               </details>
             );
           })}
-          {sessionWorkspaces.length ? sessionWorkspaces.map((workspace) => (
-            <details
-              aria-label={t("shell.workspace", { name: workspace.label })}
-              className="react-session-workspace"
-              data-active={workspace.sessions.some((session) => session.id === activeSessionId) ? "true" : undefined}
-              key={workspace.key}
-              open
-              role="group"
-            >
-              <summary title={workspace.workingDirectory ?? workspace.label}>
-                <ChevronRight aria-hidden="true" className="react-session-workspace__chevron" size={14} />
-                <span aria-hidden="true" className="react-session-workspace__folder">
-                  <Folder className="react-session-workspace__folder-icon--collapsed" size={15} />
-                  <FolderOpen className="react-session-workspace__folder-icon--expanded" size={15} />
-                </span>
-                <span className="react-session-workspace__copy">
-                  <strong>{workspace.label}</strong>
-                  {workspace.workingDirectory ? <small>{workspace.workingDirectory}</small> : null}
-                </span>
-              </summary>
-              <button
-                aria-label={t("shell.newSessionIn", { name: workspace.label })}
-                className="react-session-workspace__new"
-                disabled={createPending}
-                title={t("shell.newSessionIn", { name: workspace.label })}
-                type="button"
-                onClick={() => void actions.onCreateSession(workspace.workingDirectory)}
-              >
-                <Plus aria-hidden="true" size={15} />
-              </button>
-              <div className="react-session-workspace__sessions">
-                {workspace.sessions.map(renderSidebarSessionRow)}
-              </div>
-            </details>
-          )) : null}
           {!projectProjection.groups.length && !sessionWorkspaces.length && !collapsed
             ? <EmptyStateText text={t("shell.noSessions")} />
             : null}
+          <p aria-live="polite" className="react-sr-only">{reorderAnnouncement}</p>
         </div>
       </aside>
       {children}
@@ -468,6 +771,39 @@ export function ChatSessionWorkspace({
 
 function EmptyStateText({ text }: { text: string }) {
   return <p className="react-empty-state">{text}</p>;
+}
+
+function sidebarProjectGroupId(projectGroupId: string): string {
+  return `project:${encodeURIComponent(projectGroupId)}`;
+}
+
+function sidebarWorkspaceGroupId(workspaceKey: string): string {
+  return `workspace:${encodeURIComponent(workspaceKey)}`;
+}
+
+function sidebarWorkspaceSessionsId(workspaceKey: string): string {
+  return `sessions:workspace:${encodeURIComponent(workspaceKey)}`;
+}
+
+function sidebarProjectCoordinatorSessionsId(projectGroupId: string): string {
+  return `sessions:project:${encodeURIComponent(projectGroupId)}:coordination`;
+}
+
+function sidebarProjectWorkspacesId(projectGroupId: string): string {
+  return `workspaces:project:${encodeURIComponent(projectGroupId)}`;
+}
+
+function sidebarProjectWorkspaceItemId(workspaceId: string): string {
+  return normalizedWorkspacePathKey(workspaceId);
+}
+
+function sidebarProjectWorkspaceSessionsId(projectGroupId: string, workspaceId: string): string {
+  return [
+    "sessions:project",
+    encodeURIComponent(projectGroupId),
+    "workspace",
+    encodeURIComponent(normalizedWorkspacePathKey(workspaceId)),
+  ].join(":");
 }
 
 function SessionSearchDialog({

@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:854fac18ba759aec457cbca875764dc1fc0b1161fa742ed7e988cb85ffa03139 -->
+<!-- tinybot-module-fingerprint: sha256:b6bc4b8645e3070fb6708adbead57ad19023301d4074e15c0137a4c8fa3cc8db -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -99,6 +99,18 @@ native default used by Agent turns.
 Desktop-level project and session-search dialogs keep their domain actions in
 this module while delegating modal focus, keyboard, dismissal, and scroll-lock
 behavior to `components/ui/useModalDialog`.
+
+The expanded session sidebar keeps a renderer-local, versioned user order for
+its top-level workspace/project blocks, each project's member workspaces, and
+each block's own session list.
+Dragging a session never changes its workspace or project membership. Workspace
+headers and complete session rows are the drag sources; there is no separate
+grip control. Their existing focus targets also support `Alt+ArrowUp` and
+`Alt+ArrowDown`, and announce the result through a polite live region. Newly
+discovered blocks and sessions appear ahead of a saved manual order; stale saved
+IDs are ignored. Invalid persisted state is reported through the
+`session-sidebar-order` diagnostic boundary before the sidebar returns to its
+natural recency order.
 
 Session creation follows the entry point's target. Workspace and project
 actions capture their workspace and project context on the local draft. With the

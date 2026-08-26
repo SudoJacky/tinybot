@@ -88,6 +88,8 @@ describe("ChatPage", () => {
     expect(css).toMatch(
       /\.react-session-row__select\s*{[^}]*height:\s*34px;[^}]*padding:\s*0 10px;/s,
     );
+    expect(css).toContain('.react-session-row[draggable="true"]');
+    expect(css).not.toContain(".react-sidebar-reorder-handle");
   });
 
   it("defines reduced-motion fallbacks for chat motion primitives", () => {
