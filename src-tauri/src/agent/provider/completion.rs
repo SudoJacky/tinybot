@@ -1,6 +1,6 @@
 use super::catalog::{
-    catalog_entry_by_id, configured_model, infer_provider_from_model, normalize_provider_id,
-    resolve_provider_profile, string_field, NativeProviderProfile,
+    active_profile_name, catalog_entry_by_id, configured_model, infer_provider_from_model,
+    normalize_provider_id, resolve_provider_profile, string_field, NativeProviderProfile,
 };
 use super::streaming::{
     chat_completion_body, responses_body, NativeProviderStreamEvent, StreamingChatCompletion,
@@ -510,14 +510,18 @@ fn openai_client(profile: NativeProviderProfile) -> Result<Client<OpenAIConfig>,
 }
 
 fn resolve_chat_provider_profile(config: &Value, model: &str) -> Option<NativeProviderProfile> {
-    let default_provider = config
+    let provider_id = config
         .get("agents")
         .and_then(|agents| agents.get("defaults"))
-        .and_then(|defaults| string_field(defaults, "provider"));
-    let provider_id = default_provider
-        .as_deref()
-        .map(normalize_provider_id)
+        .and_then(|defaults| string_field(defaults, "provider"))
+        .map(|provider| normalize_provider_id(&provider))
         .filter(|provider| !provider.is_empty() && provider != "auto")
+        .or_else(|| {
+            active_profile_name(config).and_then(|profile_name| {
+                resolve_provider_profile(config, None, Some(&profile_name))
+                    .map(|profile| profile.provider_id)
+            })
+        })
         .unwrap_or_else(|| infer_provider_from_model(model));
     resolve_provider_profile(config, Some(&provider_id), None)
 }

@@ -1,5 +1,5 @@
 # Agent Providers
-<!-- tinybot-module-fingerprint: sha256:8aff12bd90b2dcc07e1188699307cde57e816e9a5e953ffdabd25998d39997a7 -->
+<!-- tinybot-module-fingerprint: sha256:72debde400ecf2083f327787a4d790df4f173eb4c701821225c54c9ff82daa59 -->
 
 This module resolves provider and model configuration and performs streaming
 Chat Completions or Responses API requests.
@@ -10,5 +10,7 @@ Chat Completions or Responses API requests.
   providers default `supportsReasoningEffort` to `true`; an explicit `false`
   keeps effort out of provider requests. Profile `modelContextWindows` entries
   are normalized into positive per-model context-window overrides.
-- `completion.rs` performs provider requests.
+- `completion.rs` performs provider requests. Provider selection preserves an
+  explicit request override, then uses the active profile, and only infers from
+  the model when neither is configured.
 - `streaming.rs` normalizes streamed provider events.

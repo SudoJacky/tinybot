@@ -589,7 +589,7 @@ fn default_provider_id(config: &Value) -> Option<String> {
         .filter(|value| !value.is_empty() && value != "auto")
 }
 
-fn active_profile_name(config: &Value) -> Option<String> {
+pub(super) fn active_profile_name(config: &Value) -> Option<String> {
     config
         .get("agents")
         .and_then(|agents| agents.get("defaults"))
