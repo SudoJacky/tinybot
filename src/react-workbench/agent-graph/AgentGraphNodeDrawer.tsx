@@ -30,7 +30,7 @@ export function AgentGraphNodeDrawer({
 }) {
   const { t } = useTranslation("common");
   const nodeRun = node.kind === "agent" || node.kind === "condition"
-    ? run?.nodeRuns.find((candidate) => candidate.nodeId === node.id)
+    ? [...(run?.nodeRuns ?? [])].reverse().find((candidate) => candidate.nodeId === node.id)
     : undefined;
   const [timeline, setTimeline] = useState<ChatTimelineSnapshot | null>(null);
   const [timelineError, setTimelineError] = useState<string | null>(null);

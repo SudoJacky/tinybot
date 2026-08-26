@@ -22,6 +22,7 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const AGENT_GRAPH_RUN_SCHEMA_VERSION: &str = "tinybot.agent_graph_run.v1";
+const MAX_AGENT_GRAPH_NODE_RUNS: usize = 64;
 static RUN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static STORE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
@@ -237,17 +238,24 @@ pub(crate) async fn start(
         match node {
             PlannedNode::Output => break,
             PlannedNode::Agent(step) => {
+                if let Err(error) = ensure_node_run_budget(&run) {
+                    return finish_failed_run_without_node(data_root, run, error);
+                }
+                let existing_thread_id = latest_agent_thread(&run, &step.node_id);
                 let index = begin_node_run(data_root, &mut run, &step.node_id)?;
-                let thread_id = match create_agent_graph_thread(
-                    &thread_store,
-                    &config_snapshot,
-                    &stored.definition.name,
-                    &step,
-                    &run,
-                    index,
-                ) {
-                    Ok(thread_id) => thread_id,
-                    Err(error) => return finish_failed_run(data_root, run, index, error),
+                let thread_id = match existing_thread_id {
+                    Some(thread_id) => thread_id,
+                    None => match create_agent_graph_thread(
+                        &thread_store,
+                        &config_snapshot,
+                        &stored.definition.name,
+                        &step,
+                        &run,
+                        index,
+                    ) {
+                        Ok(thread_id) => thread_id,
+                        Err(error) => return finish_failed_run(data_root, run, index, error),
+                    },
                 };
                 run.node_runs[index].thread_id = Some(thread_id.clone());
                 write_run(data_root, &run)?;
@@ -323,6 +331,9 @@ pub(crate) async fn start(
                 cursor = single_outgoing_edge(&plan, &step.node_id)?.target.clone();
             }
             PlannedNode::Router(router_config) => {
+                if let Err(error) = ensure_node_run_budget(&run) {
+                    return finish_failed_run_without_node(data_root, run, error);
+                }
                 let index = begin_node_run(data_root, &mut run, &cursor)?;
                 let decision = router::route(&config_snapshot, &current_input, &router_config);
                 tokio::pin!(decision);
@@ -489,6 +500,7 @@ fn agent_graph_plan(definition: &AgentGraphDefinition) -> Result<AgentGraphPlan,
     if reachable_from_input.len() != nodes.len() {
         return Err("Agent Graph Run does not support disconnected nodes".to_string());
     }
+    validate_controlled_cycles(&nodes, &outgoing)?;
     let output = definition
         .nodes
         .iter()
@@ -513,7 +525,6 @@ fn agent_graph_plan(definition: &AgentGraphDefinition) -> Result<AgentGraphPlan,
     if reachable_nodes(&output.id, &reverse).len() != nodes.len() {
         return Err("Every Agent Graph path must reach the Output node".to_string());
     }
-    ensure_acyclic(&nodes, &outgoing, &incoming)?;
 
     Ok(AgentGraphPlan {
         input_node_id: input.id.clone(),
@@ -536,38 +547,148 @@ fn reachable_nodes(start: &str, outgoing: &HashMap<String, Vec<PlannedEdge>>) ->
     visited
 }
 
-fn ensure_acyclic(
+fn validate_controlled_cycles(
     nodes: &HashMap<String, PlannedNode>,
     outgoing: &HashMap<String, Vec<PlannedEdge>>,
-    incoming: &HashMap<String, Vec<String>>,
 ) -> Result<(), String> {
-    let mut incoming_counts = nodes
-        .keys()
-        .map(|node_id| (node_id.clone(), incoming.get(node_id).map_or(0, Vec::len)))
-        .collect::<HashMap<_, _>>();
-    let mut pending = incoming_counts
-        .iter()
-        .filter_map(|(node_id, count)| (*count == 0).then_some(node_id.clone()))
-        .collect::<Vec<_>>();
-    let mut visited_count = 0;
-    while let Some(node_id) = pending.pop() {
-        visited_count += 1;
-        if let Some(edges) = outgoing.get(&node_id) {
-            for edge in edges {
-                let count = incoming_counts
-                    .get_mut(&edge.target)
-                    .expect("edge target must be a planned node");
-                *count -= 1;
-                if *count == 0 {
-                    pending.push(edge.target.clone());
-                }
-            }
+    for component in strongly_connected_components(nodes, outgoing) {
+        let has_cycle = component.len() > 1
+            || component.first().is_some_and(|node_id| {
+                outgoing
+                    .get(node_id)
+                    .into_iter()
+                    .flatten()
+                    .any(|edge| edge.target == *node_id)
+            });
+        if !has_cycle {
+            continue;
+        }
+        let routers = component
+            .iter()
+            .filter(|node_id| matches!(nodes.get(*node_id), Some(PlannedNode::Router(_))))
+            .collect::<Vec<_>>();
+        if routers.is_empty() {
+            return Err(format!(
+                "Agent Graph cycle `{}` must include a Router",
+                component.join(" -> ")
+            ));
+        }
+        if !routers.iter().any(|node_id| {
+            outgoing
+                .get(*node_id)
+                .into_iter()
+                .flatten()
+                .any(|edge| !component.contains(&edge.target))
+        }) {
+            return Err(format!(
+                "Agent Graph cycle `{}` requires a Router route that exits the loop",
+                component.join(" -> ")
+            ));
         }
     }
-    if visited_count != nodes.len() {
-        return Err("Agent Graph Run does not support cycles".to_string());
+    Ok(())
+}
+
+fn strongly_connected_components(
+    nodes: &HashMap<String, PlannedNode>,
+    outgoing: &HashMap<String, Vec<PlannedEdge>>,
+) -> Vec<Vec<String>> {
+    let mut visited = HashSet::new();
+    let mut order = Vec::new();
+    for node_id in nodes.keys() {
+        visit_component_order(node_id, outgoing, &mut visited, &mut order);
+    }
+
+    let mut reverse = HashMap::<String, Vec<String>>::new();
+    for (source, edges) in outgoing {
+        for edge in edges {
+            reverse
+                .entry(edge.target.clone())
+                .or_default()
+                .push(source.clone());
+        }
+    }
+
+    visited.clear();
+    let mut components = Vec::new();
+    while let Some(node_id) = order.pop() {
+        if visited.contains(&node_id) {
+            continue;
+        }
+        let mut component = Vec::new();
+        collect_component(&node_id, &reverse, &mut visited, &mut component);
+        component.sort();
+        components.push(component);
+    }
+    components
+}
+
+fn visit_component_order(
+    node_id: &str,
+    outgoing: &HashMap<String, Vec<PlannedEdge>>,
+    visited: &mut HashSet<String>,
+    order: &mut Vec<String>,
+) {
+    if !visited.insert(node_id.to_string()) {
+        return;
+    }
+    if let Some(edges) = outgoing.get(node_id) {
+        for edge in edges {
+            visit_component_order(&edge.target, outgoing, visited, order);
+        }
+    }
+    order.push(node_id.to_string());
+}
+
+fn collect_component(
+    node_id: &str,
+    reverse: &HashMap<String, Vec<String>>,
+    visited: &mut HashSet<String>,
+    component: &mut Vec<String>,
+) {
+    if !visited.insert(node_id.to_string()) {
+        return;
+    }
+    component.push(node_id.to_string());
+    if let Some(sources) = reverse.get(node_id) {
+        for source in sources {
+            collect_component(source, reverse, visited, component);
+        }
+    }
+}
+
+fn ensure_node_run_budget(run: &AgentGraphRun) -> Result<(), String> {
+    if run.node_runs.len() >= MAX_AGENT_GRAPH_NODE_RUNS {
+        return Err(format!(
+            "Agent Graph Run exceeded the limit of {MAX_AGENT_GRAPH_NODE_RUNS} node executions"
+        ));
     }
     Ok(())
+}
+
+fn latest_agent_thread(run: &AgentGraphRun, node_id: &str) -> Option<String> {
+    run.node_runs.iter().rev().find_map(|node_run| {
+        if node_run.node_id == node_id {
+            node_run.thread_id.clone()
+        } else {
+            None
+        }
+    })
+}
+
+fn finish_failed_run_without_node(
+    data_root: &Path,
+    mut run: AgentGraphRun,
+    error: String,
+) -> Result<AgentGraphRun, String> {
+    run.status = AgentGraphRunStatus::Failed;
+    run.error = Some(error);
+    write_run(data_root, &run)?;
+    eprintln!(
+        "agent_graph_run_failed graph_id={} run_id={} reason=node_execution_limit",
+        run.graph_id, run.id
+    );
+    Ok(run)
 }
 
 fn single_outgoing_edge<'a>(
@@ -948,6 +1069,168 @@ mod tests {
     }
 
     #[test]
+    fn reentered_agent_uses_its_latest_existing_thread() {
+        let run = AgentGraphRun {
+            schema_version: AGENT_GRAPH_RUN_SCHEMA_VERSION.to_string(),
+            id: "run-loop".to_string(),
+            graph_id: "graph-loop".to_string(),
+            graph_revision: "sha256:test".to_string(),
+            definition_workspace_path: "workspace".to_string(),
+            status: AgentGraphRunStatus::Running,
+            input: "start".to_string(),
+            node_runs: vec![
+                AgentGraphNodeRun {
+                    id: "node-1".to_string(),
+                    node_id: "agent-a".to_string(),
+                    thread_id: Some("thread-a-1".to_string()),
+                    status: AgentGraphNodeRunStatus::Completed,
+                    router: None,
+                    error: None,
+                },
+                AgentGraphNodeRun {
+                    id: "node-2".to_string(),
+                    node_id: "agent-b".to_string(),
+                    thread_id: Some("thread-b".to_string()),
+                    status: AgentGraphNodeRunStatus::Completed,
+                    router: None,
+                    error: None,
+                },
+                AgentGraphNodeRun {
+                    id: "node-3".to_string(),
+                    node_id: "agent-a".to_string(),
+                    thread_id: Some("thread-a-2".to_string()),
+                    status: AgentGraphNodeRunStatus::Completed,
+                    router: None,
+                    error: None,
+                },
+            ],
+            output: None,
+            error: None,
+        };
+
+        assert_eq!(
+            latest_agent_thread(&run, "agent-a").as_deref(),
+            Some("thread-a-2")
+        );
+        assert_eq!(latest_agent_thread(&run, "missing"), None);
+    }
+
+    #[test]
+    fn node_execution_budget_stops_unbounded_router_loops() {
+        let node_runs = (0..MAX_AGENT_GRAPH_NODE_RUNS)
+            .map(|index| AgentGraphNodeRun {
+                id: format!("node-{index}"),
+                node_id: "router".to_string(),
+                thread_id: None,
+                status: AgentGraphNodeRunStatus::Completed,
+                router: None,
+                error: None,
+            })
+            .collect::<Vec<_>>();
+        let mut run = AgentGraphRun {
+            schema_version: AGENT_GRAPH_RUN_SCHEMA_VERSION.to_string(),
+            id: "run-budget".to_string(),
+            graph_id: "graph-loop".to_string(),
+            graph_revision: "sha256:test".to_string(),
+            definition_workspace_path: "workspace".to_string(),
+            status: AgentGraphRunStatus::Running,
+            input: "start".to_string(),
+            node_runs,
+            output: None,
+            error: None,
+        };
+
+        assert!(ensure_node_run_budget(&run)
+            .unwrap_err()
+            .contains("64 node executions"));
+        run.node_runs.pop();
+        ensure_node_run_budget(&run).unwrap();
+    }
+
+    #[test]
+    fn rejects_cycles_that_are_not_controlled_by_a_router() {
+        let agent = |node_id: &str| {
+            PlannedNode::Agent(AgentStep {
+                node_id: node_id.to_string(),
+                workspace_path: "workspace".to_string(),
+                instructions: String::new(),
+                model: None,
+            })
+        };
+        let nodes = HashMap::from([
+            ("agent-a".to_string(), agent("agent-a")),
+            ("agent-b".to_string(), agent("agent-b")),
+        ]);
+        let outgoing = HashMap::from([
+            (
+                "agent-a".to_string(),
+                vec![PlannedEdge {
+                    id: "edge-a-b".to_string(),
+                    target: "agent-b".to_string(),
+                    source_route_id: None,
+                }],
+            ),
+            (
+                "agent-b".to_string(),
+                vec![PlannedEdge {
+                    id: "edge-b-a".to_string(),
+                    target: "agent-a".to_string(),
+                    source_route_id: None,
+                }],
+            ),
+        ]);
+
+        assert!(validate_controlled_cycles(&nodes, &outgoing)
+            .unwrap_err()
+            .contains("must include a Router"));
+    }
+
+    #[test]
+    fn rejects_router_cycles_without_an_exit_route() {
+        let nodes = HashMap::from([
+            (
+                "router".to_string(),
+                PlannedNode::Router(AgentGraphRouterNodeConfig {
+                    task: None,
+                    routes: Vec::new(),
+                    model: None,
+                }),
+            ),
+            (
+                "agent".to_string(),
+                PlannedNode::Agent(AgentStep {
+                    node_id: "agent".to_string(),
+                    workspace_path: "workspace".to_string(),
+                    instructions: String::new(),
+                    model: None,
+                }),
+            ),
+        ]);
+        let outgoing = HashMap::from([
+            (
+                "router".to_string(),
+                vec![PlannedEdge {
+                    id: "edge-router-agent".to_string(),
+                    target: "agent".to_string(),
+                    source_route_id: Some("again".to_string()),
+                }],
+            ),
+            (
+                "agent".to_string(),
+                vec![PlannedEdge {
+                    id: "edge-agent-router".to_string(),
+                    target: "router".to_string(),
+                    source_route_id: None,
+                }],
+            ),
+        ]);
+
+        assert!(validate_controlled_cycles(&nodes, &outgoing)
+            .unwrap_err()
+            .contains("requires a Router route that exits the loop"));
+    }
+
+    #[test]
     fn rejects_a_branch_from_a_non_router_node() {
         let fixture = Fixture::new();
         let mut definition = fixture.definition();
@@ -1006,33 +1289,39 @@ mod tests {
     }
 
     #[test]
-    fn rejects_cycles_even_when_a_router_can_reach_output() {
+    fn plans_router_controlled_rework_loops() {
         let fixture = Fixture::new();
         let definition: AgentGraphDefinition = serde_json::from_value(serde_json::json!({
             "schemaVersion": "tinybot.agent_graph.v1",
             "id": "graph-cycle",
-            "name": "Cycle",
+            "name": "Evidence review loop",
             "nodes": [
                 { "id": "input", "kind": "input", "position": { "x": 0, "y": 0 } },
-                { "id": "router", "kind": "condition", "position": { "x": 100, "y": 0 }, "config": { "routes": [
-                    { "id": "again", "label": "Again", "description": "Repeat." },
-                    { "id": "done", "label": "Done", "description": "Finish." }
+                { "id": "agent-a", "kind": "agent", "position": { "x": 100, "y": 0 }, "config": { "workspacePath": fixture.first_workspace, "instructions": "Investigate the alert." } },
+                { "id": "router", "kind": "condition", "position": { "x": 200, "y": 0 }, "config": { "routes": [
+                    { "id": "more-evidence", "label": "More evidence", "description": "The conclusion needs more evidence." },
+                    { "id": "done", "label": "Done", "description": "The conclusion is supported." }
                 ] } },
-                { "id": "agent", "kind": "agent", "position": { "x": 200, "y": 0 }, "config": { "workspacePath": fixture.first_workspace, "instructions": "" } },
-                { "id": "output", "kind": "output", "position": { "x": 300, "y": 0 } }
+                { "id": "agent-b", "kind": "agent", "position": { "x": 300, "y": 100 }, "config": { "workspacePath": fixture.second_workspace, "instructions": "Request the missing evidence." } },
+                { "id": "output", "kind": "output", "position": { "x": 300, "y": -100 } }
             ],
             "edges": [
-                { "id": "edge-input", "source": "input", "target": "router" },
-                { "id": "edge-again", "source": "router", "target": "agent", "sourceRouteId": "again" },
+                { "id": "edge-input", "source": "input", "target": "agent-a" },
+                { "id": "edge-review", "source": "agent-a", "target": "router" },
+                { "id": "edge-more-evidence", "source": "router", "target": "agent-b", "sourceRouteId": "more-evidence" },
                 { "id": "edge-done", "source": "router", "target": "output", "sourceRouteId": "done" },
-                { "id": "edge-cycle", "source": "agent", "target": "router" }
+                { "id": "edge-rework", "source": "agent-b", "target": "agent-a" }
             ]
         }))
         .unwrap();
 
-        let error = agent_graph_plan(&definition).unwrap_err();
+        let plan = agent_graph_plan(&definition).expect("Router-controlled loops should plan");
 
-        assert!(error.contains("cycles"));
+        assert_eq!(
+            single_outgoing_edge(&plan, "agent-b").unwrap().target,
+            "agent-a"
+        );
+        assert_eq!(plan.outgoing["router"].len(), 2);
     }
 
     #[test]

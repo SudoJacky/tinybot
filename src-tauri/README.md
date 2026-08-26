@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:44ce574f76afd1a41e5dfbc790bcb714213154dc3a816c34cfdd35e39e31b3b5 -->
+<!-- tinybot-module-fingerprint: sha256:f0234c0ac343498e90b562fde405a766cdd876c627777a841c6859909beeebb9 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -206,12 +206,14 @@ interfaces, while omitted overrides inherit application defaults. The Input
 node has no saved configuration; Run start requires a non-empty transient input
 and records that exact value on the Run. Legacy Input prompts are ignored and
 removed on the next save.
-Graph Runs use separate atomically replaced status files. Every Agent node
-invocation creates a canonical parentless Thread with `source: "agent_graph"`;
-its Rollout remains under the standard Thread root. Router nodes instead make
-one non-streaming, tool-free model request with a dedicated routing prompt,
+Graph Runs use separate atomically replaced status files. The first visit to an
+Agent node creates a canonical parentless Thread with `source: "agent_graph"`;
+later visits in the same Run continue that Thread with the preceding node's
+output. Its Rollout remains under the standard Thread root. Router nodes instead
+make one non-streaming, tool-free model request with a dedicated routing prompt,
 strictly parse an exact generated route token, and persist the selected stable
-route ID without creating a Thread.
+route ID without creating a Thread. Router-controlled loops require an exit
+route and are bounded to 64 Agent or Router executions per Run.
 
 For a Chat Thread with an explicitly declared working directory, the tool
 registry adds only Graphs stored in that same definition workspace. The global

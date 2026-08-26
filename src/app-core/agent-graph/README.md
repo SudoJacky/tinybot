@@ -32,13 +32,17 @@ workspace instructions remain intact. Nodes without a model override inherit
 application defaults. `AgentGraphRuntime.start` requires a non-empty input for
 each execution and copies that runtime value into the Run record; it is never
 part of the saved definition. Legacy persisted Input prompts are discarded when
-definitions are loaded or saved. The runtime accepts an acyclic Input-to-Output graph with model-driven Router
-branches and reconvergence. Router definitions contain an optional routing
+definitions are loaded or saved. The runtime accepts an Input-to-Output graph
+with model-driven Router branches, reconvergence, and controlled loops. Every
+loop must contain a Router route that exits it, and a Run is bounded to 64 Agent
+or Router executions. Router definitions contain an optional routing
 task, at least two stable route IDs with required labels and descriptions, and
 an optional provider/model/reasoning override. Every route owns exactly one
 outgoing edge through `sourceRouteId`; removing a route prunes its edge. Runtime
-preflight rejects cycles, disconnected nodes, incomplete routes, unsupported
-non-Router branching, or missing execution workspaces before creating a Run.
+preflight rejects non-Router cycles, loops without an exit, disconnected nodes,
+incomplete routes, unsupported non-Router branching, or missing execution
+workspaces before creating a Run. Re-entering an Agent node in one Run continues
+that node's existing Thread.
 See
 [ADR 0001](../../../docs/decisions/0001-agent-graph-definitions-runs-and-threads.md)
 for the store Interface, revision rules, and runtime boundary.

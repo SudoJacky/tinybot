@@ -1,5 +1,5 @@
 # Agent Graph Workbench
-<!-- tinybot-module-fingerprint: sha256:792a2f851855c19ae5395e06518c96a422acc883af2fb27bb2ba7a7b8b9f0208 -->
+<!-- tinybot-module-fingerprint: sha256:7cfbd908279ca5b0aed7abe506327321d400b08eeed3c20131e21fada69449e7 -->
 
 `agent-graph` owns the standalone Agent Graph route and its React presentation.
 The page creates one honest in-memory starter draft and exposes an unbounded
@@ -48,14 +48,16 @@ Graph as a Chat mode. It reuses only Chat's timeline presentation for standard
 Graph-owned Threads. It consumes the framework-independent definition in
 `app-core/agent-graph`; persistence and execution arrive through
 dedicated Graph interfaces. Execution follows one selected path through an
-acyclic graph, permits Router branches to reconverge, and creates Run entries
-only for nodes actually visited. Backend preflight rejects non-Router
-branching, cycles, disconnected nodes, incomplete route connections, and
-missing Agent workspaces.
+Graph, permits Router branches to reconverge or form bounded controlled loops,
+and creates one Run entry per node visit. Node status and Router details use the
+latest visit; an Agent re-entry continues its existing Thread so its timeline
+contains the complete loop history. Backend preflight rejects non-Router
+branching, uncontrolled cycles, disconnected nodes, incomplete route
+connections, and missing Agent workspaces.
 
 The page may reuse the workspaces already known to Chat and project groups as
 choices, but the selected definition workspace and each Agent node's execution
 workspace belong to Graph state. Graph definitions and Runs use distinct stores,
-and each Agent node creates a parentless standard Thread identified by
-`source: "agent_graph"` without routing execution through Chat. See
+and each Agent node's first visit creates a parentless standard Thread identified
+by `source: "agent_graph"` without routing execution through Chat. See
 [ADR 0001](../../../docs/decisions/0001-agent-graph-definitions-runs-and-threads.md).

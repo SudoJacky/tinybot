@@ -15,7 +15,7 @@ src-tauri/src/skills/definition.rs
 src-tauri/src/workspace/types.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:d6a8ce95d2f1f3ebcf27417e360353ed482e0c41192c4e7e7af35b69d1ee48b2 -->
+<!-- tinybot-doc-fingerprint: sha256:18d5bb241a039b9935798aae303605ab37886e56650eabb26ffa7bc0fa29e4df -->
 
 This document covers workspace operations and the extension catalogs available
 to Agents. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -88,13 +88,16 @@ outgoing edge.
 Runs live at `~/.tinybot/graph-runs/<graph-id>/<run-id>.json` and are atomically
 updated as nodes transition. Start requires a non-empty runtime `input`,
 reloads the requested saved revision, and copies that runtime value into the
-Run so the Input node can be inspected later. It then
-canonicalizes every Agent workspace and validates an acyclic Input-to-Output
-graph. Router branches may reconverge, while non-Router branching, cycles,
-disconnected nodes, incomplete route connections, and missing workspaces fail
-preflight. Each visited Agent node creates a fresh standard
-parentless Thread with `source: "agent_graph"`; final output becomes the next
-Agent input and the Output value. Node instructions enter the existing
+Run so the Input node can be inspected later. It then canonicalizes every Agent
+workspace and validates the Input-to-Output graph. Router branches may
+reconverge or form controlled loops when the loop contains a Router route that
+exits it. Non-Router cycles, loops without an exit, disconnected nodes,
+incomplete route connections, and missing workspaces fail preflight. A Run is
+also limited to 64 Agent or Router executions so a model cannot loop forever.
+The first visit to an Agent node creates a standard parentless Thread with
+`source: "agent_graph"`; later visits to that node in the same Run continue the
+same Thread. Final output becomes the next Agent input and the Output value.
+Node instructions enter the existing
 turn-scoped agent-role instruction source, while an optional node model tuple
 sets the Turn's model, provider, and reasoning effort. A Router performs one
 non-streaming provider request with a dedicated system prompt and no Agent
@@ -115,10 +118,11 @@ management listing, Chat tool discovery skips invalid Graph files, logs and
 returns path-specific diagnostics, and continues with the valid definitions.
 
 The Graph renderer selects a durable Run before inspecting a node. Input and
-Output use the Run's boundary values. Agent nodes use the node invocation's
-`threadId` with the normal Thread timeline APIs and the shared read-only Chat
-timeline renderer; they remain excluded from Chat session discovery. Router
-node runs expose the selected route/edge, raw response, and provider usage.
+Output use the Run's boundary values. Agent nodes use the latest node
+invocation's `threadId` with the normal Thread timeline APIs and the shared
+read-only Chat timeline renderer; a reused Thread contains every visit to that
+Agent. They remain excluded from Chat session discovery. Router node details
+show the latest selected route/edge, raw response, and provider usage.
 
 ## Workspace Commands
 

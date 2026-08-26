@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:b70a6d19025a633691dff21819befa9f045c2543232adc0b1da801167259755e -->
+<!-- tinybot-doc-fingerprint: sha256:da8f2fda8518c70289866519ab19f624f8b0997eb1ee7f2de4d172f3f2bcb59d -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -101,9 +101,10 @@ Desktop Commands / Desktop Host
   behavior remain renderer presentation state rather than persistence constraints.
 - Agent Graph Runs: application-owned status files under
   `~/.tinybot/graph-runs/<graph-id>/`. The runtime follows one model-selected
-  path through an acyclic Router graph, receives the initial task at Run time,
-  and delegates every visited Agent node to a fresh canonical
-  Thread. Per-node role
+  path through a Router graph, receives the initial task at Run time, and
+  permits Router-controlled loops with an exit route under a 64-node-execution
+  budget. The first visit to an Agent node creates a canonical Thread; later
+  visits in the same Run continue it. Per-node role
   instructions and optional Provider, model, and reasoning-effort settings use
   the existing Turn interfaces; the renderer only offers models from available
   Provider connections, while absent settings inherit application defaults.

@@ -16,7 +16,7 @@ Keeping all of this state in one record would mix three different lifecycles:
 - one execution creates short-lived orchestration state;
 - every Agent Loop invocation creates durable conversation history.
 
-The standalone editor, definition store, and acyclic routing runtime implement
+The standalone editor, definition store, and bounded routing runtime implement
 these separate lifecycles through explicit interfaces.
 
 ## Decision
@@ -169,9 +169,11 @@ type AgentGraphRun = {
 };
 ```
 
-Input, Router, and Output nodes execute in the Graph runtime and do not
-create Threads. Every Agent node invocation creates a fresh standard Thread
-with no synthetic parent and with enough origin metadata to trace it back:
+Input, Router, and Output nodes execute in the Graph runtime and do not create
+Threads. The first visit to an Agent node creates a standard Thread with no
+synthetic parent and enough origin metadata to trace it back. Re-entering that
+node during the same Run appends another Turn to the existing Thread while
+recording a distinct node-run:
 
 ```json
 {
@@ -204,10 +206,14 @@ The complete response is trimmed and must exactly equal one generated route
 token. Prose, code fences, unknown tokens, and ambiguous output fail the node;
 the runtime does not search substrings, guess a default, or retry.
 
-Runtime preflight accepts acyclic graphs whose Router branches may reconverge.
-Every node must be reachable from Input and able to reach Output. Input and
-Agent nodes have one outgoing edge, each Router route has one outgoing edge,
-and non-Router branching and cycles remain unsupported.
+Runtime preflight accepts Router branches that reconverge or form controlled
+loops. Every cyclic strongly connected component must contain a Router with a
+route that exits the component; non-Router cycles and loops without an exit are
+rejected. Every node must be reachable from Input and able to reach Output.
+Input and Agent nodes have one outgoing edge, and each Router route has one
+outgoing edge. A Run may execute at most 64 Agent or Router node-runs, after
+which it fails explicitly rather than allowing a model-selected route to loop
+forever.
 
 The Graph revision identifies the definition loaded at run start and detects
 later divergence. The first version does not retain historical definition

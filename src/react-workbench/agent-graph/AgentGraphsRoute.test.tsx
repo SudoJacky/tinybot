@@ -473,6 +473,15 @@ describe("AgentGraphsRoute", () => {
         nodeId: "router",
         status: "completed",
         router: {
+          rawResponse: "ROUTE_A",
+          selectedEdgeId: "edge-code",
+          selectedRouteId: "code",
+        },
+      }, {
+        id: "run-router-node-2",
+        nodeId: "router",
+        status: "completed",
+        router: {
           rawResponse: "ROUTE_B",
           selectedEdgeId: "edge-answer",
           selectedRouteId: "answer",
