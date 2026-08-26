@@ -11,7 +11,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:e792842a4c6ea94e6c341ffd1f4c59f29366636a94494ae1c87ae126984b5787 -->
+<!-- tinybot-doc-fingerprint: sha256:9f4a8625b8ad11297f66d665d46d7cd090a8bc650a849fde2f082d0be7b8ace5 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -74,8 +74,10 @@ Ordered contributors assemble built-in, workspace, MCP, runtime-control, and
 eligible project-group tools. For ordinary workspace-backed Chat Turns, they
 also assemble one deferred tool per saved Agent Graph in that exact canonical
 working directory. The configured backend workspace fallback alone does not
-make a Turn workspace-backed. Duplicate contributor IDs, tool IDs, or methods fail
-registry construction.
+make a Turn workspace-backed. Per-file Graph parse or validation failures are
+diagnosed and skipped at this discovery boundary so valid tools remain usable;
+Graph management operations retain strict validation. Duplicate contributor
+IDs, tool IDs, or methods fail registry construction.
 
 ## Exposure and availability
 

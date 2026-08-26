@@ -8,7 +8,7 @@ src-tauri/src/rpc/method.rs
 src-tauri/src/rpc/runtime.rs
 src-tauri/tests/crate/transport.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:9dba959a159ba35b192af1698208a31030852293b4c6b9e07b97c4e9ccb5509f -->
+<!-- tinybot-doc-fingerprint: sha256:bf79507e9152730a139d6a3f26bd7b11f30a67278f42f75a12ae08bffb636552 -->
 
 This document covers the Rust-owned WebUI route wrapper and Worker RPC protocol.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -161,7 +161,10 @@ deferred `agent_graph` tool for each saved Graph whose definition belongs to
 that exact canonical workspace. A request without an explicit working
 directory receives no Agent Graph tools; this prevents the backend default
 workspace from leaking into workspace-less Chat sessions. Each Graph tool
-accepts only a non-empty runtime `input` string.
+accepts only a non-empty runtime `input` string. Invalid Graph files are skipped
+without hiding valid tools or failing the request and are reported in the
+top-level `agentGraphDiagnostics` array with their path and parse or validation
+error. The Graph management list remains strict.
 
 Stdio configuration example:
 

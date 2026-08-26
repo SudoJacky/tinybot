@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:9e40dc41f0bec437925384254ff2a2e67faaf31c743ea1906916778e3d577443 -->
+<!-- tinybot-module-fingerprint: sha256:856731c86490f232ec287e3f6bdd39873d8cb1c595ad831efca154a52d8acc13 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -21,7 +21,9 @@ to [`agent::bridge`](../bridge/README.md).
 - Route model-requested tools through injected dispatch services.
 - Catalog saved Agent Graphs only for an ordinary Turn's explicitly declared
   working directory, and suppress them for Graph-created Agent node Turns and
-  Turns that only inherit the backend workspace fallback.
+  Turns that only inherit the backend workspace fallback. Invalid Graph files
+  are skipped with diagnostics during tool discovery instead of aborting the
+  Turn; the management listing path remains strict.
 - Expose persistent cross-workspace Thread tools only to eligible project-group
   coordinator Turns.
 - Evaluate hooks around provider, turn, thread, and context-compaction stages.

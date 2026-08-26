@@ -15,7 +15,7 @@ src-tauri/src/skills/definition.rs
 src-tauri/src/workspace/types.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:19774d460b4b07aecfd11d9111bb97e3ba8baab67c759567fc91eb9fa4b3ca6e -->
+<!-- tinybot-doc-fingerprint: sha256:d6a8ce95d2f1f3ebcf27417e360353ed482e0c41192c4e7e7af35b69d1ee48b2 -->
 
 This document covers workspace operations and the extension catalogs available
 to Agents. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -110,7 +110,9 @@ canonical working directory as a deferred tool. The model supplies only the
 runtime `input`; the execution target binds the definition workspace, Graph ID,
 and revision so arguments cannot redirect the call. A completed Run's final
 output becomes the model-visible tool result. Graph-created Agent node Turns do
-not receive Graph tools, preventing nested Graph execution.
+not receive Graph tools, preventing nested Graph execution. Unlike the strict
+management listing, Chat tool discovery skips invalid Graph files, logs and
+returns path-specific diagnostics, and continues with the valid definitions.
 
 The Graph renderer selects a durable Run before inspecting a node. Input and
 Output use the Run's boundary values. Agent nodes use the node invocation's

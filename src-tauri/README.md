@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:d85051015f994c187303b880c5c2c2af2b1f287901938e284785b9788c42306f -->
+<!-- tinybot-module-fingerprint: sha256:94ebbae4f877e29bc132ad232e526bb3bd8d9d5eda3cee370ba5ed005e4c804d -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -220,6 +220,9 @@ tool bound to its workspace, ID, and revision; the model supplies only the Run
 input. A selected tool waits for the Graph Run and projects its final output
 through the standard parent Turn tool-result path. Graph-created Agent Threads
 do not receive Graph tools, preventing nested or recursive Graph execution.
+Tool discovery skips invalid Graph files and emits a path-specific diagnostic,
+so one stale definition cannot abort an unrelated Chat Turn; Graph management
+listing remains strict so invalid saved definitions are not hidden.
 
 Desktop startup moves canonical Rollouts from the former
 `<workspace>/.tinybot/{threads,archived_threads}` layout into the application

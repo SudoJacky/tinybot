@@ -1,5 +1,5 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:06d7d13f4013dd956a84240e9d60978912f68055e6b7d5d62f0f4b3fa658aaf0 -->
+<!-- tinybot-module-fingerprint: sha256:baf89387042746758d8ee57690dadea8dedcdd7ad94b1a9ad607ce10ae1db5ca -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,
@@ -19,6 +19,9 @@ enabled-plugin entries only. Both Tools routes accept an optional
 `workingDirectory` query so Chat can catalog the active Thread workspace while
 non-Graph entries for callers that omit it continue to use the configured
 backend workspace.
+Invalid Agent Graph files are omitted only from this tool-discovery response and
+reported in `agentGraphDiagnostics`; the dedicated Graph management commands
+continue to reject invalid saved definitions.
 
 Workspace file queries normally use the configured default workspace. The
 Thread file-preview command is the scoped exception: it accepts a Thread ID,

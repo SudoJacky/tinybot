@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:2823f405950927be3a82d0211721634668f534153fb92093974cfeb0d1ec5e76 -->
+<!-- tinybot-doc-fingerprint: sha256:b70a6d19025a633691dff21819befa9f045c2543232adc0b1da801167259755e -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,

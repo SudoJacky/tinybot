@@ -226,6 +226,12 @@ definition workspace, Graph ID, and exact revision. Its model-visible input
 schema contains only one required `input` string, so the model cannot substitute
 another workspace, Graph, or revision.
 
+Tool discovery is deliberately tolerant at the file boundary: an invalid saved
+Graph is omitted with a path-specific diagnostic while other valid Graphs remain
+available. Definition management listing stays strict and reports the invalid
+file, preserving visibility of corrupt or obsolete definitions without allowing
+one of them to abort an unrelated Chat Turn.
+
 The tool waits for the Graph Run to reach a terminal state. A completed Run's
 final output becomes the model-visible content of the normal tool result in the
 parent Turn, so subsequent context assembly and token estimation use the

@@ -1,4 +1,4 @@
-use crate::project_groups::canonical_workspace;
+use crate::project_groups::{canonical_workspace, workspace_id};
 use crate::storage::atomic::{write_text_atomic, AtomicWriteOptions, WorkerStorageError};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -139,6 +139,19 @@ pub(crate) struct StoredAgentGraph {
     pub(crate) revision: String,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct AgentGraphDiscoveryDiagnostic {
+    pub(crate) path: String,
+    pub(crate) error: String,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AgentGraphToolDiscovery {
+    pub(crate) graphs: Vec<StoredAgentGraph>,
+    pub(crate) diagnostics: Vec<AgentGraphDiscoveryDiagnostic>,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ListAgentGraphsInput {
@@ -169,13 +182,55 @@ pub(crate) fn list(input: ListAgentGraphsInput) -> Result<Vec<StoredAgentGraph>,
 pub(crate) fn list_for_workspace(workspace_path: &Path) -> Result<Vec<StoredAgentGraph>, String> {
     let workspace = canonical_workspace(workspace_path)?;
     let _guard = store_lock()?;
-    let directory = graph_directory(&workspace)?;
+    let mut graphs = graph_files(&workspace)?
+        .into_iter()
+        .map(|path| read_stored_graph(&path))
+        .collect::<Result<Vec<_>, _>>()?;
+    sort_graphs(&mut graphs);
+    Ok(graphs)
+}
+
+pub(crate) fn discover_tools_for_workspace(
+    workspace_path: &Path,
+) -> Result<AgentGraphToolDiscovery, String> {
+    let workspace = canonical_workspace(workspace_path)?;
+    let _guard = store_lock()?;
+    let mut graphs = Vec::new();
+    let mut diagnostics = Vec::new();
+    for path in graph_files(&workspace)? {
+        match read_stored_graph(&path) {
+            Ok(graph) => graphs.push(graph),
+            Err(error) => diagnostics.push(AgentGraphDiscoveryDiagnostic {
+                path: path.display().to_string(),
+                error,
+            }),
+        }
+    }
+    sort_graphs(&mut graphs);
+    for diagnostic in &diagnostics {
+        eprintln!(
+            "agent_graph_tool_discovery_skipped {}",
+            serde_json::json!({
+                "workspacePath": workspace_id(&workspace),
+                "path": diagnostic.path,
+                "error": diagnostic.error,
+            })
+        );
+    }
+    Ok(AgentGraphToolDiscovery {
+        graphs,
+        diagnostics,
+    })
+}
+
+fn graph_files(workspace: &Path) -> Result<Vec<PathBuf>, String> {
+    let directory = graph_directory(workspace)?;
     let entries = match fs::read_dir(&directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(io_error("read Agent Graph directory", &directory, error)),
     };
-    let mut graphs = Vec::new();
+    let mut paths = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|error| io_error("read Agent Graph entry", &directory, error))?;
         let path = entry.path();
@@ -187,8 +242,13 @@ pub(crate) fn list_for_workspace(workspace_path: &Path) -> Result<Vec<StoredAgen
         {
             continue;
         }
-        graphs.push(read_stored_graph(&path)?);
+        paths.push(path);
     }
+    paths.sort();
+    Ok(paths)
+}
+
+fn sort_graphs(graphs: &mut [StoredAgentGraph]) {
     graphs.sort_by(|left, right| {
         left.definition
             .name
@@ -196,7 +256,6 @@ pub(crate) fn list_for_workspace(workspace_path: &Path) -> Result<Vec<StoredAgen
             .cmp(&right.definition.name.to_lowercase())
             .then_with(|| left.definition.id.cmp(&right.definition.id))
     });
-    Ok(graphs)
 }
 
 pub(crate) fn load(
@@ -750,6 +809,50 @@ mod tests {
         let contents = fs::read_to_string(path).unwrap();
         assert!(!contents.contains("This persisted prompt must be ignored."));
         assert!(!contents.contains("\"prompt\""));
+    }
+
+    #[test]
+    fn tool_discovery_skips_invalid_graphs_without_weakening_management_listing() {
+        let fixture = Fixture::new();
+        let stored = save(SaveAgentGraphInput {
+            workspace_path: fixture.workspace_path(),
+            definition: fixture.definition(),
+            expected_revision: None,
+        })
+        .unwrap();
+        let directory = fixture.workspace.join(".tinybot/graphs");
+        fs::write(
+            directory.join("broken.json"),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "schemaVersion": "tinybot.agent_graph.v1",
+                "id": "broken",
+                "name": "Legacy broken Graph",
+                "nodes": [
+                    { "id": "input", "kind": "input", "position": { "x": 0, "y": 0 } },
+                    { "id": "agent", "kind": "agent", "position": { "x": 100, "y": 0 }, "config": {
+                        "workspacePath": fixture.workspace.display().to_string()
+                    } },
+                    { "id": "output", "kind": "output", "position": { "x": 200, "y": 0 } }
+                ],
+                "edges": [
+                    { "id": "input-agent", "source": "input", "target": "agent" },
+                    { "id": "agent-output", "source": "agent", "target": "output" }
+                ]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let strict_error = list_for_workspace(&fixture.workspace).unwrap_err();
+        assert!(strict_error.contains("failed to parse Agent Graph"));
+
+        let discovery = discover_tools_for_workspace(&fixture.workspace).unwrap();
+        assert_eq!(discovery.graphs, vec![stored]);
+        assert_eq!(discovery.diagnostics.len(), 1);
+        assert!(discovery.diagnostics[0].path.ends_with("broken.json"));
+        assert!(discovery.diagnostics[0]
+            .error
+            .contains("failed to parse Agent Graph"));
     }
 
     #[test]

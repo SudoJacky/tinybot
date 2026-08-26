@@ -347,10 +347,11 @@ async fn worker_webui_tools_body(
             &mut config_snapshot,
             &workspace_root,
         )?;
-        let graph_tools = if include_workspace_graphs {
+        let (graph_tools, graph_diagnostics) = if include_workspace_graphs {
             let definition_workspace = crate::project_groups::canonical_workspace(&workspace_root)?;
-            let graphs = crate::agent_graphs::list_for_workspace(&definition_workspace)?;
-            if graphs.is_empty() {
+            let discovery =
+                crate::agent_graphs::discover_tools_for_workspace(&definition_workspace)?;
+            let graph_tools = if discovery.graphs.is_empty() {
                 Vec::new()
             } else {
                 use crate::tools::registry::{AgentGraphToolContributor, WorkerToolRegistryRpc};
@@ -362,7 +363,7 @@ async fn worker_webui_tools_body(
                 )
                 .with_contributor(Arc::new(AgentGraphToolContributor::new(
                     crate::project_groups::workspace_id(&definition_workspace),
-                    graphs,
+                    discovery.graphs,
                 )?))?
                 .list_tools()
                 .tools
@@ -386,9 +387,10 @@ async fn worker_webui_tools_body(
                     })
                 })
                 .collect::<Vec<_>>()
-            }
+            };
+            (graph_tools, discovery.diagnostics)
         } else {
-            Vec::new()
+            (Vec::new(), Vec::new())
         };
         let mut skills = crate::workspace_extensions::discover_workspace_skills(&workspace_root)?
             .into_iter()
@@ -443,6 +445,8 @@ async fn worker_webui_tools_body(
         tools.extend(graph_tools);
         result["total"] = serde_json::json!(tools.len());
         result["skills"] = serde_json::Value::Array(skills);
+        result["agentGraphDiagnostics"] = serde_json::to_value(graph_diagnostics)
+            .map_err(|error| format!("failed to serialize Agent Graph diagnostics: {error}"))?;
         Ok(result)
     })
     .await
