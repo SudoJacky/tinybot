@@ -3,11 +3,12 @@ export type ProviderModelDiscovery =
   | { status: "static"; endpoint: null };
 
 export type BuiltInProviderPreset = {
-  id: "deepseek" | "dashscope" | "openai";
+  id: "deepseek" | "dashscope" | "openai" | "zai";
   label: string;
   builtIn: true;
   defaultBaseUrl: string;
   defaultModels: string[];
+  supportsResponsesApi: boolean;
   modelDiscovery: ProviderModelDiscovery;
 };
 
@@ -33,6 +34,7 @@ export type ProviderCardModel = {
   baseUrl: string;
   apiKeyConfigured: boolean;
   useResponsesApi: boolean;
+  supportsResponsesApi: boolean;
   supportsReasoningEffort?: boolean;
   modelCount: number;
   defaultModel: string | null;
@@ -112,6 +114,8 @@ const BUILT_IN_MODEL_CONTEXT_WINDOW_TOKENS: Record<string, number> = {
   "deepseek-v4-flash": 1_000_000,
   "deepseek-v4-flash-vision-exp": 1_000_000,
   "deepseek-v4-pro": 1_000_000,
+  "glm-5.3": 1_000_000,
+  "glm-5.3-flash": 1_000_000,
 };
 
 export const BUILT_IN_PROVIDER_PRESETS: BuiltInProviderPreset[] = [
@@ -121,6 +125,7 @@ export const BUILT_IN_PROVIDER_PRESETS: BuiltInProviderPreset[] = [
     builtIn: true,
     defaultBaseUrl: "https://api.deepseek.com",
     defaultModels: ["deepseek-v4-pro", "deepseek-v4-flash"],
+    supportsResponsesApi: true,
     modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
   },
   {
@@ -129,6 +134,7 @@ export const BUILT_IN_PROVIDER_PRESETS: BuiltInProviderPreset[] = [
     builtIn: true,
     defaultBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
     defaultModels: ["qwen-plus", "qwen-max", "qwen-turbo"],
+    supportsResponsesApi: true,
     modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
   },
   {
@@ -137,7 +143,17 @@ export const BUILT_IN_PROVIDER_PRESETS: BuiltInProviderPreset[] = [
     builtIn: true,
     defaultBaseUrl: "https://api.openai.com/v1",
     defaultModels: ["gpt-4.1"],
+    supportsResponsesApi: true,
     modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
+  },
+  {
+    id: "zai",
+    label: "Z.ai",
+    builtIn: true,
+    defaultBaseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    defaultModels: ["glm-5.3", "glm-5.3-flash", "glm-5.2"],
+    supportsResponsesApi: false,
+    modelDiscovery: { status: "static", endpoint: null },
   },
 ];
 
@@ -194,6 +210,9 @@ export function buildProviderConfigurePatch(input: ProviderConfigurePatchInput):
     profile.apiKey = apiKey;
   }
   if (input.useResponsesApi !== undefined) {
+    if (input.useResponsesApi && preset?.supportsResponsesApi === false) {
+      throw new Error(`${preset.label} does not support Responses API.`);
+    }
     profile.apiMode = input.useResponsesApi ? "responses" : "chat_completions";
   }
   if (input.supportsReasoningEffort !== undefined) {
@@ -344,7 +363,8 @@ function buildProviderCard(
     profileId,
     baseUrl: stringValue(pick(profile, "apiBase", "api_base")) || preset.defaultBaseUrl,
     apiKeyConfigured,
-    useResponsesApi: usesResponsesApi(profile),
+    useResponsesApi: preset.supportsResponsesApi && usesResponsesApi(profile),
+    supportsResponsesApi: preset.supportsResponsesApi,
     modelCount: models.length,
     defaultModel,
     models,
@@ -389,6 +409,7 @@ function buildCustomProviderCard(
     baseUrl,
     apiKeyConfigured: hasConfiguredApiKey(profile),
     useResponsesApi: usesResponsesApi(profile),
+    supportsResponsesApi: true,
     supportsReasoningEffort,
     modelCount: models.length,
     defaultModel,

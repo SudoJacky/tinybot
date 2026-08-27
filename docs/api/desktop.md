@@ -494,7 +494,7 @@ Provider selection is profile-based. New config should use `agents.defaults.acti
 Reasoning effort is not an Agent Defaults setting. A legacy `agents.defaults.reasoningEffort` value
 may remain in raw config for read compatibility, but the settings registry does not expose it and the
 agent runtime does not apply it to model requests.
-The built-in provider catalog currently exposes only `deepseek`, `dashscope`, and `openai`.
+The built-in provider catalog currently exposes `deepseek`, `dashscope`, `openai`, and `zai`.
 Profiles are not limited to that catalog: a profile with a custom provider ID, explicit `apiBase`,
 and at least one model is resolved as an OpenAI-compatible provider. Its optional API key remains on
 the existing secret/redaction path, and `supportsModelDiscovery` controls `/models` discovery.
@@ -513,11 +513,16 @@ Context windows are model-specific. A provider profile can store explicit overri
 
 The runtime prefers a turn override, then the active profile's model override, then Tinybot's
 known-model default. `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`, and
-`deepseek-v4-pro` default to `1000000`; unknown models use the legacy
-`agents.defaults.contextWindowTokens` value when present and otherwise fall back to `128000`.
+`deepseek-v4-pro`, plus `glm-5.3` and `glm-5.3-flash`, default to `1000000`;
+unknown models use the legacy `agents.defaults.contextWindowTokens` value when present and
+otherwise fall back to `128000`.
 The settings UI edits these values per model instead of applying one global window to every model.
 Each profile defaults to Chat Completions. Set `apiMode` to `responses` (or enable **Use Responses
 API** in provider settings) only when its endpoint supports `/responses`.
+The built-in `zai` profile is restricted to Chat Completions. It uses
+`https://open.bigmodel.cn/api/paas/v4` and maps Tinybot's maximum-output setting to Z.ai's
+`max_tokens` field. Z.ai profiles reject unsupported Responses mode, out-of-range temperature,
+and explicitly requested parallel tool calls before a request is sent.
 
 OpenAI-compatible provider profiles accept separate network deadlines:
 
@@ -541,6 +546,9 @@ Provider model discovery:
 - `dashscope` uses the same OpenAI-compatible model discovery shape against its configured
   `apiBase`, so the default discovery URL is
   `https://dashscope.aliyuncs.com/compatible-mode/v1/models`.
+- `zai` uses the static `glm-5.3`, `glm-5.3-flash`, and `glm-5.2` model list. Live `/models`
+  discovery is disabled because the supported integration contract only guarantees Chat
+  Completions.
 
 `POST /api/provider-models` accepts `{ provider, profile, apiBase, refreshLive }`. When
 `refreshLive: true` is used for an OpenAI-compatible provider, the backend reads the configured

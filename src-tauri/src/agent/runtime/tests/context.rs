@@ -1355,6 +1355,8 @@ fn context_window_uses_whitelisted_model_default_when_unconfigured() {
         "deepseek-v4-flash",
         "deepseek-v4-flash-vision-exp",
         "deepseek-v4-pro",
+        "glm-5.3",
+        "glm-5.3-flash",
     ] {
         let context = AgentTurnContext::from_spec(json!({ "model": model }), json!({}));
 

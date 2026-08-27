@@ -481,7 +481,12 @@ async fn wait_for_provider_cancellation(cancellation: Arc<dyn WorkerRequestCance
 }
 
 fn openai_client(profile: NativeProviderProfile) -> Result<Client<OpenAIConfig>, NativeChatError> {
-    let api_base = profile.api_base.as_deref().unwrap_or_default().trim();
+    let api_base = profile
+        .api_base
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .trim_end_matches('/');
     if api_base.is_empty() {
         return Err(chat_error(
             format!("provider '{}' requires api_base", profile.provider_id),

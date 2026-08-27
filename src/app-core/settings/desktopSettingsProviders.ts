@@ -97,7 +97,8 @@ export function buildDesktopProviderCatalogItems(payload: unknown): DesktopProvi
   return providers.filter((provider): provider is UnknownRecord => provider !== null && typeof provider === "object" && !Array.isArray(provider)).map((provider) => ({
     id: stringValue(provider.id),
     displayName: stringValue(pick(provider, "displayName", "display_name")),
-    baseUrl: stringValue(pick(provider, "baseUrl", "base_url")),
+    baseUrl: stringValue(pick(provider, "baseUrl", "base_url", "defaultApiBase", "default_api_base")),
+    supportsModelDiscovery: pick(provider, "supportsModelDiscovery", "supports_model_discovery") !== false,
     status: stringValue(provider.status),
     enabled: typeof provider.enabled === "boolean" ? provider.enabled : null,
   }));
@@ -174,7 +175,8 @@ export function buildDesktopProviderSummaries(
       apiBase,
       modelsText: parseDesktopProviderModelList(models).join("\n"),
       supportsModelDiscovery: pick(profile, "supportsModelDiscovery", "supports_model_discovery") !== false
-        && pick(legacyProvider, "supportsModelDiscovery", "supports_model_discovery") !== false,
+        && pick(legacyProvider, "supportsModelDiscovery", "supports_model_discovery") !== false
+        && catalogProvider?.supportsModelDiscovery !== false,
       status,
       enabled,
       enabledConfigured,

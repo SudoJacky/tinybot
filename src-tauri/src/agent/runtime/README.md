@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:856731c86490f232ec287e3f6bdd39873d8cb1c595ad831efca154a52d8acc13 -->
+<!-- tinybot-module-fingerprint: sha256:397b9984c59cdbc4f39b46eeb3ea054df47a622b1a05dbf7d73e366e4b8bd060 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -84,8 +84,9 @@ discarding history.
 
 `context_window_config.rs` resolves the effective window behind one runtime
 interface. Turn overrides win over Provider Profile model overrides; known
-DeepSeek V4 models then use 1M automatically, while the legacy global value is
-retained only as an unknown-model fallback before the 128K default.
+DeepSeek V4 models plus Z.ai's GLM-5.3 and GLM-5.3-Flash then use 1M
+automatically, while the legacy global value is retained only as an
+unknown-model fallback before the 128K default.
 
 Project-group coordinator Turns receive `spawn_workspace_thread` and
 `send_thread_message`. Each call authorizes the target workspace against the
@@ -139,6 +140,13 @@ The selected adapter owns all protocol-shaped behavior:
 - assistant text, reasoning, usage, and tool-call decoding;
 - tool-result encoding for the following model request;
 - provider-native response items used by durable replay.
+
+Chat Completions keeps provider-specific wire differences behind an internal
+dialect seam. The built-in Z.ai dialect emits `max_tokens`, omits the
+undocumented streaming-usage option, validates its temperature range, and
+rejects explicitly requested parallel tool calls. Its Provider Profile is
+Chat Completions only, so an invalid Responses selection fails before network
+dispatch.
 
 Reasoning remains provider/replay data and a debug trace concern; it is not a
 product-facing canonical timeline item. This keeps Chat Completions and

@@ -1,5 +1,5 @@
 # Settings Application Core
-<!-- tinybot-module-fingerprint: sha256:53b630b29c6161747f8ca623f811fe49e68cd7925baa7473613332aefc3cb583 -->
+<!-- tinybot-module-fingerprint: sha256:72d1cc4537bd38988b0d5d640a10500fe59ef209035e0df4ba997951f292ec1b -->
 
 `settings` owns framework-independent settings contracts, metadata, value
 semantics, validation, pane models, and persistence patch construction.
@@ -18,3 +18,8 @@ strategy values resolve to `compact`.
 Custom provider patches declare `supportsReasoningEffort: true` by default and
 preserve an explicit `false`, allowing the native request adapters to omit
 effort for endpoints that reject it.
+
+Built-in provider presets include Z.ai with a static GLM model list and a
+Chat-Completions-only protocol choice. The dynamic desktop catalog preserves
+backend default API bases and model-discovery support so both settings entry
+points present the same connection contract.

@@ -24,16 +24,16 @@ pub(super) struct DecodedProtocolResponse {
 
 impl ProviderProtocolAdapter {
     pub fn resolve(context: &AgentTurnContext, provider_config: &Value) -> Result<Self, String> {
+        let profile = crate::agent::provider::resolve_provider_profile(
+            provider_config,
+            context.settings.provider.as_deref(),
+            None,
+        );
         let api_mode = if let Some(api_mode) = context.api_mode.as_deref() {
             NativeProviderApiMode::parse(api_mode)
                 .map_err(|_| format!("agent session has unsupported api_mode `{api_mode}`"))?
         } else {
-            let profile = crate::agent::provider::resolve_provider_profile(
-                provider_config,
-                context.settings.provider.as_deref(),
-                None,
-            )
-            .ok_or_else(|| {
+            let profile = profile.as_ref().ok_or_else(|| {
                 let provider = context
                     .settings
                     .provider
@@ -43,6 +43,9 @@ impl ProviderProtocolAdapter {
             })?;
             profile.parsed_api_mode()?
         };
+        if let Some(profile) = profile.as_ref() {
+            profile.require_api_mode(api_mode)?;
+        }
         Ok(match api_mode {
             NativeProviderApiMode::ChatCompletions => Self::ChatCompletions,
             NativeProviderApiMode::Responses => Self::Responses,

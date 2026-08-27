@@ -6,6 +6,8 @@ const DEFAULT_MODEL_CONTEXT_WINDOW_TOKENS: &[(&str, i64)] = &[
     ("deepseek-v4-flash", 1_000_000),
     ("deepseek-v4-flash-vision-exp", 1_000_000),
     ("deepseek-v4-pro", 1_000_000),
+    ("glm-5.3", 1_000_000),
+    ("glm-5.3-flash", 1_000_000),
 ];
 
 pub(super) fn resolve_context_window_tokens(context: &AgentTurnContext) -> i64 {

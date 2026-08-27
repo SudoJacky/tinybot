@@ -2,6 +2,7 @@ export interface DesktopProviderCatalogItem {
   id?: string;
   displayName?: string;
   baseUrl?: string;
+  supportsModelDiscovery?: boolean;
   status?: string;
   enabled?: boolean | null;
 }

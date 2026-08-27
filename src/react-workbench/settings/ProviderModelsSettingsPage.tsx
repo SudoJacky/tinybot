@@ -467,6 +467,7 @@ const PROVIDER_LOGOS: Record<string, string> = {
   dashscope: "/assets/providers/dashscope.svg",
   deepseek: "/assets/providers/deepseek.svg",
   openai: "/assets/providers/openai.svg",
+  zai: "/assets/providers/zai.svg",
 };
 
 function ProviderBrandIcon({ provider }: { provider: ProviderCardModel }) {
@@ -611,16 +612,18 @@ function ProviderConfigureDialog({
           <fieldset className="react-provider-config__section react-provider-config__mode">
             <legend>{t("provider.configureDialog.apiMode")}</legend>
             <div>
-              <label data-selected={useResponsesApi || undefined}>
-                <input
-                  checked={useResponsesApi}
-                  name="provider-api-mode"
-                  type="radio"
-                  value="responses"
-                  onChange={() => setUseResponsesApi(true)}
-                />
-                <span>{t("provider.responsesApi")}</span>
-              </label>
+              {provider.supportsResponsesApi ? (
+                <label data-selected={useResponsesApi || undefined}>
+                  <input
+                    checked={useResponsesApi}
+                    name="provider-api-mode"
+                    type="radio"
+                    value="responses"
+                    onChange={() => setUseResponsesApi(true)}
+                  />
+                  <span>{t("provider.responsesApi")}</span>
+                </label>
+              ) : null}
               <label data-selected={!useResponsesApi || undefined}>
                 <input
                   checked={!useResponsesApi}
@@ -632,7 +635,9 @@ function ProviderConfigureDialog({
                 <span>{t("provider.chatCompletions")}</span>
               </label>
             </div>
-            <small>{t("provider.configureDialog.responsesHelp")}</small>
+            <small>{provider.supportsResponsesApi
+              ? t("provider.configureDialog.responsesHelp")
+              : t("provider.configureDialog.chatOnlyHelp")}</small>
           </fieldset>
           {!provider.builtIn ? (
             <section className="react-provider-config__section" aria-labelledby="provider-features-title">

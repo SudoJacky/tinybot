@@ -1030,6 +1030,40 @@ fn chat_completion_request_enables_parallel_tool_calls_only_when_explicitly_requ
 }
 
 #[test]
+fn zai_rejects_parallel_tool_calls_before_sending_a_request() {
+    let mut context = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "model": "glm-5.3",
+            "provider": "zai",
+            "parallelToolCalls": true,
+            "messages": [{ "role": "user", "content": "wait for delegated work" }]
+        }),
+        json!({}),
+    );
+    let mut tools = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
+        WorkerCapability::BackgroundRead,
+        WorkerCapability::SessionMetadataRead,
+        WorkerCapability::SessionWrite,
+    ]))
+    .list_tools()
+    .tools;
+    let wait_tool = tools
+        .iter_mut()
+        .find(|tool| tool.tool_id == "subagent.wait")
+        .expect("subagent wait should be registered");
+    wait_tool.supports_parallel_tool_calls = true;
+    wait_tool.runtime_policy.supports_parallel_tool_calls = true;
+    context.tool_router = NativeToolRouter::new(tools);
+
+    let error = agent_chat_completion_request(&context)
+        .expect_err("Z.ai should reject unsupported parallel tool calls");
+
+    assert!(error.contains("zai"));
+    assert!(error.contains("parallel_tool_calls"));
+}
+
+#[test]
 fn chat_completion_request_exposes_core_controls_when_no_capability_tools_are_available() {
     let mut context = AgentTurnContext::from_spec(
         json!({

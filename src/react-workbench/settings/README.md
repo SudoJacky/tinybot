@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:5c7a073cd5689844eb49a18a0e894420f37c87aa362ba34387a69a67d6ce9a02 -->
+<!-- tinybot-module-fingerprint: sha256:968436084d143e4bb4b27fcd52a149e7b048ed0ad5d5237ff5b192aa49e52960 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
@@ -52,6 +52,8 @@ shared `components/ui/useModalDialog` seam.
 The Provider & Models page exposes reasoning-effort support only for custom
 providers. New custom profiles start enabled; users can disable it while
 creating or configuring the profile when an endpoint rejects effort fields.
+The built-in Z.ai provider presents its static GLM models and Chat Completions
+mode without offering the unsupported Responses choice.
 Its model manager configures context windows per model with the shared
 `SettingsChoiceList`: known models default to Tinybot's automatic value,
 unknown models show the runtime fallback, and either can store a custom positive

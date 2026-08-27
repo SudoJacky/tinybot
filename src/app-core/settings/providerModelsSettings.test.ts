@@ -33,7 +33,7 @@ describe("provider models settings", () => {
     expect(settings.revision).toBe("hash:1");
     expect(settings.activeProfileId).toBe("deepseek-default");
     expect(settings.fallbackContextWindowTokens).toBe(128_000);
-    expect(settings.providers.map((provider) => provider.id)).toEqual(["deepseek", "dashscope", "openai"]);
+    expect(settings.providers.map((provider) => provider.id)).toEqual(["deepseek", "dashscope", "openai", "zai"]);
     expect(settings.providers.find((provider) => provider.id === "deepseek")).toMatchObject({
       label: "DeepSeek",
       profileId: "deepseek-default",
@@ -52,6 +52,18 @@ describe("provider models settings", () => {
     });
     expect(settings.providers.find((provider) => provider.id === "dashscope")).toMatchObject({
       modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
+    });
+    expect(settings.providers.find((provider) => provider.id === "zai")).toMatchObject({
+      label: "Z.ai",
+      baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+      defaultModel: "glm-5.3",
+      supportsResponsesApi: false,
+      modelDiscovery: { status: "static", endpoint: null },
+      models: [
+        { id: "glm-5.3", label: "glm-5.3", source: "built-in" },
+        { id: "glm-5.3-flash", label: "glm-5.3-flash", source: "built-in" },
+        { id: "glm-5.2", label: "glm-5.2", source: "built-in" },
+      ],
     });
     expect(BUILT_IN_PROVIDER_PRESETS.every((preset) => preset.builtIn)).toBe(true);
   });
@@ -129,6 +141,35 @@ describe("provider models settings", () => {
         },
       },
     });
+  });
+
+  test("keeps the built-in Z.ai provider on Chat Completions", () => {
+    expect(buildProviderConfigurePatch({
+      providerId: "zai",
+      profileId: "zai-default",
+      apiBase: "https://open.bigmodel.cn/api/paas/v4",
+      apiKey: "zai-secret",
+      useResponsesApi: false,
+      enabled: true,
+    })).toEqual({
+      providers: {
+        profiles: {
+          "zai-default": {
+            provider: "zai",
+            displayName: "Z.ai",
+            enabled: true,
+            apiBase: "https://open.bigmodel.cn/api/paas/v4",
+            apiKey: "zai-secret",
+            apiMode: "chat_completions",
+          },
+        },
+      },
+    });
+    expect(() => buildProviderConfigurePatch({
+      providerId: "zai",
+      apiBase: "https://open.bigmodel.cn/api/paas/v4",
+      useResponsesApi: true,
+    })).toThrow("Z.ai does not support Responses API");
   });
 
   test("builds an OpenAI-compatible custom provider profile", () => {
@@ -222,6 +263,14 @@ describe("provider models settings", () => {
 
   test("resolves known model windows and persists per-model overrides", () => {
     expect(automaticModelContextWindow("deepseek-v4-flash-vision-exp")).toEqual({
+      known: true,
+      tokens: 1_000_000,
+    });
+    expect(automaticModelContextWindow("glm-5.3")).toEqual({
+      known: true,
+      tokens: 1_000_000,
+    });
+    expect(automaticModelContextWindow("glm-5.3-flash")).toEqual({
       known: true,
       tokens: 1_000_000,
     });

@@ -711,6 +711,7 @@ export const en = {
         apiMode: "API mode",
         features: "Features",
         responsesHelp: "Use Responses API only when the endpoint supports /responses.",
+        chatOnlyHelp: "This provider supports Chat Completions only.",
       },
       addDialog: {
         close: "Close add provider",

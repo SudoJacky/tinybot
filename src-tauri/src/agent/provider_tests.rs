@@ -58,7 +58,7 @@ fn provider_catalog_exposes_current_built_in_providers_only() {
         .map(|entry| entry["id"].as_str().unwrap())
         .collect::<Vec<_>>();
 
-    assert_eq!(provider_ids, vec!["openai", "deepseek", "dashscope"]);
+    assert_eq!(provider_ids, vec!["openai", "deepseek", "dashscope", "zai"]);
     assert!(!provider_ids.contains(&"openrouter"));
     assert!(!provider_ids.contains(&"ollama"));
     assert!(!provider_ids.contains(&"custom"));
@@ -69,6 +69,22 @@ fn provider_catalog_exposes_current_built_in_providers_only() {
         .find(|entry| entry["id"] == "deepseek")
         .unwrap();
     assert_eq!(deepseek["capabilities"], json!(["reasoning"]));
+    let zai = body["providers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["id"] == "zai")
+        .unwrap();
+    assert_eq!(
+        zai["defaultApiBase"],
+        "https://open.bigmodel.cn/api/paas/v4"
+    );
+    assert_eq!(zai["supportsModelDiscovery"], false);
+    assert_eq!(zai["supportedApiModes"], json!(["chat_completions"]));
+    assert_eq!(
+        zai["curatedModelIds"],
+        json!(["glm-5.3", "glm-5.3-flash", "glm-5.2"])
+    );
 }
 
 #[test]
@@ -139,6 +155,28 @@ fn resolves_responses_api_mode_from_profile_setting() {
         profile.parsed_api_mode().unwrap(),
         NativeProviderApiMode::Responses
     );
+}
+
+#[test]
+fn zai_profile_cannot_enable_unsupported_live_model_discovery() {
+    let profile = resolve_provider_profile(
+        &json!({
+            "agents": { "defaults": { "activeProfile": "zai-default" } },
+            "providers": {
+                "profiles": {
+                    "zai-default": {
+                        "provider": "zai",
+                        "supportsModelDiscovery": true
+                    }
+                }
+            }
+        }),
+        None,
+        None,
+    )
+    .unwrap();
+
+    assert!(!profile.supports_model_discovery);
 }
 
 #[tokio::test]
@@ -450,7 +488,7 @@ fn agent_chat_completion_streams_fixture_response_to_observer() {
 #[test]
 fn agent_chat_completion_preserves_streaming_request_to_provider() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
-    let api_base = format!("http://{}", listener.local_addr().unwrap());
+    let api_base = format!("http://{}/", listener.local_addr().unwrap());
     let (request_tx, request_rx) = mpsc::channel();
     let server = thread::spawn(move || {
         if let Ok((mut stream, _)) = listener.accept() {
@@ -505,6 +543,7 @@ fn agent_chat_completion_preserves_streaming_request_to_provider() {
         .expect("provider request should be captured");
     let _ = server.join();
 
+    assert!(captured_request.starts_with("POST /chat/completions "));
     assert!(captured_request.contains(r#""stream":true"#));
     assert_eq!(result["choices"][0]["message"]["content"], "streamed");
 }
