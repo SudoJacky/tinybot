@@ -848,6 +848,18 @@ describe("DesktopShell", () => {
     expect(within(modelsDialog).getByRole("button", {
       name: "Context window mode for deepseek-v4-pro: Auto · 1M",
     })).toBeTruthy();
+    const imageInputToggle = within(modelsDialog).getByRole("button", {
+      name: "Image input for deepseek-v4-pro",
+    });
+    expect(imageInputToggle.getAttribute("aria-pressed")).toBe("false");
+    await user.click(imageInputToggle);
+    expect(imageInputToggle.getAttribute("aria-pressed")).toBe("true");
+    const backupModel = within(modelsDialog).getByRole("radio", {
+      name: "Use deepseek-v4-flash as the backup model",
+    }) as HTMLInputElement;
+    expect(backupModel.checked).toBe(false);
+    await user.click(backupModel);
+    expect(backupModel.checked).toBe(true);
     await user.click(within(modelsDialog).getByRole("button", { name: "Refresh models" }));
     await waitFor(() => expect(fetchProviderModels).toHaveBeenCalledWith({
       providerId: "deepseek",
@@ -876,9 +888,9 @@ describe("DesktopShell", () => {
             provider: "deepseek",
             models: ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-live"],
             enabledModels: ["deepseek-v4-pro", "deepseek-v4-flash"],
-            defaultModel: "deepseek-v4-pro",
+            defaultModel: "deepseek-v4-flash",
             modelContextWindows: [{ model: "deepseek-live", contextWindowTokens: 32000 }],
-            modelCapabilities: [],
+            modelCapabilities: [{ model: "deepseek-v4-pro", inputModalities: ["image"] }],
           },
         },
       },
@@ -960,7 +972,7 @@ describe("DesktopShell", () => {
     await user.type(within(dialog).getByLabelText("Display name"), "Local OpenAI");
     await user.type(within(dialog).getByLabelText("Custom API base"), "http://127.0.0.1:11434/v1");
     await user.type(within(dialog).getByLabelText("Custom API key"), "local-secret");
-    await user.type(within(dialog).getByLabelText("Provider fallback model"), "local-model");
+    await user.type(within(dialog).getByLabelText("Backup model"), "local-model");
     const reasoningEffort = within(dialog).getByRole("checkbox", { name: /Send reasoning effort/ }) as HTMLInputElement;
     expect(reasoningEffort.checked).toBe(true);
     await user.click(reasoningEffort);

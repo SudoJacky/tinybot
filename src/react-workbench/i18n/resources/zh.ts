@@ -305,7 +305,7 @@ export const zh = {
       modelsFrom: "来自 {{name}} 的模型", searchModels: "搜索模型", showingModels: "显示 {{shown}} / {{total}}", modelSelection: "选择模型",
       selectModel: "选择模型 {{name}}", noModelMatches: "没有符合搜索条件的模型。", noModelsConfigured: "尚未配置模型。",
       newConversationNote: "更改只影响新会话；已有会话会保留自己的模型。", saveDefaultModel: "保存默认模型", providerLabel: "{{name}} Provider",
-      active: "当前使用", fallback: "Provider 兜底模型", notSelected: "未选择", apiKeyMissing: "未设置 API Key", manageModels: "管理 {{name}} 的模型",
+      active: "当前使用", fallback: "备用模型", notSelected: "未选择", apiKeyMissing: "未设置 API Key", manageModels: "管理 {{name}} 的模型",
       manage: "管理", configureProvider: "配置 {{name}}", setUp: "设置", moreActions: "{{name}} 的更多操作", providerActions: "{{name}} Provider 操作",
       models: "模型", configure: "配置", status: { connected: "已连接", attention: "需要处理", notConfigured: "未配置" },
       configureDialog: {
@@ -319,7 +319,7 @@ export const zh = {
         close: "关闭添加 Provider", description: "配置兼容 OpenAI 的 Endpoint。", providerId: "Provider ID",
         invalidId: "请使用小写字母、数字、连字符或下划线。", duplicateId: "此 Provider ID 已存在。", displayName: "显示名称", apiBase: "API Base",
         customApiBase: "自定义 API Base", invalidUrl: "请输入有效的 HTTP 或 HTTPS URL。", apiKey: "API Key", customApiKey: "自定义 API Key",
-        optionalLocal: "本地 Endpoint 可选", fallbackModel: "Provider 兜底模型", discoverModels: "从 /models Endpoint 发现模型",
+        optionalLocal: "本地 Endpoint 可选", fallbackModel: "备用模型", discoverModels: "从 /models Endpoint 发现模型",
         useResponses: "使用 Responses API", responsesRequirement: "需要兼容的 /responses Endpoint", activate: "设为当前 Provider 和默认模型", adding: "正在添加",
       },
       modelsDialog: {
@@ -330,7 +330,10 @@ export const zh = {
         contextAuto: "自动 · {{tokens}}", contextDefault: "默认 · {{tokens}}", contextCustom: "自定义",
         contextTokens: "{{name}} 的自定义上下文窗口", contextInvalid: "请输入正整数。",
         enabledCount: "已启用 {{count}} / {{total}} 个模型", enabled: "启用", enableModel: "在模型选择器中启用 {{name}}",
-        imageInput: "图像输入", imageInputFor: "允许 {{name}} 使用图像输入",
+        model: "模型", capabilities: "模型能力",
+        imageInputFor: "{{name}} 的图像输入",
+        backupModel: "备用",
+        selectBackupModel: "将 {{name}} 设为备用模型",
       },
     },
     config: {

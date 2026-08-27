@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:e534a4f821ad67aa8e978633e1779404bf492723151d5f369b345d58a826a8fa -->
+<!-- tinybot-module-fingerprint: sha256:e01dda907fb762f444b63603bb40427c9658eeae8fe5f19ab5b57d25ceb62f10 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
@@ -59,8 +59,11 @@ Its model manager configures context windows per model with the shared
 unknown models show the runtime fallback, and either can store a custom positive
 Token limit. Agent Defaults retains the compaction strategy but no longer
 presents one editable window as if it applied to every model.
-Each model row also controls whether the model appears in shared selectors and
-whether it accepts image input. Existing profiles remain enabled by default;
-newly discovered models enter the catalog disabled so large Provider listings
-do not flood Chat and Agent Graph controls. Known vision models receive their
-automatic image capability, which users can override per profile.
+Each model row uses a dedicated enable checkbox for shared selectors and a
+compact image capability button; a lit image icon means the profile declares
+image input for that model. A compact radio control selects the Provider's
+backup model without repeating a full action label in every row. Existing
+profiles remain enabled by default; newly discovered models enter the catalog
+disabled so large Provider listings do not flood Chat and Agent Graph controls.
+Known vision models receive their automatic image capability, which users can
+override per profile.

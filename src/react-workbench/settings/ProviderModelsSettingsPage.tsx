@@ -1,4 +1,4 @@
-import { Check, ChevronRight, EllipsisVertical, Loader2, Plus, RefreshCw, Search, Settings, Trash2 } from "lucide-react";
+import { Check, ChevronRight, EllipsisVertical, Image as ImageIcon, Loader2, Plus, RefreshCw, Search, Settings, Trash2 } from "lucide-react";
 import type { TFunction } from "i18next";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -982,51 +982,65 @@ function ProviderModelsDialog({
       wide
     >
       {(requestClose) => (
-        <div className="react-settings-sheet__content">
-          <label>
-            <span>{t("provider.searchModels")}</span>
-            <input
-              aria-label={t("provider.searchModels")}
-              data-dialog-initial-focus
-              placeholder={t("provider.searchModels")}
-              value={query}
-              onChange={(event) => setQuery(event.currentTarget.value)}
-            />
-          </label>
-          <p className="react-provider-model-selection-summary" role="status">
-            {t("provider.modelsDialog.enabledCount", {
-              count: models.filter((model) => model.enabled).length,
-              total: models.length,
-            })}
-          </p>
+        <div className="react-settings-sheet__content react-provider-model-manager">
+          <div className="react-provider-model-toolbar">
+            <label className="react-provider-model-search">
+              <span>{t("provider.searchModels")}</span>
+              <input
+                aria-label={t("provider.searchModels")}
+                data-dialog-initial-focus
+                placeholder={t("provider.searchModels")}
+                value={query}
+                onChange={(event) => setQuery(event.currentTarget.value)}
+              />
+            </label>
+            <p className="react-provider-model-selection-summary" role="status">
+              {t("provider.modelsDialog.enabledCount", {
+                count: models.filter((model) => model.enabled).length,
+                total: models.length,
+              })}
+            </p>
+          </div>
           <div className="react-provider-model-list">
+            <div className="react-provider-model-list__header" aria-hidden="true">
+              <span>{t("provider.modelsDialog.enabled")}</span>
+              <span>{t("provider.modelsDialog.model")}</span>
+              <span>{t("provider.modelsDialog.capabilities")}</span>
+              <span>{t("provider.modelsDialog.contextWindow")}</span>
+              <span>{t("provider.modelsDialog.backupModel")}</span>
+              <span />
+            </div>
             {filteredModels.map((model) => (
-              <div className="react-provider-model-row" key={model.id}>
-                <div>
-                  <strong>{model.label}</strong>
-                  <small>{model.id}</small>
+              <div className="react-provider-model-row" data-enabled={model.enabled} key={model.id}>
+                <label
+                  className="react-provider-model-enable"
+                  title={t("provider.modelsDialog.enableModel", { name: model.id })}
+                >
+                  <input
+                    aria-label={t("provider.modelsDialog.enableModel", { name: model.id })}
+                    checked={model.enabled}
+                    type="checkbox"
+                    onChange={(event) => setModelEnabled(model.id, event.currentTarget.checked)}
+                  />
+                </label>
+                <div className="react-provider-model-identity">
+                  <div>
+                    <strong>{model.label}</strong>
+                    <span className="react-provider-model-source">{modelSourceLabel(model.source, t)}</span>
+                  </div>
+                  {model.label !== model.id ? <small>{model.id}</small> : null}
                 </div>
-                <span>{modelSourceLabel(model.source, t)}</span>
-                <div className="react-provider-model-features">
-                  <label>
-                    <input
-                      aria-label={t("provider.modelsDialog.enableModel", { name: model.id })}
-                      checked={model.enabled}
-                      type="checkbox"
-                      onChange={(event) => setModelEnabled(model.id, event.currentTarget.checked)}
-                    />
-                    <span>{t("provider.modelsDialog.enabled")}</span>
-                  </label>
-                  <label>
-                    <input
-                      aria-label={t("provider.modelsDialog.imageInputFor", { name: model.id })}
-                      checked={model.supportsImageInput}
-                      type="checkbox"
-                      onChange={(event) => setModelImageInput(model.id, event.currentTarget.checked)}
-                    />
-                    <span>{t("provider.modelsDialog.imageInput")}</span>
-                  </label>
-                </div>
+                <button
+                  className="react-provider-model-capability"
+                  data-press-feedback="true"
+                  type="button"
+                  aria-label={t("provider.modelsDialog.imageInputFor", { name: model.id })}
+                  aria-pressed={model.supportsImageInput}
+                  title={t("provider.modelsDialog.imageInputFor", { name: model.id })}
+                  onClick={() => setModelImageInput(model.id, !model.supportsImageInput)}
+                >
+                  <ImageIcon aria-hidden="true" size={16} strokeWidth={1.8} />
+                </button>
                 <ModelContextWindowControl
                   fallbackContextWindowTokens={fallbackContextWindowTokens}
                   invalid={invalidContextWindowModels.has(model.id)}
@@ -1035,16 +1049,24 @@ function ProviderModelsDialog({
                   onTokensChange={(value) => setContextWindowTokens(model.id, value)}
                   overrideValue={contextWindowDrafts[model.id]}
                 />
-                <button
-                  data-press-feedback="true"
-                  type="button"
-                  disabled={!model.enabled}
-                  onClick={() => setDefaultModel(model.id)}
+                <label
+                  className="react-provider-model-default"
+                  title={t("provider.modelsDialog.selectBackupModel", { name: model.id })}
                 >
-                  {defaultModel === model.id ? <Check aria-hidden="true" size={15} /> : null}
-                  {t("provider.fallback")}
-                </button>
+                  <input
+                    aria-label={t("provider.modelsDialog.selectBackupModel", { name: model.id })}
+                    checked={defaultModel === model.id}
+                    disabled={!model.enabled}
+                    name={`provider-backup-${provider.profileId}`}
+                    type="radio"
+                    onChange={() => setDefaultModel(model.id)}
+                  />
+                  <span className="react-provider-model-default__label" aria-hidden="true">
+                    {t("provider.modelsDialog.backupModel")}
+                  </span>
+                </label>
                 <button
+                  className="react-provider-model-remove"
                   data-press-feedback="true"
                   type="button"
                   aria-label={t("provider.modelsDialog.remove", { name: model.id })}
