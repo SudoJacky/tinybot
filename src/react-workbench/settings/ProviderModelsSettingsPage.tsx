@@ -7,6 +7,7 @@ import {
   buildProviderConfigurePatch,
   buildProviderModelsPatch,
   buildProviderModelsSettings,
+  automaticModelCapabilities,
   automaticModelContextWindow,
   type ProviderModelFetchInput,
   type ProviderModelFetchResult,
@@ -174,23 +175,26 @@ function DefaultLlmPanel({
   const savedDefaultModel = savedPreference?.modelId ?? "";
   const initialProviderFromDefaultModel = data.providers.find((provider) => (
     provider.id === savedPreference?.providerId
-    && provider.models.some((model) => model.id === savedDefaultModel)
+    && provider.models.some((model) => model.enabled && model.id === savedDefaultModel)
   )) ?? data.providers.find((provider) => (
-    provider.models.some((model) => model.id === savedDefaultModel)
+    provider.models.some((model) => model.enabled && model.id === savedDefaultModel)
   ));
   const initialProfileId = initialProviderFromDefaultModel?.profileId ?? data.activeProfileId
     ?? data.providers.find((provider) => provider.configured)?.profileId
     ?? data.providers[0]?.profileId
     ?? "";
   const initialProvider = data.providers.find((provider) => provider.profileId === initialProfileId) ?? data.providers[0];
-  const initialModelOptions = initialProvider?.models ?? [];
+  const initialModelOptions = initialProvider?.models.filter((model) => model.enabled) ?? [];
   const initialModel = savedDefaultModel
     && initialModelOptions.some((model) => model.id === savedDefaultModel)
     ? savedDefaultModel
     : initialProvider?.defaultModel ?? initialModelOptions[0]?.id ?? "";
   const [profileId, setProfileId] = useState(initialProfileId);
   const selectedProvider = data.providers.find((provider) => provider.profileId === profileId) ?? data.providers[0];
-  const modelOptions = useMemo(() => selectedProvider?.models ?? [], [selectedProvider]);
+  const modelOptions = useMemo(
+    () => selectedProvider?.models.filter((model) => model.enabled) ?? [],
+    [selectedProvider],
+  );
   const [model, setModel] = useState(initialModel);
   const [modelSearch, setModelSearch] = useState("");
   const [saving, setSaving] = useState(false);
@@ -203,7 +207,7 @@ function DefaultLlmPanel({
 
   useEffect(() => {
     const nextProvider = data.providers.find((provider) => provider.profileId === profileId) ?? data.providers[0];
-    const nextModels = nextProvider?.models ?? [];
+    const nextModels = nextProvider?.models.filter((option) => option.enabled) ?? [];
     if (!nextModels.some((option) => option.id === model)) {
       setModel(nextProvider?.defaultModel ?? nextModels[0]?.id ?? "");
     }
@@ -294,7 +298,7 @@ function DefaultLlmPanel({
                         type="button"
                         onClick={() => {
                           setProfileId(provider.profileId);
-                          setModel(provider.defaultModel ?? provider.models[0]?.id ?? "");
+                          setModel(provider.defaultModel ?? provider.models.find((model) => model.enabled)?.id ?? "");
                           setModelSearch("");
                         }}
                       >
@@ -830,7 +834,9 @@ function ProviderModelsDialog({
   const [query, setQuery] = useState("");
   const [models, setModels] = useState(provider.models);
   const [newModel, setNewModel] = useState("");
-  const [defaultModel, setDefaultModel] = useState(provider.defaultModel ?? provider.models[0]?.id ?? "");
+  const [defaultModel, setDefaultModel] = useState(
+    provider.defaultModel ?? provider.models.find((model) => model.enabled)?.id ?? "",
+  );
   const [contextWindowDrafts, setContextWindowDrafts] = useState<Record<string, string>>(() => (
     Object.fromEntries(Object.entries(provider.modelContextWindows).map(([model, tokens]) => [model, String(tokens)]))
   ));
@@ -853,7 +859,13 @@ function ProviderModelsDialog({
     if (!id || models.some((model) => model.id === id)) {
       return;
     }
-    setModels([...models, { id, label: id, source: "user" }]);
+    setModels([...models, {
+      id,
+      label: id,
+      source: "user",
+      enabled: true,
+      supportsImageInput: automaticModelCapabilities(id).supportsImageInput,
+    }]);
     setNewModel("");
     if (!defaultModel) {
       setDefaultModel(id);
@@ -872,8 +884,24 @@ function ProviderModelsDialog({
       return next;
     });
     if (defaultModel === model.id) {
-      setDefaultModel(nextModels[0]?.id ?? "");
+      setDefaultModel(nextModels.find((item) => item.enabled)?.id ?? "");
     }
+  }
+
+  function setModelEnabled(modelId: string, enabled: boolean) {
+    const nextModels = models.map((model) => model.id === modelId ? { ...model, enabled } : model);
+    setModels(nextModels);
+    if (enabled && !defaultModel) {
+      setDefaultModel(modelId);
+    } else if (!enabled && defaultModel === modelId) {
+      setDefaultModel(nextModels.find((model) => model.enabled)?.id ?? "");
+    }
+  }
+
+  function setModelImageInput(modelId: string, supportsImageInput: boolean) {
+    setModels((current) => current.map((model) => (
+      model.id === modelId ? { ...model, supportsImageInput } : model
+    )));
   }
 
   function setContextWindowMode(model: string, mode: "auto" | "custom") {
@@ -911,7 +939,7 @@ function ProviderModelsDialog({
       if (result.models.length) {
         setModels((currentModels) => mergeFetchedModels(currentModels, result.models));
         if (!defaultModel) {
-          setDefaultModel(result.models[0] ?? "");
+          setDefaultModel(currentEnabledModelId(models));
         }
       }
       setRefreshMessage(result.error || result.warning || (result.models.length
@@ -930,10 +958,15 @@ function ProviderModelsDialog({
       providerId: provider.id,
       profileId: provider.profileId,
       models: models.map((model) => model.id),
+      enabledModels: models.filter((model) => model.enabled).map((model) => model.id),
       defaultModel,
       modelContextWindows: Object.entries(contextWindowDrafts).map(([model, value]) => ({
         model,
         contextWindowTokens: Number.parseInt(value, 10),
+      })),
+      modelCapabilities: models.map((model) => ({
+        model: model.id,
+        inputModalities: model.supportsImageInput ? ["image"] : [],
       })),
     }));
     onSaved();
@@ -960,6 +993,12 @@ function ProviderModelsDialog({
               onChange={(event) => setQuery(event.currentTarget.value)}
             />
           </label>
+          <p className="react-provider-model-selection-summary" role="status">
+            {t("provider.modelsDialog.enabledCount", {
+              count: models.filter((model) => model.enabled).length,
+              total: models.length,
+            })}
+          </p>
           <div className="react-provider-model-list">
             {filteredModels.map((model) => (
               <div className="react-provider-model-row" key={model.id}>
@@ -968,6 +1007,26 @@ function ProviderModelsDialog({
                   <small>{model.id}</small>
                 </div>
                 <span>{modelSourceLabel(model.source, t)}</span>
+                <div className="react-provider-model-features">
+                  <label>
+                    <input
+                      aria-label={t("provider.modelsDialog.enableModel", { name: model.id })}
+                      checked={model.enabled}
+                      type="checkbox"
+                      onChange={(event) => setModelEnabled(model.id, event.currentTarget.checked)}
+                    />
+                    <span>{t("provider.modelsDialog.enabled")}</span>
+                  </label>
+                  <label>
+                    <input
+                      aria-label={t("provider.modelsDialog.imageInputFor", { name: model.id })}
+                      checked={model.supportsImageInput}
+                      type="checkbox"
+                      onChange={(event) => setModelImageInput(model.id, event.currentTarget.checked)}
+                    />
+                    <span>{t("provider.modelsDialog.imageInput")}</span>
+                  </label>
+                </div>
                 <ModelContextWindowControl
                   fallbackContextWindowTokens={fallbackContextWindowTokens}
                   invalid={invalidContextWindowModels.has(model.id)}
@@ -976,7 +1035,12 @@ function ProviderModelsDialog({
                   onTokensChange={(value) => setContextWindowTokens(model.id, value)}
                   overrideValue={contextWindowDrafts[model.id]}
                 />
-                <button data-press-feedback="true" type="button" onClick={() => setDefaultModel(model.id)}>
+                <button
+                  data-press-feedback="true"
+                  type="button"
+                  disabled={!model.enabled}
+                  onClick={() => setDefaultModel(model.id)}
+                >
                   {defaultModel === model.id ? <Check aria-hidden="true" size={15} /> : null}
                   {t("provider.fallback")}
                 </button>
@@ -1090,9 +1154,19 @@ function mergeFetchedModels(currentModels: ProviderModelItem[], fetchedModelIds:
       continue;
     }
     seen.add(id);
-    next.push({ id, label: id, source: "live" });
+    next.push({
+      id,
+      label: id,
+      source: "live",
+      enabled: false,
+      supportsImageInput: automaticModelCapabilities(id).supportsImageInput,
+    });
   }
   return next;
+}
+
+function currentEnabledModelId(models: ProviderModelItem[]): string {
+  return models.find((model) => model.enabled)?.id ?? "";
 }
 
 function modelSourceLabel(source: ProviderModelItem["source"], t: TFunction<"settings">): string {

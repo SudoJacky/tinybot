@@ -1,5 +1,5 @@
 # Desktop Adapters
-<!-- tinybot-module-fingerprint: sha256:505cf24c8acab1a94281c30e9e9393608fede0d354958737bcc998bad83df6e5 -->
+<!-- tinybot-module-fingerprint: sha256:aa45c12c93a433448f6a08c956441e125bd09f780470bfc3e5609b9c0335ac7e -->
 
 `adapters` implements renderer store interfaces over Tinybot's native and
 app-core modules. It owns event projection and the Settings, Tools, and
@@ -16,8 +16,11 @@ for workspace selection and path containment.
 
 The desktop Settings adapter projects the native Provider catalog into the
 shared Chat model catalog. Only enabled Providers whose runtime status is
-`available` or `ready` contribute selectable models, so Chat and Agent Graph
-cannot select models from configured-but-unavailable connections.
+`available` or `ready` contribute selectable models, and only their
+`enabledModels` entries are exposed. The projection also carries resolved
+image-input capability into the shared model contract, so Chat, quick chat, and
+Agent Graph cannot select disabled models or models from unavailable
+connections.
 
 The desktop Tools adapter normalizes callable tools, MCP server source/status,
 and Skill summaries into the renderer-facing `ToolCatalogSummary`. It uses the

@@ -517,6 +517,28 @@ known-model default. `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`, and
 unknown models use the legacy `agents.defaults.contextWindowTokens` value when present and
 otherwise fall back to `128000`.
 The settings UI edits these values per model instead of applying one global window to every model.
+Provider profiles can also separate their discovered model catalog from the models shown in model
+selectors. `models` retains the available IDs, while `enabledModels` contains only the IDs exposed
+in Chat, Agent Graphs, and other shared model pickers. When `enabledModels` is absent, existing
+profile `models` remain enabled for backward compatibility. Models newly returned by a refresh are
+added to the catalog but remain disabled until selected in Provider & Models settings.
+
+Image input is a model capability rather than an API-mode capability. Profiles can override it with
+`modelCapabilities`:
+
+```json
+{
+  "enabledModels": ["custom-vision"],
+  "modelCapabilities": [
+    { "model": "custom-vision", "inputModalities": ["image"] }
+  ]
+}
+```
+
+Missing capability entries use Tinybot's known-model defaults. `glm-5.3-flash` and
+`deepseek-v4-flash-vision-exp` support image input by default; unknown models default to text-only
+until enabled explicitly. The runtime enforces the resolved model capability before either Chat
+Completions or Responses requests are constructed.
 Each profile defaults to Chat Completions. Set `apiMode` to `responses` (or enable **Use Responses
 API** in provider settings) only when its endpoint supports `/responses`.
 The built-in `zai` profile is restricted to Chat Completions. It uses

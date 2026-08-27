@@ -1,11 +1,12 @@
 # Configuration
-<!-- tinybot-module-fingerprint: sha256:c74cc0b89d78d0ae24e03fb5e17935c6a6efeac05414ca885cf8f6f11474d166 -->
+<!-- tinybot-module-fingerprint: sha256:ce76f776fd55a7accbded72c0e417347680e09bc3f71d5ef72da87c6e7fbc442 -->
 
 `config` owns loading, validating, and persisting Tinybot configuration.
 
 It separates application settings, registry entries, runtime configuration,
 secret handling, and the underlying configuration store.
 
-Provider Profile `modelContextWindows` is canonical camelCase configuration;
-the store accepts `model_context_windows` on input and the registry exposes the
-per-model entries as profile-scoped JSON.
+Provider Profile `enabledModels`, `modelContextWindows`, and
+`modelCapabilities` are canonical camelCase configuration. The store accepts
+their snake_case aliases on input, and the registry exposes each per-model
+collection as profile-scoped JSON.

@@ -667,6 +667,18 @@ fn provider_models_group(config: &Value) -> SettingsGroup {
                 profile.get("models").cloned(),
             ));
             fields.push(config_field(
+                &format!("provider-profile-{profile_id}-enabled-models"),
+                "Enabled models",
+                &format!("{prefix}.enabledModels"),
+                SettingScope::Profile,
+                SettingValueType::Json,
+                true,
+                profile
+                    .get("enabledModels")
+                    .or_else(|| profile.get("enabled_models"))
+                    .cloned(),
+            ));
+            fields.push(config_field(
                 &format!("provider-profile-{profile_id}-model-context-windows"),
                 "Per-model context windows",
                 &format!("{prefix}.modelContextWindows"),
@@ -676,6 +688,18 @@ fn provider_models_group(config: &Value) -> SettingsGroup {
                 profile
                     .get("modelContextWindows")
                     .or_else(|| profile.get("model_context_windows"))
+                    .cloned(),
+            ));
+            fields.push(config_field(
+                &format!("provider-profile-{profile_id}-model-capabilities"),
+                "Per-model capabilities",
+                &format!("{prefix}.modelCapabilities"),
+                SettingScope::Profile,
+                SettingValueType::Json,
+                true,
+                profile
+                    .get("modelCapabilities")
+                    .or_else(|| profile.get("model_capabilities"))
                     .cloned(),
             ));
             fields.push(config_field(

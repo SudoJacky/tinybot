@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:a38e990058c44d117004a9bb56a4f5c1f7052b643fa973dbea99f96b600f152b -->
+<!-- tinybot-module-fingerprint: sha256:0d3e5f8204a5b68eba52062e00afa365c203062bdf21d2b7ae502fc5774ec2c7 -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -9,6 +9,10 @@ interaction independent from native storage. The composer supports internal
 attachment state for ordinary Chat and controlled attachment state for native
 entry points such as desktop-pet quick chat; both paths share selection limits,
 removal, file-only submission, and successful-send clearing.
+Model options may declare image-input support. The composer rejects newly
+selected images for text-only models while retaining ordinary files, and an
+existing incompatible image blocks sending after a model switch until the user
+removes it or selects an image-capable model.
 Its slash listbox combines route-provided executable commands with searchable
 Skill options, including shared arrow-key, Enter/Tab, and Escape behavior.
 Any slash immediately behind the caret starts or resets the active query; typing

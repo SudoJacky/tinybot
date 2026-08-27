@@ -84,6 +84,65 @@ describe("desktop settings store", () => {
     ]);
   });
 
+  it("does not expose models from a provider explicitly disabled in config", async () => {
+    const store = createDesktopSettingsStore({
+      initialize: async () => undefined,
+      nativeConfig: {
+        get: async () => ({
+          agents: { defaults: { model: "deepseek-chat", provider: "deepseek" } },
+          providers: {
+            profiles: {
+              "deepseek-default": {
+                provider: "deepseek",
+                enabled: false,
+                models: ["deepseek-chat"],
+              },
+            },
+          },
+        }),
+      },
+      nativeWebui: { route: async () => ({ providers: [{ id: "deepseek", status: "ready" }] }) },
+    });
+
+    await expect(store.loadChatModels!()).resolves.toEqual([]);
+  });
+
+  it("only exposes enabled models and carries image capabilities into shared selectors", async () => {
+    const get = vi.fn(async () => ({
+      agents: { defaults: { activeProfile: "zai-default", model: "glm-5.3-flash", provider: "zai" } },
+      providers: {
+        profiles: {
+          "zai-default": {
+            provider: "zai",
+            apiKeyConfigured: true,
+            models: ["glm-5.3", "glm-5.3-flash", "custom-vision"],
+            enabledModels: ["glm-5.3-flash", "custom-vision"],
+            modelCapabilities: [{ model: "custom-vision", inputModalities: ["image"] }],
+          },
+        },
+      },
+    }));
+    const store = createDesktopSettingsStore({
+      initialize: async () => undefined,
+      nativeConfig: { get },
+      nativeWebui: { route: async () => ({ providers: [{ id: "zai", status: "ready" }] }) },
+    });
+
+    await expect(store.loadChatModels!()).resolves.toEqual([
+      expect.objectContaining({
+        default: true,
+        id: "glm-5.3-flash",
+        providerId: "zai",
+        supportsImageInput: true,
+      }),
+      expect.objectContaining({
+        id: "custom-vision",
+        providerId: "zai",
+        supportsImageInput: true,
+      }),
+    ]);
+  });
+
   it("does not hide provider catalog failures", async () => {
     const failure = new Error("provider catalog unavailable");
     const store = createDesktopSettingsStore({

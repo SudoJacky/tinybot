@@ -8,6 +8,7 @@ const DEFAULT_AGENT_MODEL: &str = "deepseek-v4-pro";
 const DEFAULT_PROVIDER_TIMEOUT_MS: u64 = 120_000;
 const OPENAI_API_MODES: &[&str] = &["chat_completions", "responses"];
 const CHAT_COMPLETIONS_ONLY: &[&str] = &["chat_completions"];
+const BUILT_IN_IMAGE_INPUT_MODELS: &[&str] = &["deepseek-v4-flash-vision-exp", "glm-5.3-flash"];
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -37,6 +38,7 @@ pub struct NativeProviderProfile {
     pub api_key_configured: bool,
     pub models: Vec<String>,
     pub model_context_windows: BTreeMap<String, i64>,
+    pub model_input_modalities: BTreeMap<String, BTreeSet<String>>,
     pub supports_model_discovery: bool,
     pub supports_reasoning_effort: bool,
     pub capabilities: Value,
@@ -65,6 +67,20 @@ impl NativeProviderProfile {
         self.model_context_windows
             .get(&model.trim().to_ascii_lowercase())
             .copied()
+    }
+
+    pub fn supports_input_modality(&self, model: &str, modality: &str) -> bool {
+        let model = model.trim().to_ascii_lowercase();
+        let modality = modality.trim().to_ascii_lowercase();
+        self.model_input_modalities
+            .get(&model)
+            .map(|modalities| modalities.contains(&modality))
+            .unwrap_or_else(|| {
+                modality == "image"
+                    && BUILT_IN_IMAGE_INPUT_MODELS
+                        .iter()
+                        .any(|candidate| candidate.eq_ignore_ascii_case(&model))
+            })
     }
 
     pub fn require_api_mode(&self, api_mode: NativeProviderApiMode) -> Result<(), String> {
@@ -557,6 +573,8 @@ pub fn resolve_provider_profile(
         .unwrap_or_default();
     let model_context_windows =
         model_context_windows_field(provider_config.unwrap_or(&Value::Null));
+    let model_input_modalities =
+        model_input_modalities_field(provider_config.unwrap_or(&Value::Null));
     let request_timeout_ms = u64_field(provider_config.unwrap_or(&Value::Null), "timeout_ms")
         .or_else(|| u64_field(provider_config.unwrap_or(&Value::Null), "timeoutMs"))
         .or_else(|| {
@@ -598,6 +616,7 @@ pub fn resolve_provider_profile(
         api_key,
         models,
         model_context_windows,
+        model_input_modalities,
         supports_model_discovery: catalog
             .map(|entry| entry.supports_model_discovery)
             .unwrap_or(true)
@@ -807,6 +826,32 @@ fn model_context_windows_field(value: &Value) -> BTreeMap<String, i64> {
                 .and_then(Value::as_i64)
                 .filter(|tokens| *tokens > 0)?;
             Some((model.to_ascii_lowercase(), tokens))
+        })
+        .collect()
+}
+
+fn model_input_modalities_field(value: &Value) -> BTreeMap<String, BTreeSet<String>> {
+    value
+        .get("modelCapabilities")
+        .or_else(|| value.get("model_capabilities"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let model = string_field(entry, "model")
+                .or_else(|| string_field(entry, "modelId"))
+                .or_else(|| string_field(entry, "model_id"))?;
+            let modalities = entry
+                .get("inputModalities")
+                .or_else(|| entry.get("input_modalities"))
+                .and_then(Value::as_array)?
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|modality| !modality.is_empty())
+                .map(str::to_ascii_lowercase)
+                .collect::<BTreeSet<_>>();
+            Some((model.trim().to_ascii_lowercase(), modalities))
         })
         .collect()
 }

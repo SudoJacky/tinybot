@@ -1444,6 +1444,8 @@ fn user_file_and_image_parts_emit_typed_reference_items() {
             "runtime": "rust",
             "turnId": "turn-file-references",
             "sessionId": "websocket:chat-file-references",
+            "model": "deepseek-v4-flash-vision-exp",
+            "provider": "deepseek",
             "messages": [{
                 "role": "user",
                 "content": [

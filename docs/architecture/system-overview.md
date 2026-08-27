@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:0489a620c7725eab694c3e5c7a89bbf7e535d57ead1107d6b871561bf1ed7501 -->
+<!-- tinybot-doc-fingerprint: sha256:3bdd8e0386316393bf74d2a7ea198adb403b6b6a7c050b69307234cfe5f2184b -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -108,8 +108,9 @@ Desktop Commands / Desktop Host
   budget. The first visit to an Agent node creates a canonical Thread; later
   visits in the same Run continue it. Per-node role
   instructions and optional Provider, model, and reasoning-effort settings use
-  the existing Turn interfaces; the renderer only offers models from available
-  Provider connections, while absent settings inherit application defaults.
+  the existing Turn interfaces; the renderer only offers profile-enabled models
+  from available Provider connections and carries their image-input capability,
+  while absent settings inherit application defaults.
   Router decisions use a separate, single-shot, tool-free provider request and
   do not create Threads or load Agent instruction sources.
   Ordinary Chat Turns expose Graphs from their exact working directory as

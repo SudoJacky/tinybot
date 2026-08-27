@@ -1,7 +1,7 @@
 use super::items::{parse_tool_call, AgentUsageItem};
 use super::provider_adapter::{
-    attach_provider_tools, provider_message_with_user_context, provider_reasoning_effort_enabled,
-    reject_image_attachments_for_chat_completions, require_provider_capability,
+    attach_provider_tools, provider_message_with_user_context_and_images,
+    provider_reasoning_effort_enabled, require_model_image_input, require_provider_capability,
     DecodedProviderTurn,
 };
 use super::tool_router::AgentToolDefinition;
@@ -77,6 +77,7 @@ impl ChatCompletionsAdapter {
     ) -> Result<Value, String> {
         let dialect = ChatCompletionsDialect::resolve(settings, config_snapshot);
         dialect.require_parallel_tool_calls(enable_parallel_tool_calls)?;
+        require_model_image_input(settings, config_snapshot, legacy_messages)?;
         let mut request = serde_json::json!({
             "model": settings.model.clone(),
             "messages": Self::encode_history(legacy_messages, system_prompt)?,
@@ -116,10 +117,7 @@ impl ChatCompletionsAdapter {
     ) -> Result<Value, String> {
         let provider_messages = legacy_messages
             .iter()
-            .map(|message| {
-                reject_image_attachments_for_chat_completions(message)?;
-                provider_message_with_user_context(message)
-            })
+            .map(provider_message_with_user_context_and_images)
             .collect::<Result<Vec<_>, _>>()?;
         let mut history = AgentItemHistory::from_legacy_messages(&provider_messages)?;
         if let Some(system_prompt) = system_prompt {

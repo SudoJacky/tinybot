@@ -76,8 +76,7 @@ export function createDesktopSettingsStore({
       const snapshot = await loadSettingsSnapshot();
       if (!isRecord(snapshot)) return [];
       const providerCatalog = buildDesktopProviderCatalogItems(await loadProviderCatalog());
-      const state = buildDesktopSettingsFormState(snapshot, providerCatalog);
-      return normalizeChatModelOptions(buildDesktopSettingsPaneModel(state, { providerCatalog }));
+      return normalizeChatModelOptions(buildProviderModelsSettings(snapshot), providerCatalog);
     },
     async loadPersonalizationInstructions() {
       await initialize();
@@ -233,36 +232,45 @@ function normalizeSettingsSummary(snapshot: unknown): Array<{ label: string; val
 }
 
 function normalizeChatModelOptions(
-  pane: ReturnType<typeof buildDesktopSettingsPaneModel>,
+  settings: ReturnType<typeof buildProviderModelsSettings>,
+  providerCatalog: ReturnType<typeof buildDesktopProviderCatalogItems>,
 ): ChatModelOption[] {
-  const defaultModel = stringValue(pane.defaultRouting?.model);
-  const defaultProviderId = stringValue(pane.defaultRouting?.providerId);
-  const defaultProvider = pane.providerCatalog.find((provider) => provider.id === defaultProviderId);
-  const providers = pane.providerCatalog.filter(isAvailableChatModelProvider);
+  const defaultModel = stringValue(settings.agentDefaultModel);
+  const defaultProviderId = stringValue(settings.agentDefaultProviderId)
+    || settings.providers.find((provider) => provider.profileId === settings.activeProfileId)?.id
+    || "";
+  const defaultProvider = settings.providers.find((provider) => provider.id === defaultProviderId);
+  const providers = settings.providers.filter((provider) => provider.enabled && (
+    provider.status === "available"
+    || providerCatalog.some((item) => item.id === provider.id && ["available", "ready"].includes(stringValue(item.status).trim().toLowerCase()))
+  ));
   const options = new Map<string, ChatModelOption>();
   for (const provider of providers) {
-    for (const model of provider.models ?? []) {
-      const optionKey = chatModelOptionKey(provider.id, model);
-      if (!model || options.has(optionKey)) continue;
-      const isDefault = provider.id === defaultProviderId && model === defaultModel;
+    for (const model of provider.models.filter((model) => model.enabled)) {
+      const optionKey = chatModelOptionKey(provider.id, model.id);
+      if (!model.id || options.has(optionKey)) continue;
+      const isDefault = provider.id === defaultProviderId && model.id === defaultModel;
       options.set(optionKey, {
-        id: model,
-        label: model,
+        id: model.id,
+        label: model.label,
         description: provider.label || provider.id || "Configured provider",
         providerId: provider.id,
         providerLabel: provider.label,
+        supportsImageInput: model.supportsImageInput,
         ...(isDefault ? { default: true } : {}),
       });
     }
   }
   const defaultOptionKey = chatModelOptionKey(defaultProvider?.id || defaultProviderId, defaultModel);
-  if (defaultModel && defaultProvider && isAvailableChatModelProvider(defaultProvider) && !options.has(defaultOptionKey)) {
+  const configuredDefaultModel = defaultProvider?.models.find((model) => model.enabled && model.id === defaultModel);
+  if (configuredDefaultModel && defaultProvider && providers.includes(defaultProvider) && !options.has(defaultOptionKey)) {
     options.set(defaultOptionKey, {
       id: defaultModel,
       label: defaultModel,
-      description: defaultProvider?.label || pane.defaultRouting?.providerLabel || "Default model",
+      description: defaultProvider?.label || "Default model",
       providerId: defaultProvider?.id || defaultProviderId,
-      providerLabel: defaultProvider?.label || pane.defaultRouting?.providerLabel,
+      providerLabel: defaultProvider?.label,
+      supportsImageInput: configuredDefaultModel.supportsImageInput,
       default: true,
     });
   }
@@ -271,12 +279,6 @@ function normalizeChatModelOptions(
     if (right.default) return 1;
     return left.label.localeCompare(right.label);
   });
-}
-
-function isAvailableChatModelProvider(
-  provider: ReturnType<typeof buildDesktopSettingsPaneModel>["providerCatalog"][number],
-): boolean {
-  return provider.enabled !== false && ["available", "ready"].includes(provider.status.trim().toLowerCase());
 }
 
 function chatModelOptionKey(providerId: string, modelId: string): string {

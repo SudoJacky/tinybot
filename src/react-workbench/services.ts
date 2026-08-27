@@ -314,6 +314,7 @@ export type ChatModelOption = {
   description?: string;
   providerId?: string;
   providerLabel?: string;
+  supportsImageInput?: boolean;
   default?: boolean;
 };
 

@@ -521,6 +521,8 @@ fn native_turn_projects_core_canonical_timeline_equally_live_and_after_reload() 
             "runtime": "rust",
             "turnId": turn_id,
             "sessionId": session_id,
+            "model": "deepseek-v4-flash-vision-exp",
+            "provider": "deepseek",
             "metadata": { "clientEventId": "client-canonical-acceptance" },
             "messages": [{
                 "id": "user-canonical-acceptance",

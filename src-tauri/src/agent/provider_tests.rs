@@ -119,6 +119,46 @@ fn resolves_provider_profile_from_config_and_defaults() {
     );
 }
 
+#[test]
+fn resolves_model_image_input_defaults_and_profile_overrides() {
+    let built_in = resolve_provider_profile(
+        &json!({
+            "providers": {
+                "profiles": {
+                    "zai-default": { "provider": "zai" }
+                }
+            }
+        }),
+        Some("zai"),
+        Some("zai-default"),
+    )
+    .unwrap();
+    assert!(built_in.supports_input_modality("glm-5.3-flash", "image"));
+    assert!(!built_in.supports_input_modality("glm-5.3", "image"));
+    assert!(built_in.supports_input_modality("deepseek-v4-flash-vision-exp", "image"));
+
+    let overridden = resolve_provider_profile(
+        &json!({
+            "providers": {
+                "profiles": {
+                    "zai-default": {
+                        "provider": "zai",
+                        "modelCapabilities": [
+                            { "model": "glm-5.3-flash", "inputModalities": [] },
+                            { "model": "custom-vision", "inputModalities": ["image"] }
+                        ]
+                    }
+                }
+            }
+        }),
+        Some("zai"),
+        Some("zai-default"),
+    )
+    .unwrap();
+    assert!(!overridden.supports_input_modality("glm-5.3-flash", "image"));
+    assert!(overridden.supports_input_modality("custom-vision", "image"));
+}
+
 fn aggregate_response_events(events: &[Value]) -> Result<Value, String> {
     let mut completion = StreamingResponsesCompletion::default();
     for event in events {

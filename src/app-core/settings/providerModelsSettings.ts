@@ -18,6 +18,8 @@ export type ProviderModelItem = {
   id: string;
   label: string;
   source: ProviderModelSource;
+  enabled: boolean;
+  supportsImageInput: boolean;
 };
 
 export type ProviderCardStatus = "available" | "not_ready" | "not_configured";
@@ -26,6 +28,7 @@ export type ProviderCardModel = {
   id: string;
   label: string;
   builtIn: boolean;
+  enabled: boolean;
   active: boolean;
   configured: boolean;
   status: ProviderCardStatus;
@@ -47,6 +50,7 @@ export type ProviderModelsSettingsData = {
   currentConfig: unknown;
   revision?: string;
   activeProfileId: string | null;
+  agentDefaultProviderId: string | null;
   agentDefaultModel: string | null;
   fallbackContextWindowTokens: number;
   providers: ProviderCardModel[];
@@ -81,8 +85,10 @@ export type ProviderModelsPatchInput = {
   providerId: string;
   profileId?: string | null;
   models: string[];
+  enabledModels?: string[];
   defaultModel?: string | null;
   modelContextWindows?: Array<{ model: string; contextWindowTokens: number }>;
+  modelCapabilities?: Array<{ model: string; inputModalities: string[] }>;
   setAgentDefault?: boolean;
 };
 
@@ -117,6 +123,11 @@ const BUILT_IN_MODEL_CONTEXT_WINDOW_TOKENS: Record<string, number> = {
   "glm-5.3": 1_000_000,
   "glm-5.3-flash": 1_000_000,
 };
+
+const BUILT_IN_IMAGE_INPUT_MODELS = new Set([
+  "deepseek-v4-flash-vision-exp",
+  "glm-5.3-flash",
+]);
 
 export const BUILT_IN_PROVIDER_PRESETS: BuiltInProviderPreset[] = [
   {
@@ -163,6 +174,7 @@ export function buildProviderModelsSettings(config: unknown): ProviderModelsSett
   const providersRoot = asRecord(root.providers);
   const profiles = asRecord(providersRoot.profiles);
   const activeProfileId = stringOrNull(pick(defaults, "activeProfile", "active_profile"));
+  const agentDefaultProviderId = stringOrNull(defaults.provider);
   const agentDefaultModel = stringOrNull(defaults.model);
   const configuredContextWindowFallback = Number(pick(defaults, "contextWindowTokens", "context_window_tokens"));
   const fallbackContextWindowTokens = Number.isSafeInteger(configuredContextWindowFallback)
@@ -190,6 +202,7 @@ export function buildProviderModelsSettings(config: unknown): ProviderModelsSett
     currentConfig: config,
     revision: stringOrUndefined(root.revision) ?? stringOrUndefined(asRecord(root.configMetadata).revision),
     activeProfileId,
+    agentDefaultProviderId,
     agentDefaultModel,
     fallbackContextWindowTokens,
     providers: [...builtInProviders, ...customProviders],
@@ -237,6 +250,7 @@ export function buildCustomProviderPatch(input: CustomProviderPatchInput): JsonR
     enabled: true,
     apiBase: input.apiBase.trim(),
     models: model ? [model] : [],
+    enabledModels: model ? [model] : [],
     supportsModelDiscovery: input.supportsModelDiscovery !== false,
     supportsReasoningEffort: input.supportsReasoningEffort !== false,
   };
@@ -264,15 +278,24 @@ export function buildCustomProviderPatch(input: CustomProviderPatchInput): JsonR
 export function buildProviderModelsPatch(input: ProviderModelsPatchInput): JsonRecord {
   const profileId = resolveProviderProfileId(input.providerId, input.profileId);
   const defaultModel = input.defaultModel?.trim() || null;
+  const models = uniqueStrings(input.models);
+  const modelIds = new Set(models);
   const profile: JsonRecord = {
     provider: input.providerId,
-    models: uniqueStrings(input.models),
+    models,
   };
-  if (defaultModel) {
+  if (input.enabledModels !== undefined) {
+    profile.enabledModels = uniqueStrings(input.enabledModels)
+      .filter((model) => modelIds.has(model));
+  }
+  if (input.defaultModel !== undefined) {
     profile.defaultModel = defaultModel;
   }
   if (input.modelContextWindows !== undefined) {
     profile.modelContextWindows = uniqueModelContextWindows(input.modelContextWindows);
+  }
+  if (input.modelCapabilities !== undefined) {
+    profile.modelCapabilities = uniqueModelCapabilities(input.modelCapabilities);
   }
   return withOptionalAgentsPatch(input.setAgentDefault && defaultModel ? { activeProfile: profileId, model: defaultModel } : null, {
     providers: {
@@ -291,6 +314,12 @@ export function automaticModelContextWindow(
   return tokens
     ? { known: true, tokens }
     : { known: false, tokens: fallbackTokens };
+}
+
+export function automaticModelCapabilities(model: string): { supportsImageInput: boolean } {
+  return {
+    supportsImageInput: BUILT_IN_IMAGE_INPUT_MODELS.has(model.trim().toLowerCase()),
+  };
 }
 
 export function buildProviderDefaultLlmPatch(input: ProviderDefaultLlmPatchInput): JsonRecord {
@@ -334,21 +363,27 @@ function buildProviderCard(
   const enabled = pick(profile, "enabled") !== false;
   const manualModels = parseModelList(profile.models);
   const modelContextWindows = parseModelContextWindows(profile);
-  const builtInModels = preset.defaultModels.filter((model) => !manualModels.includes(model));
+  const enabledModels = parseEnabledModels(
+    profile,
+    manualModels.length ? manualModels : preset.defaultModels,
+  );
+  const modelCapabilities = parseModelCapabilities(profile);
   const models = [
     ...preset.defaultModels.map((model) => ({ id: model, label: model, source: "built-in" as const })),
     ...manualModels
       .filter((model) => !preset.defaultModels.includes(model))
       .map((model) => ({ id: model, label: model, source: "user" as const })),
-  ];
-  const defaultModel = stringOrNull(pick(profile, "defaultModel", "default_model"))
+  ].map((model) => withModelConfiguration(model, enabledModels, modelCapabilities));
+  const enabledModelItems = models.filter((model) => model.enabled);
+  const configuredDefaultModel = stringOrNull(pick(profile, "defaultModel", "default_model"))
     ?? (activeProfileId === profileId ? agentDefaultModel : null)
-    ?? preset.defaultModels[0]
-    ?? manualModels[0]
     ?? null;
+  const defaultModel = enabledModelItems.some((model) => model.id === configuredDefaultModel)
+    ? configuredDefaultModel
+    : enabledModelItems[0]?.id ?? null;
   const status: ProviderCardStatus = !configured
     ? "not_configured"
-    : apiKeyConfigured && enabled && (builtInModels.length + manualModels.length > 0)
+    : apiKeyConfigured && enabled && enabledModelItems.length > 0
       ? "available"
       : "not_ready";
 
@@ -356,6 +391,7 @@ function buildProviderCard(
     id: preset.id,
     label: preset.label,
     builtIn: preset.builtIn,
+    enabled,
     active: activeProfileId === profileId,
     configured,
     status,
@@ -365,7 +401,7 @@ function buildProviderCard(
     apiKeyConfigured,
     useResponsesApi: preset.supportsResponsesApi && usesResponsesApi(profile),
     supportsResponsesApi: preset.supportsResponsesApi,
-    modelCount: models.length,
+    modelCount: enabledModelItems.length,
     defaultModel,
     models,
     modelContextWindows,
@@ -381,18 +417,24 @@ function buildCustomProviderCard(
 ): ProviderCardModel {
   const providerId = stringValue(profile.provider) || profileId;
   const modelContextWindows = parseModelContextWindows(profile);
-  const models = parseModelList(profile.models).map((model) => ({
+  const modelIds = parseModelList(profile.models);
+  const enabledModels = parseEnabledModels(profile, modelIds);
+  const modelCapabilities = parseModelCapabilities(profile);
+  const models = modelIds.map((model) => withModelConfiguration({
     id: model,
     label: model,
     source: "user" as const,
-  }));
-  const defaultModel = stringOrNull(pick(profile, "defaultModel", "default_model"))
+  }, enabledModels, modelCapabilities));
+  const enabledModelItems = models.filter((model) => model.enabled);
+  const configuredDefaultModel = stringOrNull(pick(profile, "defaultModel", "default_model"))
     ?? (activeProfileId === profileId ? agentDefaultModel : null)
-    ?? models[0]?.id
     ?? null;
+  const defaultModel = enabledModelItems.some((model) => model.id === configuredDefaultModel)
+    ? configuredDefaultModel
+    : enabledModelItems[0]?.id ?? null;
   const enabled = profile.enabled !== false;
   const baseUrl = stringValue(pick(profile, "apiBase", "api_base"));
-  const available = enabled && Boolean(baseUrl) && models.length > 0;
+  const available = enabled && Boolean(baseUrl) && enabledModelItems.length > 0;
   const status: ProviderCardStatus = available ? "available" : "not_ready";
   const supportsModelDiscovery = pick(profile, "supportsModelDiscovery", "supports_model_discovery") !== false;
   const supportsReasoningEffort = pick(profile, "supportsReasoningEffort", "supports_reasoning_effort") !== false;
@@ -401,6 +443,7 @@ function buildCustomProviderCard(
     id: providerId,
     label: stringValue(pick(profile, "displayName", "display_name")) || providerId,
     builtIn: false,
+    enabled,
     active: activeProfileId === profileId,
     configured: true,
     status,
@@ -411,7 +454,7 @@ function buildCustomProviderCard(
     useResponsesApi: usesResponsesApi(profile),
     supportsResponsesApi: true,
     supportsReasoningEffort,
-    modelCount: models.length,
+    modelCount: enabledModelItems.length,
     defaultModel,
     models,
     modelContextWindows,
@@ -492,6 +535,47 @@ function parseModelContextWindows(profile: JsonRecord): Record<string, number> {
   return windows;
 }
 
+function parseEnabledModels(profile: JsonRecord, modelIds: string[]): Set<string> {
+  const configured = pick(profile, "enabledModels", "enabled_models");
+  if (configured === undefined) {
+    return new Set(modelIds);
+  }
+  return new Set(parseModelList(configured));
+}
+
+function parseModelCapabilities(profile: JsonRecord): Map<string, { supportsImageInput: boolean }> {
+  const entries = pick(profile, "modelCapabilities", "model_capabilities");
+  const capabilities = new Map<string, { supportsImageInput: boolean }>();
+  if (!Array.isArray(entries)) {
+    return capabilities;
+  }
+  for (const value of entries) {
+    const entry = asRecord(value);
+    const model = stringValue(pick(entry, "model", "modelId", "model_id")).trim().toLowerCase();
+    if (!model) {
+      continue;
+    }
+    const inputModalities = parseModelList(pick(entry, "inputModalities", "input_modalities"))
+      .map((modality) => modality.toLowerCase());
+    capabilities.set(model, { supportsImageInput: inputModalities.includes("image") });
+  }
+  return capabilities;
+}
+
+function withModelConfiguration<T extends { id: string; label: string; source: ProviderModelSource }>(
+  model: T,
+  enabledModels: Set<string>,
+  configuredCapabilities: Map<string, { supportsImageInput: boolean }>,
+): T & Pick<ProviderModelItem, "enabled" | "supportsImageInput"> {
+  const normalizedModel = model.id.trim().toLowerCase();
+  return {
+    ...model,
+    enabled: enabledModels.has(model.id),
+    supportsImageInput: configuredCapabilities.get(normalizedModel)?.supportsImageInput
+      ?? automaticModelCapabilities(normalizedModel).supportsImageInput,
+  };
+}
+
 function uniqueModelContextWindows(
   entries: Array<{ model: string; contextWindowTokens: number }>,
 ): Array<{ model: string; contextWindowTokens: number }> {
@@ -505,6 +589,29 @@ function uniqueModelContextWindows(
   return [...windows.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([model, contextWindowTokens]) => ({ model, contextWindowTokens }));
+}
+
+function uniqueModelCapabilities(
+  entries: Array<{ model: string; inputModalities: string[] }>,
+): Array<{ model: string; inputModalities: string[] }> {
+  const capabilities = new Map<string, string[]>();
+  for (const entry of entries) {
+    const model = entry.model.trim();
+    if (!model) {
+      continue;
+    }
+    const inputModalities = uniqueStrings(entry.inputModalities.map((modality) => modality.toLowerCase()))
+      .filter((modality) => modality === "image");
+    const automatic = automaticModelCapabilities(model).supportsImageInput;
+    if (inputModalities.includes("image") !== automatic) {
+      capabilities.set(model, inputModalities);
+    } else {
+      capabilities.delete(model);
+    }
+  }
+  return [...capabilities.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([model, inputModalities]) => ({ model, inputModalities }));
 }
 
 function uniqueStrings(values: unknown[]): string[] {

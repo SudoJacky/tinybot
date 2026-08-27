@@ -856,6 +856,9 @@ describe("DesktopShell", () => {
       modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
     }));
     await waitFor(() => expect(within(modelsDialog).getAllByText("deepseek-live").length).toBeGreaterThan(0));
+    expect((within(modelsDialog).getByRole("checkbox", {
+      name: "Enable deepseek-live in model selectors",
+    }) as HTMLInputElement).checked).toBe(false);
     await user.click(within(modelsDialog).getByRole("button", {
       name: "Context window mode for deepseek-live: Default · 128K",
     }));
@@ -872,8 +875,10 @@ describe("DesktopShell", () => {
           "deepseek-default": {
             provider: "deepseek",
             models: ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-live"],
+            enabledModels: ["deepseek-v4-pro", "deepseek-v4-flash"],
             defaultModel: "deepseek-v4-pro",
             modelContextWindows: [{ model: "deepseek-live", contextWindowTokens: 32000 }],
+            modelCapabilities: [],
           },
         },
       },
@@ -975,6 +980,7 @@ describe("DesktopShell", () => {
             apiKey: "local-secret",
             apiMode: "chat_completions",
             models: ["local-model"],
+            enabledModels: ["local-model"],
             defaultModel: "local-model",
             supportsModelDiscovery: true,
             supportsReasoningEffort: false,

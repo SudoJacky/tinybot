@@ -2584,6 +2584,8 @@ function toComposerModelOption(model: ChatModelOption, t: TFunction<"chat">): Mo
     ...(model.providerId ? { providerId: model.providerId } : {}),
     name: model.label || model.id,
     description: model.description || model.providerLabel || t("composer.configuredModel"),
+    supportsImageInput: model.supportsImageInput,
+    ...(model.supportsImageInput ? { badge: t("composer.imageInput") } : {}),
   };
 }
 

@@ -591,10 +591,16 @@ impl AgentContentPart {
     fn to_value(&self) -> Value {
         match self {
             Self::Text { text } => serde_json::json!({ "type": "text", "text": text }),
-            Self::Image { url, detail } => serde_json::json!({
-                "type": "image_url",
-                "image_url": { "url": url, "detail": detail }
-            }),
+            Self::Image { url, detail } => {
+                let mut image_url = serde_json::json!({ "url": url });
+                if let Some(detail) = detail {
+                    image_url["detail"] = Value::String(detail.clone());
+                }
+                serde_json::json!({
+                    "type": "image_url",
+                    "image_url": image_url,
+                })
+            }
             Self::File {
                 identifier,
                 mime_type,

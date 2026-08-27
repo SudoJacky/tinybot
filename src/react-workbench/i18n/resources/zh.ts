@@ -329,6 +329,8 @@ export const zh = {
         contextWindow: "上下文窗口", contextMode: "{{name}} 的上下文窗口模式", contextOptions: "{{name}} 的上下文窗口选项",
         contextAuto: "自动 · {{tokens}}", contextDefault: "默认 · {{tokens}}", contextCustom: "自定义",
         contextTokens: "{{name}} 的自定义上下文窗口", contextInvalid: "请输入正整数。",
+        enabledCount: "已启用 {{count}} / {{total}} 个模型", enabled: "启用", enableModel: "在模型选择器中启用 {{name}}",
+        imageInput: "图像输入", imageInputFor: "允许 {{name}} 使用图像输入",
       },
     },
     config: {
@@ -523,8 +525,8 @@ export const zh = {
         heading: "Skills",
         workspace: "工作区",
       },
-      placeholder: "输入消息给 Tinybot", sendFailed: "消息发送失败。", stopFailed: "无法停止生成。", fileLimit: "最多只能附加 {{count}} 个文件。", filesFailed: "无法选择文件。",
-      label: "消息输入框", attachments: "输入附件", remove: "移除 {{name}}", words: "{{count}} 个词", pastedText: "粘贴文本", removePasted: "移除粘贴内容", pastedContentLabel: "粘贴内容", attachedFilesPrompt: "请查看附加的文件。", configuredModel: "已配置模型",
+      placeholder: "输入消息给 Tinybot", sendFailed: "消息发送失败。", stopFailed: "无法停止生成。", fileLimit: "最多只能附加 {{count}} 个文件。", filesFailed: "无法选择文件。", imageUnsupported: "{{model}} 不支持图像输入。请选择支持图像的模型，或移除图片。",
+      label: "消息输入框", attachments: "输入附件", remove: "移除 {{name}}", words: "{{count}} 个词", pastedText: "粘贴文本", removePasted: "移除粘贴内容", pastedContentLabel: "粘贴内容", attachedFilesPrompt: "请查看附加的文件。", configuredModel: "已配置模型", imageInput: "视觉",
       slash: "斜杠命令", message: "消息", attachFiles: "附加文件", tools: "工具", on: "开", off: "关", selectModel: "选择模型", model: "模型", advanced: "高级",
       effort: "推理强度", chooseModel: "选择模型", modelEffort: "模型和推理强度", backAdvanced: "返回高级选项", models: "模型", reasoningEffort: "推理强度",
       effortOptions: {

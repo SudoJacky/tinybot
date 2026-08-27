@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:5b4f11297e40d94f8fca7c193c7b26c5f8791b88d976ae63ab202f3b236e35d6 -->
+<!-- tinybot-module-fingerprint: sha256:ae4fdc0ef37a6e44d8b6e92526354687f7008cda1340bb2da04349d1ad29fb7a -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App` for the main window and selects lightweight
@@ -41,6 +41,11 @@ read-only in the renderer.
 - [`agent-graph/`](agent-graph/README.md) owns the independent Graph route.
 - Route folders own their React state, presentation, and route-scoped styles.
 - Framework-independent contracts and projections belong in `app-core/`.
+
+The shared Chat model contract carries each configured model's image-input
+capability. Settings adapters expose only models enabled in their Provider
+Profile, so Chat, quick chat, and Agent Graph selectors share the same bounded
+catalog instead of consuming every discovered Provider model.
 
 The Tools & Plugins route presents Plugins, Skills, MCP servers, and callable
 Tools as separate resource views over one normalized catalog. Skill rows load

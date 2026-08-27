@@ -756,6 +756,11 @@ export const en = {
         contextCustom: "Custom",
         contextTokens: "Custom context window for {{name}}",
         contextInvalid: "Enter a positive integer.",
+        enabledCount: "{{count}} of {{total}} models enabled",
+        enabled: "Enabled",
+        enableModel: "Enable {{name}} in model selectors",
+        imageInput: "Image input",
+        imageInputFor: "Allow image input for {{name}}",
       },
     },
     config: {
@@ -1040,8 +1045,8 @@ export const en = {
         heading: "Skills",
         workspace: "Workspace",
       },
-      placeholder: "Message Tinybot", sendFailed: "Message could not be sent.", stopFailed: "Generation could not be stopped.", fileLimit: "Only {{count}} files can be attached.", filesFailed: "Files could not be selected.",
-      label: "Message composer", attachments: "Composer attachments", remove: "Remove {{name}}", words: "{{count}} words", pastedText: "Pasted text", removePasted: "Remove pasted content", pastedContentLabel: "Pasted content", attachedFilesPrompt: "Review the attached files.", configuredModel: "Configured model",
+      placeholder: "Message Tinybot", sendFailed: "Message could not be sent.", stopFailed: "Generation could not be stopped.", fileLimit: "Only {{count}} files can be attached.", filesFailed: "Files could not be selected.", imageUnsupported: "{{model}} does not support image input. Choose an image-capable model or remove the image.",
+      label: "Message composer", attachments: "Composer attachments", remove: "Remove {{name}}", words: "{{count}} words", pastedText: "Pasted text", removePasted: "Remove pasted content", pastedContentLabel: "Pasted content", attachedFilesPrompt: "Review the attached files.", configuredModel: "Configured model", imageInput: "Vision",
       slash: "Slash commands", message: "Message", attachFiles: "Attach files", tools: "Tools", on: "On", off: "Off", selectModel: "Select model", model: "Model", advanced: "Advanced",
       effort: "Effort", chooseModel: "Choose model", modelEffort: "Model and reasoning effort", backAdvanced: "Back to advanced options", models: "Models", reasoningEffort: "Reasoning effort",
       effortOptions: {

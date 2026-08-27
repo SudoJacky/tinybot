@@ -55,6 +55,7 @@ export interface ModelOption {
   name: string;
   description: string;
   badge?: string;
+  supportsImageInput?: boolean;
 }
 
 export interface ComposerToolOption {
@@ -267,6 +268,15 @@ export function ClaudeStyleAiInput({
       ?? models[0],
     [defaultModel, models, selectedModelId],
   );
+  const selectedModelRejectsImages = Boolean(
+    selectedModel
+    && selectedModel.supportsImageInput !== true
+    && files.some((file) => file.mimeType.startsWith("image/")),
+  );
+  const imageCompatibilityError = selectedModelRejectsImages
+    ? t("composer.imageUnsupported", { model: selectedModel?.name ?? t("composer.model") })
+    : "";
+  const composerError = imageCompatibilityError || error;
   const effortOptions = useMemo(() => reasoningEffortOptions(t), [t]);
   const selectedReasoningEffortLabel = reasoningEffortLabel(selectedReasoningEffort, effortOptions);
   const contextUsageView = useMemo(() => buildContextUsageView(contextUsage, t), [contextUsage, t]);
@@ -315,7 +325,7 @@ export function ClaudeStyleAiInput({
     }
     return placements;
   }, [currentMessage, inlineSkillPlacements, selectedSkillIdSet, selectedSkillIds]);
-  const canSend = !disabled && !sendDisabled && !sending && Boolean(
+  const canSend = !disabled && !sendDisabled && !sending && !selectedModelRejectsImages && Boolean(
     currentMessage.trim()
       || files.length
       || pastedContent.length
@@ -737,14 +747,20 @@ export function ClaudeStyleAiInput({
       if (!selectedFiles.length) {
         return;
       }
+      const acceptedFiles = selectedModel && selectedModel.supportsImageInput !== true
+        ? selectedFiles.filter((file) => !file.mimeType.startsWith("image/"))
+        : selectedFiles;
+      if (acceptedFiles.length !== selectedFiles.length) {
+        setError(t("composer.imageUnsupported", { model: selectedModel?.name ?? t("composer.model") }));
+      }
       updateFiles((current) => {
         const remainingSlots = Math.max(0, maxFiles - current.length);
-        if (selectedFiles.length > remainingSlots) {
+        if (acceptedFiles.length > remainingSlots) {
           setError(t("composer.fileLimit", { count: maxFiles }));
         }
         return [
           ...current,
-          ...selectedFiles.slice(0, remainingSlots).map((file) => ({
+          ...acceptedFiles.slice(0, remainingSlots).map((file) => ({
             ...file,
             id: nextInputId("file"),
           })),
@@ -767,6 +783,7 @@ export function ClaudeStyleAiInput({
 
   function selectModel(modelId: string) {
     setSelectedModelId(modelId);
+    setError("");
     setModelMenuOpen(false);
     setModelMenuView("advanced");
     modelTriggerRef.current?.focus();
@@ -822,13 +839,13 @@ export function ClaudeStyleAiInput({
       className={["claude-ai-input", className].filter(Boolean).join(" ")}
       onSubmit={(event) => void handleSubmit(event)}
     >
-      {error ? (
+      {composerError ? (
         <div className="claude-ai-input__notice" role="alert">
           <AlertCircle aria-hidden="true" size={15} />
-          <span>{error}</span>
+          <span>{composerError}</span>
         </div>
       ) : null}
-      {!error && (disabled || sendDisabled) && (disabledReason || sendDisabledReason) ? (
+      {!composerError && (disabled || sendDisabled) && (disabledReason || sendDisabledReason) ? (
         <div className="claude-ai-input__notice" role="status">
           <AlertCircle aria-hidden="true" size={15} />
           <span>{disabledReason || sendDisabledReason}</span>

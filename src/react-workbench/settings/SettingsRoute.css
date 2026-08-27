@@ -2780,10 +2780,44 @@
 
 .react-provider-model-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(156px, 190px) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto minmax(96px, 112px) minmax(156px, 190px) auto auto;
   min-height: 44px;
   border-radius: 8px;
   padding: 7px 8px;
+}
+
+.react-provider-model-selection-summary {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-provider-model-row .react-provider-model-features {
+  display: grid;
+  align-content: center;
+  gap: 5px;
+}
+
+.react-provider-model-features label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-muted);
+  cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.react-provider-model-features input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--color-primary);
+}
+
+.react-provider-model-features input:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
 }
 
 .react-provider-model-context {

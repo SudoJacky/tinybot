@@ -325,6 +325,41 @@ describe("ClaudeStyleAiInput slash commands", () => {
     expect(onFilesChange).toHaveBeenCalledWith([]);
   });
 
+  it("rejects image selections for a model without image input while keeping ordinary files", async () => {
+    const user = userEvent.setup();
+    const onSelectFiles = vi.fn(async () => ([
+      {
+        contentHash: "image-hash",
+        mimeType: "image/png",
+        name: "diagram.png",
+        path: "C:\\Tinybot\\diagram.png",
+        sizeBytes: 2048,
+      },
+      {
+        mimeType: "text/plain",
+        name: "notes.txt",
+        path: "C:\\Tinybot\\notes.txt",
+        sizeBytes: 64,
+      },
+    ]));
+    render(<ClaudeStyleAiInput
+      defaultModel="text-model"
+      models={[{
+        id: "text-model",
+        name: "Text model",
+        description: "Provider",
+        supportsImageInput: false,
+      }]}
+      onSelectFiles={onSelectFiles}
+    />);
+
+    await user.click(screen.getByRole("button", { name: "Attach files" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Text model does not support image input");
+    expect(screen.queryByText("diagram.png")).toBeNull();
+    expect(screen.getByText("notes.txt")).toBeTruthy();
+  });
+
   it("dismisses the menu with Escape without changing the draft", async () => {
     const user = userEvent.setup();
     render(<ClaudeStyleAiInput slashCommands={slashCommands} />);
