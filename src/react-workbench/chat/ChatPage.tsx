@@ -1378,6 +1378,9 @@ export function ChatPage({
       materializingDraft ? visibleText : undefined,
     );
     await handleSessionStoreRefresh(optimisticSession);
+    if (materializingDraft) {
+      dispatchSessionTabs({ type: "draft.changed", sessionId: sendSession.id, value: "" });
+    }
   }
 
   function handleConversationScroll(): void {

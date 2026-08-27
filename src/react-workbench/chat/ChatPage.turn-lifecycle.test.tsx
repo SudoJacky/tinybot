@@ -105,7 +105,7 @@ describe("ChatPage", () => {
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
       model: "deepseek-v4-flash",
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
       references: [{
         detail: "MARKDOWN - 32 Bytes",
         kind: "reference",
@@ -199,7 +199,7 @@ describe("ChatPage", () => {
     subscribed?.({ type: "agent.event", eventType: "agent.turn.completed" });
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
       text: "first queued",
     }));
     expect(turnSubmitCommands(stores.chatStore)).toHaveLength(1);
@@ -210,7 +210,7 @@ describe("ChatPage", () => {
     subscribed?.({ type: "agent.event", eventType: "agent.turn.completed" });
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
       text: "second queued",
     }));
     expect(turnSubmitCommands(stores.chatStore)).toHaveLength(2);
@@ -253,7 +253,7 @@ describe("ChatPage", () => {
     subscribed?.({ type: "agent.event", eventType: "agent.turn.completed" });
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
       text: "queued after full turn",
     }));
   });
@@ -388,7 +388,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: "Resume queue" }));
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s1", {
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
       text: "resume first",
     }));
     const queuedInputs = screen.getByLabelText("Queued inputs");

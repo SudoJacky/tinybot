@@ -296,11 +296,7 @@ pub(super) fn provider_reasoning_effort_enabled(
     config_snapshot: &Value,
 ) -> Result<bool, String> {
     let profile = resolve_provider_profile(settings, config_snapshot)?;
-    if profile.is_custom {
-        return Ok(profile.supports_reasoning_effort);
-    }
-    require_profile_capability(&profile, "reasoning")?;
-    Ok(true)
+    Ok(profile.supports_reasoning_effort)
 }
 
 fn resolve_provider_profile(

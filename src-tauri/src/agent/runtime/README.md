@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:3d91f85ee7051276d1e5562d3c82c1f731fe84426a32a32be7e6ba54be5d8be6 -->
+<!-- tinybot-module-fingerprint: sha256:3056d080ee3688dadef6a999f57905649d33c303a16f441124dbec217e64250e -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -155,12 +155,12 @@ product-facing canonical timeline item. This keeps Chat Completions and
 Responses rendering focused on messages and observable work without exposing
 raw chain-of-thought content.
 
-Custom OpenAI-compatible providers assume reasoning-effort parameters are
-supported unless their profile sets `supportsReasoningEffort: false`. Both
-protocol adapters apply that profile decision at the wire boundary: Chat
-Completions omits `reasoning_effort`, while Responses omits only
-`reasoning.effort`. Reasoning summary settings retain their separate
-capability check and wire field.
+OpenAI-compatible providers assume reasoning-effort parameters are supported
+unless their profile sets `supportsReasoningEffort: false`. This default applies
+to built-in and custom providers alike. Both protocol adapters apply that
+profile decision at the wire boundary: Chat Completions omits
+`reasoning_effort`, while Responses omits only `reasoning.effort`. Reasoning
+summary settings retain their separate capability check and wire field.
 
 The provider loop, tool router, tool execution, permission checks,
 cancellation, tracing, and terminal-result construction remain shared. Adding a

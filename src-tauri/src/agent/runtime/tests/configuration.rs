@@ -137,11 +137,11 @@ fn resolves_profile_based_provider_for_reasoning_turns() {
 }
 
 #[test]
-fn profile_capabilities_override_built_in_provider_defaults() {
+fn reasoning_summary_still_requires_profile_capability() {
     let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "reasoningEffort": "medium",
+            "reasoning": { "summary": "auto" },
             "messages": [{ "role": "user", "content": "hello" }]
         }),
         json!({
@@ -163,7 +163,7 @@ fn profile_capabilities_override_built_in_provider_defaults() {
     );
 
     let error = agent_chat_completion_request(&context)
-        .expect_err("explicit profile capabilities should override catalog defaults");
+        .expect_err("reasoning summaries should retain their capability check");
 
     assert!(error.contains("deepseek"));
     assert!(error.contains("reasoning"));
@@ -233,6 +233,7 @@ fn zai_chat_requests_use_the_documented_parameter_dialect() {
         json!({
             "runtime": "rust",
             "stream": true,
+            "reasoningEffort": "medium",
             "messages": [{ "role": "user", "content": "hello" }]
         }),
         json!({
@@ -260,6 +261,7 @@ fn zai_chat_requests_use_the_documented_parameter_dialect() {
 
     assert_eq!(request["temperature"], json!(0.6));
     assert_eq!(request["max_tokens"], 2048);
+    assert_eq!(request["reasoning_effort"], "medium");
     assert!(request.get("max_completion_tokens").is_none());
     assert!(request.get("stream_options").is_none());
 }

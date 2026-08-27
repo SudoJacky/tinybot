@@ -856,9 +856,10 @@ describe("ChatPage", () => {
 
     await waitFor(() => expect(stores.sessionStore.create).toHaveBeenCalledTimes(1));
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s-new", {
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
       text: "Hello from an empty app",
     }));
+    await waitFor(() => expect(input.value).toBe(""));
   });
 
   it("keeps a draft-created session selected when the refreshed list has not caught up", async () => {
@@ -883,7 +884,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "s-new", {
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
       text: "Hello from an empty app",
     }));
     expect(screen.getByRole("heading", { name: "Hello from an empty app" })).toBeTruthy();
@@ -1056,7 +1057,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     await waitFor(() => expectTurnSubmit(stores.chatStore, "pending:1", {
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
       text: "Summarize docs",
     }));
     expect(screen.queryByRole("heading", { name: "No conversation selected" })).toBeNull();

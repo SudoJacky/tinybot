@@ -384,7 +384,7 @@ message verbatim and does not copy attachment files. The agent reads a mentioned
 ```
 
 The renderer sends the composer's effort choice as `spec.reasoningEffort`. Composer values are `low`,
-`medium`, `high`, `xhigh`, and `max`; a missing or invalid local preference starts at `medium`. Model
+`medium`, `high`, `xhigh`, and `max`; a missing or invalid local preference starts at `high`. Model
 support varies, and an unsupported explicit value remains a provider request error rather than being
 silently downgraded.
 

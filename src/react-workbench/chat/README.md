@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:114c3b8c8d7ec3276592f0eb4b54dd78a9c1d2ec890dda5f070940493fab5ca5 -->
+<!-- tinybot-module-fingerprint: sha256:a741c92663223638615b6bfcd5ba02ff8fb12d27727122dab7a7518ee3369f97 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -63,8 +63,9 @@ the local tab workspace and is restored on a later route mount. Opening another
 draft materializes non-empty startup text as its own navigable local tab. The
 first send materializes that draft with its captured workspace or project
 context, replaces the local tab with the returned Thread ID, and only then
-dispatches the Turn. Creation failures remain visible and reject the submission
-so the controlled composer keeps the user's input.
+dispatches the Turn. A successful first send clears the draft under the returned
+Thread ID; creation or dispatch failures reject the submission so the controlled
+composer keeps the user's input.
 The empty conversation continues to use the persisted composer model preference,
 and changing its model updates that preference for future chats.
 Browser runtime snapshots are retained by the

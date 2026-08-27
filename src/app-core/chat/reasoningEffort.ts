@@ -3,7 +3,7 @@ export const REASONING_EFFORT_VALUES = ["low", "medium", "high", "xhigh", "max"]
 export type ReasoningEffort = typeof REASONING_EFFORT_VALUES[number];
 
 export const CHAT_REASONING_EFFORT_STORAGE_KEY = "tinybot.ui.chat.composer-reasoning-effort";
-export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "medium";
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "high";
 
 export function isReasoningEffort(value: string): value is ReasoningEffort {
   return REASONING_EFFORT_VALUES.some((effort) => effort === value);

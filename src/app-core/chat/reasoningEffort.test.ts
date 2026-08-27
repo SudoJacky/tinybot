@@ -17,14 +17,14 @@ describe("chat reasoning effort preference", () => {
     expect(readCurrentChatReasoningEffort()).toBe("xhigh");
   });
 
-  test.each(["none", "ultra"])("removes unsupported effort value %s and falls back to medium", (effort) => {
+  test.each(["none", "ultra"])("removes unsupported effort value %s and falls back to high", (effort) => {
     window.localStorage.setItem(CHAT_REASONING_EFFORT_STORAGE_KEY, effort);
 
-    expect(readCurrentChatReasoningEffort()).toBe("medium");
+    expect(readCurrentChatReasoningEffort()).toBe("high");
     expect(window.localStorage.getItem(CHAT_REASONING_EFFORT_STORAGE_KEY)).toBeNull();
   });
 
-  test("uses medium when no preference has been saved", () => {
-    expect(readCurrentChatReasoningEffort()).toBe("medium");
+  test("uses high when no preference has been saved", () => {
+    expect(readCurrentChatReasoningEffort()).toBe("high");
   });
 });

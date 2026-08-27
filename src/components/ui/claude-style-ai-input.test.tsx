@@ -235,7 +235,7 @@ describe("ClaudeStyleAiInput slash commands", () => {
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
     expect(onSendMessage).toHaveBeenCalledWith("Review this incident", [], [], {
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
       selectedTools: [],
     });
   });
@@ -255,7 +255,7 @@ describe("ClaudeStyleAiInput slash commands", () => {
     expect(within(menu).getByRole("button", { name: /Model GPT-5\.6/ })).toBeTruthy();
     expect(within(menu).queryByText("Speed")).toBeNull();
 
-    await user.click(within(menu).getByRole("button", { name: /Effort Medium/ }));
+    await user.click(within(menu).getByRole("button", { name: /Effort High/ }));
     const effortList = screen.getByRole("listbox", { name: "Reasoning effort" });
     expect(within(effortList).queryByRole("option", { name: /Default/ })).toBeNull();
     expect(within(effortList).queryByRole("option", { name: /^None/ })).toBeNull();
@@ -298,7 +298,7 @@ describe("ClaudeStyleAiInput slash commands", () => {
     expect(document.querySelectorAll(".claude-ai-input__send")).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Stop generation" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Send message" }));
-    expect(onSendMessage).toHaveBeenCalledWith("Start the next turn", [], [], { reasoningEffort: "medium" });
+    expect(onSendMessage).toHaveBeenCalledWith("Start the next turn", [], [], { reasoningEffort: "high" });
   });
 
   it("submits and clears externally controlled file attachments", async () => {
@@ -321,7 +321,7 @@ describe("ClaudeStyleAiInput slash commands", () => {
 
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
-    expect(onSendMessage).toHaveBeenCalledWith("", files, [], { reasoningEffort: "medium" });
+    expect(onSendMessage).toHaveBeenCalledWith("", files, [], { reasoningEffort: "high" });
     expect(onFilesChange).toHaveBeenCalledWith([]);
   });
 
@@ -395,7 +395,7 @@ describe("ClaudeStyleAiInput slash commands", () => {
       "/compact",
       [],
       [],
-      { reasoningEffort: "medium" },
+      { reasoningEffort: "high" },
     ));
   });
 });

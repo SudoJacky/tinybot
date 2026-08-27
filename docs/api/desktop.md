@@ -498,8 +498,9 @@ The built-in provider catalog currently exposes `deepseek`, `dashscope`, `openai
 Profiles are not limited to that catalog: a profile with a custom provider ID, explicit `apiBase`,
 and at least one model is resolved as an OpenAI-compatible provider. Its optional API key remains on
 the existing secret/redaction path, and `supportsModelDiscovery` controls `/models` discovery.
-`supportsReasoningEffort` defaults to `true`; set it to `false` to omit effort from both Chat
-Completions and Responses requests for endpoints that reject the field.
+Every built-in and custom Provider profile defaults `supportsReasoningEffort` to `true`; set it to
+`false` to omit effort from both Chat Completions and Responses requests for endpoints that reject
+the field.
 Context windows are model-specific. A provider profile can store explicit overrides as
 `modelContextWindows`, for example:
 

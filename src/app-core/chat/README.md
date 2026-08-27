@@ -1,5 +1,5 @@
 # Chat Application Core
-<!-- tinybot-module-fingerprint: sha256:f27aeb35109fcaa838a13c610b9ab8b42ebdc2daee59480bbbb5a5f0a687e171 -->
+<!-- tinybot-module-fingerprint: sha256:27d8472b4181238bb1cfa3c6a8a3b1a9052a5202aa03cdbcb98922300e4b9a70 -->
 
 `chat` contains framework-independent chat and TinyOS contracts, command
 construction, canonical timeline validation, UI projection, input state, and
@@ -30,3 +30,7 @@ Submissions may also preserve an explicit `selectedTools` allowlist from the
 composer. Omission keeps backend default tool exposure, while an explicit empty
 list intentionally disables optional tools; this distinction survives the
 desktop command boundary.
+
+The main Chat composer and desktop-pet quick chat share one persisted reasoning
+effort preference. A missing or invalid preference starts at `high`; an
+explicit user selection remains authoritative across both surfaces.

@@ -1,12 +1,13 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:e9581e21903efbcf403da21fcb818ea056098b248797301944d18018be89d00e -->
+<!-- tinybot-module-fingerprint: sha256:d899e6f2e108224eb40c7d1d44136c439274dc75ac56950d95e1dd38bb0d1170 -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.
 
 Configuration coverage includes runtime fallbacks and precedence between Turn
 settings and configured Agent defaults. It also covers the Z.ai Chat
-Completions-only contract and its provider-specific request fields.
+Completions-only contract, its provider-specific request fields, and default
+OpenAI-compatible reasoning-effort passthrough.
 
 Context coverage includes compaction and trimming budgets, estimates of the
 fully assembled provider request (including Responses-native replay), and
