@@ -369,12 +369,28 @@ pub(super) fn require_provider_capability(
     require_profile_capability(&profile, capability)
 }
 
-pub(super) fn provider_reasoning_effort_enabled(
+pub(super) fn apply_provider_request_adaptation(
     settings: &AgentTurnSettings,
     config_snapshot: &Value,
-) -> Result<bool, String> {
-    let profile = resolve_provider_profile(settings, config_snapshot)?;
-    Ok(profile.supports_reasoning_effort)
+    protocol: crate::agent::provider::NativeProviderApiMode,
+    request: &mut Value,
+) -> Result<(), String> {
+    let Some(profile) = crate::agent::provider::resolve_provider_profile(
+        config_snapshot,
+        settings.provider.as_deref(),
+        None,
+    ) else {
+        if settings
+            .reasoning
+            .as_ref()
+            .and_then(|reasoning| reasoning.effort.as_deref())
+            .is_some()
+        {
+            return resolve_provider_profile(settings, config_snapshot).map(|_| ());
+        }
+        return Ok(());
+    };
+    crate::agent::provider::adapt_provider_request(&profile, &settings.model, protocol, request)
 }
 
 fn resolve_provider_profile(

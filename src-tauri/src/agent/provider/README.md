@@ -1,9 +1,14 @@
 # Agent Providers
-<!-- tinybot-module-fingerprint: sha256:cb7b3d424410b438efd60ea80e5962ab0a6249e8e618145c320dcd4cd9406740 -->
+<!-- tinybot-module-fingerprint: sha256:34e9d3757cbd927cd18ed52038070e88c594eeeca47c9dd00fc14c223f51db7c -->
 
 This module resolves provider and model configuration and performs streaming
 Chat Completions or Responses API requests.
 
+- `plugins/` contains the statically registered Provider adapters. Every
+  built-in Provider implements the shared `ProviderPlugin` interface and owns
+  its catalog manifest, reasoning-effort policy, and wire-request adaptations.
+  The shared protocol and transport flow remains outside individual adapters;
+  custom OpenAI-compatible Providers use the default pass-through policy.
 - `catalog.rs` resolves configured providers and models. Live discovery stays
   async end to end, calls the authenticated OpenAI-compatible `GET /models`
   endpoint, and requires only `data[].id` from each provider response. Custom

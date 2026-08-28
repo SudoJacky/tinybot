@@ -1,8 +1,8 @@
 use super::items::{AgentContentPart, AgentUsageItem};
 use super::provider_adapter::{
-    attach_provider_tools, provider_message_with_user_context_and_images,
-    provider_reasoning_effort_enabled, require_model_image_input, require_provider_capability,
-    DecodedProviderTurn,
+    apply_provider_request_adaptation, attach_provider_tools,
+    provider_message_with_user_context_and_images, require_model_image_input,
+    require_provider_capability, DecodedProviderTurn,
 };
 use super::tool_router::{provider_tool_name, AgentToolDefinition};
 use super::{
@@ -48,6 +48,12 @@ impl ResponsesAdapter {
             Self::encode_tools(tools),
             enable_parallel_tool_calls,
         );
+        apply_provider_request_adaptation(
+            settings,
+            config_snapshot,
+            crate::agent::provider::NativeProviderApiMode::Responses,
+            &mut request,
+        )?;
         Ok(request)
     }
 
@@ -149,10 +155,7 @@ impl ResponsesAdapter {
         if let Some(reasoning) = settings.reasoning.as_ref() {
             let mut response_reasoning = Map::new();
             if let Some(effort) = reasoning.effort.as_deref() {
-                if provider_reasoning_effort_enabled(settings, config_snapshot)? {
-                    response_reasoning
-                        .insert("effort".to_string(), Value::String(effort.to_string()));
-                }
+                response_reasoning.insert("effort".to_string(), Value::String(effort.to_string()));
             }
             if let Some(summary) = reasoning.summary.as_deref() {
                 require_provider_capability(settings, config_snapshot, "reasoning")?;
