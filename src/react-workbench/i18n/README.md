@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:676072a382ba29660c27ee92f6340ec4c92eaaa3c9de17b76c218b8ac7ea79f1 -->
+<!-- tinybot-module-fingerprint: sha256:49b545f76a4e33065c37e9dffbb5a974f6245b6d8da8b24b25e6c579b666e74c -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
@@ -25,7 +25,9 @@ source label, inline Skill removal label, and Skill-only fallback prompt.
 Context-window usage and latest-call cache-hit labels are localized here while
 their Token counts and computed percentage remain language-neutral values.
 Provider model settings also localize automatic, fallback, and custom
-context-window modes while model IDs and numeric limits stay language-neutral.
+context-window modes, enabled-model counts, image-input controls, and the
+unsupported-image composer message while model IDs and numeric limits stay
+language-neutral.
 Language-picker option names and descriptions use each target language's own
 copy (endonyms) instead of following the currently active interface language.
 The retired TinyOS application namespace is intentionally absent. Sidecar copy

@@ -111,7 +111,7 @@ The page also offers an explicit Agent-assisted migration for standalone Skills,
 
 ## Conversation Models
 
-Model selection belongs to the conversation rather than a separate editable global default. Tinybot stores the recently used model as the starting choice for a new conversation, then persists the selected model in that Thread's metadata. Switching conversations restores each Thread's model, and changing the Composer model updates both the Thread and the recently used choice.
+Model selection belongs to the conversation after a Thread is created. The Provider & Models page, Chat drafts, empty Threads, and desktop-pet quick chat all use one Settings-store operation for the starting model: it saves the native `activeProfile`/`model` pair before mirroring that choice as the renderer's recently used preference. A first send waits for this save. The native pair is also the coherent fallback for background model work such as long-term Memory. When model options load, an explicitly selected native Profile paired with another Provider's model is repaired from a valid renderer preference or that Profile's default model and emits a structured warning. Switching populated conversations restores each Thread's own model, and changing their Composer model updates only the Thread.
 
 Desktop turn submission resolves models in this order:
 
@@ -120,7 +120,7 @@ Desktop turn submission resolves models in this order:
 3. the recently used model for new conversations;
 4. the native runtime's configured fallback when no user selection exists.
 
-Automatic turns, including Agent-assisted plugin migration, use the same resolution path. Provider profiles keep a provider-specific fallback model for connection setup and native runtime recovery, but that value is not presented as the user's current conversation model.
+Automatic turns, including Agent-assisted plugin migration, use the same resolution path. Provider profiles keep a provider-specific fallback model for connection setup and native runtime recovery, while background work without a Thread-specific selection uses the native default Profile/model pair.
 
 ## Desktop Adapters
 

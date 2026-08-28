@@ -1,4 +1,4 @@
-import { Check, ChevronRight, EllipsisVertical, Loader2, Plus, RefreshCw, Search, Settings, Trash2 } from "lucide-react";
+import { Check, ChevronRight, EllipsisVertical, Image as ImageIcon, Loader2, Plus, RefreshCw, Search, Settings, Trash2 } from "lucide-react";
 import type { TFunction } from "i18next";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
@@ -7,6 +7,7 @@ import {
   buildProviderConfigurePatch,
   buildProviderModelsPatch,
   buildProviderModelsSettings,
+  automaticModelCapabilities,
   automaticModelContextWindow,
   type ProviderModelFetchInput,
   type ProviderModelFetchResult,
@@ -16,7 +17,6 @@ import {
 } from "../../app-core/settings/providerModelsSettings";
 import {
   readDefaultChatModelPreference,
-  writeDefaultChatModel,
 } from "../../app-core/chat/chatModelPreference";
 import type { SettingsStore } from "../services";
 import { SettingsChoiceList } from "./SettingsChoiceList";
@@ -73,6 +73,23 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
       throw error;
     }
   }
+  async function saveDefaultSelection(input: { modelId: string; providerId: string }): Promise<void> {
+    if (!settingsStore.saveDefaultChatModel || !settingsStore.loadProviderSettings) {
+      throw new Error("Native default Provider/model persistence is unavailable.");
+    }
+    setSaveStatus(t("provider.saving"));
+    setSaveState("saving");
+    try {
+      await settingsStore.saveDefaultChatModel(input);
+      setData(await settingsStore.loadProviderSettings());
+      setSaveStatus(t("provider.saved"));
+      setSaveState("saved");
+    } catch (error) {
+      setSaveStatus(t("provider.saveFailed", { message: error instanceof Error ? error.message : String(error) }));
+      setSaveState("error");
+      throw error;
+    }
+  }
   const fetchProviderModels = settingsStore.fetchProviderModels;
 
   if (loadError) {
@@ -92,7 +109,7 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
         </div>
       </div>
 
-      <DefaultLlmPanel data={data} />
+      <DefaultLlmPanel data={data} onSave={saveDefaultSelection} />
 
       <SettingsSaveStatus message={saveStatus} state={saveState} />
 
@@ -165,8 +182,10 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
 
 function DefaultLlmPanel({
   data,
+  onSave,
 }: {
   data: ProviderModelsSettingsData;
+  onSave: (input: { modelId: string; providerId: string }) => Promise<void>;
 }) {
   const { t: tCommon } = useTranslation("common");
   const { t } = useTranslation("settings");
@@ -174,23 +193,26 @@ function DefaultLlmPanel({
   const savedDefaultModel = savedPreference?.modelId ?? "";
   const initialProviderFromDefaultModel = data.providers.find((provider) => (
     provider.id === savedPreference?.providerId
-    && provider.models.some((model) => model.id === savedDefaultModel)
+    && provider.models.some((model) => model.enabled && model.id === savedDefaultModel)
   )) ?? data.providers.find((provider) => (
-    provider.models.some((model) => model.id === savedDefaultModel)
+    provider.models.some((model) => model.enabled && model.id === savedDefaultModel)
   ));
   const initialProfileId = initialProviderFromDefaultModel?.profileId ?? data.activeProfileId
     ?? data.providers.find((provider) => provider.configured)?.profileId
     ?? data.providers[0]?.profileId
     ?? "";
   const initialProvider = data.providers.find((provider) => provider.profileId === initialProfileId) ?? data.providers[0];
-  const initialModelOptions = initialProvider?.models ?? [];
+  const initialModelOptions = initialProvider?.models.filter((model) => model.enabled) ?? [];
   const initialModel = savedDefaultModel
     && initialModelOptions.some((model) => model.id === savedDefaultModel)
     ? savedDefaultModel
     : initialProvider?.defaultModel ?? initialModelOptions[0]?.id ?? "";
   const [profileId, setProfileId] = useState(initialProfileId);
   const selectedProvider = data.providers.find((provider) => provider.profileId === profileId) ?? data.providers[0];
-  const modelOptions = useMemo(() => selectedProvider?.models ?? [], [selectedProvider]);
+  const modelOptions = useMemo(
+    () => selectedProvider?.models.filter((model) => model.enabled) ?? [],
+    [selectedProvider],
+  );
   const [model, setModel] = useState(initialModel);
   const [modelSearch, setModelSearch] = useState("");
   const [saving, setSaving] = useState(false);
@@ -203,26 +225,26 @@ function DefaultLlmPanel({
 
   useEffect(() => {
     const nextProvider = data.providers.find((provider) => provider.profileId === profileId) ?? data.providers[0];
-    const nextModels = nextProvider?.models ?? [];
+    const nextModels = nextProvider?.models.filter((option) => option.enabled) ?? [];
     if (!nextModels.some((option) => option.id === model)) {
       setModel(nextProvider?.defaultModel ?? nextModels[0]?.id ?? "");
     }
   }, [data.providers, model, profileId]);
 
   const dirty = model !== savedDefaultModel || profileId !== initialProfileId;
-  const canSave = Boolean(profileId && model && dirty && !saving);
+  const canSave = Boolean(selectedProvider && profileId && model && dirty && !saving);
   const normalizedModelSearch = modelSearch.trim().toLocaleLowerCase();
   const filteredModelOptions = useMemo(() => normalizedModelSearch
     ? modelOptions.filter((option) => `${option.label} ${option.id}`.toLocaleLowerCase().includes(normalizedModelSearch))
     : modelOptions, [modelOptions, normalizedModelSearch]);
 
   async function saveDefaultModel(onSaved: () => void) {
-    if (!canSave) {
+    if (!canSave || !selectedProvider) {
       return;
     }
     setSaving(true);
     try {
-      writeDefaultChatModel(model, selectedProvider?.id);
+      await onSave({ modelId: model, providerId: selectedProvider.id });
       onSaved();
     } finally {
       setSaving(false);
@@ -294,7 +316,7 @@ function DefaultLlmPanel({
                         type="button"
                         onClick={() => {
                           setProfileId(provider.profileId);
-                          setModel(provider.defaultModel ?? provider.models[0]?.id ?? "");
+                          setModel(provider.defaultModel ?? provider.models.find((model) => model.enabled)?.id ?? "");
                           setModelSearch("");
                         }}
                       >
@@ -467,6 +489,7 @@ const PROVIDER_LOGOS: Record<string, string> = {
   dashscope: "/assets/providers/dashscope.svg",
   deepseek: "/assets/providers/deepseek.svg",
   openai: "/assets/providers/openai.svg",
+  zai: "/assets/providers/zai.svg",
 };
 
 function ProviderBrandIcon({ provider }: { provider: ProviderCardModel }) {
@@ -535,6 +558,7 @@ function ProviderConfigureDialog({
         apiKey,
         useResponsesApi,
         supportsReasoningEffort: provider.builtIn ? undefined : supportsReasoningEffort,
+        defaultModel: provider.defaultModel,
         enabled: true,
         activate: !provider.active && activate,
       }));
@@ -611,16 +635,18 @@ function ProviderConfigureDialog({
           <fieldset className="react-provider-config__section react-provider-config__mode">
             <legend>{t("provider.configureDialog.apiMode")}</legend>
             <div>
-              <label data-selected={useResponsesApi || undefined}>
-                <input
-                  checked={useResponsesApi}
-                  name="provider-api-mode"
-                  type="radio"
-                  value="responses"
-                  onChange={() => setUseResponsesApi(true)}
-                />
-                <span>{t("provider.responsesApi")}</span>
-              </label>
+              {provider.supportsResponsesApi ? (
+                <label data-selected={useResponsesApi || undefined}>
+                  <input
+                    checked={useResponsesApi}
+                    name="provider-api-mode"
+                    type="radio"
+                    value="responses"
+                    onChange={() => setUseResponsesApi(true)}
+                  />
+                  <span>{t("provider.responsesApi")}</span>
+                </label>
+              ) : null}
               <label data-selected={!useResponsesApi || undefined}>
                 <input
                   checked={!useResponsesApi}
@@ -632,7 +658,9 @@ function ProviderConfigureDialog({
                 <span>{t("provider.chatCompletions")}</span>
               </label>
             </div>
-            <small>{t("provider.configureDialog.responsesHelp")}</small>
+            <small>{provider.supportsResponsesApi
+              ? t("provider.configureDialog.responsesHelp")
+              : t("provider.configureDialog.chatOnlyHelp")}</small>
           </fieldset>
           {!provider.builtIn ? (
             <section className="react-provider-config__section" aria-labelledby="provider-features-title">
@@ -825,7 +853,9 @@ function ProviderModelsDialog({
   const [query, setQuery] = useState("");
   const [models, setModels] = useState(provider.models);
   const [newModel, setNewModel] = useState("");
-  const [defaultModel, setDefaultModel] = useState(provider.defaultModel ?? provider.models[0]?.id ?? "");
+  const [defaultModel, setDefaultModel] = useState(
+    provider.defaultModel ?? provider.models.find((model) => model.enabled)?.id ?? "",
+  );
   const [contextWindowDrafts, setContextWindowDrafts] = useState<Record<string, string>>(() => (
     Object.fromEntries(Object.entries(provider.modelContextWindows).map(([model, tokens]) => [model, String(tokens)]))
   ));
@@ -848,7 +878,13 @@ function ProviderModelsDialog({
     if (!id || models.some((model) => model.id === id)) {
       return;
     }
-    setModels([...models, { id, label: id, source: "user" }]);
+    setModels([...models, {
+      id,
+      label: id,
+      source: "user",
+      enabled: true,
+      supportsImageInput: automaticModelCapabilities(id).supportsImageInput,
+    }]);
     setNewModel("");
     if (!defaultModel) {
       setDefaultModel(id);
@@ -867,8 +903,24 @@ function ProviderModelsDialog({
       return next;
     });
     if (defaultModel === model.id) {
-      setDefaultModel(nextModels[0]?.id ?? "");
+      setDefaultModel(nextModels.find((item) => item.enabled)?.id ?? "");
     }
+  }
+
+  function setModelEnabled(modelId: string, enabled: boolean) {
+    const nextModels = models.map((model) => model.id === modelId ? { ...model, enabled } : model);
+    setModels(nextModels);
+    if (enabled && !defaultModel) {
+      setDefaultModel(modelId);
+    } else if (!enabled && defaultModel === modelId) {
+      setDefaultModel(nextModels.find((model) => model.enabled)?.id ?? "");
+    }
+  }
+
+  function setModelImageInput(modelId: string, supportsImageInput: boolean) {
+    setModels((current) => current.map((model) => (
+      model.id === modelId ? { ...model, supportsImageInput } : model
+    )));
   }
 
   function setContextWindowMode(model: string, mode: "auto" | "custom") {
@@ -906,7 +958,7 @@ function ProviderModelsDialog({
       if (result.models.length) {
         setModels((currentModels) => mergeFetchedModels(currentModels, result.models));
         if (!defaultModel) {
-          setDefaultModel(result.models[0] ?? "");
+          setDefaultModel(currentEnabledModelId(models));
         }
       }
       setRefreshMessage(result.error || result.warning || (result.models.length
@@ -925,10 +977,15 @@ function ProviderModelsDialog({
       providerId: provider.id,
       profileId: provider.profileId,
       models: models.map((model) => model.id),
+      enabledModels: models.filter((model) => model.enabled).map((model) => model.id),
       defaultModel,
       modelContextWindows: Object.entries(contextWindowDrafts).map(([model, value]) => ({
         model,
         contextWindowTokens: Number.parseInt(value, 10),
+      })),
+      modelCapabilities: models.map((model) => ({
+        model: model.id,
+        inputModalities: model.supportsImageInput ? ["image"] : [],
       })),
     }));
     onSaved();
@@ -944,25 +1001,65 @@ function ProviderModelsDialog({
       wide
     >
       {(requestClose) => (
-        <div className="react-settings-sheet__content">
-          <label>
-            <span>{t("provider.searchModels")}</span>
-            <input
-              aria-label={t("provider.searchModels")}
-              data-dialog-initial-focus
-              placeholder={t("provider.searchModels")}
-              value={query}
-              onChange={(event) => setQuery(event.currentTarget.value)}
-            />
-          </label>
+        <div className="react-settings-sheet__content react-provider-model-manager">
+          <div className="react-provider-model-toolbar">
+            <label className="react-provider-model-search">
+              <span>{t("provider.searchModels")}</span>
+              <input
+                aria-label={t("provider.searchModels")}
+                data-dialog-initial-focus
+                placeholder={t("provider.searchModels")}
+                value={query}
+                onChange={(event) => setQuery(event.currentTarget.value)}
+              />
+            </label>
+            <p className="react-provider-model-selection-summary" role="status">
+              {t("provider.modelsDialog.enabledCount", {
+                count: models.filter((model) => model.enabled).length,
+                total: models.length,
+              })}
+            </p>
+          </div>
           <div className="react-provider-model-list">
+            <div className="react-provider-model-list__header" aria-hidden="true">
+              <span>{t("provider.modelsDialog.enabled")}</span>
+              <span>{t("provider.modelsDialog.model")}</span>
+              <span>{t("provider.modelsDialog.capabilities")}</span>
+              <span>{t("provider.modelsDialog.contextWindow")}</span>
+              <span>{t("provider.modelsDialog.backupModel")}</span>
+              <span />
+            </div>
             {filteredModels.map((model) => (
-              <div className="react-provider-model-row" key={model.id}>
-                <div>
-                  <strong>{model.label}</strong>
-                  <small>{model.id}</small>
+              <div className="react-provider-model-row" data-enabled={model.enabled} key={model.id}>
+                <label
+                  className="react-provider-model-enable"
+                  title={t("provider.modelsDialog.enableModel", { name: model.id })}
+                >
+                  <input
+                    aria-label={t("provider.modelsDialog.enableModel", { name: model.id })}
+                    checked={model.enabled}
+                    type="checkbox"
+                    onChange={(event) => setModelEnabled(model.id, event.currentTarget.checked)}
+                  />
+                </label>
+                <div className="react-provider-model-identity">
+                  <div>
+                    <strong>{model.label}</strong>
+                    <span className="react-provider-model-source">{modelSourceLabel(model.source, t)}</span>
+                  </div>
+                  {model.label !== model.id ? <small>{model.id}</small> : null}
                 </div>
-                <span>{modelSourceLabel(model.source, t)}</span>
+                <button
+                  className="react-provider-model-capability"
+                  data-press-feedback="true"
+                  type="button"
+                  aria-label={t("provider.modelsDialog.imageInputFor", { name: model.id })}
+                  aria-pressed={model.supportsImageInput}
+                  title={t("provider.modelsDialog.imageInputFor", { name: model.id })}
+                  onClick={() => setModelImageInput(model.id, !model.supportsImageInput)}
+                >
+                  <ImageIcon aria-hidden="true" size={16} strokeWidth={1.8} />
+                </button>
                 <ModelContextWindowControl
                   fallbackContextWindowTokens={fallbackContextWindowTokens}
                   invalid={invalidContextWindowModels.has(model.id)}
@@ -971,11 +1068,24 @@ function ProviderModelsDialog({
                   onTokensChange={(value) => setContextWindowTokens(model.id, value)}
                   overrideValue={contextWindowDrafts[model.id]}
                 />
-                <button data-press-feedback="true" type="button" onClick={() => setDefaultModel(model.id)}>
-                  {defaultModel === model.id ? <Check aria-hidden="true" size={15} /> : null}
-                  {t("provider.fallback")}
-                </button>
+                <label
+                  className="react-provider-model-default"
+                  title={t("provider.modelsDialog.selectBackupModel", { name: model.id })}
+                >
+                  <input
+                    aria-label={t("provider.modelsDialog.selectBackupModel", { name: model.id })}
+                    checked={defaultModel === model.id}
+                    disabled={!model.enabled}
+                    name={`provider-backup-${provider.profileId}`}
+                    type="radio"
+                    onChange={() => setDefaultModel(model.id)}
+                  />
+                  <span className="react-provider-model-default__label" aria-hidden="true">
+                    {t("provider.modelsDialog.backupModel")}
+                  </span>
+                </label>
                 <button
+                  className="react-provider-model-remove"
                   data-press-feedback="true"
                   type="button"
                   aria-label={t("provider.modelsDialog.remove", { name: model.id })}
@@ -1085,9 +1195,19 @@ function mergeFetchedModels(currentModels: ProviderModelItem[], fetchedModelIds:
       continue;
     }
     seen.add(id);
-    next.push({ id, label: id, source: "live" });
+    next.push({
+      id,
+      label: id,
+      source: "live",
+      enabled: false,
+      supportsImageInput: automaticModelCapabilities(id).supportsImageInput,
+    });
   }
   return next;
+}
+
+function currentEnabledModelId(models: ProviderModelItem[]): string {
+  return models.find((model) => model.enabled)?.id ?? "";
 }
 
 function modelSourceLabel(source: ProviderModelItem["source"], t: TFunction<"settings">): string {

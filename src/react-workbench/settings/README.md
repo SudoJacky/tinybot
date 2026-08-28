@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:5c7a073cd5689844eb49a18a0e894420f37c87aa362ba34387a69a67d6ce9a02 -->
+<!-- tinybot-module-fingerprint: sha256:eb7e40f0299537d17450cde6157ebc0df27c64f9d6999cd05ce1185c5dba0937 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
@@ -52,8 +52,25 @@ shared `components/ui/useModalDialog` seam.
 The Provider & Models page exposes reasoning-effort support only for custom
 providers. New custom profiles start enabled; users can disable it while
 creating or configuring the profile when an endpoint rejects effort fields.
+The built-in Z.ai provider presents its static GLM models and Chat Completions
+mode without offering the unsupported Responses choice.
+The new-conversation default selector persists `agents.defaults.activeProfile`
+and `agents.defaults.model` together through the shared native Settings-store
+operation before updating the renderer's recently-used preference. Chat and
+desktop-pet quick chat use that same operation for empty conversations, so no
+renderer surface can update only the local preference. Activating a Provider also
+requires and persists that Provider's enabled default model, so background
+model work cannot combine one Profile's endpoint with another Provider's model.
 Its model manager configures context windows per model with the shared
 `SettingsChoiceList`: known models default to Tinybot's automatic value,
 unknown models show the runtime fallback, and either can store a custom positive
 Token limit. Agent Defaults retains the compaction strategy but no longer
 presents one editable window as if it applied to every model.
+Each model row uses a dedicated enable checkbox for shared selectors and a
+compact image capability button; a lit image icon means the profile declares
+image input for that model. A compact radio control selects the Provider's
+backup model without repeating a full action label in every row. Existing
+profiles remain enabled by default; newly discovered models enter the catalog
+disabled so large Provider listings do not flood Chat and Agent Graph controls.
+Known vision models receive their automatic image capability, which users can
+override per profile.

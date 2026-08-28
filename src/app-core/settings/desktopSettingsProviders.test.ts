@@ -227,16 +227,18 @@ describe("desktop settings and provider helpers", () => {
       providers: [
         { id: "openai", displayName: "OpenAI", baseUrl: "https://api.openai.com/v1", status: "ready", enabled: false },
         { id: "deepseek", display_name: "DeepSeek", base_url: "https://api.deepseek.com", status: "available" },
+        { id: "zai", displayName: "Z.ai", defaultApiBase: "https://open.bigmodel.cn/api/paas/v4", supportsModelDiscovery: false },
         null,
       ],
     })).toEqual([
-      { id: "openai", displayName: "OpenAI", baseUrl: "https://api.openai.com/v1", status: "ready", enabled: false },
-      { id: "deepseek", displayName: "DeepSeek", baseUrl: "https://api.deepseek.com", status: "available", enabled: null },
+      { id: "openai", displayName: "OpenAI", baseUrl: "https://api.openai.com/v1", supportsModelDiscovery: true, status: "ready", enabled: false },
+      { id: "deepseek", displayName: "DeepSeek", baseUrl: "https://api.deepseek.com", supportsModelDiscovery: true, status: "available", enabled: null },
+      { id: "zai", displayName: "Z.ai", baseUrl: "https://open.bigmodel.cn/api/paas/v4", supportsModelDiscovery: false, status: "", enabled: null },
     ]);
     expect(buildDesktopProviderCatalogItems([
       { id: "local", display_name: "Local" },
     ])).toEqual([
-      { id: "local", displayName: "Local", baseUrl: "", status: "", enabled: null },
+      { id: "local", displayName: "Local", baseUrl: "", supportsModelDiscovery: true, status: "", enabled: null },
     ]);
   });
 

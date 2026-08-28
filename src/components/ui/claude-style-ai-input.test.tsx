@@ -235,7 +235,7 @@ describe("ClaudeStyleAiInput slash commands", () => {
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
     expect(onSendMessage).toHaveBeenCalledWith("Review this incident", [], [], {
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
       selectedTools: [],
     });
   });
@@ -255,7 +255,7 @@ describe("ClaudeStyleAiInput slash commands", () => {
     expect(within(menu).getByRole("button", { name: /Model GPT-5\.6/ })).toBeTruthy();
     expect(within(menu).queryByText("Speed")).toBeNull();
 
-    await user.click(within(menu).getByRole("button", { name: /Effort Medium/ }));
+    await user.click(within(menu).getByRole("button", { name: /Effort High/ }));
     const effortList = screen.getByRole("listbox", { name: "Reasoning effort" });
     expect(within(effortList).queryByRole("option", { name: /Default/ })).toBeNull();
     expect(within(effortList).queryByRole("option", { name: /^None/ })).toBeNull();
@@ -298,7 +298,7 @@ describe("ClaudeStyleAiInput slash commands", () => {
     expect(document.querySelectorAll(".claude-ai-input__send")).toHaveLength(1);
     expect(screen.queryByRole("button", { name: "Stop generation" })).toBeNull();
     await user.click(screen.getByRole("button", { name: "Send message" }));
-    expect(onSendMessage).toHaveBeenCalledWith("Start the next turn", [], [], { reasoningEffort: "medium" });
+    expect(onSendMessage).toHaveBeenCalledWith("Start the next turn", [], [], { reasoningEffort: "high" });
   });
 
   it("submits and clears externally controlled file attachments", async () => {
@@ -321,8 +321,43 @@ describe("ClaudeStyleAiInput slash commands", () => {
 
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
-    expect(onSendMessage).toHaveBeenCalledWith("", files, [], { reasoningEffort: "medium" });
+    expect(onSendMessage).toHaveBeenCalledWith("", files, [], { reasoningEffort: "high" });
     expect(onFilesChange).toHaveBeenCalledWith([]);
+  });
+
+  it("rejects image selections for a model without image input while keeping ordinary files", async () => {
+    const user = userEvent.setup();
+    const onSelectFiles = vi.fn(async () => ([
+      {
+        contentHash: "image-hash",
+        mimeType: "image/png",
+        name: "diagram.png",
+        path: "C:\\Tinybot\\diagram.png",
+        sizeBytes: 2048,
+      },
+      {
+        mimeType: "text/plain",
+        name: "notes.txt",
+        path: "C:\\Tinybot\\notes.txt",
+        sizeBytes: 64,
+      },
+    ]));
+    render(<ClaudeStyleAiInput
+      defaultModel="text-model"
+      models={[{
+        id: "text-model",
+        name: "Text model",
+        description: "Provider",
+        supportsImageInput: false,
+      }]}
+      onSelectFiles={onSelectFiles}
+    />);
+
+    await user.click(screen.getByRole("button", { name: "Attach files" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Text model does not support image input");
+    expect(screen.queryByText("diagram.png")).toBeNull();
+    expect(screen.getByText("notes.txt")).toBeTruthy();
   });
 
   it("dismisses the menu with Escape without changing the draft", async () => {
@@ -360,7 +395,7 @@ describe("ClaudeStyleAiInput slash commands", () => {
       "/compact",
       [],
       [],
-      { reasoningEffort: "medium" },
+      { reasoningEffort: "high" },
     ));
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import {
   BUILT_IN_PROVIDER_PRESETS,
+  automaticModelCapabilities,
   automaticModelContextWindow,
   buildCustomProviderPatch,
   buildProviderConfigurePatch,
@@ -33,7 +34,7 @@ describe("provider models settings", () => {
     expect(settings.revision).toBe("hash:1");
     expect(settings.activeProfileId).toBe("deepseek-default");
     expect(settings.fallbackContextWindowTokens).toBe(128_000);
-    expect(settings.providers.map((provider) => provider.id)).toEqual(["deepseek", "dashscope", "openai"]);
+    expect(settings.providers.map((provider) => provider.id)).toEqual(["deepseek", "dashscope", "openai", "zai"]);
     expect(settings.providers.find((provider) => provider.id === "deepseek")).toMatchObject({
       label: "DeepSeek",
       profileId: "deepseek-default",
@@ -42,7 +43,7 @@ describe("provider models settings", () => {
       apiKeyConfigured: true,
       useResponsesApi: true,
       baseUrl: "https://api.deepseek.com",
-      modelCount: 2,
+      modelCount: 1,
       defaultModel: "deepseek-v4-pro",
     });
     expect(settings.providers.find((provider) => provider.id === "openai")).toMatchObject({
@@ -52,6 +53,18 @@ describe("provider models settings", () => {
     });
     expect(settings.providers.find((provider) => provider.id === "dashscope")).toMatchObject({
       modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
+    });
+    expect(settings.providers.find((provider) => provider.id === "zai")).toMatchObject({
+      label: "Z.ai",
+      baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+      defaultModel: "glm-5.3",
+      supportsResponsesApi: false,
+      modelDiscovery: { status: "static", endpoint: null },
+      models: [
+        { id: "glm-5.3", label: "glm-5.3", source: "built-in", enabled: true, supportsImageInput: false },
+        { id: "glm-5.3-flash", label: "glm-5.3-flash", source: "built-in", enabled: true, supportsImageInput: true },
+        { id: "glm-5.2", label: "glm-5.2", source: "built-in", enabled: true, supportsImageInput: false },
+      ],
     });
     expect(BUILT_IN_PROVIDER_PRESETS.every((preset) => preset.builtIn)).toBe(true);
   });
@@ -81,7 +94,7 @@ describe("provider models settings", () => {
       active: true,
       supportsReasoningEffort: true,
       baseUrl: "http://127.0.0.1:11434/v1",
-      models: [{ id: "local-model", label: "local-model", source: "user" }],
+      models: [{ id: "local-model", label: "local-model", source: "user", enabled: true, supportsImageInput: false }],
       modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
     });
   });
@@ -112,10 +125,11 @@ describe("provider models settings", () => {
       apiBase: "https://api.openai.com/v1",
       apiKey: "sk-new",
       useResponsesApi: true,
+      defaultModel: "gpt-4.1",
       enabled: true,
       activate: true,
     })).toEqual({
-      agents: { defaults: { activeProfile: "openai-default" } },
+      agents: { defaults: { activeProfile: "openai-default", model: "gpt-4.1" } },
       providers: {
         profiles: {
           "openai-default": {
@@ -129,6 +143,42 @@ describe("provider models settings", () => {
         },
       },
     });
+  });
+
+  test("keeps the built-in Z.ai provider on Chat Completions", () => {
+    expect(buildProviderConfigurePatch({
+      providerId: "zai",
+      profileId: "zai-default",
+      apiBase: "https://open.bigmodel.cn/api/paas/v4",
+      apiKey: "zai-secret",
+      useResponsesApi: false,
+      enabled: true,
+    })).toEqual({
+      providers: {
+        profiles: {
+          "zai-default": {
+            provider: "zai",
+            displayName: "Z.ai",
+            enabled: true,
+            apiBase: "https://open.bigmodel.cn/api/paas/v4",
+            apiKey: "zai-secret",
+            apiMode: "chat_completions",
+          },
+        },
+      },
+    });
+
+    expect(() => buildProviderConfigurePatch({
+      providerId: "openai",
+      profileId: "openai-default",
+      apiBase: "https://api.openai.com/v1",
+      activate: true,
+    })).toThrow("Cannot activate OpenAI without a default model");
+    expect(() => buildProviderConfigurePatch({
+      providerId: "zai",
+      apiBase: "https://open.bigmodel.cn/api/paas/v4",
+      useResponsesApi: true,
+    })).toThrow("Z.ai does not support Responses API");
   });
 
   test("builds an OpenAI-compatible custom provider profile", () => {
@@ -154,6 +204,7 @@ describe("provider models settings", () => {
             apiKey: "local-secret",
             apiMode: "chat_completions",
             models: ["local-model"],
+            enabledModels: ["local-model"],
             defaultModel: "local-model",
             supportsModelDiscovery: true,
             supportsReasoningEffort: true,
@@ -161,6 +212,14 @@ describe("provider models settings", () => {
         },
       },
     });
+
+    expect(() => buildCustomProviderPatch({
+      providerId: "local-openai",
+      displayName: "Local OpenAI",
+      apiBase: "http://127.0.0.1:11434/v1",
+      model: " ",
+      activate: true,
+    })).toThrow("Cannot activate Local OpenAI without a default model");
   });
 
   test("preserves an explicitly disabled reasoning effort feature for custom providers", () => {
@@ -218,10 +277,25 @@ describe("provider models settings", () => {
         },
       },
     });
+
+    expect(() => buildProviderModelsPatch({
+      providerId: "deepseek",
+      models: ["deepseek-v4-pro"],
+      defaultModel: null,
+      setAgentDefault: true,
+    })).toThrow("Cannot set deepseek as the default provider without a default model");
   });
 
   test("resolves known model windows and persists per-model overrides", () => {
     expect(automaticModelContextWindow("deepseek-v4-flash-vision-exp")).toEqual({
+      known: true,
+      tokens: 1_000_000,
+    });
+    expect(automaticModelContextWindow("glm-5.3")).toEqual({
+      known: true,
+      tokens: 1_000_000,
+    });
+    expect(automaticModelContextWindow("glm-5.3-flash")).toEqual({
       known: true,
       tokens: 1_000_000,
     });
@@ -271,6 +345,70 @@ describe("provider models settings", () => {
               model: "custom-small-model",
               contextWindowTokens: 64_000,
             }],
+          },
+        },
+      },
+    });
+  });
+
+  test("resolves image defaults and persists model enablement and capability overrides", () => {
+    expect(automaticModelCapabilities("glm-5.3-flash")).toEqual({ supportsImageInput: true });
+    expect(automaticModelCapabilities("deepseek-v4-flash-vision-exp")).toEqual({ supportsImageInput: true });
+    expect(automaticModelCapabilities("glm-5.3")).toEqual({ supportsImageInput: false });
+
+    const settings = buildProviderModelsSettings({
+      providers: {
+        profiles: {
+          "zai-default": {
+            provider: "zai",
+            apiKeyConfigured: true,
+            models: ["glm-5.3", "glm-5.3-flash", "custom-vision"],
+            enabledModels: ["glm-5.3-flash", "custom-vision"],
+            modelCapabilities: [
+              { model: "glm-5.3-flash", inputModalities: [] },
+              { model: "custom-vision", inputModalities: ["image"] },
+            ],
+          },
+        },
+      },
+    });
+    const zai = settings.providers.find((provider) => provider.id === "zai");
+    expect(zai?.modelCount).toBe(2);
+    expect(zai?.models.find((model) => model.id === "glm-5.3")).toMatchObject({
+      enabled: false,
+      supportsImageInput: false,
+    });
+    expect(zai?.models.find((model) => model.id === "glm-5.3-flash")).toMatchObject({
+      enabled: true,
+      supportsImageInput: false,
+    });
+    expect(zai?.models.find((model) => model.id === "custom-vision")).toMatchObject({
+      enabled: true,
+      supportsImageInput: true,
+    });
+
+    expect(buildProviderModelsPatch({
+      providerId: "zai",
+      models: ["glm-5.3", "glm-5.3-flash", "custom-vision"],
+      enabledModels: ["glm-5.3-flash", "custom-vision", "missing"],
+      defaultModel: "glm-5.3-flash",
+      modelCapabilities: [
+        { model: "glm-5.3-flash", inputModalities: [] },
+        { model: "custom-vision", inputModalities: ["image"] },
+        { model: "glm-5.3", inputModalities: [] },
+      ],
+    })).toEqual({
+      providers: {
+        profiles: {
+          "zai-default": {
+            provider: "zai",
+            models: ["glm-5.3", "glm-5.3-flash", "custom-vision"],
+            enabledModels: ["glm-5.3-flash", "custom-vision"],
+            defaultModel: "glm-5.3-flash",
+            modelCapabilities: [
+              { model: "custom-vision", inputModalities: ["image"] },
+              { model: "glm-5.3-flash", inputModalities: [] },
+            ],
           },
         },
       },

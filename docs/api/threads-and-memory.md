@@ -10,7 +10,7 @@ src-tauri/src/threads/domain/types/records.rs
 src-tauri/src/threads/domain/types/requests.rs
 src-tauri/tests/crate/threads.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:14fba07c2b89b249048fabd2c90c08f1d92430b30e2b441b28c105b86c2c0896 -->
+<!-- tinybot-doc-fingerprint: sha256:c46a50f6806b4ad0ba04e02a97083d4bae810bc6045ada37e9ae57794d2fc60e -->
 
 This document covers Thread queries, memory, persistence, and project grouping.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -248,6 +248,11 @@ is materialized before a later append.
 Thread discovery metadata, checkpoint pointers, and Rollout heads are maintained only in memory and
 rebuilt from those files when the process starts.
 
+`thread.create` pins the Thread's provider API mode in `metadata.extra.apiMode` and the Rollout
+session metadata. When `metadata.extra.modelProvider` explicitly selects a provider, that provider's
+profile determines the mode; otherwise creation falls back to the active provider profile. Later
+turns must use the pinned mode, and a mismatch fails before the provider is called.
+
 The durable hierarchy is strict: a Thread may exist without an active Turn, but every persisted
 `ThreadItem` and every Turn checkpoint has one non-empty `turnId`. Thread-level metadata updates made
 while no Turn is active update Thread metadata without manufacturing a turnless Item. A Rollout
@@ -384,7 +389,7 @@ message verbatim and does not copy attachment files. The agent reads a mentioned
 ```
 
 The renderer sends the composer's effort choice as `spec.reasoningEffort`. Composer values are `low`,
-`medium`, `high`, `xhigh`, and `max`; a missing or invalid local preference starts at `medium`. Model
+`medium`, `high`, `xhigh`, and `max`; a missing or invalid local preference starts at `high`. Model
 support varies, and an unsupported explicit value remains a provider request error rather than being
 silently downgraded.
 

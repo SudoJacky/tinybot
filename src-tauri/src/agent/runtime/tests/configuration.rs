@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::runtime::provider_protocol::ProviderProtocolAdapter;
 
 #[test]
 fn selects_rust_runtime_from_spec_or_config() {
@@ -136,11 +137,11 @@ fn resolves_profile_based_provider_for_reasoning_turns() {
 }
 
 #[test]
-fn profile_capabilities_override_built_in_provider_defaults() {
+fn reasoning_summary_still_requires_profile_capability() {
     let context = AgentTurnContext::from_spec(
         json!({
             "runtime": "rust",
-            "reasoningEffort": "medium",
+            "reasoning": { "summary": "auto" },
             "messages": [{ "role": "user", "content": "hello" }]
         }),
         json!({
@@ -162,7 +163,7 @@ fn profile_capabilities_override_built_in_provider_defaults() {
     );
 
     let error = agent_chat_completion_request(&context)
-        .expect_err("explicit profile capabilities should override catalog defaults");
+        .expect_err("reasoning summaries should retain their capability check");
 
     assert!(error.contains("deepseek"));
     assert!(error.contains("reasoning"));
@@ -224,6 +225,103 @@ fn agent_defaults_apply_temperature_and_max_tokens_to_provider_requests() {
 
     assert_eq!(request["temperature"], json!(0.6));
     assert_eq!(request["max_completion_tokens"], 2048);
+}
+
+#[test]
+fn zai_chat_requests_use_the_documented_parameter_dialect() {
+    let context = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "stream": true,
+            "reasoningEffort": "medium",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({
+            "agents": {
+                "defaults": {
+                    "activeProfile": "zai-default",
+                    "model": "glm-5.3",
+                    "temperature": 0.6,
+                    "maxTokens": 2048
+                }
+            },
+            "providers": {
+                "profiles": {
+                    "zai-default": {
+                        "provider": "zai",
+                        "apiBase": "https://open.bigmodel.cn/api/paas/v4"
+                    }
+                }
+            }
+        }),
+    );
+
+    let request = agent_chat_completion_request(&context)
+        .expect("Z.ai request should use its Chat Completions dialect");
+
+    assert_eq!(request["temperature"], json!(0.6));
+    assert_eq!(request["max_tokens"], 2048);
+    assert_eq!(request["reasoning_effort"], "medium");
+    assert!(request.get("max_completion_tokens").is_none());
+    assert!(request.get("stream_options").is_none());
+}
+
+#[test]
+fn zai_rejects_temperature_outside_its_documented_range() {
+    let context = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({
+            "agents": {
+                "defaults": {
+                    "provider": "zai",
+                    "model": "glm-5.3",
+                    "temperature": 1.1
+                }
+            }
+        }),
+    );
+
+    let error = agent_chat_completion_request(&context)
+        .expect_err("Z.ai temperature above one should fail before the request is sent");
+
+    assert!(error.contains("zai"));
+    assert!(error.contains("temperature"));
+}
+
+#[test]
+fn zai_profile_rejects_responses_api_mode() {
+    let context = AgentTurnContext::from_spec(
+        json!({
+            "runtime": "rust",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+        json!({
+            "agents": {
+                "defaults": {
+                    "activeProfile": "zai-default",
+                    "model": "glm-5.3"
+                }
+            },
+            "providers": {
+                "profiles": {
+                    "zai-default": {
+                        "provider": "zai",
+                        "apiMode": "responses"
+                    }
+                }
+            }
+        }),
+    );
+    let provider_config = agent_provider_config(&context);
+
+    let error = ProviderProtocolAdapter::resolve(&context, &provider_config)
+        .expect_err("Z.ai should fail fast when configured for Responses API");
+
+    assert!(error.contains("zai"));
+    assert!(error.contains("responses"));
 }
 
 #[test]

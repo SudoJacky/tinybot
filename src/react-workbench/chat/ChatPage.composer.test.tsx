@@ -104,7 +104,7 @@ describe("ChatPage", () => {
 
     await waitFor(() => expect(stores.chatStore.copyMarkdown).toHaveBeenCalledWith("s2"));
     expectTurnSubmit(stores.chatStore, "s1", {
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
       references: [{
         detail: "Conversation snapshot",
         kind: "reference",
@@ -182,7 +182,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     expectTurnSubmit(stores.chatStore, "s1", {
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
       selectedSkills: ["apple-design"],
       selectedTools: ["agent_graph.run.incident-analysis"],
       text: "Polish this interaction",
@@ -638,7 +638,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     await waitFor(() => {
-      expectTurnSubmit(stores.chatStore, "s1", { reasoningEffort: "medium", text: "Hello from React" });
+      expectTurnSubmit(stores.chatStore, "s1", { reasoningEffort: "high", text: "Hello from React" });
       expect((input as HTMLTextAreaElement).value).toBe("");
     }, { timeout: 3_000 });
   });
@@ -662,7 +662,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     expectTurnSubmit(stores.chatStore, "s1", {
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
       references: [{
         detail: "MARKDOWN - 16 Bytes",
         kind: "reference",
@@ -693,7 +693,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     expectTurnSubmit(stores.chatStore, "s1", {
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
       references: [{
         contentHash: "abc123",
         detail: "PNG - 2 KB",
@@ -841,7 +841,7 @@ describe("ChatPage", () => {
     await user.type(input, "Start another turn");
     await user.click(screen.getByRole("button", { name: "Send message" }));
 
-    expectTurnSubmit(stores.chatStore, "s1", { reasoningEffort: "medium", text: "Start another turn" });
+    expectTurnSubmit(stores.chatStore, "s1", { reasoningEffort: "high", text: "Start another turn" });
     expect(screen.queryByRole("button", { name: "Interrupt current task" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Queue as next turn" })).toBeNull();
   });
@@ -892,7 +892,7 @@ describe("ChatPage", () => {
 
     expectTurnSubmit(stores.chatStore, "s1", {
       model: "deepseek-reasoner",
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
       text: "Use a specific model",
     });
   });
@@ -919,7 +919,7 @@ describe("ChatPage", () => {
     );
 
     await user.click(await screen.findByRole("button", { name: "Select model" }));
-    await user.click(screen.getByRole("button", { name: /Effort Medium/ }));
+    await user.click(screen.getByRole("button", { name: /Effort High/ }));
     await user.click(screen.getByRole("option", { name: /Extra High/ }));
 
     expect(window.localStorage.getItem("tinybot.ui.chat.composer-reasoning-effort")).toBe("xhigh");
@@ -1035,7 +1035,7 @@ describe("ChatPage", () => {
     });
   });
 
-  it("updates the new-conversation default when selecting a model before the first Turn", async () => {
+  it("persists the native default before updating the renderer preference for an empty Thread", async () => {
     const user = userEvent.setup();
     const stores = createStores({
       sessions: [{
@@ -1044,18 +1044,30 @@ describe("ChatPage", () => {
         title: "Empty thread",
         updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
         status: "idle",
-        model: "deepseek-chat",
+        model: "deepseek-v4-pro",
+        modelProvider: "deepseek",
       }],
     });
     stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
+    let finishNativeSave!: () => void;
+    const nativeSave = new Promise<void>((resolve) => {
+      finishNativeSave = resolve;
+    });
+    const saveDefaultChatModel = vi.fn(async (input: { modelId: string; providerId: string }) => {
+      await nativeSave;
+      window.localStorage.setItem("tinybot.ui.chat.composer-model", input.modelId);
+      window.localStorage.setItem("tinybot.ui.chat.composer-provider", input.providerId);
+    });
     const settingsStore: SettingsStore = {
       load: vi.fn(async () => []),
       loadChatModels: vi.fn(async () => [
-        { id: "deepseek-chat", label: "deepseek-chat" },
-        { id: "deepseek-reasoner", label: "deepseek-reasoner" },
+        { id: "deepseek-v4-pro", label: "deepseek-v4-pro", providerId: "deepseek" },
+        { id: "glm-5.3-flash", label: "glm-5.3-flash", providerId: "zai" },
       ]),
+      saveDefaultChatModel,
     };
-    window.localStorage.setItem("tinybot.ui.chat.composer-model", "deepseek-chat");
+    window.localStorage.setItem("tinybot.ui.chat.composer-model", "deepseek-v4-pro");
+    window.localStorage.setItem("tinybot.ui.chat.composer-provider", "deepseek");
 
     render(
       <ChatPage
@@ -1068,11 +1080,21 @@ describe("ChatPage", () => {
 
     await screen.findByLabelText("Start a new chat");
     await user.click(screen.getByRole("button", { name: "Select model" }));
-    await user.click(screen.getByRole("button", { name: /Model deepseek-chat/ }));
-    await user.click(screen.getByRole("option", { name: /deepseek-reasoner/i }));
+    await user.click(screen.getByRole("button", { name: /Model deepseek-v4-pro/ }));
+    await user.click(screen.getByRole("option", { name: /glm-5.3-flash/i }));
 
-    await waitFor(() => expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-reasoner"));
-    expect(stores.sessionStore.setModel).toHaveBeenCalledWith("s1", "deepseek-reasoner");
+    await waitFor(() => expect(saveDefaultChatModel).toHaveBeenCalledWith({
+      modelId: "glm-5.3-flash",
+      providerId: "zai",
+    }));
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-v4-pro");
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-provider")).toBe("deepseek");
+
+    finishNativeSave();
+
+    await waitFor(() => expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("glm-5.3-flash"));
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-provider")).toBe("zai");
+    expect(stores.sessionStore.setModel).toHaveBeenCalledWith("s1", "glm-5.3-flash", "zai");
   });
 
   it("restores a valid new-conversation default and clears a stale one", async () => {
@@ -1141,7 +1163,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: /send message/i }));
 
     expectTurnSubmit(stores.chatStore, "s1", {
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
       text: `Summarize this\n\nPasted content:\n${pastedText}`,
     });
     expect(screen.queryByText("Pasted text")).toBeNull();

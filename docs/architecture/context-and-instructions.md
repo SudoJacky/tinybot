@@ -11,7 +11,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:4740b7f5bf36ce5691febc3b89b54bdbd77ea348e35ca1b8eb498bfdd10e73e5 -->
+<!-- tinybot-doc-fingerprint: sha256:fbca262683bcc87d45f9c2fbc286d38a9ec94db6d2f1d92adc4d197a194dcf5c -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -109,10 +109,11 @@ unbounded prompt text in diagnostics.
 
 Managed image attachments remain typed references on the originating user
 message. Rollouts retain only the managed path, MIME type, byte size, and
-content hash. When Responses history is encoded, the runtime revalidates the
-local file and creates a request-local Base64 data URL; later Turns repeat that
-encoding while the message remains in replayed context. Chat Completions fails
-explicitly when such a reference is present.
+content hash. Before constructing a provider request, the runtime verifies that
+the selected model declares image-input support. It then revalidates the local
+file and creates a request-local Base64 data URL; later Turns repeat that
+encoding while the message remains in replayed context. Chat Completions emits
+`image_url` content, while Responses emits `input_image` content.
 
 Trusted lifecycle command hooks may add bounded developer context after static
 instruction composition: at initial prompt submission, around a completed tool

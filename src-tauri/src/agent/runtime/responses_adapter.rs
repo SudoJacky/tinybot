@@ -1,7 +1,8 @@
 use super::items::{AgentContentPart, AgentUsageItem};
 use super::provider_adapter::{
-    attach_provider_tools, provider_reasoning_effort_enabled,
-    provider_responses_message_with_user_context, require_provider_capability, DecodedProviderTurn,
+    attach_provider_tools, provider_message_with_user_context_and_images,
+    provider_reasoning_effort_enabled, require_model_image_input, require_provider_capability,
+    DecodedProviderTurn,
 };
 use super::tool_router::{provider_tool_name, AgentToolDefinition};
 use super::{
@@ -24,6 +25,13 @@ impl ResponsesAdapter {
         config_snapshot: &Value,
         enable_parallel_tool_calls: bool,
     ) -> Result<Value, String> {
+        require_model_image_input(
+            settings,
+            config_snapshot,
+            legacy_messages
+                .iter()
+                .chain(response_items.unwrap_or_default().iter()),
+        )?;
         let mut request = serde_json::json!({
             "model": settings.model.clone(),
             "input": Self::encode_history_with_response_items(
@@ -61,7 +69,7 @@ impl ResponsesAdapter {
         }
         let provider_messages = legacy_messages
             .iter()
-            .map(provider_responses_message_with_user_context)
+            .map(provider_message_with_user_context_and_images)
             .collect::<Result<Vec<_>, _>>()?;
         let mut history = AgentItemHistory::from_legacy_messages(&provider_messages)?;
         if let Some(system_prompt) = system_prompt {
@@ -320,7 +328,7 @@ fn project_superseded_web_response_targets(response_items: &[Value]) -> Vec<Valu
 fn sanitize_replayed_item(item: &Value, index: usize) -> Result<Value, String> {
     let normalized = match item.get("role").and_then(Value::as_str) {
         Some("user") => {
-            let provider_message = provider_responses_message_with_user_context(item)?;
+            let provider_message = provider_message_with_user_context_and_images(item)?;
             encode_replayed_input_message(&provider_message, index)?
         }
         Some("system" | "developer") => encode_replayed_input_message(item, index)?,

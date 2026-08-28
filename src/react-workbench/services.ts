@@ -283,6 +283,7 @@ export type SettingsStore = {
   loadAgentDefaultsSettings?(): Promise<AgentDefaultsSettingsData>;
   saveAgentDefaultsSettings?(currentConfig: unknown, patch: unknown): Promise<AgentDefaultsSettingsData>;
   loadProviderSettings?(): Promise<ProviderModelsSettingsData>;
+  saveDefaultChatModel?(input: { modelId: string; providerId: string }): Promise<void>;
   fetchProviderModels?(input: ProviderModelFetchInput): Promise<ProviderModelFetchResult>;
   saveProviderSettings?(currentConfig: unknown, patch: unknown): Promise<ProviderModelsSettingsData>;
 };
@@ -314,6 +315,7 @@ export type ChatModelOption = {
   description?: string;
   providerId?: string;
   providerLabel?: string;
+  supportsImageInput?: boolean;
   default?: boolean;
 };
 

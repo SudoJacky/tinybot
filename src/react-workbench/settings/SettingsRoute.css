@@ -2768,22 +2768,224 @@
   color: var(--color-on-primary);
 }
 
+.react-provider-model-manager {
+  gap: 14px;
+}
+
+.react-provider-model-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.react-provider-model-search {
+  min-width: 0;
+}
+
 .react-provider-model-list {
   display: grid;
-  gap: 8px;
+  align-content: start;
+  gap: 5px;
   overflow: auto;
-  max-height: 340px;
+  max-height: min(420px, 48vh);
   border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  padding: 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--color-surface-soft) 46%, var(--color-panel));
+  padding: 6px;
+}
+
+.react-provider-model-list__header,
+.react-provider-model-row {
+  display: grid;
+  grid-template-columns: 34px minmax(132px, 1fr) 54px minmax(148px, 178px) 64px 34px;
+  align-items: center;
+  gap: 8px;
+}
+
+.react-provider-model-list__header {
+  position: sticky;
+  top: -6px;
+  z-index: 1;
+  min-height: 30px;
+  background: color-mix(in srgb, var(--color-surface-soft) 90%, var(--color-panel));
+  padding: 6px 9px 4px;
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.045em;
+}
+
+.react-provider-model-list__header > span:first-child,
+.react-provider-model-list__header > span:nth-child(3),
+.react-provider-model-list__header > span:nth-child(5) {
+  text-align: center;
 }
 
 .react-provider-model-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(156px, 190px) auto auto;
-  min-height: 44px;
+  min-height: 54px;
+  border: 1px solid transparent;
   border-radius: 8px;
-  padding: 7px 8px;
+  background: var(--color-panel);
+  padding: 8px;
+  transition:
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-provider-model-selection-summary {
+  margin: 0 2px 1px 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 999px;
+  background: var(--color-panel);
+  padding: 5px 9px;
+  color: var(--color-body);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.react-settings-dialog .react-provider-model-enable {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  gap: 0;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.react-settings-dialog .react-provider-model-enable:hover {
+  background: var(--color-surface-soft);
+}
+
+.react-settings-dialog .react-provider-model-enable input {
+  min-height: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--color-primary);
+  cursor: pointer;
+}
+
+.react-settings-dialog .react-provider-model-enable:has(input:focus-visible) {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 62%, transparent);
+  outline-offset: 1px;
+}
+
+.react-provider-model-identity {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-provider-model-identity > div {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 7px;
+}
+
+.react-provider-model-source {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  padding: 2px 6px;
+  color: var(--color-muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+
+.react-provider-model-row[data-enabled="false"] .react-provider-model-identity {
+  opacity: 0.54;
+}
+
+.react-provider-model-row .react-provider-model-capability,
+.react-provider-model-row .react-provider-model-remove {
+  width: 34px;
+  min-height: 34px;
+  padding: 0;
+}
+
+.react-provider-model-row .react-provider-model-capability {
+  justify-self: center;
+  color: var(--color-muted);
+}
+
+.react-provider-model-row .react-provider-model-capability:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 32%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-primary) 5%, var(--color-panel));
+  color: var(--color-primary-active);
+}
+
+.react-provider-model-row .react-provider-model-capability[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--color-primary) 54%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-primary) 12%, var(--color-panel));
+  color: var(--color-primary-active);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 13%, transparent);
+}
+
+.react-provider-model-row .react-provider-model-capability:focus-visible,
+.react-provider-model-row .react-provider-model-remove:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 58%, transparent);
+  outline-offset: 1px;
+}
+
+.react-settings-dialog .react-provider-model-default {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: center;
+  width: 34px;
+  height: 34px;
+  gap: 0;
+  cursor: pointer;
+}
+
+.react-settings-dialog .react-provider-model-default:has(input:disabled) {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.react-settings-dialog .react-provider-model-default input {
+  appearance: none;
+  min-height: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1.5px solid var(--color-hairline-strong);
+  border-radius: 999px;
+  background: var(--color-panel);
+  padding: 0;
+  cursor: pointer;
+  transition:
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    background-color var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-settings-dialog .react-provider-model-default input:checked {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  box-shadow: inset 0 0 0 4px var(--color-panel);
+}
+
+.react-settings-dialog .react-provider-model-default input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 62%, transparent);
+  outline-offset: 2px;
+}
+
+.react-settings-dialog .react-provider-model-default input:disabled {
+  cursor: not-allowed;
+}
+
+.react-provider-model-default__label {
+  display: none;
 }
 
 .react-provider-model-context {
@@ -2853,13 +3055,9 @@
 }
 
 .react-provider-model-row:hover {
-  background: var(--color-surface-soft);
-}
-
-.react-provider-model-row div {
-  display: grid;
-  min-width: 0;
-  gap: 2px;
+  border-color: var(--color-hairline);
+  background: color-mix(in srgb, var(--color-surface-soft) 34%, var(--color-panel));
+  box-shadow: 0 2px 9px rgb(20 20 19 / 5%);
 }
 
 .react-provider-model-row strong,
@@ -3067,6 +3265,63 @@
 .react-settings-dialog--wide {
     width: 100%;
     border-radius: 0;
+  }
+
+  .react-provider-model-toolbar {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .react-provider-model-selection-summary {
+    justify-self: start;
+  }
+
+  .react-provider-model-list__header {
+    display: none;
+  }
+
+  .react-provider-model-row {
+    grid-template-areas:
+      "enable identity capability remove"
+      "context context default default";
+    grid-template-columns: 34px minmax(0, 1fr) 34px 34px;
+    gap: 9px 8px;
+    padding: 10px;
+  }
+
+  .react-provider-model-enable {
+    grid-area: enable;
+  }
+
+  .react-provider-model-identity {
+    grid-area: identity;
+  }
+
+  .react-provider-model-capability {
+    grid-area: capability;
+  }
+
+  .react-provider-model-context {
+    grid-area: context;
+  }
+
+  .react-provider-model-default {
+    grid-area: default;
+    justify-self: end;
+    width: auto;
+    padding: 0 8px;
+    gap: 6px;
+  }
+
+  .react-provider-model-default__label {
+    display: inline;
+    color: var(--color-body);
+    font-size: 11px;
+    font-weight: 650;
+  }
+
+  .react-provider-model-remove {
+    grid-area: remove;
   }
 
   .react-theme-mode-card__preview {

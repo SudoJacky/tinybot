@@ -1,5 +1,5 @@
 # Desktop Adapters
-<!-- tinybot-module-fingerprint: sha256:505cf24c8acab1a94281c30e9e9393608fede0d354958737bcc998bad83df6e5 -->
+<!-- tinybot-module-fingerprint: sha256:884298e09289393801db2372222b64b1b5514731cd98c8a5679bf773a29a6cd1 -->
 
 `adapters` implements renderer store interfaces over Tinybot's native and
 app-core modules. It owns event projection and the Settings, Tools, and
@@ -16,8 +16,19 @@ for workspace selection and path containment.
 
 The desktop Settings adapter projects the native Provider catalog into the
 shared Chat model catalog. Only enabled Providers whose runtime status is
-`available` or `ready` contribute selectable models, so Chat and Agent Graph
-cannot select models from configured-but-unavailable connections.
+`available` or `ready`, or whose runtime catalog confirms an API key, contribute
+selectable models; this keeps environment-configured Providers available
+without exposing their credentials. Only their `enabledModels` entries are
+exposed. The projection also carries resolved image-input capability into the
+shared model contract, so Chat, quick chat, and Agent Graph cannot select
+disabled models or models from unavailable connections.
+
+The same adapter is the only renderer boundary that persists the default Chat
+Provider/model selection. It writes the native `activeProfile`/`model` pair
+before mirroring the renderer preference. Model-catalog loading also reconciles
+an explicitly selected native Profile whose model belongs to another Provider,
+using a valid renderer preference first and the active Profile's default model
+second; the repair is logged and persistence failures remain visible.
 
 The desktop Tools adapter normalizes callable tools, MCP server source/status,
 and Skill summaries into the renderer-facing `ToolCatalogSummary`. It uses the

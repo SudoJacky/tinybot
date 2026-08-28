@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:a2c919cdb0430a8cb4a1e2e4774656553c4f276b1e9550c56cff5d6beff47685 -->
+<!-- tinybot-module-fingerprint: sha256:1e904a02d781b773692eacedc982d91dcf56fcbfc25efcc273c84f0ad1976a08 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -35,6 +35,9 @@ images into typed `tinyos.image` references. User attachments render as a
 separate stack above the text bubble: managed images use the scoped Tauri asset
 protocol for bounded previews, while ordinary files use compact metadata cards.
 Composer removal remains independent from this persisted timeline presentation.
+The shared model catalog marks image-capable models for the picker. Selecting a
+text-only model rejects new images and blocks an already attached image from
+being sent until the user removes it or chooses a capable model.
 The slash menu exposes only executable controls such as `/compact` plus the
 Skills catalog for the active conversation working directory. Selecting a
 Skill creates an atomic removable token inline with the user's editable text and submits its activation name
@@ -60,10 +63,13 @@ the local tab workspace and is restored on a later route mount. Opening another
 draft materializes non-empty startup text as its own navigable local tab. The
 first send materializes that draft with its captured workspace or project
 context, replaces the local tab with the returned Thread ID, and only then
-dispatches the Turn. Creation failures remain visible and reject the submission
-so the controlled composer keeps the user's input.
-The empty conversation continues to use the persisted composer model preference,
-and changing its model updates that preference for future chats.
+dispatches the Turn. A successful first send clears the draft under the returned
+Thread ID; creation or dispatch failures reject the submission so the controlled
+composer keeps the user's input.
+The empty conversation continues to use the persisted composer model preference.
+Changing its model uses the Settings-store default-model operation, which saves
+the native Provider Profile/model pair before updating that renderer preference;
+the first send waits for that persistence to complete.
 Browser runtime snapshots are retained by the
 session runtime and projected into Sidecar Browser resources. Each resource tab
 maps to one native WebView2 tab in the Chat-owned shared Browser Session, so user

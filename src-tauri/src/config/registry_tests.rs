@@ -75,6 +75,28 @@ fn provider_api_mode_is_exposed_with_chat_completions_as_the_default() {
 }
 
 #[test]
+fn provider_model_enablement_and_capabilities_are_exposed_as_profile_json() {
+    let snapshot = build_settings_snapshot(SettingsSnapshotInput {
+        config: config_fixture(),
+        config_path: PathBuf::from("C:/Users/example/.tinybot/config.json"),
+        revision: "rev-1".to_string(),
+        diagnostics: Vec::new(),
+    });
+
+    for path in [
+        "providers.profiles.openai-work.enabledModels",
+        "providers.profiles.openai-work.modelCapabilities",
+    ] {
+        let field = snapshot
+            .field(path)
+            .expect("model profile field should exist");
+        assert_eq!(field.value_type, SettingValueType::Json);
+        assert_eq!(field.scope, SettingScope::Profile);
+        assert!(field.editable);
+    }
+}
+
+#[test]
 fn runtime_group_ignores_legacy_gateway_config_fields() {
     let snapshot = build_settings_snapshot(SettingsSnapshotInput {
         config: config_fixture(),

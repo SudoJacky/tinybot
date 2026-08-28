@@ -59,6 +59,7 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
     saveDesktopConfigSettings?: ReturnType<typeof vi.fn>;
     loadProviderSettings?: ReturnType<typeof vi.fn>;
     saveProviderSettings?: ReturnType<typeof vi.fn>;
+    saveDefaultChatModel?: ReturnType<typeof vi.fn>;
     loadPersonalizationInstructions?: ReturnType<typeof vi.fn>;
     savePersonalizationInstructions?: ReturnType<typeof vi.fn>;
   };
@@ -776,27 +777,34 @@ describe("DesktopShell", () => {
     };
     const savedProviderConfig = {
       revision: "hash:2",
-      agents: { defaults: { activeProfile: "openai-default", model: "deepseek-v4-pro" } },
+      agents: { defaults: { activeProfile: "openai-default", model: "gpt-4.1" } },
       providers: {
         profiles: {
           "deepseek-default": {
             provider: "deepseek",
             enabled: true,
             apiKeyConfigured: true,
-            models: ["deepseek-v4-pro"],
+            models: ["deepseek-v4-pro", "deepseek-v4-flash"],
+            defaultModel: "deepseek-v4-pro",
           },
           "openai-default": {
             provider: "openai",
             enabled: true,
             apiBase: "https://api.openai.com/v1",
             apiKeyConfigured: true,
+            models: ["gpt-4.1"],
+            defaultModel: "gpt-4.1",
           },
         },
       },
     };
-    const saveProviderSettings = vi.fn()
-      .mockResolvedValueOnce(buildProviderModelsSettings(initialProviderConfig))
-      .mockResolvedValue(buildProviderModelsSettings(savedProviderConfig));
+    const saveProviderSettings = vi.fn(async (_currentConfig: unknown, _patch: unknown) => (
+      buildProviderModelsSettings(savedProviderConfig)
+    ));
+    const saveDefaultChatModel = vi.fn(async (input: { modelId: string; providerId: string }) => {
+      window.localStorage.setItem("tinybot.ui.chat.composer-model", input.modelId);
+      window.localStorage.setItem("tinybot.ui.chat.composer-provider", input.providerId);
+    });
     const fetchProviderModels = vi.fn(async () => ({
       ok: true,
       models: ["deepseek-v4-pro", "deepseek-live"],
@@ -804,8 +812,11 @@ describe("DesktopShell", () => {
       url: "https://api.deepseek.com/models",
     }));
     const services = createServices();
-    services.settingsStore.loadProviderSettings = vi.fn(async () => buildProviderModelsSettings(initialProviderConfig));
+    services.settingsStore.loadProviderSettings = vi.fn()
+      .mockResolvedValueOnce(buildProviderModelsSettings(initialProviderConfig))
+      .mockResolvedValue(buildProviderModelsSettings(savedProviderConfig));
     services.settingsStore.saveProviderSettings = saveProviderSettings;
+    services.settingsStore.saveDefaultChatModel = saveDefaultChatModel;
     services.settingsStore.fetchProviderModels = fetchProviderModels;
     render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
 
@@ -833,8 +844,13 @@ describe("DesktopShell", () => {
     await user.click(screen.getByRole("radio", { name: "Select gpt-4.1 model" }));
     await user.click(screen.getByRole("button", { name: "Save default model" }));
 
+    await waitFor(() => expect(saveDefaultChatModel).toHaveBeenCalledTimes(1));
+    expect(saveDefaultChatModel).toHaveBeenCalledWith({
+      modelId: "gpt-4.1",
+      providerId: "openai",
+    });
     expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("gpt-4.1");
-    expect(saveProviderSettings).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-provider")).toBe("openai");
 
     expect(screen.getByRole("article", { name: "DeepSeek provider" })).toBeTruthy();
     expect(screen.getByRole("article", { name: "DashScope provider" })).toBeTruthy();
@@ -848,6 +864,18 @@ describe("DesktopShell", () => {
     expect(within(modelsDialog).getByRole("button", {
       name: "Context window mode for deepseek-v4-pro: Auto · 1M",
     })).toBeTruthy();
+    const imageInputToggle = within(modelsDialog).getByRole("button", {
+      name: "Image input for deepseek-v4-pro",
+    });
+    expect(imageInputToggle.getAttribute("aria-pressed")).toBe("false");
+    await user.click(imageInputToggle);
+    expect(imageInputToggle.getAttribute("aria-pressed")).toBe("true");
+    const backupModel = within(modelsDialog).getByRole("radio", {
+      name: "Use deepseek-v4-flash as the backup model",
+    }) as HTMLInputElement;
+    expect(backupModel.checked).toBe(false);
+    await user.click(backupModel);
+    expect(backupModel.checked).toBe(true);
     await user.click(within(modelsDialog).getByRole("button", { name: "Refresh models" }));
     await waitFor(() => expect(fetchProviderModels).toHaveBeenCalledWith({
       providerId: "deepseek",
@@ -856,6 +884,9 @@ describe("DesktopShell", () => {
       modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
     }));
     await waitFor(() => expect(within(modelsDialog).getAllByText("deepseek-live").length).toBeGreaterThan(0));
+    expect((within(modelsDialog).getByRole("checkbox", {
+      name: "Enable deepseek-live in model selectors",
+    }) as HTMLInputElement).checked).toBe(false);
     await user.click(within(modelsDialog).getByRole("button", {
       name: "Context window mode for deepseek-live: Default · 128K",
     }));
@@ -872,8 +903,10 @@ describe("DesktopShell", () => {
           "deepseek-default": {
             provider: "deepseek",
             models: ["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-live"],
-            defaultModel: "deepseek-v4-pro",
+            enabledModels: ["deepseek-v4-pro", "deepseek-v4-flash"],
+            defaultModel: "deepseek-v4-flash",
             modelContextWindows: [{ model: "deepseek-live", contextWindowTokens: 32000 }],
+            modelCapabilities: [{ model: "deepseek-v4-pro", inputModalities: ["image"] }],
           },
         },
       },
@@ -887,8 +920,8 @@ describe("DesktopShell", () => {
     expect(within(dialog).getByText("Configured")).toBeTruthy();
     expect((within(dialog).getByRole("radio", { name: "Chat Completions" }) as HTMLInputElement).checked).toBe(true);
     const activeProfile = within(dialog).getByRole("checkbox", { name: "Set as active profile" }) as HTMLInputElement;
-    expect(activeProfile.checked).toBe(false);
-    expect(activeProfile.disabled).toBe(false);
+    expect(activeProfile.checked).toBe(true);
+    expect(activeProfile.disabled).toBe(true);
     const saveChanges = within(dialog).getByRole("button", { name: "Save changes" }) as HTMLButtonElement;
     expect(saveChanges.disabled).toBe(true);
     fireEvent.change(within(dialog).getByLabelText("API key"), { target: { value: "sk-test" } });
@@ -955,7 +988,7 @@ describe("DesktopShell", () => {
     await user.type(within(dialog).getByLabelText("Display name"), "Local OpenAI");
     await user.type(within(dialog).getByLabelText("Custom API base"), "http://127.0.0.1:11434/v1");
     await user.type(within(dialog).getByLabelText("Custom API key"), "local-secret");
-    await user.type(within(dialog).getByLabelText("Provider fallback model"), "local-model");
+    await user.type(within(dialog).getByLabelText("Backup model"), "local-model");
     const reasoningEffort = within(dialog).getByRole("checkbox", { name: /Send reasoning effort/ }) as HTMLInputElement;
     expect(reasoningEffort.checked).toBe(true);
     await user.click(reasoningEffort);
@@ -975,6 +1008,7 @@ describe("DesktopShell", () => {
             apiKey: "local-secret",
             apiMode: "chat_completions",
             models: ["local-model"],
+            enabledModels: ["local-model"],
             defaultModel: "local-model",
             supportsModelDiscovery: true,
             supportsReasoningEffort: false,

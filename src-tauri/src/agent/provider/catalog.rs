@@ -6,6 +6,9 @@ use std::time::Duration;
 
 const DEFAULT_AGENT_MODEL: &str = "deepseek-v4-pro";
 const DEFAULT_PROVIDER_TIMEOUT_MS: u64 = 120_000;
+const OPENAI_API_MODES: &[&str] = &["chat_completions", "responses"];
+const CHAT_COMPLETIONS_ONLY: &[&str] = &["chat_completions"];
+const BUILT_IN_IMAGE_INPUT_MODELS: &[&str] = &["deepseek-v4-flash-vision-exp", "glm-5.3-flash"];
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -21,6 +24,7 @@ pub struct NativeProviderCatalogEntry {
     pub curated_model_ids: &'static [&'static str],
     pub model_prefixes: &'static [&'static str],
     pub capabilities: &'static [&'static str],
+    pub supported_api_modes: &'static [&'static str],
     pub backend: &'static str,
 }
 
@@ -34,6 +38,7 @@ pub struct NativeProviderProfile {
     pub api_key_configured: bool,
     pub models: Vec<String>,
     pub model_context_windows: BTreeMap<String, i64>,
+    pub model_input_modalities: BTreeMap<String, BTreeSet<String>>,
     pub supports_model_discovery: bool,
     pub supports_reasoning_effort: bool,
     pub capabilities: Value,
@@ -62,6 +67,35 @@ impl NativeProviderProfile {
         self.model_context_windows
             .get(&model.trim().to_ascii_lowercase())
             .copied()
+    }
+
+    pub fn supports_input_modality(&self, model: &str, modality: &str) -> bool {
+        let model = model.trim().to_ascii_lowercase();
+        let modality = modality.trim().to_ascii_lowercase();
+        self.model_input_modalities
+            .get(&model)
+            .map(|modalities| modalities.contains(&modality))
+            .unwrap_or_else(|| {
+                modality == "image"
+                    && BUILT_IN_IMAGE_INPUT_MODELS
+                        .iter()
+                        .any(|candidate| candidate.eq_ignore_ascii_case(&model))
+            })
+    }
+
+    pub fn require_api_mode(&self, api_mode: NativeProviderApiMode) -> Result<(), String> {
+        let supported_api_modes = catalog_entry_by_id(&self.provider_id)
+            .map(|entry| entry.supported_api_modes)
+            .unwrap_or(OPENAI_API_MODES);
+        if supported_api_modes.contains(&api_mode.as_str()) {
+            return Ok(());
+        }
+        Err(format!(
+            "provider `{}` does not support api_mode `{}`; supported modes: {}",
+            self.provider_id,
+            api_mode.as_str(),
+            supported_api_modes.join(", ")
+        ))
     }
 }
 
@@ -163,6 +197,20 @@ const PROVIDER_CATALOG: &[NativeProviderCatalogEntry] = &[
         &["qwen"],
         &[],
     ),
+    catalog_entry_with_options(
+        "zai",
+        "Z.ai",
+        &["z.ai", "zhipu", "bigmodel"],
+        &["built_in"],
+        Some("https://open.bigmodel.cn/api/paas/v4"),
+        &["ZAI_API_KEY"],
+        &["ZAI_BASE_URL"],
+        false,
+        &["glm-5.3", "glm-5.3-flash", "glm-5.2"],
+        &["glm"],
+        &[],
+        CHAT_COMPLETIONS_ONLY,
+    ),
 ];
 
 const fn catalog_entry(
@@ -205,6 +253,37 @@ const fn catalog_entry_with_discovery(
     model_prefixes: &'static [&'static str],
     capabilities: &'static [&'static str],
 ) -> NativeProviderCatalogEntry {
+    catalog_entry_with_options(
+        id,
+        display_name,
+        aliases,
+        categories,
+        default_api_base,
+        api_key_env_vars,
+        api_base_env_vars,
+        supports_model_discovery,
+        curated_model_ids,
+        model_prefixes,
+        capabilities,
+        OPENAI_API_MODES,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+const fn catalog_entry_with_options(
+    id: &'static str,
+    display_name: &'static str,
+    aliases: &'static [&'static str],
+    categories: &'static [&'static str],
+    default_api_base: Option<&'static str>,
+    api_key_env_vars: &'static [&'static str],
+    api_base_env_vars: &'static [&'static str],
+    supports_model_discovery: bool,
+    curated_model_ids: &'static [&'static str],
+    model_prefixes: &'static [&'static str],
+    capabilities: &'static [&'static str],
+    supported_api_modes: &'static [&'static str],
+) -> NativeProviderCatalogEntry {
     NativeProviderCatalogEntry {
         id,
         display_name,
@@ -217,6 +296,7 @@ const fn catalog_entry_with_discovery(
         curated_model_ids,
         model_prefixes,
         capabilities,
+        supported_api_modes,
         backend: "openai",
     }
 }
@@ -245,6 +325,8 @@ pub fn provider_catalog_body(config: &Value) -> Value {
                 "curated_model_ids": entry.curated_model_ids,
                 "modelPrefixes": entry.model_prefixes,
                 "model_prefixes": entry.model_prefixes,
+                "supportedApiModes": entry.supported_api_modes,
+                "supported_api_modes": entry.supported_api_modes,
                 "backend": entry.backend,
                 "configured": profile.as_ref().is_some_and(|profile| profile.api_key_configured || profile.api_base.is_some()),
                 "api_key_configured": profile.as_ref().is_some_and(|profile| profile.api_key_configured),
@@ -491,6 +573,8 @@ pub fn resolve_provider_profile(
         .unwrap_or_default();
     let model_context_windows =
         model_context_windows_field(provider_config.unwrap_or(&Value::Null));
+    let model_input_modalities =
+        model_input_modalities_field(provider_config.unwrap_or(&Value::Null));
     let request_timeout_ms = u64_field(provider_config.unwrap_or(&Value::Null), "timeout_ms")
         .or_else(|| u64_field(provider_config.unwrap_or(&Value::Null), "timeoutMs"))
         .or_else(|| {
@@ -532,21 +616,21 @@ pub fn resolve_provider_profile(
         api_key,
         models,
         model_context_windows,
-        supports_model_discovery: bool_field(
-            provider_config.unwrap_or(&Value::Null),
-            "supports_model_discovery",
-        )
-        .or_else(|| {
-            bool_field(
+        model_input_modalities,
+        supports_model_discovery: catalog
+            .map(|entry| entry.supports_model_discovery)
+            .unwrap_or(true)
+            && bool_field(
                 provider_config.unwrap_or(&Value::Null),
-                "supportsModelDiscovery",
+                "supports_model_discovery",
             )
-        })
-        .unwrap_or_else(|| {
-            catalog
-                .map(|entry| entry.supports_model_discovery)
-                .unwrap_or(true)
-        }),
+            .or_else(|| {
+                bool_field(
+                    provider_config.unwrap_or(&Value::Null),
+                    "supportsModelDiscovery",
+                )
+            })
+            .unwrap_or(true),
         supports_reasoning_effort: bool_field(
             provider_config.unwrap_or(&Value::Null),
             "supports_reasoning_effort",
@@ -742,6 +826,32 @@ fn model_context_windows_field(value: &Value) -> BTreeMap<String, i64> {
                 .and_then(Value::as_i64)
                 .filter(|tokens| *tokens > 0)?;
             Some((model.to_ascii_lowercase(), tokens))
+        })
+        .collect()
+}
+
+fn model_input_modalities_field(value: &Value) -> BTreeMap<String, BTreeSet<String>> {
+    value
+        .get("modelCapabilities")
+        .or_else(|| value.get("model_capabilities"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let model = string_field(entry, "model")
+                .or_else(|| string_field(entry, "modelId"))
+                .or_else(|| string_field(entry, "model_id"))?;
+            let modalities = entry
+                .get("inputModalities")
+                .or_else(|| entry.get("input_modalities"))
+                .and_then(Value::as_array)?
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::trim)
+                .filter(|modality| !modality.is_empty())
+                .map(str::to_ascii_lowercase)
+                .collect::<BTreeSet<_>>();
+            Some((model.trim().to_ascii_lowercase(), modalities))
         })
         .collect()
 }

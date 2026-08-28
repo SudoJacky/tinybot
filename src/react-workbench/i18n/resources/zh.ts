@@ -305,7 +305,7 @@ export const zh = {
       modelsFrom: "来自 {{name}} 的模型", searchModels: "搜索模型", showingModels: "显示 {{shown}} / {{total}}", modelSelection: "选择模型",
       selectModel: "选择模型 {{name}}", noModelMatches: "没有符合搜索条件的模型。", noModelsConfigured: "尚未配置模型。",
       newConversationNote: "更改只影响新会话；已有会话会保留自己的模型。", saveDefaultModel: "保存默认模型", providerLabel: "{{name}} Provider",
-      active: "当前使用", fallback: "Provider 兜底模型", notSelected: "未选择", apiKeyMissing: "未设置 API Key", manageModels: "管理 {{name}} 的模型",
+      active: "当前使用", fallback: "备用模型", notSelected: "未选择", apiKeyMissing: "未设置 API Key", manageModels: "管理 {{name}} 的模型",
       manage: "管理", configureProvider: "配置 {{name}}", setUp: "设置", moreActions: "{{name}} 的更多操作", providerActions: "{{name}} Provider 操作",
       models: "模型", configure: "配置", status: { connected: "已连接", attention: "需要处理", notConfigured: "未配置" },
       configureDialog: {
@@ -313,13 +313,13 @@ export const zh = {
         configured: "已配置", notConfigured: "未配置", newApiKey: "输入新的 API Key", replaceKey: "输入新 Key 会替换当前 Key。",
         keyIfRequired: "如果 Endpoint 需要，请输入 Key。", profile: "Profile", activeProfile: "当前 Profile", setActiveProfile: "设为当前 Profile",
         activeDescription: "新任务当前使用此 Provider。", setActiveDescription: "保存后让新 Agent 任务使用此 Provider。", apiMode: "API 模式", features: "功能支持",
-        responsesHelp: "仅当 Endpoint 支持 /responses 时使用 Responses API。",
+        responsesHelp: "仅当 Endpoint 支持 /responses 时使用 Responses API。", chatOnlyHelp: "此 Provider 仅支持 Chat Completions。",
       },
       addDialog: {
         close: "关闭添加 Provider", description: "配置兼容 OpenAI 的 Endpoint。", providerId: "Provider ID",
         invalidId: "请使用小写字母、数字、连字符或下划线。", duplicateId: "此 Provider ID 已存在。", displayName: "显示名称", apiBase: "API Base",
         customApiBase: "自定义 API Base", invalidUrl: "请输入有效的 HTTP 或 HTTPS URL。", apiKey: "API Key", customApiKey: "自定义 API Key",
-        optionalLocal: "本地 Endpoint 可选", fallbackModel: "Provider 兜底模型", discoverModels: "从 /models Endpoint 发现模型",
+        optionalLocal: "本地 Endpoint 可选", fallbackModel: "备用模型", discoverModels: "从 /models Endpoint 发现模型",
         useResponses: "使用 Responses API", responsesRequirement: "需要兼容的 /responses Endpoint", activate: "设为当前 Provider 和默认模型", adding: "正在添加",
       },
       modelsDialog: {
@@ -329,6 +329,11 @@ export const zh = {
         contextWindow: "上下文窗口", contextMode: "{{name}} 的上下文窗口模式", contextOptions: "{{name}} 的上下文窗口选项",
         contextAuto: "自动 · {{tokens}}", contextDefault: "默认 · {{tokens}}", contextCustom: "自定义",
         contextTokens: "{{name}} 的自定义上下文窗口", contextInvalid: "请输入正整数。",
+        enabledCount: "已启用 {{count}} / {{total}} 个模型", enabled: "启用", enableModel: "在模型选择器中启用 {{name}}",
+        model: "模型", capabilities: "模型能力",
+        imageInputFor: "{{name}} 的图像输入",
+        backupModel: "备用",
+        selectBackupModel: "将 {{name}} 设为备用模型",
       },
     },
     config: {
@@ -523,8 +528,8 @@ export const zh = {
         heading: "Skills",
         workspace: "工作区",
       },
-      placeholder: "输入消息给 Tinybot", sendFailed: "消息发送失败。", stopFailed: "无法停止生成。", fileLimit: "最多只能附加 {{count}} 个文件。", filesFailed: "无法选择文件。",
-      label: "消息输入框", attachments: "输入附件", remove: "移除 {{name}}", words: "{{count}} 个词", pastedText: "粘贴文本", removePasted: "移除粘贴内容", pastedContentLabel: "粘贴内容", attachedFilesPrompt: "请查看附加的文件。", configuredModel: "已配置模型",
+      placeholder: "输入消息给 Tinybot", sendFailed: "消息发送失败。", stopFailed: "无法停止生成。", fileLimit: "最多只能附加 {{count}} 个文件。", filesFailed: "无法选择文件。", imageUnsupported: "{{model}} 不支持图像输入。请选择支持图像的模型，或移除图片。",
+      label: "消息输入框", attachments: "输入附件", remove: "移除 {{name}}", words: "{{count}} 个词", pastedText: "粘贴文本", removePasted: "移除粘贴内容", pastedContentLabel: "粘贴内容", attachedFilesPrompt: "请查看附加的文件。", configuredModel: "已配置模型", imageInput: "视觉",
       slash: "斜杠命令", message: "消息", attachFiles: "附加文件", tools: "工具", on: "开", off: "关", selectModel: "选择模型", model: "模型", advanced: "高级",
       effort: "推理强度", chooseModel: "选择模型", modelEffort: "模型和推理强度", backAdvanced: "返回高级选项", models: "模型", reasoningEffort: "推理强度",
       effortOptions: {

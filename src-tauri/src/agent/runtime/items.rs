@@ -49,6 +49,8 @@ pub struct AgentInstructionMessage {
 pub struct AgentMessage {
     pub id: Option<String>,
     pub content: AgentMessageContent,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub references: Vec<Value>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -357,6 +359,11 @@ impl AgentItem {
             "user" => Ok(Self::UserMessage(AgentMessage {
                 id,
                 content: required_content(object.get("content"), role)?,
+                references: object
+                    .get("references")
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default(),
             })),
             "assistant" => Ok(Self::AssistantMessage(AgentAssistantMessage {
                 id,
@@ -414,10 +421,16 @@ impl AgentItem {
                 "role": message.role.as_str(),
                 "content": message.content.to_value(),
             })),
-            Self::UserMessage(message) => Ok(serde_json::json!({
-                "role": "user",
-                "content": message.content.to_value(),
-            })),
+            Self::UserMessage(message) => {
+                let mut value = serde_json::json!({
+                    "role": "user",
+                    "content": message.content.to_value(),
+                });
+                if !message.references.is_empty() {
+                    value["references"] = Value::Array(message.references.clone());
+                }
+                Ok(value)
+            }
             Self::AssistantMessage(message) => {
                 if message.context_compaction {
                     if message.reasoning.is_some() || !message.tool_calls.is_empty() {
@@ -591,10 +604,16 @@ impl AgentContentPart {
     fn to_value(&self) -> Value {
         match self {
             Self::Text { text } => serde_json::json!({ "type": "text", "text": text }),
-            Self::Image { url, detail } => serde_json::json!({
-                "type": "image_url",
-                "image_url": { "url": url, "detail": detail }
-            }),
+            Self::Image { url, detail } => {
+                let mut image_url = serde_json::json!({ "url": url });
+                if let Some(detail) = detail {
+                    image_url["detail"] = Value::String(detail.clone());
+                }
+                serde_json::json!({
+                    "type": "image_url",
+                    "image_url": image_url,
+                })
+            }
             Self::File {
                 identifier,
                 mime_type,

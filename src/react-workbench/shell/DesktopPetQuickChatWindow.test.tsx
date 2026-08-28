@@ -64,6 +64,10 @@ describe("DesktopPetQuickChatWindow", () => {
         { id: "deepseek-v4-flash", label: "DeepSeek V4 Flash", providerId: "deepseek" },
         { id: "deepseek-v4-lite", label: "DeepSeek V4 Lite", providerId: "deepseek" },
       ]),
+      saveDefaultChatModel: vi.fn(async (input) => {
+        window.localStorage.setItem("tinybot.ui.chat.composer-model", input.modelId);
+        window.localStorage.setItem("tinybot.ui.chat.composer-provider", input.providerId);
+      }),
     };
     const client: DesktopPetQuickChatWindowClient = {
       dismiss: vi.fn(async () => undefined),
@@ -80,7 +84,11 @@ describe("DesktopPetQuickChatWindow", () => {
     let menu = screen.getByRole("dialog", { name: "Model and reasoning effort" });
     await user.click(within(menu).getByRole("button", { name: /Model DeepSeek V4 Pro/ }));
     await user.click(screen.getByRole("option", { name: /DeepSeek V4 Flash/ }));
-    expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-v4-flash");
+    await waitFor(() => expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-v4-flash"));
+    expect(settingsStore.saveDefaultChatModel).toHaveBeenCalledWith({
+      modelId: "deepseek-v4-flash",
+      providerId: "deepseek",
+    });
 
     await user.click(recentSession);
     const usage = await screen.findByLabelText("Context window 50% used, 50% left");

@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:856731c86490f232ec287e3f6bdd39873d8cb1c595ad831efca154a52d8acc13 -->
+<!-- tinybot-module-fingerprint: sha256:37c98e2a0529ae3c30660e9896533aa4b0bdb14e81c0f1ab4556a46660840e5c -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -84,8 +84,9 @@ discarding history.
 
 `context_window_config.rs` resolves the effective window behind one runtime
 interface. Turn overrides win over Provider Profile model overrides; known
-DeepSeek V4 models then use 1M automatically, while the legacy global value is
-retained only as an unknown-model fallback before the 128K default.
+DeepSeek V4 models plus Z.ai's GLM-5.3 and GLM-5.3-Flash then use 1M
+automatically, while the legacy global value is retained only as an
+unknown-model fallback before the 128K default.
 
 Project-group coordinator Turns receive `spawn_workspace_thread` and
 `send_thread_message`. Each call authorizes the target workspace against the
@@ -118,9 +119,11 @@ adapter sends `store: false` and replays Tinybot's local message and function
 history. It does not use Conversations, `previous_response_id`, hosted tools, or
 persist/replay encrypted reasoning items yet. Context compaction continues to
 use the existing Chat Completions path. Durable `tinyos.image` references keep
-only managed local metadata; the Responses adapter validates and Base64-encodes
-their files when constructing each request. Chat Completions rejects image
-references instead of silently degrading them to path text.
+only managed local metadata. Before constructing a provider request, the runtime
+checks the selected model's `modelCapabilities` and rejects image input unless
+that model declares it. Supported images are validated and Base64-encoded once
+into protocol-neutral content; Chat Completions emits `image_url`, while
+Responses emits `input_image`.
 
 ## Protocol adapter boundary
 
@@ -140,17 +143,24 @@ The selected adapter owns all protocol-shaped behavior:
 - tool-result encoding for the following model request;
 - provider-native response items used by durable replay.
 
+Chat Completions keeps provider-specific wire differences behind an internal
+dialect seam. The built-in Z.ai dialect emits `max_tokens`, omits the
+undocumented streaming-usage option, validates its temperature range, and
+rejects explicitly requested parallel tool calls. Its Provider Profile is
+Chat Completions only, so an invalid Responses selection fails before network
+dispatch.
+
 Reasoning remains provider/replay data and a debug trace concern; it is not a
 product-facing canonical timeline item. This keeps Chat Completions and
 Responses rendering focused on messages and observable work without exposing
 raw chain-of-thought content.
 
-Custom OpenAI-compatible providers assume reasoning-effort parameters are
-supported unless their profile sets `supportsReasoningEffort: false`. Both
-protocol adapters apply that profile decision at the wire boundary: Chat
-Completions omits `reasoning_effort`, while Responses omits only
-`reasoning.effort`. Reasoning summary settings retain their separate
-capability check and wire field.
+OpenAI-compatible providers assume reasoning-effort parameters are supported
+unless their profile sets `supportsReasoningEffort: false`. This default applies
+to built-in and custom providers alike. Both protocol adapters apply that
+profile decision at the wire boundary: Chat Completions omits
+`reasoning_effort`, while Responses omits only `reasoning.effort`. Reasoning
+summary settings retain their separate capability check and wire field.
 
 The provider loop, tool router, tool execution, permission checks,
 cancellation, tracing, and terminal-result construction remain shared. Adding a

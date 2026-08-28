@@ -104,7 +104,7 @@ catalog, and legacy Agent defaults:
 - Turn `contextWindowTokens` / `context_window_tokens`: an explicit override for that turn.
 - Profile `modelContextWindows`: per-model overrides containing `model` and
   `contextWindowTokens`. When unset, `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`, and
-  `deepseek-v4-pro` use `1000000` automatically.
+  `deepseek-v4-pro`, plus `glm-5.3` and `glm-5.3-flash`, use `1000000` automatically.
 - `agents.defaults.contextWindowTokens` / `context_window_tokens`: legacy fallback for unknown
   models only. Unknown models fall back to `128000` when it is absent.
 - `contextWindowStrategy` / `context_window_strategy`: `discard` or `compact`. The fallback is

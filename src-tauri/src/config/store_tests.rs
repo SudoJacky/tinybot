@@ -412,7 +412,7 @@ fn apply_operations_writes_canonical_key_for_legacy_alias_path() {
     let fixture = ConfigStoreFixture::new();
     let path = fixture.write(
             "config.json",
-            r#"{"agents":{"defaults":{"maxTokens":2048,"max_tokens":2048,"contextWindowStrategy":"discard","context_window_strategy":"discard"}},"providers":{"profiles":{"openai-default":{"provider":"openai","api_mode":"chat_completions","supportsReasoningEffort":true}}}}"#,
+            r#"{"agents":{"defaults":{"maxTokens":2048,"max_tokens":2048,"contextWindowStrategy":"discard","context_window_strategy":"discard"}},"providers":{"profiles":{"openai-default":{"provider":"openai","api_mode":"chat_completions","enabled_models":["gpt-4.1"],"model_capabilities":[],"supportsReasoningEffort":true}}}}"#,
         );
     let mut store =
         ConfigStore::load(path.clone(), default_snapshot()).expect("fixture config should load");
@@ -437,6 +437,17 @@ fn apply_operations_writes_canonical_key_for_legacy_alias_path() {
                     path: "providers.profiles.openai-default.supports_reasoning_effort".to_string(),
                     value: json!(false),
                 },
+                ConfigOperation::Replace {
+                    path: "providers.profiles.openai-default.enabled_models".to_string(),
+                    value: json!(["gpt-4.1", "gpt-5"]),
+                },
+                ConfigOperation::Replace {
+                    path: "providers.profiles.openai-default.model_capabilities".to_string(),
+                    value: json!([{
+                        "model": "gpt-5",
+                        "inputModalities": ["image"]
+                    }]),
+                },
             ],
         })
         .expect("alias operation should save");
@@ -448,7 +459,9 @@ fn apply_operations_writes_canonical_key_for_legacy_alias_path() {
             "agents.defaults.maxTokens",
             "agents.defaults.contextWindowStrategy",
             "providers.profiles.openai-default.apiMode",
-            "providers.profiles.openai-default.supportsReasoningEffort"
+            "providers.profiles.openai-default.supportsReasoningEffort",
+            "providers.profiles.openai-default.enabledModels",
+            "providers.profiles.openai-default.modelCapabilities"
         ]
     );
     let saved = serde_json::from_str::<serde_json::Value>(
@@ -477,6 +490,23 @@ fn apply_operations_writes_canonical_key_for_legacy_alias_path() {
     );
     assert!(saved["providers"]["profiles"]["openai-default"]
         .get("supports_reasoning_effort")
+        .is_none());
+    assert_eq!(
+        saved["providers"]["profiles"]["openai-default"]["enabledModels"],
+        json!(["gpt-4.1", "gpt-5"])
+    );
+    assert!(saved["providers"]["profiles"]["openai-default"]
+        .get("enabled_models")
+        .is_none());
+    assert_eq!(
+        saved["providers"]["profiles"]["openai-default"]["modelCapabilities"],
+        json!([{
+            "model": "gpt-5",
+            "inputModalities": ["image"]
+        }])
+    );
+    assert!(saved["providers"]["profiles"]["openai-default"]
+        .get("model_capabilities")
         .is_none());
 }
 

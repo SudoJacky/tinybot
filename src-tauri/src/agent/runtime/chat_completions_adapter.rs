@@ -1,7 +1,7 @@
 use super::items::{parse_tool_call, AgentUsageItem};
 use super::provider_adapter::{
-    attach_provider_tools, provider_message_with_user_context, provider_reasoning_effort_enabled,
-    reject_image_attachments_for_chat_completions, require_provider_capability,
+    attach_provider_tools, provider_message_with_user_context_and_images,
+    provider_reasoning_effort_enabled, require_model_image_input, require_provider_capability,
     DecodedProviderTurn,
 };
 use super::tool_router::AgentToolDefinition;
@@ -14,6 +14,58 @@ use serde_json::Value;
 
 pub(super) struct ChatCompletionsAdapter;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ChatCompletionsDialect {
+    OpenAi,
+    Zai,
+}
+
+impl ChatCompletionsDialect {
+    fn resolve(settings: &AgentTurnSettings, config_snapshot: &Value) -> Self {
+        let provider_id = crate::agent::provider::resolve_provider_profile(
+            config_snapshot,
+            settings.provider.as_deref(),
+            None,
+        )
+        .map(|profile| profile.provider_id)
+        .or_else(|| settings.provider.clone())
+        .unwrap_or_default();
+        match provider_id.as_str() {
+            "zai" | "z_ai" | "zhipu" | "bigmodel" => Self::Zai,
+            _ => Self::OpenAi,
+        }
+    }
+
+    fn include_stream_usage(self) -> bool {
+        self == Self::OpenAi
+    }
+
+    fn max_tokens_field(self) -> &'static str {
+        match self {
+            Self::OpenAi => "max_completion_tokens",
+            Self::Zai => "max_tokens",
+        }
+    }
+
+    fn validate_temperature(self, temperature: f64) -> Result<(), String> {
+        if self == Self::Zai && !(temperature > 0.0 && temperature <= 1.0) {
+            return Err(format!(
+                "provider `zai` temperature must be greater than 0 and at most 1, got {temperature}"
+            ));
+        }
+        Ok(())
+    }
+
+    fn require_parallel_tool_calls(self, enabled: bool) -> Result<(), String> {
+        if self == Self::Zai && enabled {
+            return Err(
+                "provider `zai` does not declare support for `parallel_tool_calls`".to_string(),
+            );
+        }
+        Ok(())
+    }
+}
+
 impl ChatCompletionsAdapter {
     pub fn build_request(
         legacy_messages: &[Value],
@@ -23,15 +75,18 @@ impl ChatCompletionsAdapter {
         config_snapshot: &Value,
         enable_parallel_tool_calls: bool,
     ) -> Result<Value, String> {
+        let dialect = ChatCompletionsDialect::resolve(settings, config_snapshot);
+        dialect.require_parallel_tool_calls(enable_parallel_tool_calls)?;
+        require_model_image_input(settings, config_snapshot, legacy_messages)?;
         let mut request = serde_json::json!({
             "model": settings.model.clone(),
             "messages": Self::encode_history(legacy_messages, system_prompt)?,
             "stream": settings.stream,
         });
-        if settings.stream {
+        if settings.stream && dialect.include_stream_usage() {
             request["stream_options"] = serde_json::json!({ "include_usage": true });
         }
-        Self::apply_turn_settings(&mut request, settings, config_snapshot)?;
+        Self::apply_turn_settings(&mut request, settings, config_snapshot, dialect)?;
         attach_provider_tools(
             &mut request,
             Self::encode_tools(tools),
@@ -62,10 +117,7 @@ impl ChatCompletionsAdapter {
     ) -> Result<Value, String> {
         let provider_messages = legacy_messages
             .iter()
-            .map(|message| {
-                reject_image_attachments_for_chat_completions(message)?;
-                provider_message_with_user_context(message)
-            })
+            .map(provider_message_with_user_context_and_images)
             .collect::<Result<Vec<_>, _>>()?;
         let mut history = AgentItemHistory::from_legacy_messages(&provider_messages)?;
         if let Some(system_prompt) = system_prompt {
@@ -145,17 +197,19 @@ impl ChatCompletionsAdapter {
         }
     }
 
-    pub fn apply_turn_settings(
+    fn apply_turn_settings(
         request: &mut Value,
         settings: &AgentTurnSettings,
         config_snapshot: &Value,
+        dialect: ChatCompletionsDialect,
     ) -> Result<(), String> {
         settings.validate()?;
         if let Some(temperature) = settings.temperature {
+            dialect.validate_temperature(temperature)?;
             request["temperature"] = serde_json::json!(temperature);
         }
         if let Some(max_completion_tokens) = settings.max_completion_tokens {
-            request["max_completion_tokens"] = serde_json::json!(max_completion_tokens);
+            request[dialect.max_tokens_field()] = serde_json::json!(max_completion_tokens);
         }
         if let Some(service_tier) = settings.service_tier.as_deref() {
             require_provider_capability(settings, config_snapshot, "service_tier")?;

@@ -1,5 +1,5 @@
 # Settings Application Core
-<!-- tinybot-module-fingerprint: sha256:53b630b29c6161747f8ca623f811fe49e68cd7925baa7473613332aefc3cb583 -->
+<!-- tinybot-module-fingerprint: sha256:6520e7cf335023d2b930d84e007a66ca5eb5c7bd09786ac00263f9d0973b6186 -->
 
 `settings` owns framework-independent settings contracts, metadata, value
 semantics, validation, pane models, and persistence patch construction.
@@ -18,3 +18,20 @@ strategy values resolve to `compact`.
 Custom provider patches declare `supportsReasoningEffort: true` by default and
 preserve an explicit `false`, allowing the native request adapters to omit
 effort for endpoints that reject it.
+
+Built-in provider presets include Z.ai with a static GLM model list and a
+Chat-Completions-only protocol choice. The dynamic desktop catalog preserves
+backend default API bases, model-discovery support, and the non-secret
+API-key-configured signal so both settings entry points present the same
+connection contract without exposing credentials.
+
+Default-LLM patches treat `agents.defaults.activeProfile` and
+`agents.defaults.model` as one pair. Provider activation builders require a
+non-empty enabled/default model and fail instead of persisting a Profile with a
+stale model inherited from another Provider.
+
+Provider model settings keep the discovered `models` catalog separate from
+`enabledModels`, which controls every shared model selector. Model rows also
+persist image-input overrides through `modelCapabilities`; the known defaults
+for `glm-5.3-flash` and `deepseek-v4-flash-vision-exp` stay aligned with the
+Rust provider resolver.
