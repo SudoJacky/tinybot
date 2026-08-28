@@ -4,10 +4,10 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Duration;
 
+use super::plugins::{provider_plugin_by_id, registered_provider_plugins, OPENAI_API_MODES};
+
 const DEFAULT_AGENT_MODEL: &str = "deepseek-v4-pro";
 const DEFAULT_PROVIDER_TIMEOUT_MS: u64 = 120_000;
-const OPENAI_API_MODES: &[&str] = &["chat_completions", "responses"];
-const CHAT_COMPLETIONS_ONLY: &[&str] = &["chat_completions"];
 const BUILT_IN_IMAGE_INPUT_MODELS: &[&str] = &["deepseek-v4-flash-vision-exp", "glm-5.3-flash"];
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -159,152 +159,10 @@ struct ProviderModelDiscoveryItem {
     id: String,
 }
 
-const PROVIDER_CATALOG: &[NativeProviderCatalogEntry] = &[
-    catalog_entry(
-        "openai",
-        "OpenAI",
-        &["gpt", "chatgpt"],
-        &["built_in"],
-        Some("https://api.openai.com/v1"),
-        &["OPENAI_API_KEY"],
-        &["OPENAI_BASE_URL"],
-        &["gpt-4.1"],
-        &["gpt", "o1", "o3", "o4"],
-        &[],
-    ),
-    catalog_entry(
-        "deepseek",
-        "DeepSeek",
-        &["deep seek"],
-        &["built_in"],
-        Some("https://api.deepseek.com"),
-        &["DEEPSEEK_API_KEY"],
-        &["DEEPSEEK_BASE_URL"],
-        &["deepseek-v4-pro", "deepseek-v4-flash"],
-        &["deepseek"],
-        &["reasoning"],
-    ),
-    catalog_entry_with_discovery(
-        "dashscope",
-        "DashScope",
-        &["dash scope", "model studio", "qwen"],
-        &["built_in"],
-        Some("https://dashscope.aliyuncs.com/compatible-mode/v1"),
-        &["DASHSCOPE_API_KEY"],
-        &["DASHSCOPE_BASE_URL"],
-        true,
-        &["qwen-plus", "qwen-max", "qwen-turbo"],
-        &["qwen"],
-        &[],
-    ),
-    catalog_entry_with_options(
-        "zai",
-        "Z.ai",
-        &["z.ai", "zhipu", "bigmodel"],
-        &["built_in"],
-        Some("https://open.bigmodel.cn/api/paas/v4"),
-        &["ZAI_API_KEY"],
-        &["ZAI_BASE_URL"],
-        false,
-        &["glm-5.3", "glm-5.3-flash", "glm-5.2"],
-        &["glm"],
-        &[],
-        CHAT_COMPLETIONS_ONLY,
-    ),
-];
-
-const fn catalog_entry(
-    id: &'static str,
-    display_name: &'static str,
-    aliases: &'static [&'static str],
-    categories: &'static [&'static str],
-    default_api_base: Option<&'static str>,
-    api_key_env_vars: &'static [&'static str],
-    api_base_env_vars: &'static [&'static str],
-    curated_model_ids: &'static [&'static str],
-    model_prefixes: &'static [&'static str],
-    capabilities: &'static [&'static str],
-) -> NativeProviderCatalogEntry {
-    catalog_entry_with_discovery(
-        id,
-        display_name,
-        aliases,
-        categories,
-        default_api_base,
-        api_key_env_vars,
-        api_base_env_vars,
-        true,
-        curated_model_ids,
-        model_prefixes,
-        capabilities,
-    )
-}
-
-const fn catalog_entry_with_discovery(
-    id: &'static str,
-    display_name: &'static str,
-    aliases: &'static [&'static str],
-    categories: &'static [&'static str],
-    default_api_base: Option<&'static str>,
-    api_key_env_vars: &'static [&'static str],
-    api_base_env_vars: &'static [&'static str],
-    supports_model_discovery: bool,
-    curated_model_ids: &'static [&'static str],
-    model_prefixes: &'static [&'static str],
-    capabilities: &'static [&'static str],
-) -> NativeProviderCatalogEntry {
-    catalog_entry_with_options(
-        id,
-        display_name,
-        aliases,
-        categories,
-        default_api_base,
-        api_key_env_vars,
-        api_base_env_vars,
-        supports_model_discovery,
-        curated_model_ids,
-        model_prefixes,
-        capabilities,
-        OPENAI_API_MODES,
-    )
-}
-
-#[allow(clippy::too_many_arguments)]
-const fn catalog_entry_with_options(
-    id: &'static str,
-    display_name: &'static str,
-    aliases: &'static [&'static str],
-    categories: &'static [&'static str],
-    default_api_base: Option<&'static str>,
-    api_key_env_vars: &'static [&'static str],
-    api_base_env_vars: &'static [&'static str],
-    supports_model_discovery: bool,
-    curated_model_ids: &'static [&'static str],
-    model_prefixes: &'static [&'static str],
-    capabilities: &'static [&'static str],
-    supported_api_modes: &'static [&'static str],
-) -> NativeProviderCatalogEntry {
-    NativeProviderCatalogEntry {
-        id,
-        display_name,
-        aliases,
-        categories,
-        default_api_base,
-        api_key_env_vars,
-        api_base_env_vars,
-        supports_model_discovery,
-        curated_model_ids,
-        model_prefixes,
-        capabilities,
-        supported_api_modes,
-        backend: "openai",
-    }
-}
-
 pub fn provider_catalog_body(config: &Value) -> Value {
-    let providers = PROVIDER_CATALOG
-        .iter()
-        .map(|entry| {
+    let providers = registered_provider_plugins()
+        .map(|plugin| {
+            let entry = plugin.catalog_entry();
             let profile = resolve_provider_profile(config, Some(entry.id), None);
             serde_json::json!({
                 "id": entry.id,
@@ -727,19 +585,13 @@ fn profile_matches_provider(profile: &Value, provider_id: &str) -> bool {
 pub(super) fn catalog_entry_by_id(
     provider_id: &str,
 ) -> Option<&'static NativeProviderCatalogEntry> {
-    PROVIDER_CATALOG.iter().find(|entry| {
-        entry.id == provider_id
-            || entry
-                .aliases
-                .iter()
-                .any(|alias| normalize_provider_id(alias) == provider_id)
-    })
+    provider_plugin_by_id(provider_id).map(|plugin| plugin.catalog_entry())
 }
 
 pub(super) fn infer_provider_from_model(model: &str) -> String {
     let normalized = model.trim().to_ascii_lowercase();
-    PROVIDER_CATALOG
-        .iter()
+    registered_provider_plugins()
+        .map(|plugin| plugin.catalog_entry())
         .find(|entry| {
             entry
                 .curated_model_ids

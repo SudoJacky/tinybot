@@ -1,5 +1,6 @@
 mod catalog;
 mod completion;
+mod plugins;
 mod streaming;
 
 // Preserve the existing provider interface while implementation stays in focused modules.
@@ -14,6 +15,7 @@ pub use completion::{
     complete_chat_for_agent_with_observer_async, complete_responses_for_agent_with_observer_async,
     NativeProviderFailure, NativeProviderFailureKind,
 };
+pub(crate) use plugins::adapt_provider_request;
 pub use streaming::NativeProviderStreamEvent;
 
 #[cfg(test)]
