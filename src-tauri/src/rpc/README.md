@@ -1,5 +1,5 @@
 # Worker RPC Router
-<!-- tinybot-module-fingerprint: sha256:7a831f64e757b5f7b1136a73b38011f2edddf968e0d2cce7f25eca44ee689719 -->
+<!-- tinybot-module-fingerprint: sha256:6438e290511328b59d4bbb51d5e6d6c1bf694f274306c40708c222834b4778d2 -->
 
 `rpc` is the versioned method-routing boundary for native backend services.
 The module root is `mod.rs`; protocol envelopes and parameter validation live
@@ -79,5 +79,8 @@ tools/MCP/permissions, and runtime operations.
 - Runtime-control and Agent Graph targets stay owned by the Agent runtime's
   asynchronous dispatcher and are rejected by the generic Worker RPC tool
   executor.
+- Thread creation pins its API mode from an explicit
+  `metadata.extra.modelProvider`; only requests without one fall back to the
+  active provider profile. Later turns must match that pinned mode.
 - Shared runtimes such as shell and MCP must be injected rather than recreated
   per request.

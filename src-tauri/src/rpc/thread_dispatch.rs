@@ -395,19 +395,30 @@ fn pin_thread_api_mode(
     request: &mut CreateThreadRequest,
     config_snapshot: &Value,
 ) -> Result<(), WorkerProtocolError> {
-    let api_mode = crate::agent::provider::resolve_provider_profile(config_snapshot, None, None)
-        .map(|profile| profile.parsed_api_mode())
-        .transpose()
-        .map_err(|error| {
-            WorkerProtocolError::new(
-                WorkerProtocolErrorCode::InvalidProtocol,
-                error,
-                serde_json::json!({ "method": "thread.create" }),
-                false,
-                WorkerProtocolErrorSource::RustCore,
-            )
-        })?
-        .unwrap_or(crate::agent::provider::NativeProviderApiMode::ChatCompletions);
+    let model_provider = request
+        .metadata
+        .extra
+        .as_ref()
+        .and_then(|extra| {
+            extra
+                .get("modelProvider")
+                .or_else(|| extra.get("model_provider"))
+        })
+        .and_then(Value::as_str);
+    let api_mode =
+        crate::agent::provider::resolve_provider_profile(config_snapshot, model_provider, None)
+            .map(|profile| profile.parsed_api_mode())
+            .transpose()
+            .map_err(|error| {
+                WorkerProtocolError::new(
+                    WorkerProtocolErrorCode::InvalidProtocol,
+                    error,
+                    serde_json::json!({ "method": "thread.create" }),
+                    false,
+                    WorkerProtocolErrorSource::RustCore,
+                )
+            })?
+            .unwrap_or(crate::agent::provider::NativeProviderApiMode::ChatCompletions);
     if !request
         .metadata
         .extra

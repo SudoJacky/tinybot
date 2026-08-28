@@ -624,6 +624,79 @@ fn thread_create_pins_the_active_provider_api_mode() {
 }
 
 #[test]
+fn thread_create_pins_the_explicit_model_provider_api_mode() {
+    let fixture = WorkspaceFixture::new();
+    let config = serde_json::json!({
+        "agents": { "defaults": { "activeProfile": "zai-default" } },
+        "providers": {
+            "profiles": {
+                "zai-default": {
+                    "provider": "zai",
+                    "api_mode": "chat_completions"
+                },
+                "deepseek-default": {
+                    "provider": "deepseek",
+                    "api_mode": "responses"
+                }
+            }
+        }
+    });
+    let create_request = next_worker_request_correlation();
+
+    let created = call_rust_state_service(
+        &fixture.thread_store,
+        config.clone(),
+        WorkerRequest::new(
+            create_request.id("explicit-provider-thread-create"),
+            create_request.trace_id("explicit-provider-thread-create"),
+            "thread.create",
+            serde_json::json!({
+                "threadId": "thread-explicit-provider-api-mode",
+                "metadata": {
+                    "model": "deepseek-v4-flash-vision-exp",
+                    "extra": { "modelProvider": "deepseek" }
+                }
+            }),
+        ),
+        "explicit provider thread create",
+    )
+    .expect("Thread should use the explicitly selected provider");
+    persist_native_agent_turn_start(
+        serde_json::json!({
+            "runtime": "rust",
+            "threadId": "thread-explicit-provider-api-mode",
+            "sessionId": "thread-explicit-provider-api-mode",
+            "turnId": "turn-explicit-provider-api-mode",
+            "model": "deepseek-v4-flash-vision-exp",
+            "provider": "deepseek"
+        }),
+        &fixture.thread_store,
+        config.clone(),
+    )
+    .expect("explicit provider turn should match the API mode pinned by its Thread");
+    assert_eq!(created["metadata"]["extra"]["modelProvider"], "deepseek");
+    assert_eq!(created["metadata"]["extra"]["apiMode"], "responses");
+
+    let context_request = next_worker_request_correlation();
+    let context = call_rust_state_service(
+        &fixture.thread_store,
+        config,
+        WorkerRequest::new(
+            context_request.id("explicit-provider-thread-context"),
+            context_request.trace_id("explicit-provider-thread-context"),
+            "thread.context",
+            serde_json::json!({
+                "threadId": "thread-explicit-provider-api-mode",
+                "limit": 50
+            }),
+        ),
+        "explicit provider thread context",
+    )
+    .expect("explicit provider Thread context should load");
+    assert_eq!(context["apiMode"], "responses");
+}
+
+#[test]
 fn thread_working_directory_mutations_fail_before_persisting_invalid_paths() {
     let fixture = WorkspaceFixture::new();
     let valid_working_directory = fixture.root.join("valid-thread-project");
