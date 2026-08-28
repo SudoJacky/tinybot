@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:5059004647d1df9a6b3893a18936cde375b10357ff1c883247add9c2e74f12d0 -->
+<!-- tinybot-module-fingerprint: sha256:b3936b21cafd02a1597a0041d1b6fa6636779e4910f3246bd174f064cb929d08 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -84,7 +84,11 @@ workspace root. Rust resolves the recorded Thread working directory, falls back
 to the configured default only for unbound conversations, and applies the
 existing workspace traversal and symlink guards before reading one bounded text
 chunk. Unsupported binary files, truncated previews, and read failures remain
-visible in the Artifact surface.
+visible in the Artifact surface. Markdown text is projected through the shared
+safe Markdown renderer as a document, without exposing internal Artifact IDs or
+MIME metadata above the content. The outer Artifact panel owns vertical
+scrolling for Markdown and plain-text previews, avoiding a second height-capped
+scroll region inside the Sidecar.
 Creating sessions stay in the preparation state until WebView2 is ready, and
 monotonic snapshot revisions prevent stale surface responses from hiding a newer
 visible surface.

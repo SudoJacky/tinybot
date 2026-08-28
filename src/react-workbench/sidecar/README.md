@@ -57,7 +57,9 @@ Artifact presentation is supplied by Chat through the Sidecar render contract;
 Artifact domain state does not live in this module. Artifact tabs may come from
 canonical Agent artifacts or from local file links in assistant Markdown. File
 links are contextual only, so the resource menu does not create an empty
-Artifact tab.
+Artifact tab. Chat presents Markdown Artifacts as rendered documents and keeps
+the Artifact panel as the single vertical scrolling surface; plain text, image,
+and data-view Artifacts retain their type-specific previews.
 
 ## Invariants
 

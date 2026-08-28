@@ -91,6 +91,24 @@ describe("ChatPage", () => {
     expect(css).not.toContain(".react-sidebar-reorder-handle");
   });
 
+  it("keeps the artifact panel as the only vertical scrolling surface", () => {
+    const chatCss = readFileSync("src/react-workbench/chat/ChatPage.css", "utf8");
+    const sidecarCss = readFileSync("src/react-workbench/sidecar/Sidecar.css", "utf8");
+
+    expect(sidecarCss).toMatch(
+      /\.react-sidecar__artifact\s*{[^}]*overflow:\s*auto;/s,
+    );
+    expect(chatCss).toMatch(
+      /\.react-artifact-detail__text\s*{[^}]*white-space:\s*pre-wrap;/s,
+    );
+    expect(chatCss).not.toMatch(
+      /\.react-artifact-detail__text\s*{[^}]*max-height:/s,
+    );
+    expect(chatCss).not.toMatch(
+      /\.react-artifact-detail__text\s*{[^}]*overflow(?:-y)?:\s*auto;/s,
+    );
+  });
+
   it("defines reduced-motion fallbacks for chat motion primitives", () => {
     const css = readWorkbenchCss();
 

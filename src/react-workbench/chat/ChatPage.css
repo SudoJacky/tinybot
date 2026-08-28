@@ -2989,6 +2989,10 @@
   gap: 12px;
 }
 
+.react-artifact-detail[data-content="document"] {
+  gap: 0;
+}
+
 .react-artifact-detail dl,
 .react-artifact-detail dl > div {
   display: grid;
@@ -3011,11 +3015,45 @@
   border-radius: 8px;
 }
 
-.react-artifact-detail pre {
-  max-height: 60vh;
-  overflow: auto;
+.react-artifact-detail__text {
+  min-width: 0;
+  margin: 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.react-artifact-detail__document {
+  width: min(100%, 780px);
+  min-width: 0;
+  margin: 0 auto;
+  padding: 4px clamp(2px, 1.5vw, 14px) 28px;
+}
+
+.react-artifact-detail__document .react-message-markdown {
+  gap: 16px;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.react-artifact-detail__document .react-message-markdown [data-streamdown="heading-1"] {
+  margin-bottom: 10px;
+  font-size: clamp(24px, 3vw, 30px);
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+
+.react-artifact-detail__document .react-message-markdown [data-streamdown="heading-2"] {
+  margin-top: 16px;
+  font-size: 20px;
+}
+
+.react-artifact-detail__document .react-message-markdown [data-streamdown="heading-3"] {
+  margin-top: 10px;
+  font-size: 16px;
+}
+
+.react-artifact-detail__document .react-message-markdown [data-streamdown="table"] {
+  font-size: 12px;
 }
 
 .react-artifact-detail__notice {

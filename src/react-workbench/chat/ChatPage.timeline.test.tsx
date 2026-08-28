@@ -1040,6 +1040,55 @@ describe("ChatPage", () => {
     expect(await within(sidecar).findByText("import { mount } from './react-workbench/main';")).toBeTruthy();
   });
 
+  it("renders Markdown workspace artifacts as documents instead of raw text previews", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Tinybot workspace",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "idle",
+        workingDirectory: "D:\\Code\\py\\tinybot",
+      }],
+    });
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, [{
+      id: "a-markdown-file-link",
+      role: "assistant",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Read [the operator guide](docs/operator-guide.md).",
+      status: "complete",
+    }]));
+    const readThreadFile = vi.fn(async () => ({
+      content: "# Operator guide\n\nUse **one scrolling surface** for the document.",
+      contentType: "text" as const,
+      lineEnd: 3,
+      lineStart: 1,
+      path: "docs/operator-guide.md",
+      revision: "rev-markdown",
+      sizeBytes: 66,
+    }));
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 2, 0)}
+        sessionStore={stores.sessionStore}
+        workspaceStore={{ readThreadFile }}
+      />,
+    );
+
+    await user.click(await screen.findByRole("link", { name: "the operator guide" }));
+
+    const sidecar = await screen.findByLabelText("Sidecar");
+    const document = within(sidecar).getByRole("document", { name: "operator-guide.md" });
+    expect(within(document).getByRole("heading", { level: 1, name: "Operator guide" })).toBeTruthy();
+    expect(within(document).getByText("one scrolling surface", { exact: false }).closest("strong")).toBeTruthy();
+    expect(document.querySelector("pre")).toBeNull();
+    expect(within(sidecar).queryByText("workspace-file:docs/operator-guide.md")).toBeNull();
+    expect(within(sidecar).queryByText("text/markdown")).toBeNull();
+  });
+
   it("surfaces truncated and binary workspace file previews in the artifact tab", async () => {
     const user = userEvent.setup();
     const stores = createStores({

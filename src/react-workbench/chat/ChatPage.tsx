@@ -112,6 +112,7 @@ import {
   type QueuedComposerInput,
 } from "./chatSubmission";
 import { ChatTimeline } from "./ChatTimeline";
+import { AssistantMarkdown } from "./AssistantMarkdown";
 import {
   AssistantFileLinkError,
   assistantFileArtifact,
@@ -1996,6 +1997,7 @@ export function ChatPage({
         error={content.error}
         loading={content.loading}
         notice={content.notice}
+        onOpenFileLink={handleOpenAssistantFileLink}
       />
     );
   }
@@ -2748,29 +2750,50 @@ function ArtifactDetails({
   error,
   loading,
   notice,
+  onOpenFileLink,
 }: {
   artifact: ArtifactRef;
   detail?: LoadedArtifactDetail;
   error?: string;
   loading: boolean;
   notice?: string;
+  onOpenFileLink: (link: AssistantFileLink) => void;
 }) {
   const { t } = useTranslation("chat");
+  const markdown = isMarkdownArtifact(artifact, detail);
+  const markdownContent = detail?.textContent && markdown
+    ? { text: detail.textContent, title: detail.title }
+    : undefined;
   return (
-    <div className="react-artifact-detail">
-      <dl>
-        <div><dt>{t("details.id")}</dt><dd>{artifact.id}</dd></div>
-        {detail?.mimeType || artifact.mimeType ? <div><dt>{t("details.type")}</dt><dd>{detail?.mimeType || artifact.mimeType}</dd></div> : null}
-      </dl>
+    <div className="react-artifact-detail" data-content={markdown ? "document" : "preview"}>
+      {!markdown ? (
+        <dl>
+          <div><dt>{t("details.id")}</dt><dd>{artifact.id}</dd></div>
+          {detail?.mimeType || artifact.mimeType ? <div><dt>{t("details.type")}</dt><dd>{detail?.mimeType || artifact.mimeType}</dd></div> : null}
+        </dl>
+      ) : null}
       {loading ? <p aria-live="polite">{t("details.loadingArtifact")}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
       {notice ? <p className="react-artifact-detail__notice">{notice}</p> : null}
       {detail?.imageDataUrl ? <img alt={detail.title} src={detail.imageDataUrl} /> : null}
       {detail?.dataView ? <DataViewCard artifact={{ ...artifact, dataView: detail.dataView }} expanded /> : null}
-      {detail?.textContent ? <pre>{detail.textContent}</pre> : null}
+      {markdownContent ? (
+        <article aria-label={markdownContent.title} className="react-artifact-detail__document" role="document">
+          <AssistantMarkdown
+            onOpenFileLink={onOpenFileLink}
+            streaming={false}
+            text={markdownContent.text}
+          />
+        </article>
+      ) : detail?.textContent ? <pre className="react-artifact-detail__text">{detail.textContent}</pre> : null}
       {!loading && !error && !detail?.dataView && !detail?.imageDataUrl && !detail?.textContent ? <p>{t("details.noPreview")}</p> : null}
     </div>
   );
+}
+
+function isMarkdownArtifact(artifact: ArtifactRef, detail?: LoadedArtifactDetail): boolean {
+  const mimeType = (detail?.mimeType || artifact.mimeType || "").split(";", 1)[0].trim().toLowerCase();
+  return artifact.kind.toLowerCase() === "markdown" || mimeType === "text/markdown";
 }
 
 function toolCallDetailSections(toolCall: ToolCallSummary, t: TFunction<"chat">): Array<{ label: string; value: string }> {
