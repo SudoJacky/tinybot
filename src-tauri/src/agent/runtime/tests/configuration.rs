@@ -2,25 +2,6 @@ use super::*;
 use crate::agent::runtime::provider_protocol::ProviderProtocolAdapter;
 
 #[test]
-fn selects_rust_runtime_from_spec_or_config() {
-    assert_eq!(
-        resolve_native_agent_runtime_mode(&json!({ "runtime": "rust" }), &json!({})),
-        NativeAgentRuntimeMode::Rust
-    );
-    assert_eq!(
-        resolve_native_agent_runtime_mode(
-            &json!({}),
-            &json!({ "desktop": { "nativeAgentRuntime": "rust" } })
-        ),
-        NativeAgentRuntimeMode::Rust
-    );
-    assert_eq!(
-        resolve_native_agent_runtime_mode(&json!({}), &json!({})),
-        NativeAgentRuntimeMode::Rust
-    );
-}
-
-#[test]
 fn defaults_context_window_strategy_to_compact() {
     let context = AgentTurnContext::from_spec(
         json!({

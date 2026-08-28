@@ -1,5 +1,4 @@
 use super::*;
-use serde_json::json;
 
 #[test]
 fn default_worker_policy_denies_sensitive_capabilities() {
@@ -38,160 +37,38 @@ fn explicit_policy_grants_only_named_capabilities() {
 
 #[test]
 fn capability_names_serialize_as_protocol_strings() {
-    let grant = CapabilityGrant {
-        capability: WorkerCapability::FsWorkspaceRead,
-        scope: "workspace://current".to_string(),
-    };
+    let cases = [
+        (WorkerCapability::NetworkOpenAi, "network.openai"),
+        (WorkerCapability::FsWorkspaceRead, "fs.workspace.read"),
+        (WorkerCapability::FsWorkspaceWrite, "fs.workspace.write"),
+        (WorkerCapability::ConfigRead, "config.read"),
+        (WorkerCapability::ConfigWrite, "config.write"),
+        (WorkerCapability::ProviderSecretRead, "provider.secret.read"),
+        (
+            WorkerCapability::SessionMetadataRead,
+            "session.metadata.read",
+        ),
+        (WorkerCapability::SessionWrite, "session.write"),
+        (WorkerCapability::DiagnosticsWrite, "diagnostics.write"),
+        (WorkerCapability::FormRequest, "form.request"),
+        (WorkerCapability::TaskRead, "task.read"),
+        (WorkerCapability::TaskWrite, "task.write"),
+        (WorkerCapability::CronRead, "cron.read"),
+        (WorkerCapability::CronWrite, "cron.write"),
+        (WorkerCapability::CronRun, "cron.run"),
+        (WorkerCapability::BackgroundRead, "background.read"),
+        (WorkerCapability::BackgroundWrite, "background.write"),
+        (WorkerCapability::McpCall, "mcp.call"),
+        (WorkerCapability::ChannelConnector, "channel.connector"),
+        (WorkerCapability::ShellExecute, "shell.execute"),
+        (WorkerCapability::BrowserObserve, "browser.observe"),
+        (WorkerCapability::BrowserInteract, "browser.interact"),
+    ];
 
-    let value = serde_json::to_value(grant).expect("grant should serialize");
-
-    assert_eq!(
-        value,
-        json!({
-            "capability": "fs.workspace.read",
-            "scope": "workspace://current"
-        })
-    );
-}
-
-#[test]
-fn form_request_capability_name_serializes_as_protocol_string() {
-    let grant = CapabilityGrant {
-        capability: WorkerCapability::FormRequest,
-        scope: "agent-ui://current".to_string(),
-    };
-
-    let value = serde_json::to_value(grant).expect("grant should serialize");
-
-    assert_eq!(
-        value,
-        json!({
-            "capability": "form.request",
-            "scope": "agent-ui://current"
-        })
-    );
-}
-
-#[test]
-fn background_capability_names_serialize_as_protocol_strings() {
-    let read = CapabilityGrant {
-        capability: WorkerCapability::BackgroundRead,
-        scope: "background://registry".to_string(),
-    };
-    let write = CapabilityGrant {
-        capability: WorkerCapability::BackgroundWrite,
-        scope: "background://registry".to_string(),
-    };
-
-    assert_eq!(
-        serde_json::to_value(read).expect("grant should serialize"),
-        json!({
-            "capability": "background.read",
-            "scope": "background://registry"
-        })
-    );
-    assert_eq!(
-        serde_json::to_value(write).expect("grant should serialize"),
-        json!({
-            "capability": "background.write",
-            "scope": "background://registry"
-        })
-    );
-}
-
-#[test]
-fn task_capability_names_serialize_as_protocol_strings() {
-    let read_grant = CapabilityGrant {
-        capability: WorkerCapability::TaskRead,
-        scope: "task://plans".to_string(),
-    };
-    let write_grant = CapabilityGrant {
-        capability: WorkerCapability::TaskWrite,
-        scope: "task://plans".to_string(),
-    };
-
-    assert_eq!(
-        serde_json::to_value(read_grant).expect("grant should serialize"),
-        json!({
-            "capability": "task.read",
-            "scope": "task://plans"
-        })
-    );
-    assert_eq!(
-        serde_json::to_value(write_grant).expect("grant should serialize"),
-        json!({
-            "capability": "task.write",
-            "scope": "task://plans"
-        })
-    );
-}
-
-#[test]
-fn cron_capability_names_serialize_as_protocol_strings() {
-    let read_grant = CapabilityGrant {
-        capability: WorkerCapability::CronRead,
-        scope: "cron://jobs".to_string(),
-    };
-    let write_grant = CapabilityGrant {
-        capability: WorkerCapability::CronWrite,
-        scope: "cron://jobs".to_string(),
-    };
-    let run_grant = CapabilityGrant {
-        capability: WorkerCapability::CronRun,
-        scope: "cron://jobs".to_string(),
-    };
-
-    assert_eq!(
-        serde_json::to_value(read_grant).expect("grant should serialize"),
-        json!({
-            "capability": "cron.read",
-            "scope": "cron://jobs"
-        })
-    );
-    assert_eq!(
-        serde_json::to_value(write_grant).expect("grant should serialize"),
-        json!({
-            "capability": "cron.write",
-            "scope": "cron://jobs"
-        })
-    );
-    assert_eq!(
-        serde_json::to_value(run_grant).expect("grant should serialize"),
-        json!({
-            "capability": "cron.run",
-            "scope": "cron://jobs"
-        })
-    );
-}
-
-#[test]
-fn mcp_call_capability_name_serializes_as_protocol_string() {
-    let grant = CapabilityGrant {
-        capability: WorkerCapability::McpCall,
-        scope: "mcp://configured".to_string(),
-    };
-
-    assert_eq!(
-        serde_json::to_value(grant).expect("grant should serialize"),
-        json!({
-            "capability": "mcp.call",
-            "scope": "mcp://configured"
-        })
-    );
-}
-
-#[test]
-fn provider_secret_read_capability_name_serializes_as_protocol_string() {
-    let grant = CapabilityGrant {
-        capability: WorkerCapability::ProviderSecretRead,
-        scope: "provider://runtime".to_string(),
-    };
-
-    assert_eq!(
-        serde_json::to_value(grant).expect("grant should serialize"),
-        json!({
-            "capability": "provider.secret.read",
-            "scope": "provider://runtime"
-        })
-    );
+    for (capability, expected) in cases {
+        assert_eq!(
+            serde_json::to_value(capability).expect("capability should serialize"),
+            serde_json::Value::String(expected.to_string())
+        );
+    }
 }

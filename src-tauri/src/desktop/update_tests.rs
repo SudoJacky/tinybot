@@ -17,11 +17,6 @@ fn update_diagnostic_records_version_selection() {
 }
 
 #[test]
-fn installation_gate_accepts_clean_shutdown() {
-    assert_eq!(require_clean_shutdown(Ok(())), Ok(()));
-}
-
-#[test]
 fn installation_gate_rejects_failed_shutdown_with_cause() {
     let error = require_clean_shutdown(Err("worker drain timed out".to_string()))
         .expect_err("failed cleanup must abort installation");

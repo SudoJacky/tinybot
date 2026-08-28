@@ -27,28 +27,6 @@ impl WorkerRequestCorrelation {
     }
 }
 
-#[cfg(test)]
-#[derive(Debug)]
-pub struct WorkerRequestIdGenerator {
-    run_prefix: String,
-    next_sequence: AtomicU64,
-}
-
-#[cfg(test)]
-impl WorkerRequestIdGenerator {
-    pub fn with_run_prefix(run_prefix: impl Into<String>) -> Self {
-        Self {
-            run_prefix: run_prefix.into(),
-            next_sequence: AtomicU64::new(1),
-        }
-    }
-
-    pub fn next(&self) -> WorkerRequestCorrelation {
-        let sequence = self.next_sequence.fetch_add(1, Ordering::Relaxed);
-        WorkerRequestCorrelation::from_suffix(format!("{}-{sequence}", self.run_prefix))
-    }
-}
-
 pub fn next_worker_request_correlation() -> WorkerRequestCorrelation {
     let sequence = NEXT_WORKER_REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     WorkerRequestCorrelation::from_suffix(format!("{}-{sequence}", worker_request_run_prefix()))

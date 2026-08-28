@@ -59,9 +59,6 @@ fn provider_catalog_exposes_current_built_in_providers_only() {
         .collect::<Vec<_>>();
 
     assert_eq!(provider_ids, vec!["openai", "deepseek", "dashscope", "zai"]);
-    assert!(!provider_ids.contains(&"openrouter"));
-    assert!(!provider_ids.contains(&"ollama"));
-    assert!(!provider_ids.contains(&"custom"));
     let deepseek = body["providers"]
         .as_array()
         .unwrap()

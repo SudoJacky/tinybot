@@ -49,13 +49,6 @@ pub enum WorkerCapability {
     BrowserInteract,
 }
 
-#[cfg(test)]
-#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
-pub struct CapabilityGrant {
-    pub capability: WorkerCapability,
-    pub scope: String,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq, Default, Deserialize, Serialize)]
 pub struct CapabilityPolicy {
     grants: BTreeSet<WorkerCapability>,

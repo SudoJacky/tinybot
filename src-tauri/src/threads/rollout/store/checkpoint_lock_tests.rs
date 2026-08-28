@@ -45,6 +45,7 @@ fn context_checkpoint_file_lock_serializes_processes() {
     let mut child = Command::new(std::env::current_exe().unwrap())
         .arg("--exact")
         .arg("threads::rollout::store::checkpoint_lock::tests::context_checkpoint_lock_child")
+        .arg("--ignored")
         .arg("--nocapture")
         .env(CHILD_ROOT_ENV, &root)
         .spawn()
@@ -60,6 +61,7 @@ fn context_checkpoint_file_lock_serializes_processes() {
 }
 
 #[test]
+#[ignore = "subprocess entry point exercised by context_checkpoint_file_lock_serializes_processes"]
 fn context_checkpoint_lock_child() {
     let Some(root) = std::env::var_os(CHILD_ROOT_ENV).map(PathBuf::from) else {
         return;

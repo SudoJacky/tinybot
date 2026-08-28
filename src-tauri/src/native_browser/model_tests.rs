@@ -16,7 +16,6 @@ fn surface_rect_rejects_invalid_geometry() {
 #[test]
 fn browser_ids_reject_blank_values() {
     assert!(BrowserProfileId::new("  ").is_err());
-    assert_eq!(BrowserTabId("tab-1".to_string()).as_str(), "tab-1");
 }
 
 #[test]

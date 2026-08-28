@@ -89,12 +89,6 @@ pub use tool_dispatcher::FakeNativeAgentToolDispatcher;
 pub use tool_dispatcher::SubagentNativeAgentToolDispatcher;
 pub(crate) use usage::manual_context_compaction_requested;
 
-#[cfg(test)]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum NativeAgentRuntimeMode {
-    Rust,
-}
-
 #[derive(Clone)]
 pub struct NativeAgentCancellationContext {
     turn_id: String,
@@ -895,15 +889,6 @@ impl Default for NativeAgentRuntimeServices {
         )
         .with_subagents(subagents)
     }
-}
-
-#[cfg(test)]
-pub fn resolve_native_agent_runtime_mode(
-    spec: &Value,
-    config_snapshot: &Value,
-) -> NativeAgentRuntimeMode {
-    let _ = (spec, config_snapshot);
-    NativeAgentRuntimeMode::Rust
 }
 
 #[cfg(test)]

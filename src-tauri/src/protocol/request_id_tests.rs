@@ -5,17 +5,15 @@ use std::{
 };
 
 #[test]
-fn generator_returns_unique_correlation_keys_across_threads() {
-    let generator = Arc::new(WorkerRequestIdGenerator::with_run_prefix("same-ms"));
+fn production_generator_returns_unique_correlation_keys_across_threads() {
     let keys = Arc::new(Mutex::new(Vec::new()));
     let mut handles = Vec::new();
 
     for _ in 0..8 {
-        let generator = Arc::clone(&generator);
         let keys = Arc::clone(&keys);
         handles.push(std::thread::spawn(move || {
             for _ in 0..32 {
-                let correlation = generator.next();
+                let correlation = next_worker_request_correlation();
                 keys.lock().expect("keys mutex should lock").push((
                     correlation.id("agent-turn"),
                     correlation.trace_id("agent-turn"),

@@ -154,15 +154,43 @@ fn runtime_now_returns_current_time_with_timezone() {
         json!({ "timezone": "Asia/Shanghai" }),
     );
 
+    let before = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("test clock should be after the Unix epoch")
+        .as_millis();
     let result = rpc
         .now_from_request(&request)
         .expect("runtime now should return result");
+    let after = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("test clock should be after the Unix epoch")
+        .as_millis();
 
     assert_eq!(result["timezone"], "Asia/Shanghai");
-    assert!(result["current_time"]
+    let current_time = result["current_time"]
         .as_str()
-        .expect("current_time should be a string")
-        .starts_with("unix-ms:"));
+        .expect("current_time should be a string");
+    let millis = current_time
+        .strip_prefix("unix-ms:")
+        .and_then(|value| value.strip_suffix(" Asia/Shanghai"))
+        .expect("current_time should contain its timestamp and timezone")
+        .parse::<u128>()
+        .expect("current_time should contain Unix milliseconds");
+    assert!((before..=after).contains(&millis));
+
+    let default_result = rpc
+        .now_from_request(&WorkerRequest::new(
+            "req-now-default",
+            "trace-now-default",
+            "runtime.now",
+            json!({}),
+        ))
+        .expect("runtime now should default its timezone");
+    assert_eq!(default_result["timezone"], "local");
+    assert!(default_result["current_time"]
+        .as_str()
+        .expect("default current_time should be a string")
+        .ends_with(" local"));
 }
 
 #[test]

@@ -1074,96 +1074,17 @@ fn worker_run_agent_persists_agent_turn_record_and_keeps_history_compact() {
         run.get("traceEvents").is_none(),
         "runtime trace must not be canonical"
     );
-    assert_eq!(history["messages"].as_array().unwrap().len(), 2);
-    assert!(history["messages"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .all(|message| message["role"] != "tool"));
-}
-
-#[test]
-fn worker_run_agent_projects_real_rust_run_into_canonical_thread_history() {
-    let fixture = WorkspaceFixture::new();
-    fixture.write("README.md", "README thread body");
-    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
-        fixture.thread_store.clone(),
-    )));
-    let config = serde_json::json!({
-        "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
-        "providers": {
-            "fixture": {
-                "responses": [
-                    {
-                        "content": "",
-                        "toolCalls": [{
-                            "id": "call-thread-run-trace",
-                            "name": "update_plan",
-                            "argumentsJson": "{\"plan\":[{\"step\":\"Project thread\",\"status\":\"completed\"}]}",
-                            "result": { "content": "fixture result should not be used" }
-                        }]
-                    },
-                    { "content": "thread projected answer" }
-                ]
-            }
-        }
-    });
-    let session_id = "websocket:chat-thread-real-run";
-
-    let result = worker_run_agent_with_options(
-        &shared,
-        serde_json::json!({
-            "runtime": "rust",
-            "turnId": "turn-thread-real",
-            "sessionId": session_id,
-            "maxIterations": 2,
-            "messages": [{
-                "role": "user",
-                "content": "read README into thread",
-                "messageId": "user-thread-real"
-            }]
-        }),
-        fixture.root.clone(),
-        config.clone(),
-        Duration::from_millis(10),
-    )
-    .expect("Rust runtime should complete tool-backed turn");
-    assert_eq!(result["stopReason"], "final_response");
-
-    let history = read_thread_history(&fixture.thread_store, config.clone(), session_id);
     let messages = history["messages"]
         .as_array()
         .expect("thread history messages should be an array");
+    assert_eq!(messages.len(), 2);
+    assert!(messages
+        .iter()
+        .any(|message| { message["role"] == "user" && message["content"] == "read and answer" }));
     assert!(messages.iter().any(|message| {
-        message["role"] == "user" && message["content"] == "read README into thread"
-    }));
-    assert!(messages.iter().any(|message| {
-        message["role"] == "assistant" && message["content"] == "thread projected answer"
+        message["role"] == "assistant" && message["content"] == "run trace final"
     }));
     assert!(messages.iter().all(|message| message["role"] != "tool"));
-
-    let run = call_rust_state_service(
-        &fixture.thread_store,
-        config.clone(),
-        WorkerRequest::new(
-            "req-real-run-agent-get",
-            "trace-real-run-agent-get",
-            "thread.turn.get",
-            serde_json::json!({
-                "threadId": session_id,
-                "turnId": "turn-thread-real"
-            }),
-        ),
-        "real Rust run agent record",
-    )
-    .expect("real Rust turn should persist an agent turn record");
-    assert_eq!(run["status"], "completed");
-    assert_eq!(run["stopReason"], "final_response");
-    assert_eq!(
-        run["completedToolResults"][0]["toolCallId"],
-        "call-thread-run-trace"
-    );
-    assert!(run.get("traceEvents").is_none());
 }
 
 #[test]

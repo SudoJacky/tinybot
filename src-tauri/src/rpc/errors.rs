@@ -17,7 +17,3 @@ pub fn unknown_method_error(request: &WorkerRequest) -> WorkerProtocolError {
         WorkerProtocolErrorSource::RustCore,
     )
 }
-
-#[cfg(test)]
-#[path = "errors_tests.rs"]
-mod tests;

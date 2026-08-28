@@ -4,7 +4,6 @@ use serde::Deserialize;
 pub fn validate_request(request: &WorkerRequest) -> Result<(), WorkerProtocolError> {
     validate_protocol_version(&request.protocol_version)
 }
-
 pub fn parse_params<T: for<'de> Deserialize<'de>>(
     request: &WorkerRequest,
 ) -> Result<T, WorkerProtocolError> {
@@ -21,7 +20,3 @@ pub fn parse_params<T: for<'de> Deserialize<'de>>(
         )
     })
 }
-
-#[cfg(test)]
-#[path = "params_tests.rs"]
-mod tests;

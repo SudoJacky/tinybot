@@ -57,12 +57,12 @@ async fn profile_directory_cleanup_is_idempotent() {
 }
 
 #[test]
-fn child_webview_labels_are_capability_isolated() {
+fn child_webview_labels_replace_reserved_characters() {
     assert_eq!(safe_label("browser/tab:1"), "browser-tab-1");
 }
 
 #[test]
-fn injected_scripts_are_narrow_and_privacy_bounded() {
+fn injected_script_source_keeps_reviewed_privacy_guards() {
     assert!(DIRECT_INPUT_SCRIPT.contains("event.isTrusted"));
     assert!(DIRECT_INPUT_SCRIPT.contains(DIRECT_INPUT_MESSAGE));
     assert!(DIRECT_INPUT_SCRIPT.contains(CONTENT_DIRTY_MESSAGE));
@@ -89,7 +89,7 @@ fn injected_scripts_are_narrow_and_privacy_bounded() {
 }
 
 #[test]
-fn page_text_script_returns_only_the_requested_bounded_chunk() {
+fn page_text_script_source_includes_requested_bounds() {
     let script = page_text_script(64_000, 8_000);
 
     assert!(script.contains("const maxPageTextChars = 1000000"));
