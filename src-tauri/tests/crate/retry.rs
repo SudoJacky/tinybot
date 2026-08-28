@@ -153,6 +153,13 @@ fn chat_effective_capabilities_are_backend_authored_and_turn_scoped() {
         running["capabilities"]["agent"]["retry"]["reasonCode"],
         "turn_active"
     );
+    assert_eq!(
+        running["capabilities"]["agent"]
+            .as_object()
+            .expect("agent capability object")
+            .len(),
+        2
+    );
 
     let waiting = crate::desktop_commands::thread::build_thread_effective_capabilities(
         "websocket:chat-1",

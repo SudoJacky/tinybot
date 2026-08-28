@@ -3,14 +3,17 @@
 src-tauri/src/desktop_commands/memory.rs
 src-tauri/src/desktop_commands/project_groups.rs
 src-tauri/src/desktop_commands/thread.rs
+src-tauri/src/agent/runtime/provider_adapter.rs
+src-tauri/src/agent/runtime/provider_adapter_reference_tests.rs
 src-tauri/src/memory/model.rs
 src-tauri/src/threads/domain/types/events.rs
 src-tauri/src/threads/domain/types/items.rs
 src-tauri/src/threads/domain/types/records.rs
 src-tauri/src/threads/domain/types/requests.rs
 src-tauri/tests/crate/threads.rs
+src/app-core/chat/agentInputReference.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:c46a50f6806b4ad0ba04e02a97083d4bae810bc6045ada37e9ae57794d2fc60e -->
+<!-- tinybot-doc-fingerprint: sha256:0f9f6cb86f7dd148bfec017a160aed0bbc5086ab6f4c9913b4b5c97fad258244 -->
 
 This document covers Thread queries, memory, persistence, and project grouping.
 It is part of the [Rust backend API reference](rust-backend-api.md), which

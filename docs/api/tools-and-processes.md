@@ -1,5 +1,6 @@
 # Tools and Processes API
 <!-- tinybot-doc-watch:
+src-tauri/src/desktop_commands/retry.rs
 src-tauri/src/native_browser/commands.rs
 src-tauri/src/native_browser/model.rs
 src-tauri/src/rpc/background_dispatch.rs
@@ -8,8 +9,10 @@ src-tauri/src/rpc/tool_dispatch.rs
 src-tauri/src/tools/shell/mod.rs
 src-tauri/src/tools/shell/process_manager.rs
 src-tauri/src/rpc/tests/threads_and_tools.rs
+src-tauri/tests/crate/retry.rs
+src/app-core/native/desktopNativeThreads.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:a3bd7089a413278a601f8078e0647fb0feb854b9ed669fdab68deb569edc09f2 -->
+<!-- tinybot-doc-fingerprint: sha256:3e3b1a28eeffa1d420458fc553725c32f9e4d5614b3974ae29e95b657ce6c876 -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),

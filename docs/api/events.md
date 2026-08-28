@@ -2,11 +2,13 @@
 <!-- tinybot-doc-watch:
 src-tauri/src/agent/runtime_protocol/event_catalog.rs
 src-tauri/src/agent/runtime_protocol/timeline_projection.rs
+src-tauri/src/native_browser/mod.rs
 src/app-core/chat/chatTurnContracts.ts
 src/app-core/native/desktopNativeTauriEvents.ts
 src/app-core/native/desktopNativeTauriEvents.test.ts
+src/react-workbench/adapters/desktopNativeEventBridge.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:d220fb3338c15549a9d9e7250e34e44fafc2785d9e4d553137112f1bfb728f61 -->
+<!-- tinybot-doc-fingerprint: sha256:e4bfdb0bf6a7034c3d8fe7b582d139645bd6e008c0444b0de48caf4d175c3909 -->
 
 This document lists frontend-visible events emitted by the native runtime. It
 is part of the [Rust backend API reference](rust-backend-api.md), which defines

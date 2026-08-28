@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { createDesktopAppServices } from "./defaultServices";
 import type { ChatEvent } from "./services";
 import { createDesktopCompactCommand, createDesktopStopCommand, createDesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
+import { createThreadOperationRetryCommand } from "../app-core/chat/threadCommand";
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -102,6 +103,32 @@ describe("desktop native app services", () => {
 
     const commands = mocks.invoke.mock.calls.map(([command]) => command);
     expect(commands).toContain("worker_threads_list");
+  });
+
+  test("maps operation retry commands to the typed native Thread input", async () => {
+    const services = createDesktopAppServices();
+    await services.sessionStore.list();
+
+    await services.chatStore.dispatch(createThreadOperationRetryCommand({
+      commandId: "command-retry-1",
+      issuedAt: "2026-08-28T00:00:00.000Z",
+      itemId: "turn-failed:error",
+      retryTurnId: "turn-retry-1",
+      sessionId: "thread-1",
+      source: { control: "error-recovery", surface: "chat" },
+      turnId: "turn-failed",
+    }));
+
+    expect(mocks.invoke).toHaveBeenCalledWith("worker_retry_thread_operation", {
+      input: {
+        commandId: "command-retry-1",
+        source: { control: "error-recovery", surface: "chat" },
+        sourceItemId: "turn-failed:error",
+        sourceTurnId: "turn-failed",
+        targetTurnId: "turn-retry-1",
+        threadId: "thread-1",
+      },
+    });
   });
 
   test("reports native event and session startup phases", async () => {
