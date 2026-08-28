@@ -73,6 +73,15 @@ export type NativeThreadCompactInput = {
   clientEventId?: string;
 };
 
+export type NativeThreadOperationRetryInput = {
+  commandId: string;
+  source: Record<string, unknown>;
+  sourceItemId: string;
+  sourceTurnId: string;
+  targetTurnId: string;
+  threadId: string;
+};
+
 export type NativeThreadsApi = {
   create(body?: Record<string, unknown>): Promise<NativeThreadRecord>;
   read(body: Record<string, unknown>): Promise<unknown>;
@@ -99,6 +108,7 @@ export type NativeThreadsApi = {
   submitTurn(body: NativeThreadTurnInput): Promise<NativeThreadTurnResult>;
   compact(body: NativeThreadCompactInput): Promise<unknown>;
   submitForm(body: NativeThreadFormInput): Promise<unknown>;
+  retryOperation(body: NativeThreadOperationRetryInput): Promise<NativeThreadTurnResult>;
 };
 
 export function createDesktopNativeThreadsApi(options: { invoke?: TauriInvoke } = {}): NativeThreadsApi {
@@ -130,5 +140,6 @@ export function createDesktopNativeThreadsApi(options: { invoke?: TauriInvoke } 
     submitTurn: (body) => invoke("worker_submit_thread_turn", { input: body }) as Promise<NativeThreadTurnResult>,
     compact: (body) => invoke("worker_compact_thread", { input: body }),
     submitForm: (body) => invoke("worker_submit_thread_form", { input: body }),
+    retryOperation: (body) => invoke("worker_retry_thread_operation", { input: body }) as Promise<NativeThreadTurnResult>,
   };
 }

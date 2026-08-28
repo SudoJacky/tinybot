@@ -1,18 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { TINYOS_CAPABILITY_IDS } from "./tinyOsCapabilities";
-import { TINYOS_COMMAND_KINDS } from "./tinyOsCommand";
+import { THREAD_CAPABILITY_IDS } from "./threadCapabilities";
+import { THREAD_COMMAND_KINDS } from "./threadCommand";
 
 describe("desktop command contract parity", () => {
   it("records backend-authored effective capability decisions", () => {
-    expect(TINYOS_CAPABILITY_IDS).toEqual([
+    expect(THREAD_CAPABILITY_IDS).toEqual([
       "agent.cancel",
       "agent.retry",
     ]);
   });
 
   it("records typed runtime-affecting command kinds", () => {
-    expect(TINYOS_COMMAND_KINDS).toEqual([
+    expect(THREAD_COMMAND_KINDS).toEqual([
       "agent.cancel",
       "form.submit",
       "form.cancel",

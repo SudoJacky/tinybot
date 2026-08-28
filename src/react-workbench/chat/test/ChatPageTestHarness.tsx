@@ -5,10 +5,10 @@ import { ChatPage } from "../ChatPage";
 import type { ChatStore, SessionStore, SessionSummary } from "../../services";
 import type { DesktopTurnSubmitCommand } from "../../../app-core/chat/desktopCommand";
 import type { ReactChatMessage } from "../messageActions";
-import { createTinyOsBrowserSessionSnapshot } from "../../../app-core/chat/tinyOsNativeSnapshot";
+import { createNativeBrowserSessionSnapshot } from "../../../app-core/native/nativeBrowserSnapshot";
 import type { NativeBrowserRuntimeApi } from "../../../app-core/native/desktopNativeBrowser";
 import type { NativeTerminalRuntimeApi } from "../../../app-core/native/desktopNativeTerminal";
-import type { TinyOsEffectiveCapabilities } from "../../../app-core/chat/tinyOsCapabilities";
+import type { ThreadEffectiveCapabilities } from "../../../app-core/chat/threadCapabilities";
 import { timelineFromReactMessages } from "./timelineFixtures";
 
 export const ChatPageUnderTest = ChatPage;
@@ -65,7 +65,7 @@ export function readWorkbenchCss(): string {
 }
 
 
-export function effectiveCapabilities(threadId: string, cancelAvailable = true): TinyOsEffectiveCapabilities {
+export function effectiveCapabilities(threadId: string, cancelAvailable = true): ThreadEffectiveCapabilities {
   const unavailable = { available: false, reasonCode: "runtime_unsupported", reason: "Not supported." };
   const available = { available: true };
   return {
@@ -134,7 +134,7 @@ export function createStores(options: {
       browserRuntime: options.browserRuntime,
       terminalRuntime: options.terminalRuntime,
       load: vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, messages)),
-      loadTinyOsCapabilities: vi.fn(async (sessionId) => effectiveCapabilities(sessionId)),
+      loadEffectiveCapabilities: vi.fn(async (sessionId) => effectiveCapabilities(sessionId)),
       dispatch: vi.fn(async () => undefined),
       listAgentUiForms: vi.fn(async () => []),
       branchFromMessage: vi.fn(async () => sessions[0]),
@@ -150,7 +150,7 @@ export function sidecarBrowserSnapshot(
   revision = 1,
   lifecycle: "creating" | "ready" = "ready",
 ) {
-  return createTinyOsBrowserSessionSnapshot({
+  return createNativeBrowserSessionSnapshot({
     activeTabId,
     browserSessionId: "browser-session-1",
     contract: "browser_session_v1",

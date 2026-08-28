@@ -3,9 +3,9 @@ import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import type { HookExecutionResult } from "../../app-core/chat/hookExecutionResult";
 import type {
-  TinyOsNativeBrowserSession,
-  TinyOsNativeSnapshot,
-} from "../../app-core/chat/tinyOsNativeSnapshot";
+  NativeBrowserSession,
+  NativeBrowserSnapshot,
+} from "../../app-core/native/nativeBrowserSnapshot";
 import type { ChatEvent, ChatStore } from "../services";
 import type { ReactChatMessage } from "./messageActions";
 import { projectChatEventEffects } from "./chatEventPolicy";
@@ -15,7 +15,7 @@ export type ChatSessionRuntimeStatus = "idle" | "loading" | "ready" | "failed";
 export type ChatSessionRuntimeState = {
   agentUiForms: AgentUiForm[];
   browserError: string;
-  browserSnapshot?: TinyOsNativeSnapshot<TinyOsNativeBrowserSession>;
+  browserSnapshot?: NativeBrowserSnapshot<NativeBrowserSession>;
   error: string;
   hookResults: HookExecutionResult[];
   sessionId: string;
@@ -30,7 +30,7 @@ export type ChatSessionRuntimeEffect =
   | { sessionId: string; timeline: ChatTimelineSnapshot; type: "timeline_applied" };
 
 export type ChatSessionRuntimeActions = {
-  acceptBrowserSnapshot(snapshot: TinyOsNativeSnapshot<TinyOsNativeBrowserSession>): void;
+  acceptBrowserSnapshot(snapshot: NativeBrowserSnapshot<NativeBrowserSession>): void;
   clearBrowserError(): void;
   clearBrowserSnapshot(browserSessionId?: string): void;
   clearError(): void;
@@ -77,7 +77,7 @@ export function useChatSessionRuntime({
   const clearBrowserError = useCallback(() => {
     setState((current) => ({ ...current, browserError: "" }));
   }, []);
-  const acceptBrowserSnapshot = useCallback((snapshot: TinyOsNativeSnapshot<TinyOsNativeBrowserSession>) => {
+  const acceptBrowserSnapshot = useCallback((snapshot: NativeBrowserSnapshot<NativeBrowserSession>) => {
     const activeSessionId = activeSessionIdRef.current;
     if (activeSessionId && snapshot.data.sessionId !== activeSessionId) {
       throw new Error(

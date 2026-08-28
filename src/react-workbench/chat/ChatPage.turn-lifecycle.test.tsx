@@ -3,7 +3,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { createTinyOsAgentCancelCommand } from "../../app-core/chat/tinyOsCommand";
+import { createThreadAgentCancelCommand } from "../../app-core/chat/threadCommand";
 import type { ChatEvent, SettingsStore } from "../services";
 import {
   ChatPageUnderTest as ChatPage,
@@ -111,7 +111,7 @@ describe("ChatPage", () => {
         kind: "reference",
         rawPath: "C:\\Users\\tester\\new-api.md",
         title: "new-api.md",
-        type: "tinyos.file",
+        referenceKind: "file",
       }],
       text: "Use the new API instead",
     }));
@@ -418,7 +418,7 @@ describe("ChatPage", () => {
 
     const input = await screen.findByRole("textbox", { name: /message/i });
     await user.type(input, "keep this queued{enter}");
-    const command = createTinyOsAgentCancelCommand({
+    const command = createThreadAgentCancelCommand({
       commandId: "command-shortcut-1",
       issuedAt: "2026-07-04T12:00:00.000Z",
       sessionId: "s1",
@@ -505,7 +505,7 @@ describe("ChatPage", () => {
     vi.mocked(stores.chatStore.load).mockResolvedValue(runningTimeline);
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
-    await waitFor(() => expect(vi.mocked(stores.chatStore.loadTinyOsCapabilities).mock.calls.length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(vi.mocked(stores.chatStore.loadEffectiveCapabilities).mock.calls.length).toBeGreaterThanOrEqual(2));
     await screen.findByRole("button", { name: "Stop generation" });
     fireEvent.keyDown(await screen.findByRole("textbox", { name: /message/i }), { key: "Escape" });
 
@@ -532,7 +532,7 @@ describe("ChatPage", () => {
     vi.mocked(stores.chatStore.load).mockResolvedValue(runningTimeline);
     const capabilities = effectiveCapabilities("s1");
     capabilities.evaluatedTurnId = run.id;
-    vi.mocked(stores.chatStore.loadTinyOsCapabilities).mockResolvedValue(capabilities);
+    vi.mocked(stores.chatStore.loadEffectiveCapabilities).mockResolvedValue(capabilities);
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -556,7 +556,7 @@ describe("ChatPage", () => {
     const runningTimeline = await stores.chatStore.load("s1");
     runningTimeline.turns[runningTimeline.turns.length - 1].status = "running";
     vi.mocked(stores.chatStore.load).mockResolvedValue(runningTimeline);
-    vi.mocked(stores.chatStore.loadTinyOsCapabilities).mockResolvedValue(effectiveCapabilities("s1", false));
+    vi.mocked(stores.chatStore.loadEffectiveCapabilities).mockResolvedValue(effectiveCapabilities("s1", false));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 

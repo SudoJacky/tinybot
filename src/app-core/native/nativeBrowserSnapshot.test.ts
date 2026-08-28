@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createTinyOsBrowserSessionSnapshot } from "./tinyOsNativeSnapshot";
+import { createNativeBrowserSessionSnapshot } from "./nativeBrowserSnapshot";
 
 const metadata = {
   observedAt: "2026-07-14T01:02:03Z",
@@ -9,7 +9,7 @@ const metadata = {
 
 describe("native browser snapshot adapter", () => {
   it("validates browser session identity and adds snapshot metadata", () => {
-    const snapshot = createTinyOsBrowserSessionSnapshot({
+    const snapshot = createNativeBrowserSessionSnapshot({
       activeTabId: "tab-1",
       browserSessionId: "browser-session-1",
       contract: "browser_session_v1",
@@ -43,19 +43,19 @@ describe("native browser snapshot adapter", () => {
         sourceId: metadata.sourceId,
       },
       revision: metadata.revision,
-      schemaVersion: "tinybot.tinyos_native_snapshot.v1",
+      schemaVersion: "tinybot.browser_snapshot.v1",
     });
     expect(snapshot.data.tabs[0].currentCaptureId).toBe("capture-1");
 
-    expect(() => createTinyOsBrowserSessionSnapshot({
+    expect(() => createNativeBrowserSessionSnapshot({
       ...snapshot.data,
       activeTabId: "tab-missing",
     }, metadata)).toThrow(/not present/i);
-    expect(() => createTinyOsBrowserSessionSnapshot({
+    expect(() => createNativeBrowserSessionSnapshot({
       ...snapshot.data,
       tabs: [{ ...snapshot.data.tabs[0], currentCaptureId: "capture-missing" }],
     }, metadata)).toThrow(/current capture.*missing/i);
-    expect(() => createTinyOsBrowserSessionSnapshot(snapshot.data, {
+    expect(() => createNativeBrowserSessionSnapshot(snapshot.data, {
       ...metadata,
       observedAt: "not-a-time",
     })).toThrow(/valid timestamp/i);

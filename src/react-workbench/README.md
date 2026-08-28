@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:bca39a76da66054c6f8c128b909350bb33a96ed22d3ee9ba168305618786275a -->
+<!-- tinybot-module-fingerprint: sha256:dcb566bd16eb396cd3fc263b044cb458d8eec4884f978dda5db7e7ff354cc845 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App` for the main window and selects lightweight
@@ -54,8 +54,7 @@ The shared Tools store accepts an optional working directory so Chat's slash
 menu and composer tool controls can request the catalog scoped to its active
 conversation. Workspace-less Chats filter Agent Graph tools.
 
-The retired TinyOS desktop and its embedded files, terminal, and monitor
-applications are not renderer routes. Chat now hosts Sidecar, whose Browser
+Chat hosts Sidecar, whose Browser
 resources attach directly to the shared native WebView2 session used by Agent
 web tools. Terminal resources attach to a separate user-only PTY runtime;
 switching or hiding resources preserves the process, while closing the

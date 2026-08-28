@@ -131,7 +131,7 @@ and shutdown terminate descendant processes as well as the root process.
 | Background subagent input | `worker_background_subagent_enqueue_input` |
 | Subagent manager | `worker_subagent_spawn`, `worker_subagent_list`, `worker_subagent_query`, `worker_subagent_send_input`, `worker_subagent_wait`, `worker_subagent_cancel`, `worker_subagent_close`, `worker_subagent_resume` |
 | Task plans | `worker_task_plan_list`, `worker_task_plan_get`, `worker_task_plan_save`, `worker_task_plan_delete` |
-| Chat retry compatibility | `worker_dispatch_tinyos_host_command` |
+| Thread operation retry | `worker_retry_thread_operation` |
 | WebUI proxy | `worker_webui_route` |
 
 ### Subagent lifecycle
@@ -167,24 +167,21 @@ history.
 Retry command input example:
 
 ```ts
-await invoke("worker_dispatch_tinyos_host_command", {
+await invoke("worker_retry_thread_operation", {
   input: {
-    clientId: "client-1",
-    frame: {
-      type: "command",
-      command_kind: "operation.retry",
-      turn_id: "turn-retry-1",
-      source_turn_id: "turn-failed-1",
-      item_id: "turn-failed-1:error"
-    },
-    attachedChatId: "thread-1",
+    commandId: "command-retry-1",
+    source: { control: "error-recovery", surface: "chat" },
+    sourceItemId: "turn-failed-1:error",
+    sourceTurnId: "turn-failed-1",
+    targetTurnId: "turn-retry-1",
+    threadId: "thread-1"
   }
 });
 ```
 
-This transitional dispatcher accepts only `operation.retry`. Chat turns,
-interruption, and forms use the typed Thread commands. Retired desktop file,
-terminal, browser-control, pause/resume, and request-change frames fail closed.
+The handler validates that the latest Thread turn and selected canonical Item
+both failed before starting a new correlated Agent turn. Chat submission,
+interruption, forms, and retry all use typed Thread commands.
 
 ## Native Browser session runtime
 

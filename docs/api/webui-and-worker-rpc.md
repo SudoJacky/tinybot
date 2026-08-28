@@ -1,14 +1,14 @@
 # WebUI and Worker RPC API
 <!-- tinybot-doc-watch:
-src-tauri/src/desktop_commands/transport.rs
+src-tauri/src/desktop_commands/retry.rs
 src-tauri/src/desktop_commands/webui.rs
 src-tauri/src/protocol/capability.rs
 src-tauri/src/protocol/params.rs
 src-tauri/src/rpc/method.rs
 src-tauri/src/rpc/runtime.rs
-src-tauri/tests/crate/transport.rs
+src-tauri/tests/crate/retry.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:bf79507e9152730a139d6a3f26bd7b11f30a67278f42f75a12ae08bffb636552 -->
+<!-- tinybot-doc-fingerprint: sha256:435dfdb3bfd75fb3a7d3881a75459ec05622b8467bb15fe3175dff66f27a9ae1 -->
 
 This document covers the Rust-owned WebUI route wrapper and Worker RPC protocol.
 It is part of the [Rust backend API reference](rust-backend-api.md), which

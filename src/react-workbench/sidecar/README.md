@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:4ca1c23abb9e5c238f72e9068e7c61b08d355fdca66ee863c233f31d04b1b0b8 -->
+<!-- tinybot-module-fingerprint: sha256:94da717a2717b797ea99dbe6ebb7e6b013c9d814471f56676fc4fe81707e5b3d -->
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
 thread-scoped Browser and Artifact resources, workspace-scoped Terminal

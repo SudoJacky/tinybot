@@ -1,8 +1,8 @@
 import {
-  createTinyOsBrowserSessionSnapshot,
-  type TinyOsNativeBrowserSession,
-  type TinyOsNativeSnapshot,
-} from "../chat/tinyOsNativeSnapshot";
+  createNativeBrowserSessionSnapshot,
+  type NativeBrowserSession,
+  type NativeBrowserSnapshot,
+} from "./nativeBrowserSnapshot";
 
 export type NativeBrowserCapabilityDecision = {
   available: boolean;
@@ -39,13 +39,13 @@ export type NativeBrowserAction =
   | { type: "userHandoff"; reason: string };
 
 export type NativeBrowserRuntimeApi = {
-  activateTab(browserSessionId: string, tabId: string): Promise<TinyOsNativeSnapshot<TinyOsNativeBrowserSession>>;
+  activateTab(browserSessionId: string, tabId: string): Promise<NativeBrowserSnapshot<NativeBrowserSession>>;
   back(browserSessionId: string, tabId: string): Promise<void>;
   capabilities(): Promise<NativeBrowserRuntimeCapabilities>;
   closeSession(browserSessionId: string): Promise<void>;
-  closeTab(browserSessionId: string, tabId: string): Promise<TinyOsNativeSnapshot<TinyOsNativeBrowserSession>>;
-  createSession(input: { initialUrl?: string; ownerSessionId: string; persistence?: "persistent" | "incognito"; profileId?: string }): Promise<TinyOsNativeSnapshot<TinyOsNativeBrowserSession>>;
-  createTab(browserSessionId: string, url?: string): Promise<TinyOsNativeSnapshot<TinyOsNativeBrowserSession>>;
+  closeTab(browserSessionId: string, tabId: string): Promise<NativeBrowserSnapshot<NativeBrowserSession>>;
+  createSession(input: { initialUrl?: string; ownerSessionId: string; persistence?: "persistent" | "incognito"; profileId?: string }): Promise<NativeBrowserSnapshot<NativeBrowserSession>>;
+  createTab(browserSessionId: string, url?: string): Promise<NativeBrowserSnapshot<NativeBrowserSession>>;
   deleteProfile(profileId: string): Promise<void>;
   forward(browserSessionId: string, tabId: string): Promise<void>;
   interact(input: {
@@ -57,12 +57,12 @@ export type NativeBrowserRuntimeApi = {
     observationRevision?: number;
     tabId: string;
   }): Promise<unknown>;
-  navigate(browserSessionId: string, tabId: string, url: string): Promise<TinyOsNativeSnapshot<TinyOsNativeBrowserSession>>;
-  observe(input: { browserSessionId: string; capture?: boolean; semantic?: boolean; tabId: string }): Promise<{ snapshot: TinyOsNativeSnapshot<TinyOsNativeBrowserSession> }>;
+  navigate(browserSessionId: string, tabId: string, url: string): Promise<NativeBrowserSnapshot<NativeBrowserSession>>;
+  observe(input: { browserSessionId: string; capture?: boolean; semantic?: boolean; tabId: string }): Promise<{ snapshot: NativeBrowserSnapshot<NativeBrowserSession> }>;
   reload(browserSessionId: string, tabId: string): Promise<void>;
-  resolvePolicyRequest(browserSessionId: string, requestId: string, approved: boolean): Promise<TinyOsNativeSnapshot<TinyOsNativeBrowserSession>>;
-  restartTab(browserSessionId: string, tabId: string): Promise<TinyOsNativeSnapshot<TinyOsNativeBrowserSession>>;
-  snapshot(browserSessionId: string): Promise<TinyOsNativeSnapshot<TinyOsNativeBrowserSession>>;
+  resolvePolicyRequest(browserSessionId: string, requestId: string, approved: boolean): Promise<NativeBrowserSnapshot<NativeBrowserSession>>;
+  restartTab(browserSessionId: string, tabId: string): Promise<NativeBrowserSnapshot<NativeBrowserSession>>;
+  snapshot(browserSessionId: string): Promise<NativeBrowserSnapshot<NativeBrowserSession>>;
   stop(browserSessionId: string, tabId: string): Promise<void>;
   updateSurface(input: {
     browserSessionId: string;
@@ -74,7 +74,7 @@ export type NativeBrowserRuntimeApi = {
     topmost: boolean;
     unobscured: boolean;
     visible: boolean;
-  }): Promise<TinyOsNativeSnapshot<TinyOsNativeBrowserSession>>;
+  }): Promise<NativeBrowserSnapshot<NativeBrowserSession>>;
 };
 
 type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
@@ -108,10 +108,10 @@ export function createDesktopNativeBrowserApi(options: { invoke: Invoke }): Nati
   };
 }
 
-export function normalizeNativeBrowserSnapshot(value: unknown): TinyOsNativeSnapshot<TinyOsNativeBrowserSession> {
+export function normalizeNativeBrowserSnapshot(value: unknown): NativeBrowserSnapshot<NativeBrowserSession> {
   if (!isRecord(value) || !isRecord(value.data)) throw new Error("Native browser snapshot must be an object.");
-  const data = value.data as unknown as TinyOsNativeBrowserSession;
-  return createTinyOsBrowserSessionSnapshot(data, {
+  const data = value.data as unknown as NativeBrowserSession;
+  return createNativeBrowserSessionSnapshot(data, {
     observedAt: requiredString(value.observedAt, "Native browser observedAt"),
     revision: typeof value.revision === "number" || typeof value.revision === "string" ? value.revision : 0,
     sourceId: requiredString(value.sourceId, "Native browser sourceId"),

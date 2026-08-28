@@ -1,30 +1,30 @@
-export type TinyOsCapabilityDecision = {
+export type ThreadCapabilityDecision = {
   available: boolean;
   reason?: string;
   reasonCode?: string;
 };
 
-export const TINYOS_CAPABILITY_IDS = [
+export const THREAD_CAPABILITY_IDS = [
   "agent.cancel",
   "agent.retry",
 ] as const;
 
-export type TinyOsEffectiveCapabilities = {
+export type ThreadEffectiveCapabilities = {
   schemaVersion: "tinybot.effective_capabilities.v2";
   threadId: string;
   evaluatedTurnId?: string;
   capabilities: {
     agent: {
-      cancel: TinyOsCapabilityDecision;
-      retry: TinyOsCapabilityDecision;
+      cancel: ThreadCapabilityDecision;
+      retry: ThreadCapabilityDecision;
     };
   };
 };
 
-export function normalizeTinyOsEffectiveCapabilities(
+export function normalizeThreadEffectiveCapabilities(
   value: unknown,
   expectedThreadId: string,
-): TinyOsEffectiveCapabilities {
+): ThreadEffectiveCapabilities {
   const root = recordValue(value);
   if (root.schemaVersion !== "tinybot.effective_capabilities.v2") {
     throw new Error("Chat runtime capabilities use an unsupported schema");
@@ -49,12 +49,12 @@ export function normalizeTinyOsEffectiveCapabilities(
   };
 }
 
-export function unavailableTinyOsEffectiveCapabilities(
+export function unavailableThreadEffectiveCapabilities(
   threadId: string,
   reasonCode: string,
   reason: string,
-): TinyOsEffectiveCapabilities {
-  const unavailable = (): TinyOsCapabilityDecision => ({ available: false, reason, reasonCode });
+): ThreadEffectiveCapabilities {
+  const unavailable = (): ThreadCapabilityDecision => ({ available: false, reason, reasonCode });
   return {
     schemaVersion: "tinybot.effective_capabilities.v2",
     threadId,
@@ -67,7 +67,7 @@ export function unavailableTinyOsEffectiveCapabilities(
   };
 }
 
-function normalizeDecision(value: unknown, name: string): TinyOsCapabilityDecision {
+function normalizeDecision(value: unknown, name: string): ThreadCapabilityDecision {
   const decision = recordValue(value);
   if (typeof decision.available !== "boolean") {
     throw new Error("Chat runtime capability " + name + " is missing an availability decision");

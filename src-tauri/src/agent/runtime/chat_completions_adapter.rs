@@ -269,5 +269,5 @@ fn decode_provider_tool_calls(
 }
 
 #[cfg(test)]
-#[path = "provider_adapter_tinyos_reference_tests.rs"]
-mod tinyos_reference_tests;
+#[path = "provider_adapter_reference_tests.rs"]
+mod reference_tests;

@@ -112,7 +112,7 @@ describe("desktop native event bridge", () => {
       "agent:timeline:patch",
       "agent:awaiting_form",
       "agent:hook:decision",
-      "tinyos:browser-snapshot",
+      "browser:snapshot",
     ]);
     const timelineHandler = harness.handlers.get("agent:timeline:patch");
     await timelineHandler?.({ payload: { sessionId: "thread-1", turnId: "turn-1" } });
@@ -203,13 +203,13 @@ describe("desktop native event bridge", () => {
     const harness = createHarness();
     await harness.bridge.register();
 
-    await harness.handlers.get("tinyos:browser-snapshot")?.({ payload: browserSnapshot });
+    await harness.handlers.get("browser:snapshot")?.({ payload: browserSnapshot });
     expect(harness.notifySession).toHaveBeenCalledWith("thread-1", expect.objectContaining({
       type: "browser.snapshot",
       browserSnapshot: expect.objectContaining({ data: expect.objectContaining({ browserSessionId: "browser-1" }) }),
     }));
 
-    await harness.handlers.get("tinyos:browser-snapshot")?.({ payload: null });
+    await harness.handlers.get("browser:snapshot")?.({ payload: null });
     expect(harness.notifyAll).toHaveBeenCalledWith({
       type: "browser.snapshot.error",
       error: "Native browser snapshot must be an object.",
@@ -236,7 +236,7 @@ describe("desktop native event bridge", () => {
         },
       },
     });
-    await harness.handlers.get("tinyos:browser-snapshot")?.({ payload: null });
+    await harness.handlers.get("browser:snapshot")?.({ payload: null });
 
     expect(window.__tinybotNativeDebug?.map((entry) => entry.stage)).toEqual(expect.arrayContaining([
       "nativeEventBridge.register.start",

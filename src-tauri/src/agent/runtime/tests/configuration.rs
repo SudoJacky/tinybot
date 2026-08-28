@@ -402,7 +402,7 @@ fn responses_request_replays_native_items_and_keeps_repeated_user_turns() {
                 {
                     "role": "user",
                     "content": "first",
-                    "references": [{ "type": "tinyos.browser", "title": "Example" }]
+                    "references": [{ "referenceKind": "browser", "title": "Example" }]
                 }
             ]
         }),
@@ -421,7 +421,7 @@ fn responses_request_replays_native_items_and_keeps_repeated_user_turns() {
     assert_eq!(input[3]["role"], "user");
     assert!(input[3]["content"]
         .as_str()
-        .is_some_and(|content| content.starts_with("first\n\n[TinyOS attached evidence]")));
+        .is_some_and(|content| content.starts_with("first\n\n[Attached evidence]")));
     assert!(input[3].get("references").is_none());
     assert_eq!(
         input

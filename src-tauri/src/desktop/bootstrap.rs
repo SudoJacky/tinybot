@@ -314,7 +314,7 @@ pub(crate) fn run() {
             crate::desktop_commands::thread::thread_get_turn_runtime_state,
             crate::desktop_commands::thread::thread_get_effective_capabilities,
             crate::desktop_commands::webui::worker_webui_route,
-            crate::desktop_commands::transport::worker_dispatch_tinyos_host_command,
+            crate::desktop_commands::retry::worker_retry_thread_operation,
             crate::desktop_commands::agent::worker_background_trace_list,
             crate::desktop_commands::agent::worker_background_trace_get_delegate_trace,
             crate::desktop_commands::agent::worker_background_trace_get_artifact,

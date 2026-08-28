@@ -119,7 +119,7 @@ evidence into the visible message text:
       "kind": "reference",
       "title": "notes.md",
       "detail": "text/markdown · 1.2 KB",
-      "type": "tinyos.file",
+      "referenceKind": "file",
       "rawPath": "D:/work/notes.md"
     }
     ]
@@ -135,16 +135,16 @@ evidence into the visible message text:
 
 The Thread command preserves `references` in the Agent input and turn metadata. The thread runtime
 persists them on the canonical `user_message`, so reloads keep the same visible
-reference chips. Immediately before a provider request, references whose `type`
-starts with the retained `tinyos.` wire prefix are appended to the provider-only
-user content inside an explicit untrusted-evidence block; the prefix is a
-compatibility identifier and no longer denotes a mounted TinyOS application.
-The stored and user-visible message content remains unchanged. Provider
+reference chips. Immediately before a provider request, non-image references
+with a supported `referenceKind` are appended to the provider-only user content
+inside an explicit untrusted-evidence block. Image references are validated and
+converted into provider-native image content separately. The stored and
+user-visible message content remains unchanged. Provider
 injection accepts at most 16 such references and 64 KiB of serialized reference
 data per message. Exceeding either limit fails the provider request visibly
 rather than dropping context.
 
-Composer `@` mentions use the same reference contract with `type: "tinyos.thread"`. The desktop
+Composer `@` mentions use the same reference contract with `referenceKind: "thread"`. The desktop
 limits suggestions to persisted Threads in the active Thread's normalized workspace, excludes the
 active Thread, and resolves the selected Thread's latest persisted user/assistant transcript when
 the message is sent. `scope` carries the referenced Thread ID, `revision` records its observed

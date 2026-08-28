@@ -112,7 +112,7 @@ describe("ChatPage", () => {
         scope: "s2",
         sourceText: "# Planning notes",
         title: "Architecture review",
-        type: "tinyos.thread",
+        referenceKind: "thread",
       }],
       text: "Compare with for regressions",
     });
@@ -668,7 +668,7 @@ describe("ChatPage", () => {
         kind: "reference",
         rawPath: "C:\\Users\\tester\\notes.md",
         title: "notes.md",
-        type: "tinyos.file",
+        referenceKind: "file",
       }],
       text: "Review this file",
     });
@@ -702,7 +702,7 @@ describe("ChatPage", () => {
         rawPath: "C:\\Users\\tester\\.tinybot\\chat-attachments\\images\\abc123.png",
         sizeBytes: 2048,
         title: "diagram.png",
-        type: "tinyos.image",
+        referenceKind: "image",
       }],
       text: "Explain this diagram",
     });
@@ -723,7 +723,7 @@ describe("ChatPage", () => {
       kind: "reference",
       rawPath: "D:\\code\\tinybot\\test\\AI_Agent_第一性原理_文档.md",
       title: "AI_Agent_第一性原理_文档.md",
-      type: "tinyos.file",
+      referenceKind: "file",
     }];
     stores.chatStore.load = vi.fn(async () => timeline);
 
@@ -766,7 +766,7 @@ describe("ChatPage", () => {
       rawPath: "C:\\Users\\tester\\.tinybot\\chat-attachments\\images\\abc123.png",
       sizeBytes: 15_534,
       title: "screen.png",
-      type: "tinyos.image",
+      referenceKind: "image",
     }];
     stores.chatStore.load = vi.fn(async () => timeline);
 

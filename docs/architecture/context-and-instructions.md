@@ -11,7 +11,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:fbca262683bcc87d45f9c2fbc286d38a9ec94db6d2f1d92adc4d197a194dcf5c -->
+<!-- tinybot-doc-fingerprint: sha256:76e96c6b6a0004cedfe0639598fdc3c02e01e18127c7f55d7912e494ab9c650a -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction

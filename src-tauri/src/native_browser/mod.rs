@@ -39,7 +39,7 @@ pub(crate) fn create_runtime(app: &AppHandle) -> Result<SharedBrowserRuntime, St
 
     let snapshot_app = app.clone();
     let snapshot_sink: BrowserSnapshotSink = Arc::new(move |snapshot| {
-        if let Err(error) = snapshot_app.emit("tinyos:browser-snapshot", snapshot) {
+        if let Err(error) = snapshot_app.emit("browser:snapshot", snapshot) {
             report_native_browser_log(
                 NativeLogLevel::Error,
                 "browser.snapshot.emit_failed",
@@ -58,7 +58,7 @@ pub(crate) fn create_runtime(app: &AppHandle) -> Result<SharedBrowserRuntime, St
                 serde_json::json!({ "error": error.to_string() }),
             ),
         }
-        if let Err(error) = diagnostic_app.emit("tinyos:browser-diagnostic", diagnostic) {
+        if let Err(error) = diagnostic_app.emit("browser:diagnostic", diagnostic) {
             report_native_browser_log(
                 NativeLogLevel::Error,
                 "browser.diagnostic.emit_failed",

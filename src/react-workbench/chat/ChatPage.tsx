@@ -83,25 +83,25 @@ import type {
 } from "../../app-core/chat/chatTurnContracts";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import type {
-  TinyOsNativeBrowserSession,
-  TinyOsNativeSnapshot,
-} from "../../app-core/chat/tinyOsNativeSnapshot";
+  NativeBrowserSession,
+  NativeBrowserSnapshot,
+} from "../../app-core/native/nativeBrowserSnapshot";
 import {
-  TINYOS_COMMAND_ACK_TIMEOUT_MS,
-  canonicalTinyOsCommandAcknowledgement,
-  canonicalTinyOsCommandCompletion,
-  createTinyOsAgentCancelCommand,
-  createTinyOsFormCancelCommand,
-  createTinyOsFormSubmitCommand,
-  isTinyOsCommandInFlight,
-  reduceTinyOsCommandLifecycle,
-  type TinyOsCommandLifecycle,
-  type TinyOsCommand,
-} from "../../app-core/chat/tinyOsCommand";
+  THREAD_COMMAND_ACK_TIMEOUT_MS,
+  canonicalThreadCommandAcknowledgement,
+  canonicalThreadCommandCompletion,
+  createThreadAgentCancelCommand,
+  createThreadFormCancelCommand,
+  createThreadFormSubmitCommand,
+  isThreadCommandInFlight,
+  reduceThreadCommandLifecycle,
+  type ThreadCommandLifecycle,
+  type ThreadCommand,
+} from "../../app-core/chat/threadCommand";
 import {
-  unavailableTinyOsEffectiveCapabilities,
-  type TinyOsEffectiveCapabilities,
-} from "../../app-core/chat/tinyOsCapabilities";
+  unavailableThreadEffectiveCapabilities,
+  type ThreadEffectiveCapabilities,
+} from "../../app-core/chat/threadCapabilities";
 import {
   useChatSessionRuntime,
   type ChatSessionRuntimeEffect,
@@ -179,7 +179,7 @@ type ArtifactSidecarContent = {
   notice?: string;
 };
 
-type BrowserSnapshot = TinyOsNativeSnapshot<TinyOsNativeBrowserSession>;
+type BrowserSnapshot = NativeBrowserSnapshot<NativeBrowserSession>;
 
 const LazySidecarTerminal = lazy(async () => {
   const module = await import("../sidecar/SidecarTerminal");
@@ -308,8 +308,8 @@ export function ChatPage({
   const [optimisticMessagesBySession, setOptimisticMessagesBySession] = useState<Map<string, ReactChatMessage[]>>(
     () => new Map(),
   );
-  const [tinyOsCapabilities, setTinyOsCapabilities] = useState<TinyOsEffectiveCapabilities>(() => (
-    unavailableTinyOsEffectiveCapabilities("", "loading", t("runtime.loadingCapabilities"))
+  const [threadCapabilities, setThreadCapabilities] = useState<ThreadEffectiveCapabilities>(() => (
+    unavailableThreadEffectiveCapabilities("", "loading", t("runtime.loadingCapabilities"))
   ));
   const [composerModels, setComposerModels] = useState<ModelOption[]>([]);
   const [composerModel, setComposerModel] = useState("");
@@ -332,8 +332,8 @@ export function ChatPage({
   const [terminalErrors, setTerminalErrors] = useState<Record<string, string>>({});
   const [browserProvisionEpoch, setBrowserProvisionEpoch] = useState(0);
   const [commandLifecycle, dispatchCommandLifecycle] = useReducer(
-    reduceTinyOsCommandLifecycle,
-    { stage: "idle" } as TinyOsCommandLifecycle,
+    reduceThreadCommandLifecycle,
+    { stage: "idle" } as ThreadCommandLifecycle,
   );
   const [compactingSessionId, setCompactingSessionId] = useState("");
   const [queuedInputsBySession, setQueuedInputsBySession] = useState<Map<string, QueuedComposerInput[]>>(() => new Map());
@@ -679,26 +679,26 @@ export function ChatPage({
       activeSession?.pluginMigration?.status === "pending"
       && latestTurnStatus === "completed"
     );
-  const cancelCapability = tinyOsCapabilities.capabilities.agent.cancel;
-  const capabilityTargetsActiveTurn = !tinyOsCapabilities.evaluatedTurnId
-    || tinyOsCapabilities.evaluatedTurnId === activeTurn?.id;
+  const cancelCapability = threadCapabilities.capabilities.agent.cancel;
+  const capabilityTargetsActiveTurn = !threadCapabilities.evaluatedTurnId
+    || threadCapabilities.evaluatedTurnId === activeTurn?.id;
   const canCancelTurn = Boolean(
     activeSession
     && activeTurn
-    && tinyOsCapabilities.threadId === activeSession.id
+    && threadCapabilities.threadId === activeSession.id
     && capabilityTargetsActiveTurn
     && cancelCapability.available
   );
   const cancelUnavailableReason = !capabilityTargetsActiveTurn
     ? t("runtime.staleCapabilities")
     : cancelCapability.reason || t("runtime.cancelUnavailable");
-  const cancelInFlight = isTinyOsCommandInFlight(commandLifecycle);
+  const cancelInFlight = isThreadCommandInFlight(commandLifecycle);
   const compactingActiveSession = Boolean(activeSession && compactingSessionId === activeSession.id);
   const showCommandLifecycleStatus = commandLifecycle.stage !== "idle"
     && commandLifecycle.command.kind !== "agent.cancel";
   const submittingFormId = commandLifecycle.stage !== "idle"
     && (commandLifecycle.command.kind === "form.submit" || commandLifecycle.command.kind === "form.cancel")
-    && isTinyOsCommandInFlight(commandLifecycle)
+    && isThreadCommandInFlight(commandLifecycle)
     ? commandLifecycle.command.form.formId
     : "";
   const activeQueuedInputs = activeSession ? queuedInputsBySession.get(activeSession.id) ?? [] : [];
@@ -723,20 +723,20 @@ export function ChatPage({
 
   useEffect(() => {
     if (!activePersistedSessionId) {
-      setTinyOsCapabilities(unavailableTinyOsEffectiveCapabilities("", "no_session", t("runtime.noSessionSelected")));
+      setThreadCapabilities(unavailableThreadEffectiveCapabilities("", "no_session", t("runtime.noSessionSelected")));
       return;
     }
     let cancelled = false;
-    setTinyOsCapabilities(unavailableTinyOsEffectiveCapabilities(
+    setThreadCapabilities(unavailableThreadEffectiveCapabilities(
       activePersistedSessionId,
       "loading",
       t("runtime.loadingCapabilities"),
     ));
-    void chatStore.loadTinyOsCapabilities(activePersistedSessionId).then((capabilities) => {
-      if (!cancelled) setTinyOsCapabilities(capabilities);
+    void chatStore.loadEffectiveCapabilities(activePersistedSessionId).then((capabilities) => {
+      if (!cancelled) setThreadCapabilities(capabilities);
     }).catch((error) => {
       if (!cancelled) {
-        setTinyOsCapabilities(unavailableTinyOsEffectiveCapabilities(
+        setThreadCapabilities(unavailableThreadEffectiveCapabilities(
           activePersistedSessionId,
           "capability_query_failed",
           error instanceof Error ? error.message : String(error),
@@ -757,7 +757,7 @@ export function ChatPage({
   useEffect(() => {
     if (!timeline || commandLifecycle.stage === "idle" || commandLifecycle.stage === "completed") return;
     if (commandLifecycle.stage === "acknowledged") {
-      const completion = canonicalTinyOsCommandCompletion(
+      const completion = canonicalThreadCommandCompletion(
         timeline.turns,
         commandLifecycle.command,
       );
@@ -770,7 +770,7 @@ export function ChatPage({
       });
       return;
     }
-    const acknowledgement = canonicalTinyOsCommandAcknowledgement(
+    const acknowledgement = canonicalThreadCommandAcknowledgement(
       timeline.turns,
       commandLifecycle.command.commandId,
     );
@@ -788,7 +788,7 @@ export function ChatPage({
     const elapsed = Math.max(0, now() - commandLifecycle.dispatchedAtMs);
     const timer = window.setTimeout(() => {
       dispatchCommandLifecycle({ commandId: commandLifecycle.command.commandId, type: "ack_timeout" });
-    }, Math.max(0, TINYOS_COMMAND_ACK_TIMEOUT_MS - elapsed));
+    }, Math.max(0, THREAD_COMMAND_ACK_TIMEOUT_MS - elapsed));
     return () => window.clearTimeout(timer);
   }, [commandLifecycle, now]);
 
@@ -1435,7 +1435,7 @@ export function ChatPage({
       )));
       return next;
     });
-    const command = createTinyOsAgentCancelCommand({
+    const command = createThreadAgentCancelCommand({
       sessionId,
       source: { control: "composer-interrupt", surface: "chat" },
       turnId,
@@ -1580,7 +1580,7 @@ export function ChatPage({
       reportTimelineError(t("runtime.cancelActiveTurnUnavailable"));
       return;
     }
-    const command = createTinyOsAgentCancelCommand({
+    const command = createThreadAgentCancelCommand({
       sessionId: session.id,
       source: { control: "stop-response", surface: "chat" },
       threadId: activeTurn.canonicalItems?.find((item) => item.threadId)?.threadId,
@@ -2051,7 +2051,7 @@ export function ChatPage({
     form: AgentUiForm,
     values: Record<string, unknown>,
   ) {
-    if (!activeSession || isTinyOsCommandInFlight(commandLifecycle)) {
+    if (!activeSession || isThreadCommandInFlight(commandLifecycle)) {
       return;
     }
     if (!activeTurn) {
@@ -2063,7 +2063,7 @@ export function ChatPage({
       reportTimelineError(t("runtime.submitFormStaleTurn", { turnId: formTurnId }));
       return;
     }
-    const command = createTinyOsFormSubmitCommand({
+    const command = createThreadFormSubmitCommand({
       formId: form.form_id,
       sessionId: activeSession.id,
       source: { control: "chat-form", surface: "chat" },
@@ -2086,7 +2086,7 @@ export function ChatPage({
   }
 
   async function handleCancelAgentUiForm(form: AgentUiForm) {
-    if (!activeSession || isTinyOsCommandInFlight(commandLifecycle)) {
+    if (!activeSession || isThreadCommandInFlight(commandLifecycle)) {
       return;
     }
     if (!activeTurn) {
@@ -2098,7 +2098,7 @@ export function ChatPage({
       reportTimelineError(t("runtime.cancelFormStaleTurn", { turnId: formTurnId }));
       return;
     }
-    const command = createTinyOsFormCancelCommand({
+    const command = createThreadFormCancelCommand({
       formId: form.form_id,
       sessionId: activeSession.id,
       source: { control: "chat-form", surface: "chat" },
@@ -2346,7 +2346,7 @@ export function ChatPage({
             data-stage={commandLifecycle.stage}
             role={commandLifecycle.stage === "rejected" || commandLifecycle.stage === "timed_out" ? "alert" : "status"}
           >
-            {tinyOsCommandLifecycleLabel(commandLifecycle, t)}
+            {threadCommandLifecycleLabel(commandLifecycle, t)}
           </p>
         ) : null}
         <div className="react-composer-drop-target">
@@ -2514,14 +2514,14 @@ function toChatInput(input: QueuedComposerInput): ChatInput {
   return input.turnInput;
 }
 
-function tinyOsCommandLifecycleLabel(lifecycle: TinyOsCommandLifecycle, t: TFunction<"chat">): string {
+function threadCommandLifecycleLabel(lifecycle: ThreadCommandLifecycle, t: TFunction<"chat">): string {
   const commandKind = lifecycle.stage === "idle" ? "agent.cancel" : lifecycle.command.kind;
   const operation = ({
     "agent.cancel": t("lifecycle.operation.cancel"),
     "form.cancel": t("lifecycle.operation.formCancellation"),
     "form.submit": t("lifecycle.operation.formSubmission"),
     "operation.retry": t("lifecycle.operation.retry"),
-  } satisfies Record<TinyOsCommand["kind"], string>)[commandKind];
+  } satisfies Record<ThreadCommand["kind"], string>)[commandKind];
   const completionOperation = commandKind === "agent.cancel" ? t("lifecycle.operation.cancellation") : operation;
   switch (lifecycle.stage) {
     case "idle":

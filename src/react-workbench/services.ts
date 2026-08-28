@@ -19,8 +19,8 @@ export type {
 } from "../app-core/workspace/workspaceExplorer";
 import type { AgentDefaultsSettingsData } from "../app-core/settings/agentDefaultsSettings";
 import type { DesktopChatInput, DesktopCommand } from "../app-core/chat/desktopCommand";
-import type { TinyOsCommand } from "../app-core/chat/tinyOsCommand";
-import type { TinyOsEffectiveCapabilities } from "../app-core/chat/tinyOsCapabilities";
+import type { ThreadCommand } from "../app-core/chat/threadCommand";
+import type { ThreadEffectiveCapabilities } from "../app-core/chat/threadCapabilities";
 import type { NativeTerminalRuntimeApi } from "../app-core/native/desktopNativeTerminal";
 import type {
   ProviderModelFetchInput,
@@ -33,7 +33,7 @@ import type {
   DesktopSettingsPaneSaveDetails,
 } from "../app-core/settings/desktopSettingsPaneContracts";
 import type { NativeBrowserRuntimeApi } from "../app-core/native/desktopNativeBrowser";
-import type { TinyOsNativeBrowserSession, TinyOsNativeSnapshot } from "../app-core/chat/tinyOsNativeSnapshot";
+import type { NativeBrowserSession, NativeBrowserSnapshot } from "../app-core/native/nativeBrowserSnapshot";
 import type {
   DiagnosticBundleExportResult,
   PerformanceTraceExportResult,
@@ -84,9 +84,9 @@ export type ProjectGroupStore = {
 export type ChatInput = DesktopChatInput;
 
 export type ChatEvent = {
-  browserSnapshot?: TinyOsNativeSnapshot<TinyOsNativeBrowserSession>;
+  browserSnapshot?: NativeBrowserSnapshot<NativeBrowserSession>;
   type: string;
-  command?: TinyOsCommand;
+  command?: ThreadCommand;
   commandId?: string;
   eventType?: string;
   error?: string;
@@ -120,7 +120,7 @@ export type ChatStore = {
   browserRuntime?: NativeBrowserRuntimeApi;
   terminalRuntime?: NativeTerminalRuntimeApi;
   load(sessionId: string): Promise<ChatTimelineSnapshot>;
-  loadTinyOsCapabilities(threadId: string): Promise<TinyOsEffectiveCapabilities>;
+  loadEffectiveCapabilities(threadId: string): Promise<ThreadEffectiveCapabilities>;
   dispatch(command: DesktopCommand): Promise<void>;
   listAgentUiForms(sessionId: string): Promise<AgentUiForm[]>;
   loadDelegateTrace?(selection: { sessionKey: string; delegateId?: string; traceRef?: string }): Promise<unknown>;

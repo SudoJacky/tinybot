@@ -18,7 +18,10 @@ import {
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { AgentInputReference } from "../../app-core/chat/agentInputReference";
+import {
+  agentInputAttachmentKind,
+  type AgentInputReference,
+} from "../../app-core/chat/agentInputReference";
 import type { HookExecutionResult } from "../../app-core/chat/hookExecutionResult";
 import type {
   ArtifactRef,
@@ -818,7 +821,7 @@ function canonicalFormValue(value: unknown): string {
 }
 
 function canonicalReferenceSummary(reference: AgentInputReference, index: number): ContextReferenceSummary {
-  const attachmentKind = reference.type === "tinyos.image" ? "image" : "file";
+  const attachmentKind = agentInputAttachmentKind(reference) ?? "file";
   return {
     attachmentKind,
     ...(attachmentKind === "image" && reference.rawPath
@@ -826,7 +829,7 @@ function canonicalReferenceSummary(reference: AgentInputReference, index: number
       : {}),
     id: reference.noteId || reference.evidenceId || `${reference.kind}:${index}`,
     kind: reference.kind,
-    presentation: ["tinyos.file", "tinyos.image"].includes(reference.type ?? "")
+    presentation: agentInputAttachmentKind(reference)
       && Boolean(reference.rawPath) && !reference.sourcePath
       ? "attachment"
       : "context",

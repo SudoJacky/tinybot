@@ -142,7 +142,7 @@ function nativeReferenceFromComposerFile(file: ComposerFileReference): AgentInpu
     kind: "reference",
     rawPath: file.path,
     title: file.name,
-    type: managedImage ? "tinyos.image" : "tinyos.file",
+    referenceKind: managedImage ? "image" : "file",
   };
 }
 
@@ -175,7 +175,7 @@ async function nativeReferencesFromComposerSessions(
         transcriptBudget,
       ),
       title: session.title,
-      type: "tinyos.thread",
+      referenceKind: "thread",
     };
   }));
 }

@@ -21,7 +21,7 @@ pub(crate) async fn dispatch_browser_observe(
         return Err(capabilities
             .session_snapshot
             .reason
-            .unwrap_or_else(|| "TinyOS browser sessions are unavailable".to_string()));
+            .unwrap_or_else(|| "Native browser sessions are unavailable".to_string()));
     }
     let capture = arguments
         .get("capture")
@@ -35,13 +35,13 @@ pub(crate) async fn dispatch_browser_observe(
         return Err(capabilities
             .real_capture
             .reason
-            .unwrap_or_else(|| "TinyOS browser capture is unavailable".to_string()));
+            .unwrap_or_else(|| "Native browser capture is unavailable".to_string()));
     }
     if semantic && !capabilities.semantic_observation.available {
         return Err(capabilities
             .semantic_observation
             .reason
-            .unwrap_or_else(|| "TinyOS browser semantic observation is unavailable".to_string()));
+            .unwrap_or_else(|| "Native browser semantic observation is unavailable".to_string()));
     }
     let requested_session_id = optional_text(&arguments, "browserSessionId")?;
     let snapshot = match runtime.snapshot_for_owner(owner_session_id) {
@@ -52,7 +52,7 @@ pub(crate) async fn dispatch_browser_observe(
                         "ownerSessionId": owner_session_id
                     }))
                     .map_err(|error| {
-                        format!("failed to create TinyOS browser session input: {error}")
+                        format!("failed to create Native browser session input: {error}")
                     })?,
                 )
                 .await?
@@ -60,7 +60,7 @@ pub(crate) async fn dispatch_browser_observe(
         Some(snapshot) => snapshot,
         None if requested_session_id.is_some() => {
             return Err(
-                "The requested TinyOS browser session is not owned by this chat".to_string(),
+                "The requested Native browser session is not owned by this chat".to_string(),
             );
         }
         None => {
@@ -70,7 +70,7 @@ pub(crate) async fn dispatch_browser_observe(
                         "ownerSessionId": owner_session_id
                     }))
                     .map_err(|error| {
-                        format!("failed to create TinyOS browser session input: {error}")
+                        format!("failed to create Native browser session input: {error}")
                     })?,
                 )
                 .await?
@@ -104,14 +104,14 @@ pub(crate) async fn dispatch_browser_interact(
         return Err(capabilities
             .agent_interaction
             .reason
-            .unwrap_or_else(|| "TinyOS Agent browser interaction is unavailable".to_string()));
+            .unwrap_or_else(|| "Agent browser interaction is unavailable".to_string()));
     }
     let input = serde_json::from_value::<BrowserInteractionInput>(arguments)
         .map_err(|error| format!("browser.interact payload is invalid: {error}"))?;
     let snapshot = runtime
         .snapshot_for_owner(owner_session_id)
         .ok_or_else(|| {
-            "Open or observe the TinyOS browser before interacting with it".to_string()
+            "Open or observe the Native browser before interacting with it".to_string()
         })?;
     ensure_browser_owner(&snapshot, Some(input.browser_session_id.as_str()))?;
     ensure_browser_tab(&snapshot, input.tab_id.as_str())?;
@@ -145,12 +145,12 @@ fn ensure_browser_owner(
     requested_session_id: Option<&str>,
 ) -> Result<(), String> {
     if snapshot.data.session_id.is_empty() {
-        return Err("TinyOS browser snapshot has no owning chat session".to_string());
+        return Err("Native browser snapshot has no owning chat session".to_string());
     }
     if requested_session_id
         .is_some_and(|requested| requested != snapshot.data.browser_session_id.as_str())
     {
-        return Err("The requested TinyOS browser session is not owned by this chat".to_string());
+        return Err("The requested Native browser session is not owned by this chat".to_string());
     }
     Ok(())
 }
@@ -163,7 +163,7 @@ fn ensure_browser_tab(snapshot: &BrowserNativeSnapshot, tab_id: &str) -> Result<
         .any(|tab| tab.tab_id.as_str() == tab_id)
         .then_some(())
         .ok_or_else(|| {
-            "The requested TinyOS browser tab is not part of this chat session".to_string()
+            "The requested Native browser tab is not part of this chat session".to_string()
         })
 }
 

@@ -58,7 +58,7 @@ describe("ChatPage", () => {
     expect(getComputedStyle(executionContent).paddingLeft).toBe("0px");
   });
 
-  it("renders the React chat layout without legacy header actions or the retired TinyOS entry", async () => {
+  it("renders the React chat layout without legacy header actions", async () => {
     const stores = createStores();
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -70,7 +70,6 @@ describe("ChatPage", () => {
     expect(screen.getByRole("button", { name: "Select model" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Tools" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /delete session/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /TinyOS/i })).toBeNull();
     expect(screen.queryByText(/Agent · rust/i)).toBeNull();
   });
 

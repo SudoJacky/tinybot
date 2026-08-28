@@ -35,11 +35,8 @@ The desktop shell also emits:
 | --- | --- |
 | `desktop-menu-command` | `{ id: string }` for a native application-menu command |
 | `desktop-update-status` | `DesktopUpdateSnapshot` after each update phase or download-progress change |
-| `tinyos:browser-snapshot` | `BrowserNativeSnapshot` |
-| `tinyos:browser-diagnostic` | `BrowserRuntimeDiagnostic` |
-
-The `tinyos:` prefix on browser events is a retained native compatibility name;
-it does not imply that the retired TinyOS desktop surface is mounted.
+| `browser:snapshot` | `BrowserNativeSnapshot` |
+| `browser:diagnostic` | `BrowserRuntimeDiagnostic` |
 
 Semantic runtime events retain their existing compatibility fields and also include a typed
 `payload.agentItem` object. The discriminator is `type`. Current production projections cover

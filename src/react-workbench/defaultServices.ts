@@ -1,7 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { createDesktopChatSessionController } from "../app-core/chat/desktopChatSessionController";
-import type { AgentInputReference } from "../app-core/chat/agentInputReference";
+import {
+  agentInputAttachmentKind,
+  type AgentInputReference,
+} from "../app-core/chat/agentInputReference";
 import type { DesktopCommand, DesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
 import { createDesktopNativeConfigApi } from "../app-core/native/desktopNativeConfig";
 import { createDesktopNativeAgentGraphsApi } from "../app-core/native/desktopNativeAgentGraphs";
@@ -13,7 +16,6 @@ import {
   type NativeThreadListResult,
   type NativeThreadRecord,
 } from "../app-core/native/desktopNativeThreads";
-import { createDesktopNativeHostCommandApi } from "../app-core/native/desktopNativeHostCommand";
 import { createDesktopNativeMemoryApi } from "../app-core/native/desktopNativeMemory";
 import { createDesktopNativeHooksApi } from "../app-core/native/desktopNativeHooks";
 import { createDesktopNativeProjectGroupsApi } from "../app-core/native/desktopNativeProjectGroups";
@@ -44,15 +46,13 @@ import { createDesktopToolsStore } from "./adapters/desktopToolsStore";
 import { createDesktopWorkspaceStore } from "./adapters/desktopWorkspaceStore";
 import type { ReactChatMessage } from "./chat/messageActions";
 import {
-  createTinyOsAgentCancelCommand,
-  toNativeTinyOsHostCommandFrame,
-  type TinyOsCommand,
-  type TinyOsHostCommand,
-} from "../app-core/chat/tinyOsCommand";
+  createThreadAgentCancelCommand,
+  type ThreadCommand,
+} from "../app-core/chat/threadCommand";
 import {
   readDefaultChatModelPreference,
 } from "../app-core/chat/chatModelPreference";
-import { normalizeTinyOsEffectiveCapabilities } from "../app-core/chat/tinyOsCapabilities";
+import { normalizeThreadEffectiveCapabilities } from "../app-core/chat/threadCapabilities";
 
 type Listener = (event: ChatEvent) => void;
 
@@ -68,7 +68,6 @@ export function createDesktopAppServices(
   const nativeAgentGraphRuntime = nativeMode ? createDesktopNativeAgentGraphRuntime({ invoke }) : undefined;
   const nativePlugins = nativeMode ? createDesktopNativePluginsApi({ invoke }) : undefined;
   const nativeThreads = nativeMode ? createDesktopNativeThreadsApi({ invoke }) : undefined;
-  const nativeHostCommands = nativeMode ? createDesktopNativeHostCommandApi({ invoke }) : undefined;
   const nativeMemory = nativeMode ? createDesktopNativeMemoryApi({ invoke }) : undefined;
   const nativeHooks = nativeMode ? createDesktopNativeHooksApi({ invoke }) : undefined;
   const nativeProjectGroups = nativeMode ? createDesktopNativeProjectGroupsApi({ invoke }) : undefined;
@@ -182,7 +181,7 @@ export function createDesktopAppServices(
     }
   }
 
-  async function dispatchTinyOsCommand(command: TinyOsCommand): Promise<void> {
+  async function dispatchThreadCommand(command: ThreadCommand): Promise<void> {
     await initialize();
     const thread = controller.state.threads.find((item) => item.threadId === command.target.sessionId);
     if (thread && controller.state.activeThreadId !== thread.threadId) {
@@ -204,11 +203,13 @@ export function createDesktopAppServices(
         action: command.kind === "form.submit" ? "submit" : "cancel",
       });
     } else {
-      const hostCommand = command as TinyOsHostCommand;
-      await requireNative(nativeHostCommands, "Host command").dispatch({
-        clientId: "desktop-native",
-        attachedChatId: command.target.sessionId,
-        frame: toNativeTinyOsHostCommandFrame(command.target.sessionId, hostCommand),
+      await requireNative(nativeThreads, "Thread").retryOperation({
+        commandId: command.commandId,
+        source: command.source,
+        sourceItemId: command.operation.itemId,
+        sourceTurnId: command.operation.turnId,
+        targetTurnId: command.target.turnId,
+        threadId,
       });
     }
     notifySession(command.target.sessionId, { commandId: command.commandId, type: "command.accepted" });
@@ -296,7 +297,7 @@ export function createDesktopAppServices(
         || candidate.status === "awaiting_user"
       ));
       if (!turn) throw new Error("Cannot cancel: the session has no active turn");
-      const cancelCommand = createTinyOsAgentCancelCommand({
+      const cancelCommand = createThreadAgentCancelCommand({
         commandId: command.commandId,
         issuedAt: command.issuedAt,
         sessionId,
@@ -305,7 +306,7 @@ export function createDesktopAppServices(
         turnId: turn.id,
       });
       notifySession(sessionId, { command: cancelCommand, type: "command.dispatched" });
-      await dispatchTinyOsCommand(cancelCommand);
+      await dispatchThreadCommand(cancelCommand);
       return;
     }
     if (command.kind === "context.compact") {
@@ -325,7 +326,7 @@ export function createDesktopAppServices(
       nativeEvents.notifyTerminalTimelineState(sessionId, timeline);
       return;
     }
-    await dispatchTinyOsCommand(command);
+    await dispatchThreadCommand(command);
   }
 
   async function resolveForkSequence(threadId: string, itemIds: Set<string>): Promise<number | undefined> {
@@ -517,9 +518,9 @@ export function createDesktopAppServices(
         }
         return controller.reloadTimeline(sessionId);
       },
-      async loadTinyOsCapabilities(threadId) {
+      async loadEffectiveCapabilities(threadId) {
         await initialize();
-        return normalizeTinyOsEffectiveCapabilities(
+        return normalizeThreadEffectiveCapabilities(
           await requireNative(nativeThreads, "Thread").getEffectiveCapabilities(threadId),
           threadId,
         );
@@ -712,12 +713,12 @@ function createOptimisticUserMessage(clientEventId: string, text: string, refere
     status: "complete",
     ...(references.length ? {
       contextReferences: references.map((reference, index) => {
-        const attachment = ["tinyos.file", "tinyos.image"].includes(reference.type ?? "")
-          && Boolean(reference.rawPath) && !reference.sourcePath;
+        const attachmentKind = agentInputAttachmentKind(reference);
+        const attachment = Boolean(attachmentKind) && Boolean(reference.rawPath) && !reference.sourcePath;
         return {
           ...(attachment ? {
-            attachmentKind: reference.type === "tinyos.image" ? "image" as const : "file" as const,
-            ...(reference.type === "tinyos.image" && reference.rawPath
+            attachmentKind,
+            ...(attachmentKind === "image" && reference.rawPath
               ? { attachmentPreviewPath: reference.rawPath }
               : {}),
           } : {}),

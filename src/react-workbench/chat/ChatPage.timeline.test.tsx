@@ -355,7 +355,7 @@ describe("ChatPage", () => {
     expect(within(card).getByRole("button", { name: "Save preferences" }).hasAttribute("disabled")).toBe(true);
   });
 
-  it("cancels active agent-ui forms through TinyOS command dispatch", async () => {
+  it("cancels active agent-ui forms through Thread command dispatch", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     const form: AgentUiForm = {

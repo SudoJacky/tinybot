@@ -251,7 +251,7 @@ async fn refresh_page(
 ) -> Result<BrowserAgentPageState, String> {
     let page = runtime
         .agent_page_state_for_owner(owner_session_id)
-        .ok_or_else(|| "TinyOS browser session is unavailable for this chat".to_string())?;
+        .ok_or_else(|| "Native browser session is unavailable for this chat".to_string())?;
     if page.dirty || page.observation.capture.is_none() || page.observation.semantic.is_none() {
         dispatch_browser_observe(
             runtime,
@@ -266,7 +266,7 @@ async fn refresh_page(
         .await?;
         return runtime
             .agent_page_state_for_owner(owner_session_id)
-            .ok_or_else(|| "TinyOS browser session disappeared after refresh".to_string());
+            .ok_or_else(|| "Native browser session disappeared after refresh".to_string());
     }
     Ok(page)
 }
@@ -316,7 +316,7 @@ async fn execute_action(
         .tabs
         .iter()
         .find(|tab| tab.tab_id == native.active_tab_id)
-        .ok_or_else(|| "TinyOS browser active tab is unavailable".to_string())?;
+        .ok_or_else(|| "Native browser active tab is unavailable".to_string())?;
     let result = dispatch_browser_interact(
         runtime,
         owner_session_id,
@@ -351,7 +351,7 @@ async fn execute_action(
         runtime.advance_agent_snapshot_for_owner(owner_session_id)?;
         latest = runtime
             .agent_page_state_for_owner(owner_session_id)
-            .ok_or_else(|| "TinyOS browser session disappeared after interaction".to_string())?;
+            .ok_or_else(|| "Native browser session disappeared after interaction".to_string())?;
     }
     let content = if projection.content_offset.is_some() {
         let (page, content) = refresh_page_with_initial_content(runtime, owner_session_id).await?;

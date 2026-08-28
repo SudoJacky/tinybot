@@ -5,7 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DesktopPetQuickChatRequest, DesktopPetQuickChatWindowClient } from "../../app-core/native/desktopNativePetQuickChat";
-import { unavailableTinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
+import { unavailableThreadEffectiveCapabilities } from "../../app-core/chat/threadCapabilities";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import type { ChatStore, SessionStore, SettingsStore } from "../services";
 import { timelineFromReactMessages } from "../chat/test/timelineFixtures";
@@ -46,7 +46,7 @@ describe("DesktopPetQuickChatWindow", () => {
           percent: 50,
         },
       }])),
-      loadTinyOsCapabilities: vi.fn(async (sessionId) => unavailableTinyOsEffectiveCapabilities(
+      loadEffectiveCapabilities: vi.fn(async (sessionId) => unavailableThreadEffectiveCapabilities(
         sessionId,
         "test",
         "Unavailable in test",
@@ -168,7 +168,7 @@ describe("DesktopPetQuickChatWindow", () => {
         turns: [],
         diagnostics: [],
       })),
-      loadTinyOsCapabilities: vi.fn(async (sessionId) => unavailableTinyOsEffectiveCapabilities(
+      loadEffectiveCapabilities: vi.fn(async (sessionId) => unavailableThreadEffectiveCapabilities(
         sessionId,
         "test",
         "Unavailable in test",
@@ -225,7 +225,7 @@ describe("DesktopPetQuickChatWindow", () => {
         references: [expect.objectContaining({
           contentHash: "abc123",
           rawPath: "C:\\Tinybot\\diagram.png",
-          type: "tinyos.image",
+          referenceKind: "image",
         })],
         text: "Selected browser text and a question",
       }),

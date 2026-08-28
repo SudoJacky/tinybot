@@ -1,9 +1,9 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:baf89387042746758d8ee57690dadea8dedcdd7ad94b1a9ad607ce10ae1db5ca -->
+<!-- tinybot-module-fingerprint: sha256:cf40a3f45d9f7c36307a17e5a224d3627027d7692dd08d7f6205dac896912bba -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,
-skills, plugins, project groups, Agent Graph definitions, threads, transport,
+skills, plugins, project groups, Agent Graph definitions, threads, retry,
 WebUI, and workspace operations.
 
 These handlers should stay thin and delegate domain behavior to the owning
@@ -45,7 +45,6 @@ save, isolated sample testing, and recoverable archive behavior to
 derivation, containment, size, and revision checks there; the command layer
 only resolves and validates the workspace.
 
-Chat creation, cancellation, and form resolution use the typed Thread commands.
-The transitional `worker_dispatch_tinyos_host_command` boundary accepts only
-`operation.retry`; the retired desktop file, terminal, browser-control, and
-pause/resume commands are not part of this boundary.
+Chat creation, cancellation, form resolution, and operation retry use typed
+Thread commands. Retry validates the failed source Turn and canonical Item
+before starting a new correlated Agent turn.

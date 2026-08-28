@@ -1,5 +1,5 @@
 # Native Browser Runtime
-<!-- tinybot-module-fingerprint: sha256:baa288f30235abad5ee45c15bed9be1915f219e2d9064bcb40472b52163a255d -->
+<!-- tinybot-module-fingerprint: sha256:986bd398940c0237415d25afb4b59dceb73cd8e0507d074e05b13465d86aa2bf -->
 
 `native_browser` owns the managed WebView2 session used by native Agent browser
 tools and attachable desktop browser surfaces. Direct user input and Agent

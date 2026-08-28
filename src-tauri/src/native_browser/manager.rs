@@ -258,15 +258,15 @@ impl BrowserSessionManager {
             {
                 let state = self.lock_state();
                 let session_id = state.owner_sessions.get(owner_session_id).ok_or_else(|| {
-                    "TinyOS browser session is unavailable for this chat".to_string()
+                    "Native browser session is unavailable for this chat".to_string()
                 })?;
                 let session = state.sessions.get(session_id).ok_or_else(|| {
-                    "TinyOS browser session is unavailable for this chat".to_string()
+                    "Native browser session is unavailable for this chat".to_string()
                 })?;
                 let tab = session
                     .tabs
                     .get(&session.active_tab_id)
-                    .ok_or_else(|| "TinyOS browser active tab is unavailable".to_string())?;
+                    .ok_or_else(|| "Native browser active tab is unavailable".to_string())?;
                 if tab.agent_snapshot_dirty || agent_snapshot_id(tab) != snapshot_id {
                     return Err(AGENT_SNAPSHOT_STALE.to_string());
                 }
@@ -338,7 +338,7 @@ impl BrowserSessionManager {
             .owner_sessions
             .get(owner_session_id)
             .cloned()
-            .ok_or_else(|| "TinyOS browser session is unavailable for this chat".to_string())?;
+            .ok_or_else(|| "Native browser session is unavailable for this chat".to_string())?;
         let session = ready_session_mut(&mut state, &session_id)?;
         let active_tab_id = session.active_tab_id.clone();
         advance_agent_snapshot(require_tab_mut(session, &active_tab_id)?);
@@ -552,7 +552,7 @@ impl BrowserSessionManager {
             let session = BrowserSessionRecord {
                 id: session_id.clone(),
                 owner_session_id: owner_session_id.clone(),
-                operation_id: format!("tinyos-browser-session-{session_id}"),
+                operation_id: format!("native-browser-session-{session_id}"),
                 profile: profile.clone(),
                 lifecycle: BrowserSessionLifecycle::Creating,
                 active_tab_id: tab_id.clone(),
@@ -2704,7 +2704,7 @@ fn snapshot_from_state(
         && session.control.state != BrowserControlState::UserRequired;
     let source_id = format!("native-browser:{}", session.id);
     Some(BrowserNativeSnapshot {
-        schema_version: "tinybot.tinyos_native_snapshot.v1",
+        schema_version: "tinybot.browser_snapshot.v1",
         source_id: source_id.clone(),
         revision: state.revision,
         observed_at: observed_at.clone(),

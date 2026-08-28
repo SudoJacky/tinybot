@@ -1,5 +1,5 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:d899e6f2e108224eb40c7d1d44136c439274dc75ac56950d95e1dd38bb0d1170 -->
+<!-- tinybot-module-fingerprint: sha256:78dd9325e30410a6c717120d193da1408097ba789534d7e610f91c38d04a474e -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.

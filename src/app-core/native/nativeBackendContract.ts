@@ -28,7 +28,7 @@ export const NATIVE_BACKEND_COMMAND_NAMES = [
   "worker_task_plan_save",
   "worker_task_plan_delete",
   "worker_webui_route",
-  "worker_dispatch_tinyos_host_command",
+  "worker_retry_thread_operation",
   "worker_skills_list",
   "worker_skills_detail",
   "worker_skills_create",

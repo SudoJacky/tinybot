@@ -45,14 +45,14 @@ describe("chat projection", () => {
           messageId: "user-1",
           content: "Check the README",
           references: [{
-            detail: "TinyOS file selection",
+            detail: "File selection",
             evidenceId: "item-file-1",
             kind: "reference",
             sourceLine: 2,
             sourcePath: "README.md",
             sourceText: "# Tinybot",
             title: "README.md · L2",
-            type: "tinyos.file",
+            referenceKind: "file",
           }],
         },
       },
@@ -120,7 +120,7 @@ describe("chat projection", () => {
           rawPath: "C:\\Users\\tester\\.tinybot\\chat-attachments\\images\\abc123.png",
           sizeBytes: 2048,
           title: "diagram.png",
-          type: "tinyos.image",
+          referenceKind: "image",
         }],
       },
     }]));
@@ -131,7 +131,7 @@ describe("chat projection", () => {
       contentHash: "abc123",
       mimeType: "image/png",
       sizeBytes: 2048,
-      type: "tinyos.image",
+      referenceKind: "image",
     })]);
   });
 
