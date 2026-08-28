@@ -5,7 +5,6 @@ import { useTranslation } from "react-i18next";
 import {
   buildCustomProviderPatch,
   buildProviderConfigurePatch,
-  buildProviderDefaultLlmPatch,
   buildProviderModelsPatch,
   buildProviderModelsSettings,
   automaticModelCapabilities,
@@ -18,7 +17,6 @@ import {
 } from "../../app-core/settings/providerModelsSettings";
 import {
   readDefaultChatModelPreference,
-  writeDefaultChatModel,
 } from "../../app-core/chat/chatModelPreference";
 import type { SettingsStore } from "../services";
 import { SettingsChoiceList } from "./SettingsChoiceList";
@@ -75,6 +73,23 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
       throw error;
     }
   }
+  async function saveDefaultSelection(input: { modelId: string; providerId: string }): Promise<void> {
+    if (!settingsStore.saveDefaultChatModel || !settingsStore.loadProviderSettings) {
+      throw new Error("Native default Provider/model persistence is unavailable.");
+    }
+    setSaveStatus(t("provider.saving"));
+    setSaveState("saving");
+    try {
+      await settingsStore.saveDefaultChatModel(input);
+      setData(await settingsStore.loadProviderSettings());
+      setSaveStatus(t("provider.saved"));
+      setSaveState("saved");
+    } catch (error) {
+      setSaveStatus(t("provider.saveFailed", { message: error instanceof Error ? error.message : String(error) }));
+      setSaveState("error");
+      throw error;
+    }
+  }
   const fetchProviderModels = settingsStore.fetchProviderModels;
 
   if (loadError) {
@@ -94,7 +109,7 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
         </div>
       </div>
 
-      <DefaultLlmPanel data={data} onSave={savePatch} />
+      <DefaultLlmPanel data={data} onSave={saveDefaultSelection} />
 
       <SettingsSaveStatus message={saveStatus} state={saveState} />
 
@@ -170,7 +185,7 @@ function DefaultLlmPanel({
   onSave,
 }: {
   data: ProviderModelsSettingsData;
-  onSave: (patch: unknown) => Promise<void>;
+  onSave: (input: { modelId: string; providerId: string }) => Promise<void>;
 }) {
   const { t: tCommon } = useTranslation("common");
   const { t } = useTranslation("settings");
@@ -229,11 +244,7 @@ function DefaultLlmPanel({
     }
     setSaving(true);
     try {
-      await onSave(buildProviderDefaultLlmPatch({
-        profileId,
-        model,
-      }));
-      writeDefaultChatModel(model, selectedProvider.id);
+      await onSave({ modelId: model, providerId: selectedProvider.id });
       onSaved();
     } finally {
       setSaving(false);

@@ -1035,7 +1035,7 @@ describe("ChatPage", () => {
     });
   });
 
-  it("updates the new-conversation default when selecting a model before the first Turn", async () => {
+  it("persists the native default before updating the renderer preference for an empty Thread", async () => {
     const user = userEvent.setup();
     const stores = createStores({
       sessions: [{
@@ -1044,18 +1044,30 @@ describe("ChatPage", () => {
         title: "Empty thread",
         updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
         status: "idle",
-        model: "deepseek-chat",
+        model: "deepseek-v4-pro",
+        modelProvider: "deepseek",
       }],
     });
     stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
+    let finishNativeSave!: () => void;
+    const nativeSave = new Promise<void>((resolve) => {
+      finishNativeSave = resolve;
+    });
+    const saveDefaultChatModel = vi.fn(async (input: { modelId: string; providerId: string }) => {
+      await nativeSave;
+      window.localStorage.setItem("tinybot.ui.chat.composer-model", input.modelId);
+      window.localStorage.setItem("tinybot.ui.chat.composer-provider", input.providerId);
+    });
     const settingsStore: SettingsStore = {
       load: vi.fn(async () => []),
       loadChatModels: vi.fn(async () => [
-        { id: "deepseek-chat", label: "deepseek-chat" },
-        { id: "deepseek-reasoner", label: "deepseek-reasoner" },
+        { id: "deepseek-v4-pro", label: "deepseek-v4-pro", providerId: "deepseek" },
+        { id: "glm-5.3-flash", label: "glm-5.3-flash", providerId: "zai" },
       ]),
+      saveDefaultChatModel,
     };
-    window.localStorage.setItem("tinybot.ui.chat.composer-model", "deepseek-chat");
+    window.localStorage.setItem("tinybot.ui.chat.composer-model", "deepseek-v4-pro");
+    window.localStorage.setItem("tinybot.ui.chat.composer-provider", "deepseek");
 
     render(
       <ChatPage
@@ -1068,11 +1080,21 @@ describe("ChatPage", () => {
 
     await screen.findByLabelText("Start a new chat");
     await user.click(screen.getByRole("button", { name: "Select model" }));
-    await user.click(screen.getByRole("button", { name: /Model deepseek-chat/ }));
-    await user.click(screen.getByRole("option", { name: /deepseek-reasoner/i }));
+    await user.click(screen.getByRole("button", { name: /Model deepseek-v4-pro/ }));
+    await user.click(screen.getByRole("option", { name: /glm-5.3-flash/i }));
 
-    await waitFor(() => expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-reasoner"));
-    expect(stores.sessionStore.setModel).toHaveBeenCalledWith("s1", "deepseek-reasoner");
+    await waitFor(() => expect(saveDefaultChatModel).toHaveBeenCalledWith({
+      modelId: "glm-5.3-flash",
+      providerId: "zai",
+    }));
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-v4-pro");
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-provider")).toBe("deepseek");
+
+    finishNativeSave();
+
+    await waitFor(() => expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("glm-5.3-flash"));
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-provider")).toBe("zai");
+    expect(stores.sessionStore.setModel).toHaveBeenCalledWith("s1", "glm-5.3-flash", "zai");
   });
 
   it("restores a valid new-conversation default and clears a stale one", async () => {

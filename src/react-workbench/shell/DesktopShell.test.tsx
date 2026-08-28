@@ -59,6 +59,7 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
     saveDesktopConfigSettings?: ReturnType<typeof vi.fn>;
     loadProviderSettings?: ReturnType<typeof vi.fn>;
     saveProviderSettings?: ReturnType<typeof vi.fn>;
+    saveDefaultChatModel?: ReturnType<typeof vi.fn>;
     loadPersonalizationInstructions?: ReturnType<typeof vi.fn>;
     savePersonalizationInstructions?: ReturnType<typeof vi.fn>;
   };
@@ -800,6 +801,10 @@ describe("DesktopShell", () => {
     const saveProviderSettings = vi.fn(async (_currentConfig: unknown, _patch: unknown) => (
       buildProviderModelsSettings(savedProviderConfig)
     ));
+    const saveDefaultChatModel = vi.fn(async (input: { modelId: string; providerId: string }) => {
+      window.localStorage.setItem("tinybot.ui.chat.composer-model", input.modelId);
+      window.localStorage.setItem("tinybot.ui.chat.composer-provider", input.providerId);
+    });
     const fetchProviderModels = vi.fn(async () => ({
       ok: true,
       models: ["deepseek-v4-pro", "deepseek-live"],
@@ -807,8 +812,11 @@ describe("DesktopShell", () => {
       url: "https://api.deepseek.com/models",
     }));
     const services = createServices();
-    services.settingsStore.loadProviderSettings = vi.fn(async () => buildProviderModelsSettings(initialProviderConfig));
+    services.settingsStore.loadProviderSettings = vi.fn()
+      .mockResolvedValueOnce(buildProviderModelsSettings(initialProviderConfig))
+      .mockResolvedValue(buildProviderModelsSettings(savedProviderConfig));
     services.settingsStore.saveProviderSettings = saveProviderSettings;
+    services.settingsStore.saveDefaultChatModel = saveDefaultChatModel;
     services.settingsStore.fetchProviderModels = fetchProviderModels;
     render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
 
@@ -836,9 +844,10 @@ describe("DesktopShell", () => {
     await user.click(screen.getByRole("radio", { name: "Select gpt-4.1 model" }));
     await user.click(screen.getByRole("button", { name: "Save default model" }));
 
-    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(1));
-    expect(saveProviderSettings.mock.calls[0][1]).toEqual({
-      agents: { defaults: { activeProfile: "openai-default", model: "gpt-4.1" } },
+    await waitFor(() => expect(saveDefaultChatModel).toHaveBeenCalledTimes(1));
+    expect(saveDefaultChatModel).toHaveBeenCalledWith({
+      modelId: "gpt-4.1",
+      providerId: "openai",
     });
     expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("gpt-4.1");
     expect(window.localStorage.getItem("tinybot.ui.chat.composer-provider")).toBe("openai");
@@ -887,8 +896,8 @@ describe("DesktopShell", () => {
     await user.type(customContextWindow, "32000");
     await user.click(within(modelsDialog).getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(2));
-    expect(saveProviderSettings.mock.calls[1][1]).toEqual({
+    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(1));
+    expect(saveProviderSettings.mock.calls[0][1]).toEqual({
       providers: {
         profiles: {
           "deepseek-default": {
@@ -919,8 +928,8 @@ describe("DesktopShell", () => {
     expect(saveChanges.disabled).toBe(false);
     await user.click(saveChanges);
 
-    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(3));
-    expect(saveProviderSettings.mock.calls[2][1]).toEqual({
+    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(2));
+    expect(saveProviderSettings.mock.calls[1][1]).toEqual({
       providers: {
         profiles: {
           "openai-default": {

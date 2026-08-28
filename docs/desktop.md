@@ -111,7 +111,7 @@ The page also offers an explicit Agent-assisted migration for standalone Skills,
 
 ## Conversation Models
 
-Model selection belongs to the conversation after a Thread is created. The Provider & Models page stores the starting Provider Profile and model for new conversations as one native `activeProfile`/`model` update, then mirrors that choice as the renderer's recently used preference. The native pair is also the coherent fallback for background model work such as long-term Memory. Switching conversations restores each Thread's own model, and changing the Composer model updates both the Thread and the recently used choice without rewriting existing Threads.
+Model selection belongs to the conversation after a Thread is created. The Provider & Models page, Chat drafts, empty Threads, and desktop-pet quick chat all use one Settings-store operation for the starting model: it saves the native `activeProfile`/`model` pair before mirroring that choice as the renderer's recently used preference. A first send waits for this save. The native pair is also the coherent fallback for background model work such as long-term Memory. When model options load, an explicitly selected native Profile paired with another Provider's model is repaired from a valid renderer preference or that Profile's default model and emits a structured warning. Switching populated conversations restores each Thread's own model, and changing their Composer model updates only the Thread.
 
 Desktop turn submission resolves models in this order:
 

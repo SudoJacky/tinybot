@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:ae4fdc0ef37a6e44d8b6e92526354687f7008cda1340bb2da04349d1ad29fb7a -->
+<!-- tinybot-module-fingerprint: sha256:bca39a76da66054c6f8c128b909350bb33a96ed22d3ee9ba168305618786275a -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App` for the main window and selects lightweight

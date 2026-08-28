@@ -1,4 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+// @vitest-environment happy-dom
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { writeDefaultChatModel } from "../../app-core/chat/chatModelPreference";
 import type { DesktopNativeConfigPatchResponse } from "../../app-core/native/desktopNativeConfigPatch";
 import { createDesktopSettingsStore } from "./desktopSettingsStore";
 
@@ -24,6 +27,10 @@ const config = {
 };
 
 describe("desktop settings store", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
   it("builds chat model options from config and the provider catalog", async () => {
     const initialize = vi.fn(async () => undefined);
     const get = vi.fn(async () => config);
@@ -152,6 +159,96 @@ describe("desktop settings store", () => {
     });
 
     await expect(store.loadChatModels!()).rejects.toBe(failure);
+  });
+
+  it("repairs an invalid native default pair from a valid renderer preference", async () => {
+    const mismatchedConfig = {
+      revision: "revision-1",
+      agents: { defaults: { activeProfile: "zai-default", model: "deepseek-v4-pro" } },
+      providers: {
+        profiles: {
+          "deepseek-default": {
+            provider: "deepseek",
+            enabled: true,
+            models: ["deepseek-v4-pro"],
+            enabledModels: ["deepseek-v4-pro"],
+          },
+          "zai-default": {
+            provider: "zai",
+            enabled: true,
+            models: ["glm-5.3-flash"],
+            enabledModels: ["glm-5.3-flash"],
+          },
+        },
+      },
+    };
+    const repairedConfig = {
+      ...mismatchedConfig,
+      agents: { defaults: { activeProfile: "zai-default", model: "glm-5.3-flash" } },
+    };
+    const response: DesktopNativeConfigPatchResponse = {
+      ok: true,
+      config: repairedConfig,
+      revision: "revision-2",
+      updatedFields: ["agents.defaults.model"],
+      sideEffects: { applied: ["providerRuntimeChanged"], restartRequired: [], warnings: [] },
+    };
+    const applyNativeConfigPatch = vi.fn(async () => response);
+    const store = createDesktopSettingsStore({
+      applyNativeConfigPatch,
+      initialize: async () => undefined,
+      nativeConfig: { get: async () => mismatchedConfig },
+      nativeWebui: { route: async () => ({ providers: [{ id: "deepseek", status: "ready" }, { id: "zai", status: "ready" }] }) },
+    });
+    writeDefaultChatModel("glm-5.3-flash", "zai");
+
+    await expect(store.loadChatModels!()).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ default: true, id: "glm-5.3-flash", providerId: "zai" }),
+    ]));
+    expect(applyNativeConfigPatch).toHaveBeenCalledWith(mismatchedConfig, {
+      agents: { defaults: { activeProfile: "zai-default", model: "glm-5.3-flash" } },
+    });
+  });
+
+  it("updates the renderer preference only after the native default pair is persisted", async () => {
+    let finishNativeSave!: () => void;
+    const nativeSave = new Promise<void>((resolve) => {
+      finishNativeSave = resolve;
+    });
+    const savedConfig = {
+      ...config,
+      agents: { defaults: { activeProfile: "openai-default", model: "gpt-5" } },
+    };
+    const response: DesktopNativeConfigPatchResponse = {
+      ok: true,
+      config: savedConfig,
+      revision: "revision-2",
+      updatedFields: ["agents.defaults.activeProfile", "agents.defaults.model"],
+      sideEffects: { applied: ["providerRuntimeChanged"], restartRequired: [], warnings: [] },
+    };
+    const applyNativeConfigPatch = vi.fn(async () => {
+      await nativeSave;
+      return response;
+    });
+    const store = createDesktopSettingsStore({
+      applyNativeConfigPatch,
+      initialize: async () => undefined,
+      nativeConfig: { get: async () => config },
+    });
+    writeDefaultChatModel("deepseek-chat", "deepseek");
+
+    const save = store.saveDefaultChatModel!({ modelId: "gpt-5", providerId: "openai" });
+    await vi.waitFor(() => expect(applyNativeConfigPatch).toHaveBeenCalledWith(config, {
+      agents: { defaults: { activeProfile: "openai-default", model: "gpt-5" } },
+    }));
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("deepseek-chat");
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-provider")).toBe("deepseek");
+
+    finishNativeSave();
+    await save;
+
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("gpt-5");
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-provider")).toBe("openai");
   });
 
   it("loads and saves USER.md with the expected revision", async () => {

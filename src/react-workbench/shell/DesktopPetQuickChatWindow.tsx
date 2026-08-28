@@ -14,7 +14,7 @@ import {
   createDesktopStopCommand,
   createDesktopTurnSubmitCommand,
 } from "../../app-core/chat/desktopCommand";
-import { readDefaultChatModelPreference, writeDefaultChatModel } from "../../app-core/chat/chatModelPreference";
+import { readDefaultChatModelPreference } from "../../app-core/chat/chatModelPreference";
 import {
   readCurrentChatReasoningEffort,
   writeCurrentChatReasoningEffort,
@@ -68,6 +68,7 @@ export function DesktopPetQuickChatWindow({
   );
   const rootRef = useRef<HTMLElement | null>(null);
   const conversationEndRef = useRef<HTMLDivElement | null>(null);
+  const defaultModelSavePromise = useRef<Promise<void>>(Promise.resolve());
   const [activeRequestId, setActiveRequestId] = useState("");
   const [draft, setDraft] = useState("");
   const [composerFiles, setComposerFiles] = useState<ComposerFileReference[]>([]);
@@ -262,6 +263,7 @@ export function DesktopPetQuickChatWindow({
       throw new Error(t("desktopPet.quickChat.commandUnsupported"));
     }
 
+    await defaultModelSavePromise.current;
     const targetSession = session ?? await services.sessionStore.create({
       title: deriveSessionTitle(prepared.visibleText, tChat),
       ...(prepared.turnInput.model ? { model: prepared.turnInput.model } : {}),
@@ -416,7 +418,23 @@ export function DesktopPetQuickChatWindow({
           setComposerModel(modelId);
           const selectedModelId = selected.modelId || selected.id;
           if (emptyActiveSession) {
-            writeDefaultChatModel(selectedModelId, selected.providerId);
+            const saveDefault = services.settingsStore.saveDefaultChatModel;
+            const persistence = defaultModelSavePromise.current
+              .catch(() => undefined)
+              .then(() => {
+                if (!saveDefault || !selected.providerId) {
+                  throw new Error("Native default Provider/model persistence is unavailable.");
+                }
+                return saveDefault({
+                  modelId: selectedModelId,
+                  providerId: selected.providerId,
+                });
+              });
+            defaultModelSavePromise.current = persistence;
+            void persistence.catch((error) => {
+              setLoadError(errorMessage(error));
+              reportQuickChatError(error);
+            });
           }
           if (session) {
             setSession((current) => current && current.id === session.id

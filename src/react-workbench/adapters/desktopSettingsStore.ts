@@ -2,6 +2,10 @@ import type { NativeConfigApi } from "../../app-core/native/desktopNativeConfig"
 import type { DesktopNativeConfigPatchResponse } from "../../app-core/native/desktopNativeConfigPatch";
 import type { NativeWebuiRouteRequest } from "../../app-core/native/desktopNativeWebui";
 import type { NativeWorkspaceApi } from "../../app-core/native/desktopNativeWorkspace";
+import {
+  readDefaultChatModelPreference,
+  writeDefaultChatModel,
+} from "../../app-core/chat/chatModelPreference";
 import { buildAgentDefaultsSettings } from "../../app-core/settings/agentDefaultsSettings";
 import {
   buildDesktopProviderCatalogItems,
@@ -9,8 +13,10 @@ import {
 } from "../../app-core/settings/desktopSettingsProviders";
 import { buildDesktopSettingsPaneModel } from "../../app-core/settings/desktopSettingsPaneModel";
 import {
+  buildProviderDefaultLlmPatch,
   buildProviderModelsSettings,
   normalizeProviderModelFetchResult,
+  type ProviderModelsSettingsData,
 } from "../../app-core/settings/providerModelsSettings";
 import { saveDesktopSettingsConfig } from "../../app-core/settings/desktopSettingsSave";
 import type {
@@ -66,6 +72,88 @@ export function createDesktopSettingsStore({
     return { result, savedConfig };
   }
 
+  function resolveDefaultSelection(
+    settings: ProviderModelsSettingsData,
+    modelId: string,
+    providerId = "",
+  ): { modelId: string; profileId: string; providerId: string } | null {
+    const model = modelId.trim();
+    const provider = providerId.trim();
+    if (!model) return null;
+    const selectedProvider = settings.providers.find((candidate) => (
+      candidate.enabled
+      && (!provider || candidate.id === provider)
+      && candidate.models.some((candidateModel) => candidateModel.enabled && candidateModel.id === model)
+    ));
+    return selectedProvider ? {
+      modelId: model,
+      profileId: selectedProvider.profileId,
+      providerId: selectedProvider.id,
+    } : null;
+  }
+
+  async function persistDefaultChatModel(
+    input: { modelId: string; providerId: string },
+    currentConfig?: unknown,
+  ): Promise<{ savedConfig: unknown; settings: ProviderModelsSettingsData }> {
+    const snapshot = currentConfig ?? await loadSettingsSnapshot();
+    const currentSettings = buildProviderModelsSettings(snapshot);
+    const selection = resolveDefaultSelection(currentSettings, input.modelId, input.providerId);
+    if (!selection) {
+      throw new Error(`Cannot set unavailable model '${input.modelId}' for Provider '${input.providerId}'.`);
+    }
+    const { savedConfig } = await persistSettingsConfig(snapshot, buildProviderDefaultLlmPatch({
+      profileId: selection.profileId,
+      model: selection.modelId,
+    }));
+    const settings = buildProviderModelsSettings(savedConfig);
+    if (settings.activeProfileId !== selection.profileId || settings.agentDefaultModel !== selection.modelId) {
+      throw new Error("Native default Provider/model persistence returned an inconsistent configuration.");
+    }
+    writeDefaultChatModel(selection.modelId, selection.providerId);
+    return { savedConfig, settings };
+  }
+
+  async function reconcileDefaultChatModel(currentConfig: unknown): Promise<ProviderModelsSettingsData> {
+    const settings = buildProviderModelsSettings(currentConfig);
+    if (!settings.activeProfileId) return settings;
+
+    const activeProvider = settings.providers.find((provider) => provider.profileId === settings.activeProfileId);
+    const nativeSelection = activeProvider
+      ? resolveDefaultSelection(settings, settings.agentDefaultModel ?? "", activeProvider.id)
+      : null;
+    if (nativeSelection) {
+      writeDefaultChatModel(nativeSelection.modelId, nativeSelection.providerId);
+      return settings;
+    }
+
+    const preference = readDefaultChatModelPreference();
+    const preferredSelection = resolveDefaultSelection(
+      settings,
+      preference?.modelId ?? "",
+      preference?.providerId ?? "",
+    );
+    const fallbackSelection = preferredSelection ?? (activeProvider?.defaultModel
+      ? resolveDefaultSelection(settings, activeProvider.defaultModel, activeProvider.id)
+      : null);
+    if (!fallbackSelection) {
+      throw new Error("Native default Provider/model configuration is inconsistent and no valid default model is available.");
+    }
+
+    const repaired = await persistDefaultChatModel({
+      modelId: fallbackSelection.modelId,
+      providerId: fallbackSelection.providerId,
+    }, currentConfig);
+    console.warn("[settings] default-model.reconciled", {
+      previousModel: settings.agentDefaultModel,
+      previousProfile: settings.activeProfileId,
+      repairedModel: fallbackSelection.modelId,
+      repairedProfile: fallbackSelection.profileId,
+      source: preferredSelection ? "renderer_preference" : "active_profile_default",
+    });
+    return repaired.settings;
+  }
+
   return {
     async load() {
       await initialize();
@@ -75,8 +163,9 @@ export function createDesktopSettingsStore({
       await initialize();
       const snapshot = await loadSettingsSnapshot();
       if (!isRecord(snapshot)) return [];
+      const settings = await reconcileDefaultChatModel(snapshot);
       const providerCatalog = buildDesktopProviderCatalogItems(await loadProviderCatalog());
-      return normalizeChatModelOptions(buildProviderModelsSettings(snapshot), providerCatalog);
+      return normalizeChatModelOptions(settings, providerCatalog);
     },
     async loadPersonalizationInstructions() {
       await initialize();
@@ -142,6 +231,10 @@ export function createDesktopSettingsStore({
       await initialize();
       const { savedConfig } = await persistSettingsConfig(currentConfig, patch);
       return buildAgentDefaultsSettings(savedConfig);
+    },
+    async saveDefaultChatModel(input) {
+      await initialize();
+      await persistDefaultChatModel(input);
     },
     async fetchProviderModels(input) {
       await initialize();

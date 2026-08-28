@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:a741c92663223638615b6bfcd5ba02ff8fb12d27727122dab7a7518ee3369f97 -->
+<!-- tinybot-module-fingerprint: sha256:1e904a02d781b773692eacedc982d91dcf56fcbfc25efcc273c84f0ad1976a08 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -66,8 +66,10 @@ context, replaces the local tab with the returned Thread ID, and only then
 dispatches the Turn. A successful first send clears the draft under the returned
 Thread ID; creation or dispatch failures reject the submission so the controlled
 composer keeps the user's input.
-The empty conversation continues to use the persisted composer model preference,
-and changing its model updates that preference for future chats.
+The empty conversation continues to use the persisted composer model preference.
+Changing its model uses the Settings-store default-model operation, which saves
+the native Provider Profile/model pair before updating that renderer preference;
+the first send waits for that persistence to complete.
 Browser runtime snapshots are retained by the
 session runtime and projected into Sidecar Browser resources. Each resource tab
 maps to one native WebView2 tab in the Chat-owned shared Browser Session, so user

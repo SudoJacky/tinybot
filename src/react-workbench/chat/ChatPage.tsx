@@ -38,7 +38,6 @@ import { createDesktopCompactCommand, createDesktopTurnSubmitCommand } from "../
 import {
   clearDefaultChatModel,
   readDefaultChatModelPreference,
-  writeDefaultChatModel,
 } from "../../app-core/chat/chatModelPreference";
 import {
   readCurrentChatReasoningEffort,
@@ -356,6 +355,7 @@ export function ChatPage({
   const lastCreateSessionSignal = useRef(createSessionSignal);
   const lastActivateSessionSignal = useRef<number | null>(null);
   const draftSessionCreatePromise = useRef<Promise<SessionSummary> | null>(null);
+  const defaultModelSavePromise = useRef<Promise<void>>(Promise.resolve());
   const draftSessionSequence = useRef(0);
   const sessionTabsRef = useRef(sessionTabs);
   const sessionsLoadedRef = useRef(sessionsLoaded);
@@ -1353,6 +1353,7 @@ export function ChatPage({
       setQueueMessage(t("queue.limit", { count: MAX_QUEUED_INPUTS }));
       return;
     }
+    await defaultModelSavePromise.current;
     const materializingDraft = !activeSession;
     const sendSession = activeSession ?? await createSessionForDraft();
     if (!sendSession) {
@@ -2374,7 +2375,24 @@ export function ChatPage({
             const selectedModelId = selected.modelId || selected.id;
             setComposerModel(modelId);
             if (emptyActiveSession) {
-              writeDefaultChatModel(selectedModelId, selected.providerId);
+              const saveDefault = settingsStore?.saveDefaultChatModel;
+              const persistence = defaultModelSavePromise.current
+                .catch(() => undefined)
+                .then(() => {
+                  if (!saveDefault || !selected.providerId) {
+                    throw new Error("Native default Provider/model persistence is unavailable.");
+                  }
+                  return saveDefault({
+                    modelId: selectedModelId,
+                    providerId: selected.providerId,
+                  });
+                });
+              defaultModelSavePromise.current = persistence;
+              void persistence.catch((error) => {
+                reportTimelineError(t("errors.modelSaveFailed", {
+                  message: error instanceof Error ? error.message : String(error),
+                }));
+              });
             }
             if (activeSession) {
               setSessions((current) => current.map((session) => (

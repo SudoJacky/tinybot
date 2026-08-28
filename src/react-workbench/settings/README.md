@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:352c13f1ccdd30e86d93ad8fe963efdb5b8be5426ceab1a92c541d93759b9a84 -->
+<!-- tinybot-module-fingerprint: sha256:eb7e40f0299537d17450cde6157ebc0df27c64f9d6999cd05ce1185c5dba0937 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
@@ -55,8 +55,10 @@ creating or configuring the profile when an endpoint rejects effort fields.
 The built-in Z.ai provider presents its static GLM models and Chat Completions
 mode without offering the unsupported Responses choice.
 The new-conversation default selector persists `agents.defaults.activeProfile`
-and `agents.defaults.model` together through the native Settings store before
-updating the renderer's recently-used preference. Activating a Provider also
+and `agents.defaults.model` together through the shared native Settings-store
+operation before updating the renderer's recently-used preference. Chat and
+desktop-pet quick chat use that same operation for empty conversations, so no
+renderer surface can update only the local preference. Activating a Provider also
 requires and persists that Provider's enabled default model, so background
 model work cannot combine one Profile's endpoint with another Provider's model.
 Its model manager configures context windows per model with the shared
