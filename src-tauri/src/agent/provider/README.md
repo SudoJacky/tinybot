@@ -1,5 +1,5 @@
 # Agent Providers
-<!-- tinybot-module-fingerprint: sha256:34e9d3757cbd927cd18ed52038070e88c594eeeca47c9dd00fc14c223f51db7c -->
+<!-- tinybot-module-fingerprint: sha256:1a61ca5b3c0e34bb4fe3368457a842d8f134951b1b5875c061b515f0a868ec6a -->
 
 This module resolves provider and model configuration and performs streaming
 Chat Completions or Responses API requests.
