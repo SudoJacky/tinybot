@@ -776,27 +776,30 @@ describe("DesktopShell", () => {
     };
     const savedProviderConfig = {
       revision: "hash:2",
-      agents: { defaults: { activeProfile: "openai-default", model: "deepseek-v4-pro" } },
+      agents: { defaults: { activeProfile: "openai-default", model: "gpt-4.1" } },
       providers: {
         profiles: {
           "deepseek-default": {
             provider: "deepseek",
             enabled: true,
             apiKeyConfigured: true,
-            models: ["deepseek-v4-pro"],
+            models: ["deepseek-v4-pro", "deepseek-v4-flash"],
+            defaultModel: "deepseek-v4-pro",
           },
           "openai-default": {
             provider: "openai",
             enabled: true,
             apiBase: "https://api.openai.com/v1",
             apiKeyConfigured: true,
+            models: ["gpt-4.1"],
+            defaultModel: "gpt-4.1",
           },
         },
       },
     };
-    const saveProviderSettings = vi.fn()
-      .mockResolvedValueOnce(buildProviderModelsSettings(initialProviderConfig))
-      .mockResolvedValue(buildProviderModelsSettings(savedProviderConfig));
+    const saveProviderSettings = vi.fn(async (_currentConfig: unknown, _patch: unknown) => (
+      buildProviderModelsSettings(savedProviderConfig)
+    ));
     const fetchProviderModels = vi.fn(async () => ({
       ok: true,
       models: ["deepseek-v4-pro", "deepseek-live"],
@@ -833,8 +836,12 @@ describe("DesktopShell", () => {
     await user.click(screen.getByRole("radio", { name: "Select gpt-4.1 model" }));
     await user.click(screen.getByRole("button", { name: "Save default model" }));
 
+    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(1));
+    expect(saveProviderSettings.mock.calls[0][1]).toEqual({
+      agents: { defaults: { activeProfile: "openai-default", model: "gpt-4.1" } },
+    });
     expect(window.localStorage.getItem("tinybot.ui.chat.composer-model")).toBe("gpt-4.1");
-    expect(saveProviderSettings).not.toHaveBeenCalled();
+    expect(window.localStorage.getItem("tinybot.ui.chat.composer-provider")).toBe("openai");
 
     expect(screen.getByRole("article", { name: "DeepSeek provider" })).toBeTruthy();
     expect(screen.getByRole("article", { name: "DashScope provider" })).toBeTruthy();
@@ -880,8 +887,8 @@ describe("DesktopShell", () => {
     await user.type(customContextWindow, "32000");
     await user.click(within(modelsDialog).getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(1));
-    expect(saveProviderSettings.mock.calls[0][1]).toEqual({
+    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(2));
+    expect(saveProviderSettings.mock.calls[1][1]).toEqual({
       providers: {
         profiles: {
           "deepseek-default": {
@@ -904,16 +911,16 @@ describe("DesktopShell", () => {
     expect(within(dialog).getByText("Configured")).toBeTruthy();
     expect((within(dialog).getByRole("radio", { name: "Chat Completions" }) as HTMLInputElement).checked).toBe(true);
     const activeProfile = within(dialog).getByRole("checkbox", { name: "Set as active profile" }) as HTMLInputElement;
-    expect(activeProfile.checked).toBe(false);
-    expect(activeProfile.disabled).toBe(false);
+    expect(activeProfile.checked).toBe(true);
+    expect(activeProfile.disabled).toBe(true);
     const saveChanges = within(dialog).getByRole("button", { name: "Save changes" }) as HTMLButtonElement;
     expect(saveChanges.disabled).toBe(true);
     fireEvent.change(within(dialog).getByLabelText("API key"), { target: { value: "sk-test" } });
     expect(saveChanges.disabled).toBe(false);
     await user.click(saveChanges);
 
-    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(2));
-    expect(saveProviderSettings.mock.calls[1][1]).toEqual({
+    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledTimes(3));
+    expect(saveProviderSettings.mock.calls[2][1]).toEqual({
       providers: {
         profiles: {
           "openai-default": {

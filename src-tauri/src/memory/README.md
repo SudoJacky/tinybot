@@ -1,5 +1,5 @@
 # Long-Term Memory
-<!-- tinybot-module-fingerprint: sha256:41750bc13aa924be5014328f1d29265acadd220cf25c0665b185f31ec983b352 -->
+<!-- tinybot-module-fingerprint: sha256:4a28b4a805a1cdd733b21a87738ee6abd940f7cf4f1163397be071a9cca5ad6b -->
 
 `memory` provides Tinybot's local long-term memory. The V1 implementation is
 intentionally limited to two model-backed phases:
@@ -49,6 +49,12 @@ the configured extraction model once when the Turn contains eligible evidence.
 A Turn with no eligible evidence is durably marked as processed with no
 fragments, avoiding both retry loops and an evidence-free model request. This
 work must not delay delivery of the completed assistant response.
+
+Both model-backed phases resolve the model from `agents.defaults.model` and the
+endpoint/protocol from `agents.defaults.activeProfile`. The Provider & Models
+settings flow persists those two defaults in one native config patch; they must
+not be updated independently because Memory has no Thread-specific model to
+override an inconsistent global pair.
 
 The extraction input is built from persisted Turn content:
 

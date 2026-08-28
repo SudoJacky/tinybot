@@ -64,6 +64,7 @@ export type ProviderConfigurePatchInput = {
   apiKey?: string;
   useResponsesApi?: boolean;
   supportsReasoningEffort?: boolean;
+  defaultModel?: string | null;
   enabled?: boolean;
   activate?: boolean;
 };
@@ -212,6 +213,7 @@ export function buildProviderModelsSettings(config: unknown): ProviderModelsSett
 export function buildProviderConfigurePatch(input: ProviderConfigurePatchInput): JsonRecord {
   const preset = presetForProvider(input.providerId);
   const profileId = resolveProviderProfileId(input.providerId, input.profileId);
+  const defaultModel = input.defaultModel?.trim() || null;
   const profile: JsonRecord = {
     provider: input.providerId,
     displayName: input.displayName?.trim() || preset?.label || input.providerId,
@@ -231,7 +233,13 @@ export function buildProviderConfigurePatch(input: ProviderConfigurePatchInput):
   if (input.supportsReasoningEffort !== undefined) {
     profile.supportsReasoningEffort = input.supportsReasoningEffort;
   }
-  return withOptionalAgentsPatch(input.activate ? { activeProfile: profileId } : null, {
+  if (input.activate && !defaultModel) {
+    throw new Error(`Cannot activate ${preset?.label || input.displayName?.trim() || input.providerId} without a default model.`);
+  }
+  return withOptionalAgentsPatch(input.activate ? {
+    activeProfile: profileId,
+    model: defaultModel,
+  } : null, {
     providers: {
       profiles: {
         [profileId]: profile,
@@ -264,8 +272,11 @@ export function buildCustomProviderPatch(input: CustomProviderPatchInput): JsonR
   if (input.useResponsesApi !== undefined) {
     profile.apiMode = input.useResponsesApi ? "responses" : "chat_completions";
   }
+  if (input.activate && !model) {
+    throw new Error(`Cannot activate ${input.displayName.trim() || providerId} without a default model.`);
+  }
   return withOptionalAgentsPatch(input.activate
-    ? { activeProfile: profileId, ...(model ? { model } : {}) }
+    ? { activeProfile: profileId, model }
     : null, {
     providers: {
       profiles: {
@@ -297,7 +308,13 @@ export function buildProviderModelsPatch(input: ProviderModelsPatchInput): JsonR
   if (input.modelCapabilities !== undefined) {
     profile.modelCapabilities = uniqueModelCapabilities(input.modelCapabilities);
   }
-  return withOptionalAgentsPatch(input.setAgentDefault && defaultModel ? { activeProfile: profileId, model: defaultModel } : null, {
+  if (input.setAgentDefault && !defaultModel) {
+    throw new Error(`Cannot set ${input.providerId} as the default provider without a default model.`);
+  }
+  return withOptionalAgentsPatch(input.setAgentDefault ? {
+    activeProfile: profileId,
+    model: defaultModel,
+  } : null, {
     providers: {
       profiles: {
         [profileId]: profile,

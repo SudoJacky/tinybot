@@ -491,6 +491,9 @@ configuration for a separate backend process. Secret fields
 return `value: null` with `secret` metadata and must remain redacted in exported/public config.
 Provider selection is profile-based. New config should use `agents.defaults.activeProfile` and
 `providers.profiles.<profileId>.provider`; `agents.defaults.provider: "auto"` is a legacy value only.
+The Provider & Models default selector updates `agents.defaults.activeProfile` and
+`agents.defaults.model` in one native patch so Profile-based endpoint resolution and global model
+fallbacks cannot diverge.
 Reasoning effort is not an Agent Defaults setting. A legacy `agents.defaults.reasoningEffort` value
 may remain in raw config for read compatibility, but the settings registry does not expose it and the
 agent runtime does not apply it to model requests.

@@ -125,10 +125,11 @@ describe("provider models settings", () => {
       apiBase: "https://api.openai.com/v1",
       apiKey: "sk-new",
       useResponsesApi: true,
+      defaultModel: "gpt-4.1",
       enabled: true,
       activate: true,
     })).toEqual({
-      agents: { defaults: { activeProfile: "openai-default" } },
+      agents: { defaults: { activeProfile: "openai-default", model: "gpt-4.1" } },
       providers: {
         profiles: {
           "openai-default": {
@@ -166,6 +167,13 @@ describe("provider models settings", () => {
         },
       },
     });
+
+    expect(() => buildProviderConfigurePatch({
+      providerId: "openai",
+      profileId: "openai-default",
+      apiBase: "https://api.openai.com/v1",
+      activate: true,
+    })).toThrow("Cannot activate OpenAI without a default model");
     expect(() => buildProviderConfigurePatch({
       providerId: "zai",
       apiBase: "https://open.bigmodel.cn/api/paas/v4",
@@ -204,6 +212,14 @@ describe("provider models settings", () => {
         },
       },
     });
+
+    expect(() => buildCustomProviderPatch({
+      providerId: "local-openai",
+      displayName: "Local OpenAI",
+      apiBase: "http://127.0.0.1:11434/v1",
+      model: " ",
+      activate: true,
+    })).toThrow("Cannot activate Local OpenAI without a default model");
   });
 
   test("preserves an explicitly disabled reasoning effort feature for custom providers", () => {
@@ -261,6 +277,13 @@ describe("provider models settings", () => {
         },
       },
     });
+
+    expect(() => buildProviderModelsPatch({
+      providerId: "deepseek",
+      models: ["deepseek-v4-pro"],
+      defaultModel: null,
+      setAgentDefault: true,
+    })).toThrow("Cannot set deepseek as the default provider without a default model");
   });
 
   test("resolves known model windows and persists per-model overrides", () => {

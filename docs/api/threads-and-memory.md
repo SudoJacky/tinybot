@@ -10,7 +10,7 @@ src-tauri/src/threads/domain/types/records.rs
 src-tauri/src/threads/domain/types/requests.rs
 src-tauri/tests/crate/threads.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:a936b75ef6700623f672d390d0ac1ab0cd613247fb0d1ae78086efd8b775a904 -->
+<!-- tinybot-doc-fingerprint: sha256:c46a50f6806b4ad0ba04e02a97083d4bae810bc6045ada37e9ae57794d2fc60e -->
 
 This document covers Thread queries, memory, persistence, and project grouping.
 It is part of the [Rust backend API reference](rust-backend-api.md), which

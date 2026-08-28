@@ -80,7 +80,25 @@ async fn complete_json(
     system_prompt: &str,
     input: Value,
 ) -> Result<String, String> {
-    let body = json!({
+    let body = model_request(config_snapshot, system_prompt, input)?;
+    let mut observer = |_event: crate::agent::provider::NativeProviderStreamEvent| {};
+    let completion = crate::agent::provider::complete_chat_for_agent_with_observer_async(
+        config_snapshot,
+        &body,
+        &mut observer,
+        None,
+    )
+    .await
+    .map_err(|error| format!("memory model request failed: {}", error.message()))?;
+    completion_content(&completion)
+}
+
+fn model_request(
+    config_snapshot: &Value,
+    system_prompt: &str,
+    input: Value,
+) -> Result<Value, String> {
+    Ok(json!({
         "model": crate::agent::provider::configured_model(config_snapshot),
         "stream": false,
         "messages": [
@@ -94,17 +112,7 @@ async fn complete_json(
                     .map_err(|error| format!("failed to serialize memory model input: {error}"))?,
             }
         ],
-    });
-    let mut observer = |_event: crate::agent::provider::NativeProviderStreamEvent| {};
-    let completion = crate::agent::provider::complete_chat_for_agent_with_observer_async(
-        config_snapshot,
-        &body,
-        &mut observer,
-        None,
-    )
-    .await
-    .map_err(|error| format!("memory model request failed: {}", error.message()))?;
-    completion_content(&completion)
+    }))
 }
 
 fn completion_content(completion: &Value) -> Result<String, String> {
@@ -148,6 +156,15 @@ fn json_payload(content: &str) -> &str {
 #[cfg(test)]
 pub(super) fn parse_extraction_for_test(content: &str) -> Result<Vec<ExtractedMemory>, String> {
     parse_extraction_response(content)
+}
+
+#[cfg(test)]
+pub(super) fn model_request_for_test(config_snapshot: &Value) -> Result<Value, String> {
+    model_request(
+        config_snapshot,
+        "test system prompt",
+        json!({ "test": true }),
+    )
 }
 
 #[cfg(test)]

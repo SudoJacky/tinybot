@@ -1,5 +1,6 @@
 use super::model::{
-    extract_memories, parse_diff_for_test, parse_extraction_for_test, select_diff, TurnEvidence,
+    extract_memories, model_request_for_test, parse_diff_for_test, parse_extraction_for_test,
+    select_diff, TurnEvidence,
 };
 use super::runtime::successful_tool_result_for_test;
 use super::{
@@ -463,6 +464,45 @@ fn memory_models_use_the_configured_provider_protocol() {
     ))
     .unwrap();
     assert_eq!(diff.add[0].content, "Uses Rust.");
+}
+
+#[test]
+fn memory_model_request_uses_the_synchronized_defaults_after_a_provider_switch() {
+    let mut config = json!({
+        "agents": {
+            "defaults": {
+                "activeProfile": "deepseek-default",
+                "model": "deepseek-v4-pro"
+            }
+        },
+        "providers": {
+            "profiles": {
+                "deepseek-default": {
+                    "provider": "deepseek",
+                    "apiBase": "https://api.deepseek.com",
+                    "apiMode": "responses"
+                },
+                "zai-default": {
+                    "provider": "zai",
+                    "apiBase": "https://open.bigmodel.cn/api/paas/v4",
+                    "apiMode": "chat_completions"
+                }
+            }
+        }
+    });
+    let defaults = config.pointer_mut("/agents/defaults").unwrap();
+    defaults["activeProfile"] = json!("zai-default");
+    defaults["model"] = json!("glm-5.3-flash");
+
+    let request = model_request_for_test(&config).unwrap();
+    let provider = crate::agent::provider::resolve_provider_profile(&config, None, None).unwrap();
+
+    assert_eq!(request["model"], "glm-5.3-flash");
+    assert_eq!(provider.provider_id, "zai");
+    assert_eq!(
+        provider.api_base.as_deref(),
+        Some("https://open.bigmodel.cn/api/paas/v4")
+    );
 }
 
 fn fixture_model_config(content: &str) -> serde_json::Value {

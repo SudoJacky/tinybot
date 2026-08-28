@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import {
   buildCustomProviderPatch,
   buildProviderConfigurePatch,
+  buildProviderDefaultLlmPatch,
   buildProviderModelsPatch,
   buildProviderModelsSettings,
   automaticModelCapabilities,
@@ -93,7 +94,7 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
         </div>
       </div>
 
-      <DefaultLlmPanel data={data} />
+      <DefaultLlmPanel data={data} onSave={savePatch} />
 
       <SettingsSaveStatus message={saveStatus} state={saveState} />
 
@@ -166,8 +167,10 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
 
 function DefaultLlmPanel({
   data,
+  onSave,
 }: {
   data: ProviderModelsSettingsData;
+  onSave: (patch: unknown) => Promise<void>;
 }) {
   const { t: tCommon } = useTranslation("common");
   const { t } = useTranslation("settings");
@@ -214,19 +217,23 @@ function DefaultLlmPanel({
   }, [data.providers, model, profileId]);
 
   const dirty = model !== savedDefaultModel || profileId !== initialProfileId;
-  const canSave = Boolean(profileId && model && dirty && !saving);
+  const canSave = Boolean(selectedProvider && profileId && model && dirty && !saving);
   const normalizedModelSearch = modelSearch.trim().toLocaleLowerCase();
   const filteredModelOptions = useMemo(() => normalizedModelSearch
     ? modelOptions.filter((option) => `${option.label} ${option.id}`.toLocaleLowerCase().includes(normalizedModelSearch))
     : modelOptions, [modelOptions, normalizedModelSearch]);
 
   async function saveDefaultModel(onSaved: () => void) {
-    if (!canSave) {
+    if (!canSave || !selectedProvider) {
       return;
     }
     setSaving(true);
     try {
-      writeDefaultChatModel(model, selectedProvider?.id);
+      await onSave(buildProviderDefaultLlmPatch({
+        profileId,
+        model,
+      }));
+      writeDefaultChatModel(model, selectedProvider.id);
       onSaved();
     } finally {
       setSaving(false);
@@ -540,6 +547,7 @@ function ProviderConfigureDialog({
         apiKey,
         useResponsesApi,
         supportsReasoningEffort: provider.builtIn ? undefined : supportsReasoningEffort,
+        defaultModel: provider.defaultModel,
         enabled: true,
         activate: !provider.active && activate,
       }));
