@@ -3,7 +3,7 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createTinyOsBrowserSessionSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
+import { createNativeBrowserSessionSnapshot } from "../../app-core/native/nativeBrowserSnapshot";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
 import { normalizeBrowserAddress, SidecarBrowser } from "./SidecarBrowser";
 import type { SidecarBrowserTab } from "./sidecarModel";
@@ -18,7 +18,7 @@ function browserSnapshot(
   controlState: "idle" | "user_required" = "idle",
   lifecycle: "creating" | "ready" = "ready",
 ) {
-  return createTinyOsBrowserSessionSnapshot({
+  return createNativeBrowserSessionSnapshot({
     activeTabId: "native-tab-1",
     browserSessionId: "browser-session-1",
     contract: "browser_session_v1",

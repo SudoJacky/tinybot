@@ -1,5 +1,5 @@
 # Worker Protocol
-<!-- tinybot-module-fingerprint: sha256:557c81cd277b3ab04abfcde60e32713aa2a44ec9277b2aa1fe4fd614bd2bd903 -->
+<!-- tinybot-module-fingerprint: sha256:6f753af2a8929b4ffca80ff0e9265ec9c4f7a4ab22a721c6e5ab42aa1bff2e89 -->
 
 `protocol` defines the versioned request, response, and error envelopes used by
 the in-process RPC router.

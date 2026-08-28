@@ -18,14 +18,14 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import type {
-  TinyOsNativeBrowserSession,
-  TinyOsNativeSnapshot,
-} from "../../app-core/chat/tinyOsNativeSnapshot";
+  NativeBrowserSession,
+  NativeBrowserSnapshot,
+} from "../../app-core/native/nativeBrowserSnapshot";
 import type { NativeBrowserRuntimeApi } from "../../app-core/native/desktopNativeBrowser";
 import type { SidecarBrowserTab } from "./sidecarModel";
 import "./SidecarBrowser.css";
 
-type BrowserSnapshot = TinyOsNativeSnapshot<TinyOsNativeBrowserSession>;
+type BrowserSnapshot = NativeBrowserSnapshot<NativeBrowserSession>;
 
 export type SidecarBrowserProps = {
   browserRuntime?: NativeBrowserRuntimeApi;
@@ -361,7 +361,7 @@ function BrowserSurfaceHost({
   browserRuntime: NativeBrowserRuntimeApi;
   onError: (message: string) => void;
   onSnapshot: (snapshot: BrowserSnapshot) => void;
-  session: TinyOsNativeBrowserSession;
+  session: NativeBrowserSession;
   tabId: string;
   visible: boolean;
 }) {

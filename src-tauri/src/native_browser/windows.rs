@@ -406,7 +406,7 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
         let bootstrap_url = safe_browser_url("about:blank")?;
 
         let builder = WebviewBuilder::new(
-            format!("tinyos-browser-{}", safe_label(tab_id.as_str())),
+            format!("native-browser-{}", safe_label(tab_id.as_str())),
             WebviewUrl::External(bootstrap_url),
         )
         .data_directory(request.profile.data_directory.clone())

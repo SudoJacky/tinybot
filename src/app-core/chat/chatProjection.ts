@@ -1,4 +1,7 @@
-import type { AgentInputReference } from "./agentInputReference";
+import {
+  normalizeAgentInputReference,
+  type AgentInputReference,
+} from "./agentInputReference";
 import type {
   AgentContext,
   ArtifactRef,
@@ -843,8 +846,8 @@ function normalizeReferences(value: unknown): AgentInputReference[] | undefined 
     const sourcePath = stringValue(row.sourcePath ?? row.source_path);
     const sourceText = stringValue(row.sourceText ?? row.source_text);
     const sizeBytes = numberValue(row.sizeBytes ?? row.size_bytes);
-    const type = stringValue(row.type);
-    return {
+    const referenceKind = stringValue(row.referenceKind ?? row.reference_kind);
+    return normalizeAgentInputReference({
       detail: stringValue(row.detail ?? row.content ?? row.summary ?? row.url),
       ...(contentHash ? { contentHash } : {}),
       ...(evidenceId ? { evidenceId } : {}),
@@ -859,8 +862,8 @@ function normalizeReferences(value: unknown): AgentInputReference[] | undefined 
       ...(sourceText ? { sourceText } : {}),
       ...(sizeBytes !== undefined ? { sizeBytes } : {}),
       title: stringValue(row.title ?? row.name ?? row.id) || "Reference",
-      ...(type ? { type } : {}),
-    };
+      ...(referenceKind ? { referenceKind } : {}),
+    });
   });
 }
 

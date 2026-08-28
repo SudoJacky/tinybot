@@ -79,8 +79,8 @@ append or replacement causes the next reader to reconstruct from disk instead
 of serving stale projection state.
 
 Managed image files are content-addressed supporting data, not a second
-conversation log. The originating user-message Item stores a `tinyos.image`
-reference containing its managed path, MIME type, byte size, and content hash.
+conversation log. The originating user-message Item stores an image reference
+with `referenceKind: "image"`, its managed path, MIME type, byte size, and content hash.
 Provider request construction validates those fields against the file and
 temporarily Base64-encodes the bytes; the encoded payload is never appended to
 the Rollout.

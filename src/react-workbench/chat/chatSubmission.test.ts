@@ -35,8 +35,8 @@ describe("prepareChatSubmission", () => {
       text: "Review these references\n\nPasted content:\npasted detail",
     });
     expect(prepared.turnInput.references).toEqual([
-      expect.objectContaining({ rawPath: "D:\\notes.txt", type: "tinyos.file" }),
-      expect.objectContaining({ scope: "session-2", title: "Architecture review", type: "tinyos.thread" }),
+      expect.objectContaining({ rawPath: "D:\\notes.txt", referenceKind: "file" }),
+      expect.objectContaining({ scope: "session-2", title: "Architecture review", referenceKind: "thread" }),
     ]);
     const transcript = prepared.turnInput.references?.[1]?.sourceText ?? "";
     expect(transcript).toContain("middle conversation content omitted");
@@ -77,7 +77,7 @@ describe("prepareChatSubmission", () => {
       rawPath: "C:\\Users\\tester\\.tinybot\\chat-attachments\\images\\abc123.png",
       sizeBytes: 2048,
       title: "diagram.png",
-      type: "tinyos.image",
+      referenceKind: "image",
     }]);
   });
 

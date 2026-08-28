@@ -273,8 +273,7 @@ impl NativeAgentToolExecutorDispatcher {
             Some(runtime) => runtime,
             None => {
                 return Some(Err(
-                    "TinyOS native browser runtime is not attached to the Agent service"
-                        .to_string(),
+                    "Native browser runtime is not attached to the Agent service".to_string(),
                 ));
             }
         };

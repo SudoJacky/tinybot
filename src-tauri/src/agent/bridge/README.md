@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:3b7ad0ad3084c62cb17437008bfde50a53efe1b7113af6cdd01f3c812e6d8802 -->
+<!-- tinybot-module-fingerprint: sha256:1d3971eda1c99f5d39bc3c6e78fc7f72115784f85f026507e8701bc7b4164acd -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete

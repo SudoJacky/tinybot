@@ -70,7 +70,7 @@ commands.allow = [
   "thread_get_turn_runtime_state",
   "thread_get_effective_capabilities",
   "worker_webui_route",
-  "worker_dispatch_tinyos_host_command",
+  "worker_retry_thread_operation",
   "worker_background_trace_list",
   "worker_background_trace_get_delegate_trace",
   "worker_background_trace_get_artifact",

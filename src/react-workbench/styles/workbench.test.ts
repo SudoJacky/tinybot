@@ -95,8 +95,8 @@ describe("workbench CSS interaction contracts", () => {
   });
 
   test("keeps route styles with their lazy-loaded owners", () => {
-    expect(shellStylesheet).not.toMatch(/\.(?:tinyos|react-settings|react-memory)-/);
-    expect(chatStylesheet).not.toMatch(/\.(?:tinyos|react-settings|react-memory)-/);
+    expect(shellStylesheet).not.toMatch(/\.(?:react-settings|react-memory)-/);
+    expect(chatStylesheet).not.toMatch(/\.(?:react-settings|react-memory)-/);
     expect(settingsStylesheet).toContain(".react-settings-layout");
     expect(settingsStylesheet).toContain("@keyframes react-settings-spin");
     expect(memoryStylesheet).toContain(".react-memory-page");

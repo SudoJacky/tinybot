@@ -464,17 +464,17 @@ impl AgentTurnState {
         Ok(())
     }
 
-    pub(super) fn emit_tinyos_command_acknowledgement(
+    pub(super) fn emit_thread_command_acknowledgement(
         &mut self,
         context: &AgentTurnContext,
     ) -> Result<(), String> {
-        let Some(command) = context.metadata.get("_tinyosCommand") else {
+        let Some(command) = context.metadata.get("_threadCommand") else {
             return Ok(());
         };
         let command_id = string_field(command, "commandId")
-            .ok_or_else(|| "TinyOS runtime command metadata is missing commandId".to_string())?;
+            .ok_or_else(|| "Thread command metadata is missing commandId".to_string())?;
         let command_kind = string_field(command, "commandKind")
-            .ok_or_else(|| "TinyOS runtime command metadata is missing commandKind".to_string())?;
+            .ok_or_else(|| "Thread command metadata is missing commandKind".to_string())?;
         self.emit(
             PendingAgentEvent::new(
                 AgentEventKind::CommandAcknowledged,

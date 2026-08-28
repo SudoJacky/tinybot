@@ -15,7 +15,7 @@ const snapshot = {
   },
   observedAt: "2026-07-15T00:00:00Z",
   revision: 1,
-  schemaVersion: "tinybot.tinyos_native_snapshot.v1",
+  schemaVersion: "tinybot.browser_snapshot.v1",
   sourceId: "native-browser:browser-1",
 };
 

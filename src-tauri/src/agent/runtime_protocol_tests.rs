@@ -905,9 +905,9 @@ fn canonical_user_item_preserves_client_event_id() {
 }
 
 #[test]
-fn canonical_user_item_preserves_tinyos_references() {
+fn canonical_user_item_preserves_input_references() {
     let event = runtime_event(
-        "turn-tinyos-reference",
+        "turn-input-reference",
         "agent.turn.started",
         AgentRuntimePhase::HydratingHistory,
         Some("user-1"),
@@ -919,7 +919,7 @@ fn canonical_user_item_preserves_tinyos_references() {
                 "references": [{
                     "kind": "reference",
                     "title": "src/main.ts · L2",
-                    "type": "tinyos.file",
+                    "referenceKind": "file",
                     "sourcePath": "src/main.ts",
                     "sourceLine": 2,
                     "sourceText": "let value = 1;"
@@ -927,12 +927,12 @@ fn canonical_user_item_preserves_tinyos_references() {
             }
         }),
     );
-    let snapshot = project_timeline_snapshot("session-1", "turn-tinyos-reference", &[event])
+    let snapshot = project_timeline_snapshot("session-1", "turn-input-reference", &[event])
         .expect("user reference should project");
     let data = serde_json::to_value(&snapshot.items[0].data)
         .expect("canonical user data should serialize");
 
-    assert_eq!(data["references"][0]["type"], "tinyos.file");
+    assert_eq!(data["references"][0]["referenceKind"], "file");
     assert_eq!(data["references"][0]["sourcePath"], "src/main.ts");
 }
 

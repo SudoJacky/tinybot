@@ -30,8 +30,7 @@ unsupported-image composer message while model IDs and numeric limits stay
 language-neutral.
 Language-picker option names and descriptions use each target language's own
 copy (endonyms) instead of following the currently active interface language.
-The retired TinyOS application namespace is intentionally absent. Sidecar copy
-lives under the owning `chat` route namespace, including Terminal shell
+Sidecar copy lives under the owning `chat` route namespace, including Terminal shell
 selection, process state, availability, user-only ownership labels, and
 Artifact file-preview boundary, binary, truncation, and failure states.
 The Performance Trace route, diagnostic-mode controls, local-export status, and

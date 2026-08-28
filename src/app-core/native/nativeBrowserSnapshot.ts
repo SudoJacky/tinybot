@@ -1,11 +1,11 @@
-type TinyOsProvenance = {
+type NativeBrowserSnapshotProvenance = {
   kind: "native_query" | "real_capture";
   observedAt?: string;
   revision?: number | string;
   sourceId: string;
 };
 
-type TinyOsProcessState =
+type NativeBrowserProcessState =
   | "queued"
   | "running"
   | "waiting_for_user"
@@ -15,14 +15,14 @@ type TinyOsProcessState =
   | "failed"
   | "cancelled";
 
-export type TinyOsBrowserNavigationEntryV1 = {
+export type NativeBrowserNavigationEntryV1 = {
   captureId?: string;
   observedAt?: string;
   title?: string;
   url: string;
 };
 
-export type TinyOsBrowserCaptureV1 = {
+export type NativeBrowserCaptureV1 = {
   captureId: string;
   dataUrl?: string;
   deviceScale?: number;
@@ -34,13 +34,13 @@ export type TinyOsBrowserCaptureV1 = {
   viewportWidth?: number;
 };
 
-export type TinyOsBrowserTabV1 = {
+export type NativeBrowserTabV1 = {
   activeHistoryIndex: number;
-  captures: TinyOsBrowserCaptureV1[];
+  captures: NativeBrowserCaptureV1[];
   canGoBack?: boolean;
   canGoForward?: boolean;
   currentCaptureId?: string;
-  history: TinyOsBrowserNavigationEntryV1[];
+  history: NativeBrowserNavigationEntryV1[];
   lifecycle?: "creating" | "ready" | "loading" | "closing" | "closed" | "crashed";
   rendererLifecycle?: "starting" | "running" | "failed" | "restarting" | "stopped";
   loading: boolean;
@@ -70,7 +70,7 @@ export type TinyOsBrowserTabV1 = {
   url: string;
 };
 
-export type TinyOsNativeBrowserSession = {
+export type NativeBrowserSession = {
   activeTabId: string;
   browserSessionId: string;
   contract: "browser_session_v1";
@@ -91,7 +91,7 @@ export type TinyOsNativeBrowserSession = {
   runtimeKind?: string;
   runtimeVersion?: string;
   sessionId: string;
-  state: TinyOsProcessState;
+  state: NativeBrowserProcessState;
   control?: {
     activeCommandId?: string;
     controlEpoch: number;
@@ -112,17 +112,17 @@ export type TinyOsNativeBrowserSession = {
     safeUrl: string;
     sourceTabId: string;
   };
-  tabs: TinyOsBrowserTabV1[];
+  tabs: NativeBrowserTabV1[];
 };
 
-export type TinyOsNativeSnapshotData = TinyOsNativeBrowserSession;
+export type NativeBrowserSnapshotData = NativeBrowserSession;
 
-export type TinyOsNativeSnapshot<T extends TinyOsNativeSnapshotData = TinyOsNativeSnapshotData> = {
+export type NativeBrowserSnapshot<T extends NativeBrowserSnapshotData = NativeBrowserSnapshotData> = {
   data: T;
   observedAt: string;
-  provenance: TinyOsProvenance;
+  provenance: NativeBrowserSnapshotProvenance;
   revision: number | string;
-  schemaVersion: "tinybot.tinyos_native_snapshot.v1";
+  schemaVersion: "tinybot.browser_snapshot.v1";
   sourceId: string;
 };
 
@@ -132,21 +132,21 @@ type NativeSnapshotMetadata = {
   sourceId: string;
 };
 
-export function createTinyOsBrowserSessionSnapshot(
-  data: TinyOsNativeBrowserSession,
+export function createNativeBrowserSessionSnapshot(
+  data: NativeBrowserSession,
   metadata: NativeSnapshotMetadata,
-): TinyOsNativeSnapshot<TinyOsNativeBrowserSession> {
+): NativeBrowserSnapshot<NativeBrowserSession> {
   if (data.contract !== "browser_session_v1") {
-    throw new Error("TinyOS browser session uses an unsupported contract.");
+    throw new Error("Native browser session uses an unsupported contract.");
   }
   const tabs = data.tabs.map(normalizeBrowserTab);
-  if (!tabs.length) throw new Error("TinyOS browser session requires at least one tab.");
-  assertUnique(tabs.map(({ tabId }) => tabId), "TinyOS browser tab id");
+  if (!tabs.length) throw new Error("Native browser session requires at least one tab.");
+  assertUnique(tabs.map(({ tabId }) => tabId), "Native browser tab id");
   const activeTabId = requiredText(data.activeTabId, "Active browser tab id");
   if (!tabs.some(({ tabId }) => tabId === activeTabId)) {
     throw new Error(`Active browser tab ${activeTabId} is not present in the session snapshot.`);
   }
-  return createTinyOsNativeSnapshot({
+  return createNativeBrowserSnapshot({
     ...data,
     activeTabId,
     browserSessionId: requiredText(data.browserSessionId, "Browser session id"),
@@ -156,7 +156,7 @@ export function createTinyOsBrowserSessionSnapshot(
   }, metadata, "native_query");
 }
 
-function normalizeBrowserTab(tab: TinyOsBrowserTabV1): TinyOsBrowserTabV1 {
+function normalizeBrowserTab(tab: NativeBrowserTabV1): NativeBrowserTabV1 {
   const tabId = requiredText(tab.tabId, "Browser tab id");
   const history = tab.history.map((entry) => ({
     ...entry,
@@ -195,11 +195,11 @@ function assertUnique(values: string[], label: string): void {
   if (new Set(values).size !== values.length) throw new Error(`${label}s must be unique.`);
 }
 
-function createTinyOsNativeSnapshot<T extends TinyOsNativeSnapshotData>(
+function createNativeBrowserSnapshot<T extends NativeBrowserSnapshotData>(
   data: T,
   metadata: NativeSnapshotMetadata,
-  provenanceKind: Extract<TinyOsProvenance["kind"], "native_query" | "real_capture">,
-): TinyOsNativeSnapshot<T> {
+  provenanceKind: Extract<NativeBrowserSnapshotProvenance["kind"], "native_query" | "real_capture">,
+): NativeBrowserSnapshot<T> {
   const sourceId = requiredText(metadata.sourceId, "Native snapshot source id");
   const observedAt = requiredObservationTime(metadata.observedAt);
   const revision = requiredRevision(metadata.revision);
@@ -213,7 +213,7 @@ function createTinyOsNativeSnapshot<T extends TinyOsNativeSnapshotData>(
       sourceId,
     },
     revision,
-    schemaVersion: "tinybot.tinyos_native_snapshot.v1",
+    schemaVersion: "tinybot.browser_snapshot.v1",
     sourceId,
   };
 }

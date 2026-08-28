@@ -28,21 +28,21 @@ describe("DeferredSurface", () => {
     const report = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const load = vi.fn()
       .mockRejectedValueOnce(error)
-      .mockResolvedValueOnce({ default: () => <h1>TinyOS ready</h1> });
+      .mockResolvedValueOnce({ default: () => <h1>Tools ready</h1> });
     const user = userEvent.setup();
 
-    render(<DeferredSurface load={load} name="TinyOS" surfaceProps={{}} />);
+    render(<DeferredSurface load={load} name="Tools" surfaceProps={{}} />);
 
     expect((await screen.findByRole("alert")).textContent).toContain("chunk unavailable");
     expect(report).toHaveBeenCalledWith("[tinybot-deferred-surface]", expect.objectContaining({
       attempt: 1,
       error,
-      name: "TinyOS",
+      name: "Tools",
     }));
 
-    await user.click(screen.getByRole("button", { name: "Retry loading TinyOS" }));
+    await user.click(screen.getByRole("button", { name: "Retry loading Tools" }));
 
-    expect((await screen.findByRole("heading", { name: "TinyOS ready" }))).toBeTruthy();
+    expect((await screen.findByRole("heading", { name: "Tools ready" }))).toBeTruthy();
     expect(load).toHaveBeenCalledTimes(2);
   });
 });

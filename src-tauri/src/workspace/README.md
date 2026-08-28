@@ -9,5 +9,4 @@ All filesystem operations must remain inside the configured workspace root.
 Bootstrap reads report missing allowlisted files separately, while inspection
 or read failures remain explicit errors rather than being treated as absence.
 Agent and Worker callers use the shared capability-checked write, delete, and
-patch operations. The retired TinyOS-specific revision-guarded mutation wrapper
-is no longer a separate workspace API.
+patch operations.

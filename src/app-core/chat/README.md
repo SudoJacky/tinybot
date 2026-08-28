@@ -1,12 +1,12 @@
 # Chat Application Core
-<!-- tinybot-module-fingerprint: sha256:27d8472b4181238bb1cfa3c6a8a3b1a9052a5202aa03cdbcb98922300e4b9a70 -->
+<!-- tinybot-module-fingerprint: sha256:3be1dd344027ad744dc48192b9e596f238156a63e1fa8601d683893e01d2140a -->
 
-`chat` contains framework-independent chat and TinyOS contracts, command
+`chat` contains framework-independent chat and Thread contracts, command
 construction, canonical timeline validation, UI projection, input state, and
 desktop session coordination.
 
-Persisted input references distinguish ordinary `tinyos.file` attachments from
-managed `tinyos.image` attachments. Image references preserve their local path,
+Persisted input references use `referenceKind` to distinguish ordinary file
+attachments, managed images, referenced Threads, and browser evidence. Image references preserve their local path,
 MIME type, byte size, and content hash through canonical timeline projection;
 they never store an encoded payload.
 

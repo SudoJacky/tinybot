@@ -1,6 +1,6 @@
 import type { AgentInputReference } from "./agentInputReference";
 import type { ReasoningEffort } from "./reasoningEffort";
-import type { TinyOsCommand, TinyOsCommandSource } from "./tinyOsCommand";
+import type { ThreadCommand, ThreadCommandSource } from "./threadCommand";
 
 export type DesktopChatInput = {
   text: string;
@@ -17,7 +17,7 @@ export type DesktopTurnSubmitCommand = {
   commandId: string;
   issuedAt: string;
   kind: "turn.submit";
-  source: TinyOsCommandSource;
+  source: ThreadCommandSource;
   target: { sessionId: string };
   input: DesktopChatInput;
 };
@@ -27,7 +27,7 @@ export type DesktopStopCommand = {
   commandId: string;
   issuedAt: string;
   kind: "agent.stop";
-  source: TinyOsCommandSource;
+  source: ThreadCommandSource;
   target: { sessionId: string };
 };
 
@@ -36,18 +36,18 @@ export type DesktopCompactCommand = {
   commandId: string;
   issuedAt: string;
   kind: "context.compact";
-  source: TinyOsCommandSource;
+  source: ThreadCommandSource;
   target: { sessionId: string };
 };
 
-export type DesktopCommand = DesktopTurnSubmitCommand | DesktopStopCommand | DesktopCompactCommand | TinyOsCommand;
+export type DesktopCommand = DesktopTurnSubmitCommand | DesktopStopCommand | DesktopCompactCommand | ThreadCommand;
 
 export function createDesktopTurnSubmitCommand(input: {
   commandId?: string;
   issuedAt?: string;
   message: DesktopChatInput;
   sessionId: string;
-  source: TinyOsCommandSource;
+  source: ThreadCommandSource;
 }): DesktopTurnSubmitCommand {
   return {
     schemaVersion: "tinybot.command.v1",
@@ -64,7 +64,7 @@ export function createDesktopStopCommand(input: {
   commandId?: string;
   issuedAt?: string;
   sessionId: string;
-  source: TinyOsCommandSource;
+  source: ThreadCommandSource;
 }): DesktopStopCommand {
   return {
     schemaVersion: "tinybot.command.v1",
@@ -80,7 +80,7 @@ export function createDesktopCompactCommand(input: {
   commandId?: string;
   issuedAt?: string;
   sessionId: string;
-  source: TinyOsCommandSource;
+  source: ThreadCommandSource;
 }): DesktopCompactCommand {
   return {
     schemaVersion: "tinybot.command.v1",

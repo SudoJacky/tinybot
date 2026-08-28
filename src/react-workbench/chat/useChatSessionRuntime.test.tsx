@@ -4,7 +4,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
-import { createTinyOsBrowserSessionSnapshot } from "../../app-core/chat/tinyOsNativeSnapshot";
+import { createNativeBrowserSessionSnapshot } from "../../app-core/native/nativeBrowserSnapshot";
 import type { ChatEvent } from "../services";
 import {
   useChatSessionRuntime,
@@ -222,7 +222,7 @@ function runningTimeline(sessionId: string, turnId: string): ChatTimelineSnapsho
 }
 
 function nativeBrowserSnapshot(revision: number, surfaceLifecycle: "hidden" | "visible") {
-  return createTinyOsBrowserSessionSnapshot({
+  return createNativeBrowserSessionSnapshot({
     activeTabId: "browser-tab-1",
     browserSessionId: "browser-session-1",
     contract: "browser_session_v1",

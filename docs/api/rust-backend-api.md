@@ -3,14 +3,13 @@
 src-tauri/src/desktop/bootstrap.rs
 src/app-core/native/desktopNativeAgentGraphRuntime.ts
 src/app-core/native/desktopNativeConfig.ts
-src/app-core/native/desktopNativeHostCommand.ts
 src/app-core/native/desktopNativeTerminal.ts
 src/app-core/native/desktopNativeThreads.ts
 src/app-core/native/desktopNativeUpdate.ts
 src/app-core/native/desktopNativeWebui.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:af4c966fb04fad3a47389ac0ecbfcbe0bac8663bcfd5fe0b50ac62761ae59f13 -->
+<!-- tinybot-doc-fingerprint: sha256:9c252df32fc0fc6d8753e5c91b97b00a31fcab89b11c7dcf63bd89f46cb1f811 -->
 
 This document describes the API surfaces exposed by the Rust/Tauri backend in `src-tauri`.
 It is intended for frontend callers and integrators who need command names, invocation
@@ -132,8 +131,7 @@ Prefer these wrappers instead of direct command strings:
 | `createDesktopNativePetQuickChatHost` / quick-chat clients | `src/app-core/native/desktopNativePetQuickChat.ts` | Validated desktop-pet draft-and-attachment handoff, panel presentation, dismissal, and explicit Thread handoff to `main` through scoped Tauri events |
 | `createDesktopNativePerformanceTraceApi` | `src/app-core/native/desktopNativePerformanceTrace.ts` | Process-local performance snapshots, native JSON save, and diagnostic-bundle export |
 | `createDesktopNativeUpdateClient` | `src/app-core/native/desktopNativeUpdate.ts` | Desktop update status, check, install, and status events |
-| `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread, Turn timeline, and effective-capability commands |
-| `createDesktopNativeHostCommandApi` | `src/app-core/native/desktopNativeHostCommand.ts` | Transitional Chat `operation.retry` dispatch |
+| `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread and Turn timeline, effective-capability queries, and typed operation retry |
 | `createDesktopNativeTerminalApi` | `src/app-core/native/desktopNativeTerminal.ts` | User-only Sidecar terminal lifecycle and PTY input/output |
 | `createDesktopNativeWorkspaceApi` | `src/app-core/native/desktopNativeWorkspace.ts` | Default-workspace browsing plus Thread-scoped file chunks for contextual Artifact previews |
 | `createDesktopNativeWebuiApi` | `src/app-core/native/desktopNativeWebui.ts` | `worker_webui_route` |

@@ -11,7 +11,7 @@ import type { AppServices, PersonalizationInstructionsSaveInput, SessionSummary 
 import type { ReactChatMessage } from "../chat/messageActions";
 import { CHAT_SESSION_TABS_STORAGE_KEY } from "../chat/sessionTabWorkspace";
 import { timelineFromReactMessages } from "../chat/test/timelineFixtures";
-import { unavailableTinyOsEffectiveCapabilities } from "../../app-core/chat/tinyOsCapabilities";
+import { unavailableThreadEffectiveCapabilities } from "../../app-core/chat/threadCapabilities";
 import type { DesktopUpdateClient, DesktopUpdateSnapshot } from "../../app-core/native/desktopNativeUpdate";
 import type { DesktopPetHost, DesktopPetPreferencesPatch } from "../../app-core/native/desktopNativePet";
 import type { DesktopPetQuickChatHost, DesktopPetQuickChatHostEvent } from "../../app-core/native/desktopNativePetQuickChat";
@@ -84,8 +84,8 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
     },
     chatStore: {
       load: vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, options.messages ?? [])),
-      loadTinyOsCapabilities: vi.fn(async (sessionId) => {
-        const capabilities = unavailableTinyOsEffectiveCapabilities(sessionId, "test", "Not supported in this fixture.");
+      loadEffectiveCapabilities: vi.fn(async (sessionId) => {
+        const capabilities = unavailableThreadEffectiveCapabilities(sessionId, "test", "Not supported in this fixture.");
         capabilities.capabilities.agent.cancel = { available: true };
         return capabilities;
       }),

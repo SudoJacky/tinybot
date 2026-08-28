@@ -30,7 +30,7 @@ const NATIVE_EVENT_NAMES = [
   toDesktopNativeTauriEventName("agent.timeline.patch"),
   toDesktopNativeTauriEventName("agent.awaiting_form"),
   toDesktopNativeTauriEventName("agent.hook.decision"),
-  "tinyos:browser-snapshot",
+  "browser:snapshot",
 ] as const;
 const MAX_LOGGED_ERROR_LENGTH = 500;
 

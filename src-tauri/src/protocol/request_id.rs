@@ -25,10 +25,6 @@ impl WorkerRequestCorrelation {
     pub fn trace_id(&self, prefix: &str) -> String {
         format!("trace-{prefix}-{}", self.suffix)
     }
-
-    pub fn suffix(&self) -> &str {
-        &self.suffix
-    }
 }
 
 #[cfg(test)]

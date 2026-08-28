@@ -77,5 +77,17 @@ describe("desktop native threads API", () => {
       command: "worker_submit_thread_form",
       args: { input: { threadId: "thread-1", formId: "form-1", values: {}, action: "submit" } },
     });
+    const retry = {
+      commandId: "command-retry-1",
+      source: { control: "error-recovery", surface: "chat" },
+      sourceItemId: "turn-failed:error",
+      sourceTurnId: "turn-failed",
+      targetTurnId: "turn-retry",
+      threadId: "thread-1",
+    };
+    await expect(api.retryOperation(retry)).resolves.toEqual({
+      command: "worker_retry_thread_operation",
+      args: { input: retry },
+    });
   });
 });
