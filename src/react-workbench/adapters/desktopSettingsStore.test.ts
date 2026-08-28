@@ -54,6 +54,24 @@ describe("desktop settings store", () => {
     expect(route).toHaveBeenCalledWith({ method: "GET", path: "/api/providers" });
   });
 
+  it("includes models when the provider API key is configured through the environment", async () => {
+    const store = createDesktopSettingsStore({
+      initialize: async () => undefined,
+      nativeConfig: { get: async () => config },
+      nativeWebui: {
+        route: async () => ({
+          providers: [
+            { id: "deepseek", displayName: "DeepSeek", api_key_configured: true },
+          ],
+        }),
+      },
+    });
+
+    await expect(store.loadChatModels!()).resolves.toEqual([
+      expect.objectContaining({ default: true, id: "deepseek-chat", providerId: "deepseek" }),
+    ]);
+  });
+
   it("excludes models from enabled providers that are not available", async () => {
     const get = vi.fn(async () => ({
       agents: { defaults: { activeProfile: "dashscope-default", model: "qwen-plus", provider: "dashscope" } },

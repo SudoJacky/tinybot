@@ -3,6 +3,7 @@ export interface DesktopProviderCatalogItem {
   displayName?: string;
   baseUrl?: string;
   supportsModelDiscovery?: boolean;
+  apiKeyConfigured?: boolean;
   status?: string;
   enabled?: boolean | null;
 }

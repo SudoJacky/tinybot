@@ -99,6 +99,9 @@ export function buildDesktopProviderCatalogItems(payload: unknown): DesktopProvi
     displayName: stringValue(pick(provider, "displayName", "display_name")),
     baseUrl: stringValue(pick(provider, "baseUrl", "base_url", "defaultApiBase", "default_api_base")),
     supportsModelDiscovery: pick(provider, "supportsModelDiscovery", "supports_model_discovery") !== false,
+    ...(boolValue(pick(provider, "apiKeyConfigured", "api_key_configured"))
+      ? { apiKeyConfigured: true }
+      : {}),
     status: stringValue(provider.status),
     enabled: typeof provider.enabled === "boolean" ? provider.enabled : null,
   }));

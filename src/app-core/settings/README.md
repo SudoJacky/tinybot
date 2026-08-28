@@ -1,5 +1,5 @@
 # Settings Application Core
-<!-- tinybot-module-fingerprint: sha256:50f340dcdee24868b3107cd2203899da6274da7102e88f5a74610b8fa99f79a6 -->
+<!-- tinybot-module-fingerprint: sha256:6520e7cf335023d2b930d84e007a66ca5eb5c7bd09786ac00263f9d0973b6186 -->
 
 `settings` owns framework-independent settings contracts, metadata, value
 semantics, validation, pane models, and persistence patch construction.
@@ -21,8 +21,9 @@ effort for endpoints that reject it.
 
 Built-in provider presets include Z.ai with a static GLM model list and a
 Chat-Completions-only protocol choice. The dynamic desktop catalog preserves
-backend default API bases and model-discovery support so both settings entry
-points present the same connection contract.
+backend default API bases, model-discovery support, and the non-secret
+API-key-configured signal so both settings entry points present the same
+connection contract without exposing credentials.
 
 Default-LLM patches treat `agents.defaults.activeProfile` and
 `agents.defaults.model` as one pair. Provider activation builders require a

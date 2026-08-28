@@ -335,7 +335,10 @@ function normalizeChatModelOptions(
   const defaultProvider = settings.providers.find((provider) => provider.id === defaultProviderId);
   const providers = settings.providers.filter((provider) => provider.enabled && (
     provider.status === "available"
-    || providerCatalog.some((item) => item.id === provider.id && ["available", "ready"].includes(stringValue(item.status).trim().toLowerCase()))
+    || providerCatalog.some((item) => item.id === provider.id && (
+      item.apiKeyConfigured === true
+      || ["available", "ready"].includes(stringValue(item.status).trim().toLowerCase())
+    ))
   ));
   const options = new Map<string, ChatModelOption>();
   for (const provider of providers) {
