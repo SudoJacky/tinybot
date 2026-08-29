@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:c54caa51007c6636a0d255f0cb31eb78374b0289432626cd014e0f67831a0fd4 -->
+<!-- tinybot-module-fingerprint: sha256:ae579eedd000a57d9c339b8a339e47205a9a9d0980165fc723dce02a43c398f3 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -19,7 +19,9 @@ For desktop setup and launch behavior, see [the desktop guide](../docs/desktop.m
   local diagnostic ZIP export; `src/desktop/pet.rs` creates the Windows-only
   transparent desktop-pet window and its adjacent quick-chat panel without
   making either an owned child of `main`; `src/desktop/pet_file_drop.rs` owns
-  the WebView2 local-file bridge used by the pet.
+  the WebView2 local-file bridge used by the pet; `src/desktop/tray.rs` owns
+  system-tray residency, main-window restoration, and explicit application
+  exit commands.
 
 Sidecar terminals with no explicit Thread working directory resolve through
 the same configured native backend workspace used by ordinary Agent turns.

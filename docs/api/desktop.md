@@ -5,6 +5,7 @@ src-tauri/src/desktop/pet.rs
 src-tauri/src/desktop/diagnostics.rs
 src-tauri/src/desktop/files.rs
 src-tauri/src/desktop/logging.rs
+src-tauri/src/desktop/tray.rs
 src-tauri/src/desktop/update.rs
 src-tauri/src/desktop_terminal.rs
 src-tauri/src/desktop_commands/config.rs
@@ -15,7 +16,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:78583a7e635ccab2aff4f029aa3b934e5d96b2f393fb53651f6ee9ed48da65c6 -->
+<!-- tinybot-doc-fingerprint: sha256:b9e26a3d60fefaa4b129d2aa2efe9e5729333db4ad56a1fc6549ce12035951fc -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -25,9 +26,10 @@ policy for this reference set.
 ## Native Runtime Lifecycle
 
 The Rust backend is an in-process Native Runtime. Tauri setup starts it before the renderer uses
-typed commands, and window close or updater installation runs its bounded shutdown path. There are
-no renderer commands for managing a separate backend process, and the runtime cannot be configured
-to remain alive after the App exits.
+typed commands. Closing `main` hides the window in the system tray and keeps the Native Runtime
+active; explicit tray exit or updater installation runs its bounded shutdown path. There are no
+renderer commands for managing a separate backend process, and the runtime cannot be configured to
+remain alive after the App exits.
 
 The internal lifecycle state records native-runtime recovery and cleanup. Startup pauses new agent
 continuations while the process-local Thread index is rebuilt from canonical Rollouts and checked for
@@ -80,8 +82,13 @@ coordinates.
 
 Closing `desktop-pet` prevents destruction, hides the window, and notifies
 `main` to persist `visible: false`; closing `desktop-pet-chat` hides it without
-discarding canonical Thread state. Closing `main` performs the normal bounded
-runtime cleanup before destroying both auxiliary windows. The pet's
+discarding canonical Thread state. Closing `main` prevents destruction and
+hides only the main window, leaving the browser, Sidecar terminal, Agent
+runtime, and pet available. A left click on the Tinybot tray icon or the
+“显示 Tinybot” tray command shows, restores, and focuses `main`. The
+“退出 Tinybot” command is guarded against duplicate requests, records each
+cleanup boundary, shuts down the browser, terminal, and Agent runtime, and
+then requests process exit. The pet's
 Windows-only capability grants only event, position, scale-factor, native-drag,
 and the no-op `desktop_pet_drop_signal` used to authenticate the WebView2
 additional-object message. The command does not accept paths or file bytes and

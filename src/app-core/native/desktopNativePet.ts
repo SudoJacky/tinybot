@@ -50,6 +50,7 @@ export type DesktopPetControlPatch = Pick<DesktopPetPreferencesPatch, "size" | "
 
 export type DesktopPetHost = {
   sync(snapshot: DesktopPetWindowSnapshot): Promise<void>;
+  resetPosition(snapshot: DesktopPetWindowSnapshot): Promise<void>;
   listen(listener: (patch: DesktopPetPreferencesPatch) => void): Promise<() => void>;
 };
 
@@ -76,11 +77,24 @@ class TauriDesktopPetHost implements DesktopPetHost {
   private applyQueue: Promise<void> = Promise.resolve();
   private latestSnapshot: DesktopPetWindowSnapshot | null = null;
   private moveTimer: ReturnType<typeof setTimeout> | null = null;
+  private positionResetRequested = false;
   private ready = false;
   private listening = false;
 
   async sync(snapshot: DesktopPetWindowSnapshot): Promise<void> {
     this.latestSnapshot = snapshot;
+    if (!this.ready && snapshot.preferences.visible) {
+      return;
+    }
+    await this.scheduleApply();
+  }
+
+  async resetPosition(snapshot: DesktopPetWindowSnapshot): Promise<void> {
+    this.latestSnapshot = {
+      ...snapshot,
+      preferences: { ...snapshot.preferences, position: null },
+    };
+    this.positionResetRequested = true;
     if (!this.ready && snapshot.preferences.visible) {
       return;
     }
@@ -159,7 +173,7 @@ class TauriDesktopPetHost implements DesktopPetHost {
 
     const previous = this.appliedSnapshot;
     const sizeChanged = previous?.preferences.size !== snapshot.preferences.size;
-    const positionChanged = !samePosition(
+    const positionChanged = this.positionResetRequested || !samePosition(
       previous?.preferences.position ?? null,
       snapshot.preferences.position,
     );
@@ -174,6 +188,7 @@ class TauriDesktopPetHost implements DesktopPetHost {
       await petWindow.hide();
     }
     this.appliedSnapshot = snapshot;
+    this.positionResetRequested = false;
   }
 }
 

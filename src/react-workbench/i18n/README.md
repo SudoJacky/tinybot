@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:f19fa333e6bdb3c9d7234c3fe9198426faa6080f62a8f68a0598bca3639be594 -->
+<!-- tinybot-module-fingerprint: sha256:d22fb68d6ca49e44682baf7f5a3760d04e3f86aabc4565f9985edc21f1c522a9 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
@@ -54,6 +54,11 @@ and file-only prompts reuse the canonical Chat composer bundle instead of a
 pet-specific unsupported state. Draft text, filenames, Thread IDs, model
 identifiers, and the `desktop-pet` entry-point value remain untranslated
 protocol or user content.
+Desktop-pet appearance names and preview descriptions live under the Settings
+appearance bundle; persisted `classic` and `dimensional` values remain
+language-neutral preference identifiers. Visibility, size, and position-reset
+copy lives beside those previews while stored booleans, size IDs, and the null
+position remain language-neutral requests.
 
 Session-sidebar whole-row keyboard instructions and live-region move
 announcements are localized here. Persisted container and item IDs remain

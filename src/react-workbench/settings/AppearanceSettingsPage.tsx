@@ -2,6 +2,11 @@ import type { TFunction } from "i18next";
 import { Monitor, Moon, RotateCcw, Sun, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import {
+  DESKTOP_PET_APPEARANCES,
+  type DesktopPetPreferences,
+  type DesktopPetSize,
+} from "../../app-core/desktop-pet/desktopPetState";
+import {
   CODE_FONT_STACKS,
   UI_FONT_STACKS,
   type AppearanceTheme,
@@ -10,6 +15,7 @@ import {
   type ThemeMode,
   type UiFontId,
 } from "../../app-core/settings/appAppearance";
+import { TinybotMascot } from "../chat/TinybotMascot";
 import { useAppAppearance } from "./AppAppearanceContext";
 import { SettingsChoiceList } from "./SettingsChoiceList";
 
@@ -19,7 +25,17 @@ const THEME_MODE_OPTIONS: Array<{ mode: ThemeMode; icon: LucideIcon }> = [
   { mode: "dark", icon: Moon },
 ];
 
-export function AppearanceSettingsPage() {
+const DESKTOP_PET_SIZE_OPTIONS: DesktopPetSize[] = ["small", "medium", "large"];
+
+export function AppearanceSettingsPage({
+  desktopPetPreferences,
+  onDesktopPetPreferencesChange,
+  onResetDesktopPetPosition,
+}: {
+  desktopPetPreferences: DesktopPetPreferences;
+  onDesktopPetPreferencesChange: (preferences: DesktopPetPreferences) => void;
+  onResetDesktopPetPosition: () => void;
+}) {
   const { preferences, resetTheme, resolvedTheme, setThemeMode, updateTheme } = useAppAppearance();
   const { t } = useTranslation("settings");
   return (
@@ -54,6 +70,91 @@ export function AppearanceSettingsPage() {
               </span>
               <strong>{t(`appearance.modes.${mode}`)}</strong>
               <small>{t(`appearance.modeDescriptions.${mode}`)}</small>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <fieldset className="react-appearance-settings__modes">
+        <legend>{t("appearance.petAppearanceTitle")}</legend>
+        <p>{t("appearance.petSettingsDescription")}</p>
+        <div className="react-pet-settings__controls">
+          <label className="react-appearance-row react-appearance-row--toggle">
+            <span>
+              <strong>{t("appearance.petVisible")}</strong>
+              <small>{t("appearance.petVisibleDescription")}</small>
+            </span>
+            <input
+              aria-label={t("appearance.petVisible")}
+              checked={desktopPetPreferences.visible}
+              onChange={(event) => onDesktopPetPreferencesChange({
+                ...desktopPetPreferences,
+                visible: event.target.checked,
+              })}
+              type="checkbox"
+            />
+          </label>
+          <SettingsChoiceList
+            ariaLabel={t("appearance.petSize")}
+            description={t("appearance.petSizeDescription")}
+            label={t("appearance.petSize")}
+            onChange={(size) => onDesktopPetPreferencesChange({
+              ...desktopPetPreferences,
+              size: size as DesktopPetSize,
+            })}
+            options={DESKTOP_PET_SIZE_OPTIONS.map((size) => ({
+              label: t(`appearance.petSizes.${size}`),
+              value: size,
+            }))}
+            optionsAriaLabel={t("appearance.petSizeOptionsLabel")}
+            value={desktopPetPreferences.size}
+          />
+          <div className="react-pet-settings__action-row">
+            <span>
+              <strong>{t("appearance.petPosition")}</strong>
+              <small>{t("appearance.petPositionDescription")}</small>
+            </span>
+            <button data-press-feedback="true" onClick={onResetDesktopPetPosition} type="button">
+              <RotateCcw aria-hidden="true" size={14} />
+              {t("appearance.resetPetPosition")}
+            </button>
+          </div>
+        </div>
+        <div className="react-pet-settings__style-copy">
+          <strong>{t("appearance.petStyle")}</strong>
+          <p>{t("appearance.petAppearanceDescription")}</p>
+        </div>
+        <div
+          aria-label={t("appearance.petAppearanceOptionsLabel")}
+          className="react-pet-appearance-grid"
+          role="radiogroup"
+        >
+          {DESKTOP_PET_APPEARANCES.map((appearance) => (
+            <label
+              className="react-theme-mode-card react-pet-appearance-card"
+              data-selected={desktopPetPreferences.appearance === appearance ? "true" : "false"}
+              key={appearance}
+            >
+              <input
+                aria-label={t(`appearance.petAppearances.${appearance}`)}
+                checked={desktopPetPreferences.appearance === appearance}
+                name="tinybot-pet-appearance"
+                onChange={() => onDesktopPetPreferencesChange({
+                  ...desktopPetPreferences,
+                  appearance,
+                })}
+                type="radio"
+                value={appearance}
+              />
+              <span className="react-pet-appearance-card__preview" aria-hidden="true">
+                <TinybotMascot
+                  appearance={appearance}
+                  label={t(`appearance.petAppearances.${appearance}`)}
+                  mood="calm"
+                />
+              </span>
+              <strong>{t(`appearance.petAppearances.${appearance}`)}</strong>
+              <small>{t(`appearance.petAppearanceDescriptions.${appearance}`)}</small>
             </label>
           ))}
         </div>

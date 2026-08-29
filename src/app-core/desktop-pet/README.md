@@ -1,13 +1,17 @@
 # Desktop Pet State
-<!-- tinybot-module-fingerprint: sha256:5ad53936178ab38ab2c0ad62d9cd8c3c91072a09ecef2a9d26c94f0eae477fc0 -->
+<!-- tinybot-module-fingerprint: sha256:085026479930fe0c663e71d70fcea86a51120b37fa04403b89f2e67248f1d0b9 -->
 
 `desktop-pet` owns the framework-independent pet preferences and Windows
-window geometry. A persisted position is the pet window center in physical
+window geometry and appearance choice. A persisted position is the pet window center in physical
 desktop pixels, so negative coordinates remain valid for monitors placed to
-the left of the primary display. Storage version `v2` marks that coordinate
-contract. When `v1` viewport-relative preferences are encountered, visibility
-and size migrate while position is discarded so the native host can choose a
-safe physical-desktop default.
+the left of the primary display. Storage version `v3` adds the `classic` and
+`dimensional` appearance contract. Version `v2` physical coordinates migrate
+unchanged and receive the dimensional default. When `v1` viewport-relative
+preferences are encountered, visibility and size migrate while position is
+discarded so the native host can choose a safe physical-desktop default.
+After a legacy value is parsed successfully, Tinybot writes the migrated `v3`
+record and removes both legacy storage keys. Invalid legacy JSON is retained so
+its existing restore diagnostic remains actionable.
 
 `desktopPetWindowGeometry` converts that center to native top-left coordinates,
 keeps the full window inside the selected monitor work area, and chooses a

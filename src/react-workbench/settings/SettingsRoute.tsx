@@ -3,6 +3,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { AppWindow, Bot, Cable, ChevronRight, Cloud, Keyboard, Radio, ShieldCheck, SunMoon, UserRound, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import "./SettingsRoute.css";
+import type { DesktopPetPreferences } from "../../app-core/desktop-pet/desktopPetState";
 import type { AppServices, SettingsStore } from "../services";
 import { AgentDefaultsSettingsPage } from "./AgentDefaultsSettingsPage";
 import { AppSettingsPage } from "./AppSettingsPage";
@@ -13,7 +14,17 @@ import { HooksSettingsPage } from "./HooksSettingsPage";
 import { PersonalizationSettingsPage } from "./PersonalizationSettingsPage";
 import { ProviderModelsSettingsPage } from "./ProviderModelsSettingsPage";
 
-export default function SettingsRoute({ services }: { services: AppServices }) {
+export default function SettingsRoute({
+  desktopPetPreferences,
+  onDesktopPetPreferencesChange,
+  onResetDesktopPetPosition,
+  services,
+}: {
+  desktopPetPreferences: DesktopPetPreferences;
+  onDesktopPetPreferencesChange: (preferences: DesktopPetPreferences) => void;
+  onResetDesktopPetPosition: () => void;
+  services: AppServices;
+}) {
   const { t: tCommon } = useTranslation("common");
   const { t } = useTranslation("settings");
   const [activeSettingsModuleId, setActiveSettingsModuleId] = useState<SettingsModuleId>("provider-models");
@@ -49,7 +60,11 @@ export default function SettingsRoute({ services }: { services: AppServices }) {
           ) : activeModuleId === "personalization" ? (
             <PersonalizationSettingsPage settingsStore={services.settingsStore} />
           ) : activeModuleId === "appearance" ? (
-            <AppearanceSettingsPage />
+            <AppearanceSettingsPage
+              desktopPetPreferences={desktopPetPreferences}
+              onDesktopPetPreferencesChange={onDesktopPetPreferencesChange}
+              onResetDesktopPetPosition={onResetDesktopPetPosition}
+            />
           ) : activeModuleId === "keyboard-shortcuts" ? (
             <KeyboardShortcutsSettingsPage />
           ) : activeModuleId === "agent-defaults" ? (

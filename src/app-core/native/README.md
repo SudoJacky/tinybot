@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:32d806a475183b5b113c94c0bf5a621f5b4379924e011fc232513e02bcb7e5b4 -->
+<!-- tinybot-module-fingerprint: sha256:04df5fd47d03e46e83a5882af3deae17c83eded1e25ce9ffb714da3ad05f60ec -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -44,7 +44,9 @@ subset while leaving the pet webview without application-command access.
 `desktopNativePet` is the seam between the main renderer and the Windows-only
 `desktop-pet` webview. Its host synchronizes one state snapshot, owns the
 ready/probe handshake, native size and monitor placement, and settled move
-events. The lightweight pet renderer client exposes only state listening,
+events. Its explicit position-reset command always recalculates the safe
+primary-monitor placement, even when the persisted preference is already
+unset. The lightweight pet renderer client exposes only state listening,
 native window dragging, keyboard movement, and size or visibility requests.
 Neither side creates a second application service graph.
 

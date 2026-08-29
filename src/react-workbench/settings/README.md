@@ -1,11 +1,18 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:eb7e40f0299537d17450cde6157ebc0df27c64f9d6999cd05ce1185c5dba0937 -->
+<!-- tinybot-module-fingerprint: sha256:7729e706b7f7dbe1dd571a92c56e68c8c6241f03a96f238f1ea36c9f3134ed1f -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
 an optional desktop route together with `SettingsRoute.css`. The route's content
 row grows to its minimum content height so long forms retain the shared bottom
 inset instead of overflowing across it.
+
+The Appearance page owns the complete desktop-pet settings surface: visibility,
+three-step size, safe-position recovery, and classic or dimensional style. All
+controls write through the shell-owned desktop-pet callbacks, so the embedded
+fallback and independent native pet window stay synchronized. The pet itself
+retains compact resize and hide shortcuts, but the System menu does not expose a
+second configuration surface.
 
 Settings contracts, metadata, validation, value semantics, and persistence
 patches live in `app-core/settings`. Native reads and writes are exposed through

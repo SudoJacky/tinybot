@@ -1,5 +1,5 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:5588b96ed01479de93a7495733195f482ceabc78fb5f89d2e7efd075cbff5edc -->
+<!-- tinybot-module-fingerprint: sha256:176804eec05c11b245bd06b1de447bbd65ebca98bd174d85f0e526c2823d2402 -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
@@ -12,9 +12,13 @@ the Tauri command boundary.
 
 `bootstrap` also creates the Windows-only `desktop-pet` and
 `desktop-pet-chat` transparent webview windows through `pet`. Both remain
-independent from the main window and stay available while it is minimized. A
-pet close request hides the pet; a quick-chat close request hides only the
-panel. Both auxiliary windows own an explicit empty native menu and keep it
+independent from the main window and stay available while it is minimized or
+hidden in the system tray. Closing the main window hides it without stopping
+the browser, terminal, Agent runtime, or desktop pet. The tray restores and
+focuses the main window from a left click or the “显示 Tinybot” command; only
+“退出 Tinybot” starts the observable cleanup path and terminates the app. A pet
+close request hides the pet; a quick-chat close request hides only the panel.
+Both auxiliary windows own an explicit empty native menu and keep it
 hidden so later application-menu updates cannot attach menu labels or alter
 their transparent client area. The pet webview disables Tauri's native
 drag-drop handler so frontend HTML5 events continue to receive browser text and
@@ -23,8 +27,8 @@ additional-object bridge: it validates the Tauri invoke key, extracts local
 file paths, delegates to the shared attachment importer, and emits a bounded
 result back to the pet. `pet` depends only on its initialization and
 registration Interface.
-Closing the main window still shuts down the Sidecar terminal and native
-runtimes first, then destroys both auxiliary windows and the main window.
+Explicit tray exit shuts down the Sidecar browser, terminal, and native Agent
+runtimes before requesting process exit.
 
 Frontend-facing command handlers live separately in `desktop_commands/`.
 Bootstrap registers the Agent Graph definition store and linear Graph Run

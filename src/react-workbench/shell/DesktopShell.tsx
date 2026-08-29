@@ -90,8 +90,7 @@ type TopMenuCommandId =
   | "open-safe-mode"
   | "open-about"
   | "toggle-theme"
-  | "toggle-sidebar"
-  | "toggle-desktop-pet";
+  | "toggle-sidebar";
 
 type TopMenuCommand = {
   id: TopMenuCommandId;
@@ -134,7 +133,6 @@ function createTopMenuItems(
   t: TFunction<"common">,
   routeLabels: Record<AppRoute, string>,
   shortcuts: ShortcutPreferences,
-  desktopPetVisible: boolean,
 ): TopMenuItem[] {
   return [
   {
@@ -173,10 +171,6 @@ function createTopMenuItems(
     entries: [
       menuCommand({ id: "open-settings", label: routeLabels.settings, route: "settings", shortcut: shortcuts["open-settings"] ?? undefined }),
       menuCommand({ id: "open-whats-new", label: t("menu.whatsNew") }),
-      menuCommand({
-        id: "toggle-desktop-pet",
-        label: t(desktopPetVisible ? "menu.hideDesktopPet" : "menu.showDesktopPet"),
-      }),
       menuSeparator("system-observability-separator"),
       menuCommand({ id: "open-performance-trace", label: routeLabels.performanceTrace, route: "performanceTrace" }),
     ],
@@ -243,6 +237,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
   const [whatsNewOpenSignal, setWhatsNewOpenSignal] = useState(0);
   const [stopGenerationSessionId, setStopGenerationSessionId] = useState("");
   const [desktopPetMood, setDesktopPetMood] = useState<TinybotMascotMood>("calm");
+  const [desktopPetResetPositionSignal, setDesktopPetResetPositionSignal] = useState(0);
   const [desktopPetPreferences, setDesktopPetPreferences] = useState<DesktopPetPreferences>(
     () => readDesktopPetPreferences(window.localStorage),
   );
@@ -252,7 +247,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
   const [startChatInNewSession, setStartChatInNewSession] = useState(true);
   const stopGenerationSessionIdRef = useRef("");
   const frameControls = useMemo(() => windowControls ?? resolveWindowFrameControls(), [windowControls]);
-  const topMenuItems = createTopMenuItems(t, routeLabels, shortcuts, desktopPetPreferences.visible);
+  const topMenuItems = createTopMenuItems(t, routeLabels, shortcuts);
   const handleStartupSessionHydrated = useCallback(() => {
     setStartChatInNewSession(false);
   }, []);
@@ -269,6 +264,21 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
       return preferences;
     });
   }, []);
+
+  const resetDesktopPetPosition = useCallback(() => {
+    const preferences = { ...desktopPetPreferences, position: null };
+    updateDesktopPetPreferences(preferences);
+    setDesktopPetResetPositionSignal((current) => current + 1);
+    if (desktopPetHost) {
+      void desktopPetHost.resetPosition({
+        label: desktopPetLabel,
+        mood: desktopPetMood,
+        preferences,
+      }).catch((error) => {
+        console.error("[desktop-pet] Failed to reset the native pet position.", error);
+      });
+    }
+  }, [desktopPetHost, desktopPetLabel, desktopPetMood, desktopPetPreferences, updateDesktopPetPreferences]);
 
   useEffect(() => {
     if (!desktopPetHost) {
@@ -515,12 +525,6 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
       case "open-whats-new":
         setWhatsNewOpenSignal((current) => current + 1);
         return;
-      case "toggle-desktop-pet":
-        updateDesktopPetPreferences({
-          ...desktopPetPreferences,
-          visible: !desktopPetPreferences.visible,
-        });
-        return;
       default:
         return;
     }
@@ -734,6 +738,11 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
               onStartupSessionHydrated: handleStartupSessionHydrated,
               startInNewSession: startChatInNewSession,
             }}
+            desktopPet={{
+              onPreferencesChange: updateDesktopPetPreferences,
+              onResetPosition: resetDesktopPetPosition,
+              preferences: desktopPetPreferences,
+            }}
             route={route}
             services={services}
             onNavigate={navigateToRoute}
@@ -747,6 +756,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
           mood={desktopPetMood}
           onPreferencesChange={updateDesktopPetPreferences}
           preferences={desktopPetPreferences}
+          resetPositionSignal={desktopPetResetPositionSignal}
         />
       ) : null}
 
@@ -776,6 +786,7 @@ function sameDesktopPetPreferences(
   right: DesktopPetPreferences,
 ): boolean {
   return left.visible === right.visible
+    && left.appearance === right.appearance
     && left.size === right.size
     && sameDesktopPetPosition(left.position, right.position);
 }

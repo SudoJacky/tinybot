@@ -688,6 +688,114 @@
   gap: 12px;
 }
 
+.react-pet-appearance-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-width: 520px;
+}
+
+.react-pet-settings__controls {
+  display: grid;
+  overflow: visible;
+  margin-bottom: 12px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+  background: var(--color-panel);
+  padding: 0 14px;
+}
+
+.react-pet-settings__controls > .react-appearance-row,
+.react-pet-settings__controls > .react-settings-choice,
+.react-pet-settings__action-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
+  align-items: center;
+  min-height: 58px;
+  gap: 24px;
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.react-pet-settings__controls > :last-child {
+  border-bottom: 0;
+}
+
+.react-pet-settings__controls > .react-settings-choice > .react-settings-choice__label {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.react-pet-settings__controls > .react-settings-choice > .react-settings-choice-trigger {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.react-pet-settings__controls > .react-settings-choice > .react-settings-choice-popover {
+  right: 0;
+  left: auto;
+  width: min(300px, 100%);
+}
+
+.react-pet-settings__action-row > span,
+.react-pet-settings__style-copy {
+  display: grid;
+  gap: 3px;
+}
+
+.react-pet-settings__action-row strong,
+.react-pet-settings__style-copy > strong {
+  color: var(--color-body);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-pet-settings__action-row small,
+.react-pet-settings__style-copy > p {
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.react-pet-settings__action-row > button {
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  min-height: 36px;
+  gap: 7px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+  padding: 0 11px;
+  color: var(--color-body);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+  transition:
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    background-color var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-pet-settings__action-row > button:hover,
+.react-pet-settings__action-row > button:focus-visible {
+  border-color: color-mix(in srgb, var(--color-primary) 42%, var(--color-hairline));
+  background: var(--color-surface-soft);
+}
+
+.react-pet-settings__action-row > button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 52%, transparent);
+  outline-offset: 2px;
+}
+
+.react-pet-settings__style-copy {
+  margin: 2px 0 7px;
+}
+
+.react-pet-settings__style-copy > p {
+  margin: 0;
+}
+
 .react-theme-mode-card {
   position: relative;
   display: grid;
@@ -762,6 +870,22 @@
 .react-theme-mode-card__preview[data-preview="system"] {
   background: linear-gradient(90deg, #f5f5f4 0 50%, #2a2a28 50% 100%);
   color: #77736d;
+}
+
+.react-pet-appearance-card__preview {
+  display: grid;
+  place-items: center;
+  height: 92px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-ink) 10%, transparent);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--color-panel) 96%, white) 0 32%, transparent 66%),
+    color-mix(in srgb, var(--color-panel) 88%, var(--color-bg));
+}
+
+.react-pet-appearance-card__preview .react-tinybot-mascot {
+  --tinybot-mascot-size: 62px;
 }
 
 .react-theme-mode-card__chrome {
@@ -3329,7 +3453,9 @@
   }
 
   .react-appearance-row,
-  .react-appearance-theme__rows > .react-settings-choice {
+  .react-appearance-theme__rows > .react-settings-choice,
+  .react-pet-settings__controls > .react-settings-choice,
+  .react-pet-settings__action-row {
     grid-template-columns: minmax(0, 1fr) minmax(190px, 250px);
   }
 

@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:8ecc07cb0b37fdd86f046cf59648c5165d5c1f2fa684af5ae342834229e0b72c -->
+<!-- tinybot-module-fingerprint: sha256:996c6aaac8dbfffde175426d55d794c6c2317a6bbb2a4cf274b3e4d6245831a2 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -28,6 +28,11 @@ session rather than inferring a target from the currently selected chat.
 Chat projects the active session and Turn lifecycle into calm, curious, working,
 angry, and pleased mascot moods, then reports that presentation state to the
 desktop shell. It does not introduce a second source of truth for Agent status.
+`TinybotMascot` keeps the four-circle mark stable while its outer pose layers
+transition between moods independently from the longer ambient loops. Classic
+appearance uses the original flat fills; dimensional appearance adds only SVG
+gradient lighting and restrained shadows. Reduced-motion mode preserves each
+mood's static pose without transitions or looping animation.
 
 Chat contracts, commands, and projections live in `app-core/chat`. This folder
 owns React state and presentation. Composer submission turns native managed
