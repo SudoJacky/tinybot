@@ -4692,7 +4692,7 @@ dependencies = [
 
 [[package]]
 name = "tinybot-desktop"
-version = "0.4.7"
+version = "0.4.8"
 dependencies = [
  "async-openai",
  "async-trait",
