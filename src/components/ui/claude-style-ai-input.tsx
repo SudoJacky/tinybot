@@ -89,6 +89,11 @@ export interface ComposerSendOptions {
 }
 
 export interface ComposerContextReference {
+  annotation?: {
+    label: string;
+    text: string;
+  };
+  body?: string;
   detail: string;
   id: string;
   kind: "file" | "terminal" | "reference";
@@ -104,6 +109,7 @@ export interface ComposerSessionMentionOption {
 export interface ClaudeStyleAiInputProps {
   className?: string;
   contextReferences?: ComposerContextReference[];
+  focusRequestId?: number;
   onSendMessage?: (
     message: string,
     files: ComposerFileReference[],
@@ -195,6 +201,7 @@ export function ClaudeStyleAiInput({
   disabled = false,
   disabledReason,
   files: controlledFiles,
+  focusRequestId,
   maxFiles = MAX_FILES,
   models = EMPTY_MODELS,
   onModelChange,
@@ -231,6 +238,7 @@ export function ClaudeStyleAiInput({
   const inlineEditorRef = useRef<HTMLDivElement | null>(null);
   const inlineEditorComposingRef = useRef(false);
   const pendingInlineCaretRef = useRef<InlineComposerCaret | null>(null);
+  const handledFocusRequestRef = useRef(focusRequestId);
   const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const modelTriggerRef = useRef<HTMLButtonElement | null>(null);
   const toolMenuRef = useRef<HTMLDivElement | null>(null);
@@ -434,6 +442,25 @@ export function ClaudeStyleAiInput({
     editor.focus();
     restoreInlineComposerCaret(editor, pendingCaret);
   }, [currentMessage, selectedSkills, t, visibleInlineSkillPlacements]);
+
+  useLayoutEffect(() => {
+    if (!focusRequestId || handledFocusRequestRef.current === focusRequestId) return;
+    handledFocusRequestRef.current = focusRequestId;
+    if (inlineEditorEnabled) {
+      const editor = inlineEditorRef.current;
+      if (!editor) return;
+      editor.focus();
+      restoreInlineComposerCaret(editor, {
+        offset: currentMessage.length,
+        skillsBefore: visibleInlineSkillPlacements.filter((placement) => placement.offset === currentMessage.length).length,
+      });
+      return;
+    }
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.focus();
+    textarea.setSelectionRange(currentMessage.length, currentMessage.length);
+  }, [currentMessage, focusRequestId, inlineEditorEnabled, visibleInlineSkillPlacements]);
 
   useEffect(() => {
     setActiveSlashCommandIndex(0);
@@ -865,6 +892,8 @@ export function ClaudeStyleAiInput({
           ))}
           {contextReferences.map((reference) => (
             <AttachmentChip
+              annotation={reference.annotation}
+              body={reference.body}
               detail={reference.detail}
               icon={reference.kind === "terminal" ? <TerminalSquare aria-hidden="true" size={16} /> : <FileText aria-hidden="true" size={16} />}
               key={reference.id}
@@ -1684,18 +1713,48 @@ function insertPlainTextAtSelection(editor: HTMLDivElement, text: string): void 
 }
 
 function AttachmentChip({
+  annotation,
+  body,
   detail,
   icon,
   label,
   onRemove,
   removeLabel,
 }: {
+  annotation?: ComposerContextReference["annotation"];
+  body?: string;
   detail: string;
   icon: ReactNode;
   label: string;
   onRemove: () => void;
   removeLabel: string;
 }) {
+  if (annotation || body) {
+    return (
+      <div className="claude-ai-input__attachment" data-presentation="annotation">
+        <div className="claude-ai-input__attachment-header">
+          <span className="claude-ai-input__attachment-icon">{icon}</span>
+          <span className="claude-ai-input__attachment-text">
+            <strong>{label}</strong>
+            <small>{detail}</small>
+          </span>
+          <button aria-label={removeLabel} type="button" onClick={onRemove}>
+            <X aria-hidden="true" size={14} />
+          </button>
+        </div>
+        {body ? <p className="claude-ai-input__attachment-body">{body}</p> : null}
+        {annotation ? (
+          <div className="claude-ai-input__attachment-annotation">
+            <span className="claude-ai-input__attachment-annotation-label">
+              <MessageCircle aria-hidden="true" size={14} />
+              {annotation.label}
+            </span>
+            <p>{annotation.text}</p>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <div className="claude-ai-input__attachment">
       <span className="claude-ai-input__attachment-icon">{icon}</span>

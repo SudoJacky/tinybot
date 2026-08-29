@@ -256,6 +256,7 @@ export function DesktopPetQuickChatWindow({
       selectedSkillIds: [],
       selectedSessionIds: [],
       sessions: [],
+      spreadsheetAnnotations: [],
       t: tChat,
     });
     if (prepared.kind === "empty") return;

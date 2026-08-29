@@ -10,6 +10,7 @@ export type NativeWorkspaceApi = {
   directory: (request: { cursor?: string; nameQuery?: string; path: string }) => Promise<unknown>;
   fileChunk: (request: { cursor?: string; path: string }) => Promise<unknown>;
   threadFileChunk: (request: { cursor?: string; path: string; threadId: string }) => Promise<unknown>;
+  threadFileBytes: (request: { expectedRevision?: string; path: string; threadId: string }) => Promise<unknown>;
 };
 
 export function createDesktopNativeWorkspaceApi(options: { invoke?: TauriInvoke } = {}): NativeWorkspaceApi {
@@ -22,5 +23,6 @@ export function createDesktopNativeWorkspaceApi(options: { invoke?: TauriInvoke 
     directory: (request) => invoke("worker_workspace_directory", { input: request }),
     fileChunk: (request) => invoke("worker_workspace_file_chunk", { input: request }),
     threadFileChunk: (request) => invoke("worker_thread_workspace_file_chunk", { input: request }),
+    threadFileBytes: (request) => invoke("worker_thread_workspace_file_bytes", { input: request }),
   };
 }

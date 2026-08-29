@@ -1,5 +1,5 @@
 # Chat Application Core
-<!-- tinybot-module-fingerprint: sha256:3be1dd344027ad744dc48192b9e596f238156a63e1fa8601d683893e01d2140a -->
+<!-- tinybot-module-fingerprint: sha256:4d56dfa55829fdd22fba0343ea3b9ce55464f7684fcf6fe88b4360ba92584235 -->
 
 `chat` contains framework-independent chat and Thread contracts, command
 construction, canonical timeline validation, UI projection, input state, and
@@ -13,6 +13,14 @@ they never store an encoded payload.
 The module does not render React views or invoke Tauri directly. Renderer code
 consumes these interfaces from `react-workbench/chat`, while native transport
 is isolated in `app-core/native` and workbench adapters.
+
+`officeArtifact` recognizes only modern `.xlsx`, `.docx`, and `.pptx`
+extensions and MIME types for local Artifact previews. Legacy and macro-enabled
+formats remain unsupported, and conflicting extension/MIME evidence fails
+explicitly instead of selecting the wrong parser. Its spreadsheet selection
+contract carries the visible sheet, cell address, rendered value, and confirmed
+change instruction from the Sidecar into Chat without moving composer behavior
+into the domain module.
 
 Canonical usage projection preserves cached input Token counts from both
 normalized top-level fields and persisted Provider `prompt_tokens_details` or

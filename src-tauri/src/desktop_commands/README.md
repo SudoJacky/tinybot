@@ -1,5 +1,5 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:cf40a3f45d9f7c36307a17e5a224d3627027d7692dd08d7f6205dac896912bba -->
+<!-- tinybot-module-fingerprint: sha256:354869c5e9f5a7ceaab5e1f46f9a8cb8ce492e9d5213d42f916c0989cc2a8cf7 -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,
@@ -24,10 +24,12 @@ reported in `agentGraphDiagnostics`; the dedicated Graph management commands
 continue to reject invalid saved definitions.
 
 Workspace file queries normally use the configured default workspace. The
-Thread file-preview command is the scoped exception: it accepts a Thread ID,
-derives the recorded working directory from the canonical Thread projection,
-and then delegates to the same guarded workspace reader. It never accepts a
-renderer-supplied workspace root.
+Thread file-preview commands are the scoped exception: they accept a Thread ID,
+derive the recorded working directory from the canonical Thread projection,
+and then delegate to the same guarded workspace reader. Text uses the ordinary
+chunk response. Modern Office files use a raw IPC response capped at 25 MiB and
+may require the metadata revision so a changed source fails explicitly. Neither
+command accepts a renderer-supplied workspace root.
 
 Agent Graph commands pass workspace-scoped list, save, and delete requests to
 `agent_graphs`. Schema checks, path containment, atomic writes, and optimistic

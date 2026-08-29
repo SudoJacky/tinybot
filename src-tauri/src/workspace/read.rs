@@ -21,6 +21,97 @@ struct FileCursor {
 }
 
 impl WorkerWorkspaceRpc {
+    pub(crate) fn read_file_bytes(
+        &self,
+        requested_path: &str,
+        expected_revision: Option<&str>,
+        max_bytes: u64,
+    ) -> Result<Vec<u8>, WorkerProtocolError> {
+        let resolved = self.resolve_path(requested_path)?;
+        ensure_inside_workspace(&self.root, &resolved.absolute_path)?;
+        let mut file = std::fs::File::open(&resolved.absolute_path).map_err(|error| {
+            workspace_query_error(
+                "not_found",
+                format!("failed to open workspace file: {error}"),
+                &resolved.relative_path,
+                true,
+            )
+        })?;
+        let metadata = file.metadata().map_err(|error| {
+            workspace_query_error(
+                "io_error",
+                format!("failed to inspect workspace file: {error}"),
+                &resolved.relative_path,
+                true,
+            )
+        })?;
+        if !metadata.is_file() {
+            return Err(workspace_query_error(
+                "not_found",
+                "workspace path is not a file",
+                &resolved.relative_path,
+                false,
+            ));
+        }
+        if metadata.len() > max_bytes {
+            return Err(workspace_query_error(
+                "file_too_large",
+                format!("workspace file exceeds the preview limit of {max_bytes} bytes"),
+                &resolved.relative_path,
+                false,
+            ));
+        }
+        let revision = file_metadata_revision(&metadata);
+        if expected_revision.is_some_and(|expected| expected != revision) {
+            return Err(workspace_query_error(
+                "source_changed",
+                "workspace file changed before its preview bytes were loaded",
+                &resolved.relative_path,
+                true,
+            ));
+        }
+        let mut bytes = Vec::new();
+        (&mut file)
+            .take(max_bytes.saturating_add(1))
+            .read_to_end(&mut bytes)
+            .map_err(|error| {
+                workspace_query_error(
+                    "io_error",
+                    format!("failed to read workspace file bytes: {error}"),
+                    &resolved.relative_path,
+                    true,
+                )
+            })?;
+        if bytes.len() as u64 > max_bytes {
+            return Err(workspace_query_error(
+                "file_too_large",
+                format!("workspace file exceeds the preview limit of {max_bytes} bytes"),
+                &resolved.relative_path,
+                false,
+            ));
+        }
+        let completed_revision = file
+            .metadata()
+            .map_err(|error| {
+                workspace_query_error(
+                    "io_error",
+                    format!("failed to verify workspace file revision: {error}"),
+                    &resolved.relative_path,
+                    true,
+                )
+            })
+            .map(|metadata| file_metadata_revision(&metadata))?;
+        if completed_revision != revision {
+            return Err(workspace_query_error(
+                "source_changed",
+                "workspace file changed while its preview bytes were loaded",
+                &resolved.relative_path,
+                true,
+            ));
+        }
+        Ok(bytes)
+    }
+
     pub fn read_file(
         &self,
         requested_path: &str,

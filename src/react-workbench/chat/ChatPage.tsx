@@ -23,6 +23,7 @@ import {
 import type { QueuedInput } from "../../app-core/chat/chatUiProjection";
 import {
   ClaudeStyleAiInput,
+  type ComposerContextReference,
   type ComposerFileReference,
   type ComposerSendOptions,
   type ComposerSessionMentionOption,
@@ -81,6 +82,12 @@ import type {
   DelegatedAgentState,
   LoadedArtifactDetail,
 } from "../../app-core/chat/chatTurnContracts";
+import {
+  resolveOfficeArtifactKind,
+  type OfficeArtifactSource,
+  type SpreadsheetCellChangeRequest,
+} from "../../app-core/chat/officeArtifact";
+import { logRendererEvent } from "../../app-core/native/rendererLogger";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import type {
   NativeBrowserSession,
@@ -110,6 +117,7 @@ import {
   MAX_COMPOSER_SESSION_REFERENCES,
   prepareChatSubmission,
   type QueuedComposerInput,
+  type SpreadsheetComposerAnnotation,
 } from "./chatSubmission";
 import { ChatTimeline } from "./ChatTimeline";
 import { AssistantMarkdown } from "./AssistantMarkdown";
@@ -132,6 +140,7 @@ import {
 import { projectTinybotMascotMood, type TinybotMascotMood } from "./TinybotMascot";
 import { Sidecar } from "../sidecar/Sidecar";
 import { SidecarBrowser } from "../sidecar/SidecarBrowser";
+import { OfficeArtifactPreview } from "../sidecar/OfficeArtifactPreview";
 import {
   activeSidecarTab,
   createInitialSidecarState,
@@ -153,7 +162,7 @@ export type ChatPageProps = {
   projectGroupStore?: ProjectGroupStore;
   settingsStore?: SettingsStore;
   toolsStore?: Partial<Pick<ToolsStore, "installPluginMigration" | "loadCatalog">>;
-  workspaceStore?: Pick<WorkspaceStore, "readThreadFile">;
+  workspaceStore?: Pick<WorkspaceStore, "readThreadFile" | "readThreadFileBytes">;
   createSessionSignal?: number;
   activateSessionRequest?: { sessionId: string; signal: number } | null;
   sessionSidebarCollapsed?: boolean;
@@ -178,6 +187,7 @@ type ArtifactSidecarContent = {
   error?: string;
   loading: boolean;
   notice?: string;
+  office?: OfficeArtifactSource;
 };
 
 type BrowserSnapshot = NativeBrowserSnapshot<NativeBrowserSession>;
@@ -329,6 +339,7 @@ export function ChatPage({
     () => createInitialSidecarState(readPersistedSidecarWidth(window.localStorage)),
   );
   const [artifactSidecarContent, setArtifactSidecarContent] = useState<Record<string, ArtifactSidecarContent>>({});
+  const [composerFocusRequestId, setComposerFocusRequestId] = useState(0);
   const [browserProvisionErrors, setBrowserProvisionErrors] = useState<Record<string, string>>({});
   const [terminalErrors, setTerminalErrors] = useState<Record<string, string>>({});
   const [browserProvisionEpoch, setBrowserProvisionEpoch] = useState(0);
@@ -341,6 +352,7 @@ export function ChatPage({
   const [queueMessage, setQueueMessage] = useState("");
   const [composerSessionMentionIds, setComposerSessionMentionIds] = useState<string[]>([]);
   const [composerSelectedSkillIds, setComposerSelectedSkillIds] = useState<string[]>([]);
+  const [composerSpreadsheetAnnotations, setComposerSpreadsheetAnnotations] = useState<SpreadsheetComposerAnnotation[]>([]);
   const [installingMigrationJobId, setInstallingMigrationJobId] = useState("");
   const [migrationInstallError, setMigrationInstallError] = useState("");
   const [showBackToLatest, setShowBackToLatest] = useState(false);
@@ -424,6 +436,21 @@ export function ChatPage({
     () => buildComposerToolOptions(composerTools),
     [composerTools],
   );
+  const composerSpreadsheetContextReferences = useMemo<ComposerContextReference[]>(() => (
+    composerSpreadsheetAnnotations.map((annotation) => ({
+      annotation: {
+        label: t("composer.spreadsheetAnnotation.count", { count: 1 }),
+        text: annotation.request.instruction,
+      },
+      body: annotation.request.value || t("details.officeCellEmpty"),
+      detail: t("composer.spreadsheetAnnotation.range", {
+        range: `${annotation.request.sheet}!${annotation.request.address}`,
+      }),
+      id: annotation.id,
+      kind: "file",
+      label: annotation.fileTitle,
+    }))
+  ), [composerSpreadsheetAnnotations, t]);
   const sidecarTabs = useMemo(() => visibleSidecarTabs(sidecar), [sidecar]);
   const sidecarActiveTab = useMemo(() => activeSidecarTab(sidecar), [sidecar]);
   const explicitWorkspaceId = activeDisplaySession?.workingDirectory?.trim() ?? "";
@@ -752,6 +779,7 @@ export function ChatPage({
   useEffect(() => {
     setComposerSessionMentionIds([]);
     setComposerSelectedSkillIds([]);
+    setComposerSpreadsheetAnnotations([]);
     dispatchCommandLifecycle({ type: "reset" });
   }, [activeSessionId]);
 
@@ -1320,6 +1348,7 @@ export function ChatPage({
         title: displaySessionTitle(session.title, t),
         updatedAtMs: session.updatedAtMs,
       })),
+      spreadsheetAnnotations: composerSpreadsheetAnnotations,
       t,
     });
     if (prepared.kind === "compact") {
@@ -1901,6 +1930,40 @@ export function ChatPage({
         path: artifact.fetchPath!,
         threadId: activeSession.id,
       });
+      const officeKind = resolveOfficeArtifactKind({
+        mimeType: artifact.mimeType,
+        path: artifact.fetchPath,
+        title: artifact.title,
+      });
+      if (file.contentType === "binary" && officeKind) {
+        if (!workspaceStore.readThreadFileBytes) {
+          throw new Error(t("details.filePreviewUnavailable"));
+        }
+        logRendererEvent("info", "artifact.office.bytes.started", {
+          format: officeKind,
+          sizeBytes: file.sizeBytes,
+        });
+        const bytes = await workspaceStore.readThreadFileBytes({
+          expectedRevision: file.revision,
+          path: artifact.fetchPath!,
+          threadId: activeSession.id,
+        });
+        logRendererEvent("info", "artifact.office.bytes.completed", {
+          format: officeKind,
+          sizeBytes: bytes.byteLength,
+        });
+        setArtifactSidecarContent((current) => current[tabId]
+          ? {
+              ...current,
+              [tabId]: {
+                ...current[tabId],
+                loading: false,
+                office: { bytes, kind: officeKind, title: artifact.title },
+              },
+            }
+          : current);
+        return;
+      }
       if (file.contentType !== "text") {
         throw new Error(t("details.binaryFilePreviewUnsupported"));
       }
@@ -1923,6 +1986,10 @@ export function ChatPage({
         : current);
     } catch (error) {
       const message = errorMessage(error);
+      logRendererEvent("error", "artifact.workspace_file.read.failed", {
+        error: message.slice(0, 512),
+        mimeType: artifact.mimeType,
+      });
       console.error("[artifact-preview] workspace file read failed", {
         error,
         path: artifact.fetchPath,
@@ -1997,6 +2064,8 @@ export function ChatPage({
         error={content.error}
         loading={content.loading}
         notice={content.notice}
+        office={content.office}
+        onAskForSpreadsheetChange={handleSpreadsheetAskForChange}
         onOpenFileLink={handleOpenAssistantFileLink}
       />
     );
@@ -2147,6 +2216,32 @@ export function ChatPage({
 
   function handleComposerDraftChange(value: string) {
     dispatchSessionTabs({ type: "draft.changed", sessionId: activeSessionId, value });
+  }
+
+  function handleSpreadsheetAskForChange(
+    artifact: ArtifactRef,
+    request: SpreadsheetCellChangeRequest,
+  ): void {
+    const id = `spreadsheet:${artifact.id}:${request.sheet}:${request.address}`;
+    const annotation: SpreadsheetComposerAnnotation = {
+      filePath: artifact.fetchPath || artifact.title,
+      fileTitle: artifact.title,
+      id,
+      request: {
+        ...request,
+        value: boundedSpreadsheetSelectionValue(request.value),
+      },
+    };
+    setComposerSpreadsheetAnnotations((current) => [
+      ...current.filter((candidate) => candidate.id !== id),
+      annotation,
+    ]);
+    setComposerFocusRequestId((current) => current + 1);
+    logRendererEvent("info", "artifact.office.selection.composer_requested", {
+      address: request.address,
+      artifactKind: artifact.kind,
+      sheet: request.sheet,
+    });
   }
 
   function handleChatPageKeyDown(event: ReactKeyboardEvent<HTMLElement>) {
@@ -2363,9 +2458,11 @@ export function ChatPage({
           ) : null}
           <ClaudeStyleAiInput
             className={["react-composer", emptyActiveSession ? "react-composer--raised" : ""].filter(Boolean).join(" ")}
-          disabled={sessionsLoaded && !activeSession && !draftNewSession}
-          disabledReason={sessionsLoaded && !activeSession && !draftNewSession ? t("shell.createOrSelect") : undefined}
-          sendDisabled={!sessionsLoaded}
+            contextReferences={composerSpreadsheetContextReferences}
+            focusRequestId={composerFocusRequestId}
+            disabled={sessionsLoaded && !activeSession && !draftNewSession}
+            disabledReason={sessionsLoaded && !activeSession && !draftNewSession ? t("shell.createOrSelect") : undefined}
+            sendDisabled={!sessionsLoaded}
           sendDisabledReason={!sessionsLoaded ? t("shell.loadingSessions") : undefined}
           defaultModel={composerModel}
           defaultReasoningEffort={composerReasoningEffort}
@@ -2425,7 +2522,11 @@ export function ChatPage({
             current.includes(id) ? current : [...current, id]
           ))}
           onClearSessionMentions={() => setComposerSessionMentionIds([])}
+          onClearContextReferences={() => setComposerSpreadsheetAnnotations([])}
           onClearSkills={() => setComposerSelectedSkillIds([])}
+          onRemoveContextReference={(id) => setComposerSpreadsheetAnnotations((current) => (
+            current.filter((annotation) => annotation.id !== id)
+          ))}
           onRemoveSessionMention={(id) => setComposerSessionMentionIds((current) => current.filter((sessionId) => sessionId !== id))}
           onRemoveSkill={(id) => setComposerSelectedSkillIds((current) => current.filter((skillId) => skillId !== id))}
           responding={sessionResponding}
@@ -2750,6 +2851,8 @@ function ArtifactDetails({
   error,
   loading,
   notice,
+  office,
+  onAskForSpreadsheetChange,
   onOpenFileLink,
 }: {
   artifact: ArtifactRef;
@@ -2757,6 +2860,8 @@ function ArtifactDetails({
   error?: string;
   loading: boolean;
   notice?: string;
+  office?: OfficeArtifactSource;
+  onAskForSpreadsheetChange: (artifact: ArtifactRef, request: SpreadsheetCellChangeRequest) => void;
   onOpenFileLink: (link: AssistantFileLink) => void;
 }) {
   const { t } = useTranslation("chat");
@@ -2765,8 +2870,8 @@ function ArtifactDetails({
     ? { text: detail.textContent, title: detail.title }
     : undefined;
   return (
-    <div className="react-artifact-detail" data-content={markdown ? "document" : "preview"}>
-      {!markdown ? (
+    <div className="react-artifact-detail" data-content={markdown || office?.kind === "document" ? "document" : "preview"}>
+      {!markdown && !office ? (
         <dl>
           <div><dt>{t("details.id")}</dt><dd>{artifact.id}</dd></div>
           {detail?.mimeType || artifact.mimeType ? <div><dt>{t("details.type")}</dt><dd>{detail?.mimeType || artifact.mimeType}</dd></div> : null}
@@ -2777,6 +2882,12 @@ function ArtifactDetails({
       {notice ? <p className="react-artifact-detail__notice">{notice}</p> : null}
       {detail?.imageDataUrl ? <img alt={detail.title} src={detail.imageDataUrl} /> : null}
       {detail?.dataView ? <DataViewCard artifact={{ ...artifact, dataView: detail.dataView }} expanded /> : null}
+      {office ? (
+        <OfficeArtifactPreview
+          onAskForChange={(selection) => onAskForSpreadsheetChange(artifact, selection)}
+          source={office}
+        />
+      ) : null}
       {markdownContent ? (
         <article aria-label={markdownContent.title} className="react-artifact-detail__document" role="document">
           <AssistantMarkdown
@@ -2786,7 +2897,7 @@ function ArtifactDetails({
           />
         </article>
       ) : detail?.textContent ? <pre className="react-artifact-detail__text">{detail.textContent}</pre> : null}
-      {!loading && !error && !detail?.dataView && !detail?.imageDataUrl && !detail?.textContent ? <p>{t("details.noPreview")}</p> : null}
+      {!loading && !error && !office && !detail?.dataView && !detail?.imageDataUrl && !detail?.textContent ? <p>{t("details.noPreview")}</p> : null}
     </div>
   );
 }
@@ -2855,6 +2966,11 @@ function omitRecordKey<T>(record: Record<string, T>, key: string): Record<string
   const next = { ...record };
   delete next[key];
   return next;
+}
+
+function boundedSpreadsheetSelectionValue(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 160 ? `${normalized.slice(0, 159)}…` : normalized;
 }
 
 function errorMessage(error: unknown): string {

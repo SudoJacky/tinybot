@@ -230,6 +230,8 @@ pub(crate) fn mime_type_for_path(path: &Path) -> &'static str {
     {
         "csv" => "text/csv",
         "docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx" => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pptx" => "application/vnd.openxmlformats-officedocument.presentationml.presentation",
         "json" => "application/json",
         "markdown" | "md" => "text/markdown",
         "pdf" => "application/pdf",

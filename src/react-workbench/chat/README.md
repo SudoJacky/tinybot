@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:b3936b21cafd02a1597a0041d1b6fa6636779e4910f3246bd174f064cb929d08 -->
+<!-- tinybot-module-fingerprint: sha256:8ecc07cb0b37fdd86f046cf59648c5165d5c1f2fa684af5ae342834229e0b72c -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -83,12 +83,23 @@ Artifact file previews use the Thread ID rather than accepting a renderer-owned
 workspace root. Rust resolves the recorded Thread working directory, falls back
 to the configured default only for unbound conversations, and applies the
 existing workspace traversal and symlink guards before reading one bounded text
-chunk. Unsupported binary files, truncated previews, and read failures remain
-visible in the Artifact surface. Markdown text is projected through the shared
-safe Markdown renderer as a document, without exposing internal Artifact IDs or
-MIME metadata above the content. The outer Artifact panel owns vertical
-scrolling for Markdown and plain-text previews, avoiding a second height-capped
-scroll region inside the Sidecar.
+chunk. For modern Office files, Chat uses that metadata revision to request a
+bounded raw `.xlsx`, `.docx`, or `.pptx` payload and rejects the read if the
+source changed. The Sidecar parses those bytes locally into sheet, continuous
+document, or slide-list previews. Unsupported binary files, truncated text
+previews, and read failures remain visible in the Artifact surface. Markdown
+text is projected through the shared safe Markdown renderer as a document,
+without exposing internal Artifact IDs or MIME metadata above the content. The
+outer Artifact panel owns vertical scrolling for document and plain-text
+previews, avoiding a second height-capped scroll region inside the Sidecar.
+Confirming a selected spreadsheet cell's change request adds a visible,
+removable file/range/current-value/request card above the composer and focuses
+the editor without overwriting its existing draft. Chat keeps the structured
+cell annotation in route state and submits it as a source-text input reference,
+so the Agent receives the file path, sheet, address, current value, and requested
+change even when the composer text is empty. Confirmation never sends a Turn
+implicitly; a successful later send clears the annotation with other composer
+context.
 Creating sessions stay in the preparation state until WebView2 is ready, and
 monotonic snapshot revisions prevent stale surface responses from hiding a newer
 visible surface.

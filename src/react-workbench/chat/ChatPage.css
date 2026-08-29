@@ -1607,6 +1607,64 @@
   padding: 7px 8px;
 }
 
+.claude-ai-input__attachment[data-presentation="annotation"] {
+  display: grid;
+  flex: 1 1 100%;
+  max-width: min(580px, 100%);
+  align-items: stretch;
+  gap: 10px;
+  background: var(--color-panel);
+  padding: 11px 12px;
+  box-shadow: 0 7px 20px rgb(16 24 40 / 8%);
+}
+
+.claude-ai-input__attachment-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.claude-ai-input__attachment-body {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.claude-ai-input__attachment-annotation {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  border-top: 1px solid var(--color-hairline);
+  padding-top: 9px;
+}
+
+.claude-ai-input__attachment-annotation-label {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  color: var(--color-body);
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.claude-ai-input__attachment-annotation p {
+  margin: 0;
+  color: var(--color-body);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .claude-ai-input__attachment-icon {
   display: inline-grid;
   place-items: center;
@@ -3060,6 +3118,473 @@
   margin: 0;
   color: var(--color-muted);
   font-size: 12px;
+}
+
+.react-office-preview {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+}
+
+.react-office-preview > p {
+  margin: 0;
+}
+
+.react-office-preview__tabs {
+  display: flex;
+  min-width: 0;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.react-office-preview__tab {
+  flex: 0 0 auto;
+  min-height: 30px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 7px;
+  background: var(--color-panel);
+  color: var(--color-muted);
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.react-office-preview__tab[aria-selected="true"] {
+  border-color: color-mix(in srgb, var(--color-accent) 42%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-accent) 9%, var(--color-panel));
+  color: var(--color-text);
+}
+
+.react-office-spreadsheet {
+  position: relative;
+  min-width: 0;
+  overflow-x: auto;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: var(--color-panel);
+}
+
+.react-office-spreadsheet[data-has-selection="true"] {
+  padding-bottom: 52px;
+}
+
+.react-office-spreadsheet[data-change-editor="true"] {
+  padding-bottom: 72px;
+}
+
+.react-office-spreadsheet table {
+  min-width: 100%;
+  border-collapse: collapse;
+  color: var(--color-text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.react-office-spreadsheet th,
+.react-office-spreadsheet td {
+  min-width: 96px;
+  max-width: 280px;
+  border-right: 1px solid var(--color-hairline);
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 6px 8px;
+  overflow-wrap: anywhere;
+  text-align: left;
+  vertical-align: top;
+}
+
+.react-office-spreadsheet td {
+  padding: 0;
+}
+
+.react-office-spreadsheet thead th,
+.react-office-spreadsheet__row-number {
+  min-width: 42px;
+  width: 42px;
+  background: color-mix(in srgb, var(--color-panel) 82%, var(--color-canvas));
+  color: var(--color-muted);
+  font-weight: 600;
+  text-align: center;
+}
+
+.react-office-spreadsheet thead th[data-selected="true"],
+.react-office-spreadsheet__row-number[data-selected="true"] {
+  background: color-mix(in srgb, var(--color-accent) 16%, var(--color-panel));
+  color: var(--color-primary-active);
+}
+
+.react-office-spreadsheet td[data-selected="true"] {
+  position: relative;
+  z-index: 2;
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-panel));
+  box-shadow: inset 0 0 0 2px var(--color-primary-active);
+}
+
+.react-office-spreadsheet__cell {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  padding: 7px 8px;
+  font: inherit;
+  line-height: inherit;
+  overflow-wrap: anywhere;
+  text-align: left;
+  cursor: cell;
+}
+
+.react-office-spreadsheet__cell:hover,
+.react-office-spreadsheet__cell:focus-visible {
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.react-office-spreadsheet__cell:focus-visible {
+  outline: 2px solid var(--color-primary-active);
+  outline-offset: -3px;
+}
+
+.react-office-spreadsheet__selection-action {
+  position: absolute;
+  z-index: 5;
+  transform: translateX(-50%);
+}
+
+.react-office-spreadsheet__selection-action[data-mode="editor"] {
+  width: min(360px, calc(100% - 16px));
+}
+
+.react-office-spreadsheet__selection-action > button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid color-mix(in srgb, var(--color-text) 14%, var(--color-hairline));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-panel) 96%, transparent);
+  box-shadow: 0 10px 28px rgb(16 24 40 / 18%);
+  color: var(--color-text);
+  padding: 0 14px;
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.react-office-spreadsheet__selection-action > button:hover {
+  background: var(--color-surface-soft);
+}
+
+.react-office-spreadsheet__selection-action > button:focus-visible {
+  outline: 2px solid var(--color-primary-active);
+  outline-offset: 2px;
+}
+
+.react-office-spreadsheet__selection-action kbd {
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 11px;
+}
+
+.react-office-spreadsheet__selection-action form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 56px;
+  border: 1px solid color-mix(in srgb, var(--color-text) 14%, var(--color-hairline));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-panel) 97%, transparent);
+  padding: 6px 7px 6px 16px;
+  box-shadow: 0 12px 32px rgb(16 24 40 / 18%);
+}
+
+.react-office-spreadsheet__selection-action input {
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+}
+
+.react-office-spreadsheet__selection-action input::placeholder {
+  color: var(--color-muted);
+}
+
+.react-office-spreadsheet__selection-action form:focus-within {
+  border-color: color-mix(in srgb, var(--color-primary-active) 55%, var(--color-hairline));
+  box-shadow:
+    0 12px 32px rgb(16 24 40 / 18%),
+    0 0 0 2px color-mix(in srgb, var(--color-primary-active) 14%, transparent);
+}
+
+.react-office-spreadsheet__selection-action form > button {
+  display: inline-grid;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-primary-active);
+  color: var(--color-on-primary);
+  padding: 0;
+}
+
+.react-office-spreadsheet__selection-action form > button:hover,
+.react-office-spreadsheet__selection-action form > button:focus-visible {
+  background: var(--color-primary-active);
+}
+
+.react-office-spreadsheet__selection-action form > button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary-active) 40%, transparent);
+  outline-offset: 2px;
+}
+
+.react-office-spreadsheet__selection-action form > button:disabled {
+  cursor: default;
+  opacity: .36;
+}
+
+.react-office-document {
+  width: min(100%, 780px);
+  min-width: 0;
+  margin: 0 auto;
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.react-office-document > section.docx {
+  width: 100% !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: clamp(18px, 4vw, 42px) !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+.react-office-document table {
+  max-width: 100%;
+}
+
+.react-office-document img,
+.react-office-document svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.react-office-presentation {
+  display: grid;
+  grid-template-columns: 0 minmax(0, 1fr);
+  align-items: start;
+  width: 100%;
+  min-width: 0;
+}
+
+.react-office-presentation__stage {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.react-office-presentation__navigation {
+  position: sticky;
+  z-index: 10;
+  top: 10px;
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
+  width: 44px;
+  max-height: min(70vh, 620px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
+  transform: translateX(-8px);
+  scrollbar-width: thin;
+  transition:
+    width 180ms var(--motion-ease-standard),
+    transform 180ms var(--motion-ease-standard),
+    border-color 180ms var(--motion-ease-standard),
+    background-color 180ms var(--motion-ease-standard),
+    box-shadow 180ms var(--motion-ease-standard);
+}
+
+.react-office-presentation__navigation[data-expanded="true"] {
+  width: 166px;
+  border-color: var(--color-hairline);
+  background: color-mix(in srgb, var(--color-panel) 97%, transparent);
+  box-shadow: 0 12px 30px rgb(16 24 40 / 14%);
+  transform: translateX(8px);
+}
+
+.react-office-presentation__navigation ol {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+}
+
+.react-office-presentation__navigation[data-expanded="true"] ol {
+  gap: 4px;
+  padding: 7px;
+}
+
+.react-office-presentation__navigation button {
+  --presentation-navigation-proximity: 0;
+  --presentation-navigation-active: 0;
+  --presentation-navigation-focus: 0;
+  --presentation-navigation-effect: max(
+    var(--presentation-navigation-proximity),
+    var(--presentation-navigation-active),
+    var(--presentation-navigation-focus)
+  );
+
+  position: relative;
+  display: grid;
+  width: 44px;
+  min-width: 44px;
+  height: 28px;
+  min-height: 28px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-body);
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background-color 100ms var(--motion-ease-standard),
+    transform 100ms var(--motion-ease-standard);
+}
+
+.react-office-presentation__navigation button[aria-current="page"] {
+  --presentation-navigation-active: 1;
+}
+
+.react-office-presentation__navigation button:focus-visible {
+  --presentation-navigation-focus: 1;
+}
+
+.react-office-presentation__navigation[data-expanded="true"] button {
+  grid-template-columns: 18px 120px;
+  align-items: center;
+  gap: 7px;
+  width: 150px;
+  height: auto;
+  min-height: 76px;
+  padding: 4px 3px;
+  transform: translateX(calc(var(--presentation-navigation-effect) * 3px));
+}
+
+.react-office-presentation__navigation button:hover,
+.react-office-presentation__navigation button:focus-visible,
+.react-office-presentation__navigation[data-expanded="true"] button[aria-current="page"] {
+  background: color-mix(in srgb, var(--color-accent) 9%, var(--color-panel));
+}
+
+.react-office-presentation__navigation button:focus-visible {
+  outline: 2px solid var(--color-primary-active);
+  outline-offset: -2px;
+}
+
+.react-office-presentation__navigation-bar {
+  width: calc(18px + (var(--presentation-navigation-effect) * 10px));
+  height: calc(2px + (var(--presentation-navigation-effect) * 1px));
+  border-radius: 999px;
+  background: var(--color-ink);
+  opacity: calc(0.18 + (var(--presentation-navigation-effect) * 0.82));
+  transition:
+    width 100ms var(--motion-ease-standard),
+    height 100ms var(--motion-ease-standard),
+    opacity 100ms var(--motion-ease-standard);
+}
+
+.react-office-presentation__navigation button[aria-current="page"] .react-office-presentation__navigation-bar {
+  opacity: 1;
+}
+
+.react-office-presentation__slide-number,
+.react-office-presentation__thumbnail {
+  display: none;
+}
+
+.react-office-presentation__navigation[data-expanded="true"] .react-office-presentation__navigation-bar {
+  display: none;
+}
+
+.react-office-presentation__navigation[data-expanded="true"] .react-office-presentation__slide-number {
+  display: block;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1;
+  text-align: center;
+}
+
+.react-office-presentation__navigation[data-expanded="true"] button[aria-current="page"] .react-office-presentation__slide-number {
+  color: var(--color-primary-active);
+  font-weight: 650;
+}
+
+.react-office-presentation__navigation[data-expanded="true"] .react-office-presentation__thumbnail {
+  display: block;
+  position: relative;
+  width: 120px;
+  min-height: 68px;
+  overflow: hidden;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.react-office-presentation__navigation[data-expanded="true"] button[aria-current="page"] .react-office-presentation__thumbnail {
+  border-color: var(--color-primary-active);
+  box-shadow: 0 0 0 1px var(--color-primary-active);
+}
+
+.react-office-presentation .pptx-preview-wrapper {
+  width: 100% !important;
+  background: transparent !important;
+}
+
+.react-office-presentation .pptx-preview-slide-wrapper {
+  max-width: 100%;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(16 24 40 / 8%);
+}
+
+.react-office-presentation__thumbnail .pptx-preview-slide-wrapper {
+  max-width: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-office-presentation__navigation,
+  .react-office-presentation__navigation button,
+  .react-office-presentation__navigation-bar {
+    transition: none;
+  }
+
+  .react-office-presentation__navigation[data-expanded="true"] button {
+    transform: none;
+  }
 }
 
 .react-canonical-step[data-kind="error"] {

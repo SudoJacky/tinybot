@@ -15,7 +15,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:eaefb7c57948ac5c9330234eba3a22e5e6c4033a203f8064eb3985c9f16529e0 -->
+<!-- tinybot-doc-fingerprint: sha256:78583a7e635ccab2aff4f029aa3b934e5d96b2f393fb53651f6ee9ed48da65c6 -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -117,15 +117,18 @@ Assistant Markdown file links open contextual Artifact tabs; Artifact is not an
 empty resource offered by the Sidecar add menu. The renderer recognizes
 workspace-relative paths, `file:` URLs, absolute paths inside the active
 workspace, and optional line suffixes. It sends the Thread ID and normalized
-path to `worker_thread_workspace_file_chunk`, never a renderer-selected
+path to the thread-scoped workspace commands, never a renderer-selected
 workspace root.
 
 The backend resolves the canonical Thread projection and uses its recorded
 `workingDirectory`, falling back to the configured default workspace only when
-the Thread is unbound. It then delegates to the guarded workspace chunk reader,
-so traversal and symlink escapes fail explicitly. The Artifact surface shows
-loading, truncated-preview, binary-file, and read-failure states instead of an
-empty successful preview.
+the Thread is unbound. It then delegates to the guarded workspace readers, so
+traversal and symlink escapes fail explicitly. Text previews use
+`worker_thread_workspace_file_chunk`. Modern `.xlsx`, `.docx`, and `.pptx`
+previews first read binary metadata, then request at most 25 MiB from
+`worker_thread_workspace_file_bytes` with the expected source revision. The
+Artifact surface shows loading, truncation, unsupported-binary, source-change,
+and read-failure states instead of an empty successful preview.
 
 ## File Dialog Commands
 

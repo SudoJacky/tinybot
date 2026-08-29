@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:49b545f76a4e33065c37e9dffbb5a974f6245b6d8da8b24b25e6c579b666e74c -->
+<!-- tinybot-module-fingerprint: sha256:f19fa333e6bdb3c9d7234c3fe9198426faa6080f62a8f68a0598bca3639be594 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
@@ -32,7 +32,12 @@ Language-picker option names and descriptions use each target language's own
 copy (endonyms) instead of following the currently active interface language.
 Sidecar copy lives under the owning `chat` route namespace, including Terminal shell
 selection, process state, availability, user-only ownership labels, and
-Artifact file-preview boundary, binary, truncation, and failure states.
+Artifact file-preview boundary, binary, truncation, Office loading, sheet, and
+failure states. Spreadsheet cell labels, selection announcements, change
+actions, shortcut hints, anchored change-editor controls, and visible composer
+annotation cards are localized while paths, sheet names, addresses, cell values,
+and requested changes remain user data. PowerPoint slide-navigation labels and
+page actions are localized while rendered slide content remains document data.
 The Performance Trace route, diagnostic-mode controls, local-export status, and
 privacy warning follow the same English and Simplified Chinese resource
 boundary; metric and event identifiers remain untranslated.

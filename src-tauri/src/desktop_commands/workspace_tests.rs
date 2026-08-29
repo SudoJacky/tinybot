@@ -31,6 +31,8 @@ fn thread_file_preview_reads_from_the_recorded_workspace_and_rejects_escape() {
         .expect("default file should write");
     std::fs::write(thread_workspace.join("src/main.ts"), "thread root")
         .expect("thread file should write");
+    std::fs::write(thread_workspace.join("src/report.xlsx"), [0_u8, 1, 2, 3])
+        .expect("thread binary file should write");
     std::fs::write(root.join("secret.txt"), "outside thread workspace")
         .expect("outside file should write");
 
@@ -81,6 +83,55 @@ fn thread_file_preview_reads_from_the_recorded_workspace_and_rejects_escape() {
     )
     .expect("thread workspace file should load");
     assert_eq!(loaded["result"]["content"], "thread root");
+
+    let binary_metadata = worker_thread_workspace_file_chunk_with_options(
+        &shared,
+        "session-workspace-preview".to_string(),
+        "src/report.xlsx".to_string(),
+        None,
+        default_workspace.clone(),
+        json!({}),
+        Duration::from_secs(1),
+    )
+    .expect("thread binary metadata should load");
+    let binary = worker_thread_workspace_file_bytes_with_options(
+        &shared,
+        "session-workspace-preview".to_string(),
+        "src/report.xlsx".to_string(),
+        binary_metadata["result"]["revision"]
+            .as_str()
+            .map(ToOwned::to_owned),
+        default_workspace.clone(),
+        4,
+    )
+    .expect("thread binary bytes should load");
+    assert_eq!(binary, [0, 1, 2, 3]);
+
+    let oversized = worker_thread_workspace_file_bytes_with_options(
+        &shared,
+        "session-workspace-preview".to_string(),
+        "src/report.xlsx".to_string(),
+        None,
+        default_workspace.clone(),
+        3,
+    )
+    .expect_err("oversized preview file should fail");
+    assert!(oversized.contains("file_too_large"), "{oversized}");
+
+    std::fs::write(thread_workspace.join("src/report.xlsx"), [4_u8, 5, 6, 7, 8])
+        .expect("changed binary file should write");
+    let changed = worker_thread_workspace_file_bytes_with_options(
+        &shared,
+        "session-workspace-preview".to_string(),
+        "src/report.xlsx".to_string(),
+        binary_metadata["result"]["revision"]
+            .as_str()
+            .map(ToOwned::to_owned),
+        default_workspace.clone(),
+        5,
+    )
+    .expect_err("changed preview file should fail");
+    assert!(changed.contains("source_changed"), "{changed}");
 
     let default_loaded = worker_thread_workspace_file_chunk_with_options(
         &shared,

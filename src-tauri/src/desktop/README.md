@@ -1,5 +1,5 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:89e79d4fd2f11270288af5fd540071e08c2a68968551bae3f1620b5bac933e8c -->
+<!-- tinybot-module-fingerprint: sha256:5588b96ed01479de93a7495733195f482ceabc78fb5f89d2e7efd075cbff5edc -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
@@ -35,10 +35,11 @@ exact-definition trust commands. Graph definition storage remains owned by
 the standard Thread/Agent path. Hook behavior remains owned by `command_hooks`
 and the Agent runtime.
 
-Bootstrap also registers the Thread-scoped workspace file-chunk command used
-by contextual Sidecar Artifact previews. The handler derives the workspace
-from canonical Thread state before routing through the ordinary guarded
-workspace reader; bootstrap owns registration only.
+Bootstrap also registers the Thread-scoped workspace file-chunk and raw-byte
+commands used by contextual Sidecar Artifact previews. The handlers derive the
+workspace from canonical Thread state before routing through the ordinary
+guarded workspace reader; bootstrap owns registration only. Desktop MIME
+detection recognizes modern `.xlsx` and `.pptx` alongside `.docx`.
 
 `logging` owns the `tinybot.native_log.v1` record, severity levels, context
 redaction and bounds, the platform log path, and 5 MiB single-backup rotation.

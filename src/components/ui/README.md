@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:48ad9e4dcb22f5ac53036ca9d46f3f812b7a74c4bc8f9f4d508884062f40816d -->
+<!-- tinybot-module-fingerprint: sha256:1858f38752c361026a6af3be59c616231445ec201c4a35c3d2aaa6229c1a6160 -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -9,6 +9,9 @@ interaction independent from native storage. The composer supports internal
 attachment state for ordinary Chat and controlled attachment state for native
 entry points such as desktop-pet quick chat; both paths share selection limits,
 removal, file-only submission, and successful-send clearing.
+Route-owned context references can opt into an expanded annotation card with a
+header, body value, and note while preserving the same remove and successful-send
+clearing callbacks as compact references.
 Model options may declare image-input support. The composer rejects newly
 selected images for text-only models while retaining ordinary files, and an
 existing incompatible image blocks sending after a model switch until the user
@@ -27,6 +30,9 @@ empty selection. Tools discovered after mount are enabled by default without
 overwriting prior user toggles. Its context-window indicator also presents the latest Provider
 call's prompt-cache hit rate when cached and input Token counts are available,
 and distinguishes a reported zero-percent hit from unavailable usage data.
+Routes may advance the composer's `focusRequestId` after a contextual handoff;
+the shared input then focuses the active editor and places the caret at the end
+without stealing focus again on ordinary controlled-value updates.
 
 Route orchestration and domain-specific state stay in `react-workbench` and
 `app-core`; shared UI receives data and actions through explicit props.
