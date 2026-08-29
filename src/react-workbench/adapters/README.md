@@ -1,5 +1,5 @@
 # Desktop Adapters
-<!-- tinybot-module-fingerprint: sha256:ac0b540eb294e22e1d56ff37172ee5ecc1e885ff7f4fbeb76f5ee3a98d46c0e4 -->
+<!-- tinybot-module-fingerprint: sha256:91825a1f567a6fed947b0e54879c1d714bdfd83a87cf9686581aeeed06414fd7 -->
 
 `adapters` implements renderer store interfaces over Tinybot's native and
 app-core modules. It owns event projection and the Settings, Tools, and
@@ -11,8 +11,10 @@ workspace state.
 
 The workspace Adapter keeps default-workspace directory and chunk browsing
 separate from Thread-scoped file preview reads. For the latter it forwards only
-the Thread ID and file path to the native API, preserving Rust as the authority
-for workspace selection and path containment.
+the Thread ID, file path, and optional expected revision to the native API. It
+normalizes the raw IPC body to `Uint8Array` without interpreting file content,
+preserving Rust as the authority for workspace selection, path containment,
+source revision, and byte limits.
 
 The desktop Settings adapter projects the native Provider catalog into the
 shared Chat model catalog. Only enabled Providers whose runtime status is

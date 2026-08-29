@@ -325,6 +325,40 @@ describe("ClaudeStyleAiInput slash commands", () => {
     expect(onFilesChange).toHaveBeenCalledWith([]);
   });
 
+  it("renders, removes, and clears expanded spreadsheet annotation context", async () => {
+    const user = userEvent.setup();
+    const onClearContextReferences = vi.fn();
+    const onRemoveContextReference = vi.fn();
+    const onSendMessage = vi.fn();
+    render(<ClaudeStyleAiInput
+      contextReferences={[{
+        annotation: { label: "1 annotation", text: "Increase the total to 24" },
+        body: "18",
+        detail: "Range: Revenue!C5",
+        id: "spreadsheet-1",
+        kind: "file",
+        label: "q4.xlsx",
+      }]}
+      onClearContextReferences={onClearContextReferences}
+      onRemoveContextReference={onRemoveContextReference}
+      onSendMessage={onSendMessage}
+    />);
+
+    const attachments = screen.getByLabelText("Composer attachments");
+    expect(within(attachments).getByText("q4.xlsx")).toBeTruthy();
+    expect(within(attachments).getByText("Range: Revenue!C5")).toBeTruthy();
+    expect(within(attachments).getByText("18")).toBeTruthy();
+    expect(within(attachments).getByText("1 annotation")).toBeTruthy();
+    expect(within(attachments).getByText("Increase the total to 24")).toBeTruthy();
+
+    await user.click(within(attachments).getByRole("button", { name: "Remove q4.xlsx" }));
+    expect(onRemoveContextReference).toHaveBeenCalledWith("spreadsheet-1");
+
+    await user.click(screen.getByRole("button", { name: "Send message" }));
+    expect(onSendMessage).toHaveBeenCalledWith("", [], [], { reasoningEffort: "high" });
+    expect(onClearContextReferences).toHaveBeenCalledOnce();
+  });
+
   it("rejects image selections for a model without image input while keeping ordinary files", async () => {
     const user = userEvent.setup();
     const onSelectFiles = vi.fn(async () => ([

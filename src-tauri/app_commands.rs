@@ -44,6 +44,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "worker_workspace_directory",
     "worker_workspace_file_chunk",
     "worker_thread_workspace_file_chunk",
+    "worker_thread_workspace_file_bytes",
     "worker_thread_create",
     "worker_thread_read",
     "worker_thread_resume",

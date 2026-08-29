@@ -81,6 +81,38 @@ describe("prepareChatSubmission", () => {
     }]);
   });
 
+  test("sends a confirmed spreadsheet annotation as visible fallback text and source context", async () => {
+    const prepared = await prepareChatSubmission(input({
+      spreadsheetAnnotations: [{
+        filePath: "reports/q4.xlsx",
+        fileTitle: "q4.xlsx",
+        id: "spreadsheet:artifact-1:Revenue:C5",
+        request: {
+          address: "C5",
+          instruction: "Increase this total to 24",
+          sheet: "Revenue",
+          value: "18",
+        },
+      }],
+    }));
+
+    expect(prepared).toMatchObject({
+      kind: "send_message",
+      turnInput: {
+        text: "Apply the spreadsheet annotations",
+        references: [{
+          detail: "Revenue!C5",
+          kind: "reference",
+          sourcePath: "reports/q4.xlsx",
+          title: "q4.xlsx",
+        }],
+      },
+      visibleText: "Apply the spreadsheet annotations",
+    });
+    if (prepared.kind !== "send_message") throw new Error("Expected send_message.");
+    expect(prepared.turnInput.references?.[0]?.sourceText).toContain("Requested change: Increase this total to 24");
+  });
+
   test("returns a queue input with its canonical turn input when the session is running", async () => {
     const prepared = await prepareChatSubmission(input({
       isRunning: true,
@@ -165,6 +197,7 @@ function input(overrides: Partial<PrepareChatSubmissionInput> = {}): PrepareChat
     selectedSkillIds: [],
     selectedSessionIds: [],
     sessions: [{ id: "session-2", title: "Architecture review", updatedAtMs: 42 }],
+    spreadsheetAnnotations: [],
     t,
     ...overrides,
   };
@@ -178,6 +211,7 @@ const t = ((key: string) => ({
   "composer.sessionMention.emptyTranscript": "Empty transcript",
   "composer.sessionMention.referenceDetail": "Referenced conversation",
   "composer.sessionMention.unavailable": "Session mention unavailable",
+  "composer.spreadsheetAnnotation.attachedPrompt": "Apply the spreadsheet annotations",
   "errors.compactWithAttachments": "Compact cannot include attachments",
 }[key] ?? key)) as TFunction<"chat">;
 

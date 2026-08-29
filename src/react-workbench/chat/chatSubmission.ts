@@ -1,6 +1,7 @@
 import type { TFunction } from "i18next";
 import type { AgentInputReference } from "../../app-core/chat/agentInputReference";
 import type { DesktopChatInput } from "../../app-core/chat/desktopCommand";
+import type { SpreadsheetCellChangeRequest } from "../../app-core/chat/officeArtifact";
 import { submitComposerText } from "../../app-core/chat/chatInputState";
 import type { QueuedInput } from "../../app-core/chat/chatUiProjection";
 import type {
@@ -18,6 +19,13 @@ export type ComposerMentionedSession = {
   id: string;
   title: string;
   updatedAtMs: number;
+};
+
+export type SpreadsheetComposerAnnotation = {
+  filePath: string;
+  fileTitle: string;
+  id: string;
+  request: SpreadsheetCellChangeRequest;
 };
 
 export type QueuedComposerInput = QueuedInput & { turnInput: DesktopChatInput };
@@ -42,6 +50,7 @@ export type PrepareChatSubmissionInput = {
   selectedSkillIds: readonly string[];
   selectedSessionIds: readonly string[];
   sessions: readonly ComposerMentionedSession[];
+  spreadsheetAnnotations: readonly SpreadsheetComposerAnnotation[];
   t: TFunction<"chat">;
 };
 
@@ -55,6 +64,7 @@ export async function prepareChatSubmission(
       || input.pastedContent.length
       || input.selectedSkillIds.length
       || input.selectedSessionIds.length
+      || input.spreadsheetAnnotations.length
     ) {
       throw new Error(input.t("errors.compactWithAttachments"));
     }
@@ -70,6 +80,7 @@ export async function prepareChatSubmission(
   });
   const references = [
     ...input.files.map(nativeReferenceFromComposerFile),
+    ...input.spreadsheetAnnotations.map(nativeReferenceFromSpreadsheetAnnotation),
     ...await nativeReferencesFromComposerSessions(
       mentionedSessions,
       input.loadSessionTranscript,
@@ -82,7 +93,9 @@ export async function prepareChatSubmission(
       ? input.t("composer.sessionMention.attachedPrompt")
       : input.selectedSkillIds.length
         ? input.t("composer.skill.attachedPrompt")
-        : "";
+        : input.spreadsheetAnnotations.length
+          ? input.t("composer.spreadsheetAnnotation.attachedPrompt")
+          : "";
   const visibleText = formatComposerMessage(
     input.message || fallbackMessage,
     input.pastedContent,
@@ -143,6 +156,26 @@ function nativeReferenceFromComposerFile(file: ComposerFileReference): AgentInpu
     rawPath: file.path,
     title: file.name,
     referenceKind: managedImage ? "image" : "file",
+  };
+}
+
+function nativeReferenceFromSpreadsheetAnnotation(
+  annotation: SpreadsheetComposerAnnotation,
+): AgentInputReference {
+  const { request } = annotation;
+  return {
+    detail: `${request.sheet}!${request.address}`,
+    kind: "reference",
+    sourcePath: annotation.filePath,
+    sourceText: [
+      "Spreadsheet cell annotation:",
+      `File: ${annotation.filePath}`,
+      `Sheet: ${request.sheet}`,
+      `Cell: ${request.address}`,
+      `Current value: ${request.value || "(empty)"}`,
+      `Requested change: ${request.instruction}`,
+    ].join("\n"),
+    title: annotation.fileTitle,
   };
 }
 

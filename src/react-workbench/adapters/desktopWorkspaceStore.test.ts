@@ -8,6 +8,7 @@ function createNativeWorkspace() {
     directory: vi.fn<NativeWorkspaceApi["directory"]>(async () => ({ result: { entries: [], listing_revision: "revision-1", path: "." } })),
     fileChunk: vi.fn<NativeWorkspaceApi["fileChunk"]>(async () => ({ result: { content_type: "text", path: "README.md", revision: "revision-1", size_bytes: 0 } })),
     threadFileChunk: vi.fn<NativeWorkspaceApi["threadFileChunk"]>(async () => ({ result: { content_type: "text", path: "README.md", revision: "revision-1", size_bytes: 0 } })),
+    threadFileBytes: vi.fn<NativeWorkspaceApi["threadFileBytes"]>(async () => new Uint8Array([0, 1, 2, 3])),
   };
 }
 
@@ -94,6 +95,16 @@ describe("desktop workspace store", () => {
       revision: "revision-3",
       sizeBytes: 5,
       updatedAt: "2026-08-15T00:00:00.000Z",
+    });
+    await expect(store.readThreadFileBytes!({
+      expectedRevision: "revision-3",
+      path: "report.xlsx",
+      threadId: "thread-1",
+    })).resolves.toEqual(new Uint8Array([0, 1, 2, 3]));
+    expect(nativeWorkspace.threadFileBytes).toHaveBeenCalledWith({
+      expectedRevision: "revision-3",
+      path: "report.xlsx",
+      threadId: "thread-1",
     });
 
     await expect(store.readThreadFile({ threadId: "thread-1", path: "src/main.ts" })).resolves.toEqual({

@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:94da717a2717b797ea99dbe6ebb7e6b013c9d814471f56676fc4fe81707e5b3d -->
+<!-- tinybot-module-fingerprint: sha256:ce0158536b0dbe54b4c8c6be87cd4abe1a61e4d23a1ad094dbf5cdacda93211b -->
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
 thread-scoped Browser and Artifact resources, workspace-scoped Terminal
@@ -57,7 +57,24 @@ Artifact presentation is supplied by Chat through the Sidecar render contract;
 Artifact domain state does not live in this module. Artifact tabs may come from
 canonical Agent artifacts or from local file links in assistant Markdown. File
 links are contextual only, so the resource menu does not create an empty
-Artifact tab.
+Artifact tab. Chat presents Markdown Artifacts as rendered documents and keeps
+the Artifact panel as the single vertical scrolling surface. Modern Office
+files (`.xlsx`, `.docx`, and `.pptx`) are parsed locally into sheet, continuous
+document, and slide-list previews; plain text, image, and data-view Artifacts
+retain their type-specific previews. PowerPoint previews overlay a collapsed
+left rail with one horizontal line per rendered slide; the current slide uses
+a longer, higher-contrast line. Line strength and the expanded rows share a
+smooth vertical pointer-proximity response, while the current slide remains at
+full strength. Pointer hover or keyboard focus expands that rail into numbered
+DOM-derived thumbnails without resizing the slide canvas; activating a
+thumbnail scrolls the owning Artifact surface to the matching slide and marks
+it current. Spreadsheet previews expose one selected
+cell at a time with matching row and column headers, arrow-key navigation,
+Escape clearing, and an explicit `Ctrl/Cmd+I` change request. Activating that
+action opens a labelled input anchored below the selected cell; Enter or its
+confirm button reports the sheet, address, rendered value, and trimmed request
+through the render callback, while Escape cancels and restores cell focus.
+Sidecar does not own or submit the Chat composer state.
 
 ## Invariants
 
@@ -90,7 +107,10 @@ Artifact tab.
 - `../chat/ChatPage.sidecar.test.tsx` covers Chat-owned provisioning, Browser
   activation, session reattachment, workspace fallback, and close-time cleanup.
 - `../chat/ChatPage.timeline.test.tsx` covers assistant file-link Artifact
-  previews and visible path-boundary failures.
+  previews, spreadsheet change requests, and visible path-boundary failures.
+- `OfficeArtifactPreview.test.tsx` covers spreadsheet selection, keyboard
+  movement, the anchored change-request editor's confirm and cancel paths, and
+  PowerPoint thumbnail-rail expansion and navigation.
 - Run the [Windows desktop smoke test](../../../docs/guides/desktop-smoke-test.md)
   for real WebView2, PTY, process cleanup, and native geometry behavior.
 

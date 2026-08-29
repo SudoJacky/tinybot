@@ -5,9 +5,12 @@ use crate::protocol::WorkerRequest;
 use crate::rpc::{
     call_rust_state_service, native_request_router, native_request_router_with_workspace_root,
 };
+use crate::workspace::WorkerWorkspaceRpc;
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Duration};
-use tauri::State;
+use tauri::{ipc::Response, State};
+
+const OFFICE_PREVIEW_FILE_LIMIT_BYTES: u64 = 25 * 1024 * 1024;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -49,6 +52,14 @@ pub(crate) struct WorkerThreadWorkspaceFileChunkInput {
     thread_id: String,
     path: String,
     cursor: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkerThreadWorkspaceFileBytesInput {
+    thread_id: String,
+    path: String,
+    expected_revision: Option<String>,
 }
 
 #[tauri::command]
@@ -151,6 +162,22 @@ pub(crate) fn worker_thread_workspace_file_chunk(
         native_config_snapshot(),
         Duration::from_secs(10),
     )
+}
+
+#[tauri::command]
+pub(crate) fn worker_thread_workspace_file_bytes(
+    input: WorkerThreadWorkspaceFileBytesInput,
+    state: State<'_, SharedNativeRuntime>,
+) -> Result<Response, String> {
+    worker_thread_workspace_file_bytes_with_options(
+        state.inner(),
+        input.thread_id,
+        input.path,
+        input.expected_revision,
+        native_backend_workspace_root(),
+        OFFICE_PREVIEW_FILE_LIMIT_BYTES,
+    )
+    .map(Response::new)
 }
 
 pub(crate) fn worker_workspace_files_with_options(
@@ -326,29 +353,8 @@ pub(crate) fn worker_thread_workspace_file_chunk_with_options(
     config_snapshot: serde_json::Value,
     _timeout: Duration,
 ) -> Result<serde_json::Value, String> {
-    let thread_store = { lock_runtime(shared).thread_store.clone() };
-    let workspace_root = {
-        let operation = thread_store.begin_operation().map_err(|error| {
-            format!(
-                "thread workspace file lookup failed: {}; details={}",
-                error.message, error.details
-            )
-        })?;
-        let (thread, _) = operation
-            .thread_log()
-            .thread_projection_for(&thread_id)
-            .map_err(|error| {
-                format!(
-                    "thread workspace file lookup failed: {}; details={}",
-                    error.message, error.details
-                )
-            })?;
-        thread
-            .metadata
-            .working_directory
-            .map(PathBuf::from)
-            .unwrap_or(default_workspace_root)
-    };
+    let (thread_store, workspace_root) =
+        thread_workspace(shared, &thread_id, default_workspace_root)?;
     let path = thread_workspace_file_path(&workspace_root, &path)?;
     let request_id = next_worker_request_correlation();
     let response =
@@ -361,6 +367,67 @@ pub(crate) fn worker_thread_workspace_file_chunk_with_options(
             ));
     serde_json::to_value(response)
         .map_err(|error| format!("thread workspace file chunk failed: {error}"))
+}
+
+pub(crate) fn worker_thread_workspace_file_bytes_with_options(
+    shared: &SharedNativeRuntime,
+    thread_id: String,
+    path: String,
+    expected_revision: Option<String>,
+    default_workspace_root: PathBuf,
+    max_bytes: u64,
+) -> Result<Vec<u8>, String> {
+    let (_, workspace_root) = thread_workspace(shared, &thread_id, default_workspace_root)?;
+    let path = thread_workspace_file_path(&workspace_root, &path)?;
+    WorkerWorkspaceRpc::new(
+        workspace_root,
+        crate::protocol::capability::default_desktop_capability_policy(),
+    )
+    .with_builtin_skills_root(crate::config::application::repo_root())
+    .read_file_bytes(&path, expected_revision.as_deref(), max_bytes)
+    .map_err(|error| {
+        format!(
+            "thread workspace file bytes failed: {}; details={}",
+            error.message, error.details
+        )
+    })
+}
+
+fn thread_workspace(
+    shared: &SharedNativeRuntime,
+    thread_id: &str,
+    default_workspace_root: PathBuf,
+) -> Result<
+    (
+        crate::threads::workspace_store::WorkspaceThreadStore,
+        PathBuf,
+    ),
+    String,
+> {
+    let thread_store = { lock_runtime(shared).thread_store.clone() };
+    let workspace_root = {
+        let operation = thread_store.begin_operation().map_err(|error| {
+            format!(
+                "thread workspace file lookup failed: {}; details={}",
+                error.message, error.details
+            )
+        })?;
+        let (thread, _) = operation
+            .thread_log()
+            .thread_projection_for(thread_id)
+            .map_err(|error| {
+                format!(
+                    "thread workspace file lookup failed: {}; details={}",
+                    error.message, error.details
+                )
+            })?;
+        thread
+            .metadata
+            .working_directory
+            .map(PathBuf::from)
+            .unwrap_or(default_workspace_root)
+    };
+    Ok((thread_store, workspace_root))
 }
 
 fn thread_workspace_file_path(

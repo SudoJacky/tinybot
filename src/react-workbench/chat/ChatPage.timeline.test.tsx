@@ -13,6 +13,23 @@ import {
   failedPlanTimeline,
 } from "./test/ChatPageTestHarness";
 
+vi.mock("../sidecar/OfficeArtifactPreview", () => ({
+  OfficeArtifactPreview: ({
+    onAskForChange,
+    source,
+  }: {
+    onAskForChange?: (request: { address: string; instruction: string; sheet: string; value: string }) => void;
+    source: { kind: string; title: string };
+  }) => (
+    <div data-testid="office-artifact-preview">
+      {source.kind}: {source.title}
+      <button type="button" onClick={() => onAskForChange?.({ address: "C5", instruction: "Increase the total to 24", sheet: "Revenue", value: "18" })}>
+        Ask for mock change
+      </button>
+    </div>
+  ),
+}));
+
 describe("ChatPage", () => {
   it("shows branch on a completed tool-backed final answer but not on user or commentary messages", async () => {
     const user = userEvent.setup();
@@ -1038,6 +1055,115 @@ describe("ChatPage", () => {
     const sidecar = await screen.findByLabelText("Sidecar");
     expect(within(sidecar).getByRole("tab", { name: "main.ts" })).toBeTruthy();
     expect(await within(sidecar).findByText("import { mount } from './react-workbench/main';")).toBeTruthy();
+  });
+
+  it("renders Markdown workspace artifacts as documents instead of raw text previews", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Tinybot workspace",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "idle",
+        workingDirectory: "D:\\Code\\py\\tinybot",
+      }],
+    });
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, [{
+      id: "a-markdown-file-link",
+      role: "assistant",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Read [the operator guide](docs/operator-guide.md).",
+      status: "complete",
+    }]));
+    const readThreadFile = vi.fn(async () => ({
+      content: "# Operator guide\n\nUse **one scrolling surface** for the document.",
+      contentType: "text" as const,
+      lineEnd: 3,
+      lineStart: 1,
+      path: "docs/operator-guide.md",
+      revision: "rev-markdown",
+      sizeBytes: 66,
+    }));
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 2, 0)}
+        sessionStore={stores.sessionStore}
+        workspaceStore={{ readThreadFile }}
+      />,
+    );
+
+    await user.click(await screen.findByRole("link", { name: "the operator guide" }));
+
+    const sidecar = await screen.findByLabelText("Sidecar");
+    const document = within(sidecar).getByRole("document", { name: "operator-guide.md" });
+    expect(within(document).getByRole("heading", { level: 1, name: "Operator guide" })).toBeTruthy();
+    expect(within(document).getByText("one scrolling surface", { exact: false }).closest("strong")).toBeTruthy();
+    expect(document.querySelector("pre")).toBeNull();
+    expect(within(sidecar).queryByText("workspace-file:docs/operator-guide.md")).toBeNull();
+    expect(within(sidecar).queryByText("text/markdown")).toBeNull();
+  });
+
+  it("loads modern Office files through the revision-bound binary preview API", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Tinybot workspace",
+        updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+        status: "idle",
+        workingDirectory: "D:\\Code\\py\\tinybot",
+      }],
+    });
+    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, [{
+      id: "a-office-file-link",
+      role: "assistant",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Review [the quarterly workbook](reports/q4.xlsx).",
+      status: "complete",
+    }]));
+    const readThreadFile = vi.fn(async () => ({
+      contentType: "binary" as const,
+      path: "reports/q4.xlsx",
+      revision: "rev-xlsx",
+      sizeBytes: 4,
+    }));
+    const readThreadFileBytes = vi.fn(async () => new Uint8Array([80, 75, 3, 4]));
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 2, 0)}
+        sessionStore={stores.sessionStore}
+        workspaceStore={{ readThreadFile, readThreadFileBytes }}
+      />,
+    );
+
+    await user.click(await screen.findByRole("link", { name: "the quarterly workbook" }));
+
+    expect(readThreadFileBytes).toHaveBeenCalledWith({
+      expectedRevision: "rev-xlsx",
+      path: "reports/q4.xlsx",
+      threadId: "s1",
+    });
+    const sidecar = await screen.findByLabelText("Sidecar");
+    expect((await within(sidecar).findByTestId("office-artifact-preview")).textContent).toContain("spreadsheet: q4.xlsx");
+    expect(within(sidecar).queryByText("workspace-file:reports/q4.xlsx")).toBeNull();
+
+    const composer = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    await user.type(composer, "Keep the existing request");
+    await user.click(within(sidecar).getByRole("button", { name: "Ask for mock change" }));
+    expect(composer.value).toBe("Keep the existing request");
+    const annotations = screen.getByLabelText("Composer attachments");
+    expect(within(annotations).getByText("q4.xlsx")).toBeTruthy();
+    expect(within(annotations).getByText("Range: Revenue!C5")).toBeTruthy();
+    expect(within(annotations).getByText("18")).toBeTruthy();
+    expect(within(annotations).getByText("1 annotation")).toBeTruthy();
+    expect(within(annotations).getByText("Increase the total to 24")).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(composer));
   });
 
   it("surfaces truncated and binary workspace file previews in the artifact tab", async () => {

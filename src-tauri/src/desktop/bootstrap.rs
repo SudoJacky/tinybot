@@ -291,6 +291,7 @@ pub(crate) fn run() {
             crate::desktop_commands::workspace::worker_workspace_directory,
             crate::desktop_commands::workspace::worker_workspace_file_chunk,
             crate::desktop_commands::workspace::worker_thread_workspace_file_chunk,
+            crate::desktop_commands::workspace::worker_thread_workspace_file_bytes,
             crate::desktop_commands::thread::worker_thread_create,
             crate::desktop_commands::thread::worker_thread_read,
             crate::desktop_commands::thread::worker_thread_resume,

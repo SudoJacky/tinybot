@@ -38,5 +38,9 @@ describe("desktop native workspace API", () => {
       command: "worker_thread_workspace_file_chunk",
       args: { input: { threadId: "thread-1", path: "src/chat.ts" } },
     });
+    await expect(api.threadFileBytes({ threadId: "thread-1", path: "report.xlsx", expectedRevision: "revision-1" })).resolves.toEqual({
+      command: "worker_thread_workspace_file_bytes",
+      args: { input: { threadId: "thread-1", path: "report.xlsx", expectedRevision: "revision-1" } },
+    });
   });
 });

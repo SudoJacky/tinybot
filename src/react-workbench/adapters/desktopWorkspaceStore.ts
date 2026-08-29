@@ -8,7 +8,7 @@ import type {
   WorkspaceStore,
 } from "../services";
 
-type NativeWorkspaceQueryApi = Pick<NativeWorkspaceApi, "directory" | "fileChunk" | "files" | "threadFileChunk">;
+type NativeWorkspaceQueryApi = Pick<NativeWorkspaceApi, "directory" | "fileChunk" | "files" | "threadFileBytes" | "threadFileChunk">;
 
 export function createDesktopWorkspaceStore({
   initialize,
@@ -34,7 +34,20 @@ export function createDesktopWorkspaceStore({
       await initialize();
       return normalizeWorkspaceFileChunk(await requireNativeWorkspace(nativeWorkspace).threadFileChunk(request));
     },
+    async readThreadFileBytes(request) {
+      await initialize();
+      return normalizeWorkspaceFileBytes(await requireNativeWorkspace(nativeWorkspace).threadFileBytes(request));
+    },
   };
+}
+
+export function normalizeWorkspaceFileBytes(payload: unknown): Uint8Array {
+  if (payload instanceof Uint8Array) return payload;
+  if (payload instanceof ArrayBuffer) return new Uint8Array(payload);
+  if (Array.isArray(payload) && payload.every((value) => Number.isInteger(value) && value >= 0 && value <= 255)) {
+    return Uint8Array.from(payload);
+  }
+  throw new Error("Workspace file byte response is invalid");
 }
 
 function normalizeWorkspaceFiles(payload: unknown): WorkspaceFileSummary[] {

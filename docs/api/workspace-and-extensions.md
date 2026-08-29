@@ -15,7 +15,7 @@ src-tauri/src/skills/definition.rs
 src-tauri/src/workspace/types.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:18d5bb241a039b9935798aae303605ab37886e56650eabb26ffa7bc0fa29e4df -->
+<!-- tinybot-doc-fingerprint: sha256:452709f846ca9fdbe1aadd7a4929a87c2a784c584c8e1c6df0ba59068238ebbd -->
 
 This document covers workspace operations and the extension catalogs available
 to Agents. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -135,6 +135,7 @@ show the latest selected route/edge, raw response, and provider usage.
 | `worker_workspace_directory` | `{ input: { path, cursor?, nameQuery? } }` | Worker response containing `WorkspaceDirectoryPage` |
 | `worker_workspace_file_chunk` | `{ input: { path, cursor? } }` | Worker response containing `WorkspaceFileChunk` |
 | `worker_thread_workspace_file_chunk` | `{ input: { threadId, path, cursor? } }` | Worker response containing `WorkspaceFileChunk` |
+| `worker_thread_workspace_file_bytes` | `{ input: { threadId, path, expectedRevision? } }` | Raw file bytes, capped at 25 MiB |
 
 Lower-level workspace RPC also supports:
 
@@ -212,14 +213,18 @@ continuation cursors are bound to `revision`; using one after the file changes f
 query code `source_changed`. Other workspace query failures retain their protocol error, path, and
 retryable metadata rather than returning an empty successful page.
 
-`worker_thread_workspace_file_chunk` is the Sidecar Artifact preview boundary.
-It resolves the Thread from the canonical rollout projection and selects that
-Thread's recorded `workingDirectory`; an unbound Thread uses the configured
-default workspace. Absolute paths are accepted only when their canonical target
-is below that root, then converted to workspace-relative paths before the same
-chunk reader handles them. The renderer cannot supply a workspace root, and
-relative traversal, symlink escape, binary content, stale cursors, and I/O
-errors retain the normal structured workspace failure behavior.
+The `worker_thread_workspace_file_chunk` and
+`worker_thread_workspace_file_bytes` commands form the Sidecar Artifact preview
+boundary. They resolve the Thread from the canonical rollout projection and
+select that Thread's recorded `workingDirectory`; an unbound Thread uses the
+configured default workspace. Absolute paths are accepted only when their
+canonical target is below that root, then converted to workspace-relative
+paths before the guarded reader handles them. The renderer cannot supply a
+workspace root. Raw byte reads are capped at 25 MiB and may include the chunk
+metadata revision as `expectedRevision`; a changed source fails with
+`source_changed` rather than parsing bytes from a different file version.
+Relative traversal, symlink escape, binary content in the text reader, stale
+cursors, oversize byte reads, and I/O errors fail explicitly.
 
 `workspace.apply_patch` accepts:
 

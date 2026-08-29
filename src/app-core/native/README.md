@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:d7f369c5ed83f772e4332bdffd7f6e54cdad6ad499e187f53871537e7dd843ab -->
+<!-- tinybot-module-fingerprint: sha256:32d806a475183b5b113c94c0bf5a621f5b4379924e011fc232513e02bcb7e5b4 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -69,10 +69,11 @@ terminate operations; callers cannot send an arbitrary process startup command
 or address Agent shell sessions. Its create contract leaves the working
 directory optional so a regular chat can use Rust's configured native default.
 
-`desktopNativeWorkspace` exposes both default-workspace browsing and a
-Thread-scoped file-chunk request for contextual Artifact previews. The latter
-sends only `threadId`, path, and optional cursor; Rust remains responsible for
-selecting the canonical Thread workspace and enforcing its filesystem bounds.
+`desktopNativeWorkspace` exposes default-workspace browsing plus Thread-scoped
+file-chunk and raw-byte requests for contextual Artifact previews. The raw-byte
+request sends only `threadId`, path, and the optional metadata revision; Rust
+remains responsible for selecting the canonical Thread workspace, enforcing
+its filesystem bounds and size limit, and rejecting changed sources.
 
 `rendererLogger` is the renderer-wide observability entry point. It emits
 structured `debug`, `info`, `warn`, and `error` events to the console and a

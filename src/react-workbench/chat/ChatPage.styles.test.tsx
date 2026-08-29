@@ -91,6 +91,73 @@ describe("ChatPage", () => {
     expect(css).not.toContain(".react-sidebar-reorder-handle");
   });
 
+  it("keeps the artifact panel as the only vertical scrolling surface", () => {
+    const chatCss = readFileSync("src/react-workbench/chat/ChatPage.css", "utf8");
+    const sidecarCss = readFileSync("src/react-workbench/sidecar/Sidecar.css", "utf8");
+
+    expect(sidecarCss).toMatch(
+      /\.react-sidecar__artifact\s*{[^}]*overflow:\s*auto;/s,
+    );
+    expect(chatCss).toMatch(
+      /\.react-artifact-detail__text\s*{[^}]*white-space:\s*pre-wrap;/s,
+    );
+    expect(chatCss).not.toMatch(
+      /\.react-artifact-detail__text\s*{[^}]*max-height:/s,
+    );
+    expect(chatCss).not.toMatch(
+      /\.react-artifact-detail__text\s*{[^}]*overflow(?:-y)?:\s*auto;/s,
+    );
+  });
+
+  it("keeps spreadsheet cells visually unchanged on hover", () => {
+    const chatCss = readFileSync("src/react-workbench/chat/ChatPage.css", "utf8");
+
+    expect(chatCss).toMatch(
+      /\.react-office-spreadsheet__cell:hover,\s*\.react-office-spreadsheet__cell:focus-visible\s*{[^}]*border-radius:\s*0;[^}]*background:\s*transparent;[^}]*box-shadow:\s*none;[^}]*transform:\s*none;/s,
+    );
+  });
+
+  it("keeps the anchored spreadsheet change editor touch-friendly", () => {
+    const chatCss = readFileSync("src/react-workbench/chat/ChatPage.css", "utf8");
+
+    expect(chatCss).toMatch(
+      /\.react-office-spreadsheet__selection-action form\s*{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 44px;[^}]*min-height:\s*56px;/s,
+    );
+    expect(chatCss).toMatch(
+      /\.react-office-spreadsheet__selection-action form > button\s*{[^}]*width:\s*44px;[^}]*height:\s*44px;/s,
+    );
+  });
+
+  it("overlays the PowerPoint navigation rail without resizing the slide stage", () => {
+    const chatCss = readFileSync("src/react-workbench/chat/ChatPage.css", "utf8");
+
+    expect(chatCss).toMatch(
+      /\.react-office-presentation\s*{[^}]*grid-template-columns:\s*0 minmax\(0, 1fr\);/s,
+    );
+    expect(chatCss).toMatch(
+      /\.react-office-presentation__navigation\[data-expanded="true"\]\s*{[^}]*width:\s*166px;[^}]*transform:\s*translateX\(8px\);/s,
+    );
+    expect(chatCss).toMatch(
+      /\.react-office-presentation__navigation\s*{[^}]*transform:\s*translateX\(-8px\);[^}]*transform 180ms var\(--motion-ease-standard\),/s,
+    );
+    expect(chatCss).toMatch(
+      /\.react-office-presentation__navigation button\s*{[^}]*width:\s*44px;[^}]*height:\s*28px;[^}]*min-height:\s*28px;/s,
+    );
+    expect(chatCss).toMatch(
+      /\.react-office-presentation__navigation\[data-expanded="true"\] button\s*{[^}]*height:\s*auto;[^}]*min-height:\s*76px;/s,
+    );
+    expect(chatCss).toMatch(
+      /\.react-office-presentation__navigation-bar\s*{[^}]*width:\s*calc\(18px \+ \(var\(--presentation-navigation-effect\) \* 10px\)\);[^}]*height:\s*calc\(2px \+ \(var\(--presentation-navigation-effect\) \* 1px\)\);/s,
+    );
+    expect(chatCss).toMatch(
+      /\.react-office-presentation__navigation button\s*{[^}]*--presentation-navigation-effect:\s*max\([^;]*--presentation-navigation-proximity[^;]*--presentation-navigation-active[^;]*--presentation-navigation-focus[^;]*\);/s,
+    );
+    expect(chatCss).toContain("transform: translateX(calc(var(--presentation-navigation-effect) * 3px))");
+    expect(chatCss).toContain(".react-office-presentation__navigation-bar");
+    expect(chatCss).toContain("opacity 100ms var(--motion-ease-standard)");
+    expect(chatCss).toContain(".react-office-presentation__thumbnail .pptx-preview-slide-wrapper");
+  });
+
   it("defines reduced-motion fallbacks for chat motion primitives", () => {
     const css = readWorkbenchCss();
 
