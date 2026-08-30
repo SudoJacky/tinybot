@@ -1,5 +1,5 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:176804eec05c11b245bd06b1de447bbd65ebca98bd174d85f0e526c2823d2402 -->
+<!-- tinybot-module-fingerprint: sha256:9256a2de039cc0485a0b2331bf9335e08396265b35376bf260019833d1e86dfa -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
@@ -55,6 +55,16 @@ snapshot for the renderer's Performance Trace route. A collector failure is
 reported directly to stderr so a logging failure cannot recurse or disappear
 silently.
 
+`memory_metrics` owns `tinybot.memory_snapshot.v1`. On Windows it reads the
+Rust/Tauri host through process memory counters, asks every live WebView2
+environment for its browser/renderer/utility/GPU process list, deduplicates
+shared process IDs, and then records private bytes, working set, and peak
+working set per process. Failures are returned as scoped collection errors and
+mark the snapshot partial; unavailable totals are not replaced with zero. The
+memory-only command supports explicit frontend sampling without repeatedly
+loading the full metrics and event snapshot. Other platforms return an
+explicit unsupported snapshot.
+
 `bootstrap` records process-local duration aggregates for browser runtime
 creation, menu installation, auxiliary windows, default files, bundled
 plugins, native runtime recovery, and total Tauri setup. These measurements
@@ -63,6 +73,7 @@ contain timing only and reuse the existing Performance Trace metrics store.
 `diagnostics` owns the Performance Trace command and the native save-dialog
 flow for local diagnostic ZIPs. It revalidates and redacts the bounded renderer
 ring, reads only the bounded tail of current and rotated structured native
-logs, omits malformed lines, allowlists system metadata, writes a manifest,
-and atomically activates the ZIP. The renderer receives only the export result;
-it does not own log paths, ZIP layout, or upload behavior.
+logs, accepts at most 300 memory samples and 4 MiB of sample JSON, omits
+malformed lines, allowlists system metadata, writes a manifest, and atomically
+activates the ZIP. The renderer receives only the export result; it does not
+own log paths, ZIP layout, or upload behavior.

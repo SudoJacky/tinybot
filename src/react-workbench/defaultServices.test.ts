@@ -165,8 +165,12 @@ describe("desktop native app services", () => {
             durations: {},
             gauges: {},
           },
+          memory: unsupportedMemorySnapshot(),
           recentEvents: [],
         };
+      }
+      if (command === "desktop_memory_snapshot") {
+        return unsupportedMemorySnapshot();
       }
       if (command === "worker_threads_list") {
         throw new Error("chat initialization should not run");
@@ -178,8 +182,12 @@ describe("desktop native app services", () => {
     await expect(services.performanceStore!.load()).resolves.toMatchObject({
       schemaVersion: "tinybot.performance_trace.v1",
     });
+    await expect(services.performanceStore!.sampleMemory()).resolves.toMatchObject({
+      schemaVersion: "tinybot.memory_snapshot.v1",
+    });
 
     expect(mocks.invoke).toHaveBeenCalledWith("desktop_performance_snapshot");
+    expect(mocks.invoke).toHaveBeenCalledWith("desktop_memory_snapshot");
     expect(mocks.invoke).not.toHaveBeenCalledWith("worker_threads_list", expect.anything());
   });
 
@@ -204,6 +212,7 @@ describe("desktop native app services", () => {
         durations: {},
         gauges: {},
       },
+      memory: unsupportedMemorySnapshot(),
       recentEvents: [],
     };
 
@@ -1095,3 +1104,16 @@ describe("desktop native app services", () => {
     });
   });
 });
+
+function unsupportedMemorySnapshot() {
+  return {
+    schemaVersion: "tinybot.memory_snapshot.v1" as const,
+    sampledAtUnixMs: 1,
+    status: "unsupported" as const,
+    native: null,
+    webview2: { privateBytes: 0, workingSetBytes: 0, processes: [] },
+    totalPrivateBytes: null,
+    totalWorkingSetBytes: null,
+    collectionErrors: [],
+  };
+}

@@ -47,6 +47,7 @@
 }
 
 .react-performance-trace-actions button,
+.react-performance-memory-controls button,
 .react-performance-trace-error button {
   display: inline-flex;
   min-height: 34px;
@@ -65,19 +66,22 @@
 }
 
 .react-performance-trace-actions button:hover:not(:disabled),
+.react-performance-memory-controls button:hover:not(:disabled),
 .react-performance-trace-error button:hover {
   border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-hairline));
   background: color-mix(in srgb, var(--color-primary) 6%, var(--color-panel));
 }
 
 .react-performance-trace-actions button:focus-visible,
+.react-performance-memory-controls button:focus-visible,
 .react-performance-trace-error button:focus-visible,
 .react-performance-trace-events summary:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--color-primary) 58%, transparent);
   outline-offset: 2px;
 }
 
-.react-performance-trace-actions button:disabled {
+.react-performance-trace-actions button:disabled,
+.react-performance-memory-controls button:disabled {
   cursor: not-allowed;
   opacity: 0.48;
 }
@@ -375,12 +379,197 @@
   overflow-wrap: anywhere;
 }
 
+.react-performance-memory-heading {
+  align-items: flex-start;
+}
+
+.react-performance-memory-controls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.react-performance-memory-status {
+  border: 1px solid var(--color-hairline);
+  border-radius: 999px;
+  background: var(--color-surface-soft);
+  padding: 4px 8px;
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.react-performance-memory-status[data-status="available"] {
+  border-color: color-mix(in srgb, var(--color-success, #2f855a) 38%, var(--color-hairline));
+  color: var(--color-success, #2f855a);
+}
+
+.react-performance-memory-status[data-status="partial"] {
+  border-color: color-mix(in srgb, #9a6800 38%, var(--color-hairline));
+  color: #9a6800;
+}
+
+.react-performance-memory-sampling {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-performance-memory-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.react-performance-memory-summary article {
+  display: grid;
+  gap: 4px;
+  border-radius: 9px;
+  background: var(--color-surface-soft);
+  padding: 12px;
+}
+
+.react-performance-memory-summary strong {
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+
+.react-performance-memory-summary span {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-performance-memory-trend {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 9px;
+  padding: 10px;
+}
+
+.react-performance-memory-trend svg {
+  display: block;
+  width: 100%;
+  height: 160px;
+}
+
+.react-performance-memory-grid {
+  stroke: var(--color-hairline);
+  stroke-width: 1;
+}
+
+.react-performance-memory-line {
+  fill: none;
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.react-performance-memory-line[data-series="total"] {
+  stroke: var(--color-primary);
+}
+
+.react-performance-memory-line[data-series="native"] {
+  stroke: var(--color-muted);
+  stroke-dasharray: 7 4;
+}
+
+.react-performance-memory-line[data-series="webview2"] {
+  stroke: #9a6800;
+  stroke-dasharray: 2 4;
+}
+
+.react-performance-memory-trend figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-performance-memory-trend figcaption span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.react-performance-memory-trend figcaption i {
+  width: 18px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--color-primary);
+}
+
+.react-performance-memory-trend figcaption i[data-series="native"] {
+  background: var(--color-muted);
+}
+
+.react-performance-memory-trend figcaption i[data-series="webview2"] {
+  background: #9a6800;
+}
+
+.react-performance-memory-errors {
+  display: grid;
+  gap: 8px;
+  border: 1px solid color-mix(in srgb, #9a6800 30%, var(--color-hairline));
+  border-radius: 9px;
+  background: color-mix(in srgb, #9a6800 6%, var(--color-panel));
+  padding: 10px;
+}
+
+.react-performance-memory-errors h3,
+.react-performance-memory-process-title {
+  margin: 0;
+  font-size: 12px;
+}
+
+.react-performance-memory-errors ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.react-performance-memory-errors li {
+  font-size: 11px;
+}
+
+.react-performance-memory-errors li strong,
+.react-performance-memory-errors li span {
+  display: block;
+}
+
+.react-performance-memory-errors li span {
+  margin-top: 2px;
+  color: var(--color-muted);
+  overflow-wrap: anywhere;
+}
+
+.react-performance-memory-table {
+  min-width: 820px;
+}
+
+.react-performance-memory-table th:first-child {
+  width: auto;
+}
+
+.react-performance-memory-table th:nth-child(-n + 3),
+.react-performance-memory-table td:nth-child(-n + 3) {
+  text-align: left;
+}
+
 @media (max-width: 760px) {
   .react-performance-trace-page {
     padding: 16px;
   }
 
   .react-performance-trace-header,
+  .react-performance-memory-heading,
   .react-performance-trace-event__heading {
     align-items: flex-start;
     flex-wrap: wrap;
@@ -395,7 +584,17 @@
     min-height: 44px;
   }
 
+  .react-performance-memory-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .react-performance-memory-controls button {
+    min-height: 44px;
+  }
+
   .react-performance-trace-summary,
+  .react-performance-memory-summary,
   .react-performance-trace-pair {
     grid-template-columns: 1fr 1fr;
   }
@@ -408,6 +607,7 @@
 
 @media (max-width: 480px) {
   .react-performance-trace-summary,
+  .react-performance-memory-summary,
   .react-performance-trace-pair {
     grid-template-columns: 1fr;
   }

@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:bcc0d825323278dabce2e7018ac32ec18ef7f7c953bc0c484308629e35da7fe2 -->
+<!-- tinybot-doc-fingerprint: sha256:cddd2400b3501a8e6bdfb12c65206768885af34b397e5f354becfa81ec211b15 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -60,6 +60,7 @@ Desktop Commands / Desktop Host
 | `graph_runs` | Linear Graph preflight, Run status files, Agent node sequencing, and standard Thread creation | Renderer state, definition editing, or the Agent Loop implementation |
 | `app-core/native` | Typed renderer adapters for native commands and events | Product state or backend behavior |
 | `desktop_commands` | Thin Tauri input/output adaptation, including Thread-scoped workspace selection for Artifact file reads | Reusable workspace path validation or file-reading behavior |
+| `desktop/memory_metrics` | Windows Rust-host and shared WebView2 process memory collection with deduplicated process totals | Long-term profiling history or renderer presentation |
 | `desktop/pet_file_drop` and `desktop/files` | Windows WebView2 dropped-path extraction plus shared chat-attachment validation/import | Chat state, file-byte transport, or renderer presentation |
 | `desktop_terminal` | User-only Sidecar PTY lifecycle and resource ownership | Agent shell sessions or renderer presentation |
 | `chat_attachments` | Content-addressed managed image storage, validation, and request-local Data URL encoding | Conversation authority or provider protocol selection |
@@ -83,9 +84,10 @@ Desktop Commands / Desktop Host
 - Typed in-process conversation projection: `threads::domain`.
 - Current execution generation for a Turn: `TurnExecutionRuntime`.
 - Process-local performance diagnostics: the native runtime metric/event ring,
-  augmented with the renderer's bounded startup trace at the workbench seam.
-  JSON snapshots and diagnostic bundles are saved locally through native file
-  dialogs and are never uploaded automatically.
+  augmented with the renderer's bounded startup trace and bounded Rust/WebView2
+  memory samples at the workbench seam. JSON snapshots and diagnostic bundles
+  are saved locally through native file dialogs and are never uploaded
+  automatically.
 - Runtime model-and-tool history: typed `AgentItem` values inside
   `agent::runtime`.
 - Tool metadata and exposure: the backend tool registry.

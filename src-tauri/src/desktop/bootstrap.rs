@@ -251,6 +251,7 @@ pub(crate) fn run() {
             record_renderer_diagnostic,
             record_renderer_log,
             crate::desktop::diagnostics::desktop_performance_snapshot,
+            crate::desktop::diagnostics::desktop_memory_snapshot,
             crate::desktop::diagnostics::desktop_export_diagnostic_bundle,
             crate::desktop::update::desktop_update_status,
             crate::desktop::update::desktop_check_for_update,

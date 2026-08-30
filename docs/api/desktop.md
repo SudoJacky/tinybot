@@ -16,7 +16,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:b9e26a3d60fefaa4b129d2aa2efe9e5729333db4ad56a1fc6549ce12035951fc -->
+<!-- tinybot-doc-fingerprint: sha256:b71153416c3df35f3832d6d8b4bc9dcc530b064e7398352a719b2c94d72afbe2 -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -220,11 +220,13 @@ Serialized records above 64 KiB and log write failures reject the command.
 | Command | Args | Response |
 | --- | --- | --- |
 | `desktop_performance_snapshot` | none | `PerformanceTraceSnapshot` |
+| `desktop_memory_snapshot` | none | `DesktopMemorySnapshot` |
 | `desktop_export_diagnostic_bundle` | `{ input: DiagnosticBundleInput }` | `DiagnosticBundleExportResult \| null` |
 
 `PerformanceTraceSnapshot` uses schema `tinybot.performance_trace.v1`. It
 combines the existing process-local runtime metrics snapshot with at most 200
-recent structured events collected through shared desktop state. Events carry
+recent structured events collected through shared desktop state and one memory
+snapshot. Events carry
 their timestamp, stream, level, event identifier, and already bounded/redacted
 context. The snapshot is read-only, resets with the app process, and does not
 start a background sampler.
@@ -235,16 +237,26 @@ bounded startup phases for React commit, first frame, event registration, and
 session restoration into the returned snapshot. Loading or exporting this
 diagnostic state does not wait for Chat initialization.
 
+`DesktopMemorySnapshot` uses schema `tinybot.memory_snapshot.v1`. On Windows it
+reports private bytes, current working set, and peak working set for the Rust
+host and for each WebView2 browser, renderer, GPU, and utility process shared by
+the application's webviews. Shared WebView2 PIDs are counted once and retain
+the labels of every webview that reported them. A partial result includes
+structured collection errors; unsupported platforms return `unsupported`
+without inventing process values.
+
 `DiagnosticBundleInput` uses schema `tinybot.diagnostic_bundle_input.v1` and
 contains the current diagnostic-mode flag, optional locale and time zone, and
-at most 300 renderer log entries (4 MiB serialized). The command opens a native
-save dialog and returns `null` when the user cancels. A successful result uses
+at most 300 renderer log entries (4 MiB serialized) plus at most 300 memory
+samples (4 MiB serialized). The command opens a native save dialog and returns
+`null` when the user cancels. A successful result uses
 schema `tinybot.diagnostic_bundle.v1` and returns the local path, ZIP size, and
 included entry names.
 
 The ZIP contains `manifest.json`, `performance-trace.json`,
-`renderer-logs.json`, `system-info.json`, and the available bounded native log
-files (`native-backend.log` and `native-backend.log.1`). Each native source is
+`renderer-logs.json`, `system-info.json`, optional `memory-samples.json`, and
+the available bounded native log files (`native-backend.log` and
+`native-backend.log.1`). Each native source is
 limited to its newest 6 MiB. Persistent structured log lines and renderer
 details are parsed and redacted again during export; malformed persistent lines
 are omitted and counted in the manifest. System information is allowlisted to

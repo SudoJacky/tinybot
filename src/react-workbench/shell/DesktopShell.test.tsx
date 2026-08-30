@@ -239,8 +239,10 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
           durations: {},
           gauges: {},
         },
+        memory: unsupportedMemorySnapshot(),
         recentEvents: [],
       })),
+      sampleMemory: vi.fn(async () => unsupportedMemorySnapshot()),
       exportSnapshot: vi.fn(async () => null),
       exportDiagnosticBundle: vi.fn(async () => null),
     },
@@ -1337,3 +1339,16 @@ describe("DesktopShell", () => {
   });
 
 });
+
+function unsupportedMemorySnapshot() {
+  return {
+    schemaVersion: "tinybot.memory_snapshot.v1" as const,
+    sampledAtUnixMs: 1,
+    status: "unsupported" as const,
+    native: null,
+    webview2: { privateBytes: 0, workingSetBytes: 0, processes: [] },
+    totalPrivateBytes: null,
+    totalWorkingSetBytes: null,
+    collectionErrors: [],
+  };
+}

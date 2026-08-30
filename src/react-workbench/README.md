@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:65c346bb3079908c8bee6bbec6183a599e6e1b9ec4a69b468fd264741e035564 -->
+<!-- tinybot-module-fingerprint: sha256:24f181feaa6a0276a12b0bf94e3fdce79724eabf081e85e12f355df801b2c505 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App` for the main window and selects lightweight
@@ -70,9 +70,11 @@ sizes and live resizing cannot displace the resource surface beyond its
 container; narrow windows retain the overlay gutter instead.
 
 `defaultServices.ts` exposes Performance Trace through a small route-facing
-store backed by the typed app-core native adapter. Its diagnostic export method
-accepts no page parameters: the service owns renderer-log, locale, time-zone,
-and diagnostic-mode collection before delegating ZIP creation to native code.
+store backed by the typed app-core native adapter. The store exposes a
+memory-only sample call so explicit route recording does not reload the metrics
+and event rings. Its diagnostic export method accepts only optional bounded
+memory samples: the service still owns renderer-log, locale, time-zone, and
+diagnostic-mode collection before delegating ZIP creation to native code.
 The main renderer passes one startup trace through `App` into this service
 graph, recording React commit, first frame, native event registration, and
 session restoration (including fetched page and session counts) before merging

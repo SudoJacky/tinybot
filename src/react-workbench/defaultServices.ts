@@ -667,15 +667,19 @@ export function createDesktopAppServices(
         const snapshot = await requireNative(nativePerformanceTrace, "Performance trace").snapshot();
         return mergeRendererStartupTrace(snapshot, rendererLogSnapshot());
       },
+      async sampleMemory() {
+        return requireNative(nativePerformanceTrace, "Performance trace").memorySnapshot();
+      },
       async exportSnapshot(snapshot) {
         return requireNative(nativePerformanceTrace, "Performance trace").exportSnapshot(snapshot);
       },
-      async exportDiagnosticBundle() {
+      async exportDiagnosticBundle(memorySamples) {
         return requireNative(nativePerformanceTrace, "Performance trace").exportDiagnosticBundle({
           diagnosticModeEnabled: isRendererDiagnosticModeEnabled(),
           locale: navigator.language || undefined,
           timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
           rendererLogs: rendererLogSnapshot(),
+          memorySamples,
         });
       },
     },

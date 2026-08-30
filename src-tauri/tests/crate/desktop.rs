@@ -20,6 +20,45 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 #[test]
+fn main_webview_permissions_cover_registered_tauri_commands() {
+    let bootstrap = include_str!("../../src/desktop/bootstrap.rs");
+    let permissions = include_str!("../../permissions/app-commands.toml");
+    let handler = bootstrap
+        .split_once(".invoke_handler(tauri::generate_handler![")
+        .expect("bootstrap must register one Tauri invoke handler")
+        .1
+        .split_once("])")
+        .expect("Tauri invoke handler must have a closing delimiter")
+        .0;
+    let main_permission = permissions
+        .split("[[permission]]")
+        .find(|permission| permission.contains("identifier = \"main-app-commands\""))
+        .expect("main-app-commands permission must exist");
+    let registered_commands = handler
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| line.trim_end_matches(','))
+        .map(|path| {
+            path.rsplit("::")
+                .next()
+                .expect("command path must not be empty")
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        registered_commands.contains(&"desktop_memory_snapshot"),
+        "desktop_memory_snapshot must be registered in the Tauri invoke handler"
+    );
+    for command in registered_commands {
+        assert!(
+            main_permission.contains(&format!("\"{command}\"")),
+            "registered Tauri command {command} must be allowed by main-app-commands"
+        );
+    }
+}
+
+#[test]
 fn renderer_diagnostics_append_to_persistent_backend_log() {
     let fixture = WorkspaceFixture::new();
     let log_path = fixture.root.join("logs").join("native-backend.log");
@@ -237,6 +276,25 @@ fn diagnostic_bundle_contains_bounded_sanitized_issue_evidence() {
                 "level": "info",
                 "stage": "diagnostics.renderer.fixture",
                 "details": { "token": "renderer-must-not-leak", "state": "ready" }
+            }],
+            "memorySamples": [{
+                "schemaVersion": "tinybot.memory_snapshot.v1",
+                "sampledAtUnixMs": 1723770123000_u64,
+                "status": "available",
+                "native": {
+                    "pid": 101,
+                    "privateBytes": 67108864,
+                    "workingSetBytes": 50331648,
+                    "peakWorkingSetBytes": 58720256
+                },
+                "webview2": {
+                    "privateBytes": 134217728,
+                    "workingSetBytes": 100663296,
+                    "processes": []
+                },
+                "totalPrivateBytes": 201326592,
+                "totalWorkingSetBytes": 150994944,
+                "collectionErrors": []
             }]
         }),
     )
@@ -264,6 +322,7 @@ fn diagnostic_bundle_contains_bounded_sanitized_issue_evidence() {
             "performance-trace.json",
             "renderer-logs.json",
             "system-info.json",
+            "memory-samples.json",
             "native-backend.log",
         ]
     );
@@ -283,6 +342,13 @@ fn diagnostic_bundle_contains_bounded_sanitized_issue_evidence() {
 
     let performance = read_zip_json(&mut archive, "performance-trace.json");
     assert_eq!(performance["metrics"]["counters"]["tool.calls"], 2);
+    assert_eq!(
+        performance["memory"]["schemaVersion"],
+        "tinybot.memory_snapshot.v1"
+    );
+
+    let memory_samples = read_zip_json(&mut archive, "memory-samples.json");
+    assert_eq!(memory_samples[0]["totalPrivateBytes"], 201326592);
 
     let system_info = read_zip_json(&mut archive, "system-info.json");
     assert_eq!(system_info["locale"], "zh-CN");
