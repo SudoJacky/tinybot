@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:ae579eedd000a57d9c339b8a339e47205a9a9d0980165fc723dce02a43c398f3 -->
+<!-- tinybot-module-fingerprint: sha256:dcfa903eae2969abb39cac5380f82515a07d2d025fd912da2fde84ec8d871c47 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -16,7 +16,9 @@ For desktop setup and launch behavior, see [the desktop guide](../docs/desktop.m
 - `src/desktop/bootstrap.rs` assembles shared runtime state and registers Tauri
   commands; `src/desktop_terminal.rs` owns the user-only Sidecar PTY runtime;
   `src/desktop/diagnostics.rs` owns bounded Performance Trace snapshots and
-  local diagnostic ZIP export; `src/desktop/pet.rs` creates the Windows-only
+  local diagnostic ZIP export; `src/desktop/memory_metrics.rs` separates the
+  Rust/Tauri host from deduplicated WebView2 child-process memory;
+  `src/desktop/pet.rs` creates the Windows-only
   transparent desktop-pet window and its adjacent quick-chat panel without
   making either an owned child of `main`; `src/desktop/pet_file_drop.rs` owns
   the WebView2 local-file bridge used by the pet; `src/desktop/tray.rs` owns
@@ -48,7 +50,9 @@ pick attachments and list, create, configure, and run chat Threads.
 `app_commands.rs` is the
 build-time application-command manifest; `permissions/app-commands.toml`
 separates the complete main-window command surface from the narrow pet and
-quick-chat subsets.
+quick-chat subsets. A contract test enumerates the main `generate_handler!`
+surface and requires every registered command to appear in
+`main-app-commands`, so registration and ACL changes cannot drift silently.
 The main capability also grants restore and focus operations so quick-chat
 handoff can bring a minimized main window to the foreground before routing to
 the selected Thread.

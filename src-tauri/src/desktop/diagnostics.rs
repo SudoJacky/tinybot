@@ -8,7 +8,7 @@ use std::{
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::State;
+use tauri::{AppHandle, State};
 use zip::{write::SimpleFileOptions, CompressionMethod, ZipWriter};
 
 use crate::{
@@ -21,6 +21,7 @@ use super::{
         native_backend_log_event_line, native_backend_rotated_log_path,
         sanitize_native_log_context, NativeLogEvent, NativeLogLevel,
     },
+    memory_metrics::{collect_desktop_memory, DesktopMemorySnapshot},
     state::{lock_runtime, SharedNativeRuntime},
 };
 
@@ -30,16 +31,30 @@ const MAX_RENDERER_LOG_ENTRIES: usize = 300;
 const MAX_RENDERER_LOG_BYTES: usize = 4 * 1024 * 1024;
 const MAX_NATIVE_LOG_SOURCE_BYTES: u64 = 6 * 1024 * 1024;
 const MAX_METADATA_BYTES: usize = 128;
+const MAX_MEMORY_SAMPLES: usize = 300;
+const MAX_MEMORY_SAMPLE_BYTES: usize = 4 * 1024 * 1024;
 
 #[tauri::command]
-pub(crate) fn desktop_performance_snapshot(
+pub(crate) async fn desktop_performance_snapshot(
+    app: AppHandle,
     state: State<'_, SharedNativeRuntime>,
-) -> serde_json::Value {
-    desktop_performance_snapshot_with_options(state.inner(), global_agent_runtime_metrics())
+) -> Result<serde_json::Value, String> {
+    let memory = collect_desktop_memory(&app).await;
+    Ok(desktop_performance_snapshot_value(
+        state.inner(),
+        global_agent_runtime_metrics(),
+        &memory,
+    ))
 }
 
 #[tauri::command]
-pub(crate) fn desktop_export_diagnostic_bundle(
+pub(crate) async fn desktop_memory_snapshot(app: AppHandle) -> DesktopMemorySnapshot {
+    collect_desktop_memory(&app).await
+}
+
+#[tauri::command]
+pub(crate) async fn desktop_export_diagnostic_bundle(
+    app: AppHandle,
     input: Value,
     state: State<'_, SharedNativeRuntime>,
 ) -> Result<Option<Value>, String> {
@@ -56,12 +71,33 @@ pub(crate) fn desktop_export_diagnostic_bundle(
     else {
         return Ok(None);
     };
-    export_diagnostic_bundle(&path, state.inner(), global_agent_runtime_metrics(), input).map(Some)
+    let memory = collect_desktop_memory(&app).await;
+    export_diagnostic_bundle(
+        &path,
+        state.inner(),
+        global_agent_runtime_metrics(),
+        &memory,
+        input,
+    )
+    .map(Some)
 }
 
+#[cfg(test)]
 pub(crate) fn desktop_performance_snapshot_with_options(
     shared: &SharedNativeRuntime,
     metrics: &AgentRuntimeMetrics,
+) -> Value {
+    desktop_performance_snapshot_value(
+        shared,
+        metrics,
+        &DesktopMemorySnapshot::unsupported(now_unix_ms()),
+    )
+}
+
+fn desktop_performance_snapshot_value(
+    shared: &SharedNativeRuntime,
+    metrics: &AgentRuntimeMetrics,
+    memory: &DesktopMemorySnapshot,
 ) -> Value {
     let recent_events = {
         let runtime = lock_runtime(shared);
@@ -75,6 +111,7 @@ pub(crate) fn desktop_performance_snapshot_with_options(
         "schemaVersion": "tinybot.performance_trace.v1",
         "generatedAtUnixMs": now_unix_ms(),
         "metrics": metrics.snapshot(),
+        "memory": memory,
         "recentEvents": recent_events,
     })
 }
@@ -86,13 +123,15 @@ pub(crate) fn export_diagnostic_bundle_with_options(
     metrics: &AgentRuntimeMetrics,
     input: Value,
 ) -> Result<Value, String> {
-    export_diagnostic_bundle(path, shared, metrics, parse_bundle_input(input)?)
+    let memory = DesktopMemorySnapshot::unsupported(now_unix_ms());
+    export_diagnostic_bundle(path, shared, metrics, &memory, parse_bundle_input(input)?)
 }
 
 fn export_diagnostic_bundle(
     path: &Path,
     shared: &SharedNativeRuntime,
     metrics: &AgentRuntimeMetrics,
+    memory: &DesktopMemorySnapshot,
     input: DiagnosticBundleInput,
 ) -> Result<Value, String> {
     let created_at_unix_ms = now_unix_ms();
@@ -101,10 +140,11 @@ fn export_diagnostic_bundle(
         runtime.persistent_log_path.clone()
     };
     let renderer_logs = normalize_renderer_logs(input.renderer_logs)?;
+    let memory_samples = normalize_memory_samples(input.memory_samples)?;
     let mut entries = vec![
         BundleEntry::json(
             "performance-trace.json",
-            &desktop_performance_snapshot_with_options(shared, metrics),
+            &desktop_performance_snapshot_value(shared, metrics, memory),
         )?,
         BundleEntry::json("renderer-logs.json", &renderer_logs)?,
         BundleEntry::json(
@@ -120,6 +160,9 @@ fn export_diagnostic_bundle(
             },
         )?,
     ];
+    if !memory_samples.is_empty() {
+        entries.push(BundleEntry::json("memory-samples.json", &memory_samples)?);
+    }
     let mut missing_files = Vec::new();
     let mut truncated_files = Vec::new();
     let mut omitted_malformed_log_lines = 0_u64;
@@ -164,6 +207,8 @@ fn export_diagnostic_bundle(
         limits: DiagnosticBundleLimits {
             renderer_log_entries: MAX_RENDERER_LOG_ENTRIES,
             renderer_log_bytes: MAX_RENDERER_LOG_BYTES,
+            memory_samples: MAX_MEMORY_SAMPLES,
+            memory_sample_bytes: MAX_MEMORY_SAMPLE_BYTES,
             native_log_source_bytes: MAX_NATIVE_LOG_SOURCE_BYTES,
         },
     };
@@ -185,6 +230,8 @@ struct DiagnosticBundleInput {
     locale: Option<String>,
     time_zone: Option<String>,
     renderer_logs: Vec<RendererBundleLog>,
+    #[serde(default)]
+    memory_samples: Vec<DesktopMemorySnapshot>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -243,6 +290,8 @@ struct DiagnosticBundleRedaction {
 struct DiagnosticBundleLimits {
     renderer_log_entries: usize,
     renderer_log_bytes: usize,
+    memory_samples: usize,
+    memory_sample_bytes: usize,
     native_log_source_bytes: u64,
 }
 
@@ -318,6 +367,34 @@ fn normalize_renderer_logs(logs: Vec<RendererBundleLog>) -> Result<Vec<RendererB
             Ok(log)
         })
         .collect()
+}
+
+fn normalize_memory_samples(
+    samples: Vec<DesktopMemorySnapshot>,
+) -> Result<Vec<DesktopMemorySnapshot>, String> {
+    if samples.len() > MAX_MEMORY_SAMPLES {
+        return Err(format!(
+            "diagnostic bundle memory samples exceed {MAX_MEMORY_SAMPLES} entries"
+        ));
+    }
+    let encoded = serde_json::to_vec(&samples)
+        .map_err(|error| format!("failed to serialize diagnostic memory samples: {error}"))?;
+    if encoded.len() > MAX_MEMORY_SAMPLE_BYTES {
+        return Err(format!(
+            "diagnostic bundle memory samples exceed {MAX_MEMORY_SAMPLE_BYTES} bytes"
+        ));
+    }
+    if let Some((index, sample)) = samples
+        .iter()
+        .enumerate()
+        .find(|(_, sample)| sample.schema_version != "tinybot.memory_snapshot.v1")
+    {
+        return Err(format!(
+            "diagnostic bundle memory sample {index} has unsupported schema {}",
+            sample.schema_version
+        ));
+    }
+    Ok(samples)
 }
 
 fn validate_optional_metadata(

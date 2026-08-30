@@ -2,6 +2,7 @@ mod bootstrap;
 pub(crate) mod diagnostics;
 pub(crate) mod files;
 pub(crate) mod logging;
+pub(crate) mod memory_metrics;
 pub(crate) mod menu;
 pub(crate) mod pet;
 pub(crate) mod pet_file_drop;

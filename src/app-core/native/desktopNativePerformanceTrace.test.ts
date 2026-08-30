@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createDesktopNativePerformanceTraceApi,
   mergeRendererStartupTrace,
+  type PerformanceMemorySnapshot,
 } from "./desktopNativePerformanceTrace";
 
 describe("desktopNativePerformanceTrace", () => {
@@ -18,6 +19,7 @@ describe("desktopNativePerformanceTrace", () => {
         },
         gauges: { "runtime.active": 2 },
       },
+      memory: fixtureMemorySnapshot(),
       recentEvents: [{
         schemaVersion: "tinybot.native_log.v1",
         timestampUnixMs: 1_723_772_921_000,
@@ -33,11 +35,37 @@ describe("desktopNativePerformanceTrace", () => {
 
     expect(invoke).toHaveBeenCalledWith("desktop_performance_snapshot");
     expect(snapshot.metrics.durations["tool.duration"].averageMs).toBe(100);
+    expect(snapshot.memory.totalPrivateBytes).toBe(201_326_592);
+    expect(snapshot.memory.webview2.processes[0]).toMatchObject({
+      kind: "renderer",
+      pid: 202,
+    });
     expect(snapshot.recentEvents[0]).toMatchObject({
       stream: "renderer",
       level: "warn",
       event: "trace.fixture",
     });
+  });
+
+  it("loads a lightweight memory-only sample", async () => {
+    const invoke = vi.fn(async () => fixtureMemorySnapshot());
+    const api = createDesktopNativePerformanceTraceApi({ invoke });
+
+    const sample = await api.memorySnapshot();
+
+    expect(invoke).toHaveBeenCalledWith("desktop_memory_snapshot");
+    expect(sample.native?.privateBytes).toBe(67_108_864);
+  });
+
+  it("fails fast when a memory counter is negative", async () => {
+    const api = createDesktopNativePerformanceTraceApi({
+      invoke: vi.fn(async () => ({
+        ...fixtureMemorySnapshot(),
+        totalPrivateBytes: -1,
+      })),
+    });
+
+    await expect(api.memorySnapshot()).rejects.toThrow("non-negative safe integer");
   });
 
   it("fails fast when the native snapshot shape is invalid", async () => {
@@ -52,6 +80,7 @@ describe("desktopNativePerformanceTrace", () => {
           durations: {},
           gauges: {},
         },
+        memory: fixtureMemorySnapshot(),
         recentEvents: [{ level: "fatal" }],
       })),
     });
@@ -70,6 +99,7 @@ describe("desktopNativePerformanceTrace", () => {
         durations: {},
         gauges: {},
       },
+      memory: fixtureMemorySnapshot(),
       recentEvents: [],
     }, [{
       schemaVersion: "tinybot.renderer_log.v1",
@@ -112,6 +142,7 @@ describe("desktopNativePerformanceTrace", () => {
         durations: {},
         gauges: {},
       },
+      memory: fixtureMemorySnapshot(),
       recentEvents: [],
     };
 
@@ -141,6 +172,7 @@ describe("desktopNativePerformanceTrace", () => {
         durations: {},
         gauges: {},
       },
+      memory: fixtureMemorySnapshot(),
       recentEvents: [],
     })).resolves.toBeNull();
   });
@@ -165,6 +197,7 @@ describe("desktopNativePerformanceTrace", () => {
         stage: "diagnostic.fixture",
         details: { threadId: "thread-1" },
       }],
+      memorySamples: [fixtureMemorySnapshot()],
     });
 
     expect(invoke).toHaveBeenCalledWith("desktop_export_diagnostic_bundle", {
@@ -174,6 +207,7 @@ describe("desktopNativePerformanceTrace", () => {
         locale: "zh-CN",
         timeZone: "Asia/Singapore",
         rendererLogs: [expect.objectContaining({ stage: "diagnostic.fixture" })],
+        memorySamples: [expect.objectContaining({ totalPrivateBytes: 201_326_592 })],
       },
     });
     expect(result).toEqual({
@@ -209,3 +243,32 @@ describe("desktopNativePerformanceTrace", () => {
     })).rejects.toThrow("path must be a non-empty string");
   });
 });
+
+function fixtureMemorySnapshot(): PerformanceMemorySnapshot {
+  return {
+    schemaVersion: "tinybot.memory_snapshot.v1",
+    sampledAtUnixMs: 1_723_772_922_500,
+    status: "available",
+    native: {
+      pid: 101,
+      privateBytes: 67_108_864,
+      workingSetBytes: 50_331_648,
+      peakWorkingSetBytes: 58_720_256,
+    },
+    webview2: {
+      privateBytes: 134_217_728,
+      workingSetBytes: 100_663_296,
+      processes: [{
+        pid: 202,
+        kind: "renderer",
+        privateBytes: 134_217_728,
+        workingSetBytes: 100_663_296,
+        peakWorkingSetBytes: 117_440_512,
+        webviewLabels: ["main"],
+      }],
+    },
+    totalPrivateBytes: 201_326_592,
+    totalWorkingSetBytes: 150_994_944,
+    collectionErrors: [],
+  };
+}

@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:d22fb68d6ca49e44682baf7f5a3760d04e3f86aabc4565f9985edc21f1c522a9 -->
+<!-- tinybot-module-fingerprint: sha256:43a8df981e68d8845737281a137bd24f7cb9e8a0b792978932ceaff92c544fb9 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
@@ -38,9 +38,10 @@ actions, shortcut hints, anchored change-editor controls, and visible composer
 annotation cards are localized while paths, sheet names, addresses, cell values,
 and requested changes remain user data. PowerPoint slide-navigation labels and
 page actions are localized while rendered slide content remains document data.
-The Performance Trace route, diagnostic-mode controls, local-export status, and
-privacy warning follow the same English and Simplified Chinese resource
-boundary; metric and event identifiers remain untranslated.
+The Performance Trace route, process-memory status and recording controls,
+diagnostic-mode controls, local-export status, and privacy warning follow the
+same English and Simplified Chinese resource boundary; metric, process-kind,
+and diagnostic identifiers remain untranslated.
 The Hooks settings copy translates trust state and safety guidance while
 retaining event names, hashes, paths, commands, and diagnostic codes verbatim.
 Managed-hook form, test-result, and recoverable-remove copy follows the same

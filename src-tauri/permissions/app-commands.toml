@@ -5,6 +5,7 @@ commands.allow = [
   "record_renderer_diagnostic",
   "record_renderer_log",
   "desktop_performance_snapshot",
+  "desktop_memory_snapshot",
   "desktop_export_diagnostic_bundle",
   "desktop_update_status",
   "desktop_check_for_update",

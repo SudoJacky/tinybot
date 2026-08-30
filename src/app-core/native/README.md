@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:04df5fd47d03e46e83a5882af3deae17c83eded1e25ce9ffb714da3ad05f60ec -->
+<!-- tinybot-module-fingerprint: sha256:67fc1ac0948f61e616bc41ce8dc140625a086af047bc8dd5fc3b1c9e74dae411 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -93,9 +93,11 @@ export results used by the System > Performance Trace route. It saves JSON
 snapshots through the native desktop file dialog instead of relying on WebView
 download behavior. It also merges the small, always-retained renderer startup
 trace into the native snapshot without persisting ordinary info logs, and
-passes the current renderer log snapshot plus allowlisted locale metadata to
-the diagnostic-bundle exporter. Invalid metrics, events, or result shapes fail
-at the native boundary instead of being partially rendered.
+validates `tinybot.memory_snapshot.v1` from both the full-snapshot and
+memory-only commands. Diagnostic export passes optional bounded memory samples,
+the current renderer log snapshot, and allowlisted locale metadata to the
+native exporter. Invalid metrics, memory counters, events, or result shapes
+fail at the native boundary instead of being partially rendered.
 
 `desktopUpdateNotes` persists the last available update's version, publication
 time, Release Notes, and custom display notes in renderer storage. The update

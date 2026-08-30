@@ -1,8 +1,9 @@
-import { Archive, Download, RefreshCw } from "lucide-react";
+import { Archive, CircleStop, Download, Play, RefreshCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   DiagnosticBundleExportResult,
+  PerformanceMemorySnapshot,
   PerformanceTraceExportResult,
   PerformanceTraceDuration,
   PerformanceTraceSnapshot,
@@ -20,6 +21,9 @@ type TraceState =
   | { status: "ready"; snapshot: PerformanceTraceSnapshot }
   | { status: "failed"; error: Error };
 
+const MEMORY_SAMPLE_INTERVAL_MS = 2_000;
+const MAX_MEMORY_SAMPLES = 300;
+
 export default function PerformanceTraceRoute({ services }: { services: AppServices }) {
   const { t } = useTranslation("common");
   const [attempt, setAttempt] = useState(0);
@@ -30,6 +34,9 @@ export default function PerformanceTraceRoute({ services }: { services: AppServi
   const [bundleExporting, setBundleExporting] = useState(false);
   const [bundleResult, setBundleResult] = useState<DiagnosticBundleExportResult | null>(null);
   const [diagnosticModeEnabled, setDiagnosticModeEnabled] = useState(isRendererDiagnosticModeEnabled);
+  const [memoryRecording, setMemoryRecording] = useState(false);
+  const [memorySamples, setMemorySamples] = useState<PerformanceMemorySnapshot[]>([]);
+  const [memoryError, setMemoryError] = useState<Error | null>(null);
   const performanceStore = services.performanceStore;
 
   useEffect(() => {
@@ -56,11 +63,51 @@ export default function PerformanceTraceRoute({ services }: { services: AppServi
     };
   }, [attempt, performanceStore, t]);
 
+  useEffect(() => {
+    if (!memoryRecording) return;
+    if (!performanceStore?.sampleMemory) {
+      setMemoryError(new Error(t("performanceTrace.memorySamplingUnavailable")));
+      setMemoryRecording(false);
+      return;
+    }
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const sample = async () => {
+      try {
+        const next = await performanceStore.sampleMemory();
+        if (cancelled) return;
+        setMemorySamples((current) => [...current, next].slice(-MAX_MEMORY_SAMPLES));
+        timer = setTimeout(() => void sample(), MEMORY_SAMPLE_INTERVAL_MS);
+      } catch (cause: unknown) {
+        if (cancelled) return;
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        console.error("[tinybot-performance-trace-memory]", { error });
+        setMemoryError(error);
+        setMemoryRecording(false);
+      }
+    };
+    void sample();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) clearTimeout(timer);
+    };
+  }, [memoryRecording, performanceStore, t]);
+
   const refresh = () => {
     setExportError(null);
     setSnapshotResult(null);
     setBundleResult(null);
+    setMemoryRecording(false);
+    setMemorySamples([]);
+    setMemoryError(null);
     setAttempt((value) => value + 1);
+  };
+
+  const startMemoryRecording = () => {
+    if (state.status !== "ready") return;
+    setMemoryError(null);
+    setMemorySamples([state.snapshot.memory]);
+    setMemoryRecording(true);
   };
 
   const exportSnapshot = async () => {
@@ -70,7 +117,13 @@ export default function PerformanceTraceRoute({ services }: { services: AppServi
     setBundleResult(null);
     setSnapshotExporting(true);
     try {
-      const result = await performanceStore.exportSnapshot(state.snapshot);
+      const result = await performanceStore.exportSnapshot(memorySamples.length
+        ? {
+            ...state.snapshot,
+            memory: memorySamples[memorySamples.length - 1],
+            memorySamples,
+          }
+        : state.snapshot);
       if (result) {
         setSnapshotResult(result);
         logRendererEvent("info", "performance_trace.snapshot.exported");
@@ -91,7 +144,9 @@ export default function PerformanceTraceRoute({ services }: { services: AppServi
     setBundleResult(null);
     setBundleExporting(true);
     try {
-      const result = await performanceStore.exportDiagnosticBundle();
+      const result = await performanceStore.exportDiagnosticBundle(
+        memorySamples.length ? memorySamples : undefined,
+      );
       if (result) {
         setBundleResult(result);
         logRendererEvent("info", "diagnostics.bundle.exported", {
@@ -199,12 +254,38 @@ export default function PerformanceTraceRoute({ services }: { services: AppServi
           <button type="button" onClick={refresh}>{t("generic.retry")}</button>
         </div>
       ) : null}
-      {state.status === "ready" ? <TraceSnapshot snapshot={state.snapshot} /> : null}
+      {state.status === "ready" ? (
+        <TraceSnapshot
+          memoryError={memoryError}
+          memoryRecording={memoryRecording}
+          memorySamples={memorySamples}
+          samplingAvailable={Boolean(performanceStore?.sampleMemory)}
+          snapshot={state.snapshot}
+          onStartMemoryRecording={startMemoryRecording}
+          onStopMemoryRecording={() => setMemoryRecording(false)}
+        />
+      ) : null}
     </div>
   );
 }
 
-function TraceSnapshot({ snapshot }: { snapshot: PerformanceTraceSnapshot }) {
+function TraceSnapshot({
+  memoryError,
+  memoryRecording,
+  memorySamples,
+  onStartMemoryRecording,
+  onStopMemoryRecording,
+  samplingAvailable,
+  snapshot,
+}: {
+  memoryError: Error | null;
+  memoryRecording: boolean;
+  memorySamples: PerformanceMemorySnapshot[];
+  onStartMemoryRecording(): void;
+  onStopMemoryRecording(): void;
+  samplingAvailable: boolean;
+  snapshot: PerformanceTraceSnapshot;
+}) {
   const { t } = useTranslation("common");
   const counters = Object.entries(snapshot.metrics.counters).sort(byName);
   const gauges = Object.entries(snapshot.metrics.gauges).sort(byName);
@@ -228,6 +309,15 @@ function TraceSnapshot({ snapshot }: { snapshot: PerformanceTraceSnapshot }) {
           <SummaryCard label={t("performanceTrace.recentEvents")} value={events.length} />
         </div>
       </section>
+
+      <MemorySnapshotSection
+        error={memoryError}
+        recording={memoryRecording}
+        samples={memorySamples.length ? memorySamples : [snapshot.memory]}
+        samplingAvailable={samplingAvailable && snapshot.memory.status !== "unsupported"}
+        onStart={onStartMemoryRecording}
+        onStop={onStopMemoryRecording}
+      />
 
       <section aria-labelledby="performance-durations-title" className="react-performance-trace-section">
         <SectionHeading description={t("performanceTrace.durationsDescription")} id="performance-durations-title" title={t("performanceTrace.durations")} />
@@ -263,6 +353,164 @@ function TraceSnapshot({ snapshot }: { snapshot: PerformanceTraceSnapshot }) {
         ) : <EmptyState>{t("performanceTrace.noEvents")}</EmptyState>}
       </section>
     </div>
+  );
+}
+
+function MemorySnapshotSection({
+  error,
+  onStart,
+  onStop,
+  recording,
+  samples,
+  samplingAvailable,
+}: {
+  error: Error | null;
+  onStart(): void;
+  onStop(): void;
+  recording: boolean;
+  samples: PerformanceMemorySnapshot[];
+  samplingAvailable: boolean;
+}) {
+  const { t } = useTranslation("common");
+  const current = samples[samples.length - 1];
+  const unsupported = current.status === "unsupported";
+
+  return (
+    <section aria-labelledby="performance-memory-title" className="react-performance-trace-section">
+      <div className="react-performance-trace-section__heading react-performance-memory-heading">
+        <div>
+          <h2 id="performance-memory-title">{t("performanceTrace.memoryTitle")}</h2>
+          <p>{t("performanceTrace.memoryDescription")}</p>
+        </div>
+        <div className="react-performance-memory-controls">
+          <span className="react-performance-memory-status" data-status={current.status}>
+            {t(memoryStatusKey(current.status))}
+          </span>
+          {recording ? (
+            <button type="button" onClick={onStop}>
+              <CircleStop aria-hidden="true" size={15} />
+              {t("performanceTrace.memoryStop")}
+            </button>
+          ) : (
+            <button disabled={!samplingAvailable} type="button" onClick={onStart}>
+              <Play aria-hidden="true" size={15} />
+              {t("performanceTrace.memoryStart")}
+            </button>
+          )}
+        </div>
+      </div>
+      <p className="react-performance-memory-sampling" aria-live="polite">
+        {recording
+          ? t("performanceTrace.memoryRecording", { count: samples.length })
+          : t("performanceTrace.memorySamplingDescription", { count: samples.length })}
+      </p>
+      {error ? (
+        <p className="react-performance-trace-error" role="alert">
+          {t("performanceTrace.memorySamplingFailed", { message: error.message })}
+        </p>
+      ) : null}
+      <div className="react-performance-memory-summary">
+        <MemorySummaryCard label={t("performanceTrace.memoryTotalPrivate")} value={current.totalPrivateBytes} />
+        <MemorySummaryCard label={t("performanceTrace.memoryNative")} value={current.native?.privateBytes ?? null} />
+        <MemorySummaryCard label={t("performanceTrace.memoryWebView2")} value={unsupported ? null : current.webview2.privateBytes} />
+        <MemorySummaryCard label={t("performanceTrace.memoryTotalWorkingSet")} value={current.totalWorkingSetBytes} />
+      </div>
+      <MemoryTrend samples={samples} />
+      {current.collectionErrors.length ? (
+        <div className="react-performance-memory-errors">
+          <h3>{t("performanceTrace.memoryCollectionErrors")}</h3>
+          <ul>
+            {current.collectionErrors.map((collectionError, index) => (
+              <li key={`${collectionError.code}-${collectionError.pid ?? "none"}-${index}`}>
+                <strong>{collectionError.scope}: {collectionError.code}</strong>
+                <span>{collectionError.message}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      <h3 className="react-performance-memory-process-title">{t("performanceTrace.memoryProcesses")}</h3>
+      {current.native || current.webview2.processes.length ? (
+        <div className="react-performance-trace-table-wrap">
+          <table className="react-performance-trace-table react-performance-memory-table">
+            <thead>
+              <tr>
+                <th>{t("performanceTrace.memoryProcessKind")}</th>
+                <th>{t("performanceTrace.memoryPid")}</th>
+                <th>{t("performanceTrace.memoryWebviews")}</th>
+                <th>{t("performanceTrace.memoryPrivate")}</th>
+                <th>{t("performanceTrace.memoryWorkingSet")}</th>
+                <th>{t("performanceTrace.memoryPeakWorkingSet")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {current.native ? (
+                <tr>
+                  <th scope="row">{t("performanceTrace.memoryNativeProcess")}</th>
+                  <td>{current.native.pid}</td>
+                  <td>—</td>
+                  <td>{formatBytes(current.native.privateBytes)}</td>
+                  <td>{formatBytes(current.native.workingSetBytes)}</td>
+                  <td>{formatBytes(current.native.peakWorkingSetBytes)}</td>
+                </tr>
+              ) : null}
+              {current.webview2.processes.map((process) => (
+                <tr key={process.pid}>
+                  <th scope="row">{process.kind}</th>
+                  <td>{process.pid}</td>
+                  <td>{process.webviewLabels.join(", ") || "—"}</td>
+                  <td>{formatBytes(process.privateBytes)}</td>
+                  <td>{formatBytes(process.workingSetBytes)}</td>
+                  <td>{formatBytes(process.peakWorkingSetBytes)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <EmptyState>{t("performanceTrace.memoryNoProcesses")}</EmptyState>}
+    </section>
+  );
+}
+
+function MemorySummaryCard({ label, value }: { label: string; value: number | null }) {
+  const { t } = useTranslation("common");
+  return (
+    <article>
+      <strong>{value === null ? t("performanceTrace.memoryUnavailable") : formatBytes(value)}</strong>
+      <span>{label}</span>
+    </article>
+  );
+}
+
+function MemoryTrend({ samples }: { samples: PerformanceMemorySnapshot[] }) {
+  const { t } = useTranslation("common");
+  if (samples.length < 2) {
+    return <p className="react-performance-trace-empty">{t("performanceTrace.memoryNoTrend")}</p>;
+  }
+  const total = samples.map((sample) => sample.totalPrivateBytes);
+  const native = samples.map((sample) => sample.native?.privateBytes ?? null);
+  const webview2 = samples.map((sample) => sample.status === "unsupported" ? null : sample.webview2.privateBytes);
+  const maximum = Math.max(
+    1,
+    ...total.flatMap((value) => value === null ? [] : [value]),
+    ...native.flatMap((value) => value === null ? [] : [value]),
+    ...webview2.flatMap((value) => value === null ? [] : [value]),
+  );
+  return (
+    <figure className="react-performance-memory-trend">
+      <svg aria-label={t("performanceTrace.memoryTrendLabel")} role="img" viewBox="0 0 600 160">
+        <title>{t("performanceTrace.memoryTrendLabel")}</title>
+        <line className="react-performance-memory-grid" x1="12" x2="588" y1="148" y2="148" />
+        <polyline className="react-performance-memory-line" data-series="total" points={memoryTrendPoints(total, maximum)} />
+        <polyline className="react-performance-memory-line" data-series="native" points={memoryTrendPoints(native, maximum)} />
+        <polyline className="react-performance-memory-line" data-series="webview2" points={memoryTrendPoints(webview2, maximum)} />
+      </svg>
+      <figcaption>
+        <span><i data-series="total" />{t("performanceTrace.memoryTotalPrivate")}: {formatOptionalBytes(total[total.length - 1])}</span>
+        <span><i data-series="native" />{t("performanceTrace.memoryNative")}: {formatOptionalBytes(native[native.length - 1])}</span>
+        <span><i data-series="webview2" />{t("performanceTrace.memoryWebView2")}: {formatOptionalBytes(webview2[webview2.length - 1])}</span>
+      </figcaption>
+    </figure>
   );
 }
 
@@ -319,6 +567,44 @@ function formatDuration(value: number): string {
 
 function formatNumber(value: number): string {
   return Number.isInteger(value) ? value.toLocaleString() : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function formatBytes(value: number): string {
+  if (value < 1024) return `${value.toLocaleString()} B`;
+  const units = ["KiB", "MiB", "GiB", "TiB"];
+  let scaled = value / 1024;
+  let unit = units[0];
+  for (let index = 1; index < units.length && scaled >= 1024; index += 1) {
+    scaled /= 1024;
+    unit = units[index];
+  }
+  return `${scaled.toLocaleString(undefined, {
+    maximumFractionDigits: scaled >= 10 ? 0 : 1,
+  })} ${unit}`;
+}
+
+function formatOptionalBytes(value: number | null): string {
+  return value === null ? "—" : formatBytes(value);
+}
+
+function memoryStatusKey(status: PerformanceMemorySnapshot["status"]):
+  | "performanceTrace.memoryStatusAvailable"
+  | "performanceTrace.memoryStatusPartial"
+  | "performanceTrace.memoryStatusUnsupported" {
+  if (status === "available") return "performanceTrace.memoryStatusAvailable";
+  if (status === "partial") return "performanceTrace.memoryStatusPartial";
+  return "performanceTrace.memoryStatusUnsupported";
+}
+
+function memoryTrendPoints(values: Array<number | null>, maximum: number): string {
+  const width = 576;
+  const height = 132;
+  return values.flatMap((value, index) => {
+    if (value === null) return [];
+    const x = 12 + (index / Math.max(values.length - 1, 1)) * width;
+    const y = 148 - (value / maximum) * height;
+    return [`${x.toFixed(1)},${y.toFixed(1)}`];
+  }).join(" ");
 }
 
 function formatTimestamp(value: number): string {

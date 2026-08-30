@@ -24,9 +24,45 @@ describe("PerformanceTraceRoute", () => {
     expect(await screen.findByText("tool.duration")).toBeTruthy();
     expect(screen.getByText("trace.fixture")).toBeTruthy();
     expect(screen.getByText("120 ms")).toBeTruthy();
+    expect(screen.getByText("Native backend")).toBeTruthy();
+    expect(screen.getByText("WebView2")).toBeTruthy();
+    expect(screen.getByText("192 MiB")).toBeTruthy();
 
     await userEvent.setup().click(screen.getByRole("button", { name: "Refresh" }));
     await waitFor(() => expect(load).toHaveBeenCalledTimes(2));
+  });
+
+  it("records bounded memory samples only after an explicit start", async () => {
+    const sampleMemory = vi.fn(async () => ({
+      ...fixtureSnapshot().memory,
+      sampledAtUnixMs: Date.UTC(2026, 7, 16, 1, 2, 5),
+      totalPrivateBytes: 202_375_168,
+    }));
+    render(<PerformanceTraceRoute services={{
+      performanceStore: { load: vi.fn(async () => fixtureSnapshot()), sampleMemory },
+    } as unknown as AppServices} />);
+
+    const start = await screen.findByRole("button", { name: "Start memory recording" });
+    expect(sampleMemory).not.toHaveBeenCalled();
+
+    await userEvent.setup().click(start);
+
+    await waitFor(() => expect(sampleMemory).toHaveBeenCalledOnce());
+    expect(screen.getByRole("button", { name: "Stop memory recording" })).toBeTruthy();
+  });
+
+  it("stops memory recording and surfaces collection failures", async () => {
+    const sampleMemory = vi.fn(async () => {
+      throw new Error("process query failed");
+    });
+    render(<PerformanceTraceRoute services={{
+      performanceStore: { load: vi.fn(async () => fixtureSnapshot()), sampleMemory },
+    } as unknown as AppServices} />);
+
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Start memory recording" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("process query failed");
+    expect(screen.getByRole("button", { name: "Start memory recording" })).toBeTruthy();
   });
 
   it("surfaces load failures and offers an explicit retry", async () => {
@@ -109,6 +145,32 @@ function fixtureSnapshot() {
       counters: { "tool.calls": 3 },
       durations: { "tool.duration": { count: 2, totalMs: 200, maxMs: 120, averageMs: 100 } },
       gauges: { "runtime.active": 2 },
+    },
+    memory: {
+      schemaVersion: "tinybot.memory_snapshot.v1" as const,
+      sampledAtUnixMs: Date.UTC(2026, 7, 16, 1, 2, 2),
+      status: "available" as const,
+      native: {
+        pid: 101,
+        privateBytes: 64 * 1024 * 1024,
+        workingSetBytes: 48 * 1024 * 1024,
+        peakWorkingSetBytes: 56 * 1024 * 1024,
+      },
+      webview2: {
+        privateBytes: 128 * 1024 * 1024,
+        workingSetBytes: 96 * 1024 * 1024,
+        processes: [{
+          pid: 202,
+          kind: "renderer",
+          privateBytes: 128 * 1024 * 1024,
+          workingSetBytes: 96 * 1024 * 1024,
+          peakWorkingSetBytes: 112 * 1024 * 1024,
+          webviewLabels: ["main"],
+        }],
+      },
+      totalPrivateBytes: 192 * 1024 * 1024,
+      totalWorkingSetBytes: 144 * 1024 * 1024,
+      collectionErrors: [],
     },
     recentEvents: [{
       schemaVersion: "tinybot.native_log.v1",

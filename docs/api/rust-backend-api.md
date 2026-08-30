@@ -9,7 +9,7 @@ src/app-core/native/desktopNativeUpdate.ts
 src/app-core/native/desktopNativeWebui.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:44b235bea552964a33f79e0cf161dde468c8efa91a54a3d08a2787935335d19c -->
+<!-- tinybot-doc-fingerprint: sha256:440d3f82c6230b993f40b5cf0f163ddecc1c4eea8cbfc44fb777d088e38e3a2a -->
 
 This document describes the API surfaces exposed by the Rust/Tauri backend in `src-tauri`.
 It is intended for frontend callers and integrators who need command names, invocation
@@ -129,7 +129,7 @@ Prefer these wrappers instead of direct command strings:
 | `createDesktopNativeHooksApi` | `src/app-core/native/desktopNativeHooks.ts` | Workspace hook catalog, managed-hook save/test/archive, constrained script editing, and exact-definition trust |
 | `createDesktopNativePetFileDropImporter` | `src/app-core/native/desktopNativePetFileDrop.ts` | Bounded Windows WebView2 file-drop result handshake, timeout, and strict attachment-metadata parsing |
 | `createDesktopNativePetQuickChatHost` / quick-chat clients | `src/app-core/native/desktopNativePetQuickChat.ts` | Validated desktop-pet draft-and-attachment handoff, panel presentation, dismissal, and explicit Thread handoff to `main` through scoped Tauri events |
-| `createDesktopNativePerformanceTraceApi` | `src/app-core/native/desktopNativePerformanceTrace.ts` | Process-local performance snapshots, native JSON save, and diagnostic-bundle export |
+| `createDesktopNativePerformanceTraceApi` | `src/app-core/native/desktopNativePerformanceTrace.ts` | Process-local performance snapshots, Windows Rust/WebView2 memory sampling, native JSON save, and diagnostic-bundle export |
 | `createDesktopNativeUpdateClient` | `src/app-core/native/desktopNativeUpdate.ts` | Desktop update status, check, install, and status events |
 | `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread and Turn timeline, effective-capability queries, and typed operation retry |
 | `createDesktopNativeTerminalApi` | `src/app-core/native/desktopNativeTerminal.ts` | User-only Sidecar terminal lifecycle and PTY input/output |

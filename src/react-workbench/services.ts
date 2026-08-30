@@ -36,6 +36,7 @@ import type { NativeBrowserRuntimeApi } from "../app-core/native/desktopNativeBr
 import type { NativeBrowserSession, NativeBrowserSnapshot } from "../app-core/native/nativeBrowserSnapshot";
 import type {
   DiagnosticBundleExportResult,
+  PerformanceMemorySnapshot,
   PerformanceTraceExportResult,
   PerformanceTraceSnapshot,
 } from "../app-core/native/desktopNativePerformanceTrace";
@@ -322,8 +323,9 @@ export type ChatModelOption = {
 
 export type PerformanceStore = {
   load(): Promise<PerformanceTraceSnapshot>;
+  sampleMemory(): Promise<PerformanceMemorySnapshot>;
   exportSnapshot(snapshot: PerformanceTraceSnapshot): Promise<PerformanceTraceExportResult | null>;
-  exportDiagnosticBundle(): Promise<DiagnosticBundleExportResult | null>;
+  exportDiagnosticBundle(memorySamples?: readonly PerformanceMemorySnapshot[]): Promise<DiagnosticBundleExportResult | null>;
 };
 
 export type AppServices = {
