@@ -1,6 +1,6 @@
 [package]
 name = "tinybot-desktop"
-version = "0.4.8"
+version = "0.4.9"
 description = "Tinybot lightweight desktop host"
 authors = ["Tinybot contributors"]
 edition = "2021"
