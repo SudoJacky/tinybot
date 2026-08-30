@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:62d8fa48bd3ab0496fe7c08c17364e5104fe75cce0caa6f5ddd941b4516e4161 -->
+<!-- tinybot-module-fingerprint: sha256:943366aa8038ca3d22d187d908911d5981c206ce26f2fca04319fef6c1ebfd4b -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
@@ -18,14 +18,20 @@ route label, loader, and shared renderer stores passed to it; workspace catalog
 derivation, Graph draft state, and Run presentation remain under `agent-graph/`
 and do not become a Chat mode.
 
-The shell owns the Tinybot desktop pet's three-step size preference, visibility,
-desktop position persistence, and current mascot mood. On Windows, it
+The shell owns the Tinybot desktop pet's three-step size preference, classic or
+dimensional appearance, visibility, desktop position persistence, and current
+mascot mood. It passes the same preference callback into the Appearance route,
+the browser fallback, and the native snapshot so previews and both pet hosts
+cannot drift. On Windows, it
 synchronizes that state through `app-core/native/desktopNativePet` to the
 independent `desktop-pet` Tauri window; browser-only development retains the
 bounded inline adapter. `DesktopPetWindow.tsx` owns only rendering and direct
 window interaction, while Chat only reports the current mascot mood. The pet
-can be hidden from its own controls and restored from the System menu without
-duplicating Agent lifecycle state or booting a second `App` service graph.
+can be hidden from its own controls without duplicating Agent lifecycle state
+or booting a second `App` service graph. The always-accessible Appearance page
+owns visibility, size, style, and the command that resets an off-screen pet to
+the current safe default without changing its other preferences; native and
+browser-fallback hosts both apply that reset immediately.
 
 The pet accepts external HTML5 `text/plain` and `Files` drops. It forwards text
 unchanged and asks the native Adapter to import local files before sending a

@@ -3,13 +3,11 @@ use crate::desktop::state::{lock_runtime, NativeRuntimeState};
 use std::sync::{Arc, Mutex};
 
 #[test]
-fn window_close_always_shuts_down_the_native_runtime() {
+fn app_exit_always_shuts_down_the_native_runtime() {
     let shared = Arc::new(Mutex::new(NativeRuntimeState::default()));
 
-    let result = tauri::async_runtime::block_on(shutdown_native_runtime_for_window_close(
-        shared.clone(),
-        false,
-    ));
+    let result =
+        tauri::async_runtime::block_on(shutdown_native_runtime_for_app_exit(shared.clone(), false));
 
     assert!(result.is_ok(), "{result:?}");
     assert!(!lock_runtime(&shared)

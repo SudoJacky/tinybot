@@ -32,7 +32,7 @@ describe("DesktopPetWindow", () => {
     stateListener?.({
       label: "Tinybot is calm",
       mood: "calm",
-      preferences: { visible: true, size: "medium", position: { x: -1243, y: 318 } },
+      preferences: { appearance: "dimensional", visible: true, size: "medium", position: { x: -1243, y: 318 } },
     });
 
     const dragSurface = await screen.findByRole("group", {
@@ -69,7 +69,7 @@ describe("DesktopPetWindow", () => {
     stateListener?.({
       label: "Tinybot is calm",
       mood: "calm",
-      preferences: { visible: true, size: "medium", position: null },
+      preferences: { appearance: "dimensional", visible: true, size: "medium", position: null },
     });
     const surface = await screen.findByRole("group", {
       name: "Move Tinybot desktop pet. Drag it or use the arrow keys.",
@@ -109,7 +109,7 @@ describe("DesktopPetWindow", () => {
     stateListener?.({
       label: "Tinybot is calm",
       mood: "calm",
-      preferences: { visible: true, size: "medium", position: null },
+      preferences: { appearance: "dimensional", visible: true, size: "medium", position: null },
     });
     const surface = await screen.findByRole("group", {
       name: "Move Tinybot desktop pet. Drag it or use the arrow keys.",

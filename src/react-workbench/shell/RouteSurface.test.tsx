@@ -4,6 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AppServices } from "../services";
+import { DEFAULT_DESKTOP_PET_PREFERENCES } from "../../app-core/desktop-pet/desktopPetState";
 import { RouteSurface } from "./RouteSurface";
 
 afterEach(() => {
@@ -29,6 +30,11 @@ describe("RouteSurface", () => {
           onMascotMoodChange: vi.fn(),
           onSessionSidebarCollapsedChange: vi.fn(),
           onStopGenerationTargetChange: vi.fn(),
+        }}
+        desktopPet={{
+          onPreferencesChange: vi.fn(),
+          onResetPosition: vi.fn(),
+          preferences: DEFAULT_DESKTOP_PET_PREFERENCES,
         }}
         route="files"
         services={services}

@@ -33,11 +33,13 @@ export function DesktopPet({
   mood,
   onPreferencesChange,
   preferences,
+  resetPositionSignal,
 }: {
   label: string;
   mood: TinybotMascotMood;
   onPreferencesChange: (preferences: DesktopPetPreferences) => void;
   preferences: DesktopPetPreferences;
+  resetPositionSignal: number;
 }) {
   const { t } = useTranslation("common");
   const initialPosition = preferences.position
@@ -46,6 +48,7 @@ export function DesktopPet({
   const [position, setPosition] = useState(initialPosition);
   const [dragging, setDragging] = useState(false);
   const positionRef = useRef(position);
+  const handledResetPositionSignalRef = useRef(resetPositionSignal);
   const dragRef = useRef<DragState | null>(null);
   const sizePixels = DESKTOP_PET_SIZE_PIXELS[preferences.size];
   const footprint = desktopPetFootprint(preferences.size);
@@ -53,6 +56,14 @@ export function DesktopPet({
   useEffect(() => {
     positionRef.current = position;
   }, [position]);
+
+  useEffect(() => {
+    if (handledResetPositionSignalRef.current === resetPositionSignal) {
+      return;
+    }
+    handledResetPositionSignalRef.current = resetPositionSignal;
+    setCurrentPosition(defaultDesktopPetPosition(preferences.size, currentViewport()));
+  }, [preferences.size, resetPositionSignal]);
 
   useEffect(() => {
     function handleResize() {
@@ -154,7 +165,7 @@ export function DesktopPet({
           onPointerMove={handlePointerMove}
           onPointerUp={finishDrag}
         >
-          <TinybotMascot label={label} mood={mood} />
+          <TinybotMascot appearance={preferences.appearance} label={label} mood={mood} />
         </div>
         <div
           aria-label={t("desktopPet.sizeControls", { size: t(`desktopPet.sizes.${preferences.size}`) })}

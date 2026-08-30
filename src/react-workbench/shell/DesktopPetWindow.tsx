@@ -160,7 +160,11 @@ export function DesktopPetWindow({
         onKeyDown={handleMoveKey}
         onPointerDown={handlePointerDown}
       >
-        <TinybotMascot label={snapshot.label} mood={snapshot.mood} />
+        <TinybotMascot
+          appearance={snapshot.preferences.appearance}
+          label={snapshot.label}
+          mood={snapshot.mood}
+        />
       </div>
       {dropActive ? (
         <div aria-live="polite" className="react-desktop-pet-window__drop-cue" role="status">

@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
+import type { DesktopPetPreferences } from "../../app-core/desktop-pet/desktopPetState";
 import { ChatPage } from "../chat/ChatPage";
 import type { TinybotMascotMood } from "../chat/TinybotMascot";
 import type { AppServices, WorkspaceFileSummary } from "../services";
@@ -19,6 +20,12 @@ type ChatRouteProps = {
   startInNewSession?: boolean;
 };
 
+type DesktopPetRouteProps = {
+  preferences: DesktopPetPreferences;
+  onPreferencesChange: (preferences: DesktopPetPreferences) => void;
+  onResetPosition: () => void;
+};
+
 type FilesState =
   | { status: "loading" }
   | { status: "ready"; files: WorkspaceFileSummary[] }
@@ -32,11 +39,13 @@ const loadToolsRoute = () => import("../tools/ToolsRoute");
 
 export function RouteSurface({
   chat,
+  desktopPet,
   onNavigate,
   route,
   services,
 }: {
   chat: ChatRouteProps;
+  desktopPet: DesktopPetRouteProps;
   onNavigate: (route: AppRoute) => void;
   route: AppRoute;
   services: AppServices;
@@ -82,7 +91,18 @@ export function RouteSurface({
         />
       );
     case "settings":
-      return <DeferredSurface load={loadSettingsRoute} name={routeName} surfaceProps={{ services }} />;
+      return (
+        <DeferredSurface
+          load={loadSettingsRoute}
+          name={routeName}
+          surfaceProps={{
+            desktopPetPreferences: desktopPet.preferences,
+            onDesktopPetPreferencesChange: desktopPet.onPreferencesChange,
+            onResetDesktopPetPosition: desktopPet.onResetPosition,
+            services,
+          }}
+        />
+      );
     case "performanceTrace":
       return <DeferredSurface load={loadPerformanceTraceRoute} name={routeName} surfaceProps={{ services }} />;
     case "github":

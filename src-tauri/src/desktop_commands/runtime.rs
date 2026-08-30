@@ -106,7 +106,7 @@ pub(crate) fn shutdown_native_runtime(
     shutdown_native_runtime_with_timeout(shared, explicit, Duration::from_secs(5))
 }
 
-pub(crate) async fn shutdown_native_runtime_for_window_close(
+pub(crate) async fn shutdown_native_runtime_for_app_exit(
     shared: SharedNativeRuntime,
     explicit: bool,
 ) -> Result<(), String> {

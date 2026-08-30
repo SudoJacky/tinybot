@@ -1,5 +1,6 @@
-export const DESKTOP_PET_STORAGE_KEY = "tinybot.ui.desktop-pet.v2";
-const LEGACY_DESKTOP_PET_STORAGE_KEY = "tinybot.ui.desktop-pet.v1";
+export const DESKTOP_PET_STORAGE_KEY = "tinybot.ui.desktop-pet.v3";
+const LEGACY_DESKTOP_PET_V2_STORAGE_KEY = "tinybot.ui.desktop-pet.v2";
+const LEGACY_DESKTOP_PET_V1_STORAGE_KEY = "tinybot.ui.desktop-pet.v1";
 export const DESKTOP_PET_MARGIN = 12;
 export const DESKTOP_PET_TOP_INSET = 54;
 
@@ -11,6 +12,9 @@ export const DESKTOP_PET_SIZE_PIXELS = {
 
 export type DesktopPetSize = keyof typeof DESKTOP_PET_SIZE_PIXELS;
 
+export const DESKTOP_PET_APPEARANCES = ["classic", "dimensional"] as const;
+export type DesktopPetAppearance = (typeof DESKTOP_PET_APPEARANCES)[number];
+
 export const DESKTOP_PET_MOODS = ["calm", "curious", "working", "angry", "pleased"] as const;
 export type DesktopPetMood = (typeof DESKTOP_PET_MOODS)[number];
 
@@ -20,6 +24,7 @@ export type DesktopPetPosition = {
 };
 
 export type DesktopPetPreferences = {
+  appearance: DesktopPetAppearance;
   visible: boolean;
   size: DesktopPetSize;
   position: DesktopPetPosition | null;
@@ -31,6 +36,7 @@ export type DesktopPetViewport = {
 };
 
 export const DEFAULT_DESKTOP_PET_PREFERENCES: DesktopPetPreferences = {
+  appearance: "dimensional",
   visible: true,
   size: "medium",
   position: null,
@@ -40,16 +46,23 @@ const DESKTOP_PET_SIZE_ORDER: DesktopPetSize[] = ["small", "medium", "large"];
 const DESKTOP_PET_MIN_TOOLBAR_WIDTH = 76;
 
 export function readDesktopPetPreferences(
-  storage: Pick<Storage, "getItem">,
+  storage: Pick<Storage, "getItem" | "removeItem" | "setItem">,
 ): DesktopPetPreferences {
   let serialized = storage.getItem(DESKTOP_PET_STORAGE_KEY);
+  let source: "v1" | "v2" | "v3" = "v3";
   let restorePosition = true;
   if (!serialized) {
-    serialized = storage.getItem(LEGACY_DESKTOP_PET_STORAGE_KEY);
+    serialized = storage.getItem(LEGACY_DESKTOP_PET_V2_STORAGE_KEY);
+    source = "v2";
+  }
+  if (!serialized) {
+    serialized = storage.getItem(LEGACY_DESKTOP_PET_V1_STORAGE_KEY);
+    source = "v1";
     restorePosition = false;
   }
   if (!serialized) return { ...DEFAULT_DESKTOP_PET_PREFERENCES };
 
+  let preferences: DesktopPetPreferences;
   try {
     const value = JSON.parse(serialized) as unknown;
     if (!isRecord(value)) throw new Error("Stored desktop pet preferences must be an object.");
@@ -59,7 +72,10 @@ export function readDesktopPetPreferences(
       && isFiniteNumber(value.position.y)
       ? { x: value.position.x, y: value.position.y }
       : null;
-    return {
+    preferences = {
+      appearance: isDesktopPetAppearance(value.appearance)
+        ? value.appearance
+        : DEFAULT_DESKTOP_PET_PREFERENCES.appearance,
       visible: typeof value.visible === "boolean" ? value.visible : DEFAULT_DESKTOP_PET_PREFERENCES.visible,
       size,
       position,
@@ -68,6 +84,12 @@ export function readDesktopPetPreferences(
     console.warn("[desktop-pet] Failed to restore saved preferences.", error);
     return { ...DEFAULT_DESKTOP_PET_PREFERENCES };
   }
+  if (source !== "v3") {
+    writeDesktopPetPreferences(storage, preferences);
+  }
+  storage.removeItem(LEGACY_DESKTOP_PET_V2_STORAGE_KEY);
+  storage.removeItem(LEGACY_DESKTOP_PET_V1_STORAGE_KEY);
+  return preferences;
 }
 
 export function writeDesktopPetPreferences(
@@ -120,7 +142,10 @@ export function defaultDesktopPetPosition(
 }
 
 export function isDesktopPetPreferences(value: unknown): value is DesktopPetPreferences {
-  if (!isRecord(value) || typeof value.visible !== "boolean" || !isDesktopPetSize(value.size)) {
+  if (!isRecord(value)
+    || !isDesktopPetAppearance(value.appearance)
+    || typeof value.visible !== "boolean"
+    || !isDesktopPetSize(value.size)) {
     return false;
   }
   return value.position === null || (
@@ -128,6 +153,10 @@ export function isDesktopPetPreferences(value: unknown): value is DesktopPetPref
     && isFiniteNumber(value.position.x)
     && isFiniteNumber(value.position.y)
   );
+}
+
+export function isDesktopPetAppearance(value: unknown): value is DesktopPetAppearance {
+  return typeof value === "string" && (DESKTOP_PET_APPEARANCES as readonly string[]).includes(value);
 }
 
 export function isDesktopPetSize(value: unknown): value is DesktopPetSize {

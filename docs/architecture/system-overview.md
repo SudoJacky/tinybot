@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:c0e8bbafe0ada4df26160e64f7e40db0365201264d34c5aff27fa2ba77aab0c6 -->
+<!-- tinybot-doc-fingerprint: sha256:bcc0d825323278dabce2e7018ac32ec18ef7f7c953bc0c484308629e35da7fe2 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -127,6 +127,11 @@ Desktop Commands / Desktop Host
 - Sidecar Terminal process ownership: the dedicated desktop terminal runtime;
   Agent shell processes remain owned by the Agent runtime's independent shell
   registry.
+- Desktop process residency: the Rust desktop host owns the system tray and
+  main-window lifecycle. Closing `main` hides that window while the Native
+  Runtime and auxiliary pet windows remain active; only the explicit tray exit
+  command starts bounded browser, terminal, and Agent-runtime cleanup before
+  process exit.
 - Desktop pet preferences: the main renderer's `DesktopShell`, persisted under
   `tinybot.ui.desktop-pet.v2`. Legacy `v1` visibility and size migrate without
   carrying viewport-relative coordinates into the physical desktop coordinate
@@ -167,7 +172,9 @@ bounded service composition and a least-privilege Tauri command permission so
 it can pick attachments and create and continue canonical Threads; the scoped
 native event seam positions it next to the pet and hands an explicit Thread ID
 back to `DesktopShell` when the user opens the conversation in the main Chat
-route.
+route. Hiding the main window in the system tray does not remount these
+surfaces or transfer their state authority; restoring `main` focuses the
+existing application window.
 
 ## Cross-module flows
 

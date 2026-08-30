@@ -247,6 +247,27 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
   };
 }
 
+function withFullSettingsRoute(services: ReturnType<typeof createServices>) {
+  const providerSettings = buildProviderModelsSettings({
+    revision: "hash:pet-settings",
+    agents: { defaults: { activeProfile: "openai-default", model: "gpt-4.1" } },
+    providers: {
+      profiles: {
+        "openai-default": {
+          provider: "openai",
+          enabled: true,
+          apiKeyConfigured: true,
+          models: ["gpt-4.1"],
+          defaultModel: "gpt-4.1",
+        },
+      },
+    },
+  });
+  services.settingsStore.loadProviderSettings = vi.fn(async () => providerSettings);
+  services.settingsStore.saveProviderSettings = vi.fn(async () => providerSettings);
+  return services;
+}
+
 function createUpdateClient(
   snapshot: DesktopUpdateSnapshot = {
     currentVersion: "0.1.3",
@@ -404,7 +425,7 @@ describe("DesktopShell", () => {
     const systemMenu = screen.getByRole("menu", { name: "System menu" });
     expect(within(systemMenu).getByRole("menuitem", { name: "Settings (Ctrl+,)" })).toBeTruthy();
     expect(within(systemMenu).getByRole("menuitem", { name: "What's New" })).toBeTruthy();
-    expect(within(systemMenu).getByRole("menuitem", { name: "Hide Desktop Pet" })).toBeTruthy();
+    expect(within(systemMenu).queryByRole("menuitem", { name: /Desktop Pet/ })).toBeNull();
     expect(within(systemMenu).getByRole("menuitem", { name: "Performance Trace" })).toBeTruthy();
     expect(within(systemMenu).queryByRole("menuitem", { name: /Runtime Status/ })).toBeNull();
 
@@ -446,16 +467,17 @@ describe("DesktopShell", () => {
     expect(stored.position).toEqual({ x: 574, y: 418 });
   });
 
-  it("synchronizes native pet state without rendering an in-window duplicate", async () => {
+  it("synchronizes and forcibly resets native pet state without rendering an in-window duplicate", async () => {
     let nativeListener: ((patch: DesktopPetPreferencesPatch) => void) | undefined;
     const desktopPetHost: DesktopPetHost = {
+      resetPosition: vi.fn(async () => undefined),
       sync: vi.fn(async () => undefined),
       listen: vi.fn(async (listener) => {
         nativeListener = listener;
         return () => undefined;
       }),
     };
-    const services = createServices();
+    const services = withFullSettingsRoute(createServices());
     services.desktopPetHost = desktopPetHost;
 
     render(<DesktopShell services={services} />);
@@ -463,7 +485,7 @@ describe("DesktopShell", () => {
     await waitFor(() => expect(desktopPetHost.sync).toHaveBeenCalledWith({
       label: "Tinybot is calm",
       mood: "calm",
-      preferences: { visible: true, size: "medium", position: null },
+      preferences: { appearance: "dimensional", visible: true, size: "medium", position: null },
     }));
     expect(screen.queryByRole("img", { name: "Tinybot is calm" })).toBeNull();
 
@@ -472,6 +494,19 @@ describe("DesktopShell", () => {
       const stored = JSON.parse(window.localStorage.getItem(DESKTOP_PET_STORAGE_KEY) ?? "{}");
       expect(stored.position).toEqual({ x: -1243, y: 318 });
     });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "System" }));
+    await user.click(within(screen.getByRole("menu", { name: "System menu" }))
+      .getByRole("menuitem", { name: /Settings/ }));
+    await user.click(await screen.findByRole("button", { name: "Appearance" }));
+    await user.click(screen.getByRole("button", { name: "Reset position" }));
+
+    await waitFor(() => expect(desktopPetHost.resetPosition).toHaveBeenCalledWith({
+      label: "Tinybot is calm",
+      mood: "calm",
+      preferences: { appearance: "dimensional", visible: true, size: "medium", position: null },
+    }));
   });
 
   it("refreshes and activates the exact quick chat session when opening the main window", async () => {
@@ -496,9 +531,9 @@ describe("DesktopShell", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Dropped browser text" })).toBeTruthy();
   });
 
-  it("resizes, hides, and restores the desktop pet from the System menu", async () => {
+  it("resizes, hides, and restores the desktop pet from Appearance settings", async () => {
     const user = userEvent.setup();
-    render(<DesktopShell services={createServices()} />);
+    render(<DesktopShell services={withFullSettingsRoute(createServices())} />);
 
     expect(screen.getByRole("img", { name: "Tinybot is calm" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Make Tinybot larger" }));
@@ -508,11 +543,36 @@ describe("DesktopShell", () => {
     expect(screen.queryByRole("img", { name: "Tinybot is calm" })).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "System" }));
-    const systemMenu = screen.getByRole("menu", { name: "System menu" });
-    await user.click(within(systemMenu).getByRole("menuitem", { name: "Show Desktop Pet" }));
+    await user.click(within(screen.getByRole("menu", { name: "System menu" }))
+      .getByRole("menuitem", { name: /Settings/ }));
+    await user.click(await screen.findByRole("button", { name: "Appearance" }));
+    await user.click(screen.getByRole("checkbox", { name: "Show desktop pet" }));
 
     expect(await screen.findByRole("img", { name: "Tinybot is calm" })).toBeTruthy();
     expect(screen.getByRole("toolbar", { name: "Tinybot size: Large" })).toBeTruthy();
+  });
+
+  it("resets the in-window pet to the safe default position from Appearance settings", async () => {
+    const user = userEvent.setup();
+    render(<DesktopShell services={withFullSettingsRoute(createServices())} />);
+    const moveSurface = screen.getByRole("group", { name: "Move Tinybot desktop pet. Drag it or use the arrow keys." });
+
+    fireEvent.pointerDown(moveSurface, { button: 0, clientX: 900, clientY: 700, pointerId: 1 });
+    fireEvent.pointerMove(moveSurface, { clientX: 500, clientY: 400, pointerId: 1 });
+    fireEvent.pointerUp(moveSurface, { clientX: 500, clientY: 400, pointerId: 1 });
+    expect(JSON.parse(window.localStorage.getItem(DESKTOP_PET_STORAGE_KEY) ?? "{}").position).toEqual({ x: 574, y: 418 });
+
+    await user.click(screen.getByRole("button", { name: "System" }));
+    await user.click(within(screen.getByRole("menu", { name: "System menu" }))
+      .getByRole("menuitem", { name: /Settings/ }));
+    await user.click(await screen.findByRole("button", { name: "Appearance" }));
+    await user.click(screen.getByRole("button", { name: "Reset position" }));
+
+    await waitFor(() => {
+      expect(JSON.parse(window.localStorage.getItem(DESKTOP_PET_STORAGE_KEY) ?? "{}").position).toBeNull();
+      expect(document.querySelector<HTMLElement>(".react-desktop-pet")?.style.transform)
+        .toBe("translate3d(974px, 718px, 0)");
+    });
   });
 
   it("persists the App menu theme command through the shared appearance preference", async () => {

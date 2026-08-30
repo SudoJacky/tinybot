@@ -1,4 +1,7 @@
 .react-tinybot-mascot {
+  --tinybot-motion-ease-out: cubic-bezier(.23, 1, .32, 1);
+  --tinybot-motion-ease-in-out: cubic-bezier(.77, 0, .175, 1);
+
   display: grid;
   place-items: center;
   width: var(--tinybot-mascot-size, 44px);
@@ -34,6 +37,27 @@
   fill: #cc785c;
 }
 
+.react-tinybot-mascot[data-appearance="dimensional"] .react-tinybot-mascot__body-motion {
+  filter:
+    drop-shadow(0 1.4px 1.2px rgb(24 20 17 / 28%))
+    drop-shadow(-.5px -.6px .7px rgb(255 255 255 / 34%));
+}
+
+.react-tinybot-mascot[data-appearance="dimensional"] .react-tinybot-mascot__rim {
+  stroke: rgb(255 255 255 / 62%);
+  stroke-width: .45px;
+}
+
+.react-tinybot-mascot[data-appearance="dimensional"] .react-tinybot-mascot__core {
+  stroke: rgb(0 0 0 / 24%);
+  stroke-width: .45px;
+}
+
+.react-tinybot-mascot[data-appearance="dimensional"] .react-tinybot-mascot__eye-motion,
+.react-tinybot-mascot[data-appearance="dimensional"] .react-tinybot-mascot__satellite-motion {
+  filter: drop-shadow(0 .75px .65px rgb(24 20 17 / 26%));
+}
+
 .react-tinybot-mascot__body-pose,
 .react-tinybot-mascot__body-motion,
 .react-tinybot-mascot__eye-pose,
@@ -44,10 +68,13 @@
   transform-origin: 22.8px 25.5px;
 }
 
-.react-tinybot-mascot__body-pose,
+.react-tinybot-mascot__body-pose {
+  transition: transform 220ms var(--tinybot-motion-ease-out);
+}
+
 .react-tinybot-mascot__eye-pose,
 .react-tinybot-mascot__satellite-pose {
-  transition: transform 360ms cubic-bezier(.2, .8, .2, 1);
+  transition: transform 180ms var(--tinybot-motion-ease-out);
 }
 
 .react-tinybot-mascot__eye-motion {
@@ -99,7 +126,7 @@
 }
 
 .react-tinybot-mascot[data-mood="working"] .react-tinybot-mascot__body-motion {
-  animation: react-tinybot-working-pulse .78s ease-in-out infinite alternate;
+  animation: react-tinybot-working-pulse 1.1s var(--tinybot-motion-ease-in-out) infinite;
 }
 
 .react-tinybot-mascot[data-mood="working"] .react-tinybot-mascot__eye-pose {
@@ -107,11 +134,11 @@
 }
 
 .react-tinybot-mascot[data-mood="working"] .react-tinybot-mascot__eye-motion {
-  animation: react-tinybot-working-eye .78s ease-in-out infinite alternate;
+  animation: react-tinybot-working-eye 3.2s var(--tinybot-motion-ease-in-out) infinite;
 }
 
 .react-tinybot-mascot[data-mood="working"] .react-tinybot-mascot__satellite-motion {
-  animation: react-tinybot-working-satellite .78s ease-in-out infinite alternate;
+  animation: react-tinybot-working-satellite .9s var(--tinybot-motion-ease-in-out) -.09s infinite;
 }
 
 .react-tinybot-mascot[data-mood="angry"] .react-tinybot-mascot__body-pose {
@@ -176,18 +203,18 @@
 }
 
 @keyframes react-tinybot-working-pulse {
-  from { transform: scale(1, 1.015); }
-  to { transform: scale(1.025, .975); }
+  0%, 100% { transform: scale(1); }
+  52% { transform: scale(1.022, .978); }
 }
 
 @keyframes react-tinybot-working-eye {
-  from { transform: translateX(-.5px); }
-  to { transform: translateX(1px); }
+  0%, 68%, 84%, 100% { transform: translateX(0); }
+  76% { transform: translateX(1px); }
 }
 
 @keyframes react-tinybot-working-satellite {
-  from { transform: translate(-1px, 1px) scale(.94); }
-  to { transform: translate(1px, -1px) scale(1.08); }
+  0%, 100% { transform: translate(0) scale(1); }
+  50% { transform: translate(1px, -1px) scale(1.08); }
 }
 
 @keyframes react-tinybot-angry-shake {
@@ -216,6 +243,6 @@
   .react-tinybot-mascot__satellite-pose,
   .react-tinybot-mascot__satellite-motion {
     animation: none !important;
-    transition-duration: 140ms;
+    transition: none !important;
   }
 }

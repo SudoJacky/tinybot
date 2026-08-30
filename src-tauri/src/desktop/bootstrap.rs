@@ -10,7 +10,7 @@ use crate::config::application::{
 };
 use crate::config::store::ConfigDiagnosticCode;
 use crate::desktop_commands::runtime::{
-    shutdown_native_runtime_for_window_close, start_native_runtime_with_workspace_root,
+    shutdown_native_runtime_for_app_exit, start_native_runtime_with_workspace_root,
 };
 use crate::desktop_terminal;
 use crate::native_browser;
@@ -24,6 +24,7 @@ use super::menu::{
 use super::state::{
     lock_runtime, push_log, record_native_log, NativeRuntimeState, SharedNativeRuntime,
 };
+use super::tray::DesktopTrayMenuAction;
 
 #[tauri::command]
 fn record_renderer_diagnostic(
@@ -94,12 +95,12 @@ struct RendererLogInput {
 pub(crate) fn run() {
     let runtime_state = Arc::new(Mutex::new(NativeRuntimeState::default()));
     let update_state = super::update::new_shared_desktop_update_state(env!("CARGO_PKG_VERSION"));
-    let close_state = runtime_state.clone();
+    let exit_state = runtime_state.clone();
     let terminal_runtime = desktop_terminal::create_runtime();
-    let close_terminal_runtime = terminal_runtime.clone();
+    let exit_terminal_runtime = terminal_runtime.clone();
     let setup_state = runtime_state.clone();
     let setup_update_state = update_state.clone();
-    let close_started = Arc::new(AtomicBool::new(false));
+    let exit_started = Arc::new(AtomicBool::new(false));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -129,6 +130,7 @@ pub(crate) fn run() {
 
             let menu_started = Instant::now();
             install_desktop_application_menu(app)?;
+            super::tray::install_desktop_tray(app).map_err(std::io::Error::other)?;
             startup_metrics.record_duration(
                 "desktop.startup.menu.durationMs",
                 menu_started.elapsed(),
@@ -369,7 +371,7 @@ pub(crate) fn run() {
             crate::desktop_terminal::terminal_resize,
             crate::desktop_terminal::terminal_terminate,
         ])
-        .on_window_event(move |window, event| {
+        .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 if super::pet::is_desktop_pet_quick_chat_window(window.label()) {
                     api.prevent_close();
@@ -396,86 +398,96 @@ pub(crate) fn run() {
                     }
                     return;
                 }
-                if !close_started.swap(true, Ordering::AcqRel) {
+                if window.label() == super::tray::MAIN_WINDOW_LABEL {
                     api.prevent_close();
-                    eprintln!("desktop_window_close_cleanup_started");
-                    let browser_runtime = window
-                        .app_handle()
-                        .state::<native_browser::SharedBrowserRuntime>()
-                        .inner()
-                        .clone();
-                    let close_state = close_state.clone();
-                    let terminal_runtime = close_terminal_runtime.clone();
-                    let close_started = close_started.clone();
-                    let window = window.clone();
-                    tauri::async_runtime::spawn(async move {
-                        if let Err(error) = browser_runtime.shutdown().await {
-                            eprintln!("desktop_window_close_browser_cleanup_failed error={error}");
-                        } else {
-                            eprintln!("desktop_window_close_browser_cleanup_completed");
-                        }
-                        match tauri::async_runtime::spawn_blocking(move || {
-                            terminal_runtime.shutdown()
-                        })
-                        .await
-                        {
-                            Ok(Ok(())) => {
-                                eprintln!("desktop_window_close_terminal_cleanup_completed")
-                            }
-                            Ok(Err(error)) => eprintln!(
-                                "desktop_window_close_terminal_cleanup_failed error={error}"
-                            ),
-                            Err(error) => eprintln!(
-                                "desktop_window_close_terminal_cleanup_task_failed error={error}"
-                            ),
-                        }
-                        if let Err(error) =
-                            shutdown_native_runtime_for_window_close(close_state, false).await
-                        {
-                            eprintln!("desktop_window_close_runtime_cleanup_failed error={error}");
-                        } else {
-                            eprintln!("desktop_window_close_runtime_cleanup_completed");
-                        }
-                        if let Some(pet_window) = window
-                            .app_handle()
-                            .get_webview_window(super::pet::DESKTOP_PET_WINDOW_LABEL)
-                        {
-                            if let Err(error) = pet_window.destroy() {
-                                eprintln!("desktop_pet_window_destroy_failed error={error}");
-                            } else {
-                                eprintln!("desktop_pet_window_destroy_completed");
-                            }
-                        }
-                        if let Some(quick_chat_window) = window
-                            .app_handle()
-                            .get_webview_window(super::pet::DESKTOP_PET_QUICK_CHAT_WINDOW_LABEL)
-                        {
-                            if let Err(error) = quick_chat_window.destroy() {
-                                eprintln!("desktop_pet_quick_chat_window_destroy_failed error={error}");
-                            } else {
-                                eprintln!("desktop_pet_quick_chat_window_destroy_completed");
-                            }
-                        }
-                        if let Err(error) = window.destroy() {
-                            close_started.store(false, Ordering::Release);
-                            eprintln!("desktop_window_close_destroy_failed error={error}");
-                        } else {
-                            eprintln!("desktop_window_close_destroy_completed");
-                        }
-                    });
-                } else {
-                    api.prevent_close();
+                    if let Err(error) = window.hide() {
+                        eprintln!("desktop_main_window_hide_failed error={error}");
+                    } else {
+                        eprintln!(
+                            "desktop_main_window_hidden reason=close_requested background_runtime=active"
+                        );
+                    }
                 }
             }
         })
-        .on_menu_event(|app, event| {
+        .on_menu_event(move |app, event| {
             let id = event.id().0.clone();
+            match super::tray::desktop_tray_menu_action(&id) {
+                DesktopTrayMenuAction::ShowMainWindow => {
+                    if let Err(error) =
+                        super::tray::show_main_window(app, "tray_menu_requested")
+                    {
+                        eprintln!("desktop_main_window_show_failed reason=tray_menu_requested error={error}");
+                    }
+                    return;
+                }
+                DesktopTrayMenuAction::QuitApplication => {
+                    request_desktop_exit(
+                        app.clone(),
+                        exit_state.clone(),
+                        exit_terminal_runtime.clone(),
+                        exit_started.clone(),
+                        "tray_menu_requested",
+                    );
+                    return;
+                }
+                DesktopTrayMenuAction::Ignore => {}
+            }
             if is_desktop_menu_command(&id) {
-                if let Some(window) = app.get_webview_window("main") {
+                if let Some(window) = app.get_webview_window(super::tray::MAIN_WINDOW_LABEL) {
                     let _ = window.emit("desktop-menu-command", DesktopMenuCommandPayload { id });
+                }
+            }
+        })
+        .on_tray_icon_event(|app, event| {
+            if super::tray::should_restore_main_window(&event) {
+                if let Err(error) = super::tray::show_main_window(app, "tray_left_click") {
+                    eprintln!("desktop_main_window_show_failed reason=tray_left_click error={error}");
                 }
             }
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+fn request_desktop_exit<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    runtime_state: SharedNativeRuntime,
+    terminal_runtime: desktop_terminal::SharedDesktopTerminalRuntime,
+    exit_started: Arc<AtomicBool>,
+    reason: &'static str,
+) {
+    if exit_started.swap(true, Ordering::AcqRel) {
+        eprintln!("desktop_app_exit_request_ignored reason={reason} state=cleanup_started");
+        return;
+    }
+
+    eprintln!("desktop_app_exit_cleanup_started reason={reason}");
+    let browser_runtime = app
+        .state::<native_browser::SharedBrowserRuntime>()
+        .inner()
+        .clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = browser_runtime.shutdown().await {
+            eprintln!("desktop_app_exit_browser_cleanup_failed error={error}");
+        } else {
+            eprintln!("desktop_app_exit_browser_cleanup_completed");
+        }
+        match tauri::async_runtime::spawn_blocking(move || terminal_runtime.shutdown()).await {
+            Ok(Ok(())) => eprintln!("desktop_app_exit_terminal_cleanup_completed"),
+            Ok(Err(error)) => {
+                eprintln!("desktop_app_exit_terminal_cleanup_failed error={error}")
+            }
+            Err(error) => {
+                eprintln!("desktop_app_exit_terminal_cleanup_task_failed error={error}")
+            }
+        }
+        if let Err(error) = shutdown_native_runtime_for_app_exit(runtime_state, true).await {
+            eprintln!("desktop_app_exit_runtime_cleanup_failed error={error}");
+        } else {
+            eprintln!("desktop_app_exit_runtime_cleanup_completed");
+        }
+        eprintln!("desktop_app_exit_cleanup_completed reason={reason}");
+        app.exit(0);
+    });
 }

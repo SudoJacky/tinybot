@@ -9,7 +9,7 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:e1492d919540dcb3bed3b280f90c0c8b8880b527a61c636d1e9b4cd4435af8d9 -->
+<!-- tinybot-doc-fingerprint: sha256:10ceee4e705a3403bf1f8f3730096e04817e0d88daa1118e1136c09c99841573 -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
