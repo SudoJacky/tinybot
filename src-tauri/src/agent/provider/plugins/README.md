@@ -1,5 +1,5 @@
 # Provider Plugins
-<!-- tinybot-module-fingerprint: sha256:9ca613631a8051fb46595bf2980c21177412c60ab20996a2ffcdad3b7eb01d32 -->
+<!-- tinybot-module-fingerprint: sha256:e874bff5eddfd47f50d82dca4593eb379869900970625a0e7d5523a11492c1f8 -->
 
 This module contains the statically registered adapters for built-in
 Providers. A Provider plugin owns vendor-specific catalog metadata, reasoning
@@ -125,11 +125,12 @@ Declare the module and add its singleton to `PROVIDER_PLUGINS` in `mod.rs`:
 ```rust
 mod acme;
 
-static PROVIDER_PLUGINS: [&dyn ProviderPlugin; 5] = [
+static PROVIDER_PLUGINS: [&dyn ProviderPlugin; 6] = [
     &openai::PLUGIN,
     &deepseek::PLUGIN,
     &dashscope::PLUGIN,
     &zai::PLUGIN,
+    &ollama::PLUGIN,
     &acme::PLUGIN,
 ];
 ```

@@ -34,7 +34,7 @@ describe("provider models settings", () => {
     expect(settings.revision).toBe("hash:1");
     expect(settings.activeProfileId).toBe("deepseek-default");
     expect(settings.fallbackContextWindowTokens).toBe(128_000);
-    expect(settings.providers.map((provider) => provider.id)).toEqual(["deepseek", "dashscope", "openai", "zai"]);
+    expect(settings.providers.map((provider) => provider.id)).toEqual(["deepseek", "dashscope", "openai", "zai", "ollama"]);
     expect(settings.providers.find((provider) => provider.id === "deepseek")).toMatchObject({
       label: "DeepSeek",
       profileId: "deepseek-default",
@@ -65,6 +65,19 @@ describe("provider models settings", () => {
         { id: "glm-5.3-flash", label: "glm-5.3-flash", source: "built-in", enabled: true, supportsImageInput: true },
         { id: "glm-5.2", label: "glm-5.2", source: "built-in", enabled: true, supportsImageInput: false },
       ],
+    });
+    expect(settings.providers.find((provider) => provider.id === "ollama")).toMatchObject({
+      label: "Ollama",
+      profileId: "ollama-default",
+      configured: true,
+      status: "not_ready",
+      apiKeyConfigured: false,
+      apiKeyRequired: false,
+      baseUrl: "http://127.0.0.1:11434/v1",
+      defaultModel: null,
+      modelCount: 0,
+      supportsResponsesApi: true,
+      modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
     });
     expect(BUILT_IN_PROVIDER_PRESETS.every((preset) => preset.builtIn)).toBe(true);
   });
@@ -179,6 +192,29 @@ describe("provider models settings", () => {
       apiBase: "https://open.bigmodel.cn/api/paas/v4",
       useResponsesApi: true,
     })).toThrow("Z.ai does not support Responses API");
+  });
+
+  test("configures built-in Ollama without requiring an API key", () => {
+    expect(buildProviderConfigurePatch({
+      providerId: "ollama",
+      profileId: "ollama-default",
+      apiBase: "http://127.0.0.1:11434/v1",
+      apiKey: "",
+      useResponsesApi: false,
+      enabled: true,
+    })).toEqual({
+      providers: {
+        profiles: {
+          "ollama-default": {
+            provider: "ollama",
+            displayName: "Ollama",
+            enabled: true,
+            apiBase: "http://127.0.0.1:11434/v1",
+            apiMode: "chat_completions",
+          },
+        },
+      },
+    });
   });
 
   test("builds an OpenAI-compatible custom provider profile", () => {

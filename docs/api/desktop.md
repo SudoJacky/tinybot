@@ -507,10 +507,17 @@ fallbacks cannot diverge.
 Reasoning effort is not an Agent Defaults setting. A legacy `agents.defaults.reasoningEffort` value
 may remain in raw config for read compatibility, but the settings registry does not expose it and the
 agent runtime does not apply it to model requests.
-The built-in provider catalog currently exposes `deepseek`, `dashscope`, `openai`, and `zai`.
+The built-in provider catalog currently exposes `deepseek`, `dashscope`, `openai`, `zai`, and
+`ollama`.
 Profiles are not limited to that catalog: a profile with a custom provider ID, explicit `apiBase`,
 and at least one model is resolved as an OpenAI-compatible provider. Its optional API key remains on
 the existing secret/redaction path, and `supportsModelDiscovery` controls `/models` discovery.
+The built-in `ollama` Provider targets the local OpenAI-compatible endpoint at
+`http://127.0.0.1:11434/v1`. It is usable without an API key, has no curated model IDs, and exposes
+downloaded models through live discovery. Chat Completions requests translate Tinybot's
+`max_completion_tokens` setting to Ollama's supported `max_tokens` field. Ollama reasoning effort is
+passed through for `none`, `low`, `medium`, and `high`; unsupported values fail before the request
+instead of being silently downgraded.
 Every built-in and custom Provider profile defaults `supportsReasoningEffort` to `true`; set it to
 `false` to omit effort from both Chat Completions and Responses requests for endpoints that reject
 the field.
@@ -582,6 +589,9 @@ Provider model discovery:
 - `dashscope` uses the same OpenAI-compatible model discovery shape against its configured
   `apiBase`, so the default discovery URL is
   `https://dashscope.aliyuncs.com/compatible-mode/v1/models`.
+- `ollama` uses `GET http://127.0.0.1:11434/v1/models` by default and does not require an API key.
+  The catalog starts empty because available model IDs come from the models installed in the local
+  Ollama runtime.
 - `zai` uses the static `glm-5.3`, `glm-5.3-flash`, and `glm-5.2` model list. Live `/models`
   discovery is disabled because the supported integration contract only guarantees Chat
   Completions.

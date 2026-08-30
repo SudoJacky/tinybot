@@ -1,5 +1,6 @@
 mod dashscope;
 mod deepseek;
+mod ollama;
 mod openai;
 mod zai;
 
@@ -64,11 +65,12 @@ impl ReasoningEffortPolicy {
     }
 }
 
-static PROVIDER_PLUGINS: [&dyn ProviderPlugin; 4] = [
+static PROVIDER_PLUGINS: [&dyn ProviderPlugin; 5] = [
     &openai::PLUGIN,
     &deepseek::PLUGIN,
     &dashscope::PLUGIN,
     &zai::PLUGIN,
+    &ollama::PLUGIN,
 ];
 
 pub(super) fn registered_provider_plugins() -> impl Iterator<Item = &'static dyn ProviderPlugin> {

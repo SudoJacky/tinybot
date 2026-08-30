@@ -60,6 +60,34 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("ProviderModelsSettingsPage", () => {
+  test("discovers models from the built-in local Ollama provider", async () => {
+    const user = userEvent.setup();
+    const fetchProviderModels = vi.fn(async () => ({
+      ok: true,
+      models: ["qwen3:8b"],
+    }));
+    const settingsStore: SettingsStore = {
+      load: vi.fn(async () => []),
+      loadProviderSettings: vi.fn(async () => buildProviderModelsSettings(currentConfig)),
+      fetchProviderModels,
+    };
+
+    render(<ProviderModelsSettingsPage settingsStore={settingsStore} />);
+
+    const ollamaCard = await screen.findByLabelText("Ollama provider");
+    expect(ollamaCard.querySelector("img")?.getAttribute("src")).toBe("/assets/providers/ollama.svg");
+    await user.click(await screen.findByRole("button", { name: "Manage Ollama models" }));
+    await user.click(screen.getByRole("button", { name: "Refresh models" }));
+
+    await waitFor(() => expect(fetchProviderModels).toHaveBeenCalledWith({
+      providerId: "ollama",
+      profileId: "ollama-default",
+      apiBase: "http://127.0.0.1:11434/v1",
+      modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
+    }));
+    expect(await screen.findByText("qwen3:8b")).toBeTruthy();
+  });
+
   test("persists the default Provider and model natively before updating the renderer preference", async () => {
     const user = userEvent.setup();
     let resolveSave!: () => void;

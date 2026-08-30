@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:7729e706b7f7dbe1dd571a92c56e68c8c6241f03a96f238f1ea36c9f3134ed1f -->
+<!-- tinybot-module-fingerprint: sha256:ab26685170facadaf4ada905f4cf9e4ccd0c7d66f0763da59042a25085c41967 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
@@ -61,6 +61,10 @@ providers. New custom profiles start enabled; users can disable it while
 creating or configuring the profile when an endpoint rejects effort fields.
 The built-in Z.ai provider presents its static GLM models and Chat Completions
 mode without offering the unsupported Responses choice.
+The built-in Ollama provider starts at `http://127.0.0.1:11434/v1`, does not
+require an API key, and opens model management directly so a first-time user can
+discover locally installed models before choosing a default. Its Provider card
+uses the packaged Ollama brand SVG instead of the generated initials fallback.
 The new-conversation default selector persists `agents.defaults.activeProfile`
 and `agents.defaults.model` together through the shared native Settings-store
 operation before updating the renderer's recently-used preference. Chat and
