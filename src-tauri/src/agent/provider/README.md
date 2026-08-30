@@ -9,6 +9,9 @@ Chat Completions or Responses API requests.
   its catalog manifest, reasoning-effort policy, and wire-request adaptations.
   The shared protocol and transport flow remains outside individual adapters;
   custom OpenAI-compatible Providers use the default pass-through policy.
+  The built-in Ollama adapter uses `http://127.0.0.1:11434/v1` without requiring
+  an API key, discovers locally installed models, and maps Chat Completions
+  `max_completion_tokens` to Ollama's `max_tokens` field.
 - `catalog.rs` resolves configured providers and models. Live discovery stays
   async end to end, calls the authenticated OpenAI-compatible `GET /models`
   endpoint, and requires only `data[].id` from each provider response. Custom

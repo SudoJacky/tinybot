@@ -3,11 +3,12 @@ export type ProviderModelDiscovery =
   | { status: "static"; endpoint: null };
 
 export type BuiltInProviderPreset = {
-  id: "deepseek" | "dashscope" | "openai" | "zai";
+  id: "deepseek" | "dashscope" | "openai" | "zai" | "ollama";
   label: string;
   builtIn: true;
   defaultBaseUrl: string;
   defaultModels: string[];
+  apiKeyRequired: boolean;
   supportsResponsesApi: boolean;
   modelDiscovery: ProviderModelDiscovery;
 };
@@ -36,6 +37,7 @@ export type ProviderCardModel = {
   profileId: string;
   baseUrl: string;
   apiKeyConfigured: boolean;
+  apiKeyRequired: boolean;
   useResponsesApi: boolean;
   supportsResponsesApi: boolean;
   supportsReasoningEffort?: boolean;
@@ -137,6 +139,7 @@ export const BUILT_IN_PROVIDER_PRESETS: BuiltInProviderPreset[] = [
     builtIn: true,
     defaultBaseUrl: "https://api.deepseek.com",
     defaultModels: ["deepseek-v4-pro", "deepseek-v4-flash"],
+    apiKeyRequired: true,
     supportsResponsesApi: true,
     modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
   },
@@ -146,6 +149,7 @@ export const BUILT_IN_PROVIDER_PRESETS: BuiltInProviderPreset[] = [
     builtIn: true,
     defaultBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
     defaultModels: ["qwen-plus", "qwen-max", "qwen-turbo"],
+    apiKeyRequired: true,
     supportsResponsesApi: true,
     modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
   },
@@ -155,6 +159,7 @@ export const BUILT_IN_PROVIDER_PRESETS: BuiltInProviderPreset[] = [
     builtIn: true,
     defaultBaseUrl: "https://api.openai.com/v1",
     defaultModels: ["gpt-4.1"],
+    apiKeyRequired: true,
     supportsResponsesApi: true,
     modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
   },
@@ -164,8 +169,19 @@ export const BUILT_IN_PROVIDER_PRESETS: BuiltInProviderPreset[] = [
     builtIn: true,
     defaultBaseUrl: "https://open.bigmodel.cn/api/paas/v4",
     defaultModels: ["glm-5.3", "glm-5.3-flash", "glm-5.2"],
+    apiKeyRequired: true,
     supportsResponsesApi: false,
     modelDiscovery: { status: "static", endpoint: null },
+  },
+  {
+    id: "ollama",
+    label: "Ollama",
+    builtIn: true,
+    defaultBaseUrl: "http://127.0.0.1:11434/v1",
+    defaultModels: [],
+    apiKeyRequired: false,
+    supportsResponsesApi: true,
+    modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
   },
 ];
 
@@ -375,7 +391,7 @@ function buildProviderCard(
   const profileEntry = activeProfile ?? matchedProfiles.find(([profileId]) => profileId === defaultProfileId(preset.id)) ?? matchedProfiles[0];
   const profileId = profileEntry?.[0] ?? defaultProfileId(preset.id);
   const profile = asRecord(profileEntry?.[1]);
-  const configured = Boolean(profileEntry);
+  const configured = Boolean(profileEntry) || !preset.apiKeyRequired;
   const apiKeyConfigured = configured && hasConfiguredApiKey(profile);
   const enabled = pick(profile, "enabled") !== false;
   const manualModels = parseModelList(profile.models);
@@ -400,7 +416,7 @@ function buildProviderCard(
     : enabledModelItems[0]?.id ?? null;
   const status: ProviderCardStatus = !configured
     ? "not_configured"
-    : apiKeyConfigured && enabled && enabledModelItems.length > 0
+    : (!preset.apiKeyRequired || apiKeyConfigured) && enabled && enabledModelItems.length > 0
       ? "available"
       : "not_ready";
 
@@ -416,6 +432,7 @@ function buildProviderCard(
     profileId,
     baseUrl: stringValue(pick(profile, "apiBase", "api_base")) || preset.defaultBaseUrl,
     apiKeyConfigured,
+    apiKeyRequired: preset.apiKeyRequired,
     useResponsesApi: preset.supportsResponsesApi && usesResponsesApi(profile),
     supportsResponsesApi: preset.supportsResponsesApi,
     modelCount: enabledModelItems.length,
@@ -468,6 +485,7 @@ function buildCustomProviderCard(
     profileId,
     baseUrl,
     apiKeyConfigured: hasConfiguredApiKey(profile),
+    apiKeyRequired: false,
     useResponsesApi: usesResponsesApi(profile),
     supportsResponsesApi: true,
     supportsReasoningEffort,

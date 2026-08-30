@@ -416,7 +416,9 @@ function ProviderPresetRow({
   onToggleMenu: () => void;
 }) {
   const { t } = useTranslation("settings");
-  const primaryAction = provider.status === "available" ? "models" : "configure";
+  const primaryAction = provider.status === "available" || (provider.configured && !provider.apiKeyRequired)
+    ? "models"
+    : "configure";
 
   return (
     <article
@@ -445,7 +447,9 @@ function ProviderPresetRow({
           <span aria-hidden="true" />
           {providerStatusLabel(provider.status, t)}
         </span>
-        <small>{provider.apiKeyConfigured ? (provider.useResponsesApi ? t("provider.responsesApi") : t("provider.chatCompletions")) : t("provider.apiKeyMissing")}</small>
+        <small>{provider.apiKeyConfigured || !provider.apiKeyRequired
+          ? (provider.useResponsesApi ? t("provider.responsesApi") : t("provider.chatCompletions"))
+          : t("provider.apiKeyMissing")}</small>
       </div>
       <div className="react-provider-card__actions">
         {primaryAction === "models" ? (
@@ -488,6 +492,7 @@ function ProviderPresetRow({
 const PROVIDER_LOGOS: Record<string, string> = {
   dashscope: "/assets/providers/dashscope.svg",
   deepseek: "/assets/providers/deepseek.svg",
+  ollama: "/assets/providers/ollama.svg",
   openai: "/assets/providers/openai.svg",
   zai: "/assets/providers/zai.svg",
 };

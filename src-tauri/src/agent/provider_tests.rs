@@ -58,7 +58,10 @@ fn provider_catalog_exposes_current_built_in_providers_only() {
         .map(|entry| entry["id"].as_str().unwrap())
         .collect::<Vec<_>>();
 
-    assert_eq!(provider_ids, vec!["openai", "deepseek", "dashscope", "zai"]);
+    assert_eq!(
+        provider_ids,
+        vec!["openai", "deepseek", "dashscope", "zai", "ollama"]
+    );
     let deepseek = body["providers"]
         .as_array()
         .unwrap()
@@ -82,6 +85,20 @@ fn provider_catalog_exposes_current_built_in_providers_only() {
         zai["curatedModelIds"],
         json!(["glm-5.3", "glm-5.3-flash", "glm-5.2"])
     );
+    let ollama = body["providers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|entry| entry["id"] == "ollama")
+        .unwrap();
+    assert_eq!(ollama["defaultApiBase"], "http://127.0.0.1:11434/v1");
+    assert_eq!(ollama["categories"], json!(["built_in", "local"]));
+    assert_eq!(ollama["supportsModelDiscovery"], true);
+    assert_eq!(
+        ollama["supportedApiModes"],
+        json!(["chat_completions", "responses"])
+    );
+    assert_eq!(ollama["apiKeyEnvVars"], json!([]));
 }
 
 #[test]
@@ -450,6 +467,105 @@ async fn dashscope_models_use_openai_compatible_discovery() {
     assert!(result.models.contains(&"qwen-plus".to_string()));
     assert!(result.models.contains(&"qwen-live".to_string()));
     assert_eq!(result.sources["live"], 1);
+}
+
+#[tokio::test]
+async fn ollama_models_use_keyless_openai_compatible_discovery() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
+    let api_base = format!("http://{}/v1", listener.local_addr().unwrap());
+    let (request_tx, request_rx) = mpsc::sync_channel(1);
+    let server = thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut buffer = [0_u8; 2048];
+            let bytes_read = stream
+                .read(&mut buffer)
+                .expect("request should be readable");
+            request_tx
+                .send(String::from_utf8_lossy(&buffer[..bytes_read]).into_owned())
+                .expect("request should be observable");
+            let body = r#"{"object":"list","data":[{"id":"qwen3:8b","object":"model","owned_by":"library"}]}"#;
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+
+    let result = list_provider_models(
+        &json!({}),
+        NativeProviderModelsRequest {
+            provider_id: Some("ollama".to_string()),
+            api_base: Some(api_base),
+            refresh_live: Some(true),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    let _ = server.join();
+    let request = request_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("model discovery should issue an HTTP request");
+
+    assert!(result.ok);
+    assert_eq!(result.warning, None);
+    assert_eq!(result.models, vec!["qwen3:8b"]);
+    assert!(request.starts_with("GET /v1/models HTTP/1.1\r\n"));
+}
+
+#[test]
+fn ollama_chat_completions_use_the_local_endpoint_without_an_api_key() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("test listener should bind");
+    let api_base = format!("http://{}/v1", listener.local_addr().unwrap());
+    let (request_tx, request_rx) = mpsc::channel();
+    let server = thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let mut buffer = [0_u8; 8192];
+            let read = stream.read(&mut buffer).unwrap_or(0);
+            let _ = request_tx.send(String::from_utf8_lossy(&buffer[..read]).to_string());
+            let body = r#"{"id":"chatcmpl-ollama","object":"chat.completion","created":1,"model":"qwen3:8b","choices":[{"index":0,"message":{"role":"assistant","content":"local answer"},"finish_reason":"stop"}]}"#;
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
+                body.len()
+            );
+        }
+    });
+
+    let response = complete_chat_for_agent(
+        &json!({
+            "agents": {
+                "defaults": {
+                    "activeProfile": "ollama-default",
+                    "model": "qwen3:8b"
+                }
+            },
+            "providers": {
+                "profiles": {
+                    "ollama-default": {
+                        "provider": "ollama",
+                        "apiBase": api_base,
+                        "models": ["qwen3:8b"],
+                        "requestTimeoutMs": 500
+                    }
+                }
+            }
+        }),
+        &json!({
+            "model": "qwen3:8b",
+            "messages": [{ "role": "user", "content": "hello" }],
+            "stream": false
+        }),
+    )
+    .expect("local Ollama completion should not require an API key");
+    let request = request_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("provider request should be captured");
+    let _ = server.join();
+
+    assert!(request.starts_with("POST /v1/chat/completions "));
+    assert_eq!(response["choices"][0]["message"]["content"], "local answer");
 }
 
 #[tokio::test]
