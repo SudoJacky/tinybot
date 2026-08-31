@@ -17,7 +17,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:0c1858d981d82df7619d9877ad7f8916d04621b1a2e5fb8136ca30a5f521d962 -->
+<!-- tinybot-doc-fingerprint: sha256:1d388aadc443162d8c67ff29cdc37abbceb2c5c48ea23121059bc4f725ceda10 -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -422,7 +422,10 @@ memory maintenance, and Agent Graph routing. Records are atomically aggregated
 by the device's local `YYYY-MM-DD` calendar day and by the resolved
 Provider/model pair; an internal unique model-call identifier prevents a
 completed call from being counted twice. Existing v1 daily rows are retained
-during migration and exposed as `unknown` Provider and model dimensions.
+during migration and exposed as `unknown` Provider and model dimensions. Usage
+persistence is best effort: a storage failure increments
+`provider.tokenUsage.persistence.failed` and emits a provider diagnostic, while
+the already successful completion remains available to the caller.
 
 `TokenUsageSnapshot` uses schema `tinybot.token_usage.v2` and returns `totals`,
 newest-first `days`, and newest-first `modelDays`. Each `modelDays` item adds

@@ -1,5 +1,5 @@
 # Agent Providers
-<!-- tinybot-module-fingerprint: sha256:c77e357f2f240656fe0ad23fd7ed966172557d890f6a19748ef5941367b47fcf -->
+<!-- tinybot-module-fingerprint: sha256:1e28889e1d5121076d28ffeb3c2c3113af6af003cda64bc59d19aa8dd19af807 -->
 
 This module resolves provider and model configuration and performs streaming
 Chat Completions or Responses API requests.
@@ -30,5 +30,8 @@ Chat Completions or Responses API requests.
   this shared boundary, so Agent turns, context compaction, memory maintenance,
   and Agent Graph routing all feed the same daily SQLite totals. The recorded
   dimensions use the resolved Provider profile and the response model ID, with
-  the requested model as a fallback.
+  the requested model as a fallback. Usage persistence is best effort: failures
+  increment `provider.tokenUsage.persistence.failed` and emit a diagnostic with
+  the protocol, model ID, and storage error without replacing a successful
+  provider response.
 - `streaming.rs` normalizes streamed provider events.
