@@ -284,6 +284,7 @@ pub(crate) fn run() {
             crate::desktop_commands::hooks::worker_managed_hook_script_read,
             crate::desktop_commands::hooks::worker_managed_hook_script_save,
             crate::desktop_commands::memory::worker_memory_snapshot,
+            crate::desktop_commands::token_usage::worker_token_usage_snapshot,
             crate::desktop_commands::project_groups::worker_project_groups_list,
             crate::desktop_commands::project_groups::worker_project_group_save,
             crate::desktop_commands::project_groups::worker_project_group_delete,

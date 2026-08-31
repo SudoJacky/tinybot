@@ -35,6 +35,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "worker_managed_hook_script_read",
     "worker_managed_hook_script_save",
     "worker_memory_snapshot",
+    "worker_token_usage_snapshot",
     "worker_project_groups_list",
     "worker_project_group_save",
     "worker_project_group_delete",

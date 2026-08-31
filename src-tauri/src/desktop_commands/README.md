@@ -1,5 +1,5 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:f1e633c73c6d838b903311f7a172cea08abb25cdbbb45a9dfe16fd899883b9df -->
+<!-- tinybot-module-fingerprint: sha256:4e02096a89e768a2745c1f88d8a2cd3a515fe5c4dd2a9a9105cdf5ec5bfd24b7 -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,

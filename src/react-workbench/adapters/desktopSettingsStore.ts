@@ -2,6 +2,7 @@ import type { NativeConfigApi } from "../../app-core/native/desktopNativeConfig"
 import type { DesktopNativeConfigPatchResponse } from "../../app-core/native/desktopNativeConfigPatch";
 import type { NativeWebuiRouteRequest } from "../../app-core/native/desktopNativeWebui";
 import type { NativeWorkspaceApi } from "../../app-core/native/desktopNativeWorkspace";
+import type { NativeTokenUsageApi } from "../../app-core/native/desktopNativeTokenUsage";
 import {
   readDefaultChatModelPreference,
   writeDefaultChatModel,
@@ -41,12 +42,14 @@ export function createDesktopSettingsStore({
   applyNativeConfigPatch,
   initialize,
   nativeConfig,
+  nativeTokenUsage,
   nativeWebui,
   nativeWorkspace,
 }: {
   applyNativeConfigPatch?: ApplyNativeConfigPatch;
   initialize: () => Promise<void>;
   nativeConfig?: NativeConfigApi;
+  nativeTokenUsage?: NativeTokenUsageApi;
   nativeWebui?: NativeSettingsWebuiApi;
   nativeWorkspace?: NativeSettingsWorkspaceApi;
 }): SettingsStore {
@@ -155,6 +158,12 @@ export function createDesktopSettingsStore({
   }
 
   return {
+    ...(nativeTokenUsage ? {
+      async loadTokenUsage() {
+        await initialize();
+        return nativeTokenUsage.snapshot();
+      },
+    } : {}),
     async load() {
       await initialize();
       return normalizeSettingsSummary(await loadSettingsSnapshot());

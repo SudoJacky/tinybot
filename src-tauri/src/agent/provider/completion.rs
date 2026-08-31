@@ -101,9 +101,12 @@ pub async fn complete_chat_for_agent_with_observer_async(
     observer: &mut (dyn FnMut(NativeProviderStreamEvent) + Send),
     cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
 ) -> Result<Value, NativeProviderFailure> {
-    native_chat_completion_with_observer_async(config, body, Some(observer), cancellation)
-        .await
-        .map_err(NativeProviderFailure::from_chat_error)
+    let response =
+        native_chat_completion_with_observer_async(config, body, Some(observer), cancellation)
+            .await
+            .map_err(NativeProviderFailure::from_chat_error)?;
+    record_completed_provider_usage(&response).await?;
+    Ok(response)
 }
 
 pub async fn complete_responses_for_agent_with_observer_async(
@@ -112,9 +115,45 @@ pub async fn complete_responses_for_agent_with_observer_async(
     observer: &mut (dyn FnMut(NativeProviderStreamEvent) + Send),
     cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
 ) -> Result<Value, NativeProviderFailure> {
-    native_responses_with_observer_async(config, body, Some(observer), cancellation)
+    let response = native_responses_with_observer_async(config, body, Some(observer), cancellation)
         .await
-        .map_err(NativeProviderFailure::from_chat_error)
+        .map_err(NativeProviderFailure::from_chat_error)?;
+    record_completed_provider_usage(&response).await?;
+    Ok(response)
+}
+
+async fn record_completed_provider_usage(response: &Value) -> Result<(), NativeProviderFailure> {
+    #[cfg(test)]
+    {
+        let _ = response;
+        Ok(())
+    }
+    #[cfg(not(test))]
+    {
+        let model_call_id =
+            crate::protocol::request_id::next_worker_request_correlation().id("provider-call");
+        let usage = crate::token_usage::token_usage_from_provider(
+            response.get("usage").unwrap_or(&Value::Null),
+        );
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::token_usage::DailyTokenUsageStore::global()
+                .record_model_call(&model_call_id, &usage)
+        })
+        .await
+        .map_err(|error| {
+            NativeProviderFailure::new(
+                NativeProviderFailureKind::Provider,
+                format!("token usage persistence task failed: {error}"),
+            )
+        })?
+        .map(|_| ())
+        .map_err(|error| {
+            NativeProviderFailure::new(
+                NativeProviderFailureKind::Provider,
+                format!("completed provider call could not persist token usage: {error}"),
+            )
+        })
+    }
 }
 
 #[derive(Clone, Debug)]

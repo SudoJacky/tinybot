@@ -1,6 +1,6 @@
 import type { TFunction } from "i18next";
 import { useEffect, useState, type ReactNode } from "react";
-import { AppWindow, Bot, Cable, ChevronRight, Cloud, Keyboard, Radio, ShieldCheck, SunMoon, UserRound, type LucideIcon } from "lucide-react";
+import { AppWindow, BarChart3, Bot, Cable, ChevronRight, Cloud, Keyboard, Radio, ShieldCheck, SunMoon, UserRound, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import "./SettingsRoute.css";
 import type { DesktopPetPreferences } from "../../app-core/desktop-pet/desktopPetState";
@@ -12,6 +12,7 @@ import { ConfigSettingsPage, type ConfigSettingsGroupId } from "./ConfigSettings
 import { KeyboardShortcutsSettingsPage } from "./KeyboardShortcutsSettingsPage";
 import { HooksSettingsPage } from "./HooksSettingsPage";
 import { PersonalizationSettingsPage } from "./PersonalizationSettingsPage";
+import { ProfileSettingsPage } from "./ProfileSettingsPage";
 import { ProviderModelsSettingsPage } from "./ProviderModelsSettingsPage";
 
 export default function SettingsRoute({
@@ -31,6 +32,9 @@ export default function SettingsRoute({
   const settingsModules = createSettingsModules(t);
   if (services.settingsStore.loadProviderSettings && services.settingsStore.saveProviderSettings) {
     const availableModules = settingsModules.filter((module) => {
+      if (module.id === "profile") {
+        return Boolean(services.settingsStore.loadTokenUsage);
+      }
       if (module.id === "agent-defaults") {
         return Boolean(services.settingsStore.loadAgentDefaultsSettings && services.settingsStore.saveAgentDefaultsSettings);
       }
@@ -55,7 +59,9 @@ export default function SettingsRoute({
           modules={availableModules}
           onSelectModule={setActiveSettingsModuleId}
         >
-          {activeModuleId === "app" ? (
+          {activeModuleId === "profile" ? (
+            <ProfileSettingsPage settingsStore={services.settingsStore} />
+          ) : activeModuleId === "app" ? (
             <AppSettingsPage />
           ) : activeModuleId === "personalization" ? (
             <PersonalizationSettingsPage settingsStore={services.settingsStore} />
@@ -150,7 +156,7 @@ function SettingsFallback({ settingsStore }: { settingsStore: SettingsStore }) {
   );
 }
 
-type SettingsModuleId = "app" | "personalization" | "appearance" | "keyboard-shortcuts" | "provider-models" | "agent-defaults" | "hooks" | ConfigSettingsGroupId;
+type SettingsModuleId = "profile" | "app" | "personalization" | "appearance" | "keyboard-shortcuts" | "provider-models" | "agent-defaults" | "hooks" | ConfigSettingsGroupId;
 
 type SettingsModule = {
   id: SettingsModuleId;
@@ -162,6 +168,7 @@ type SettingsModule = {
 
 function createSettingsModules(t: TFunction<"settings">): SettingsModule[] {
   return [
+    { id: "profile", label: t("modules.profile.label"), description: t("modules.profile.description"), icon: BarChart3 },
     { id: "app", label: t("modules.app.label"), description: t("modules.app.description"), icon: AppWindow },
     { id: "personalization", label: t("modules.personalization.label"), description: t("modules.personalization.description"), icon: UserRound },
     { id: "appearance", label: t("modules.appearance.label"), description: t("modules.appearance.description"), icon: SunMoon },

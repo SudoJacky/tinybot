@@ -18,6 +18,7 @@ export type {
   WorkspaceQueryErrorCode,
 } from "../app-core/workspace/workspaceExplorer";
 import type { AgentDefaultsSettingsData } from "../app-core/settings/agentDefaultsSettings";
+import type { TokenUsageSnapshot } from "../app-core/settings/tokenUsage";
 import type { DesktopChatInput, DesktopCommand } from "../app-core/chat/desktopCommand";
 import type { ThreadCommand } from "../app-core/chat/threadCommand";
 import type { ThreadEffectiveCapabilities } from "../app-core/chat/threadCapabilities";
@@ -277,6 +278,7 @@ export type ToolsStore = {
 
 export type SettingsStore = {
   load(): Promise<Array<{ label: string; value: string }>>;
+  loadTokenUsage?(): Promise<TokenUsageSnapshot>;
   loadPersonalizationInstructions?(): Promise<PersonalizationInstructionsData>;
   savePersonalizationInstructions?(input: PersonalizationInstructionsSaveInput): Promise<PersonalizationInstructionsData>;
   loadChatModels?(): Promise<ChatModelOption[]>;

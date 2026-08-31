@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:ab26685170facadaf4ada905f4cf9e4ccd0c7d66f0763da59042a25085c41967 -->
+<!-- tinybot-module-fingerprint: sha256:2c2bfd89a60704ef9a9ac27c45f3d84b6526bd58e97a4568dc74936f93025921 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
@@ -17,6 +17,12 @@ second configuration surface.
 Settings contracts, metadata, validation, value semantics, and persistence
 patches live in `app-core/settings`. Native reads and writes are exposed through
 the Settings store adapter.
+
+The Profile module loads `tinybot.token_usage.v1` from the native Settings-store
+adapter and shows all-time totals plus one row per local calendar day. Cached
+input remains a subset of input tokens, and reasoning output remains a subset
+of output tokens; the UI labels those relationships instead of summing the
+breakdown columns into a misleading second total.
 
 `HooksSettingsPage` is backed by the separate optional Hooks store because its
 catalog and trust file are not ordinary config patches. It can inspect another

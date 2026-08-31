@@ -53,6 +53,7 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
   };
   settingsStore: {
     load: ReturnType<typeof vi.fn>;
+    loadTokenUsage?: ReturnType<typeof vi.fn>;
     loadAgentDefaultsSettings?: ReturnType<typeof vi.fn>;
     saveAgentDefaultsSettings?: ReturnType<typeof vi.fn>;
     loadDesktopConfigSettings?: ReturnType<typeof vi.fn>;
@@ -267,6 +268,24 @@ function withFullSettingsRoute(services: ReturnType<typeof createServices>) {
   });
   services.settingsStore.loadProviderSettings = vi.fn(async () => providerSettings);
   services.settingsStore.saveProviderSettings = vi.fn(async () => providerSettings);
+  services.settingsStore.loadTokenUsage = vi.fn(async () => ({
+    schemaVersion: "tinybot.token_usage.v1" as const,
+    totals: {
+      inputTokens: 12_000,
+      cachedInputTokens: 8_000,
+      outputTokens: 3_000,
+      reasoningOutputTokens: 1_200,
+      totalTokens: 15_000,
+    },
+    days: [{
+      date: "2026-08-31",
+      inputTokens: 12_000,
+      cachedInputTokens: 8_000,
+      outputTokens: 3_000,
+      reasoningOutputTokens: 1_200,
+      totalTokens: 15_000,
+    }],
+  }));
   return services;
 }
 
@@ -811,6 +830,22 @@ describe("DesktopShell", () => {
         text: expect.stringContaining("convert an allowed-tools YAML sequence to one space-separated string in the original order"),
       }),
     }));
+  });
+
+  it("opens daily token usage from the Profile settings module", async () => {
+    const user = userEvent.setup();
+    const services = withFullSettingsRoute(createServices());
+    render(<DesktopShell services={services} />);
+
+    await user.click(screen.getByRole("button", { name: "System" }));
+    await user.click(within(screen.getByRole("menu", { name: "System menu" }))
+      .getByRole("menuitem", { name: /Settings/ }));
+    await user.click(await screen.findByRole("button", { name: "Profile" }));
+
+    expect(await screen.findByRole("heading", { name: "Profile" })).toBeTruthy();
+    expect(screen.getAllByText("15,000")).toHaveLength(2);
+    expect(screen.getByRole("table", { name: "Daily token usage" })).toBeTruthy();
+    expect(services.settingsStore.loadTokenUsage).toHaveBeenCalledTimes(1);
   });
 
   it("renders the provider directory and saves provider configuration from Settings", async () => {

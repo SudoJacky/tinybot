@@ -17,6 +17,7 @@ import {
   type NativeThreadRecord,
 } from "../app-core/native/desktopNativeThreads";
 import { createDesktopNativeMemoryApi } from "../app-core/native/desktopNativeMemory";
+import { createDesktopNativeTokenUsageApi } from "../app-core/native/desktopNativeTokenUsage";
 import { createDesktopNativeHooksApi } from "../app-core/native/desktopNativeHooks";
 import { createDesktopNativeProjectGroupsApi } from "../app-core/native/desktopNativeProjectGroups";
 import { createDesktopNativeBrowserApi } from "../app-core/native/desktopNativeBrowser";
@@ -69,6 +70,7 @@ export function createDesktopAppServices(
   const nativePlugins = nativeMode ? createDesktopNativePluginsApi({ invoke }) : undefined;
   const nativeThreads = nativeMode ? createDesktopNativeThreadsApi({ invoke }) : undefined;
   const nativeMemory = nativeMode ? createDesktopNativeMemoryApi({ invoke }) : undefined;
+  const nativeTokenUsage = nativeMode ? createDesktopNativeTokenUsageApi({ invoke }) : undefined;
   const nativeHooks = nativeMode ? createDesktopNativeHooksApi({ invoke }) : undefined;
   const nativeProjectGroups = nativeMode ? createDesktopNativeProjectGroupsApi({ invoke }) : undefined;
   const nativeBrowser = nativeMode ? createDesktopNativeBrowserApi({ invoke }) : undefined;
@@ -656,6 +658,7 @@ export function createDesktopAppServices(
     settingsStore: createDesktopSettingsStore({
       initialize,
       nativeConfig,
+      nativeTokenUsage,
       nativeWebui,
       nativeWorkspace,
       applyNativeConfigPatch: nativeMode
