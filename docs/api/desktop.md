@@ -17,7 +17,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:5fa3a24663480178020467430a291563218f3f5f7266bb54d6cef53a49f24447 -->
+<!-- tinybot-doc-fingerprint: sha256:0c1858d981d82df7619d9877ad7f8916d04621b1a2e5fb8136ca30a5f521d962 -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -419,14 +419,17 @@ cached-input, output, reasoning-output, and total tokens in
 `~/.tinybot/state/token-usage.sqlite`. The provider completion boundary covers
 ordinary Agent turns, tool-loop continuations, subagents, context compaction,
 memory maintenance, and Agent Graph routing. Records are atomically aggregated
-by the device's local `YYYY-MM-DD` calendar day; an internal unique model-call
-identifier prevents a completed call from being counted twice.
+by the device's local `YYYY-MM-DD` calendar day and by the resolved
+Provider/model pair; an internal unique model-call identifier prevents a
+completed call from being counted twice. Existing v1 daily rows are retained
+during migration and exposed as `unknown` Provider and model dimensions.
 
-`TokenUsageSnapshot` uses schema `tinybot.token_usage.v1` and returns `totals`
-plus newest-first `days`. Each count uses the same five camelCase fields:
-`inputTokens`, `cachedInputTokens`, `outputTokens`,
-`reasoningOutputTokens`, and `totalTokens`. Cached input is a subset of input,
-and reasoning output is a subset of output when reported by the Provider.
+`TokenUsageSnapshot` uses schema `tinybot.token_usage.v2` and returns `totals`,
+newest-first `days`, and newest-first `modelDays`. Each `modelDays` item adds
+`date`, `providerId`, and `modelId` to the same five camelCase count fields:
+`inputTokens`, `cachedInputTokens`, `outputTokens`, `reasoningOutputTokens`, and
+`totalTokens`. Cached input is a subset of input, and reasoning output is a
+subset of output when reported by the Provider.
 
 ## Config Commands
 

@@ -269,7 +269,7 @@ function withFullSettingsRoute(services: ReturnType<typeof createServices>) {
   services.settingsStore.loadProviderSettings = vi.fn(async () => providerSettings);
   services.settingsStore.saveProviderSettings = vi.fn(async () => providerSettings);
   services.settingsStore.loadTokenUsage = vi.fn(async () => ({
-    schemaVersion: "tinybot.token_usage.v1" as const,
+    schemaVersion: "tinybot.token_usage.v2" as const,
     totals: {
       inputTokens: 12_000,
       cachedInputTokens: 8_000,
@@ -279,6 +279,16 @@ function withFullSettingsRoute(services: ReturnType<typeof createServices>) {
     },
     days: [{
       date: "2026-08-31",
+      inputTokens: 12_000,
+      cachedInputTokens: 8_000,
+      outputTokens: 3_000,
+      reasoningOutputTokens: 1_200,
+      totalTokens: 15_000,
+    }],
+    modelDays: [{
+      date: "2026-08-31",
+      providerId: "openai",
+      modelId: "gpt-4.1",
       inputTokens: 12_000,
       cachedInputTokens: 8_000,
       outputTokens: 3_000,
@@ -843,7 +853,8 @@ describe("DesktopShell", () => {
     await user.click(await screen.findByRole("button", { name: "Profile" }));
 
     expect(await screen.findByRole("heading", { name: "Profile" })).toBeTruthy();
-    expect(screen.getAllByText("15,000")).toHaveLength(2);
+    expect(within(screen.getByRole("region", { name: "Total tokens" })).getByText("15,000")).toBeTruthy();
+    expect(screen.getByRole("table", { name: "Token usage by provider and model" })).toBeTruthy();
     expect(screen.getByRole("table", { name: "Daily token usage" })).toBeTruthy();
     expect(services.settingsStore.loadTokenUsage).toHaveBeenCalledTimes(1);
   });

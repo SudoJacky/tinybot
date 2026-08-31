@@ -1,5 +1,5 @@
 # Settings Application Core
-<!-- tinybot-module-fingerprint: sha256:706512c5ee0a38d13863f83343ec6ce64f64a83d036e0a4674b47d5388d21549 -->
+<!-- tinybot-module-fingerprint: sha256:fb0c4da04ef64435345be29da67db353edad3ed6f029a43ac2998f1552908bdf -->
 
 `settings` owns framework-independent settings contracts, metadata, value
 semantics, validation, pane models, and persistence patch construction.

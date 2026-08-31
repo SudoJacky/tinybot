@@ -1,5 +1,5 @@
 # Agent Providers
-<!-- tinybot-module-fingerprint: sha256:000e084ae626774ae7f683f1add90ed8c66a7d23bbd0bb4049ce6d8836d1e73c -->
+<!-- tinybot-module-fingerprint: sha256:c77e357f2f240656fe0ad23fd7ed966172557d890f6a19748ef5941367b47fcf -->
 
 This module resolves provider and model configuration and performs streaming
 Chat Completions or Responses API requests.
@@ -28,5 +28,7 @@ Chat Completions or Responses API requests.
   the OpenAI-compatible request path is appended. Every successful Chat
   Completions or Responses call records the provider-reported token usage at
   this shared boundary, so Agent turns, context compaction, memory maintenance,
-  and Agent Graph routing all feed the same daily SQLite totals.
+  and Agent Graph routing all feed the same daily SQLite totals. The recorded
+  dimensions use the resolved Provider profile and the response model ID, with
+  the requested model as a fallback.
 - `streaming.rs` normalizes streamed provider events.

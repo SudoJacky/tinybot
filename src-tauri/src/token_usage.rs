@@ -6,7 +6,8 @@ use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const TOKEN_USAGE_SCHEMA_VERSION: &str = "tinybot.token_usage.v1";
+const TOKEN_USAGE_SCHEMA_VERSION: &str = "tinybot.token_usage.v2";
+const UNKNOWN_USAGE_DIMENSION: &str = "unknown";
 
 #[derive(Clone, Debug)]
 pub(crate) struct DailyTokenUsageStore {
@@ -23,10 +24,21 @@ pub(crate) struct DailyTokenUsage {
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub(crate) struct DailyModelTokenUsage {
+    date: String,
+    provider_id: String,
+    model_id: String,
+    #[serde(flatten)]
+    usage: TokenUsage,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) struct TokenUsageSnapshot {
     schema_version: &'static str,
     totals: TokenUsage,
     days: Vec<DailyTokenUsage>,
+    model_days: Vec<DailyModelTokenUsage>,
 }
 
 impl DailyTokenUsageStore {
@@ -44,21 +56,33 @@ impl DailyTokenUsageStore {
     pub(crate) fn record_model_call(
         &self,
         model_call_id: &str,
+        provider_id: &str,
+        model_id: &str,
         usage: &TokenUsage,
     ) -> Result<bool, String> {
-        self.record_model_call_on_date(model_call_id, Local::now().date_naive(), usage)
+        self.record_model_call_on_date(
+            model_call_id,
+            Local::now().date_naive(),
+            provider_id,
+            model_id,
+            usage,
+        )
     }
 
     fn record_model_call_on_date(
         &self,
         model_call_id: &str,
         date: NaiveDate,
+        provider_id: &str,
+        model_id: &str,
         usage: &TokenUsage,
     ) -> Result<bool, String> {
         let model_call_id = model_call_id.trim();
         if model_call_id.is_empty() {
             return Err("token usage model call id must be non-empty".to_string());
         }
+        let provider_id = usage_dimension(provider_id);
+        let model_id = usage_dimension(model_id);
         let usage = non_negative_usage(usage);
         let date = date.format("%Y-%m-%d").to_string();
         let mut connection = self.open()?;
@@ -85,6 +109,15 @@ impl DailyTokenUsageStore {
         if inserted {
             transaction
                 .execute(
+                    "INSERT OR IGNORE INTO daily_model_token_usage (
+                         usage_date, provider_id, model_id, input_tokens, cached_input_tokens,
+                         output_tokens, reasoning_output_tokens, total_tokens
+                     ) VALUES (?1, ?2, ?3, 0, 0, 0, 0, 0)",
+                    params![date, provider_id, model_id],
+                )
+                .map_err(|error| token_usage_db_error("ensure daily model row", error))?;
+            transaction
+                .execute(
                     "UPDATE daily_token_usage SET
                          input_tokens = input_tokens + ?2,
                          cached_input_tokens = cached_input_tokens + ?3,
@@ -102,6 +135,27 @@ impl DailyTokenUsageStore {
                     ],
                 )
                 .map_err(|error| token_usage_db_error("update daily totals", error))?;
+            transaction
+                .execute(
+                    "UPDATE daily_model_token_usage SET
+                         input_tokens = input_tokens + ?4,
+                         cached_input_tokens = cached_input_tokens + ?5,
+                         output_tokens = output_tokens + ?6,
+                         reasoning_output_tokens = reasoning_output_tokens + ?7,
+                         total_tokens = total_tokens + ?8
+                     WHERE usage_date = ?1 AND provider_id = ?2 AND model_id = ?3",
+                    params![
+                        date,
+                        provider_id,
+                        model_id,
+                        usage.input_tokens,
+                        usage.cached_input_tokens,
+                        usage.output_tokens,
+                        usage.reasoning_output_tokens,
+                        usage.total_tokens,
+                    ],
+                )
+                .map_err(|error| token_usage_db_error("update daily model totals", error))?;
         }
         transaction
             .commit()
@@ -148,10 +202,38 @@ impl DailyTokenUsageStore {
             totals.total_tokens = totals.total_tokens.saturating_add(day.usage.total_tokens);
             totals
         });
+        let mut statement = connection
+            .prepare(
+                "SELECT usage_date, provider_id, model_id, input_tokens, cached_input_tokens,
+                        output_tokens, reasoning_output_tokens, total_tokens
+                 FROM daily_model_token_usage
+                 ORDER BY usage_date DESC, total_tokens DESC, provider_id, model_id",
+            )
+            .map_err(|error| token_usage_db_error("prepare model snapshot", error))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok(DailyModelTokenUsage {
+                    date: row.get(0)?,
+                    provider_id: row.get(1)?,
+                    model_id: row.get(2)?,
+                    usage: TokenUsage {
+                        input_tokens: row.get(3)?,
+                        cached_input_tokens: row.get(4)?,
+                        output_tokens: row.get(5)?,
+                        reasoning_output_tokens: row.get(6)?,
+                        total_tokens: row.get(7)?,
+                    },
+                })
+            })
+            .map_err(|error| token_usage_db_error("query model snapshot", error))?;
+        let model_days = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| token_usage_db_error("read model snapshot row", error))?;
         Ok(TokenUsageSnapshot {
             schema_version: TOKEN_USAGE_SCHEMA_VERSION,
             totals,
             days,
+            model_days,
         })
     }
 
@@ -190,6 +272,28 @@ impl DailyTokenUsageStore {
                  CREATE TABLE IF NOT EXISTS recorded_token_usage_calls (
                      model_call_id TEXT PRIMARY KEY CHECK (length(trim(model_call_id)) > 0),
                      usage_date    TEXT NOT NULL REFERENCES daily_token_usage(usage_date)
+                 );
+                 CREATE TABLE IF NOT EXISTS daily_model_token_usage (
+                     usage_date              TEXT NOT NULL REFERENCES daily_token_usage(usage_date),
+                     provider_id             TEXT NOT NULL CHECK (length(trim(provider_id)) > 0),
+                     model_id                TEXT NOT NULL CHECK (length(trim(model_id)) > 0),
+                     input_tokens            INTEGER NOT NULL CHECK (input_tokens >= 0),
+                     cached_input_tokens     INTEGER NOT NULL CHECK (cached_input_tokens >= 0),
+                     output_tokens           INTEGER NOT NULL CHECK (output_tokens >= 0),
+                     reasoning_output_tokens INTEGER NOT NULL CHECK (reasoning_output_tokens >= 0),
+                     total_tokens            INTEGER NOT NULL CHECK (total_tokens >= 0),
+                     PRIMARY KEY (usage_date, provider_id, model_id)
+                 );
+                 INSERT OR IGNORE INTO daily_model_token_usage (
+                     usage_date, provider_id, model_id, input_tokens, cached_input_tokens,
+                     output_tokens, reasoning_output_tokens, total_tokens
+                 )
+                 SELECT usage_date, 'unknown', 'unknown', input_tokens, cached_input_tokens,
+                        output_tokens, reasoning_output_tokens, total_tokens
+                 FROM daily_token_usage
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM daily_model_token_usage AS model_usage
+                     WHERE model_usage.usage_date = daily_token_usage.usage_date
                  );",
             )
             .map_err(|error| token_usage_db_error("initialize schema", error))?;
@@ -312,6 +416,15 @@ fn non_negative_usage(usage: &TokenUsage) -> TokenUsage {
     }
 }
 
+fn usage_dimension(value: &str) -> String {
+    let value = value.trim();
+    if value.is_empty() {
+        UNKNOWN_USAGE_DIMENSION.to_string()
+    } else {
+        value.to_string()
+    }
+}
+
 fn token_usage_db_error(operation: &str, error: rusqlite::Error) -> String {
     format!("token usage database failed to {operation}: {error}")
 }
@@ -371,19 +484,19 @@ mod tests {
 
         assert!(fixture
             .store
-            .record_model_call_on_date("call-1", first_day, &first)
+            .record_model_call_on_date("call-1", first_day, "openai", "gpt-5", &first)
             .unwrap());
         assert!(!fixture
             .store
-            .record_model_call_on_date("call-1", first_day, &second)
+            .record_model_call_on_date("call-1", first_day, "anthropic", "claude", &second)
             .unwrap());
         assert!(fixture
             .store
-            .record_model_call_on_date("call-2", first_day, &second)
+            .record_model_call_on_date("call-2", first_day, "openai", "gpt-5-mini", &second)
             .unwrap());
         assert!(fixture
             .store
-            .record_model_call_on_date("call-3", second_day, &second)
+            .record_model_call_on_date("call-3", second_day, "anthropic", "claude", &second)
             .unwrap());
 
         let snapshot = fixture.store.snapshot().unwrap();
@@ -402,6 +515,36 @@ mod tests {
         assert_eq!(snapshot.totals.output_tokens, 46);
         assert_eq!(snapshot.totals.reasoning_output_tokens, 14);
         assert_eq!(snapshot.totals.total_tokens, 186);
+        assert_eq!(snapshot.model_days.len(), 3);
+        assert_eq!(snapshot.model_days[0].provider_id, "anthropic");
+        assert_eq!(snapshot.model_days[0].model_id, "claude");
+        assert_eq!(snapshot.model_days[1].provider_id, "openai");
+        assert_eq!(snapshot.model_days[1].model_id, "gpt-5");
+        assert_eq!(snapshot.model_days[1].usage, first);
+        assert_eq!(snapshot.model_days[2].model_id, "gpt-5-mini");
+        assert_eq!(snapshot.model_days[2].usage, second);
+    }
+
+    #[test]
+    fn migrates_existing_daily_totals_to_unknown_dimensions() {
+        let fixture = UsageFixture::new();
+        let connection = fixture.store.open().unwrap();
+        connection
+            .execute(
+                "INSERT INTO daily_token_usage (
+                     usage_date, input_tokens, cached_input_tokens, output_tokens,
+                     reasoning_output_tokens, total_tokens
+                 ) VALUES ('2026-08-29', 90, 40, 20, 5, 110)",
+                [],
+            )
+            .unwrap();
+        drop(connection);
+
+        let snapshot = fixture.store.snapshot().unwrap();
+        assert_eq!(snapshot.model_days.len(), 1);
+        assert_eq!(snapshot.model_days[0].provider_id, UNKNOWN_USAGE_DIMENSION);
+        assert_eq!(snapshot.model_days[0].model_id, UNKNOWN_USAGE_DIMENSION);
+        assert_eq!(snapshot.model_days[0].usage.total_tokens, 110);
     }
 
     #[test]
