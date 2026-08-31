@@ -634,6 +634,65 @@ describe("ChatPage", () => {
     expect(await screen.findByRole("region", { name: "Task progress" })).toBeTruthy();
   });
 
+  it("keeps the latest plan visible when a newer turn has not created a plan", async () => {
+    const stores = createStores();
+    let listener: ((event: ChatEvent) => void) | undefined;
+    const firstUserMessage: ReactChatMessage = {
+      id: "u-plan-first-turn",
+      role: "user",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      text: "Create a plan",
+      status: "complete",
+    };
+    const addPlan = (timeline: ReturnType<typeof timelineFromReactMessages>) => {
+      timeline.turns[0].steps.push({
+        agentContext: { id: "main", title: "Tinybot", type: "main" },
+        id: "plan-first-turn",
+        kind: "plan",
+        plan: {
+          completed: 1,
+          currentStep: "Implement fix",
+          steps: [
+            { status: "completed", step: "Inspect state" },
+            { status: "in_progress", step: "Implement fix" },
+          ],
+          total: 2,
+        },
+        sequence: 1,
+        status: "running",
+        title: "Plan",
+      });
+      return timeline;
+    };
+    const planningTimeline = addPlan(timelineFromReactMessages("s1", [firstUserMessage]));
+    stores.chatStore.load = vi.fn(async () => structuredClone(planningTimeline));
+    stores.chatStore.subscribe = vi.fn((_sessionId, callback) => {
+      listener = callback;
+      return () => undefined;
+    });
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    let floatingPlan = await screen.findByRole("region", { name: "Task progress" });
+    expect(within(floatingPlan).getByText("Implement fix")).toBeTruthy();
+
+    const timelineWithNewTurn = addPlan(timelineFromReactMessages("s1", [
+      firstUserMessage,
+      {
+        id: "u-plan-second-turn",
+        role: "user",
+        createdAtMs: Date.UTC(2026, 6, 4, 12, 3, 0),
+        text: "Continue with another request",
+        status: "complete",
+      },
+    ]));
+    act(() => listener?.({ type: "timeline.patch", timeline: timelineWithNewTurn }));
+
+    expect(await screen.findByText("Continue with another request")).toBeTruthy();
+    floatingPlan = screen.getByRole("region", { name: "Task progress" });
+    expect(within(floatingPlan).getByText("Implement fix")).toBeTruthy();
+  });
+
   it("coalesces multiple running timeline patches into one animation-frame commit", async () => {
     const stores = createStores();
     let listener: ((event: ChatEvent) => void) | undefined;

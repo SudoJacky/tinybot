@@ -290,15 +290,18 @@ const SESSION_DELETE_DISSOLVE_MS = 180;
 const EMPTY_OPTIMISTIC_MESSAGES: ReactChatMessage[] = [];
 
 function latestTurnPlan(timeline: ChatTimelineSnapshot | null | undefined) {
-  const turn = timeline?.turns[timeline.turns.length - 1];
-  if (!turn) return undefined;
-  const step = [...turn.steps].reverse().find((candidate) => candidate.kind === "plan" && candidate.plan);
-  if (!step?.plan) return undefined;
-  return {
-    identityKey: `${turn.id}:${step.id}`,
-    plan: step.plan,
-    revisionKey: JSON.stringify({ plan: step.plan, status: step.status }),
-  };
+  const turns = timeline?.turns ?? [];
+  for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex -= 1) {
+    const turn = turns[turnIndex];
+    const step = [...turn.steps].reverse().find((candidate) => candidate.kind === "plan" && candidate.plan);
+    if (!step?.plan) continue;
+    return {
+      identityKey: `${turn.id}:${step.id}`,
+      plan: step.plan,
+      revisionKey: JSON.stringify({ plan: step.plan, status: step.status }),
+    };
+  }
+  return undefined;
 }
 
 export function ChatPage({

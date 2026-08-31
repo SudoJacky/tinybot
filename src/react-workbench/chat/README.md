@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:3d2e7ead6e2510761437018cfa2fc84bcc6064058d6fc81c0f6dfeec6aa37680 -->
+<!-- tinybot-module-fingerprint: sha256:d0f1a44ef14338ba91906fddc5d855131404ec4bd11b8a057a2d57bde07e820d -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -7,13 +7,14 @@ canonical timeline presentation, the composer, and detail drawers.
 `ChatTimeline.tsx` owns the reusable canonical message and execution rendering;
 its action callbacks are optional so read-only consumers can omit unavailable
 branch, recovery, artifact, delegate, and tool-detail controls.
-`FloatingPlanStatus.tsx` mirrors the latest Turn's canonical plan in a fixed
-top-right note without introducing another plan store. New plans and status
-revisions open the note briefly before it contracts to a progress capsule;
-manual expansion stays open until the user closes it, and reduced-motion mode
-replaces the slide with a short opacity transition. Normal Turn completion
-keeps the last canonical plan state; failed or interrupted Turns still reconcile
-unfinished steps to their terminal outcome.
+`FloatingPlanStatus.tsx` mirrors the most recent canonical plan across Turns in
+a fixed top-right note without introducing another plan store. A newer Turn
+without a plan keeps the previous plan visible; the next plan replaces it. New
+plans and status revisions open the note briefly before it contracts to a
+progress capsule; manual expansion stays open until the user closes it, and
+reduced-motion mode replaces the slide with a short opacity transition. Normal
+Turn completion keeps the last canonical plan state; failed or interrupted
+Turns still reconcile unfinished steps to their terminal outcome.
 `AssistantMarkdown.tsx` owns assistant prose and link presentation.
 Allowed web and email links keep their existing safe opener path while adding
 an aria-hidden inline source icon: a GitHub mark for GitHub hosts, an envelope
