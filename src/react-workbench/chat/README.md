@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:996c6aaac8dbfffde175426d55d794c6c2317a6bbb2a4cf274b3e4d6245831a2 -->
+<!-- tinybot-module-fingerprint: sha256:f57c67f8350ed393d5a1f045a866817850d8dc4dc69786a65202e0622fbc7a74 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -39,6 +39,12 @@ owns React state and presentation. Composer submission turns native managed
 images into references with `referenceKind: "image"`. User attachments render as a
 separate stack above the text bubble: managed images use the scoped Tauri asset
 protocol for bounded previews, while ordinary files use compact metadata cards.
+Published `tinybot.data_view.v1` artifacts keep their model-authored data and
+view contract separate from presentation. Chat selects a matching Lieflat Mono
+SVG template for supported line, area, bar, stacked, paired, and waterfall data
+shapes; mixed, dual-axis, and over-limit shapes retain a monochrome ECharts SVG
+fallback. Both paths preserve the shared table, CSV, expansion, and provenance
+controls, respect reduced motion, and never accept renderer code from the model.
 Composer removal remains independent from this persisted timeline presentation.
 The shared model catalog marks image-capable models for the picker. Selecting a
 text-only model rejects new images and blocks an already attached image from
