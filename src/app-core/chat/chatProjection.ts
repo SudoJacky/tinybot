@@ -564,6 +564,9 @@ function reconcileTerminalStepStatuses(turn: ChatTurn): void {
   }
 
   for (const step of turn.steps) {
+    if (step.plan && turn.status === "completed") {
+      continue;
+    }
     if (step.plan) {
       step.plan.steps = step.plan.steps.map((planStep) => {
         if (planStep.status === "completed" || planStep.status === "failed" || planStep.status === "cancelled") {

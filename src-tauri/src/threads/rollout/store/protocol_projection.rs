@@ -583,6 +583,9 @@ pub(super) fn semantic_thread_item_from_runtime_event(
         AgentEventKind::ContextCompacted | AgentEventKind::ContextTrimmed => {
             crate::threads::domain::ThreadItemKind::Event(event.clone())
         }
+        AgentEventKind::PlanProgress => {
+            crate::threads::domain::ThreadItemKind::Event(event.clone())
+        }
         AgentEventKind::Usage => {
             crate::threads::domain::ThreadItemKind::Event(compact_persisted_usage_event(event))
         }

@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:44ee2e3e4478ac065b3a55c183d407b67a4021ccce5a1b0f205547732cbbbfc7 -->
+<!-- tinybot-module-fingerprint: sha256:62af7594155fa91579169b95744ce61bab65d954bedd51a6f97869ed0c5e13ac -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
@@ -24,6 +24,8 @@ language-neutral. Chat also localizes the slash-menu Skills heading, workspace
 source label, inline Skill removal label, and Skill-only fallback prompt.
 Context-window usage and latest-call cache-hit labels are localized here while
 their Token counts and computed percentage remain language-neutral values.
+Chat's floating plan-note label and expand/collapse actions are localized here;
+canonical step text and progress counts remain Agent-authored and numeric data.
 Provider model settings also localize automatic, fallback, and custom
 context-window modes, enabled-model counts, image-input controls, and the
 unsupported-image composer message while model IDs and numeric limits stay

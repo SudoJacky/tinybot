@@ -120,6 +120,7 @@ import {
   type SpreadsheetComposerAnnotation,
 } from "./chatSubmission";
 import { ChatTimeline } from "./ChatTimeline";
+import { FloatingPlanStatus } from "./FloatingPlanStatus";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import {
   AssistantFileLinkError,
@@ -287,6 +288,18 @@ function buildComposerToolOptions(tools: readonly ToolSummary[]): ComposerToolOp
 
 const SESSION_DELETE_DISSOLVE_MS = 180;
 const EMPTY_OPTIMISTIC_MESSAGES: ReactChatMessage[] = [];
+
+function latestTurnPlan(timeline: ChatTimelineSnapshot | null | undefined) {
+  const turn = timeline?.turns[timeline.turns.length - 1];
+  if (!turn) return undefined;
+  const step = [...turn.steps].reverse().find((candidate) => candidate.kind === "plan" && candidate.plan);
+  if (!step?.plan) return undefined;
+  return {
+    identityKey: `${turn.id}:${step.id}`,
+    plan: step.plan,
+    revisionKey: JSON.stringify({ plan: step.plan, status: step.status }),
+  };
+}
 
 export function ChatPage({
   activateSessionRequest = null,
@@ -745,6 +758,10 @@ export function ChatPage({
   const latestFailedTurnId = useMemo(() => (
     [...(timeline?.turns ?? [])].reverse().find((turn) => turn.status === "failed" || turn.status === "interrupted")?.id ?? ""
   ), [timeline]);
+  const floatingPlan = useMemo(
+    () => activeSession && timelineLoaded ? latestTurnPlan(timeline) : undefined,
+    [activeSession, timeline, timelineLoaded],
+  );
   useEffect(() => {
     sessionsRef.current = sessions;
   }, [sessions]);
@@ -2346,6 +2363,14 @@ export function ChatPage({
             ) : null}
           </div>
         </header>
+
+        {floatingPlan ? (
+          <FloatingPlanStatus
+            identityKey={floatingPlan.identityKey}
+            plan={floatingPlan.plan}
+            revisionKey={floatingPlan.revisionKey}
+          />
+        ) : null}
 
         <div
           ref={conversationRef}

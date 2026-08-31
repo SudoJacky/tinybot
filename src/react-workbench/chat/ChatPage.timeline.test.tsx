@@ -556,16 +556,82 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
     const progress = await screen.findByRole("progressbar", { name: "Plan 1/3" });
+    const inlinePlan = screen.getByRole("region", { name: "Execution plan" });
+    const floatingPlan = screen.getByRole("region", { name: "Task progress" });
     expect(progress.getAttribute("aria-valuenow")).toBe("1");
     expect(progress.getAttribute("aria-valuemax")).toBe("3");
-    expect(screen.getByText("Implementation order updated")).toBeTruthy();
-    expect(screen.getByText("Inspect model").closest("li")?.getAttribute("data-status")).toBe("completed");
-    expect(screen.getByText("Render progress")).toBeTruthy();
-    expect(screen.getByText("Run tests").closest("li")?.getAttribute("data-status")).toBe("pending");
+    expect(within(inlinePlan).getByText("Implementation order updated")).toBeTruthy();
+    expect(within(inlinePlan).getByText("Inspect model").closest("li")?.getAttribute("data-status")).toBe("completed");
+    expect(within(inlinePlan).getByText("Render progress")).toBeTruthy();
+    expect(within(inlinePlan).getByText("Run tests").closest("li")?.getAttribute("data-status")).toBe("pending");
+    expect(within(floatingPlan).getByText("Implementation order updated")).toBeTruthy();
+    expect(within(floatingPlan).getByText("Render progress")).toBeTruthy();
     await user.click(screen.getByText("Context compacted"));
     const compaction = screen.getByText("Before: 12,000 tokens").closest("details");
     expect(compaction?.textContent).toContain("After: 4,200 tokens");
     expect(compaction?.textContent).toContain("Dropped items: 12");
+  });
+
+  it("restores floating plan progress after switching away and back", async () => {
+    const user = userEvent.setup();
+    const stores = createStores({
+      sessions: [
+        {
+          id: "s1",
+          chatId: "chat-1",
+          title: "Planning notes",
+          updatedAtMs: Date.UTC(2026, 6, 4, 11, 56, 0),
+          status: "running",
+        },
+        {
+          id: "s2",
+          chatId: "chat-2",
+          title: "Knowledge review",
+          updatedAtMs: Date.UTC(2026, 6, 4, 11, 50, 0),
+          status: "idle",
+        },
+      ],
+    });
+    const planningTimeline = timelineFromReactMessages("s1", [{
+      id: "u-plan-switch",
+      role: "user",
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+      text: "Keep this plan visible",
+      status: "complete",
+    }]);
+    planningTimeline.turns[0].status = "running";
+    planningTimeline.turns[0].steps.push({
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      id: "plan-switch",
+      kind: "plan",
+      plan: {
+        completed: 0,
+        currentStep: "Inspect state",
+        steps: [
+          { status: "in_progress", step: "Inspect state" },
+          { status: "pending", step: "Report findings" },
+        ],
+        total: 2,
+      },
+      sequence: 1,
+      status: "running",
+      title: "Plan",
+    });
+    stores.chatStore.load = vi.fn(async (sessionId) => structuredClone(
+      sessionId === "s1" ? planningTimeline : timelineFromReactMessages("s2", []),
+    ));
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    expect(await screen.findByRole("region", { name: "Task progress" })).toBeTruthy();
+    const sidebar = screen.getByLabelText("Sessions");
+    await user.click(within(sidebar).getByRole("button", { name: "Knowledge review" }));
+    await waitFor(() => expect(stores.chatStore.load).toHaveBeenLastCalledWith("s2"));
+    expect(screen.queryByRole("region", { name: "Task progress" })).toBeNull();
+
+    await user.click(within(sidebar).getByRole("button", { name: "Planning notes" }));
+    await waitFor(() => expect(stores.chatStore.load).toHaveBeenLastCalledWith("s1"));
+    expect(await screen.findByRole("region", { name: "Task progress" })).toBeTruthy();
   });
 
   it("coalesces multiple running timeline patches into one animation-frame commit", async () => {
@@ -943,7 +1009,7 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
     expect(await screen.findByRole("button", { name: /Work performed Interrupted/ })).toBeTruthy();
-    expect(screen.getByText("Read project files")).toBeTruthy();
+    expect(within(screen.getByRole("region", { name: "Execution plan" })).getByText("Read project files")).toBeTruthy();
     expect(screen.queryByRole("alert", { name: "Task execution failed" })).toBeNull();
   });
 

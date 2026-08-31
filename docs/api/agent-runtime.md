@@ -6,7 +6,7 @@ src-tauri/src/agent/runtime_protocol_tests.rs
 src-tauri/src/desktop_commands/runtime.rs
 src-tauri/src/desktop_commands/runtime_tests.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:f8f8058b31cd800c68e0bfb88bf532170a01174c93cadce7424e9e37715d8c62 -->
+<!-- tinybot-doc-fingerprint: sha256:235818abc2ad9e0dde6ce3eb00873aaa5146ecb92997dc9b8114175c1dce587c -->
 
 This document covers native Agent turn execution and provider-facing behavior.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -168,6 +168,10 @@ Other extension tools may remain deferred until selected explicitly for the curr
 browser and subagent lifecycle tools are model-visible by default. Calls to inactive deferred tools fail with
 `stopReason: "policy_denied"`. Form continuations revalidate the persisted activation set against
 the current registry and capability policy.
+
+`update_plan` replaces the complete Turn plan and emits durable `agent.plan.progress`. Reloading a
+Thread reconstructs the last reported step states; a final assistant response does not implicitly
+mark unfinished plan steps completed or cancelled.
 
 ### Project-coordinator Thread tools
 
