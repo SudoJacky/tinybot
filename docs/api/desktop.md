@@ -11,12 +11,13 @@ src-tauri/src/desktop_terminal.rs
 src-tauri/src/desktop_commands/config.rs
 src-tauri/src/desktop_commands/hooks.rs
 src-tauri/src/desktop_commands/plugins.rs
+src-tauri/src/agent/provider/completion.rs
 src/app-core/native/desktopNativeHooks.ts
 src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:b71153416c3df35f3832d6d8b4bc9dcc530b064e7398352a719b2c94d72afbe2 -->
+<!-- tinybot-doc-fingerprint: sha256:1d388aadc443162d8c67ff29cdc37abbceb2c5c48ea23121059bc4f725ceda10 -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -406,6 +407,32 @@ another review. The Settings > Hooks page calls these commands to show both
 configuration sources, diagnostics, definitions, and their trust status. Hook
 commands inherit the desktop user's operating-system authority and are not
 sandboxed by the Agent tool capability policy.
+
+## Token Usage Command
+
+| Command | Args | Response |
+| --- | --- | --- |
+| `worker_token_usage_snapshot` | none | `TokenUsageSnapshot` |
+
+Every successful Chat Completions or Responses provider call records input,
+cached-input, output, reasoning-output, and total tokens in
+`~/.tinybot/state/token-usage.sqlite`. The provider completion boundary covers
+ordinary Agent turns, tool-loop continuations, subagents, context compaction,
+memory maintenance, and Agent Graph routing. Records are atomically aggregated
+by the device's local `YYYY-MM-DD` calendar day and by the resolved
+Provider/model pair; an internal unique model-call identifier prevents a
+completed call from being counted twice. Existing v1 daily rows are retained
+during migration and exposed as `unknown` Provider and model dimensions. Usage
+persistence is best effort: a storage failure increments
+`provider.tokenUsage.persistence.failed` and emits a provider diagnostic, while
+the already successful completion remains available to the caller.
+
+`TokenUsageSnapshot` uses schema `tinybot.token_usage.v2` and returns `totals`,
+newest-first `days`, and newest-first `modelDays`. Each `modelDays` item adds
+`date`, `providerId`, and `modelId` to the same five camelCase count fields:
+`inputTokens`, `cachedInputTokens`, `outputTokens`, `reasoningOutputTokens`, and
+`totalTokens`. Cached input is a subset of input, and reasoning output is a
+subset of output when reported by the Provider.
 
 ## Config Commands
 

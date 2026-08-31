@@ -101,9 +101,14 @@ pub async fn complete_chat_for_agent_with_observer_async(
     observer: &mut (dyn FnMut(NativeProviderStreamEvent) + Send),
     cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
 ) -> Result<Value, NativeProviderFailure> {
-    native_chat_completion_with_observer_async(config, body, Some(observer), cancellation)
-        .await
-        .map_err(NativeProviderFailure::from_chat_error)
+    let response =
+        native_chat_completion_with_observer_async(config, body, Some(observer), cancellation)
+            .await
+            .map_err(NativeProviderFailure::from_chat_error)?;
+    if let Err(error) = record_completed_provider_usage(config, body, &response).await {
+        observe_token_usage_persistence_failure(config, body, "chat_completions", &error);
+    }
+    Ok(response)
 }
 
 pub async fn complete_responses_for_agent_with_observer_async(
@@ -112,9 +117,72 @@ pub async fn complete_responses_for_agent_with_observer_async(
     observer: &mut (dyn FnMut(NativeProviderStreamEvent) + Send),
     cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
 ) -> Result<Value, NativeProviderFailure> {
-    native_responses_with_observer_async(config, body, Some(observer), cancellation)
+    let response = native_responses_with_observer_async(config, body, Some(observer), cancellation)
         .await
-        .map_err(NativeProviderFailure::from_chat_error)
+        .map_err(NativeProviderFailure::from_chat_error)?;
+    if let Err(error) = record_completed_provider_usage(config, body, &response).await {
+        observe_token_usage_persistence_failure(config, body, "responses", &error);
+    }
+    Ok(response)
+}
+
+async fn record_completed_provider_usage(
+    config: &Value,
+    body: &Value,
+    response: &Value,
+) -> Result<(), String> {
+    #[cfg(test)]
+    {
+        let _ = (body, response);
+        if config
+            .get("__test_token_usage_persistence_error")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
+            return Err("forced token usage persistence failure".to_string());
+        }
+        Ok(())
+    }
+    #[cfg(not(test))]
+    {
+        let model_call_id =
+            crate::protocol::request_id::next_worker_request_correlation().id("provider-call");
+        let requested_model =
+            string_field(body, "model").unwrap_or_else(|| configured_model(config));
+        let provider_id = resolve_chat_provider_profile(config, &requested_model)
+            .map(|profile| profile.provider_id)
+            .unwrap_or_else(|| infer_provider_from_model(&requested_model));
+        let model_id = string_field(response, "model").unwrap_or(requested_model);
+        let usage = crate::token_usage::token_usage_from_provider(
+            response.get("usage").unwrap_or(&Value::Null),
+        );
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::token_usage::DailyTokenUsageStore::global().record_model_call(
+                &model_call_id,
+                &provider_id,
+                &model_id,
+                &usage,
+            )
+        })
+        .await
+        .map_err(|error| format!("token usage persistence task failed: {error}"))?
+        .map(|_| ())
+        .map_err(|error| format!("completed provider call could not persist token usage: {error}"))
+    }
+}
+
+fn observe_token_usage_persistence_failure(
+    config: &Value,
+    body: &Value,
+    protocol: &str,
+    error: &str,
+) {
+    crate::runtime::observability::global_agent_runtime_metrics()
+        .increment("provider.tokenUsage.persistence.failed");
+    let requested_model = string_field(body, "model").unwrap_or_else(|| configured_model(config));
+    eprintln!(
+        "provider_token_usage_persistence_failed protocol={protocol} model_id={requested_model} error={error}"
+    );
 }
 
 #[derive(Clone, Debug)]

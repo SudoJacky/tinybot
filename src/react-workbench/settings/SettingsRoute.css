@@ -111,6 +111,7 @@
 }
 
 .react-provider-settings,
+.react-profile-settings,
 .react-app-settings,
 .react-appearance-settings,
 .react-shortcuts-settings,
@@ -1659,6 +1660,395 @@
   font-weight: 750;
   letter-spacing: 0.075em;
   text-transform: uppercase;
+}
+
+.react-profile-settings__status {
+  margin: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: var(--color-surface-soft);
+  padding: 18px;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+.react-profile-settings__status--failed {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.react-profile-settings__status--failed p {
+  margin: 0;
+}
+
+.react-profile-settings__status--failed button {
+  display: inline-flex;
+  min-height: 34px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 7px;
+  background: var(--color-panel);
+  padding: 0 11px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-profile-filters {
+  display: flex;
+  min-inline-size: 0;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.react-profile-filters legend {
+  width: 100%;
+  margin-bottom: 2px;
+  padding: 0;
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 680;
+}
+
+.react-profile-filters label {
+  display: grid;
+  min-width: min(240px, 100%);
+  flex: 1 1 240px;
+  gap: 6px;
+  color: var(--color-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.react-profile-filters select {
+  min-height: 44px;
+  width: 100%;
+  border: 1px solid var(--color-hairline);
+  border-radius: 9px;
+  outline: none;
+  background: var(--color-panel);
+  padding: 0 36px 0 12px;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 12px;
+}
+
+.react-profile-filters select:focus-visible {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent);
+}
+
+.react-profile-usage-summary {
+  display: grid;
+  gap: 18px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-hairline));
+  border-radius: 14px;
+  background: var(--color-panel);
+  padding: 22px;
+}
+
+.react-profile-usage-total {
+  display: grid;
+  gap: 5px;
+}
+
+.react-profile-usage-total > span {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-profile-usage-total > strong {
+  color: var(--color-ink);
+  font-size: clamp(32px, 5vw, 46px);
+  font-weight: 720;
+  line-height: 1;
+  letter-spacing: -0.045em;
+  font-variant-numeric: tabular-nums;
+}
+
+.react-profile-usage-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: var(--color-hairline);
+}
+
+.react-profile-usage-metrics > div {
+  display: grid;
+  gap: 7px;
+  background: var(--color-panel);
+  padding: 14px;
+}
+
+.react-profile-usage-metrics dt,
+.react-profile-usage-metrics dd {
+  margin: 0;
+}
+
+.react-profile-usage-metrics dt {
+  color: var(--color-muted);
+  font-size: 11px;
+}
+
+.react-profile-usage-metrics dd {
+  color: var(--color-ink);
+  font-size: 18px;
+  font-weight: 680;
+  font-variant-numeric: tabular-nums;
+}
+
+.react-profile-charts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 22px;
+}
+
+.react-profile-chart-card {
+  min-width: 0;
+  overflow-x: auto;
+  margin: 0;
+  border-radius: 24px;
+  outline: none;
+  background: var(--lieflat-porcelain-bg);
+  padding: 28px 30px 22px;
+  cursor: pointer;
+}
+
+.react-profile-chart-card:focus-visible {
+  box-shadow: 0 0 0 2px var(--lieflat-porcelain-floor);
+}
+
+.react-profile-chart-card figcaption h3 {
+  margin: 0;
+  color: var(--lieflat-porcelain-text);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.react-profile-chart-card svg {
+  display: block;
+  width: 100%;
+  min-width: 600px;
+  margin-top: 16px;
+  overflow: visible;
+}
+
+.react-profile-chart-card svg text {
+  font-family: inherit;
+}
+
+.react-profile-chart__grid {
+  stroke: var(--lieflat-porcelain-grid);
+  stroke-width: 1;
+}
+
+.react-profile-chart__calendar-tick {
+  stroke: var(--lieflat-porcelain-floor);
+  stroke-width: 1;
+}
+
+.react-profile-chart__axis,
+.react-profile-chart__date {
+  fill: var(--lieflat-porcelain-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.react-profile-chart__line {
+  fill: none;
+  stroke: var(--lieflat-porcelain-data);
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  stroke-width: 2.52;
+}
+
+.react-profile-chart__dot {
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+  transform: scale(0.35);
+}
+
+.react-profile-chart__fade,
+.react-profile-chart__model-tick {
+  opacity: 0;
+}
+
+.react-profile-chart-card[data-reveal-state="revealed"] .react-profile-chart__line {
+  animation: react-profile-chart-draw 1200ms cubic-bezier(0.165, 0.84, 0.44, 1) both;
+}
+
+.react-profile-chart-card[data-reveal-state="revealed"] .react-profile-chart__dot {
+  animation: react-profile-chart-reveal 500ms cubic-bezier(0.165, 0.84, 0.44, 1) both;
+}
+
+.react-profile-chart-card[data-reveal-state="revealed"] .react-profile-chart__fade,
+.react-profile-chart-card[data-reveal-state="revealed"] .react-profile-chart__model-tick {
+  animation: react-profile-chart-fade 900ms cubic-bezier(0.165, 0.84, 0.44, 1) both;
+}
+
+.react-profile-chart__peak {
+  fill: var(--lieflat-porcelain-hero);
+  font-size: 13px;
+  font-weight: 800;
+  paint-order: stroke;
+  stroke: var(--lieflat-porcelain-halo);
+  stroke-width: 4px;
+  text-anchor: middle;
+}
+
+.react-profile-chart__model {
+  fill: var(--lieflat-porcelain-label);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+}
+
+.react-profile-chart__model-tick {
+  stroke-width: 2.16;
+}
+
+.react-profile-chart__marker {
+  fill: var(--lieflat-porcelain-faint);
+}
+
+.react-profile-chart__value {
+  fill: var(--lieflat-porcelain-text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+@keyframes react-profile-chart-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes react-profile-chart-reveal {
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes react-profile-chart-fade {
+  to { opacity: 1; }
+}
+
+.react-profile-daily,
+.react-profile-models {
+  display: grid;
+  gap: 14px;
+}
+
+.react-profile-daily > header h3,
+.react-profile-models > header h3 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 16px;
+}
+
+.react-profile-daily__table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: var(--color-panel);
+}
+
+.react-profile-daily table,
+.react-profile-models table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.react-profile-daily th,
+.react-profile-daily td,
+.react-profile-models th,
+.react-profile-models td {
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 11px 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.react-profile-daily thead th,
+.react-profile-models thead th {
+  background: var(--color-surface-soft);
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.react-profile-daily th:first-child,
+.react-profile-models th:first-child,
+.react-profile-models td:nth-child(2) {
+  text-align: left;
+}
+
+.react-profile-daily tbody th,
+.react-profile-models tbody th {
+  color: var(--color-body);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-profile-daily tbody td,
+.react-profile-models tbody td {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.react-profile-daily tbody td:last-child,
+.react-profile-models tbody td:last-child {
+  color: var(--color-ink);
+  font-weight: 680;
+}
+
+.react-profile-daily tbody tr:last-child > *,
+.react-profile-models tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+@media (max-width: 640px) {
+  .react-profile-chart-card {
+    border-radius: 18px;
+    padding: 18px 14px 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-profile-chart-card[data-reveal-state] .react-profile-chart__line,
+  .react-profile-chart-card[data-reveal-state] .react-profile-chart__dot,
+  .react-profile-chart-card[data-reveal-state] .react-profile-chart__fade,
+  .react-profile-chart-card[data-reveal-state] .react-profile-chart__model-tick {
+    animation: none;
+    opacity: 1;
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+    transform: none;
+  }
+}
+
+.react-profile-daily__empty {
+  margin: 0;
+  border: 1px dashed var(--color-hairline);
+  border-radius: 10px;
+  padding: 24px;
+  color: var(--color-muted);
+  font-size: 12px;
+  text-align: center;
 }
 
 .react-provider-settings__summary {

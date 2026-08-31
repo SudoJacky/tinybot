@@ -1,5 +1,5 @@
 use super::{AgentItem, AgentItemHistory, AgentMessageContent};
-use crate::threads::rollout::format::{TokenUsage, TokenUsageInfo};
+use crate::threads::rollout::format::TokenUsageInfo;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -32,7 +32,7 @@ impl ContextManager {
         provider_usage: &Value,
         model_context_window: Option<i64>,
     ) {
-        let last = token_usage_from_provider(provider_usage);
+        let last = crate::token_usage::token_usage_from_provider(provider_usage);
         self.token_info = Some(TokenUsageInfo::new_or_append(
             self.token_info.as_ref(),
             last,
@@ -98,111 +98,6 @@ fn project_superseded_web_targets(items: &mut [AgentItem]) {
             retained_targets = true;
         }
     }
-}
-
-fn token_usage_from_provider(usage: &Value) -> TokenUsage {
-    let input_tokens = i64_field(
-        usage,
-        &[
-            "inputTokens",
-            "input_tokens",
-            "promptTokens",
-            "prompt_tokens",
-        ],
-    );
-    let output_tokens = i64_field(
-        usage,
-        &[
-            "outputTokens",
-            "output_tokens",
-            "completionTokens",
-            "completion_tokens",
-        ],
-    );
-    let detailed_cached_input_tokens = [
-        "inputTokensDetails",
-        "input_tokens_details",
-        "promptTokensDetails",
-        "prompt_tokens_details",
-    ]
-    .iter()
-    .filter_map(|key| usage.get(key))
-    .map(|details| {
-        i64_field(
-            details,
-            &[
-                "cachedInputTokens",
-                "cached_input_tokens",
-                "cachedTokens",
-                "cached_tokens",
-            ],
-        )
-    })
-    .max()
-    .unwrap_or_default();
-    let detailed_reasoning_output_tokens = [
-        "outputTokensDetails",
-        "output_tokens_details",
-        "completionTokensDetails",
-        "completion_tokens_details",
-    ]
-    .iter()
-    .filter_map(|key| usage.get(key))
-    .map(|details| {
-        i64_field(
-            details,
-            &[
-                "reasoningOutputTokens",
-                "reasoning_output_tokens",
-                "reasoningTokens",
-                "reasoning_tokens",
-            ],
-        )
-    })
-    .max()
-    .unwrap_or_default();
-    TokenUsage {
-        input_tokens,
-        cached_input_tokens: i64_field(
-            usage,
-            &[
-                "cachedInputTokens",
-                "cached_input_tokens",
-                "cachedTokens",
-                "cached_tokens",
-            ],
-        )
-        .max(detailed_cached_input_tokens),
-        output_tokens,
-        reasoning_output_tokens: i64_field(
-            usage,
-            &[
-                "reasoningOutputTokens",
-                "reasoning_output_tokens",
-                "reasoningTokens",
-                "reasoning_tokens",
-            ],
-        )
-        .max(detailed_reasoning_output_tokens),
-        total_tokens: i64_field(
-            usage,
-            &[
-                "totalTokens",
-                "total_tokens",
-                "contextUsageTokens",
-                "context_usage_tokens",
-                "total",
-            ],
-        )
-        .max(input_tokens.saturating_add(output_tokens)),
-    }
-}
-
-fn i64_field(value: &Value, keys: &[&str]) -> i64 {
-    keys.iter()
-        .find_map(|key| value.get(key).and_then(Value::as_i64))
-        .unwrap_or_default()
-        .max(0)
 }
 
 fn validate_tool_pairs(items: &[AgentItem]) -> Result<(), String> {

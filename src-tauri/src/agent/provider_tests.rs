@@ -610,6 +610,50 @@ fn agent_chat_completion_uses_fixture_provider_without_network() {
 }
 
 #[test]
+fn agent_chat_completion_survives_token_usage_persistence_failure() {
+    let response = complete_chat_for_agent(
+        &json!({
+            "__test_token_usage_persistence_error": true,
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+            "providers": { "fixture": { "responses": [{ "content": "fixture answer" }] } }
+        }),
+        &json!({
+            "model": "fixture-model",
+            "messages": [{ "role": "user", "content": "hello" }]
+        }),
+    )
+    .expect("usage persistence must not turn a successful chat completion into a failure");
+
+    assert_eq!(
+        response["choices"][0]["message"]["content"],
+        "fixture answer"
+    );
+}
+
+#[test]
+fn agent_responses_completion_survives_token_usage_persistence_failure() {
+    let mut observer = |_event: NativeProviderStreamEvent| {};
+    let response = complete_responses_for_agent_with_observer(
+        &json!({
+            "__test_token_usage_persistence_error": true,
+            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } },
+            "providers": { "fixture": { "responses": [{ "content": "fixture answer" }] } }
+        }),
+        &json!({
+            "model": "fixture-model",
+            "input": "hello"
+        }),
+        &mut observer,
+    )
+    .expect("usage persistence must not turn a successful Responses completion into a failure");
+
+    assert_eq!(
+        response.pointer("/output/0/content/0/text"),
+        Some(&json!("fixture answer"))
+    );
+}
+
+#[test]
 fn agent_chat_completion_streams_fixture_response_to_observer() {
     let mut observed = Vec::new();
     let mut observer = |event| observed.push(event);
