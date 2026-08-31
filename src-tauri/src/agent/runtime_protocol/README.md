@@ -1,5 +1,5 @@
 # Agent Runtime Protocol
-<!-- tinybot-module-fingerprint: sha256:86df6b4e634a997f8e96692ee34ecb0b8b9249f7cfc5287882c764ac936583af -->
+<!-- tinybot-module-fingerprint: sha256:1ded71978f34bf8dce54b7d473321600ff443a0ecd3caf8681d950c1de14cad3 -->
 
 `runtime_protocol` defines the durable events exchanged by the agent runtime
 and the projections built from them.

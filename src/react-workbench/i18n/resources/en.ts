@@ -1076,7 +1076,7 @@ export const en = {
     },
     plan: {
       label: "Execution plan", completed: "{{completed}} of {{total}} completed", status: { completed: "Completed", inProgress: "In progress", failed: "Failed", cancelled: "Cancelled", pending: "Pending" },
-      collapse: "Collapse", expand: "Expand",
+      collapse: "Collapse", expand: "Expand", floatingLabel: "Task progress", floatingExpand: "Expand task progress", floatingCollapse: "Collapse task progress",
     },
     artifacts: { label: "Artifacts", preview: "Preview {{name}}" },
     dataView: {

@@ -459,6 +459,61 @@ describe("chat projection", () => {
     expect(turn.steps.some((step) => step.status === "running" || step.status === "pending")).toBe(false);
   });
 
+  test("preserves the last canonical plan state when a turn completes", () => {
+    const runtimeState = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("turn-completed-plan", [
+      {
+        itemId: "turn-completed-plan:user",
+        kind: "user_message",
+        status: "completed",
+        data: { type: "user_message", messageId: "user-completed-plan", content: "Run the plan" },
+      },
+      {
+        itemId: "turn-completed-plan:plan",
+        kind: "plan_progress",
+        status: "running",
+        data: {
+          type: "plan_progress",
+          completed: 0,
+          total: 2,
+          currentStep: "Inspect inputs",
+          steps: [
+            { step: "Inspect inputs", status: "in_progress" },
+            { step: "Report findings", status: "pending" },
+          ],
+        },
+      },
+      {
+        itemId: "turn-completed-plan:assistant",
+        kind: "assistant_message",
+        status: "completed",
+        data: {
+          type: "assistant_message",
+          messageId: "assistant-completed-plan",
+          modelCallId: "call-completed-plan",
+          content: "Done",
+          phase: "final_answer",
+        },
+      },
+    ], "WebSocket:chat-1", {
+      status: "completed",
+      completedAt: "2026-08-31T01:00:00Z",
+    }));
+
+    const [turn] = projectBackendTimeline("WebSocket:chat-1", [runtimeState]);
+
+    expect(turn.status).toBe("completed");
+    expect(turn.steps.find((step) => step.kind === "plan")).toMatchObject({
+      status: "running",
+      plan: {
+        currentStep: "Inspect inputs",
+        steps: [
+          { step: "Inspect inputs", status: "in_progress" },
+          { step: "Report findings", status: "pending" },
+        ],
+      },
+    });
+  });
+
   test("orders restored turns by their canonical timestamps", () => {
     const early = normalizeAgentTurnRuntimeStatePayload(canonicalRuntimeState("z-turn-early", [{
       itemId: "z-turn-early:user",

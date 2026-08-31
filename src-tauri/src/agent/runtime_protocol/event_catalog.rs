@@ -550,7 +550,7 @@ impl AgentEventKind {
                 UserVisibility,
                 Some(PlanProgress),
                 AgentItem,
-                Ephemeral,
+                Durable,
             ),
             Self::TaskProgress => definition(
                 "agent.task_progress",

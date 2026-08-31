@@ -547,7 +547,7 @@ export const zh = {
     },
     plan: {
       label: "执行计划", completed: "已完成 {{completed}}/{{total}}", status: { completed: "已完成", inProgress: "执行中", failed: "失败", cancelled: "已取消", pending: "待执行" },
-      collapse: "收起", expand: "展开",
+      collapse: "收起", expand: "展开", floatingLabel: "任务进度", floatingExpand: "展开任务进度", floatingCollapse: "收起任务进度",
     },
     artifacts: { label: "产物", preview: "预览 {{name}}" },
     dataView: {

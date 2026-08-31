@@ -576,6 +576,114 @@ fn persisted_usage_preserves_the_live_timeline_item_identity() {
 }
 
 #[test]
+fn persisted_plan_progress_restores_the_live_timeline_after_session_reload() {
+    let root = std::env::temp_dir().join(format!(
+        "tinybot-plan-timeline-reload-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let rpc = WorkerThreadLogRpc::new(
+        root.clone(),
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    );
+    let session_id = "plan-timeline-session";
+    let turn_id = "turn-plan";
+    let started_at = "2026-08-31T01:00:00.000Z";
+    rpc.start_turn(
+        AgentTurnRecord {
+            session_id: session_id.to_string(),
+            turn_id: turn_id.to_string(),
+            thread_id: None,
+            parent_thread_id: None,
+            child_thread_ids: Vec::new(),
+            status: AgentTurnStatus::Running,
+            phase: "tool_running".to_string(),
+            started_at: started_at.to_string(),
+            updated_at: started_at.to_string(),
+            completed_at: None,
+            stop_reason: None,
+            model: "gpt-test".to_string(),
+            provider: Some("openai".to_string()),
+            max_iterations: 1,
+            current_iteration: 0,
+            conversation_message_ids: Vec::new(),
+            trace_messages: Vec::new(),
+            completed_tool_results: Vec::new(),
+            pending_tool_calls: Vec::new(),
+            checkpoint: None,
+            artifacts: Vec::new(),
+            usage: Vec::new(),
+            token_usage_info: None,
+            instruction_provenance: None,
+            instruction_diagnostics: Vec::new(),
+            trace_context: None,
+            error: None,
+        },
+        None,
+        Vec::new(),
+    )
+    .unwrap();
+    let live_event: AgentRuntimeEventEnvelope = serde_json::from_value(json!({
+        "schemaVersion": "tinybot.agent_event.v1",
+        "eventId": "turn-plan:plan:1",
+        "sequence": 1,
+        "sessionId": session_id,
+        "threadId": session_id,
+        "turnId": turn_id,
+        "itemId": "turn-plan:plan",
+        "eventName": "agent.plan.progress",
+        "phase": "tool_running",
+        "timestamp": "1788147600000",
+        "source": "tool",
+        "visibility": "user",
+        "payload": {
+            "agentItem": {
+                "type": "plan_progress",
+                "id": "turn-plan:plan",
+                "summary": "Inspect repository",
+                "completed": 0,
+                "total": 2,
+                "currentStep": "Inspect repository",
+                "steps": [
+                    { "step": "Inspect repository", "status": "in_progress" },
+                    { "step": "Report findings", "status": "pending" }
+                ]
+            }
+        }
+    }))
+    .unwrap();
+    let live_timeline =
+        project_timeline_snapshot(session_id, turn_id, std::slice::from_ref(&live_event)).unwrap();
+
+    rpc.append_turn_semantic_event(
+        session_id,
+        turn_id,
+        serde_json::to_value(&live_event).unwrap(),
+    )
+    .expect("plan progress must be durable before the session can be reloaded");
+    let reloaded = rpc
+        .get_turn_runtime_state(session_id, turn_id)
+        .unwrap()
+        .expect("persisted plan progress should reload");
+
+    assert_eq!(reloaded.timeline.items, live_timeline.items);
+    assert_eq!(
+        reloaded.timeline.snapshot_revision,
+        live_timeline.snapshot_revision
+    );
+
+    drop(rpc);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn persisted_responses_tool_call_preserves_the_live_timeline_item_identity() {
     let root = std::env::temp_dir().join(format!(
         "tinybot-tool-timeline-identity-{}-{}",

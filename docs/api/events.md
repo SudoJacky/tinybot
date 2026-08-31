@@ -8,7 +8,7 @@ src/app-core/native/desktopNativeTauriEvents.ts
 src/app-core/native/desktopNativeTauriEvents.test.ts
 src/react-workbench/adapters/desktopNativeEventBridge.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:e4bfdb0bf6a7034c3d8fe7b582d139645bd6e008c0444b0de48caf4d175c3909 -->
+<!-- tinybot-doc-fingerprint: sha256:c7ba1dbba1af6aa82087b90f28a10533161b5e45d4b28d8ab596e14e798c05ac -->
 
 This document lists frontend-visible events emitted by the native runtime. It
 is part of the [Rust backend API reference](rust-backend-api.md), which defines
@@ -47,6 +47,10 @@ context compaction/trimming, errors/cancellation, usage updates, and user file/i
 Runtime event `itemId` is derived from the same typed item ID, so live delivery, trace persistence,
 and replay refer to one semantic item. Unknown or malformed internally constructed semantic events
 fail at the projection boundary instead of being persisted as an incomplete item.
+
+`agent.plan.progress` is durable and carries the complete current plan snapshot. Repeated updates
+revise the same Turn-local plan item, and an authoritative timeline reload restores the latest
+reported step states.
 
 `agent.timeline.patch` is the product-facing live update and is produced by the same projector as
 the runtime-state snapshot:

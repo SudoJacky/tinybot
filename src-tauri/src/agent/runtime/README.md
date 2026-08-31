@@ -365,7 +365,8 @@ lasts only for the current Turn; inactive calls fail before dispatch.
 `update_plan` replaces the complete Turn plan. States are `pending`,
 `in_progress`, and `completed`; an incomplete plan has exactly one active step.
 Valid updates revise one `<turnId>:plan` timeline item and emit
-`agent.plan.progress`.
+durable `agent.plan.progress`, so Thread reload reconstructs the last reported
+plan after session changes.
 
 Resumable form checkpoints persist the activated tool set. Continuation
 revalidates it against the current registry and capability policy. Stale IDs,

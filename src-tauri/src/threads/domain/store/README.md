@@ -1,5 +1,5 @@
 # Thread Stores
-<!-- tinybot-module-fingerprint: sha256:a41130f6b713eb02ed62bff93750770b7986c2d3cc9bd339ffa871b41cc8b289 -->
+<!-- tinybot-module-fingerprint: sha256:768ce860cd70a32db935d5a22fa7e2393d654d9714dcb4c112aa491be8e36ed8 -->
 
 This module implements thread storage operations and projections used by the
 thread domain.
