@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:697492adf27e3a0e1eacf766ef65499a626522503acd20de67cb8406c46bfa67 -->
+<!-- tinybot-module-fingerprint: sha256:6dd19f3e701d856b96bdda117055feae417de8053ad53f94700f18aaa3c90a88 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
@@ -24,9 +24,11 @@ ranked model chart, and exact daily and model tables. Historical v1 rows without
 dimensions are labeled Unknown. Cached input remains a subset of input tokens,
 and reasoning output remains a subset of output tokens; the UI labels those
 relationships instead of summing the breakdown columns into a misleading
-second total. Charts reveal when they enter the viewport and replay when clicked
-or activated from the keyboard, while reduced-motion preferences render them
-without animation.
+second total. The charts share the Lieflat Porcelain palette with Chat data
+views: the daily trend separates ordinary and peak values, while model rank
+moves through one blue luminance scale without relying on color alone. Charts
+reveal when they enter the viewport and replay when clicked or activated from
+the keyboard, while reduced-motion preferences render them without animation.
 
 `HooksSettingsPage` is backed by the separate optional Hooks store because its
 catalog and trust file are not ordinary config patches. It can inspect another

@@ -270,7 +270,7 @@ function StackedRungs({ context }: { context: ChartContext }) {
   const scale = rungScale(values);
   const slot = (PLOT_RIGHT - PLOT_LEFT) / document.dataset.rows.length;
   const halfWidth = Math.min(30, slot * 0.2);
-  const tones = [0, 2, 4];
+  const tones = [0, 2, 3];
 
   return (
     <>
@@ -344,16 +344,17 @@ function HairlineLine({ context }: { context: ChartContext }) {
       {values.map((value, index) => {
         const weekend = isWeekend(xColumn, rows[index].values[xColumn.key]);
         const peak = peaks.includes(index);
+        const tone = peak ? 1 : 0;
         return (
           <g key={rows[index].id}>
             <circle
               className="lieflat-pop lieflat-series-dot"
               cx={x(index)}
               cy={y(value)}
-              fill={weekend ? "var(--lieflat-paper)" : "var(--lieflat-ink)"}
+              fill={weekend ? "var(--lieflat-paper)" : toneColor(tone)}
               r={peak ? 4.8 : 2.6}
-              stroke="var(--lieflat-ink)"
-              strokeWidth={weekend ? 1.2 : 0}
+              stroke={toneColor(tone)}
+              strokeWidth={weekend ? 2.16 : 0}
               style={{ animationDelay: `${200 + index * 12}ms` }}
             >
               <title>{`${axisValue(xColumn, rows[index].values[xColumn.key], context.locale)} — ${formatValue(valueColumn, value, context.locale)}`}</title>
@@ -386,7 +387,7 @@ function HairlineArea({ context }: { context: ChartContext }) {
       <line className="lieflat-fade lieflat-grid" x1={PLOT_LEFT - 12} x2={PLOT_RIGHT + 4} y1={PLOT_BOTTOM + 4} y2={PLOT_BOTTOM + 4} />
       {values.map((value, index) => (
         <line
-          className={`lieflat-fade lieflat-area-hairline ${index === peak ? "lieflat-tone-0" : "lieflat-tone-3"}`}
+          className={`lieflat-fade lieflat-area-hairline ${index === peak ? "lieflat-tone-1" : "lieflat-tone-3"}`}
           key={rows[index].id}
           style={{ animationDelay: `${index * 12}ms` }}
           x1={x(index)}
@@ -398,7 +399,7 @@ function HairlineArea({ context }: { context: ChartContext }) {
         </line>
       ))}
       <path className="lieflat-draw lieflat-series-line lieflat-tone-0" d={`M${points}`} pathLength={1} style={{ animationDelay: "300ms" }} />
-      <circle className="lieflat-pop lieflat-series-dot" cx={x(peak)} cy={y(values[peak])} fill="var(--lieflat-ink)" r={4.8} style={{ animationDelay: "950ms" }} />
+      <circle className="lieflat-pop lieflat-series-dot" cx={x(peak)} cy={y(values[peak])} fill="var(--lieflat-tone-1)" r={4.8} style={{ animationDelay: "950ms" }} />
       <text className="lieflat-fade lieflat-peak" style={{ animationDelay: "1000ms" }} textAnchor="middle" x={x(peak)} y={Math.max(17, y(values[peak]) - 12)}>
         {formatValue(valueColumn, values[peak], context.locale)}
       </text>
@@ -414,24 +415,27 @@ function BarcodeLollipop({ context }: { context: ChartContext }) {
   const x = xScale(values.length);
   const y = valueScale(values, PLOT_TOP, PLOT_BOTTOM - 14);
   const peaks = peakIndexes(values, 3, Math.max(6, Math.floor(values.length / 15)));
+  const minimum = Math.min(...values);
+  const maximum = Math.max(...values);
 
   return (
     <>
       {values.map((value, index) => {
         const weekend = isWeekend(xColumn, rows[index].values[xColumn.key]);
         const peak = peaks.includes(index);
+        const tone = peak ? 1 : porcelainValueTone(value, minimum, maximum);
         return (
           <g key={rows[index].id}>
             <line className="lieflat-fade lieflat-barcode-grid" style={{ animationDelay: `${index * 8}ms` }} x1={x(index)} x2={x(index)} y1={PLOT_TOP - 8} y2={PLOT_BOTTOM} />
-            <line className="lieflat-fade lieflat-lollipop-stem lieflat-tone-0" style={{ animationDelay: `${250 + index * 8}ms` }} x1={x(index)} x2={x(index)} y1={y(value)} y2={Math.min(PLOT_BOTTOM, y(value) + 18 + deterministic(index, 9) * 24)} />
+            <line className={`lieflat-fade lieflat-lollipop-stem lieflat-tone-${tone}`} style={{ animationDelay: `${250 + index * 8}ms` }} x1={x(index)} x2={x(index)} y1={y(value)} y2={Math.min(PLOT_BOTTOM, y(value) + 18 + deterministic(index, 9) * 24)} />
             <circle
               className="lieflat-pop lieflat-series-dot"
               cx={x(index)}
               cy={y(value)}
-              fill={weekend ? "var(--lieflat-paper)" : "var(--lieflat-ink)"}
+              fill={weekend ? "var(--lieflat-paper)" : toneColor(tone)}
               r={peak ? 4.6 : 2.4}
-              stroke="var(--lieflat-ink)"
-              strokeWidth={weekend ? 1.1 : 0}
+              stroke={toneColor(tone)}
+              strokeWidth={weekend ? 1.98 : 0}
               style={{ animationDelay: `${300 + index * 8}ms` }}
             >
               <title>{`${axisValue(xColumn, rows[index].values[xColumn.key], context.locale)} — ${formatValue(valueColumn, value, context.locale)}`}</title>
@@ -482,6 +486,7 @@ function RungWaterfall({ context }: { context: ChartContext }) {
         const direction = step.to >= step.from ? 1 : -1;
         const rungs = rungPositions(Math.abs(step.to - step.from), scale.unit);
         const negative = !step.total && step.value < 0;
+        const tone = step.total ? 1 : negative ? 2 : 0;
         const top = Math.min(y(step.from), y(step.to));
         const next = steps[stepIndex + 1];
         const nextLevel = next?.total ? next.to : next?.from;
@@ -492,7 +497,7 @@ function RungWaterfall({ context }: { context: ChartContext }) {
               const width = halfWidth * (0.9 + deterministic(stepIndex, rungIndex) * 0.2);
               return (
                 <line
-                  className={`lieflat-fade lieflat-rung ${negative ? "lieflat-rung--negative lieflat-tone-3" : "lieflat-tone-0"}`}
+                  className={`lieflat-fade lieflat-rung ${negative ? "lieflat-rung--negative" : ""} lieflat-tone-${tone}`}
                   key={rungIndex}
                   style={{ animationDelay: `${stepIndex * 120 + rungIndex * 12}ms` }}
                   x1={x - width}
@@ -512,7 +517,7 @@ function RungWaterfall({ context }: { context: ChartContext }) {
                 y2={y(nextLevel)}
               />
             ) : null}
-            <text className={`lieflat-fade lieflat-value ${negative ? "lieflat-fill-tone-3" : ""}`} style={{ animationDelay: `${450 + stepIndex * 120}ms` }} textAnchor="middle" x={x} y={Math.max(17, top - 11)}>
+            <text className={`lieflat-fade lieflat-value ${negative || step.total ? `lieflat-fill-tone-${tone}` : ""}`} style={{ animationDelay: `${450 + stepIndex * 120}ms` }} textAnchor="middle" x={x} y={Math.max(17, top - 11)}>
               {formatValue(valueColumn, step.value, locale)}
               <title>{`${axisValue(categoryColumn, step.row.values[categoryColumn.key], locale)} — ${formatValue(valueColumn, step.value, locale)}`}</title>
             </text>
@@ -615,6 +620,16 @@ function isWeekend(column: DataViewColumn, value: unknown): boolean {
   if (typeof value !== "string" || (column.type !== "date" && column.type !== "datetime")) return false;
   const parsed = column.type === "date" ? new Date(`${value}T00:00:00`) : new Date(value);
   return !Number.isNaN(parsed.getTime()) && (parsed.getDay() === 0 || parsed.getDay() === 6);
+}
+
+function porcelainValueTone(value: number, minimum: number, maximum: number): number {
+  if (maximum <= minimum) return 0;
+  const band = Math.min(3, Math.floor(((value - minimum) / (maximum - minimum)) * 4));
+  return [4, 3, 2, 0][band];
+}
+
+function toneColor(tone: number): string {
+  return `var(--lieflat-tone-${tone})`;
 }
 
 function truncate(value: string, maximum: number): string {

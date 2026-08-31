@@ -75,14 +75,18 @@ function FallbackChart({ document }: { document: DataViewDocument }) {
 
 function chartOption(document: DataViewDocument, locale?: string): EChartsCoreOption {
   const style = getComputedStyle(window.document.documentElement);
-  const ink = cssValue(style, "--color-ink", "#1c1c1a");
-  const body = cssValue(style, "--color-body", "#4a4944");
-  const muted = cssValue(style, "--color-muted", "#8f8e88");
-  const faint = cssValue(style, "--color-muted-soft", "#c6c5bf");
-  const hairline = cssValue(style, "--color-hairline", "#deddd6");
-  const panel = cssValue(style, "--color-panel", "#f0efeb");
+  const background = cssValue(style, "--lieflat-porcelain-bg", "#f7f2eb");
+  const text = cssValue(style, "--lieflat-porcelain-text", "#081f5c");
+  const muted = cssValue(style, "--lieflat-porcelain-muted", "rgba(8, 31, 92, 0.6)");
+  const faint = cssValue(style, "--lieflat-porcelain-faint", "rgba(8, 31, 92, 0.32)");
+  const grid = cssValue(style, "--lieflat-porcelain-grid", "rgba(8, 31, 92, 0.16)");
+  const data = cssValue(style, "--lieflat-porcelain-data", "#334eac");
+  const data2 = cssValue(style, "--lieflat-porcelain-data-2", "#7096d1");
+  const faintData = cssValue(style, "--lieflat-porcelain-faint-data", "#bad6eb");
+  const paleData = cssValue(style, "--lieflat-porcelain-ramp-pale", "#d0e3ff");
+  const hero = cssValue(style, "--lieflat-porcelain-hero", "#081f5c");
   const animation = !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const ladder = [ink, body, muted, faint, hairline];
+  const ladder = [data, hero, data2, faintData, paleData];
   const base: EChartsCoreOption = {
     animation,
     animationDuration: 900,
@@ -105,14 +109,14 @@ function chartOption(document: DataViewDocument, locale?: string): EChartsCoreOp
     tooltip: {
       trigger: "axis",
       confine: true,
-      backgroundColor: ink,
+      backgroundColor: hero,
       borderWidth: 0,
       borderRadius: 12,
       padding: [10, 14],
-      textStyle: { color: panel, fontFamily: "Inter, system-ui, sans-serif", fontSize: 12 },
+      textStyle: { color: background, fontFamily: "Inter, system-ui, sans-serif", fontSize: 12 },
       axisPointer: { lineStyle: { color: faint, type: "dashed", width: 1 } },
     },
-    textStyle: { color: ink, fontFamily: "Inter, system-ui, sans-serif" },
+    textStyle: { color: text, fontFamily: "Inter, system-ui, sans-serif" },
   };
   if (document.view.kind === "cartesian") {
     const columns = new Map(document.dataset.columns.map((column) => [column.key, column]));
@@ -122,13 +126,13 @@ function chartOption(document: DataViewDocument, locale?: string): EChartsCoreOp
       dataset: { source: document.dataset.rows.map((row) => row.values) },
       xAxis: {
         type: "category",
-        axisLine: { lineStyle: { color: hairline, width: 1 } },
+        axisLine: { lineStyle: { color: grid, width: 1 } },
         axisTick: { alignWithLabel: true, lineStyle: { color: faint } },
         axisLabel: { color: muted, fontSize: 10, fontWeight: 600, hideOverlap: true },
       },
       yAxis: [
-        valueAxis(columns, document.view.series.find((series) => series.axis !== "right")?.field, locale, muted, hairline),
-        ...(usesRightAxis ? [valueAxis(columns, document.view.series.find((series) => series.axis === "right")?.field, locale, muted, hairline)] : []),
+        valueAxis(columns, document.view.series.find((series) => series.axis !== "right")?.field, locale, muted, grid),
+        ...(usesRightAxis ? [valueAxis(columns, document.view.series.find((series) => series.axis === "right")?.field, locale, muted, grid)] : []),
       ],
       series: document.view.series.map((series, index) => ({
         type: series.mark === "bar" ? "bar" : "line",
@@ -140,11 +144,11 @@ function chartOption(document: DataViewDocument, locale?: string): EChartsCoreOp
           ? { color: ladder[index % ladder.length], borderRadius: [6, 6, 0, 0] }
           : { color: ladder[index % ladder.length] },
         ...(series.mark !== "bar" ? {
-          lineStyle: { color: ladder[index % ladder.length], width: 1.2 },
+          lineStyle: { color: ladder[index % ladder.length], width: 2.16 },
           showSymbol: document.dataset.rows.length <= 60,
-          symbolSize: 5,
+          symbolSize: 6,
         } : {}),
-        ...(series.mark === "area" ? { areaStyle: { color: ladder[index % ladder.length], opacity: 0.12 } } : {}),
+        ...(series.mark === "area" ? { areaStyle: { color: faintData, opacity: 1 } } : {}),
         ...(document.view.kind === "cartesian" && document.view.stack === "normal" ? { stack: "total" } : {}),
       })),
     };
@@ -159,16 +163,16 @@ function chartOption(document: DataViewDocument, locale?: string): EChartsCoreOp
       xAxis: {
         type: "category",
         data: document.dataset.rows.map((row) => String(row.values[categoryColumn.key] ?? "")),
-        axisLine: { lineStyle: { color: hairline, width: 1 } },
+        axisLine: { lineStyle: { color: grid, width: 1 } },
         axisTick: { alignWithLabel: true, lineStyle: { color: faint } },
         axisLabel: { color: muted, fontSize: 10, fontWeight: 600, hideOverlap: true },
       },
-      yAxis: valueAxis(new Map([[valueColumn.key, valueColumn]]), valueColumn.key, locale, muted, hairline),
+      yAxis: valueAxis(new Map([[valueColumn.key, valueColumn]]), valueColumn.key, locale, muted, grid),
       series: [
         { type: "bar", stack: "waterfall", silent: true, itemStyle: { color: "transparent" }, data: waterfall.base },
-        { type: "bar", stack: "waterfall", name: "Increase", itemStyle: { color: ink, borderRadius: [5, 5, 0, 0] }, data: waterfall.positive },
-        { type: "bar", stack: "waterfall", name: "Decrease", itemStyle: { color: "transparent", borderColor: muted, borderType: "dashed", borderWidth: 1.5 }, data: waterfall.negative },
-        { type: "bar", stack: "waterfall", name: "Total", itemStyle: { color: body, borderRadius: [5, 5, 0, 0] }, data: waterfall.total },
+        { type: "bar", stack: "waterfall", name: "Increase", itemStyle: { color: data, borderRadius: [5, 5, 0, 0] }, data: waterfall.positive },
+        { type: "bar", stack: "waterfall", name: "Decrease", itemStyle: { color: "transparent", borderColor: data2, borderType: "dashed", borderWidth: 2.7 }, data: waterfall.negative },
+        { type: "bar", stack: "waterfall", name: "Total", itemStyle: { color: hero, borderRadius: [5, 5, 0, 0] }, data: waterfall.total },
       ],
     };
   }

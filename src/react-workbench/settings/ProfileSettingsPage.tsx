@@ -386,16 +386,19 @@ function DailyUsageChart({
         {series.map((day, index) => {
           const parsedDate = parseUsageDate(day.date);
           const weekend = parsedDate ? parsedDate.getDay() % 6 === 0 : false;
+          const dotColor = index === peakIndex
+            ? "var(--lieflat-porcelain-hero)"
+            : "var(--lieflat-porcelain-data)";
           return (
             <circle
               className="react-profile-chart__dot"
               cx={x(index)}
               cy={y(day.totalTokens)}
-              fill={weekend ? "var(--color-panel)" : "var(--color-ink)"}
+              fill={weekend ? "var(--lieflat-porcelain-bg)" : dotColor}
               key={day.date}
               r={index === peakIndex ? 4.8 : 2.5}
-              stroke="var(--color-ink)"
-              strokeWidth={weekend ? 1.2 : 0}
+              stroke={dotColor}
+              strokeWidth={weekend ? 2.16 : 0}
               style={{ animationDelay: `${200 + index * 12}ms` }}
             >
               <title>{`${formatUsageDate(day.date, locale)} — ${formatCompactTokens(day.totalTokens)}`}</title>
@@ -479,11 +482,7 @@ function ModelUsageChart({
           const ticks = row.totalTokens > 0 ? Math.max(1, Math.round(row.totalTokens / unit)) : 0;
           const rowEnd = railStart + (row.totalTokens / maximum) * (railEnd - railStart);
           const label = formatModelLabel(row.providerId, row.modelId, unknownLabel);
-          const stroke = rowIndex === 0
-            ? "var(--color-ink)"
-            : rowIndex < 3
-              ? "var(--color-body)"
-              : "var(--color-muted)";
+          const stroke = profileModelTone(rowIndex);
           return (
             <g key={modelUsageKey(row.providerId, row.modelId)}>
               <text
@@ -543,6 +542,17 @@ function ModelUsageChart({
       </svg>
     </figure>
   );
+}
+
+function profileModelTone(rowIndex: number): string {
+  const tones = [
+    "var(--lieflat-porcelain-hero)",
+    "var(--lieflat-porcelain-data)",
+    "var(--lieflat-porcelain-data-2)",
+    "var(--lieflat-porcelain-faint-data)",
+    "var(--lieflat-porcelain-ramp-pale)",
+  ];
+  return tones[Math.min(rowIndex, tones.length - 1)];
 }
 
 function useChartReveal() {

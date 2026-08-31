@@ -2881,6 +2881,44 @@
   box-shadow: none;
 }
 
+.react-data-view[data-chart="true"] {
+  background: var(--lieflat-porcelain-bg);
+}
+
+.react-data-view[data-chart="true"] .react-data-view__icon {
+  background: var(--lieflat-porcelain-hero);
+  color: var(--lieflat-porcelain-bg);
+}
+
+.react-data-view[data-chart="true"] .react-data-view__header h3 {
+  color: var(--lieflat-porcelain-text);
+}
+
+.react-data-view[data-chart="true"] .react-data-view__header p,
+.react-data-view[data-chart="true"] .react-data-view__actions button,
+.react-data-view[data-chart="true"] .react-data-view__footer {
+  color: var(--lieflat-porcelain-muted);
+}
+
+.react-data-view[data-chart="true"] .react-data-view__actions button:hover,
+.react-data-view[data-chart="true"] .react-data-view__actions button:focus-visible {
+  background: var(--lieflat-porcelain-track);
+  color: var(--lieflat-porcelain-hero);
+}
+
+.react-data-view[data-chart="true"] .react-data-view__tabs {
+  background: var(--lieflat-porcelain-track);
+}
+
+.react-data-view[data-chart="true"] .react-data-view__tabs button {
+  color: var(--lieflat-porcelain-muted);
+}
+
+.react-data-view[data-chart="true"] .react-data-view__tabs button[aria-selected="true"] {
+  background: var(--lieflat-porcelain-faint-data);
+  color: var(--lieflat-porcelain-hero);
+}
+
 .react-data-view__body {
   min-width: 0;
   padding: 14px 24px 4px;
@@ -2898,13 +2936,13 @@
 }
 
 .react-data-view__chart--lieflat {
-  --lieflat-paper: var(--color-surface-soft);
-  --lieflat-ink: var(--color-ink);
-  --lieflat-tone-0: var(--color-ink);
-  --lieflat-tone-1: var(--color-body);
-  --lieflat-tone-2: color-mix(in srgb, var(--color-ink) 66%, var(--color-panel));
-  --lieflat-tone-3: var(--color-muted);
-  --lieflat-tone-4: var(--color-muted-soft);
+  --lieflat-paper: var(--lieflat-porcelain-bg);
+  --lieflat-ink: var(--lieflat-porcelain-hero);
+  --lieflat-tone-0: var(--lieflat-porcelain-data);
+  --lieflat-tone-1: var(--lieflat-porcelain-hero);
+  --lieflat-tone-2: var(--lieflat-porcelain-data-2);
+  --lieflat-tone-3: var(--lieflat-porcelain-faint-data);
+  --lieflat-tone-4: var(--lieflat-porcelain-ramp-pale);
   display: block;
   margin: 0;
   outline: none;
@@ -2913,7 +2951,7 @@
 
 .react-data-view__chart--lieflat:focus-visible {
   border-radius: 12px;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-ink) 24%, transparent);
+  box-shadow: 0 0 0 2px var(--lieflat-porcelain-floor);
 }
 
 .react-data-view__chart--lieflat svg {
@@ -2928,24 +2966,24 @@
 }
 
 .lieflat-grid {
-  stroke: var(--color-hairline);
+  stroke: var(--lieflat-porcelain-grid);
   stroke-width: 1;
 }
 
 .lieflat-calendar-tick {
-  stroke: var(--color-muted-soft);
+  stroke: var(--lieflat-porcelain-floor);
   stroke-width: 1;
 }
 
 .lieflat-barcode-grid {
-  stroke: var(--color-hairline);
+  stroke: var(--lieflat-porcelain-track);
   stroke-width: 0.8;
 }
 
 .lieflat-rung,
 .lieflat-tick,
 .lieflat-lollipop-stem {
-  stroke-width: 1.25;
+  stroke-width: 2.25;
 }
 
 .lieflat-rung {
@@ -2957,7 +2995,7 @@
 }
 
 .lieflat-waterfall-connector {
-  stroke: var(--color-muted-soft);
+  stroke: var(--lieflat-porcelain-faint);
   stroke-dasharray: 2 4;
   stroke-width: 1;
 }
@@ -2975,11 +3013,11 @@
 
 .lieflat-series-line {
   fill: none;
-  stroke-width: 1.35;
+  stroke-width: 2.43;
 }
 
 .lieflat-area-hairline {
-  stroke-width: 0.8;
+  stroke-width: 1.44;
 }
 
 .lieflat-series-dot {
@@ -2988,20 +3026,20 @@
 }
 
 .lieflat-marker {
-  fill: var(--color-muted-soft);
+  fill: var(--lieflat-porcelain-faint);
 }
 
 .lieflat-axis,
 .lieflat-legend,
 .lieflat-row-label {
-  fill: var(--color-muted);
+  fill: var(--lieflat-porcelain-muted);
   font-size: 11px;
   font-weight: 600;
 }
 
 .lieflat-row-label,
 .lieflat-legend {
-  fill: var(--color-body);
+  fill: var(--lieflat-porcelain-label);
   font-weight: 700;
   letter-spacing: 0.025em;
 }
@@ -3009,11 +3047,11 @@
 .lieflat-value,
 .lieflat-peak,
 .lieflat-segment-value {
-  fill: var(--color-ink);
+  fill: var(--lieflat-porcelain-text);
   font-size: 13px;
   font-weight: 800;
   paint-order: stroke;
-  stroke: var(--color-surface-soft);
+  stroke: var(--lieflat-porcelain-halo);
   stroke-width: 4px;
 }
 
@@ -3023,7 +3061,7 @@
 }
 
 .lieflat-annotation {
-  fill: var(--color-muted-soft);
+  fill: var(--lieflat-porcelain-muted);
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.09em;

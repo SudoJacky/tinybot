@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:f57c67f8350ed393d5a1f045a866817850d8dc4dc69786a65202e0622fbc7a74 -->
+<!-- tinybot-module-fingerprint: sha256:656010e729657fa76f4e6d98d2117f446417b34c5588219cc0a9633262409d41 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -40,11 +40,13 @@ images into references with `referenceKind: "image"`. User attachments render as
 separate stack above the text bubble: managed images use the scoped Tauri asset
 protocol for bounded previews, while ordinary files use compact metadata cards.
 Published `tinybot.data_view.v1` artifacts keep their model-authored data and
-view contract separate from presentation. Chat selects a matching Lieflat Mono
-SVG template for supported line, area, bar, stacked, paired, and waterfall data
-shapes; mixed, dual-axis, and over-limit shapes retain a monochrome ECharts SVG
-fallback. Both paths preserve the shared table, CSV, expansion, and provenance
-controls, respect reduced motion, and never accept renderer code from the model.
+view contract separate from presentation. Chat selects a matching Lieflat
+Porcelain SVG template for supported line, area, bar, stacked, paired, and
+waterfall data shapes. One shared blue luminance scale distinguishes series,
+rank, and emphasis; mixed, dual-axis, and over-limit shapes retain an ECharts
+SVG fallback using the same palette. Both paths preserve the shared table, CSV,
+expansion, and provenance controls, respect reduced motion, and never accept
+renderer code from the model.
 Composer removal remains independent from this persisted timeline presentation.
 The shared model catalog marks image-capable models for the picker. Selecting a
 text-only model rejects new images and blocks an already attached image from

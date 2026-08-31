@@ -1821,18 +1821,18 @@
   margin: 0;
   border-radius: 24px;
   outline: none;
-  background: var(--color-surface-soft);
+  background: var(--lieflat-porcelain-bg);
   padding: 28px 30px 22px;
   cursor: pointer;
 }
 
 .react-profile-chart-card:focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 34%, transparent);
+  box-shadow: 0 0 0 2px var(--lieflat-porcelain-floor);
 }
 
 .react-profile-chart-card figcaption h3 {
   margin: 0;
-  color: var(--color-ink);
+  color: var(--lieflat-porcelain-text);
   font-size: 17px;
   font-weight: 700;
   letter-spacing: -0.02em;
@@ -1851,28 +1851,28 @@
 }
 
 .react-profile-chart__grid {
-  stroke: var(--color-hairline);
+  stroke: var(--lieflat-porcelain-grid);
   stroke-width: 1;
 }
 
 .react-profile-chart__calendar-tick {
-  stroke: var(--color-muted-soft);
+  stroke: var(--lieflat-porcelain-floor);
   stroke-width: 1;
 }
 
 .react-profile-chart__axis,
 .react-profile-chart__date {
-  fill: var(--color-muted);
+  fill: var(--lieflat-porcelain-muted);
   font-size: 11px;
   font-weight: 600;
 }
 
 .react-profile-chart__line {
   fill: none;
-  stroke: var(--color-ink);
+  stroke: var(--lieflat-porcelain-data);
   stroke-dasharray: 1;
   stroke-dashoffset: 1;
-  stroke-width: 1.4;
+  stroke-width: 2.52;
 }
 
 .react-profile-chart__dot {
@@ -1901,32 +1901,32 @@
 }
 
 .react-profile-chart__peak {
-  fill: var(--color-ink);
+  fill: var(--lieflat-porcelain-hero);
   font-size: 13px;
   font-weight: 800;
   paint-order: stroke;
-  stroke: var(--color-surface-soft);
+  stroke: var(--lieflat-porcelain-halo);
   stroke-width: 4px;
   text-anchor: middle;
 }
 
 .react-profile-chart__model {
-  fill: var(--color-body);
+  fill: var(--lieflat-porcelain-label);
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.025em;
 }
 
 .react-profile-chart__model-tick {
-  stroke-width: 1.2;
+  stroke-width: 2.16;
 }
 
 .react-profile-chart__marker {
-  fill: var(--color-muted-soft);
+  fill: var(--lieflat-porcelain-faint);
 }
 
 .react-profile-chart__value {
-  fill: var(--color-ink);
+  fill: var(--lieflat-porcelain-text);
   font-size: 13px;
   font-weight: 800;
 }

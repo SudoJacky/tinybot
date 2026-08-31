@@ -94,6 +94,19 @@ describe("workbench CSS interaction contracts", () => {
     expect(settingsStylesheet).toContain(".react-theme-mode-grid");
   });
 
+  test("keeps Profile and Chat charts on the shared Lieflat Porcelain palette", () => {
+    expect(shellStylesheet).toContain("--lieflat-porcelain-bg: #f7f2eb");
+    expect(shellStylesheet).toContain("--lieflat-porcelain-data: #334eac");
+    expect(shellStylesheet).toContain("--lieflat-porcelain-data-2: #7096d1");
+    expect(shellStylesheet).toContain("--lieflat-porcelain-faint-data: #bad6eb");
+    expect(chatStylesheet).toContain("background: var(--lieflat-porcelain-bg)");
+    expect(chatStylesheet).toContain("--lieflat-tone-0: var(--lieflat-porcelain-data)");
+    expect(chatStylesheet).toContain("stroke-width: 2.43");
+    expect(settingsStylesheet).toContain("background: var(--lieflat-porcelain-bg)");
+    expect(settingsStylesheet).toContain("stroke: var(--lieflat-porcelain-data)");
+    expect(settingsStylesheet).toContain("stroke-width: 2.52");
+  });
+
   test("keeps route styles with their lazy-loaded owners", () => {
     expect(shellStylesheet).not.toMatch(/\.(?:react-settings|react-memory)-/);
     expect(chatStylesheet).not.toMatch(/\.(?:react-settings|react-memory)-/);

@@ -1,8 +1,12 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:b30a119c6ca7ec7fb1a9d942d67086d43e005debd67605498ac2a53c6a03e4f9 -->
+<!-- tinybot-module-fingerprint: sha256:231b70ac0868ecd5a0cde06cfc09d66ee521e4944d8f4f3e270ef66d06f79131 -->
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
+
+The shared Lieflat Porcelain color roles live here so Profile usage charts,
+Chat data-view SVG templates, and the ECharts fallback use one exact palette.
+Their route-owned styles continue to define chart geometry and motion.
 
 Route-specific CSS is imported by its owning TypeScript module. Do not collect
 Chat, Settings, Memory, or Tools styles here through `@import`, because

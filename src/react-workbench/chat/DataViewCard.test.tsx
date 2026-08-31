@@ -24,17 +24,19 @@ afterEach(() => {
 
 describe("DataViewCard", () => {
   it("loads the chart renderer for a chart view", async () => {
-    render(<DataViewCard artifact={chartArtifact()} />);
+    const { container } = render(<DataViewCard artifact={chartArtifact()} />);
 
     expect((await screen.findByTestId("data-view-chart")).textContent).toBe("Revenue");
     expect(mocks.chartRender).toHaveBeenCalledWith("Revenue");
+    expect(container.querySelector(".react-data-view")?.getAttribute("data-chart")).toBe("true");
   });
 
   it("renders metrics without invoking the chart renderer", () => {
-    render(<DataViewCard artifact={metricsArtifact()} />);
+    const { container } = render(<DataViewCard artifact={metricsArtifact()} />);
 
     expect(screen.getByText("38%")).toBeTruthy();
     expect(mocks.chartRender).not.toHaveBeenCalled();
+    expect(container.querySelector(".react-data-view")?.hasAttribute("data-chart")).toBe(false);
   });
 });
 

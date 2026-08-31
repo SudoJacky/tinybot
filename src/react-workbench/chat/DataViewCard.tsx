@@ -43,7 +43,12 @@ export function DataViewCard({
 
   const locale = i18n.resolvedLanguage;
   return (
-    <section aria-label={document.title} className="react-data-view" data-expanded={expanded ? "true" : undefined}>
+    <section
+      aria-label={document.title}
+      className="react-data-view"
+      data-chart={chartAvailable ? "true" : undefined}
+      data-expanded={expanded ? "true" : undefined}
+    >
       <header className="react-data-view__header">
         <span className="react-data-view__icon"><BarChart3 aria-hidden="true" size={17} /></span>
         <div>
