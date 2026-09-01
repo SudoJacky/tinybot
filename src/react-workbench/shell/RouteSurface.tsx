@@ -6,7 +6,7 @@ import type { TinybotMascotMood } from "../chat/TinybotMascot";
 import type { AppServices, WorkspaceFileSummary } from "../services";
 import { DeferredSurface } from "./DeferredSurface";
 
-export type AppRoute = "chat" | "graphs" | "files" | "memory" | "github" | "docs" | "tools" | "settings" | "performanceTrace";
+export type AppRoute = "chat" | "graphs" | "files" | "memory" | "docs" | "tools" | "settings" | "performanceTrace";
 
 type ChatRouteProps = {
   activateSessionRequest?: { sessionId: string; signal: number } | null;
@@ -105,7 +105,6 @@ export function RouteSurface({
       );
     case "performanceTrace":
       return <DeferredSurface load={loadPerformanceTraceRoute} name={routeName} surfaceProps={{ services }} />;
-    case "github":
     case "docs":
       return <PlaceholderPage title={routeName} />;
   }

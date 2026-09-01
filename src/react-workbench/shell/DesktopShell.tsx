@@ -1,4 +1,5 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { TFunction } from "i18next";
 import {
   useCallback,
@@ -16,6 +17,7 @@ import {
   Check,
   ChevronRight,
   Command,
+  ExternalLink,
   Folder,
   Minus,
   Settings,
@@ -69,6 +71,8 @@ type WindowFrameControls = {
 type TopMenuLabel = string;
 type MotionSource = "keyboard" | "pointer";
 
+const TINYBOT_GITHUB_URL = "https://github.com/SudoJacky/tinybot";
+
 type TopMenuCommandId =
   | "new-chat"
   | "stop-generation"
@@ -97,6 +101,7 @@ type TopMenuCommand = {
   label: string;
   shortcut?: string;
   enabled?: boolean;
+  externalUrl?: string;
   route?: AppRoute;
 };
 
@@ -121,7 +126,6 @@ function createRouteLabels(t: TFunction<"common">): Record<AppRoute, string> {
     graphs: t("routes.graphs"),
     files: t("routes.files"),
     memory: t("routes.memory"),
-    github: t("routes.github"),
     docs: t("routes.docs"),
     tools: t("routes.tools"),
     settings: t("routes.settings"),
@@ -160,7 +164,7 @@ function createTopMenuItems(
       menuCommand({ id: "open-graphs", label: routeLabels.graphs, route: "graphs" }),
       menuCommand({ id: "open-files", label: routeLabels.files, route: "files" }),
       menuCommand({ id: "open-memory", label: routeLabels.memory, route: "memory" }),
-      menuCommand({ id: "open-github", label: routeLabels.github, route: "github" }),
+      menuCommand({ id: "open-github", label: t("menu.github"), externalUrl: TINYBOT_GITHUB_URL }),
       menuCommand({ id: "open-tools", label: routeLabels.tools, route: "tools" }),
     ],
   },
@@ -510,6 +514,15 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
     }
     setActiveTopMenu(null);
     setActiveTopSubmenu(null);
+    if (command.externalUrl) {
+      void openUrl(command.externalUrl).catch((error) => {
+        console.error("[tinybot-shell] Failed to open external menu link.", {
+          error,
+          url: command.externalUrl,
+        });
+      });
+      return;
+    }
     if (command.route) {
       navigateToRoute(command.route);
       return;
@@ -534,15 +547,18 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
     const resolvedCommand = command.id === "stop-generation"
       ? { ...command, enabled: Boolean(stopGenerationSessionId) }
       : command;
+    const accessibleLabel = menuCommandAccessibleLabel(resolvedCommand);
     return (
       <button
         aria-current={resolvedCommand.route === route ? "page" : undefined}
-        aria-label={menuCommandAccessibleLabel(resolvedCommand)}
+        aria-label={accessibleLabel}
         className="react-popover-item react-top-menu__menu-item"
         disabled={resolvedCommand.enabled === false}
         key={resolvedCommand.id}
         role="menuitem"
-        title={menuCommandAccessibleLabel(resolvedCommand)}
+        title={resolvedCommand.externalUrl
+          ? t("menu.openExternal", { label: resolvedCommand.label })
+          : accessibleLabel}
         type="button"
         onClick={(event) => runTopMenuCommand(
           resolvedCommand,
@@ -550,8 +566,11 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
         )}
       >
         <span className="react-top-menu__menu-label">{resolvedCommand.label}</span>
-        {resolvedCommand.route === route || resolvedCommand.shortcut ? (
+        {resolvedCommand.externalUrl || resolvedCommand.route === route || resolvedCommand.shortcut ? (
           <span className="react-top-menu__menu-meta">
+            {resolvedCommand.externalUrl ? (
+              <ExternalLink aria-hidden="true" className="react-top-menu__external-link" size={14} />
+            ) : null}
             {resolvedCommand.route === route ? (
               <Check aria-hidden="true" className="react-top-menu__current" size={15} />
             ) : null}

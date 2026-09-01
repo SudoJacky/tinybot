@@ -439,6 +439,10 @@ button:disabled {
   color: var(--color-primary);
 }
 
+.react-top-menu__external-link {
+  color: var(--color-muted);
+}
+
 .react-top-menu__shortcut {
   display: inline-flex;
   align-items: center;

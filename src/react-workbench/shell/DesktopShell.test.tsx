@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,9 +26,14 @@ vi.mock("../../app-core/native/desktopNativePluginPicker", () => ({
   pickDesktopPluginMigrationDirectory: vi.fn(),
 }));
 
+vi.mock("@tauri-apps/plugin-opener", () => ({
+  openUrl: vi.fn(async () => undefined),
+}));
+
 beforeEach(() => {
   window.localStorage.clear();
   vi.mocked(pickDesktopPluginMigrationDirectory).mockReset();
+  vi.mocked(openUrl).mockClear();
 });
 afterEach(() => cleanup());
 
@@ -748,8 +754,12 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
-    await user.click(within(resourcesMenu).getByRole("menuitem", { name: "GitHub" }));
-    expect(await screen.findByRole("heading", { name: "GitHub" })).toBeTruthy();
+    const githubItem = within(resourcesMenu).getByRole("menuitem", { name: "GitHub" });
+    expect(githubItem.getAttribute("title")).toBe("Open GitHub in external browser");
+    expect(githubItem.querySelector(".react-top-menu__external-link")).toBeTruthy();
+    await user.click(githubItem);
+    await waitFor(() => expect(openUrl).toHaveBeenCalledWith("https://github.com/SudoJacky/tinybot"));
+    expect(screen.getByRole("heading", { name: "Memory" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });

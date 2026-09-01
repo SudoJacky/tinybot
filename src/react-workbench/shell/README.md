@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:9c810b4f7ed7cc2f39d9ec37a8b2c16691d0438356d11881e31aefda8c8e5edd -->
+<!-- tinybot-module-fingerprint: sha256:721f3a4e6f12f80eca62bcbca04d99f732631c2bd936d7586b19eb611065970a -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
@@ -15,6 +15,9 @@ draft; they do not create a native Thread before the draft's first send.
 Shell menu surfaces and items use the shared workbench popover primitives, so
 route-owned menus can reuse the same visual and focus states without copying
 shell-specific selectors.
+Resources > GitHub is an external action, marked with the shared external-link
+glyph and opened through Tauri's system URL opener. It does not create a
+renderer route or alter page history.
 
 Resources > Agent Graphs opens a dedicated lazy route. The shell knows only the
 route label, loader, and shared renderer stores passed to it; workspace catalog
