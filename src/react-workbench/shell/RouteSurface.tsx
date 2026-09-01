@@ -4,9 +4,15 @@ import type { DesktopPetPreferences } from "../../app-core/desktop-pet/desktopPe
 import { ChatPage } from "../chat/ChatPage";
 import type { TinybotMascotMood } from "../chat/TinybotMascot";
 import type { AppServices, WorkspaceFileSummary } from "../services";
+import type { SettingsModuleId } from "../settings/SettingsRoute";
 import { DeferredSurface } from "./DeferredSurface";
 
-export type AppRoute = "chat" | "graphs" | "files" | "memory" | "docs" | "tools" | "settings" | "performanceTrace";
+export type AppRoute = "chat" | "graphs" | "files" | "memory" | "tools" | "settings" | "performanceTrace";
+
+export type SettingsNavigationRequest = {
+  moduleId: SettingsModuleId;
+  signal: number;
+};
 
 type ChatRouteProps = {
   activateSessionRequest?: { sessionId: string; signal: number } | null;
@@ -42,12 +48,14 @@ export function RouteSurface({
   desktopPet,
   onNavigate,
   route,
+  settingsNavigationRequest,
   services,
 }: {
   chat: ChatRouteProps;
   desktopPet: DesktopPetRouteProps;
   onNavigate: (route: AppRoute) => void;
   route: AppRoute;
+  settingsNavigationRequest?: SettingsNavigationRequest | null;
   services: AppServices;
 }) {
   const { t } = useTranslation("common");
@@ -96,6 +104,7 @@ export function RouteSurface({
           load={loadSettingsRoute}
           name={routeName}
           surfaceProps={{
+            activeModuleRequest: settingsNavigationRequest,
             desktopPetPreferences: desktopPet.preferences,
             onDesktopPetPreferencesChange: desktopPet.onPreferencesChange,
             onResetDesktopPetPosition: desktopPet.onResetPosition,
@@ -105,8 +114,6 @@ export function RouteSurface({
       );
     case "performanceTrace":
       return <DeferredSurface load={loadPerformanceTraceRoute} name={routeName} surfaceProps={{ services }} />;
-    case "docs":
-      return <PlaceholderPage title={routeName} />;
   }
 }
 
@@ -187,16 +194,6 @@ function DataList<T>({ empty, items, renderItem }: {
     return <p className="react-empty-state">{empty}</p>;
   }
   return <div className="react-data-list">{items.map(renderItem)}</div>;
-}
-
-function PlaceholderPage({ title }: { title: string }) {
-  const { t } = useTranslation("common");
-  return (
-    <div className="react-placeholder-page">
-      <h1>{title}</h1>
-      <p>{t("placeholder")}</p>
-    </div>
-  );
 }
 
 function formatFileSize(size: WorkspaceFileSummary["size"], unavailable: string): string {

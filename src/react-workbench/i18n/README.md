@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:35c5f01c581258d91f15b7c4f399b4dfc14cdd99207c733dca6bbce9a08af539 -->
+<!-- tinybot-module-fingerprint: sha256:fe6434e6ffaa50e790335801d81936976122a5fa602c877d8c58825ea42debce -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
@@ -19,7 +19,9 @@ remain untranslated.
 User-visible copy belongs in `resources/`. Domain identifiers, persisted
 values, protocol fields, and diagnostic codes must remain language-neutral.
 External menu actions localize their system-browser title while repository URLs
-remain language-neutral constants.
+remain language-neutral constants. Help-menu labels for documentation, issue
+reporting, the shortcut settings module, and the repository follow the same
+renderer-owned localization boundary.
 The Tools & Plugins resource-view labels, Skill/MCP descriptions, and empty
 states are localized here; Skill names, MCP IDs, and source paths remain
 language-neutral. Chat also localizes the slash-menu Skills heading, workspace

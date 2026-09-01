@@ -380,43 +380,15 @@ button:disabled {
   background: var(--color-hairline);
 }
 
-.react-top-menu__submenu {
-  position: relative;
-}
-
-.react-top-menu__submenu-trigger {
-  grid-template-columns: minmax(0, 1fr) 16px;
-}
-
-.react-top-menu__submenu-arrow {
-  color: var(--color-muted);
-}
-
-.react-top-menu__submenu-popover {
-  position: absolute;
-  top: -6px;
-  left: calc(100% + 6px);
-  z-index: 45;
-  width: 238px;
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  transform-origin: top left;
-  transition:
-    opacity var(--motion-duration-fast) var(--motion-ease-standard),
-    transform var(--motion-duration-fast) var(--motion-ease-standard);
-}
-
 @starting-style {
   .react-top-menu__popover,
-.react-top-menu__submenu-popover,
-.react-menu {
+  .react-menu {
     opacity: 0;
     transform: translateY(-4px) scale(.98);
   }
 }
 
-.react-desktop-shell[data-menu-motion="keyboard"] .react-top-menu__popover,
-.react-desktop-shell[data-menu-motion="keyboard"] .react-top-menu__submenu-popover {
+.react-desktop-shell[data-menu-motion="keyboard"] .react-top-menu__popover {
   transition-duration: 0ms;
 }
 
@@ -829,8 +801,7 @@ button:disabled {
   font-size: 11px;
 }
 
-.react-session-list__header h2,
-.react-placeholder-page h1 {
+.react-session-list__header h2 {
   margin: 0;
   color: var(--color-ink);
   font-size: 15px;
@@ -1855,14 +1826,6 @@ button:disabled {
   min-height: 1.5em;
 }
 
-.react-placeholder-page {
-  display: grid;
-  align-content: center;
-  justify-items: start;
-  min-height: 100%;
-  padding: 40px;
-}
-
 .react-workbench-page {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr);
@@ -1960,7 +1923,6 @@ button:disabled {
   display: none;
 }
 
-.react-placeholder-page p,
 .react-empty-state {
   color: var(--color-muted);
 }
@@ -2151,8 +2113,7 @@ button:disabled {
   }
 
   .react-top-menu__popover,
-.react-top-menu__submenu-popover,
-.react-menu {
+  .react-menu {
     transform: none;
     transition-duration: 140ms;
   }

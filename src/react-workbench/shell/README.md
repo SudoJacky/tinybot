@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:721f3a4e6f12f80eca62bcbca04d99f732631c2bd936d7586b19eb611065970a -->
+<!-- tinybot-module-fingerprint: sha256:8be9a6d696f0ae59c11e798918253113e14bb34fa050fb98ca348e60c59dd3af -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
@@ -18,6 +18,12 @@ shell-specific selectors.
 Resources > GitHub is an external action, marked with the shared external-link
 glyph and opened through Tauri's system URL opener. It does not create a
 renderer route or alter page history.
+The Help menu stays single-level and exposes only working actions:
+Documentation, Report an issue, and Tinybot repository open through the same
+system URL opener, while Keyboard shortcuts targets that module inside the
+Settings route. The shell carries the requested Settings module across the
+route's deferred-loading boundary instead of maintaining a Help placeholder
+route or a disabled secondary menu.
 
 Resources > Agent Graphs opens a dedicated lazy route. The shell knows only the
 route label, loader, and shared renderer stores passed to it; workspace catalog

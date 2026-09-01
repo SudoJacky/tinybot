@@ -15,7 +15,6 @@ import {
   ArrowRight,
   BookOpen,
   Check,
-  ChevronRight,
   Command,
   ExternalLink,
   Folder,
@@ -46,7 +45,7 @@ import {
   type DesktopPetPosition,
   type DesktopPetPreferences,
 } from "../../app-core/desktop-pet/desktopPetState";
-import { RouteSurface, type AppRoute } from "./RouteSurface";
+import { RouteSurface, type AppRoute, type SettingsNavigationRequest } from "./RouteSurface";
 import type { TinybotMascotMood } from "../chat/TinybotMascot";
 
 type RouteHistory = {
@@ -72,6 +71,8 @@ type TopMenuLabel = string;
 type MotionSource = "keyboard" | "pointer";
 
 const TINYBOT_GITHUB_URL = "https://github.com/SudoJacky/tinybot";
+const TINYBOT_DOCUMENTATION_URL = `${TINYBOT_GITHUB_URL}#readme`;
+const TINYBOT_NEW_ISSUE_URL = `${TINYBOT_GITHUB_URL}/issues/new/choose`;
 
 type TopMenuCommandId =
   | "new-chat"
@@ -89,9 +90,7 @@ type TopMenuCommandId =
   | "open-performance-trace"
   | "open-docs"
   | "open-shortcut-help"
-  | "open-page-help"
-  | "open-backend-logs"
-  | "open-safe-mode"
+  | "open-report-issue"
   | "open-about"
   | "toggle-theme"
   | "toggle-sidebar";
@@ -103,12 +102,12 @@ type TopMenuCommand = {
   enabled?: boolean;
   externalUrl?: string;
   route?: AppRoute;
+  settingsModule?: SettingsNavigationRequest["moduleId"];
 };
 
 type TopMenuEntry =
   | { kind: "command"; command: TopMenuCommand }
-  | { kind: "separator"; id: string }
-  | { kind: "submenu"; id: string; label: string; menuLabel: string; commands: TopMenuCommand[]; enabled?: boolean };
+  | { kind: "separator"; id: string };
 
 type TopMenuItem = {
   label: TopMenuLabel;
@@ -126,7 +125,6 @@ function createRouteLabels(t: TFunction<"common">): Record<AppRoute, string> {
     graphs: t("routes.graphs"),
     files: t("routes.files"),
     memory: t("routes.memory"),
-    docs: t("routes.docs"),
     tools: t("routes.tools"),
     settings: t("routes.settings"),
     performanceTrace: t("routes.performanceTrace"),
@@ -184,21 +182,11 @@ function createTopMenuItems(
     menuLabel: t("menu.helpLabel"),
     icon: BookOpen,
     entries: [
-      menuCommand({ id: "open-docs", label: t("menu.documentation"), route: "docs", shortcut: shortcuts["open-docs"] ?? undefined }),
-      menuSeparator("help-more-separator"),
-      {
-        kind: "submenu",
-        id: "help-more",
-        label: t("menu.more"),
-        menuLabel: t("menu.moreHelpLabel"),
-        commands: [
-          { id: "open-shortcut-help", label: t("menu.shortcutHelp"), shortcut: "Ctrl+/", enabled: false },
-          { id: "open-page-help", label: t("menu.pageHelp"), shortcut: "Ctrl+Shift+/", enabled: false },
-          { id: "open-backend-logs", label: t("menu.backendLogs"), enabled: false },
-          { id: "open-safe-mode", label: t("menu.openNativeWorkbench"), enabled: false },
-          { id: "open-tinybot-repo", label: t("menu.tinybotRepo"), enabled: false },
-        ],
-      },
+      menuCommand({ id: "open-docs", label: t("menu.documentation"), externalUrl: TINYBOT_DOCUMENTATION_URL, shortcut: shortcuts["open-docs"] ?? undefined }),
+      menuCommand({ id: "open-shortcut-help", label: t("menu.shortcutHelp"), settingsModule: "keyboard-shortcuts" }),
+      menuSeparator("help-community-separator"),
+      menuCommand({ id: "open-report-issue", label: t("menu.reportIssue"), externalUrl: TINYBOT_NEW_ISSUE_URL }),
+      menuCommand({ id: "open-tinybot-repo", label: t("menu.tinybotRepo"), externalUrl: TINYBOT_GITHUB_URL }),
     ],
   },
   ];
@@ -228,8 +216,8 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
   });
   const route = routeHistory.current;
   const [activeTopMenu, setActiveTopMenu] = useState<TopMenuLabel | null>(null);
-  const [activeTopSubmenu, setActiveTopSubmenu] = useState<string | null>(null);
   const [menuMotionSource, setMenuMotionSource] = useState<MotionSource>("pointer");
+  const [settingsNavigationRequest, setSettingsNavigationRequest] = useState<SettingsNavigationRequest | null>(null);
   const [sessionSidebarCollapsed, setSessionSidebarCollapsed] = useState(false);
   const [sidebarMotionSource, setSidebarMotionSource] = useState<MotionSource>("pointer");
   const [createChatSignal, setCreateChatSignal] = useState(0);
@@ -394,7 +382,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
         navigateToRoute("settings");
         break;
       case "open-docs":
-        navigateToRoute("docs");
+        openExternalMenuUrl(TINYBOT_DOCUMENTATION_URL);
         break;
     }
   }, [navigateToRoute, stopActiveGeneration, toggleTheme]);
@@ -413,7 +401,6 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
       }
       if (event.key === "Escape") {
         setActiveTopMenu(null);
-        setActiveTopSubmenu(null);
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -452,7 +439,6 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
         return;
       }
       setActiveTopMenu(null);
-      setActiveTopSubmenu(null);
     }
 
     window.addEventListener("pointerdown", onWindowPointerDown);
@@ -476,7 +462,6 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
   function handleTopMenuTrigger(event: ReactMouseEvent<HTMLButtonElement>, label: TopMenuLabel) {
     event.stopPropagation();
     setMenuMotionSource(event.detail === 0 ? "keyboard" : "pointer");
-    setActiveTopSubmenu(null);
     setActiveTopMenu((current) => current === label ? null : label);
   }
 
@@ -513,14 +498,17 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
       return;
     }
     setActiveTopMenu(null);
-    setActiveTopSubmenu(null);
+    if (command.settingsModule) {
+      const moduleId = command.settingsModule;
+      setSettingsNavigationRequest((current) => ({
+        moduleId,
+        signal: (current?.signal ?? 0) + 1,
+      }));
+      navigateToRoute("settings");
+      return;
+    }
     if (command.externalUrl) {
-      void openUrl(command.externalUrl).catch((error) => {
-        console.error("[tinybot-shell] Failed to open external menu link.", {
-          error,
-          url: command.externalUrl,
-        });
-      });
+      openExternalMenuUrl(command.externalUrl);
       return;
     }
     if (command.route) {
@@ -585,54 +573,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
     if (entry.kind === "separator") {
       return <div className="react-top-menu__separator" key={entry.id} role="separator" />;
     }
-    if (entry.kind === "command") {
-      return renderTopMenuCommand(entry.command);
-    }
-    const isOpen = activeTopSubmenu === entry.id;
-    return (
-      <div className="react-top-menu__submenu" key={entry.id}>
-        <button
-          aria-expanded={isOpen}
-          aria-haspopup="menu"
-          aria-label={entry.label}
-          className="react-popover-item react-top-menu__menu-item react-top-menu__submenu-trigger"
-          disabled={entry.enabled === false}
-          role="menuitem"
-          title={entry.label}
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation();
-            setMenuMotionSource(event.detail === 0 ? "keyboard" : "pointer");
-            setActiveTopSubmenu(entry.id);
-          }}
-          onFocus={(event) => {
-            if (event.currentTarget.matches(":focus-visible")) {
-              setMenuMotionSource("keyboard");
-            }
-            setActiveTopSubmenu(entry.id);
-          }}
-          onMouseEnter={() => {
-            setMenuMotionSource("pointer");
-            setActiveTopSubmenu(entry.id);
-          }}
-        >
-          <span className="react-top-menu__menu-label">{entry.label}</span>
-          <ChevronRight aria-hidden="true" className="react-top-menu__submenu-arrow" size={16} />
-        </button>
-        {isOpen ? (
-          <div
-            aria-label={entry.menuLabel}
-            className="react-popover-surface react-top-menu__submenu-popover"
-            role="menu"
-            onClick={stopWindowFrameEvent}
-            onDoubleClick={stopWindowFrameEvent}
-            onPointerDown={stopWindowFrameEvent}
-          >
-            {entry.commands.map(renderTopMenuCommand)}
-          </div>
-        ) : null}
-      </div>
-    );
+    return renderTopMenuCommand(entry.command);
   }
 
   return (
@@ -763,6 +704,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
               preferences: desktopPetPreferences,
             }}
             route={route}
+            settingsNavigationRequest={settingsNavigationRequest}
             services={services}
             onNavigate={navigateToRoute}
           />
@@ -835,6 +777,12 @@ function stopWindowFrameEvent(event: ReactMouseEvent<HTMLElement> | ReactPointer
 
 function logWindowFrameError(error: unknown): void {
   console.warn("Tinybot React window frame action failed", error);
+}
+
+function openExternalMenuUrl(url: string): void {
+  void openUrl(url).catch((error) => {
+    console.error("[tinybot-shell] Failed to open external menu link.", { error, url });
+  });
 }
 
 function menuCommandAccessibleLabel(command: TopMenuCommand): string {

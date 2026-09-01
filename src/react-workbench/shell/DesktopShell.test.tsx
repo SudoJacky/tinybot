@@ -483,15 +483,15 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Help" }));
     const helpMenu = screen.getByRole("menu", { name: "Help menu" });
-    expect(within(helpMenu).getByRole("menuitem", { name: "Documentation (F1)" })).toBeTruthy();
-    const moreHelp = within(helpMenu).getByRole("menuitem", { name: "More" });
-    expect(moreHelp.getAttribute("aria-haspopup")).toBe("menu");
-
-    await user.click(moreHelp);
-    const moreHelpMenu = screen.getByRole("menu", { name: "More help options" });
-    for (const item of ["Shortcut Help", "Page Help", "Backend Logs", "Open native workbench", "Tinybot repo"]) {
-      expect(within(moreHelpMenu).getByRole("menuitem", { name: new RegExp(item) })).toBeTruthy();
+    for (const item of ["Documentation (F1)", "Keyboard shortcuts", "Report an issue", "Tinybot repository"]) {
+      expect(within(helpMenu).getByRole("menuitem", { name: item })).toBeTruthy();
     }
+    expect(within(helpMenu).getAllByRole("separator")).toHaveLength(1);
+    expect(within(helpMenu).queryByRole("menuitem", { name: "More" })).toBeNull();
+    expect(within(helpMenu).getByRole("menuitem", { name: "Documentation (F1)" })
+      .querySelector(".react-top-menu__external-link")).toBeTruthy();
+    expect(within(helpMenu).getByRole("menuitem", { name: "Report an issue" })
+      .querySelector(".react-top-menu__external-link")).toBeTruthy();
   });
 
   it("drags the desktop pet and persists its bounded position", () => {
@@ -723,7 +723,7 @@ describe("DesktopShell", () => {
 
   it("renders native-style top menus and functional secondary pages", async () => {
     const user = userEvent.setup();
-    const services = createServices();
+    const services = withFullSettingsRoute(createServices());
     render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
 
     for (const menu of ["App", "Resources", "System", "Help"]) {
@@ -780,13 +780,25 @@ describe("DesktopShell", () => {
     const systemMenu = screen.getByRole("menu", { name: "System menu" });
     await user.click(within(systemMenu).getByRole("menuitem", { name: "Settings (Ctrl+,)" }));
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
-    expect(screen.getByText("Default model")).toBeTruthy();
+    expect((await screen.findByRole("button", { name: "Provider & Models" })).getAttribute("aria-current")).toBe("page");
     expect(screen.queryByText(/placeholder/i)).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Help" }));
-    const helpMenu = screen.getByRole("menu", { name: "Help menu" });
+    let helpMenu = screen.getByRole("menu", { name: "Help menu" });
     await user.click(within(helpMenu).getByRole("menuitem", { name: "Documentation (F1)" }));
-    expect(await screen.findByRole("heading", { name: "Docs" })).toBeTruthy();
+    await waitFor(() => expect(openUrl).toHaveBeenLastCalledWith("https://github.com/SudoJacky/tinybot#readme"));
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Help" }));
+    helpMenu = screen.getByRole("menu", { name: "Help menu" });
+    await user.click(within(helpMenu).getByRole("menuitem", { name: "Keyboard shortcuts" }));
+    expect(await screen.findByRole("heading", { name: "Keyboard shortcuts" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Help" }));
+    helpMenu = screen.getByRole("menu", { name: "Help menu" });
+    await user.click(within(helpMenu).getByRole("menuitem", { name: "Report an issue" }));
+    await waitFor(() => expect(openUrl).toHaveBeenLastCalledWith("https://github.com/SudoJacky/tinybot/issues/new/choose"));
+    expect(screen.getByRole("heading", { name: "Keyboard shortcuts" })).toBeTruthy();
 
     expect(screen.queryByText(/Vue/i)).toBeNull();
   });

@@ -16,11 +16,13 @@ import { ProfileSettingsPage } from "./ProfileSettingsPage";
 import { ProviderModelsSettingsPage } from "./ProviderModelsSettingsPage";
 
 export default function SettingsRoute({
+  activeModuleRequest,
   desktopPetPreferences,
   onDesktopPetPreferencesChange,
   onResetDesktopPetPosition,
   services,
 }: {
+  activeModuleRequest?: { moduleId: SettingsModuleId; signal: number } | null;
   desktopPetPreferences: DesktopPetPreferences;
   onDesktopPetPreferencesChange: (preferences: DesktopPetPreferences) => void;
   onResetDesktopPetPosition: () => void;
@@ -28,7 +30,14 @@ export default function SettingsRoute({
 }) {
   const { t: tCommon } = useTranslation("common");
   const { t } = useTranslation("settings");
-  const [activeSettingsModuleId, setActiveSettingsModuleId] = useState<SettingsModuleId>("provider-models");
+  const [activeSettingsModuleId, setActiveSettingsModuleId] = useState<SettingsModuleId>(
+    () => activeModuleRequest?.moduleId ?? "provider-models",
+  );
+  useEffect(() => {
+    if (activeModuleRequest) {
+      setActiveSettingsModuleId(activeModuleRequest.moduleId);
+    }
+  }, [activeModuleRequest]);
   const settingsModules = createSettingsModules(t);
   if (services.settingsStore.loadProviderSettings && services.settingsStore.saveProviderSettings) {
     const availableModules = settingsModules.filter((module) => {
@@ -153,7 +162,7 @@ function SettingsFallback({ settingsStore }: { settingsStore: SettingsStore }) {
   );
 }
 
-type SettingsModuleId = "profile" | "app" | "personalization" | "appearance" | "keyboard-shortcuts" | "provider-models" | "agent-defaults" | "hooks" | ConfigSettingsGroupId;
+export type SettingsModuleId = "profile" | "app" | "personalization" | "appearance" | "keyboard-shortcuts" | "provider-models" | "agent-defaults" | "hooks" | ConfigSettingsGroupId;
 
 type SettingsModule = {
   id: SettingsModuleId;
