@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:1969a0bdca5b6c43afcacae70ecc55f8de77cea0a09744a76f519ec535cdb276 -->
+<!-- tinybot-module-fingerprint: sha256:16c4d3dbcd80ddc1a1b8b058232db0d4c386a7001094b16dff03fa5cb9f95d06 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
@@ -63,6 +63,10 @@ reuse its trigger, popover, selected state, keyboard navigation, and co-located
 stylesheet instead of rendering platform-native select menus. App-language
 choices keep their names and descriptions in each target language so they remain
 discoverable regardless of the currently selected interface language.
+The Agent Defaults time-zone choice lists runtime-supported IANA zones and
+starts from the Windows/system zone reported through `Intl`; Provider fallback
+and temperature remain owned by Provider/model configuration rather than being
+duplicated on this page.
 
 `SettingsSheet.tsx` owns settings-specific layout and close animation while
 delegating modal focus, keyboard, dismissal, and scroll-lock behavior to the

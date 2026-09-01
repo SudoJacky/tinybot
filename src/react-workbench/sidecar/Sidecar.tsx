@@ -318,33 +318,33 @@ export function Sidecar({
             {newTabMenuOpen ? (
               <div
                 aria-label={newTabMenuView === "terminal" ? t("sidecar.chooseShell") : t("sidecar.newTabMenu")}
-                className="react-sidecar-new-tab__menu"
+                className="react-popover-surface react-sidecar-new-tab__menu"
                 ref={newTabMenuRef}
                 role="menu"
                 onKeyDown={handleMenuKeyDown}
               >
                 {newTabMenuView === "resources" ? (
                   <>
-                    <button disabled={!canCreateBrowser} role="menuitem" type="button" onClick={createBrowser}>
+                    <button className="react-popover-item" disabled={!canCreateBrowser} role="menuitem" type="button" onClick={createBrowser}>
                       <Globe2 aria-hidden="true" size={18} />
                       <span><strong>{t("sidecar.browser")}</strong><small>{t("sidecar.browserShared")}</small></span>
                     </button>
-                    <button disabled={!canCreateTerminal} role="menuitem" type="button" onClick={chooseTerminalShell}>
+                    <button className="react-popover-item" disabled={!canCreateTerminal} role="menuitem" type="button" onClick={chooseTerminalShell}>
                       <SquareTerminal aria-hidden="true" size={18} />
                       <span><strong>{t("sidecar.terminal")}</strong><small>{t("sidecar.terminalPrivate")}</small></span>
                     </button>
                   </>
                 ) : (
                   <>
-                    <button role="menuitem" type="button" onClick={() => setNewTabMenuView("resources")}>
+                    <button className="react-popover-item" role="menuitem" type="button" onClick={() => setNewTabMenuView("resources")}>
                       <ChevronLeft aria-hidden="true" size={18} />
                       <span><strong>{t("sidecar.resourceTypes")}</strong></span>
                     </button>
-                    <button role="menuitem" type="button" onClick={() => createTerminal("powershell")}>
+                    <button className="react-popover-item" role="menuitem" type="button" onClick={() => createTerminal("powershell")}>
                       <SquareTerminal aria-hidden="true" size={18} />
                       <span><strong>{t("sidecar.powerShell")}</strong></span>
                     </button>
-                    <button role="menuitem" type="button" onClick={() => createTerminal("cmd")}>
+                    <button className="react-popover-item" role="menuitem" type="button" onClick={() => createTerminal("cmd")}>
                       <SquareTerminal aria-hidden="true" size={18} />
                       <span><strong>{t("sidecar.commandPrompt")}</strong></span>
                     </button>

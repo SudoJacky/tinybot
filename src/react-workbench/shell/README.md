@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:9beb5242c5d636bc04807d7b8aa68219483d3c6f1918528c56fef1927281dc7c -->
+<!-- tinybot-module-fingerprint: sha256:9c810b4f7ed7cc2f39d9ec37a8b2c16691d0438356d11881e31aefda8c8e5edd -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
@@ -12,6 +12,9 @@ uncreated conversation. Once Chat finishes session hydration, later route
 remounts can restore the tabs opened during that same app lifetime.
 Shell menu and keyboard new-chat commands only signal Chat to open a local
 draft; they do not create a native Thread before the draft's first send.
+Shell menu surfaces and items use the shared workbench popover primitives, so
+route-owned menus can reuse the same visual and focus states without copying
+shell-specific selectors.
 
 Resources > Agent Graphs opens a dedicated lazy route. The shell knows only the
 route label, loader, and shared renderer stores passed to it; workspace catalog

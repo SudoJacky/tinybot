@@ -146,7 +146,7 @@ export function SettingsChoiceList({
       {open ? (
         <div
           aria-label={optionsAriaLabel ?? t("choice.options", { label })}
-          className="react-top-menu__popover react-settings-choice-popover"
+          className="react-popover-surface react-top-menu__popover react-settings-choice-popover"
           id={menuId}
           role="menu"
           onKeyDown={onMenuKeyDown}
@@ -156,7 +156,7 @@ export function SettingsChoiceList({
           return (
             <button
               aria-checked={selected}
-              className="react-top-menu__menu-item react-settings-choice-item"
+              className="react-popover-item react-top-menu__menu-item react-settings-choice-item"
               data-press-feedback="true"
               disabled={option.disabled}
               key={option.value}

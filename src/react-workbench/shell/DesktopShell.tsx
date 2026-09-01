@@ -538,7 +538,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
       <button
         aria-current={resolvedCommand.route === route ? "page" : undefined}
         aria-label={menuCommandAccessibleLabel(resolvedCommand)}
-        className="react-top-menu__menu-item"
+        className="react-popover-item react-top-menu__menu-item"
         disabled={resolvedCommand.enabled === false}
         key={resolvedCommand.id}
         role="menuitem"
@@ -576,7 +576,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
           aria-expanded={isOpen}
           aria-haspopup="menu"
           aria-label={entry.label}
-          className="react-top-menu__menu-item react-top-menu__submenu-trigger"
+          className="react-popover-item react-top-menu__menu-item react-top-menu__submenu-trigger"
           disabled={entry.enabled === false}
           role="menuitem"
           title={entry.label}
@@ -603,7 +603,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
         {isOpen ? (
           <div
             aria-label={entry.menuLabel}
-            className="react-top-menu__submenu-popover"
+            className="react-popover-surface react-top-menu__submenu-popover"
             role="menu"
             onClick={stopWindowFrameEvent}
             onDoubleClick={stopWindowFrameEvent}
@@ -670,7 +670,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
               {activeTopMenu === label ? (
                 <div
                   aria-label={menuLabel}
-                  className="react-top-menu__popover"
+                  className="react-popover-surface react-top-menu__popover"
                   role="menu"
                   onClick={stopWindowFrameEvent}
                   onDoubleClick={stopWindowFrameEvent}

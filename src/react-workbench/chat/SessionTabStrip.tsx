@@ -185,10 +185,11 @@ export function SessionTabStrip({
                 <List aria-hidden="true" size={15} />
               </button>
               {menuOpen ? (
-                <div className="react-session-tabs__menu" role="menu">
+                <div className="react-popover-surface react-session-tabs__menu" role="menu">
                   {tabs.map((tab) => (
                     <button
                       aria-current={tab.id === activeSessionId ? "page" : undefined}
+                      className="react-popover-item"
                       key={tab.id}
                       role="menuitem"
                       type="button"

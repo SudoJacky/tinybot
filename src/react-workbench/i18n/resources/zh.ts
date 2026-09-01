@@ -355,14 +355,12 @@ export const zh = {
     },
     agent: {
       loading: "正在加载 Agent 默认设置…", title: "Agent 默认设置", description: "会话未指定值时使用的运行时兜底配置和执行上限。",
-      fallbackTitle: "兜底 Provider", fallbackDescription: "模型由每个会话选择；请在 Provider 与模型中管理连接和每个模型的上下文窗口。", activeProfile: "当前 Profile",
-      notConfigured: "未配置", manageProviders: "管理 Provider 与模型", providerModels: "Provider 与模型", runtime: "运行时",
-      timezone: "时区", temperature: "Temperature", maxTokens: "最大输出 Token",
+      runtime: "运行时", timezone: "时区", timezoneDescription: "IANA 标准时区；Windows 当前使用 {{timezone}}。", maxTokens: "最大输出 Token",
       contextStrategy: "上下文窗口策略", discard: "丢弃旧消息", discardDescription: "保持当前上下文精简。", compact: "压缩旧消息",
       compactDescription: "裁剪前先总结较早的会话。", maxToolIterations: "最大工具迭代次数", revision: "配置版本 {{revision}}", saveLabel: "保存 Agent 默认设置",
       saving: "正在保存…", saved: "已保存", saveFailed: "保存失败：{{message}}",
       validation: {
-        temperatureNumber: "Temperature 必须是 0 到 2 之间的数字。", temperatureRange: "Temperature 必须在 0 到 2 之间。",
+        timezone: "请选择有效的 IANA 标准时区。",
         maxTokens: "最大输出 Token 必须是正整数。",
         contextStrategy: "上下文窗口策略必须是丢弃或压缩。", maxToolIterations: "最大工具迭代次数必须是正整数。",
       },

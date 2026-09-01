@@ -1,6 +1,7 @@
+import { validateDesktopTimezone } from "./desktopSettingsProviders";
+
 export type AgentDefaultsFormValues = {
   timezone: string;
-  temperature: string;
   maxTokens: string;
   contextWindowStrategy: string;
   maxToolIterations: string;
@@ -9,8 +10,6 @@ export type AgentDefaultsFormValues = {
 export type AgentDefaultsSettingsData = {
   currentConfig: unknown;
   revision?: string;
-  activeProfileId: string | null;
-  defaultModel: string | null;
   fallbackContextWindowTokens: number;
   values: AgentDefaultsFormValues;
 };
@@ -19,8 +18,7 @@ export type AgentDefaultsValidationErrorCode =
   | "context-strategy"
   | "max-tokens"
   | "max-tool-iterations"
-  | "temperature-number"
-  | "temperature-range";
+  | "timezone";
 
 export type AgentDefaultsValidationErrors = Partial<Record<keyof AgentDefaultsFormValues, AgentDefaultsValidationErrorCode>>;
 
@@ -31,21 +29,21 @@ const DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS = 128000;
 const DEFAULT_AGENT_CONTEXT_WINDOW_STRATEGY = "compact";
 const DEFAULT_AGENT_MAX_TOOL_ITERATIONS = 200;
 
-export function buildAgentDefaultsSettings(config: unknown): AgentDefaultsSettingsData {
+export function buildAgentDefaultsSettings(
+  config: unknown,
+  systemTimeZone = resolveSystemTimeZone(),
+): AgentDefaultsSettingsData {
   const root = asRecord(config);
   const defaults = asRecord(asRecord(root.agents).defaults);
   return {
     currentConfig: config,
     revision: stringOrUndefined(root.revision) ?? stringOrUndefined(asRecord(root.configMetadata).revision),
-    activeProfileId: stringOrNull(pick(defaults, "activeProfile", "active_profile")),
-    defaultModel: stringOrNull(defaults.model),
     fallbackContextWindowTokens: positiveInteger(
       pick(defaults, "contextWindowTokens", "context_window_tokens"),
       DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS,
     ),
     values: {
-      timezone: stringValue(defaults.timezone),
-      temperature: formNumber(pick(defaults, "temperature")),
+      timezone: stringValue(defaults.timezone).trim() || normalizedTimeZone(systemTimeZone),
       maxTokens: formNumber(pick(defaults, "maxTokens", "max_tokens"), DEFAULT_AGENT_MAX_TOKENS),
       contextWindowStrategy: contextWindowStrategyValue(
         pick(defaults, "contextWindowStrategy", "context_window_strategy"),
@@ -60,12 +58,8 @@ export function buildAgentDefaultsSettings(config: unknown): AgentDefaultsSettin
 
 export function validateAgentDefaultsInput(values: AgentDefaultsFormValues): AgentDefaultsValidationErrors {
   const errors: AgentDefaultsValidationErrors = {};
-  const temperature = parseOptionalNumber(values.temperature);
-  if (temperature !== null && !Number.isFinite(temperature)) {
-    errors.temperature = "temperature-number";
-  }
-  if (temperature !== null && (temperature < 0 || temperature > 2)) {
-    errors.temperature = "temperature-range";
+  if (!validateDesktopTimezone(values.timezone)) {
+    errors.timezone = "timezone";
   }
   if (!isOptionalPositiveInteger(values.maxTokens)) {
     errors.maxTokens = "max-tokens";
@@ -79,15 +73,45 @@ export function validateAgentDefaultsInput(values: AgentDefaultsFormValues): Age
   return errors;
 }
 
+export function resolveSystemTimeZone(): string {
+  try {
+    return normalizedTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  } catch {
+    return "UTC";
+  }
+}
+
+export function listSupportedTimeZones(
+  configuredTimeZone = "",
+  systemTimeZone = resolveSystemTimeZone(),
+): string[] {
+  const intl = Intl as typeof Intl & {
+    supportedValuesOf?: (key: "timeZone") => string[];
+  };
+  const supported = readSupportedTimeZones(intl);
+  return Array.from(new Set([
+    configuredTimeZone.trim(),
+    normalizedTimeZone(systemTimeZone),
+    "UTC",
+    ...supported,
+  ].filter((timeZone) => validateDesktopTimezone(timeZone))));
+}
+
+function readSupportedTimeZones(intl: typeof Intl & {
+  supportedValuesOf?: (key: "timeZone") => string[];
+}): string[] {
+  try {
+    return intl.supportedValuesOf?.("timeZone") ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export function buildAgentDefaultsPatch(values: AgentDefaultsFormValues): JsonRecord {
   const defaults: JsonRecord = {};
   const timezone = values.timezone.trim();
   if (timezone) {
     defaults.timezone = timezone;
-  }
-  const temperature = parseOptionalNumber(values.temperature);
-  if (temperature !== null && Number.isFinite(temperature)) {
-    defaults.temperature = temperature;
   }
   setOptionalInteger(defaults, "maxTokens", values.maxTokens);
   const contextWindowStrategy = contextWindowStrategyValue(values.contextWindowStrategy);
@@ -119,15 +143,6 @@ function contextWindowStrategyValue(value: unknown): string {
   return text === "discard" || text === "compact" ? text : "";
 }
 
-function parseOptionalNumber(value: string): number | null {
-  const text = value.trim();
-  if (!text) {
-    return null;
-  }
-  const number = Number(text);
-  return Number.isFinite(number) ? number : Number.NaN;
-}
-
 function formNumber(value: unknown, fallback?: number): string {
   if (typeof value === "number" && Number.isFinite(value)) {
     return String(value);
@@ -135,17 +150,18 @@ function formNumber(value: unknown, fallback?: number): string {
   return fallback === undefined ? "" : String(fallback);
 }
 
+function normalizedTimeZone(value: unknown): string {
+  const timeZone = stringValue(value).trim();
+  return validateDesktopTimezone(timeZone) ? timeZone : "UTC";
+}
+
 function positiveInteger(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : fallback;
 }
 
-function stringOrNull(value: unknown): string | null {
-  const text = stringValue(value).trim();
-  return text ? text : null;
-}
-
 function stringOrUndefined(value: unknown): string | undefined {
-  return stringOrNull(value) ?? undefined;
+  const text = stringValue(value).trim();
+  return text || undefined;
 }
 
 function stringValue(value: unknown): string {

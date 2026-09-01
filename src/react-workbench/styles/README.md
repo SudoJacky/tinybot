@@ -1,8 +1,13 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:231b70ac0868ecd5a0cde06cfc09d66ee521e4944d8f4f3e270ef66d06f79131 -->
+<!-- tinybot-module-fingerprint: sha256:d5135fcae24904c336a1b438cbf0349f8df72b806d7cd28b242125b3518955d4 -->
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
+
+Menu-like floating surfaces use `react-popover-surface` and
+`react-popover-item` as the single visual authority for shell, selection,
+hover, focus, checked, current, selected, and disabled states. Feature CSS may
+add positioning, width, or rich-row layout without redefining that chrome.
 
 The shared Lieflat Porcelain color roles live here so Profile usage charts,
 Chat data-view SVG templates, and the ECharts fallback use one exact palette.

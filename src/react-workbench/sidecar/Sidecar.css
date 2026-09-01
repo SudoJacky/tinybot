@@ -153,15 +153,16 @@
 
 .react-sidecar-tab__select:focus-visible,
 .react-sidecar-tab__close:focus-visible,
-.react-sidecar__controls button:focus-visible,
-.react-sidecar-placeholder button:focus-visible,
-.react-sidecar-new-tab__menu button:focus-visible {
+.react-sidecar__controls > button:focus-visible,
+.react-sidecar-new-tab > button:focus-visible,
+.react-sidecar-placeholder button:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--color-primary) 64%, transparent);
   outline-offset: -2px;
 }
 
 .react-sidecar-tab__close:hover,
-.react-sidecar__controls button:hover:not(:disabled) {
+.react-sidecar__controls > button:hover:not(:disabled),
+.react-sidecar-new-tab > button:hover:not(:disabled) {
   background: var(--color-surface-soft);
   color: var(--color-ink);
   opacity: 1;
@@ -189,7 +190,8 @@
   color: var(--color-muted);
 }
 
-.react-sidecar__controls button:disabled {
+.react-sidecar__controls > button:disabled,
+.react-sidecar-new-tab > button:disabled {
   opacity: 0.35;
 }
 
@@ -209,13 +211,7 @@
   z-index: 6;
   top: 38px;
   right: -38px;
-  display: grid;
   width: 220px;
-  padding: 5px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 9px;
-  background: var(--color-panel);
-  box-shadow: 0 12px 28px rgb(20 20 19 / 12%);
 }
 
 .react-sidecar-new-tab__menu button {
@@ -224,17 +220,7 @@
   align-items: center;
   gap: 8px;
   min-height: 54px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
   padding: 7px 9px;
-  color: var(--color-ink);
-  text-align: left;
-}
-
-.react-sidecar-new-tab__menu button:hover:not(:disabled),
-.react-sidecar-new-tab__menu button:focus-visible {
-  background: var(--color-surface-soft);
 }
 
 .react-sidecar-new-tab__menu button:disabled {

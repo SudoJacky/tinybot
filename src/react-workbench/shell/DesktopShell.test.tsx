@@ -410,7 +410,7 @@ describe("DesktopShell", () => {
     expect(css).toMatch(/\.react-workbench-layout\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s);
     expect(css).toMatch(/\.react-route-surface\s*{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/s);
     expect(css).toMatch(/\.react-chat-surface\s*{[^}]*grid-template-rows:\s*45px minmax\(0,\s*1fr\) auto;/s);
-    expect(css).toMatch(/\.react-top-menu__menu-item\[aria-current="page"\]\s*{[^}]*background:/s);
+    expect(css).toMatch(/\.react-popover-item\[aria-current="page"\][^{]*\{[^}]*background:/s);
     expect(css).not.toMatch(/\.react-activity-rail/);
     expect(css).toMatch(/\.react-session-list\s*{[^}]*transition:\s*width var\(--motion-duration-medium\) var\(--motion-ease-standard\);/s);
     expect(css).toMatch(/\.react-session-list\[data-collapsed="true"\]\s*{[^}]*width:\s*64px;/s);
@@ -423,6 +423,8 @@ describe("DesktopShell", () => {
     expect(css).toMatch(/\.react-default-llm-panel\s*{[^}]*border-radius:\s*0;[^}]*background:\s*transparent;/s);
     expect(css).toMatch(/\.react-provider-grid\s*{[^}]*border-top:\s*1px solid var\(--color-hairline\);[^}]*border-bottom:\s*1px solid var\(--color-hairline\);/s);
     expect(css).toMatch(/\.react-provider-card\s*{[^}]*grid-template-columns:\s*minmax\(250px,\s*1\.35fr\) minmax\(150px,\s*0\.8fr\) minmax\(130px,\s*0\.6fr\) auto;/s);
+    expect(css).not.toMatch(/\.react-agent-defaults-form button\s*{/);
+    expect(css).toMatch(/\.react-agent-defaults-form footer > button\s*{/);
     expect(css).toMatch(/\.react-settings-dialog-backdrop\s*{[^}]*place-items:\s*stretch end;/s);
     expect(css).toMatch(/\.react-settings-choice-item \.react-top-menu__menu-label\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) max-content;/s);
   });
@@ -1153,7 +1155,7 @@ describe("DesktopShell", () => {
     });
   });
 
-  it("renders Agent Defaults settings and jumps back to Provider & Models", async () => {
+  it("renders and saves Agent Defaults with timezone suggestions and without removed controls", async () => {
     const user = userEvent.setup();
     const initialConfig = {
       revision: "hash:1",
@@ -1194,15 +1196,15 @@ describe("DesktopShell", () => {
     await user.click(await screen.findByRole("button", { name: "Agent Defaults" }));
 
     expect(await screen.findByRole("heading", { name: "Agent Defaults" })).toBeTruthy();
-    expect(screen.getByText("deepseek-default")).toBeTruthy();
+    expect(screen.queryByText("Fallback provider")).toBeNull();
+    expect(screen.queryByLabelText("Temperature")).toBeNull();
+    expect(screen.queryByText("deepseek-default")).toBeNull();
     expect(screen.queryByText("deepseek-v4-pro")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Manage providers and models" }));
-    expect(await screen.findByRole("heading", { name: "Provider & Models" })).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "Agent Defaults" }));
-    await user.clear(await screen.findByLabelText("Temperature"));
-    await user.type(screen.getByLabelText("Temperature"), "0.6");
-    await user.clear(screen.getByLabelText("Max output tokens"));
+    expect(screen.getByText(/IANA time zone\. Windows currently uses/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Timezone: Asia/Singapore" }));
+    await user.click(within(screen.getByRole("menu", { name: "Timezone options" }))
+      .getByRole("menuitemradio", { name: "Europe/Paris" }));
+    await user.clear(await screen.findByLabelText("Max output tokens"));
     await user.type(screen.getByLabelText("Max output tokens"), "2048");
     await user.click(screen.getByRole("button", { name: "Context window strategy: Discard old messages" }));
     const strategyMenu = screen.getByRole("menu", { name: "Context window strategy options" });
@@ -1215,8 +1217,7 @@ describe("DesktopShell", () => {
     expect(saveAgentDefaultsSettings.mock.calls[0][1]).toEqual({
       agents: {
         defaults: {
-          timezone: "Asia/Singapore",
-          temperature: 0.6,
+          timezone: "Europe/Paris",
           maxTokens: 2048,
           contextWindowStrategy: "compact",
           maxIterations: 12,

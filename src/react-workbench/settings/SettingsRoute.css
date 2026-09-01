@@ -2467,60 +2467,18 @@
   font-size: 12px;
 }
 
-.react-settings-linked-summary,
 .react-agent-defaults-form {
   display: grid;
   gap: 14px;
 }
 
-.react-settings-linked-summary {
-  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.2fr) auto;
-  align-items: center;
-  border-top: 1px solid var(--color-hairline);
-  border-bottom: 1px solid var(--color-hairline);
-  padding: 16px 0;
-}
-
-.react-settings-linked-summary h3,
 .react-agent-defaults-form h3 {
   margin: 0;
   color: var(--color-ink);
   font-size: 15px;
 }
 
-.react-settings-linked-summary p {
-  margin: 4px 0 0;
-  color: var(--color-muted);
-  font-size: 12px;
-}
-
-.react-settings-linked-summary dl {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin: 0;
-}
-
-.react-settings-linked-summary dt,
-.react-settings-linked-summary dd {
-  margin: 0;
-}
-
-.react-settings-linked-summary dt {
-  color: var(--color-muted);
-  font-size: 12px;
-}
-
-.react-settings-linked-summary dd {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  color: var(--color-ink);
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.react-settings-linked-summary button,
-.react-agent-defaults-form button {
+.react-agent-defaults-form footer > button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2532,10 +2490,6 @@
   color: var(--color-ink);
   font-size: 12px;
   font-weight: 650;
-}
-
-.react-settings-linked-summary button {
-  padding: 0 12px;
 }
 
 .react-agent-defaults-form section {
@@ -2622,7 +2576,7 @@
   font-size: 12px;
 }
 
-.react-agent-defaults-form button {
+.react-agent-defaults-form footer > button {
   min-width: 120px;
   padding: 0 12px;
 }
@@ -2851,7 +2805,7 @@
   justify-content: flex-end;
 }
 
-.react-provider-card__actions button,
+.react-provider-card__actions > button,
 .react-settings-dialog footer button,
 .react-provider-model-add button,
 .react-provider-model-row button {
@@ -2869,11 +2823,11 @@
   font-weight: 650;
 }
 
-.react-provider-card__actions button {
+.react-provider-card__actions > button {
   min-width: 82px;
 }
 
-.react-provider-card__actions .react-provider-card__more {
+.react-provider-card__actions > .react-provider-card__more {
   min-width: 32px;
   width: 32px;
   border-color: transparent;
@@ -2885,19 +2839,17 @@
   top: calc(100% + 6px);
   right: 0;
   z-index: 20;
-  display: grid;
   min-width: 140px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  background: var(--color-panel);
-  padding: 5px;
-  box-shadow: 0 14px 36px rgb(20 20 19 / 12%);
 }
 
 .react-provider-card__menu button {
+  display: inline-flex;
+  align-items: center;
   justify-content: flex-start;
   min-width: 0;
-  border-color: transparent;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .react-provider-add {

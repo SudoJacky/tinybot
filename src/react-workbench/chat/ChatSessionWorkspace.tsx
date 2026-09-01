@@ -471,8 +471,9 @@ export function ChatSessionWorkspace({
                   <FolderPlus aria-hidden="true" size={15} />
                 </button>
                 {workspaceActionMenuOpen ? (
-                  <div aria-label={t("shell.workspaceActions")} className="react-session-list__workspace-menu" role="menu">
+                  <div aria-label={t("shell.workspaceActions")} className="react-popover-surface react-session-list__workspace-menu" role="menu">
                     <button
+                      className="react-popover-item"
                       role="menuitem"
                       type="button"
                       onClick={() => {
@@ -484,6 +485,7 @@ export function ChatSessionWorkspace({
                       {t("shell.addWorkspace")}
                     </button>
                     <button
+                      className="react-popover-item"
                       disabled={!projectGroupStore}
                       role="menuitem"
                       type="button"

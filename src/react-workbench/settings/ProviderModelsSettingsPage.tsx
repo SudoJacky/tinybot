@@ -469,15 +469,15 @@ function ProviderPresetRow({
           <EllipsisVertical aria-hidden="true" size={17} />
         </button>
         {menuOpen ? (
-          <div className="react-provider-card__menu" role="menu" aria-label={t("provider.providerActions", { name: provider.label })}>
+          <div className="react-popover-surface react-provider-card__menu" role="menu" aria-label={t("provider.providerActions", { name: provider.label })}>
             {primaryAction !== "models" ? (
-              <button role="menuitem" type="button" onClick={onModels}>
+              <button className="react-popover-item" role="menuitem" type="button" onClick={onModels}>
                 <Search aria-hidden="true" size={15} />
                 {t("provider.models")}
               </button>
             ) : null}
             {primaryAction !== "configure" ? (
-              <button role="menuitem" type="button" onClick={onConfigure}>
+              <button className="react-popover-item" role="menuitem" type="button" onClick={onConfigure}>
                 <Settings aria-hidden="true" size={15} />
                 {t("provider.configure")}
               </button>

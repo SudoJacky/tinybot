@@ -1,10 +1,12 @@
-import { ArrowUpRight, Check, Loader2 } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
 import type { TFunction } from "i18next";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   buildAgentDefaultsPatch,
   buildAgentDefaultsSettings,
+  listSupportedTimeZones,
+  resolveSystemTimeZone,
   validateAgentDefaultsInput,
   type AgentDefaultsFormValues,
   type AgentDefaultsSettingsData,
@@ -16,11 +18,10 @@ import { SettingsChoiceList } from "./SettingsChoiceList";
 import { SettingsSaveStatus, type SettingsSaveState } from "./SettingsSaveStatus";
 
 type AgentDefaultsSettingsPageProps = {
-  onNavigateToProviderModels: () => void;
   settingsStore: SettingsStore;
 };
 
-export function AgentDefaultsSettingsPage({ onNavigateToProviderModels, settingsStore }: AgentDefaultsSettingsPageProps) {
+export function AgentDefaultsSettingsPage({ settingsStore }: AgentDefaultsSettingsPageProps) {
   const { t: tCommon } = useTranslation("common");
   const { t } = useTranslation("settings");
   const [data, setData] = useState<AgentDefaultsSettingsData | null>(null);
@@ -30,6 +31,12 @@ export function AgentDefaultsSettingsPage({ onNavigateToProviderModels, settings
   const [saveStatus, setSaveStatus] = useState<string | null>(null);
   const [saveResultState, setSaveResultState] = useState<SettingsSaveState>("idle");
   const [saving, setSaving] = useState(false);
+  const systemTimeZone = useMemo(resolveSystemTimeZone, []);
+  const timeZoneOptions = useMemo(
+    () => listSupportedTimeZones(values?.timezone, systemTimeZone)
+      .map((timeZone) => ({ label: timeZone, value: timeZone })),
+    [systemTimeZone, values?.timezone],
+  );
   const saveState: SettingsSaveState = saving ? "saving" : saveResultState;
 
   useEffect(() => {
@@ -104,45 +111,19 @@ export function AgentDefaultsSettingsPage({ onNavigateToProviderModels, settings
         </div>
       </div>
 
-      <section className="react-settings-linked-summary" aria-labelledby="agent-default-model-title">
-        <div>
-          <h3 id="agent-default-model-title">{t("agent.fallbackTitle")}</h3>
-          <p>{t("agent.fallbackDescription")}</p>
-        </div>
-        <dl>
-          <div>
-            <dt>{t("agent.activeProfile")}</dt>
-            <dd>{data.activeProfileId ?? t("agent.notConfigured")}</dd>
-          </div>
-        </dl>
-        <button
-          data-press-feedback="true"
-          type="button"
-          aria-label={t("agent.manageProviders")}
-          onClick={onNavigateToProviderModels}
-        >
-          <span>{t("agent.providerModels")}</span>
-          <ArrowUpRight aria-hidden="true" size={15} />
-        </button>
-      </section>
-
       <SettingsSaveStatus message={saveStatus} state={saveState} />
 
       <form className="react-agent-defaults-form" onSubmit={submit}>
         <section aria-labelledby="agent-runtime-title">
           <h3 id="agent-runtime-title">{t("agent.runtime")}</h3>
           <div className="react-agent-defaults-grid">
-            <AgentDefaultInput
+            <SettingsChoiceList
+              description={t("agent.timezoneDescription", { timezone: systemTimeZone })}
               error={validationMessage(t, errors.timezone)}
               label={t("agent.timezone")}
+              options={timeZoneOptions}
               value={values.timezone}
               onChange={(value) => editValue("timezone", value)}
-            />
-            <AgentDefaultInput
-              error={validationMessage(t, errors.temperature)}
-              label={t("agent.temperature")}
-              value={values.temperature}
-              onChange={(value) => editValue("temperature", value)}
             />
             <AgentDefaultInput
               error={validationMessage(t, errors.maxTokens)}
@@ -187,8 +168,7 @@ function validationMessage(
   code?: AgentDefaultsValidationErrorCode,
 ): string | undefined {
   switch (code) {
-    case "temperature-number": return t("agent.validation.temperatureNumber");
-    case "temperature-range": return t("agent.validation.temperatureRange");
+    case "timezone": return t("agent.validation.timezone");
     case "max-tokens": return t("agent.validation.maxTokens");
     case "context-strategy": return t("agent.validation.contextStrategy");
     case "max-tool-iterations": return t("agent.validation.maxToolIterations");

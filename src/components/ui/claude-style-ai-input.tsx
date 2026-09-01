@@ -934,7 +934,7 @@ export function ClaudeStyleAiInput({
         {sessionMentionMenuOpen ? (
           <div
             aria-label={t("composer.sessionMention.menu")}
-            className="claude-ai-input__slash-menu claude-ai-input__mention-menu"
+            className="react-popover-surface claude-ai-input__slash-menu claude-ai-input__mention-menu"
             id={sessionMentionListboxId}
             role="listbox"
           >
@@ -946,7 +946,7 @@ export function ClaudeStyleAiInput({
                 <button
                   aria-label={`${option.label}: ${option.detail}`}
                   aria-selected={selected}
-                  className="claude-ai-input__slash-option"
+                  className="react-popover-item claude-ai-input__slash-option"
                   id={optionId}
                   key={option.id}
                   role="option"
@@ -967,7 +967,7 @@ export function ClaudeStyleAiInput({
         ) : slashMenuOpen ? (
           <div
             aria-label={t("composer.slash")}
-            className="claude-ai-input__slash-menu"
+            className="react-popover-surface claude-ai-input__slash-menu"
             id={slashListboxId}
             role="listbox"
           >
@@ -980,7 +980,7 @@ export function ClaudeStyleAiInput({
                 <button
                   aria-label={`${command.command} ${command.label}: ${command.description}`}
                   aria-selected={selected}
-                  className="claude-ai-input__slash-option"
+                  className="react-popover-item claude-ai-input__slash-option"
                   id={optionId}
                   key={command.command}
                   role="option"
@@ -1013,7 +1013,7 @@ export function ClaudeStyleAiInput({
                     <button
                       aria-label={`${skill.label}: ${skill.description}. ${skill.sourceLabel}`}
                       aria-selected={selected}
-                      className="claude-ai-input__slash-option claude-ai-input__slash-option--skill"
+                      className="react-popover-item claude-ai-input__slash-option claude-ai-input__slash-option--skill"
                       id={optionId}
                       key={`skill:${skill.id}`}
                       role="option"
@@ -1138,13 +1138,13 @@ export function ClaudeStyleAiInput({
                 <SlidersHorizontal aria-hidden="true" size={18} />
               </button>
               {toolMenuOpen ? (
-                <div className="claude-ai-input__tool-menu" role="menu" aria-label={t("composer.tools")}>
+                <div className="react-popover-surface claude-ai-input__tool-menu" role="menu" aria-label={t("composer.tools")}>
                   {tools.map((tool) => {
                     const checked = enabledToolIdSet.has(tool.id);
                     return (
                       <button
                         aria-checked={checked}
-                        className="claude-ai-input__tool-option"
+                        className="react-popover-item claude-ai-input__tool-option"
                         disabled={tool.disabled}
                         key={tool.id}
                         role="menuitemcheckbox"
@@ -1186,12 +1186,12 @@ export function ClaudeStyleAiInput({
                 <ChevronDown aria-hidden="true" size={16} />
               </button>
               {modelMenuOpen ? (
-                <div className="claude-ai-input__model-menu" role="dialog" aria-label={t("composer.modelEffort")}>
+                <div className="react-popover-surface claude-ai-input__model-menu" role="dialog" aria-label={t("composer.modelEffort")}>
                   {modelMenuView === "advanced" ? (
                     <>
                       <div className="claude-ai-input__model-menu-title">{t("composer.advanced")}</div>
                       <button
-                        className="claude-ai-input__model-menu-row"
+                        className="react-popover-item claude-ai-input__model-menu-row"
                         type="button"
                         onClick={() => setModelMenuView("models")}
                       >
@@ -1200,7 +1200,7 @@ export function ClaudeStyleAiInput({
                         <ChevronRight aria-hidden="true" size={16} />
                       </button>
                       <button
-                        className="claude-ai-input__model-menu-row"
+                        className="react-popover-item claude-ai-input__model-menu-row"
                         type="button"
                         onClick={() => setModelMenuView("effort")}
                       >
@@ -1227,7 +1227,7 @@ export function ClaudeStyleAiInput({
                           {models.map((model) => (
                             <button
                               aria-selected={model.id === selectedModelId}
-                              className="claude-ai-input__model-option"
+                              className="react-popover-item claude-ai-input__model-option"
                               key={model.id}
                               role="option"
                               type="button"
@@ -1247,7 +1247,7 @@ export function ClaudeStyleAiInput({
                           {effortOptions.map((option) => (
                             <button
                               aria-selected={option.value === selectedReasoningEffort}
-                              className="claude-ai-input__model-option claude-ai-input__effort-option"
+                              className="react-popover-item claude-ai-input__model-option claude-ai-input__effort-option"
                               key={option.value}
                               role="option"
                               type="button"

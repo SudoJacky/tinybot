@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:ce0158536b0dbe54b4c8c6be87cd4abe1a61e4d23a1ad094dbf5cdacda93211b -->
+<!-- tinybot-module-fingerprint: sha256:31a96e79ab1f168743342eee22309de619e424381d89950b961282508b6436c0 -->
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
 thread-scoped Browser and Artifact resources, workspace-scoped Terminal
@@ -38,6 +38,8 @@ resize handle. Width is persisted separately from resource state. The live and
 restored width is clamped against the measured Chat workspace: docked mode
 preserves the minimum Chat column, while narrow overlay mode preserves a
 viewport gutter.
+The resource menu reuses the global popover surface and item interaction states;
+Sidecar CSS retains only its anchored placement and two-line resource layout.
 
 `SidecarBrowser.tsx` renders Browser chrome and coordinates visible-surface
 attachment with the native Browser adapter. It does not render remote page

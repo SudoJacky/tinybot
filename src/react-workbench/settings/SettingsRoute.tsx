@@ -74,10 +74,7 @@ export default function SettingsRoute({
           ) : activeModuleId === "keyboard-shortcuts" ? (
             <KeyboardShortcutsSettingsPage />
           ) : activeModuleId === "agent-defaults" ? (
-            <AgentDefaultsSettingsPage
-              onNavigateToProviderModels={() => setActiveSettingsModuleId("provider-models")}
-              settingsStore={services.settingsStore}
-            />
+            <AgentDefaultsSettingsPage settingsStore={services.settingsStore} />
           ) : activeModuleId === "hooks" && services.hooksStore ? (
             <HooksSettingsPage
               hooksStore={services.hooksStore}

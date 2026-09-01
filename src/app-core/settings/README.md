@@ -1,5 +1,5 @@
 # Settings Application Core
-<!-- tinybot-module-fingerprint: sha256:55598002ecf8ba1403eb4fbf69d1d20c3c9ddff44481696ba7b6f94ed74e628b -->
+<!-- tinybot-module-fingerprint: sha256:6a3014da40e30de46d7fd9f3749977cbb5b365670a86c73e3f086c806993bb1f -->
 
 `settings` owns framework-independent settings contracts, metadata, value
 semantics, validation, pane models, and persistence patch construction.
@@ -34,6 +34,11 @@ non-empty enabled/default model and fail instead of persisting a Profile with a
 stale model inherited from another Provider.
 The retired general Provider Auto selector is not projected or persisted;
 Provider routing is presented through the Profile-based Provider & Models flow.
+
+Agent Defaults exposes runtime limits and an IANA time-zone value, but does not
+duplicate Provider routing or model temperature controls. New defaults use the
+host system time zone reported by the renderer, with UTC as the validation-safe
+fallback, and persisted zones must belong to the runtime-supported IANA catalog.
 
 Provider model settings keep the discovered `models` catalog separate from
 `enabledModels`, which controls every shared model selector. Model rows also
