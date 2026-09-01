@@ -97,14 +97,14 @@ describe("ProfileSettingsPage", () => {
     fireEvent.keyDown(chartCards[1], { key: "Enter" });
     expect(chartCards[1].querySelector("svg")).not.toBe(modelChart);
 
-    fireEvent.change(screen.getByRole("combobox", { name: "Filter token usage by provider" }), {
-      target: { value: "anthropic" },
-    });
+    fireEvent.click(screen.getByRole("button", { name: /Filter token usage by provider/ }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "anthropic" }));
 
     expect(within(summary).getByText("5,000")).toBeTruthy();
     expect(screen.getByRole("rowheader", { name: "anthropic" })).toBeTruthy();
     expect(screen.queryByRole("rowheader", { name: "openai" })).toBeNull();
-    expect(screen.getByRole("option", { name: "claude-sonnet" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Filter token usage by model/ }));
+    expect(screen.getByRole("menuitemradio", { name: "claude-sonnet" })).toBeTruthy();
     expect(screen.getByRole("rowheader", { name: "Aug 31, 2026" })).toBeTruthy();
   });
 });
