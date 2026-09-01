@@ -10,14 +10,6 @@ import {
   validateAgentUiFormValues,
 } from "./agentUiEvents";
 
-const browserFrameFixture = {
-  event: "browser_frame",
-  chat_id: "chat-1",
-  url: "/browser/frame.png",
-  command: "click",
-  captured_at: "2026-05-24T00:00:00Z",
-};
-
 const formRequestFrame = {
   event: "agent_ui_event",
   chat_id: "chat-1",
@@ -56,26 +48,6 @@ const formRequestFrame = {
 };
 
 describe("desktop agent-ui events", () => {
-  test("normalizes browser frames using the existing WebUI fixture shape", () => {
-    const events = normalizeAgentUiEvents(browserFrameFixture);
-
-    expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({
-      event_type: AGENT_UI_EVENT_TYPES["browser.frame.updated"],
-      chat_id: "chat-1",
-      payload: {
-        image_url: "/browser/frame.png",
-        command: "click",
-        captured_at: "2026-05-24T00:00:00Z",
-      },
-    });
-
-    const state = createAgentUiEventState();
-    reduceAgentUiEventState(state, events[0]);
-    expect(state.browserBridgeAvailable).toBe(true);
-    expect(state.browserFrame?.image_url).toBe("/browser/frame.png");
-  });
-
   test("reduces native form request, submit, and cancel lifecycle frames", () => {
     const state = createAgentUiEventState();
     for (const event of normalizeAgentUiEvents(formRequestFrame)) {

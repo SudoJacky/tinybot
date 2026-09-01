@@ -1,7 +1,6 @@
 export const AGENT_UI_EVENT_SCHEMA_VERSION = "agent-ui.event.v1";
 
 export const AGENT_UI_EVENT_TYPES = {
-  "browser.frame.updated": "browser.frame.updated",
   "error.raised": "error.raised",
   "ui.form.requested": "ui.form.requested",
   "ui.form.updated": "ui.form.updated",
@@ -69,12 +68,6 @@ export type AgentUiForm = {
   turn_id?: string;
 };
 
-export type AgentUiBrowserFrame = {
-  image_url: string;
-  command: string;
-  captured_at: string;
-};
-
 export type AgentUiEvent = {
   schema_version: typeof AGENT_UI_EVENT_SCHEMA_VERSION;
   event_id: string;
@@ -89,47 +82,20 @@ export type AgentUiEvent = {
 };
 
 export type AgentUiState = {
-  browserFrame: AgentUiBrowserFrame | null;
-  browserBridgeAvailable: boolean;
   forms: Map<string, AgentUiForm>;
-  errors: { message: string; path: string; timestamp: string }[];
 };
 
 export function createAgentUiEventState(): AgentUiState {
   return {
-    browserFrame: null,
-    browserBridgeAvailable: false,
     forms: new Map(),
-    errors: [],
   };
 }
 
 export function normalizeAgentUiEvents(frame: unknown): AgentUiEvent[] {
-  if (!isRecord(frame)) {
+  if (!isRecord(frame) || frame.event !== "agent_ui_event" || !isRecord(frame.agent_ui_event)) {
     return [];
   }
-  const event = stringValue(frame.event);
-  if (event === "agent_ui_event" || event === "agent_ui_form" || event === "form_request") {
-    return normalizeNativeAgentUiFrame(frame);
-  }
-  if (event === "browser_frame" || event === "browser_snapshot") {
-    return [
-      createAgentUiEventEnvelope(frame, AGENT_UI_EVENT_TYPES["browser.frame.updated"], {
-        image_url: stringValue(frame.image_url ?? frame.url ?? frame.image),
-        command: stringValue(frame.command ?? frame.source_command),
-        captured_at: stringValue(frame.captured_at ?? frame.timestamp),
-      }),
-    ];
-  }
-  if (event === "error" && stringValue(frame.chat_id)) {
-    return [
-      createAgentUiEventEnvelope(frame, AGENT_UI_EVENT_TYPES["error.raised"], {
-        message: stringValue(frame.message),
-        path: stringValue(frame.path),
-      }),
-    ];
-  }
-  return [];
+  return normalizeNativeAgentUiFrame(frame, frame.agent_ui_event);
 }
 
 export function reduceAgentUiEventState(state: AgentUiState, event: AgentUiEvent): AgentUiState {
@@ -137,14 +103,6 @@ export function reduceAgentUiEventState(state: AgentUiState, event: AgentUiEvent
     return state;
   }
   switch (event.event_type) {
-    case AGENT_UI_EVENT_TYPES["browser.frame.updated"]:
-      state.browserFrame = {
-        image_url: stringValue(event.payload.image_url),
-        command: stringValue(event.payload.command),
-        captured_at: stringValue(event.payload.captured_at),
-      };
-      state.browserBridgeAvailable = Boolean(state.browserFrame.image_url);
-      return state;
     case AGENT_UI_EVENT_TYPES["ui.form.requested"]:
       return reduceFormEventState(state, event, AGENT_UI_FORM_STATUSES.pending);
     case AGENT_UI_EVENT_TYPES["ui.form.updated"]:
@@ -157,13 +115,6 @@ export function reduceAgentUiEventState(state: AgentUiState, event: AgentUiEvent
       return reduceFormEventState(state, event, AGENT_UI_FORM_STATUSES.expired);
     case AGENT_UI_EVENT_TYPES["ui.form.validation_failed"]:
       return reduceFormEventState(state, event, AGENT_UI_FORM_STATUSES.validationFailed);
-    case AGENT_UI_EVENT_TYPES["error.raised"]:
-      state.errors.push({
-        message: stringValue(event.payload.message),
-        path: stringValue(event.payload.path),
-        timestamp: event.timestamp,
-      });
-      return state;
     default:
       return state;
   }
@@ -206,11 +157,19 @@ export function buildAgentUiFormCancelRequest(form: AgentUiForm) {
   };
 }
 
-function normalizeNativeAgentUiFrame(frame: Record<string, unknown>): AgentUiEvent[] {
-  const source = isRecord(frame.agent_ui_event) ? frame.agent_ui_event : frame;
-  const eventType = stringValue(source.event_type ?? source.type) || AGENT_UI_EVENT_TYPES["ui.form.requested"];
+function normalizeNativeAgentUiFrame(
+  frame: Record<string, unknown>,
+  source: Record<string, unknown>,
+): AgentUiEvent[] {
+  const eventType = stringValue(source.event_type);
   try {
-    const payload = normalizeAgentUiPayload(eventType, isRecord(source.payload) ? source.payload : formPayloadFromLegacyFrame(frame));
+    if (!eventType) {
+      throw new TypeError("Agent UI event event_type is required.");
+    }
+    if (!isRecord(source.payload)) {
+      throw new TypeError("Agent UI event payload must be an object.");
+    }
+    const payload = normalizeAgentUiPayload(eventType, source.payload);
     const correlation = isRecord(payload.correlation) ? payload.correlation : {};
     return [
       {
@@ -225,17 +184,30 @@ function normalizeNativeAgentUiFrame(frame: Record<string, unknown>): AgentUiEve
         payload,
         metadata: {
           ...(isRecord(source.metadata) ? source.metadata : {}),
-          source_frame: stringValue(frame.event) || "agent_ui_event",
-          compatibility: "native-agent-ui-event",
+          source_frame: "agent_ui_event",
         },
       },
     ];
   } catch (error) {
     return [
-      createAgentUiEventEnvelope(frame, AGENT_UI_EVENT_TYPES["error.raised"], {
-        message: error instanceof Error ? error.message : "Agent UI event normalization failed.",
-        source_event: stringValue(frame.event),
-      }),
+      {
+        schema_version: AGENT_UI_EVENT_SCHEMA_VERSION,
+        event_id: stringValue(source.event_id) || fallbackEventId(),
+        event_type: AGENT_UI_EVENT_TYPES["error.raised"],
+        chat_id: stringValue(source.chat_id ?? frame.chat_id),
+        message_id: stringValue(source.message_id),
+        turn_id: stringValue(source.turn_id),
+        parent_id: stringValue(source.parent_id),
+        timestamp: stringValue(source.timestamp ?? frame.timestamp) || new Date().toISOString(),
+        payload: {
+          message: error instanceof Error ? error.message : "Agent UI event normalization failed.",
+          source_event: eventType || "agent_ui_event",
+        },
+        metadata: {
+          ...(isRecord(source.metadata) ? source.metadata : {}),
+          source_frame: "agent_ui_event",
+        },
+      },
     ];
   }
 }
@@ -452,34 +424,6 @@ function validateValueAgainstField(field: AgentUiFormField, value: unknown, path
       throw new TypeError(`Agent UI form ${path} does not match the required pattern.`);
     }
   }
-}
-
-function createAgentUiEventEnvelope(frame: Record<string, unknown>, eventType: string, payload: Record<string, unknown>): AgentUiEvent {
-  return {
-    schema_version: AGENT_UI_EVENT_SCHEMA_VERSION,
-    event_id: fallbackEventId(),
-    event_type: eventType,
-    chat_id: stringValue(frame.chat_id),
-    message_id: stringValue(frame.message_id),
-    turn_id: stringValue(frame.turn_id),
-    parent_id: stringValue(frame.parent_id),
-    timestamp: stringValue(frame.timestamp ?? frame.created_at) || new Date().toISOString(),
-    payload,
-    metadata: {
-      source_frame: stringValue(frame.event),
-      compatibility: "legacy-websocket-frame",
-    },
-  };
-}
-
-function formPayloadFromLegacyFrame(frame: Record<string, unknown>): Record<string, unknown> {
-  if (isRecord(frame.form)) {
-    return frame.form;
-  }
-  if (isRecord(frame.payload)) {
-    return frame.payload;
-  }
-  return frame;
 }
 
 function assertJsonSafe(value: unknown, path = "payload") {
