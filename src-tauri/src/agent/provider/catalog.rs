@@ -398,9 +398,11 @@ pub fn resolve_provider_profile(
     provider_id: Option<&str>,
     profile_name: Option<&str>,
 ) -> Option<NativeProviderProfile> {
-    let requested_provider_id = provider_id
-        .map(normalize_provider_id)
-        .filter(|value| !value.is_empty() && value != "auto");
+    let requested_provider_id = provider_id.map(normalize_provider_id);
+    if requested_provider_id.as_deref() == Some("auto") {
+        return None;
+    }
+    let requested_provider_id = requested_provider_id.filter(|value| !value.is_empty());
     let explicit_profile_config =
         profile_name.and_then(|name| provider_profile_config(config, name));
     let active_profile_config =
@@ -412,8 +414,7 @@ pub fn resolve_provider_profile(
     let default_provider_id = default_provider_id(config);
     let provider_id = requested_provider_id
         .or(profile_provider_id)
-        .or(default_provider_id)
-        .unwrap_or_else(|| infer_provider_from_model(&configured_model(config)));
+        .or(default_provider_id)?;
     let catalog = catalog_entry_by_id(&provider_id);
     let provider_config = provider_config(config, &provider_id, profile_name);
     if catalog.is_none() && provider_config.is_none() {
@@ -586,24 +587,6 @@ pub(super) fn catalog_entry_by_id(
     provider_id: &str,
 ) -> Option<&'static NativeProviderCatalogEntry> {
     provider_plugin_by_id(provider_id).map(|plugin| plugin.catalog_entry())
-}
-
-pub(super) fn infer_provider_from_model(model: &str) -> String {
-    let normalized = model.trim().to_ascii_lowercase();
-    registered_provider_plugins()
-        .map(|plugin| plugin.catalog_entry())
-        .find(|entry| {
-            entry
-                .curated_model_ids
-                .iter()
-                .any(|id| id.eq_ignore_ascii_case(&normalized))
-                || entry
-                    .model_prefixes
-                    .iter()
-                    .any(|prefix| normalized.starts_with(&prefix.to_ascii_lowercase()))
-        })
-        .map(|entry| entry.id.to_string())
-        .unwrap_or_else(|| "deepseek".to_string())
 }
 
 fn add_models(merged: &mut BTreeMap<String, BTreeSet<String>>, source: &str, models: &[&str]) {

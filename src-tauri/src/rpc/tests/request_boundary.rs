@@ -574,6 +574,7 @@ fn dispatches_config_apply_patch_result_to_config_store() {
         )
         .expect("saved config should be JSON"),
         json!({
+            "schemaVersion": 2,
             "agents": { "defaults": { "model": "gpt-5.2" } },
             "providers": { "openai": { "apiKey": "sk-new-secret" } }
         })
@@ -598,6 +599,7 @@ fn dispatches_config_apply_operations_to_config_store() {
     let mut store = crate::config::store::ConfigStore::from_snapshot(
         config_path.clone(),
         json!({
+            "schemaVersion": 2,
             "agents": { "defaults": { "model": "gpt-5", "timezone": "UTC" } },
             "providers": { "openai": { "api_key": "sk-old-secret" } }
         }),

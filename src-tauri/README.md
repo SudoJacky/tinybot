@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:0a74ba281bc64237b20a4b6d8a56eeb5b43d04905cd114df3c54568ad798d625 -->
+<!-- tinybot-module-fingerprint: sha256:3aaa3f1fece24a3e967b468d3eddd292e7d26af59fd5aadbe887bcd6fecb23d5 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -191,6 +191,7 @@ roles:
 
 | Path | Owner | Role |
 | --- | --- | --- |
+| `~/.tinybot/config.json` and one-time `config.json.v1.bak` | `config` | Active schema v2 application configuration and pre-migration recovery copy |
 | `~/.tinybot/threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | `threads::rollout::store` | Active canonical Rollouts |
 | `~/.tinybot/archived_threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | `threads::rollout::store` | Archived canonical Rollouts |
 | `~/.tinybot/project-groups.json` | `project_groups` | Named groups and their workspace memberships |

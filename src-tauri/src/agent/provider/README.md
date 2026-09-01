@@ -1,5 +1,5 @@
 # Agent Providers
-<!-- tinybot-module-fingerprint: sha256:1e28889e1d5121076d28ffeb3c2c3113af6af003cda64bc59d19aa8dd19af807 -->
+<!-- tinybot-module-fingerprint: sha256:e7c8100f1b4a3fea13b56978c0c1ad85373de5496a917cbff73e9d3e9939159a -->
 
 This module resolves provider and model configuration and performs streaming
 Chat Completions or Responses API requests.
@@ -22,10 +22,10 @@ Chat Completions or Responses API requests.
   `glm-5.3-flash` and `deepseek-v4-flash-vision-exp` accept images by default.
   Built-in providers declare their supported protocol modes; Z.ai is Chat
   Completions only and uses a static GLM model list.
-- `completion.rs` performs provider requests. Provider selection preserves an
-  explicit request override, then uses the active profile, and only infers from
-  the model when neither is configured. API base URLs are normalized before
-  the OpenAI-compatible request path is appended. Every successful Chat
+- `completion.rs` performs provider requests. Provider selection requires an
+  explicit request override or an active profile; it never infers a Provider
+  from the model, and the retired `auto` Provider ID is rejected. API base URLs
+  are normalized before the OpenAI-compatible request path is appended. Every successful Chat
   Completions or Responses call records the provider-reported token usage at
   this shared boundary, so Agent turns, context compaction, memory maintenance,
   and Agent Graph routing all feed the same daily SQLite totals. The recorded

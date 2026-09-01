@@ -1,6 +1,6 @@
 use super::catalog::{
-    active_profile_name, catalog_entry_by_id, configured_model, infer_provider_from_model,
-    normalize_provider_id, resolve_provider_profile, string_field, NativeProviderProfile,
+    catalog_entry_by_id, configured_model, resolve_provider_profile, string_field,
+    NativeProviderProfile,
 };
 use super::streaming::{
     chat_completion_body, responses_body, NativeProviderStreamEvent, StreamingChatCompletion,
@@ -151,7 +151,11 @@ async fn record_completed_provider_usage(
             string_field(body, "model").unwrap_or_else(|| configured_model(config));
         let provider_id = resolve_chat_provider_profile(config, &requested_model)
             .map(|profile| profile.provider_id)
-            .unwrap_or_else(|| infer_provider_from_model(&requested_model));
+            .ok_or_else(|| {
+                format!(
+                    "completed provider call for model '{requested_model}' has no configured provider"
+                )
+            })?;
         let model_id = string_field(response, "model").unwrap_or(requested_model);
         let usage = crate::token_usage::token_usage_from_provider(
             response.get("usage").unwrap_or(&Value::Null),
@@ -582,21 +586,8 @@ fn openai_client(profile: NativeProviderProfile) -> Result<Client<OpenAIConfig>,
     ))
 }
 
-fn resolve_chat_provider_profile(config: &Value, model: &str) -> Option<NativeProviderProfile> {
-    let provider_id = config
-        .get("agents")
-        .and_then(|agents| agents.get("defaults"))
-        .and_then(|defaults| string_field(defaults, "provider"))
-        .map(|provider| normalize_provider_id(&provider))
-        .filter(|provider| !provider.is_empty() && provider != "auto")
-        .or_else(|| {
-            active_profile_name(config).and_then(|profile_name| {
-                resolve_provider_profile(config, None, Some(&profile_name))
-                    .map(|profile| profile.provider_id)
-            })
-        })
-        .unwrap_or_else(|| infer_provider_from_model(model));
-    resolve_provider_profile(config, Some(&provider_id), None)
+fn resolve_chat_provider_profile(config: &Value, _model: &str) -> Option<NativeProviderProfile> {
+    resolve_provider_profile(config, None, None)
 }
 
 fn provider_requires_api_key(profile: &NativeProviderProfile) -> bool {

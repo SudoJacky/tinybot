@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:be053f34d0db0a2b05321df455b691a0efe0945aaec32e4ba93024fb1dbd0e83 -->
+<!-- tinybot-doc-fingerprint: sha256:d1f72b9227c5de7167f23a36853a7f1fb7f0167ef71397df94943f07b8e78a18 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -68,6 +68,7 @@ Desktop Commands / Desktop Host
 | `agent::bridge` | Complete Turn orchestration and persistence coordination | Provider iteration or the Thread data model |
 | `agent::runtime` | Provider-and-tool loop, context, checkpoints, and runtime events | Tauri state or durable-store selection |
 | `command_hooks` | Hand-written and managed Hook discovery, managed manifest/script generation and constrained editing, exact definition-and-script trust, bounded command execution, and event output parsing | Agent capability policy or renderer state |
+| `config` | Schema migration, validated application settings, secret-safe projections, and atomic persistence | Provider inference or renderer-owned defaults |
 | `threads::domain` | Typed Thread, Turn, and Item behavior | Canonical durable storage |
 | `threads::rollout::store` | Canonical append-only conversation storage and reconstruction | Live task ownership |
 | `runtime` | Startup, shutdown, live Turn generations, MCP, and metrics | Conversation authority |
@@ -78,6 +79,10 @@ Desktop Commands / Desktop Host
   root. Startup index, Thread projection, and Turn recovery readers reuse a
   bounded Rollout-head-keyed cache; an append invalidates the matching cached
   content on its next access without changing Rollout authority.
+- Application configuration: schema v2 `~/.tinybot/config.json`. The Rust
+  Config store is the migration boundary and retains one pre-migration
+  `config.json.v1.bak`; Provider routing requires an explicit Provider or
+  active Profile and is never inferred from a model name.
 - Managed chat image bytes: content-addressed files under
   `~/.tinybot/chat-attachments/images/`; Rollouts remain authoritative for the
   typed reference and never persist the Base64 request payload.

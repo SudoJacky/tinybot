@@ -134,6 +134,43 @@ fn resolves_provider_profile_from_config_and_defaults() {
 }
 
 #[test]
+fn provider_resolution_requires_an_explicit_provider_or_profile() {
+    let inferred_from_model = resolve_provider_profile(
+        &json!({
+            "agents": { "defaults": { "model": "gpt-4.1" } },
+            "providers": { "openai": { "api_key": "sk-secret" } }
+        }),
+        None,
+        None,
+    );
+    let legacy_auto = resolve_provider_profile(
+        &json!({
+            "agents": { "defaults": { "provider": "auto", "model": "gpt-4.1" } },
+            "providers": { "openai": { "api_key": "sk-secret" } }
+        }),
+        None,
+        None,
+    );
+
+    assert!(inferred_from_model.is_none());
+    assert!(legacy_auto.is_none());
+}
+
+#[test]
+fn explicit_auto_turn_provider_is_not_treated_as_an_omitted_provider() {
+    let profile = resolve_provider_profile(
+        &json!({
+            "agents": { "defaults": { "activeProfile": "work", "model": "gpt-5" } },
+            "providers": { "profiles": { "work": { "provider": "openai" } } }
+        }),
+        Some("auto"),
+        None,
+    );
+
+    assert!(profile.is_none());
+}
+
+#[test]
 fn resolves_model_image_input_defaults_and_profile_overrides() {
     let built_in = resolve_provider_profile(
         &json!({
