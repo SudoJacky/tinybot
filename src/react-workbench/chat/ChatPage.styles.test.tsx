@@ -48,14 +48,15 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    await screen.findByRole("button", { name: /Work performed Running · 1 action/ });
+    const toggle = await screen.findByRole("button", { name: /Work performed: Running/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
     mountWorkbenchCss();
     const executionTimeline = document.querySelector<HTMLElement>(".react-execution-timeline")!;
     const executionContent = document.querySelector<HTMLElement>(".react-execution-timeline__content")!;
     expect(getComputedStyle(executionTimeline).height).toBe("max-content");
     expect(getComputedStyle(executionTimeline).borderTopWidth).toBe("0px");
     expect(getComputedStyle(executionTimeline).marginLeft).toBe("0px");
-    expect(getComputedStyle(executionContent).paddingLeft).toBe("0px");
+    expect(getComputedStyle(executionContent).paddingLeft).toBe("28px");
   });
 
   it("renders the React chat layout without legacy header actions", async () => {

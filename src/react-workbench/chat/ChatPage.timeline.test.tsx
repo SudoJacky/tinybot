@@ -4,6 +4,7 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { AgentUiForm } from "../../app-core/agent-ui/agentUiEvents";
+import type { ChatStep } from "../../app-core/chat/chatTurnContracts";
 import type { ChatEvent } from "../services";
 import type { ReactChatMessage } from "./messageActions";
 import { timelineFromReactMessages } from "./test/timelineFixtures";
@@ -29,6 +30,18 @@ vi.mock("../sidecar/OfficeArtifactPreview", () => ({
     </div>
   ),
 }));
+
+function executionToolStep(id: string, sequence: number, name: string): ChatStep {
+  return {
+    agentContext: { id: "main", title: "Tinybot", type: "main" },
+    id,
+    kind: "tool_call",
+    sequence,
+    status: "completed",
+    title: name,
+    toolCall: { id, name },
+  };
+}
 
 describe("ChatPage", () => {
   it("shows branch on a completed tool-backed final answer but not on user or commentary messages", async () => {
@@ -760,7 +773,7 @@ describe("ChatPage", () => {
     expect(within(error).queryByRole("button", { name: /Continue|Retry|Start over|View details/ })).toBeNull();
   });
 
-  it("renders canonical execution items chronologically and restores completed turns folded", async () => {
+  it("renders canonical execution items chronologically with the outer timeline expanded", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     const timeline = timelineFromReactMessages("s1", [{
@@ -829,11 +842,9 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    const toggle = await screen.findByRole("button", { name: /Work performed 4 actions/ });
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.getByText("Verification passed.")).toBeTruthy();
-    await user.click(toggle);
+    const toggle = await screen.findByRole("button", { name: /Work performed: thought ×1 · file read ×1/ });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("Verification passed.")).toBeTruthy();
     const orderedItems = document.querySelectorAll(".react-execution-timeline__item");
     expect([...orderedItems].map((item) => item.getAttribute("data-kind"))).toEqual([
       "reasoning",
@@ -846,6 +857,54 @@ describe("ChatPage", () => {
     expect(toolItem.querySelector(".react-tool-activity")).not.toBeNull();
     expect(screen.getByText("I found the first file.")).toBeTruthy();
     expect(screen.getByText("Now I will verify it.")).toBeTruthy();
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("summarizes execution by activity type without exposing reasoning content", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const timeline = timelineFromReactMessages("s1", [{
+      id: "u-activity-summary",
+      role: "user" as const,
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Inspect and verify",
+      status: "complete" as const,
+    }]);
+    const turn = timeline.turns[0];
+    turn.status = "running";
+    turn.steps = [
+      {
+        agentContext: { id: "main", title: "Tinybot", type: "main" },
+        id: "reasoning-summary",
+        kind: "reasoning",
+        sequence: 1,
+        startedAt: "2026-07-04T12:01:00.000Z",
+        status: "completed",
+        summary: "Private reasoning content must stay hidden.",
+        title: "Thinking complete",
+        completedAt: "2026-07-04T12:01:00.400Z",
+      },
+      executionToolStep("read-summary", 2, "workspace.read_file"),
+      executionToolStep("patch-summary", 3, "apply_patch"),
+      executionToolStep("command-summary", 4, "exec_command"),
+      executionToolStep("search-summary", 5, "workspace.search"),
+      executionToolStep("web-summary", 6, "web.read"),
+      executionToolStep("browser-summary", 7, "web.act"),
+    ];
+    turn.executionItems = turn.steps;
+    stores.chatStore.load = vi.fn(async () => timeline);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
+
+    const toggle = await screen.findByRole("button", {
+      name: /Running · thought ×1 · file read ×1 · file change ×1 · command ×1 · search ×1 · web ×1 · browser action ×1/,
+    });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.queryByText("Private reasoning content must stay hidden.")).toBeNull();
+    expect(screen.getByText("Thought for less than 1 second")).toBeTruthy();
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("renders apply_patch tool results as an inline file diff", async () => {
@@ -891,6 +950,9 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
+    const toolToggle = await screen.findByRole("button", { name: "Toggle details for Edited parser.rs" });
+    expect(toolToggle.getAttribute("aria-expanded")).toBe("false");
+    await userEvent.setup().click(toolToggle);
     expect(await screen.findByRole("region", { name: "Changes from apply_patch" })).toBeTruthy();
     expect(screen.getByRole("article", { name: "Diff for src/parser.rs" })).toBeTruthy();
     expect(screen.getByText("let marker = line.trim();")).toBeTruthy();
@@ -899,7 +961,7 @@ describe("ChatPage", () => {
     expect(screen.queryByRole("button", { name: "Open details for Edited parser.rs" })).toBeNull();
   });
 
-  it("auto-folds untouched execution on final answer and preserves explicit user-open intent", async () => {
+  it("keeps untouched execution expanded through live updates and preserves explicit user-closed intent", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     let listener: ((event: ChatEvent) => void) | undefined;
@@ -948,54 +1010,15 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    let toggle = await screen.findByRole("button", { name: /Work performed Running · 1 action/ });
+    let toggle = await screen.findByRole("button", { name: /Work performed: Running/ });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    const conversation = document.querySelector<HTMLElement>(".react-conversation-view")!;
-    const executionTimeline = document.querySelector<HTMLElement>(".react-execution-timeline")!;
-    Object.defineProperties(conversation, {
-      clientHeight: { configurable: true, value: 500 },
-      scrollHeight: { configurable: true, value: 2_000 },
-      scrollTop: { configurable: true, value: 800, writable: true },
-    });
-    const timelineRect = vi.spyOn(executionTimeline, "getBoundingClientRect").mockImplementation(() => ({
-      bottom: toggle.getAttribute("aria-expanded") === "true" ? 400 : 50,
-      height: toggle.getAttribute("aria-expanded") === "true" ? 400 : 50,
-      left: 0,
-      right: 760,
-      top: 0,
-      width: 760,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    }));
-    const conversationRect = vi.spyOn(conversation, "getBoundingClientRect").mockImplementation(() => ({
-      bottom: 600,
-      height: 500,
-      left: 0,
-      right: 1_000,
-      top: 100,
-      width: 1_000,
-      x: 0,
-      y: 100,
-      toJSON: () => ({}),
-    }));
-    let animationFrame: FrameRequestCallback | undefined;
-    const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
-      animationFrame = callback;
-      return 1;
-    });
     act(() => listener?.({ type: "timeline.patch", timeline: timelineFor(true) }));
-    toggle = await screen.findByRole("button", { name: /Work performed 1 action/ });
-    await waitFor(() => expect(toggle.getAttribute("aria-expanded")).toBe("false"));
-    act(() => animationFrame?.(0));
-    expect(conversation.scrollTop).toBe(450);
-    await user.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    act(() => listener?.({ type: "timeline.patch", timeline: timelineFor(true, 42) }));
+    toggle = await screen.findByRole("button", { name: /Work performed:/ });
     await waitFor(() => expect(toggle.getAttribute("aria-expanded")).toBe("true"));
-    requestFrame.mockRestore();
-    conversationRect.mockRestore();
-    timelineRect.mockRestore();
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    act(() => listener?.({ type: "timeline.patch", timeline: timelineFor(true, 42) }));
+    await waitFor(() => expect(toggle.getAttribute("aria-expanded")).toBe("false"));
   });
 
   it("does not reopen explicitly closed execution when the final answer arrives", async () => {
@@ -1030,7 +1053,8 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    const toggle = await screen.findByRole("button", { name: /Work performed Running · 1 action/ });
+    const toggle = await screen.findByRole("button", { name: /Work performed: Running/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
     await user.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     turn.status = "completed";
@@ -1044,7 +1068,7 @@ describe("ChatPage", () => {
     await waitFor(() => expect(toggle.getAttribute("aria-expanded")).toBe("false"));
   });
 
-  it("keeps abnormal canonical execution expanded with the inline error visible", async () => {
+  it("keeps abnormal canonical execution expanded with the inline failure visible", async () => {
     const stores = createStores();
     const timeline = failedPlanTimeline();
     timeline.turns[0].executionItems = timeline.turns[0].steps;
@@ -1052,7 +1076,7 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    const toggle = await screen.findByRole("button", { name: /Work performed Failed · 3 actions/ });
+    const toggle = await screen.findByRole("button", { name: /Work performed: Failed/ });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     const error = screen.getByRole("alert", { name: "Task execution failed" });
     expect(within(error).getByRole("button", { name: "Copy error" })).toBeTruthy();
@@ -1067,7 +1091,8 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
-    expect(await screen.findByRole("button", { name: /Work performed Interrupted/ })).toBeTruthy();
+    const toggle = await screen.findByRole("button", { name: /Work performed: Interrupted/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(within(screen.getByRole("region", { name: "Execution plan" })).getByText("Read project files")).toBeTruthy();
     expect(screen.queryByRole("alert", { name: "Task execution failed" })).toBeNull();
   });

@@ -57,7 +57,9 @@ describe("workbench CSS interaction contracts", () => {
   test("keeps execution summaries and tool activity compact without shrinking action controls", () => {
     const timelineTriggerRule = chatStylesheet.match(/\.react-execution-timeline__trigger\s*\{([^}]+)\}/);
     const timelineHeadingRule = chatStylesheet.match(/\.react-execution-timeline__heading\s*\{([^}]+)\}/);
-    const timelineTitleRule = chatStylesheet.match(/\.react-execution-timeline__heading strong\s*\{([^}]+)\}/);
+    const timelineSummaryRule = chatStylesheet.match(/\.react-execution-timeline__summary\s*\{([^}]+)\}/);
+    const timelineContentRule = chatStylesheet.match(/\.react-execution-timeline__content\s*\{([^}]+)\}/);
+    const reasoningRule = chatStylesheet.match(/\.react-execution-reasoning\s*\{([^}]+)\}/);
     const headerRule = chatStylesheet.match(/\.react-tool-activity__header\s*\{([^}]+)\}/);
     const actionRule = chatStylesheet.match(/\.react-patch-file__copy\s*\{([^}]+)\}/);
     const detailsRule = chatStylesheet.match(/\.react-tool-activity__details\s*\{([^}]+)\}/);
@@ -69,8 +71,11 @@ describe("workbench CSS interaction contracts", () => {
     expect(timelineTriggerRule?.[1]).toContain("padding: 0 0 4px");
     expect(timelineTriggerRule?.[1]).toContain("justify-content: flex-start");
     expect(timelineHeadingRule?.[1]).toContain("display: flex");
-    expect(timelineTitleRule?.[1]).toContain("color: var(--color-body)");
-    expect(timelineTitleRule?.[1]).toContain("font-weight: 600");
+    expect(timelineHeadingRule?.[1]).toContain("flex: 1 1 auto");
+    expect(timelineSummaryRule?.[1]).toContain("text-overflow: ellipsis");
+    expect(timelineSummaryRule?.[1]).toContain("white-space: nowrap");
+    expect(timelineContentRule?.[1]).toContain("padding: 4px 0 4px 28px");
+    expect(reasoningRule?.[1]).toContain("min-height: 34px");
     expect(headerRule?.[1]).toContain("min-height: 34px");
     expect(headerRule?.[1]).toContain("padding: 2px 0");
     expect(headerRule?.[1]).toContain("display: flex");

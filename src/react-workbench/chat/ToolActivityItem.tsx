@@ -51,7 +51,6 @@ export function ToolActivityItem({
   return (
     <ToolActivityFrame
       category={descriptor.category}
-      defaultOpen={descriptor.kind !== "web" && previews.length > 0}
       durationMs={toolCall.durationMs}
       icon={<ToolActivityIcon kind={descriptor.kind} />}
       status={status}
@@ -67,7 +66,7 @@ export function ToolActivityItem({
 export function ToolActivityFrame({
   category,
   children,
-  defaultOpen = true,
+  defaultOpen = false,
   durationMs,
   icon,
   status,

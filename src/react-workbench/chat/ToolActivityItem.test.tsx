@@ -8,7 +8,7 @@ import { ToolActivityItem } from "./ToolActivityItem";
 afterEach(cleanup);
 
 describe("ToolActivityItem", () => {
-  it("renders a completed command as two expandable preview blocks", async () => {
+  it("keeps a completed command collapsed until its preview is requested", async () => {
     const user = userEvent.setup();
     render(<ToolActivityItem
       status="completed"
@@ -24,16 +24,15 @@ describe("ToolActivityItem", () => {
     expect(screen.getByText("Ran npm test")).toBeTruthy();
     expect(screen.getByText("Terminal · 2.4s")).toBeTruthy();
     expect(screen.queryByText("Completed")).toBeNull();
+    const toggle = screen.getByRole("button", { name: "Toggle details for Ran npm test" });
+    expect(screen.getByText("Ran npm test").closest("button")).toBe(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByTestId("tool-activity-details").hasAttribute("hidden")).toBe(true);
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("$", { selector: ".react-tool-activity__prompt" })).toBeTruthy();
     expect(screen.getByText(/248 tests passed/)).toBeTruthy();
     expect(document.querySelectorAll(".react-tool-activity__preview")).toHaveLength(2);
-
-    const toggle = screen.getByRole("button", { name: "Toggle details for Ran npm test" });
-    expect(screen.getByText("Ran npm test").closest("button")).toBe(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    await user.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.getByTestId("tool-activity-details").hasAttribute("hidden")).toBe(true);
   });
 
   it("extracts retained command chunks without rendering raw result JSON", () => {
@@ -53,12 +52,14 @@ describe("ToolActivityItem", () => {
       }}
     />);
 
+    expect(screen.getByRole("button", { name: "Toggle details for Ran npm test" }).getAttribute("aria-expanded")).toBe("false");
     expect(screen.getByText(/Test Files\s+3 passed/)).toBeTruthy();
     expect(screen.getByText(/Tests\s+107 passed/)).toBeTruthy();
     expect(screen.queryByText(/"chunks"/)).toBeNull();
   });
 
-  it("renders a file path and line-numbered file preview", () => {
+  it("keeps a file preview collapsed until requested", async () => {
+    const user = userEvent.setup();
     render(<ToolActivityItem
       status="completed"
       toolCall={{
@@ -71,6 +72,11 @@ describe("ToolActivityItem", () => {
     />);
 
     expect(screen.getByText("Inspected ChatPage.tsx")).toBeTruthy();
+    const toggle = screen.getByRole("button", { name: "Toggle details for Inspected ChatPage.tsx" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByTestId("tool-activity-details").hasAttribute("hidden")).toBe(true);
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("src/react-workbench/chat/ChatPage.tsx")).toBeTruthy();
     expect(screen.getByText("Lines 40–42")).toBeTruthy();
     expect(screen.getByText("40")).toBeTruthy();
@@ -99,7 +105,8 @@ describe("ToolActivityItem", () => {
     expect(screen.getByText("Reviewed the composition controller APIs.")).toBeTruthy();
   });
 
-  it("surfaces failed command output without raw result JSON", () => {
+  it("surfaces failed command output after the collapsed row is opened", async () => {
+    const user = userEvent.setup();
     render(<ToolActivityItem
       status="failed"
       toolCall={{
@@ -113,6 +120,9 @@ describe("ToolActivityItem", () => {
 
     expect(screen.getByText("Command failed")).toBeTruthy();
     expect(screen.getByText("Failed")).toBeTruthy();
+    const toggle = screen.getByRole("button", { name: "Toggle details for Command failed" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await user.click(toggle);
     expect(screen.getByText("error[E0308]: mismatched types")).toBeTruthy();
     expect(screen.queryByText(/\{"stderr"/)).toBeNull();
   });

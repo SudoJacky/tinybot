@@ -534,6 +534,12 @@ export const zh = {
     },
     execution: {
       actionCount: "{{count}} 个操作", plan: "计划 {{completed}}/{{total}}", attention: "需要处理",
+      activity: {
+        reasoning: "思考 {{count}} 次", fileRead: "读取文件 {{count}} 次", fileChange: "修改文件 {{count}} 次",
+        command: "执行命令 {{count}} 次", search: "搜索 {{count}} 次", web: "访问网页 {{count}} 次",
+        subagent: "调用子 Agent {{count}} 次", browser: "浏览器操作 {{count}} 次", plan: "更新计划 {{count}} 次",
+        interaction: "交互 {{count}} 次", other: "其他操作 {{count}} 次",
+      },
       status: { failed: "失败", interrupted: "已中断", awaiting: "等待输入", running: "执行中" },
     },
     form: { submitted: "已提交", cancelled: "已取消", resolved: "已解决", waiting: "等待输入" },
