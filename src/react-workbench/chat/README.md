@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:e45490825b113653564223b9f34b5b4b89e3a4cadb163351bb59846e4f58c284 -->
+<!-- tinybot-module-fingerprint: sha256:65d78517d645d1d759f991ed8762f89de894985facf4b550cc15f1ba90904b53 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -7,6 +7,12 @@ canonical timeline presentation, the composer, and detail drawers.
 `ChatTimeline.tsx` owns the reusable canonical message and execution rendering;
 its action callbacks are optional so read-only consumers can omit unavailable
 branch, recovery, artifact, delegate, and tool-detail controls.
+Every canonical execution trace starts expanded and keeps the user's explicit
+fold choice across live timeline revisions. Its summary derives compact counts
+from semantic Step and Tool kinds, exposes running and abnormal status without
+logos, and never renders reasoning content. Individual Tool and Diff rows start
+collapsed, so the ordered activity stays scannable until a user opens one row's
+details.
 `FloatingPlanStatus.tsx` mirrors the most recent canonical plan across Turns in
 a fixed top-right note without introducing another plan store. A newer Turn
 without a plan keeps the previous plan visible; the next plan replaces it. New

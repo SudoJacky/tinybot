@@ -36,14 +36,17 @@ afterEach(() => {
 });
 
 describe("PatchDiffCard", () => {
-  it("unwraps the executor result and renders an expanded line diff", () => {
+  it("unwraps the executor result and keeps the line diff collapsed until requested", async () => {
+    const user = userEvent.setup();
     expect(patchChangeSetFromToolResult(applyPatchToolCall.resultJson)?.files).toHaveLength(1);
 
     render(<PatchDiffCard status="completed" toolCall={applyPatchToolCall} />);
 
-    expect(screen.getByRole("button", { name: "Toggle details for Edited lib.rs" })
-      .getAttribute("aria-expanded"))
-      .toBe("true");
+    const toggle = screen.getByRole("button", { name: "Toggle details for Edited lib.rs" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.getByTestId("patch-diff-content").closest("[hidden]")).not.toBeNull();
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(screen.queryByText("Completed")).toBeNull();
     const file = screen.getByRole("article", { name: "Diff for src/lib.rs" });
     expect(within(file).getByText("fn before() {}").closest("[data-diff-kind='remove']"))
@@ -54,7 +57,7 @@ describe("PatchDiffCard", () => {
     expect(within(file).getByText("12", { selector: "[data-line-side='new']" })).toBeTruthy();
   });
 
-  it("collapses the preview and copies a unified diff", async () => {
+  it("expands the preview and copies a unified diff", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     const user = userEvent.setup();
     Object.defineProperty(navigator, "clipboard", {
@@ -64,11 +67,11 @@ describe("PatchDiffCard", () => {
     render(<PatchDiffCard status="completed" toolCall={applyPatchToolCall} />);
 
     const toggle = screen.getByRole("button", { name: "Toggle details for Edited lib.rs" });
-    await user.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.getByTestId("patch-diff-content").closest("[hidden]")).not.toBeNull();
 
     await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
     await user.click(screen.getByRole("button", { name: "Copy diff for src/lib.rs" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining("--- a/src/lib.rs")));
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining("+fn after() {}"));

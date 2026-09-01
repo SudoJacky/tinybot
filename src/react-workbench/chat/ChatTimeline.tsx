@@ -12,6 +12,7 @@ import {
   FileText,
   GitBranch,
   ImageIcon,
+  Lightbulb,
   ListCollapse,
   Loader2,
   PanelRightOpen,
@@ -286,8 +287,6 @@ function groupCanonicalSteps(steps: ChatStep[]): Array<ChatStep | ChatStep[]> {
   return groups;
 }
 
-type ExecutionFoldIntent = "untouched" | "user_open" | "user_closed";
-
 function ExecutionTimeline({
   executionItems,
   focusError,
@@ -303,73 +302,40 @@ function ExecutionTimeline({
 }) {
   const { t } = useTranslation("chat");
   const contentId = useId();
-  const timelineRef = useRef<HTMLElement | null>(null);
   const abnormal = executionItems.some((step) => step.status === "failed" || step.status === "cancelled" || step.status === "blocked")
     || turn.status === "failed"
     || turn.status === "interrupted"
     || turn.status === "awaiting_user";
-  const hasFinalAnswer = Boolean(turn.finalAnswer ?? turn.finalMessage);
-  const [foldIntent, setFoldIntent] = useState<ExecutionFoldIntent>("untouched");
-  const [open, setOpen] = useState(() => abnormal || !hasFinalAnswer);
+  const [open, setOpen] = useState(true);
   const visibleExecutionItems = turn.status === "interrupted"
     ? executionItems.filter((step) => step.kind !== "error")
     : executionItems;
   const errorItems = visibleExecutionItems.filter((step) => step.kind === "error");
 
-  useEffect(() => {
-    if (foldIntent !== "untouched") {
-      return;
-    }
-    const nextOpen = abnormal || !hasFinalAnswer;
-    setOpen((currentOpen) => {
-      if (currentOpen === nextOpen) {
-        return currentOpen;
-      }
-      if (currentOpen && !nextOpen) {
-        const timeline = timelineRef.current;
-        const scroller = timeline?.closest<HTMLElement>(".react-conversation-view");
-        const heightBefore = timeline?.getBoundingClientRect().height ?? 0;
-        const timelineTop = timeline?.getBoundingClientRect().top ?? 0;
-        const scrollerTop = scroller?.getBoundingClientRect().top ?? 0;
-        const userIsReadingHistory = Boolean(scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight >= 96);
-        requestAnimationFrame(() => {
-          if (!timeline || !scroller || !userIsReadingHistory || timelineTop >= scrollerTop) {
-            return;
-          }
-          const collapsedBy = Math.max(0, heightBefore - timeline.getBoundingClientRect().height);
-          scroller.scrollTop = Math.max(0, scroller.scrollTop - collapsedBy);
-        });
-      }
-      return nextOpen;
-    });
-  }, [abnormal, foldIntent, hasFinalAnswer]);
-
   const summary = executionTimelineSummary(turn, executionItems, abnormal, t);
   return (
-    <section className="react-execution-timeline" data-abnormal={abnormal ? "true" : undefined} ref={timelineRef}>
+    <section className="react-execution-timeline" data-abnormal={abnormal ? "true" : undefined} data-status={turn.status}>
       <button
         aria-controls={contentId}
         aria-expanded={open}
+        aria-label={`${t("turn.workPerformed")}: ${summary}`}
         className="react-execution-timeline__trigger"
+        title={summary}
         type="button"
-        onClick={() => {
-          setOpen((currentOpen) => {
-            setFoldIntent(currentOpen ? "user_closed" : "user_open");
-            return !currentOpen;
-          });
-        }}
+        onClick={() => setOpen((currentOpen) => !currentOpen)}
       >
         <span className="react-execution-timeline__status"><Activity aria-hidden="true" size={17} /></span>
         <span className="react-execution-timeline__heading">
-          <strong>{t("turn.workPerformed")}</strong>
-          <small aria-live="polite">{summary}</small>
+          <span aria-live="polite" className="react-execution-timeline__summary">{summary}</span>
         </span>
         <ChevronRight aria-hidden="true" className="react-execution-timeline__chevron" size={16} />
       </button>
       <div className="react-execution-timeline__content" hidden={!open} id={contentId}>
         {visibleExecutionItems.map((step) => (
           <div className="react-execution-timeline__item" data-kind={step.kind} data-status={step.status} key={step.id}>
-            {step.kind === "error" ? (
+            {step.kind === "reasoning" ? (
+              <ExecutionReasoningActivity step={step} />
+            ) : step.kind === "error" ? (
               <InlineExecutionError
                 focusOnMount={focusError && step.id === errorItems[errorItems.length - 1]?.id}
                 step={step}
@@ -389,17 +355,45 @@ function ExecutionTimeline({
   );
 }
 
+type ExecutionActivityCategory =
+  | "reasoning"
+  | "fileRead"
+  | "fileChange"
+  | "command"
+  | "search"
+  | "web"
+  | "subagent"
+  | "browser"
+  | "plan"
+  | "interaction"
+  | "other";
+
+const EXECUTION_ACTIVITY_ORDER: ExecutionActivityCategory[] = [
+  "reasoning",
+  "fileRead",
+  "fileChange",
+  "command",
+  "search",
+  "web",
+  "subagent",
+  "browser",
+  "plan",
+  "interaction",
+  "other",
+];
+
 function executionTimelineSummary(turn: ChatTurn, items: ChatStep[], abnormal: boolean, t: TFunction<"chat">): string {
   const plan = [...items].reverse().find((step) => step.plan)?.plan;
-  const durationMs = turn.completedAt
-    ? Math.max(0, Date.parse(turn.completedAt) - Date.parse(turn.startedAt))
-    : undefined;
-  const parts = [executionStatusLabel(turn.status, t), t("execution.actionCount", { count: items.length })]
-    .filter((part): part is string => Boolean(part));
+  const durationMs = executionDurationMs(turn);
+  const activityParts = executionActivitySummary(items, t);
+  const parts = [
+    executionStatusLabel(turn.status, t),
+    ...(activityParts.length ? activityParts : [t("execution.actionCount", { count: items.length })]),
+  ].filter((part): part is string => Boolean(part));
   if (plan) {
     parts.push(t("execution.plan", { completed: plan.completed, total: plan.total }));
   }
-  if (durationMs !== undefined && Number.isFinite(durationMs)) {
+  if (durationMs !== undefined) {
     parts.push(formatExecutionDuration(durationMs));
   }
   if (abnormal) {
@@ -407,6 +401,87 @@ function executionTimelineSummary(turn: ChatTurn, items: ChatStep[], abnormal: b
     parts.push(blocked?.title || t("execution.attention"));
   }
   return parts.join(" · ");
+}
+
+function executionActivitySummary(items: ChatStep[], t: TFunction<"chat">): string[] {
+  const counts = Object.fromEntries(
+    EXECUTION_ACTIVITY_ORDER.map((category) => [category, 0]),
+  ) as Record<ExecutionActivityCategory, number>;
+  for (const item of items) {
+    const category = executionActivityCategory(item);
+    if (category) {
+      counts[category] += 1;
+    }
+  }
+  return EXECUTION_ACTIVITY_ORDER
+    .filter((category) => counts[category] > 0)
+    .map((category) => executionActivityLabel(category, counts[category], t));
+}
+
+function executionActivityCategory(step: ChatStep): ExecutionActivityCategory | undefined {
+  switch (step.kind) {
+    case "reasoning": return "reasoning";
+    case "delegate": return "subagent";
+    case "browser": return "browser";
+    case "plan": return "plan";
+    case "form": return "interaction";
+    case "tool_call": return step.toolCall ? toolExecutionActivityCategory(step.toolCall.name) : "other";
+    case "message":
+    case "error": return undefined;
+    default: return "other";
+  }
+}
+
+function toolExecutionActivityCategory(name: string): ExecutionActivityCategory {
+  const normalized = name.toLowerCase();
+  if (normalized === "apply_patch" || normalized.includes("write_file") || normalized.includes("edit_file")) return "fileChange";
+  if (normalized === "workspace.read_file" || normalized === "read_file" || normalized.endsWith(".read_file")) return "fileRead";
+  if (normalized === "exec_command" || normalized === "write_stdin" || normalized.startsWith("shell.")) return "command";
+  if (normalized.includes("search")) return "search";
+  if (normalized === "web.act" || normalized.includes("browser")) return "browser";
+  if (normalized.startsWith("web.")) return "web";
+  if (normalized.startsWith("subagent.")) return "subagent";
+  if (normalized === "update_plan") return "plan";
+  if (normalized === "request_user_input") return "interaction";
+  return "other";
+}
+
+function executionActivityLabel(category: ExecutionActivityCategory, count: number, t: TFunction<"chat">): string {
+  switch (category) {
+    case "reasoning": return t("execution.activity.reasoning", { count });
+    case "fileRead": return t("execution.activity.fileRead", { count });
+    case "fileChange": return t("execution.activity.fileChange", { count });
+    case "command": return t("execution.activity.command", { count });
+    case "search": return t("execution.activity.search", { count });
+    case "web": return t("execution.activity.web", { count });
+    case "subagent": return t("execution.activity.subagent", { count });
+    case "browser": return t("execution.activity.browser", { count });
+    case "plan": return t("execution.activity.plan", { count });
+    case "interaction": return t("execution.activity.interaction", { count });
+    case "other": return t("execution.activity.other", { count });
+  }
+}
+
+function executionDurationMs(turn: ChatTurn): number | undefined {
+  const startedAtMs = Date.parse(turn.startedAt);
+  const endedAtMs = Date.parse(turn.completedAt ?? turn.updatedAt);
+  if (!Number.isFinite(startedAtMs) || !Number.isFinite(endedAtMs)) {
+    return undefined;
+  }
+  return Math.max(0, endedAtMs - startedAtMs);
+}
+
+function ExecutionReasoningActivity({ step }: { step: ChatStep }) {
+  const { t } = useTranslation("chat");
+  const label = step.status === "running"
+    ? t("reasoning.thinking")
+    : formatThinkingLabel(reasoningDurationMs(step), t);
+  return (
+    <div aria-label={t("reasoning.label")} className="react-execution-reasoning">
+      <Lightbulb aria-hidden="true" size={16} />
+      <span>{label}</span>
+    </div>
+  );
 }
 
 function executionStatusLabel(status: ChatTurn["status"], t: TFunction<"chat">): string | undefined {

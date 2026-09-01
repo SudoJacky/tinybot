@@ -2006,37 +2006,38 @@
 
 .react-execution-timeline__heading {
   display: flex;
-  flex: 0 1 auto;
-  align-items: baseline;
-  gap: 6px;
+  flex: 1 1 auto;
+  align-items: center;
   min-width: 0;
 }
 
-.react-execution-timeline__heading strong {
-  flex: none;
+.react-execution-timeline__summary {
+  min-width: 0;
+  overflow: hidden;
   color: var(--color-body);
   font-size: 13px;
-  font-weight: 600;
-}
-
-.react-execution-timeline__heading small {
-  overflow: hidden;
-  color: var(--color-muted-soft);
-  font-size: 11px;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .react-execution-timeline__chevron {
   flex: none;
+  margin-left: auto;
   color: var(--color-muted-soft);
   transition: transform 180ms ease;
 }
 
 .react-execution-timeline[data-abnormal="true"] .react-execution-timeline__status,
-.react-execution-timeline[data-abnormal="true"] .react-execution-timeline__heading strong,
+.react-execution-timeline[data-abnormal="true"] .react-execution-timeline__summary,
 .react-execution-timeline[data-abnormal="true"] .react-execution-timeline__chevron {
   color: var(--color-error);
+}
+
+.react-execution-timeline[data-status="awaiting_user"] .react-execution-timeline__status,
+.react-execution-timeline[data-status="awaiting_user"] .react-execution-timeline__summary,
+.react-execution-timeline[data-status="awaiting_user"] .react-execution-timeline__chevron {
+  color: var(--color-warning);
 }
 
 .react-execution-timeline__trigger[aria-expanded="true"] .react-execution-timeline__chevron {
@@ -2044,9 +2045,20 @@
 }
 
 .react-execution-timeline__content {
+  position: relative;
   display: grid;
   gap: 0;
-  padding: 2px 0 0;
+  padding: 4px 0 4px 28px;
+}
+
+.react-execution-timeline__content::before {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 8px;
+  width: 1px;
+  background: color-mix(in srgb, var(--color-hairline) 76%, transparent);
+  content: "";
 }
 
 .react-execution-timeline__content[hidden] {
@@ -2059,7 +2071,7 @@
 }
 
 .react-execution-timeline__item + .react-execution-timeline__item {
-  border-top: 1px solid color-mix(in srgb, var(--color-hairline) 65%, transparent);
+  border-top: 0;
 }
 
 .react-execution-timeline__canvas-button {
@@ -2132,6 +2144,21 @@
   background: transparent;
   box-shadow: none;
   overflow: visible;
+}
+
+.react-execution-reasoning {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-body);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.react-execution-reasoning svg {
+  flex: none;
+  color: var(--color-muted-soft);
 }
 
 .react-execution-timeline__item > .react-agent-steps > .react-agent-steps__header {

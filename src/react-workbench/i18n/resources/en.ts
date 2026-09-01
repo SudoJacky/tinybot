@@ -1054,6 +1054,12 @@ export const en = {
     },
     execution: {
       actionCount: "{{count}} actions", plan: "plan {{completed}}/{{total}}", attention: "attention required",
+      activity: {
+        reasoning: "thought ×{{count}}", fileRead: "file read ×{{count}}", fileChange: "file change ×{{count}}",
+        command: "command ×{{count}}", search: "search ×{{count}}", web: "web ×{{count}}",
+        subagent: "subagent ×{{count}}", browser: "browser action ×{{count}}", plan: "plan update ×{{count}}",
+        interaction: "interaction ×{{count}}", other: "other action ×{{count}}",
+      },
       status: { failed: "Failed", interrupted: "Interrupted", awaiting: "Awaiting input", running: "Running" },
     },
     form: { submitted: "Submitted", cancelled: "Cancelled", resolved: "Resolved", waiting: "Waiting for input" },
