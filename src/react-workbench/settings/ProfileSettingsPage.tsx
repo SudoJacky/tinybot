@@ -8,6 +8,7 @@ import type {
   TokenUsageSnapshot,
 } from "../../app-core/settings/tokenUsage";
 import type { SettingsStore } from "../services";
+import { SettingsChoiceList } from "./SettingsChoiceList";
 
 type ProfileState =
   | { status: "loading" }
@@ -151,41 +152,39 @@ function TokenUsageContent({ locale, snapshot }: { locale: string; snapshot: Tok
     <>
       <fieldset className="react-profile-filters">
         <legend>{t("profile.filtersTitle")}</legend>
-        <label>
-          <span>{t("profile.provider")}</span>
-          <select
-            aria-label={t("profile.providerFilterLabel")}
-            onChange={(event) => {
-              setProviderFilter(event.target.value);
-              setModelFilter("");
-            }}
-            value={providerFilter}
-          >
-            <option value="">{t("profile.allProviders")}</option>
-            {providers.map((providerId) => (
-              <option key={providerId} value={providerId}>
-                {displayDimension(providerId, t("profile.unknown"))}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>{t("profile.model")}</span>
-          <select
-            aria-label={t("profile.modelFilterLabel")}
-            onChange={(event) => setModelFilter(event.target.value)}
-            value={modelFilter}
-          >
-            <option value="">{t("profile.allModels")}</option>
-            {modelOptions.map((option) => (
-              <option key={option.key} value={option.key}>
-                {providerFilter
-                  ? displayDimension(option.modelId, t("profile.unknown"))
-                  : formatModelLabel(option.providerId, option.modelId, t("profile.unknown"))}
-              </option>
-            ))}
-          </select>
-        </label>
+        <SettingsChoiceList
+          ariaLabel={t("profile.providerFilterLabel")}
+          label={t("profile.provider")}
+          onChange={(value) => {
+            setProviderFilter(value);
+            setModelFilter("");
+          }}
+          options={[
+            { label: t("profile.allProviders"), value: "" },
+            ...providers.map((providerId) => ({
+              label: displayDimension(providerId, t("profile.unknown")),
+              value: providerId,
+            })),
+          ]}
+          optionsAriaLabel={t("profile.providerFilterLabel")}
+          value={providerFilter}
+        />
+        <SettingsChoiceList
+          ariaLabel={t("profile.modelFilterLabel")}
+          label={t("profile.model")}
+          onChange={setModelFilter}
+          options={[
+            { label: t("profile.allModels"), value: "" },
+            ...modelOptions.map((option) => ({
+              label: providerFilter
+                ? displayDimension(option.modelId, t("profile.unknown"))
+                : formatModelLabel(option.providerId, option.modelId, t("profile.unknown")),
+              value: option.key,
+            })),
+          ]}
+          optionsAriaLabel={t("profile.modelFilterLabel")}
+          value={modelFilter}
+        />
       </fieldset>
 
       <section className="react-profile-usage-summary" aria-labelledby="profile-usage-summary-title">

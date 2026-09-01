@@ -17,7 +17,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:1d388aadc443162d8c67ff29cdc37abbceb2c5c48ea23121059bc4f725ceda10 -->
+<!-- tinybot-doc-fingerprint: sha256:45bbe69961a8d6b73be8c506b93754551b05af6effe11329c0f1baafedab4418 -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -445,9 +445,9 @@ subset of output when reported by the Provider.
 
 Config commands use `$HOME/.tinybot/config.json`. On Rust backend startup, and before each config
 command loads the store, the backend ensures the config file exists. If the file is missing it creates
-a schema v1 default config with:
+a schema v2 default config with:
 
-- `schemaVersion: 1`
+- `schemaVersion: 2`
 - `agents.defaults.activeProfile: "deepseek-default"`
 - `agents.defaults.model: "deepseek-v4-pro"`
 - `providers.profiles.deepseek-default` with DeepSeek V4 models and the built-in `reasoning` capability
@@ -456,6 +456,13 @@ Existing files are never overwritten by this initialization path, including inva
 config files. If default creation succeeds, config snapshots include an info diagnostic with code
 `DefaultConfigCreated`. If default creation fails, snapshots still return effective in-memory defaults
 and include a warning diagnostic with code `DefaultConfigCreateFailed`.
+
+Schema v1 files are migrated at the single Rust Config-store load boundary. The migration creates a
+one-time `config.json.v1.bak`, writes schema v2 atomically, and removes the retired
+`agents.defaults.provider: "auto"` value when `agents.defaults.activeProfile` names a valid Provider
+Profile. An Auto value without a resolvable active Profile is left unchanged and reported as
+`InvalidConfig`, so the user must choose a Profile instead of having the runtime infer a Provider from
+the model name.
 
 Infrastructure failures reject config commands with a structured IPC payload instead of a plain
 string:
@@ -539,7 +546,8 @@ The `runtime` group only projects native runtime metadata; it does not expose en
 configuration for a separate backend process. Secret fields
 return `value: null` with `secret` metadata and must remain redacted in exported/public config.
 Provider selection is profile-based. New config should use `agents.defaults.activeProfile` and
-`providers.profiles.<profileId>.provider`; `agents.defaults.provider: "auto"` is a legacy value only.
+`providers.profiles.<profileId>.provider`. Auto Provider routing is not supported, and the runtime does
+not infer a Provider from the model name.
 The Provider & Models default selector updates `agents.defaults.activeProfile` and
 `agents.defaults.model` in one native patch so Profile-based endpoint resolution and global model
 fallbacks cannot diverge.

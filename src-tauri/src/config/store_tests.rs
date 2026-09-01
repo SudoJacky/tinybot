@@ -72,7 +72,7 @@ fn load_valid_config_uses_file_snapshot_without_diagnostics() {
     let fixture = ConfigStoreFixture::new();
     let path = fixture.write(
         "config.json",
-        r#"{"agents":{"defaults":{"model":"gpt-5"}}}"#,
+        r#"{"schemaVersion":2,"agents":{"defaults":{"model":"gpt-5"}}}"#,
     );
 
     let store = ConfigStore::load(path, default_snapshot())
@@ -80,6 +80,111 @@ fn load_valid_config_uses_file_snapshot_without_diagnostics() {
 
     assert_eq!(store.snapshot()["agents"]["defaults"]["model"], "gpt-5");
     assert!(store.diagnostics().is_empty());
+}
+
+#[test]
+fn load_migrates_schema_v1_auto_provider_to_active_profile() {
+    let fixture = ConfigStoreFixture::new();
+    let original = r#"{
+      "schemaVersion": 1,
+      "agents": {
+        "defaults": {
+          "provider": "auto",
+          "activeProfile": "work",
+          "model": "gpt-5"
+        }
+      },
+      "providers": {
+        "profiles": {
+          "work": { "provider": "openai" }
+        }
+      }
+    }"#;
+    let path = fixture.write("config.json", original);
+
+    let store = ConfigStore::load(path.clone(), default_snapshot())
+        .expect("schema v1 config should migrate");
+
+    assert_eq!(store.snapshot()["schemaVersion"], 2);
+    assert_eq!(
+        store.snapshot()["agents"]["defaults"]["activeProfile"],
+        "work"
+    );
+    assert!(store.snapshot()["agents"]["defaults"]
+        .get("provider")
+        .is_none());
+    assert_eq!(
+        store.diagnostics()[0].code,
+        ConfigDiagnosticCode::ConfigMigrated
+    );
+    let saved: Value =
+        serde_json::from_str(&fs::read_to_string(&path).expect("migrated config should be saved"))
+            .expect("migrated config should be JSON");
+    assert_eq!(saved, *store.snapshot());
+    assert_eq!(
+        fs::read_to_string(path.with_file_name("config.json.v1.bak"))
+            .expect("migration backup should exist"),
+        original
+    );
+}
+
+#[test]
+fn load_migrates_schema_v1_profile_config_without_changing_routing() {
+    let fixture = ConfigStoreFixture::new();
+    let path = fixture.write(
+        "config.json",
+        r#"{
+          "schemaVersion": 1,
+          "agents": { "defaults": { "activeProfile": "work", "model": "gpt-5" } },
+          "providers": { "profiles": { "work": { "provider": "openai" } } }
+        }"#,
+    );
+
+    let store = ConfigStore::load(path.clone(), default_snapshot())
+        .expect("schema v1 profile config should migrate");
+
+    assert_eq!(store.snapshot()["schemaVersion"], 2);
+    assert_eq!(
+        store.snapshot()["agents"]["defaults"]["activeProfile"],
+        "work"
+    );
+    assert!(store.snapshot()["agents"]["defaults"]
+        .get("provider")
+        .is_none());
+    assert_eq!(
+        store.diagnostics()[0].code,
+        ConfigDiagnosticCode::ConfigMigrated
+    );
+    assert!(path.with_file_name("config.json.v1.bak").exists());
+}
+
+#[test]
+fn load_reports_auto_provider_without_active_profile_without_rewriting() {
+    let fixture = ConfigStoreFixture::new();
+    let original = r#"{
+      "schemaVersion": 1,
+      "agents": { "defaults": { "provider": "auto", "model": "gpt-5" } },
+      "providers": { "openai": { "api_key": "sk-secret" } }
+    }"#;
+    let path = fixture.write("config.json", original);
+
+    let store = ConfigStore::load(path.clone(), default_snapshot())
+        .expect("invalid legacy routing should remain inspectable");
+
+    assert_eq!(store.snapshot()["schemaVersion"], 1);
+    assert_eq!(store.snapshot()["agents"]["defaults"]["provider"], "auto");
+    assert_eq!(
+        store.diagnostics()[0].code,
+        ConfigDiagnosticCode::InvalidConfig
+    );
+    assert!(store.diagnostics()[0]
+        .message
+        .contains("choose agents.defaults.activeProfile"));
+    assert_eq!(
+        fs::read_to_string(&path).expect("invalid config should remain unchanged"),
+        original
+    );
+    assert!(!path.with_file_name("config.json.v1.bak").exists());
 }
 
 #[test]
@@ -136,7 +241,83 @@ fn apply_validated_patch_result_updates_snapshot_and_saves_file() {
             &fs::read_to_string(path).expect("patched config should save")
         )
         .expect("patched config should be JSON"),
-        json!({"agents":{"defaults":{"model":"gpt-5","provider":"openai"}}})
+        json!({"schemaVersion":2,"agents":{"defaults":{"model":"gpt-5","provider":"openai"}}})
+    );
+}
+
+#[test]
+fn apply_validated_patch_rejects_auto_provider_without_active_profile() {
+    let fixture = ConfigStoreFixture::new();
+    let path = fixture.path("config.json");
+    let original = default_snapshot();
+    let mut store = ConfigStore::from_snapshot(path.clone(), original.clone());
+
+    let result = store
+        .apply_validated_patch_result(ConfigPatchBridgeResult {
+            ok: true,
+            config: json!({
+                "schemaVersion": 2,
+                "agents": { "defaults": { "provider": "auto", "model": "gpt-5" } }
+            }),
+            updated_fields: vec!["agents.defaults.provider".to_string()],
+            side_effects: ConfigPatchSideEffects::default(),
+            error: None,
+        })
+        .expect("invalid provider routing should be a patch result");
+
+    assert!(!result.ok);
+    assert_eq!(
+        result.error.as_deref(),
+        Some("provider_auto_requires_active_profile")
+    );
+    assert_eq!(store.snapshot(), &original);
+    assert!(!path.exists());
+}
+
+#[test]
+fn schema_v2_rejects_auto_provider_even_with_an_active_profile() {
+    let fixture = ConfigStoreFixture::new();
+    let original = r#"{
+      "schemaVersion": 2,
+      "agents": { "defaults": { "provider": "auto", "activeProfile": "work" } },
+      "providers": { "profiles": { "work": { "provider": "openai" } } }
+    }"#;
+    let path = fixture.write("config.json", original);
+
+    let store = ConfigStore::load(path.clone(), default_snapshot())
+        .expect("schema v2 config should remain inspectable");
+
+    assert_eq!(
+        store.diagnostics()[0].code,
+        ConfigDiagnosticCode::InvalidConfig
+    );
+    assert_eq!(
+        fs::read_to_string(&path).expect("invalid schema v2 config should remain unchanged"),
+        original
+    );
+    assert!(!path.with_file_name("config.json.v1.bak").exists());
+}
+
+#[test]
+fn migration_backup_failure_preserves_the_schema_v1_config() {
+    let fixture = ConfigStoreFixture::new();
+    let original = r#"{"schemaVersion":1,"agents":{"defaults":{"activeProfile":"work"}},"providers":{"profiles":{"work":{"provider":"openai"}}}}"#;
+    let path = fixture.write("config.json", original);
+    let blocking_backup_path = path.with_file_name("config.json.v1.bak");
+    fs::create_dir(&blocking_backup_path).expect("blocking backup directory should create");
+
+    let error = ConfigStore::load(path.clone(), default_snapshot())
+        .expect_err("migration should fail when its backup cannot be created");
+
+    match error {
+        ConfigStoreError::Io {
+            path: error_path, ..
+        } => assert_eq!(error_path, blocking_backup_path),
+        other => panic!("expected IO error, got {other:?}"),
+    }
+    assert_eq!(
+        fs::read_to_string(path).expect("schema v1 config should remain authoritative"),
+        original
     );
 }
 
@@ -596,6 +777,7 @@ fn save_snapshot_reports_atomic_write_failure_without_changing_authoritative_fil
 
 fn default_snapshot() -> serde_json::Value {
     json!({
+        "schemaVersion": 2,
         "agents": {
             "defaults": {
                 "model": "deepseek-v4-pro"

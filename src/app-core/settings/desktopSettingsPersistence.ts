@@ -131,7 +131,6 @@ function createDesktopSettingsFullPatch(
       defaults: {
         model: state.agent.model,
         active_profile: profileId,
-        provider: state.agent.provider,
         workspace: state.agent.workspace,
         temperature: state.agent.temperature,
         max_tokens: state.agent.maxTokens,
@@ -189,8 +188,6 @@ function getDesktopSettingsPatchPathValue(state: DesktopSettingsFormState, path:
       return state.agent.model;
     case "agents.defaults.active_profile":
       return state.agent.activeProfile;
-    case "agents.defaults.provider":
-      return state.agent.provider;
     case "agents.defaults.workspace":
       return state.agent.workspace;
     case "agents.defaults.temperature":
@@ -336,7 +333,7 @@ function getDesktopSettingsPersistedProviderDraft(
   }
 
   const profileId = state.agent.activeProfile;
-  const defaultProvider = state.agent.provider && state.agent.provider !== "auto" ? state.agent.provider : null;
+  const defaultProvider = state.agent.provider;
   const summary = state.providerSummaries.find((provider) => (
     (profileId && provider.profileId === profileId)
     || (defaultProvider && provider.id === defaultProvider)

@@ -713,12 +713,12 @@ fn native_config_snapshot_loads_real_tinybot_config() {
 }
 
 #[test]
-fn native_config_defaults_to_schema_v1_deepseek_profile_without_config_file() {
+fn native_config_defaults_to_schema_v2_deepseek_profile_without_config_file() {
     let fixture = WorkspaceFixture::new();
     assert_eq!(
         native_config_snapshot_from_path(&fixture.root.join("missing-config.json")),
         serde_json::json!({
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "agents": {
                 "defaults": {
                     "activeProfile": "deepseek-default",

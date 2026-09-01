@@ -5,9 +5,12 @@ use std::{
     error::Error,
     fmt, fs,
     hash::{Hash, Hasher},
-    io,
+    io::{self, Write},
     path::{Path, PathBuf},
 };
+
+const CURRENT_CONFIG_SCHEMA_VERSION: u64 = 2;
+const LEGACY_PROVIDER_AUTO_ERROR: &str = "provider_auto_requires_active_profile";
 
 #[derive(Clone, Debug)]
 pub struct ConfigStore {
@@ -35,6 +38,7 @@ pub enum ConfigDiagnosticCode {
     MissingConfig,
     DefaultConfigCreated,
     DefaultConfigCreateFailed,
+    ConfigMigrated,
     InvalidJson,
     InvalidConfig,
     AliasConflict,
@@ -118,11 +122,34 @@ pub enum ConfigOperation {
 impl ConfigStore {
     pub fn load(config_path: PathBuf, default_snapshot: Value) -> Result<Self, ConfigStoreError> {
         match fs::read_to_string(&config_path) {
-            Ok(contents) => Ok(Self::load_from_text(
-                config_path,
-                contents,
-                default_snapshot,
-            )),
+            Ok(contents) => {
+                let mut store =
+                    Self::load_from_text(config_path.clone(), contents.clone(), default_snapshot);
+                if store.diagnostics.is_empty() {
+                    match migrate_config_schema(&mut store.snapshot) {
+                        Ok(true) => {
+                            write_config_migration_backup(&config_path, &contents)?;
+                            store.save_snapshot()?;
+                            store.diagnostics.push(ConfigDiagnostic {
+                                level: ConfigDiagnosticLevel::Info,
+                                code: ConfigDiagnosticCode::ConfigMigrated,
+                                message: format!(
+                                    "config migrated to schema v{CURRENT_CONFIG_SCHEMA_VERSION}"
+                                ),
+                                path: Some(config_path),
+                            });
+                        }
+                        Ok(false) => {}
+                        Err(error) => store.diagnostics.push(ConfigDiagnostic {
+                            level: ConfigDiagnosticLevel::Warning,
+                            code: ConfigDiagnosticCode::InvalidConfig,
+                            message: config_migration_diagnostic_message(&error),
+                            path: Some(config_path),
+                        }),
+                    }
+                }
+                Ok(store)
+            }
             Err(source) => match source.kind() {
                 io::ErrorKind::NotFound | io::ErrorKind::NotADirectory => Ok(Self {
                     config_path: config_path.clone(),
@@ -285,6 +312,16 @@ impl ConfigStore {
                 ),
             });
         }
+        if let Err(error) = migrate_config_schema(&mut next_snapshot) {
+            return Ok(ConfigPatchApplyResult {
+                ok: false,
+                config: public_config_snapshot(latest.snapshot()),
+                revision: Some(latest_revision),
+                updated_fields: Vec::new(),
+                side_effects: ConfigPatchSideEffects::default(),
+                error: Some(error),
+            });
+        }
         self.snapshot = next_snapshot;
         self.save_snapshot()?;
 
@@ -325,7 +362,30 @@ impl ConfigStore {
             });
         }
 
-        self.snapshot = result.config;
+        let mut next_snapshot = result.config;
+        if let Some(conflict) = first_alias_conflict(&next_snapshot) {
+            return Ok(ConfigPatchApplyResult {
+                ok: false,
+                config: self.snapshot.clone(),
+                revision: None,
+                updated_fields: Vec::new(),
+                side_effects: ConfigPatchSideEffects::default(),
+                error: Some(format!("alias_conflict: {conflict}")),
+            });
+        }
+        canonicalize_config_aliases(&mut next_snapshot);
+        if let Err(error) = migrate_config_schema(&mut next_snapshot) {
+            return Ok(ConfigPatchApplyResult {
+                ok: false,
+                config: self.snapshot.clone(),
+                revision: None,
+                updated_fields: Vec::new(),
+                side_effects: ConfigPatchSideEffects::default(),
+                error: Some(error),
+            });
+        }
+
+        self.snapshot = next_snapshot;
         self.save_snapshot()?;
 
         Ok(ConfigPatchApplyResult {
@@ -376,6 +436,134 @@ impl ConfigStore {
             diagnostics,
         }
     }
+}
+
+fn migrate_config_schema(snapshot: &mut Value) -> Result<bool, String> {
+    let schema_version = match snapshot.get("schemaVersion") {
+        None => 1,
+        Some(Value::Number(version)) => version
+            .as_u64()
+            .ok_or_else(|| "invalid_config_schema_version".to_string())?,
+        Some(_) => return Err("invalid_config_schema_version".to_string()),
+    };
+    if schema_version > CURRENT_CONFIG_SCHEMA_VERSION {
+        return Err("unsupported_config_schema_version".to_string());
+    }
+
+    let mut changed = false;
+    if config_uses_legacy_provider_auto(snapshot) {
+        if schema_version >= CURRENT_CONFIG_SCHEMA_VERSION {
+            return Err(LEGACY_PROVIDER_AUTO_ERROR.to_string());
+        }
+        if !has_resolvable_active_profile(snapshot) {
+            return Err(LEGACY_PROVIDER_AUTO_ERROR.to_string());
+        }
+        snapshot
+            .pointer_mut("/agents/defaults")
+            .and_then(Value::as_object_mut)
+            .expect("provider auto can only exist in an object")
+            .remove("provider");
+        changed = true;
+    }
+
+    if schema_version < CURRENT_CONFIG_SCHEMA_VERSION {
+        snapshot
+            .as_object_mut()
+            .expect("validated config snapshot must be an object")
+            .insert(
+                "schemaVersion".to_string(),
+                Value::from(CURRENT_CONFIG_SCHEMA_VERSION),
+            );
+        changed = true;
+    }
+    Ok(changed)
+}
+
+fn config_uses_legacy_provider_auto(snapshot: &Value) -> bool {
+    snapshot
+        .pointer("/agents/defaults/provider")
+        .and_then(Value::as_str)
+        .is_some_and(|provider| provider.trim().eq_ignore_ascii_case("auto"))
+}
+
+fn has_resolvable_active_profile(snapshot: &Value) -> bool {
+    let defaults = match snapshot.pointer("/agents/defaults") {
+        Some(defaults) => defaults,
+        None => return false,
+    };
+    let profile_name = defaults
+        .get("activeProfile")
+        .or_else(|| defaults.get("active_profile"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|profile_name| !profile_name.is_empty());
+    profile_name
+        .and_then(|profile_name| {
+            snapshot
+                .pointer("/providers/profiles")
+                .and_then(|profiles| profiles.get(profile_name))
+        })
+        .and_then(|profile| profile.get("provider"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .is_some_and(|provider| !provider.is_empty() && !provider.eq_ignore_ascii_case("auto"))
+}
+
+fn config_migration_diagnostic_message(error: &str) -> String {
+    match error {
+        LEGACY_PROVIDER_AUTO_ERROR => {
+            "agents.defaults.provider 'auto' is no longer supported; choose agents.defaults.activeProfile"
+                .to_string()
+        }
+        "invalid_config_schema_version" => {
+            "config schemaVersion must be a non-negative integer".to_string()
+        }
+        "unsupported_config_schema_version" => format!(
+            "config schemaVersion is newer than supported schema v{CURRENT_CONFIG_SCHEMA_VERSION}"
+        ),
+        error => error.to_string(),
+    }
+}
+
+fn write_config_migration_backup(path: &Path, contents: &str) -> Result<(), ConfigStoreError> {
+    let file_name = path
+        .file_name()
+        .and_then(|file_name| file_name.to_str())
+        .unwrap_or("config.json");
+    let backup_path = path.with_file_name(format!("{file_name}.v1.bak"));
+    let mut backup = match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&backup_path)
+    {
+        Ok(backup) => backup,
+        Err(source)
+            if source.kind() == io::ErrorKind::AlreadyExists
+                && backup_path
+                    .metadata()
+                    .is_ok_and(|metadata| metadata.is_file() && metadata.len() > 0) =>
+        {
+            return Ok(())
+        }
+        Err(source) => {
+            return Err(ConfigStoreError::Io {
+                path: backup_path,
+                source,
+            })
+        }
+    };
+    if let Err(source) = backup
+        .write_all(contents.as_bytes())
+        .and_then(|_| backup.sync_all())
+    {
+        drop(backup);
+        let _ = fs::remove_file(&backup_path);
+        return Err(ConfigStoreError::Io {
+            path: backup_path,
+            source,
+        });
+    }
+    Ok(())
 }
 
 fn write_atomic_json(path: &Path, contents: &str) -> Result<(), io::Error> {

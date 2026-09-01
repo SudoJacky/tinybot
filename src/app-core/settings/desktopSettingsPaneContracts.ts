@@ -123,7 +123,7 @@ export interface DesktopSettingsPaneModel {
     canDiscoverModels?: boolean;
   }>;
   defaultRouting?: {
-    mode: "auto" | "provider";
+    mode: "provider";
     providerId: string;
     providerLabel: string;
     model: string | null;

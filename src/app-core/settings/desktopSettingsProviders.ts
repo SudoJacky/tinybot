@@ -27,15 +27,20 @@ export function buildDesktopSettingsFormState(
   const exec = asRecord(tools.exec);
   const channels = asRecord(root.channels);
   const providers = asRecord(root.providers);
-  const rawProvider = stringValue(pick(defaults, "provider")) || "auto";
-  const preliminaryDisplayProvider = rawProvider === "auto" ? "deepseek" : rawProvider;
-  const preliminaryProfileId = stringValue(pick(defaults, "activeProfile", "active_profile"))
-    || findDesktopProfileIdForProvider(providers, preliminaryDisplayProvider);
+  const activeProfile = stringValue(pick(defaults, "activeProfile", "active_profile"));
+  const activeProfileProvider = stringValue(asRecord(getDesktopProviderProfiles(providers)[activeProfile]).provider);
+  const configuredProvider = stringValue(pick(defaults, "provider"));
+  const selectedProvider = activeProfileProvider || configuredProvider || null;
+  const preliminaryDisplayProvider = selectedProvider || stringValue(providerCatalog[0]?.id);
+  const preliminaryProfileId = activeProfile
+    || (preliminaryDisplayProvider ? findDesktopProfileIdForProvider(providers, preliminaryDisplayProvider) : "");
   const providerSummaries = buildDesktopProviderSummaries(providers, providerCatalog, preliminaryDisplayProvider, preliminaryProfileId);
-  const providerIds = providerSummaries.map((provider) => provider.id).filter(Boolean);
-  const selectedProvider = rawProvider === "auto" || providerIds.includes(rawProvider) ? rawProvider : "auto";
-  const displayProvider = selectedProvider === "auto" ? "deepseek" : selectedProvider;
-  const profileId = stringValue(pick(defaults, "activeProfile", "active_profile")) || findDesktopProfileIdForProvider(providers, displayProvider);
+  const displayProvider = selectedProvider
+    || providerSummaries.find((provider) => provider.enabled)?.id
+    || providerSummaries[0]?.id
+    || "";
+  const profileId = activeProfile
+    || (displayProvider ? findDesktopProfileIdForProvider(providers, displayProvider) : "");
   const providerProfile = getDesktopProviderProfileConfig(providers, profileId, displayProvider, providerCatalog);
   const providerProfileApiKey = stringValue(pick(providerProfile, "apiKey", "api_key"));
   const providerProfileApiKeyConfigured = providerProfileApiKey !== "" || hasDesktopProviderApiKeyConfigured(providerProfile);
@@ -271,10 +276,6 @@ export function applyDesktopSettingsFieldEdit(
     case "model":
       nextState.agent.model = stringOrNullInput(text);
       markDesktopSettingsTouched(nextState, "agents.defaults.model");
-      break;
-    case "provider":
-      nextState.agent.provider = stringOrNullInput(text);
-      markDesktopSettingsTouched(nextState, "agents.defaults.provider");
       break;
     case "activeProfile":
       nextState.agent.activeProfile = stringOrNullInput(text);
@@ -594,7 +595,7 @@ function setDesktopProviderEnabled(state: DesktopSettingsFormState, providerId: 
   if (!normalizedProviderId) {
     return;
   }
-  if (!enabled && state.agent.provider && state.agent.provider !== "auto" && state.agent.provider === normalizedProviderId) {
+  if (!enabled && state.agent.provider === normalizedProviderId) {
     return;
   }
   let summary = state.providerSummaries.find((provider) => provider.id === normalizedProviderId);

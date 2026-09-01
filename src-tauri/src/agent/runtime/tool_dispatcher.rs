@@ -52,7 +52,7 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
         }
         let args = tool_call.arguments_value();
         let raw = match tool_call.name.as_str() {
-            "subagent.spawn" | "spawn_agent" => serde_json::to_value(
+            "subagent.spawn" => serde_json::to_value(
                 self.subagents.spawn(SubagentSpawnParams {
                     session_key: tool_arg_string(&args, "sessionKey")
                         .or_else(|| tool_arg_string(&args, "session_key"))
@@ -99,7 +99,7 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
                     metadata: args.clone(),
                 }),
             ),
-            "subagent.send_input" | "send_input" => serde_json::to_value(
+            "subagent.send_input" => serde_json::to_value(
                 self.subagents.enqueue_input(SubagentSendInputParams {
                     session_key: tool_arg_string(&args, "sessionKey")
                         .or_else(|| tool_arg_string(&args, "session_key"))
@@ -121,7 +121,7 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
                     metadata: args.clone(),
                 }),
             ),
-            "subagent.wait" | "wait_agent" => {
+            "subagent.wait" => {
                 let ids = args
                     .get("targets")
                     .or_else(|| args.get("subagentIds"))
@@ -179,7 +179,7 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
                         .unwrap_or_default(),
                 }),
             ),
-            "subagent.close" | "close_agent" => serde_json::to_value(
+            "subagent.close" => serde_json::to_value(
                 self.subagents.close(SubagentTargetParams {
                     session_key: tool_arg_string(&args, "sessionKey")
                         .or_else(|| tool_arg_string(&args, "session_key"))
@@ -190,7 +190,7 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
                         .unwrap_or_default(),
                 }),
             ),
-            "subagent.resume" | "resume_agent" => serde_json::to_value(
+            "subagent.resume" => serde_json::to_value(
                 self.subagents.resume(SubagentTargetParams {
                     session_key: tool_arg_string(&args, "sessionKey")
                         .or_else(|| tool_arg_string(&args, "session_key"))
@@ -220,11 +220,11 @@ impl NativeAgentToolDispatcher for SubagentNativeAgentToolDispatcher {
 }
 
 pub(super) fn native_tool_is_permitted(context: &AgentTurnContext, name: &str) -> bool {
-    registry_tool_available(context, name) || legacy_native_tool_alias_is_permitted(context, name)
+    registry_tool_available(context, name) || runtime_only_subagent_tool_is_permitted(context, name)
 }
 
 pub(super) fn native_tool_rejection_reason(context: &AgentTurnContext, name: &str) -> String {
-    let policy_method = legacy_native_tool_alias_policy_method(name).unwrap_or(name);
+    let policy_method = runtime_only_subagent_tool_policy_method(name).unwrap_or(name);
     context.tool_router.rejection_reason(policy_method)
 }
 
@@ -247,7 +247,7 @@ pub(super) fn native_tool_waits_for_runtime_cancellation(
     name: &str,
 ) -> bool {
     registry_tool_waits_for_runtime_cancellation(context, name)
-        || legacy_native_tool_alias_waits_for_runtime_cancellation(context, name)
+        || runtime_only_subagent_tool_waits_for_runtime_cancellation(context, name)
 }
 
 pub(super) fn native_tool_mutates_workspace(context: &AgentTurnContext, name: &str) -> bool {
@@ -256,7 +256,7 @@ pub(super) fn native_tool_mutates_workspace(context: &AgentTurnContext, name: &s
 
 pub(super) fn native_tool_mutates_session(context: &AgentTurnContext, name: &str) -> bool {
     registry_tool_mutates_session(context, name)
-        || legacy_native_tool_alias_mutates_session(context, name)
+        || runtime_only_subagent_tool_mutates_session(context, name)
 }
 
 fn registry_tool_available(context: &AgentTurnContext, name: &str) -> bool {
@@ -270,7 +270,7 @@ pub(super) fn native_tool_cancellation_mode(
     if context.tool_router.is_permitted(name) {
         return context.tool_router.cancellation_mode(name);
     }
-    legacy_native_tool_alias_policy_method(name)
+    runtime_only_subagent_tool_policy_method(name)
         .map(|method| context.tool_router.cancellation_mode(method))
         .unwrap_or(ToolCancellationMode::Cooperative)
 }
@@ -279,7 +279,7 @@ pub(super) fn native_tool_cleanup_timeout_ms(context: &AgentTurnContext, name: &
     if context.tool_router.is_permitted(name) {
         return context.tool_router.cleanup_timeout_ms(name);
     }
-    legacy_native_tool_alias_policy_method(name)
+    runtime_only_subagent_tool_policy_method(name)
         .map(|method| context.tool_router.cleanup_timeout_ms(method))
         .unwrap_or(100)
 }
@@ -300,13 +300,8 @@ fn registry_tool_mutates_session(context: &AgentTurnContext, name: &str) -> bool
     context.tool_router.mutates_session(name)
 }
 
-fn legacy_native_tool_alias_is_permitted(context: &AgentTurnContext, name: &str) -> bool {
+fn runtime_only_subagent_tool_is_permitted(context: &AgentTurnContext, name: &str) -> bool {
     match name {
-        "spawn_agent" => registry_tool_available(context, "subagent.spawn"),
-        "send_input" => registry_tool_available(context, "subagent.send_input"),
-        "wait_agent" => registry_tool_available(context, "subagent.wait"),
-        "close_agent" => registry_tool_available(context, "subagent.close"),
-        "resume_agent" => registry_tool_available(context, "subagent.resume"),
         "subagent.query" | "subagent.cancel" => {
             registry_tool_available(context, "subagent.spawn")
                 || registry_tool_available(context, "subagent.send_input")
@@ -315,18 +310,11 @@ fn legacy_native_tool_alias_is_permitted(context: &AgentTurnContext, name: &str)
     }
 }
 
-fn legacy_native_tool_alias_waits_for_runtime_cancellation(
+fn runtime_only_subagent_tool_waits_for_runtime_cancellation(
     context: &AgentTurnContext,
     name: &str,
 ) -> bool {
     match name {
-        "spawn_agent" => registry_tool_waits_for_runtime_cancellation(context, "subagent.spawn"),
-        "send_input" => {
-            registry_tool_waits_for_runtime_cancellation(context, "subagent.send_input")
-        }
-        "wait_agent" => registry_tool_waits_for_runtime_cancellation(context, "subagent.wait"),
-        "close_agent" => registry_tool_waits_for_runtime_cancellation(context, "subagent.close"),
-        "resume_agent" => registry_tool_waits_for_runtime_cancellation(context, "subagent.resume"),
         "subagent.query" | "subagent.cancel" => {
             registry_tool_waits_for_runtime_cancellation(context, "subagent.spawn")
                 || registry_tool_waits_for_runtime_cancellation(context, "subagent.send_input")
@@ -335,13 +323,8 @@ fn legacy_native_tool_alias_waits_for_runtime_cancellation(
     }
 }
 
-fn legacy_native_tool_alias_mutates_session(context: &AgentTurnContext, name: &str) -> bool {
+fn runtime_only_subagent_tool_mutates_session(context: &AgentTurnContext, name: &str) -> bool {
     match name {
-        "spawn_agent" => registry_tool_mutates_session(context, "subagent.spawn"),
-        "send_input" => registry_tool_mutates_session(context, "subagent.send_input"),
-        "wait_agent" => registry_tool_mutates_session(context, "subagent.wait"),
-        "close_agent" => registry_tool_mutates_session(context, "subagent.close"),
-        "resume_agent" => registry_tool_mutates_session(context, "subagent.resume"),
         "subagent.query" | "subagent.cancel" => {
             registry_tool_mutates_session(context, "subagent.spawn")
                 || registry_tool_mutates_session(context, "subagent.send_input")
@@ -350,13 +333,8 @@ fn legacy_native_tool_alias_mutates_session(context: &AgentTurnContext, name: &s
     }
 }
 
-fn legacy_native_tool_alias_policy_method(name: &str) -> Option<&'static str> {
+fn runtime_only_subagent_tool_policy_method(name: &str) -> Option<&'static str> {
     match name {
-        "spawn_agent" => Some("subagent.spawn"),
-        "send_input" => Some("subagent.send_input"),
-        "wait_agent" => Some("subagent.wait"),
-        "close_agent" => Some("subagent.close"),
-        "resume_agent" => Some("subagent.resume"),
         "subagent.query" | "subagent.cancel" => Some("subagent.spawn"),
         _ => None,
     }
@@ -440,11 +418,6 @@ pub(super) fn is_subagent_tool(name: &str) -> bool {
             | "subagent.cancel"
             | "subagent.close"
             | "subagent.resume"
-            | "spawn_agent"
-            | "send_input"
-            | "wait_agent"
-            | "close_agent"
-            | "resume_agent"
     )
 }
 

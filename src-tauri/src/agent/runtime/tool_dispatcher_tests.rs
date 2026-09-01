@@ -52,6 +52,32 @@ fn removed_workspace_list_files_alias_is_not_permitted() {
 }
 
 #[test]
+fn removed_subagent_execution_aliases_are_not_permitted() {
+    let context = AgentTurnContext::from_spec(
+        serde_json::json!({
+            "turnId": "turn-no-subagent-aliases",
+            "sessionId": "session-no-subagent-aliases",
+            "messages": [{ "role": "user", "content": "delegate work" }]
+        }),
+        serde_json::json!({}),
+    );
+
+    for alias in [
+        "spawn_agent",
+        "send_input",
+        "wait_agent",
+        "close_agent",
+        "resume_agent",
+    ] {
+        assert!(!native_tool_is_permitted(&context, alias), "{alias}");
+        assert_eq!(
+            native_tool_rejection_reason(&context, alias),
+            format!("native tool `{alias}` is unknown or unavailable")
+        );
+    }
+}
+
+#[test]
 fn shell_read_only_allowlist_rejects_chained_commands() {
     assert!(!shell_command_is_read_only_allowlisted(
         "git status & touch workspace-marker"

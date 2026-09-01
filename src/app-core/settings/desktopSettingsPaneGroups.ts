@@ -37,17 +37,11 @@ function workbenchFileScopeLabel(scope: DesktopWorkbenchFileScopeId): string {
   return WORKBENCH_FILE_SCOPE_LABELS[scope];
 }
 
-function isDesktopProviderDefaultSelectableStatus(status: string): boolean {
-  return ["ready", "available", "no_models"].includes(status);
-}
-
 function buildDesktopDefaultModelOptions(
   state: DesktopSettingsFormState,
   providerSummaries: DesktopSettingsProviderSummary[],
 ): DesktopSettingsPaneFieldOption[] {
-  const providerId = state.agent.provider && state.agent.provider !== "auto"
-    ? state.agent.provider
-    : state.providerEditor.selectedProvider;
+  const providerId = state.agent.provider || state.providerEditor.selectedProvider;
   const provider = providerSummaries.find((summary) => summary.id === providerId);
   const models = parseDesktopProviderModelList(provider?.modelsText || state.providerEditor.modelsText);
   const selectedModel = stringOrNull(state.agent.model);
@@ -72,22 +66,6 @@ export function buildDesktopSettingsPaneGroups(
     if (!editorProviderOptions.some((option) => option.value === value)) {
       editorProviderOptions.push({ value, label: value });
     }
-  }
-  const currentDefaultProvider = state.agent.provider && state.agent.provider !== "auto" ? state.agent.provider : "";
-  const selectableProviderOptions = providerSummaries.filter((provider) => provider.enabled && isDesktopProviderDefaultSelectableStatus(provider.status)).map((provider) => ({
-    value: provider.id,
-    label: provider.label || provider.id,
-  }));
-  const agentProviderOptions = [
-    { value: "auto", label: "Auto" },
-    ...selectableProviderOptions,
-  ];
-  if (currentDefaultProvider && !agentProviderOptions.some((option) => option.value === currentDefaultProvider)) {
-    const currentDefaultSummary = providerSummaries.find((provider) => provider.id === currentDefaultProvider);
-    agentProviderOptions.push({
-      value: currentDefaultProvider,
-      label: currentDefaultSummary?.label || currentDefaultProvider,
-    });
   }
   const fixedOptions = (values: string[]): DesktopSettingsPaneFieldOption[] => values.map((value) => ({
     value,
@@ -179,12 +157,6 @@ export function buildDesktopSettingsPaneGroups(
           options: modelOptions.length ? modelOptions : undefined,
           requirement: "required",
           configurationMode: modelOptions.length ? "fixed" : "freeform",
-        }),
-        field("provider", "Provider", state.agent.provider, {
-          control: "select",
-          options: agentProviderOptions,
-          requirement: "optional",
-          configurationMode: "fixed",
         }),
         field("activeProfile", "Profile", state.agent.activeProfile, {
           requirement: "optional",
@@ -509,7 +481,6 @@ function getDesktopSettingsPaneFieldPersistentPath(
   const key = `${groupId}.${field.id}`;
   const staticPaths: Record<string, string> = {
     "general.model": "agents.defaults.model",
-    "general.provider": "agents.defaults.provider",
     "general.activeProfile": "agents.defaults.activeProfile",
     "general.timezone": "agents.defaults.timezone",
     "general.temperature": "agents.defaults.temperature",

@@ -79,7 +79,7 @@ fn native_config_editor_snapshot_returns_redacted_revisioned_view() {
 }
 
 #[test]
-fn ensure_default_config_file_creates_schema_v1_deepseek_profile_when_missing() {
+fn ensure_default_config_file_creates_schema_v2_deepseek_profile_when_missing() {
     let fixture = WorkspaceFixture::new();
     let config_path = fixture.root.join(".tinybot").join("config.json");
 
@@ -97,7 +97,7 @@ fn ensure_default_config_file_creates_schema_v1_deepseek_profile_when_missing() 
         &std::fs::read_to_string(&config_path).expect("default config should be created"),
     )
     .expect("default config should be JSON");
-    assert_eq!(saved["schemaVersion"], 1);
+    assert_eq!(saved["schemaVersion"], 2);
     assert_eq!(
         saved["agents"]["defaults"]["activeProfile"],
         "deepseek-default"

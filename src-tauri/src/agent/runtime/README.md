@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:b0865a85ad7a857803add22b89a28cf90f3ab8424b88b8797057b2d9c6034141 -->
+<!-- tinybot-module-fingerprint: sha256:307611b1fac222545c3220ef5c8136aabc70c7821f0328e83a09d30bb9b6f820 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -360,7 +360,8 @@ workspace configuration are injected after discovery. Eligible project-group
 coordinator Turns additionally receive `spawn_workspace_thread` and
 `send_thread_message`; ordinary Threads never see them. Other deferred
 extension tools remain hidden unless selected by backend Turn policy. Selection
-lasts only for the current Turn; inactive calls fail before dispatch.
+lasts only for the current Turn; inactive calls and unregistered alternative
+tool names fail before dispatch.
 
 `update_plan` replaces the complete Turn plan. States are `pending`,
 `in_progress`, and `completed`; an incomplete plan has exactly one active step.

@@ -21,7 +21,7 @@ fn subagent_link_event(
     tool_call: &NativeAgentToolCall,
     result: &NativeAgentToolResult,
 ) -> Option<PendingAgentEvent> {
-    if !matches!(tool_call.name.as_str(), "subagent.spawn" | "spawn_agent") {
+    if tool_call.name != "subagent.spawn" {
         return None;
     }
     let raw = result.envelope.get("raw")?;
@@ -80,7 +80,7 @@ fn subagent_activity_events(
     }
 
     match tool_call.name.as_str() {
-        "subagent.wait" | "wait_agent" => {
+        "subagent.wait" => {
             let mut payload = common_payload(&context.turn_id, &tool_call.id);
             copy_field(&mut payload, raw, "timedOut");
             payload.insert(

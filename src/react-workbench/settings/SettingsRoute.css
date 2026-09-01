@@ -1717,32 +1717,9 @@
   font-weight: 680;
 }
 
-.react-profile-filters label {
-  display: grid;
+.react-profile-filters > .react-settings-choice {
   min-width: min(240px, 100%);
   flex: 1 1 240px;
-  gap: 6px;
-  color: var(--color-muted);
-  font-size: 11px;
-  font-weight: 650;
-}
-
-.react-profile-filters select {
-  min-height: 44px;
-  width: 100%;
-  border: 1px solid var(--color-hairline);
-  border-radius: 9px;
-  outline: none;
-  background: var(--color-panel);
-  padding: 0 36px 0 12px;
-  color: var(--color-ink);
-  font: inherit;
-  font-size: 12px;
-}
-
-.react-profile-filters select:focus-visible {
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 28%, transparent);
 }
 
 .react-profile-usage-summary {

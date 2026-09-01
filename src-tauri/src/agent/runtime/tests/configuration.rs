@@ -32,7 +32,7 @@ fn normalizes_desktop_turn_spec_inputs_for_rust_turns() {
             }
         }),
         json!({
-            "agents": { "defaults": { "provider": "auto", "model": "fallback-model" } },
+            "agents": { "defaults": { "model": "fallback-model" } },
             "providers": { "fixture": { "responses": [{ "content": "normalized answer" }] } }
         }),
     );

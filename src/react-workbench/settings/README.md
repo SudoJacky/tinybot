@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:6dd19f3e701d856b96bdda117055feae417de8053ad53f94700f18aaa3c90a88 -->
+<!-- tinybot-module-fingerprint: sha256:1969a0bdca5b6c43afcacae70ecc55f8de77cea0a09744a76f519ec535cdb276 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
@@ -58,11 +58,11 @@ indentation, and Ctrl/Cmd+S save; pure text transformations are covered in
 
 `SettingsChoiceList.tsx` is the canonical fixed-choice control for workbench
 configuration surfaces. App preferences, appearance fonts, Agent defaults,
-fixed config options, and Agent Graph workspace choices reuse its trigger,
-popover, selected state, keyboard navigation, and co-located stylesheet instead
-of rendering platform-native select menus. App-language choices keep their
-names and descriptions in each target language so they remain discoverable
-regardless of the currently selected interface language.
+Profile usage filters, fixed config options, and Agent Graph workspace choices
+reuse its trigger, popover, selected state, keyboard navigation, and co-located
+stylesheet instead of rendering platform-native select menus. App-language
+choices keep their names and descriptions in each target language so they remain
+discoverable regardless of the currently selected interface language.
 
 `SettingsSheet.tsx` owns settings-specific layout and close animation while
 delegating modal focus, keyboard, dismissal, and scroll-lock behavior to the

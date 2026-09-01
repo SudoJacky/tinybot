@@ -2647,7 +2647,7 @@ fn private_user_subagent_input_is_not_added_to_main_model_context() {
             tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             let result = self.fallback.dispatch(context, tool_call)?;
-            if matches!(tool_call.name.as_str(), "subagent.spawn" | "spawn_agent") {
+            if tool_call.name == "subagent.spawn" {
                 self.manager.enqueue_input(SubagentSendInputParams {
                     session_key: context.session_id.clone(),
                     subagent_id: "private-child".to_string(),

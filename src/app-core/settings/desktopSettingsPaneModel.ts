@@ -98,22 +98,16 @@ function buildDesktopDefaultRouting(
   providerCatalog: DesktopSettingsPaneModel["providerCatalog"],
 ): DesktopSettingsPaneModel["defaultRouting"] {
   const model = state.agent.model;
-  const mode = state.agent.provider === "auto" ? "auto" : "provider";
-  const enabledProviders = providerCatalog.filter((provider) => provider.enabled !== false);
   const configuredProvider = providerCatalog.find((provider) => provider.id === state.agent.provider);
-  const resolvedProvider = mode === "auto"
-    ? enabledProviders.find((provider) => model ? provider.models?.includes(model) : false) ?? enabledProviders[0] ?? providerCatalog[0]
-    : configuredProvider ?? providerCatalog[0];
+  const resolvedProvider = configuredProvider ?? providerCatalog[0];
   const providerLabel = resolvedProvider?.label || resolvedProvider?.id || "Unavailable";
   const providerId = resolvedProvider?.id || "";
   return {
-    mode,
+    mode: "provider",
     providerId,
     providerLabel,
     model,
-    message: mode === "auto"
-      ? `Auto resolves to ${providerLabel}${model ? ` / ${model}` : ""}`
-      : `${providerLabel}${model ? ` / ${model}` : ""}`,
+    message: `${providerLabel}${model ? ` / ${model}` : ""}`,
   };
 }
 

@@ -124,12 +124,6 @@ const FIELD_METADATA: Record<string, DesktopSettingsPaneFieldMetadata> = {
     validationField: "model",
     i18nKey: "settings.fields.general.model",
   },
-  "general.provider": {
-    label: "Provider",
-    description: "Provider routing for the selected model.",
-    aliases: ["default provider", "routing"],
-    i18nKey: "settings.fields.general.provider",
-  },
   "general.activeProfile": {
     label: "Profile",
     description: "Named provider profile with credentials and endpoint settings.",

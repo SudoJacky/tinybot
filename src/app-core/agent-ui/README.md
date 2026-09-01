@@ -1,9 +1,10 @@
 # Agent UI Events
-<!-- tinybot-module-fingerprint: sha256:c2b36c3f6f0877b48cea2fa7a273a12d5d051a9162aee17b567e51cd60b5dd09 -->
+<!-- tinybot-module-fingerprint: sha256:2cbd95d1c369f96bff8d634ed32b1875b8621f21906fffc25b3736411140c3de -->
 
-`agent-ui` defines and validates framework-independent Agent UI events, forms,
-browser frames, and their projected state.
+`agent-ui` defines and validates framework-independent Agent UI form events and
+their projected state.
 
-It accepts untrusted native payloads and enforces schema, field, and unsafe-key
-constraints. React rendering and native listener registration belong to the
-workbench modules that consume this interface.
+It accepts canonical `agent_ui_event` envelopes from the native bridge and
+enforces schema, field, and unsafe-key constraints. Browser snapshots use the
+dedicated native browser contract. React rendering and native listener
+registration belong to the workbench modules that consume this interface.

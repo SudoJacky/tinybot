@@ -1,5 +1,5 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:1ed4f3b17cd0742d7ae20f554d6e66d678676974bb8dc00422abb6690a6ad4e7 -->
+<!-- tinybot-module-fingerprint: sha256:2ac5ba71a27e6280919551db24ef144eab447458245ef50a9948c7869d91d093 -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.
@@ -7,7 +7,9 @@ configuration, context, interactions, lifecycle, and tools.
 Configuration coverage includes runtime fallbacks and precedence between Turn
 settings and configured Agent defaults. It also covers the Z.ai Chat
 Completions-only contract, its provider-specific request fields, and default
-OpenAI-compatible reasoning-effort passthrough.
+OpenAI-compatible reasoning-effort passthrough. Provider fixtures use explicit
+Provider IDs or active Profiles; the retired Auto routing value is covered only
+by migration and rejection tests at the owning boundaries.
 
 Context coverage includes compaction and trimming budgets, estimates of the
 fully assembled provider request (including Responses-native replay), and
@@ -28,4 +30,5 @@ respond. Data-view cases cover successful artifact publication and parseable
 arguments rejected by the native schema. Malformed argument JSON covers both a
 single call and a partially invalid batch, asserting that dispatch is blocked,
 every call ID receives a non-empty error result, and the provider loop
-continues.
+continues. Dispatcher coverage also verifies that retired alternative
+subagent tool names are rejected as unknown instead of reaching execution.
