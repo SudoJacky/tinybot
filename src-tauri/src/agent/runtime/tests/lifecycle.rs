@@ -144,7 +144,7 @@ fn cancellation_during_subagent_wait_prevents_followup_model_call() {
             tool_call: &PreparedToolCall,
         ) -> Result<NativeAgentToolResult, String> {
             let result = self.fallback.dispatch(context, tool_call)?;
-            if matches!(tool_call.name.as_str(), "subagent.wait" | "wait_agent") {
+            if tool_call.name == "subagent.wait" {
                 self.cancellations.cancel(&context.turn_id);
             }
             Ok(result)
@@ -158,7 +158,7 @@ fn cancellation_during_subagent_wait_prevents_followup_model_call() {
             Box<dyn std::future::Future<Output = Result<NativeAgentToolResult, String>> + Send>,
         > {
             let result = self.fallback.dispatch(&context, &tool_call);
-            if !matches!(tool_call.name.as_str(), "subagent.wait" | "wait_agent") {
+            if tool_call.name != "subagent.wait" {
                 return Box::pin(async move { result });
             }
             let cancellations = self.cancellations.clone();

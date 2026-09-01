@@ -11,7 +11,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:a507a1591cef35a0355f425ed189a4ebc476164832abebd1cad5d25a73154534 -->
+<!-- tinybot-doc-fingerprint: sha256:28981d53b7f236386994cee7dbc854ff2bde6367d9229379e7d8e4c3e57b6434 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -45,7 +45,7 @@ Injected dispatcher
     |-- Worker RPC tool executor
     |-- MCP runtime
     |-- native browser
-    |-- shell or subagent adapter
+    |-- shell or runtime-only subagent control adapter
     v
 Typed result + runtime events + durable projection
     |-- run trusted PostToolUse hooks (model feedback/context only)
@@ -103,6 +103,13 @@ This is an allow/deny capability model. A denied or unavailable tool fails
 explicitly; it is not executed through a fallback path. Workspace path guards,
 MCP allowlists, and service-specific authorization remain enforced by the
 owning execution module after generic capability checks.
+
+Model-visible subagent lifecycle tools use their registered dotted methods and
+the Worker RPC executor so lifecycle changes restore from and commit to the
+canonical Thread store. The direct subagent adapter is limited to the
+runtime-only `subagent.query` and `subagent.cancel` controls. Unregistered
+alternative tool names are rejected instead of being normalized into that
+fallback path.
 
 MCP discovery and calls are keyed by the Turn's effective working directory,
 not Tinybot's backend state directory. The dispatcher also reads the current

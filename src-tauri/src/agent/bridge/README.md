@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:1d3971eda1c99f5d39bc3c6e78fc7f72115784f85f026507e8701bc7b4164acd -->
+<!-- tinybot-module-fingerprint: sha256:08e9bfb57e74c1e29338f5b82c4d19a574c9f068ff73be890701b8028e988cca -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -45,6 +45,11 @@ parent Turn's services. When a Graph Agent node targets another workspace, its
 fresh child Turn performs its own project-local MCP merge instead of inheriting
 the parent's workspace-local servers. Parent cancellation is forwarded through
 the Graph Run to the active child Turn.
+
+Registered subagent lifecycle tools execute through Worker RPC so their state
+is restored from and committed to the canonical Thread store. Only the
+runtime-only `subagent.query` and `subagent.cancel` controls use the direct
+subagent dispatcher fallback; unregistered alternative names fail normally.
 
 Changing this order requires care. In particular, a turn must be recoverable
 after its start is visible, and trace flushing must not be reported as success

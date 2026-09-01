@@ -1,10 +1,32 @@
 use super::{
-    apply_turn_working_directory, native_agent_graph_tool_result, native_mcp_failure_result,
+    apply_turn_working_directory, native_agent_graph_tool_result,
+    native_agent_tool_executor_should_fallback, native_mcp_failure_result,
     native_mcp_runtime_error_result, native_mcp_tool_result, native_tool_executor_model_content,
     native_tool_result_from_executor_response, native_web_tool_result,
 };
 use crate::agent::runtime::{NativeAgentToolCall, NativeToolRetry, PreparedToolCall};
 use crate::runtime::mcp::{McpRuntimeError, McpRuntimeErrorKind};
+
+#[test]
+fn retired_subagent_aliases_do_not_bypass_the_tool_executor() {
+    for alias in [
+        "spawn_agent",
+        "send_input",
+        "wait_agent",
+        "close_agent",
+        "resume_agent",
+    ] {
+        assert!(
+            !native_agent_tool_executor_should_fallback(alias),
+            "{alias}"
+        );
+    }
+
+    assert!(native_agent_tool_executor_should_fallback("subagent.query"));
+    assert!(native_agent_tool_executor_should_fallback(
+        "subagent.cancel"
+    ));
+}
 
 #[test]
 fn completed_agent_graph_returns_only_the_final_output_to_the_model() {

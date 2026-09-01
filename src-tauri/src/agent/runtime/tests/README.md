@@ -1,5 +1,5 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:1ed4f3b17cd0742d7ae20f554d6e66d678676974bb8dc00422abb6690a6ad4e7 -->
+<!-- tinybot-module-fingerprint: sha256:c3bc6d2413a5b20d28416904ca64c94c89bf6def828c7ee3fa9a7b5050b0aa03 -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.
@@ -28,4 +28,5 @@ respond. Data-view cases cover successful artifact publication and parseable
 arguments rejected by the native schema. Malformed argument JSON covers both a
 single call and a partially invalid batch, asserting that dispatch is blocked,
 every call ID receives a non-empty error result, and the provider loop
-continues.
+continues. Dispatcher coverage also verifies that retired alternative
+subagent tool names are rejected as unknown instead of reaching execution.

@@ -709,16 +709,7 @@ fn is_persisted_subagent_tool(tool_name: &str) -> bool {
 }
 
 fn native_agent_tool_executor_should_fallback(tool_name: &str) -> bool {
-    matches!(
-        tool_name,
-        "subagent.query"
-            | "subagent.cancel"
-            | "spawn_agent"
-            | "send_input"
-            | "wait_agent"
-            | "close_agent"
-            | "resume_agent"
-    )
+    matches!(tool_name, "subagent.query" | "subagent.cancel")
 }
 
 fn native_tool_executor_result(
