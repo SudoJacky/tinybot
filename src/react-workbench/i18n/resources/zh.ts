@@ -4,7 +4,7 @@ export const zh = {
   common: {
     routes: { chat: "聊天", graphs: "Agent Graph", files: "工作区文件", memory: "记忆", tools: "工具与插件", settings: "设置", performanceTrace: "性能追踪" },
     menu: {
-      app: "应用", resources: "资源", system: "系统", help: "帮助", applicationLabel: "应用菜单", resourcesLabel: "资源菜单", github: "GitHub", openExternal: "在外部浏览器中打开 {{label}}",
+      app: "应用", resources: "资源", system: "系统", help: "帮助", applicationLabel: "应用菜单", resourcesLabel: "资源菜单", openExternal: "在外部浏览器中打开 {{label}}",
       systemLabel: "系统菜单", helpLabel: "帮助菜单", newChat: "新建会话", searchSessions: "搜索会话", stopGeneration: "停止生成",
       toggleTheme: "切换主题", toggleSidebar: "切换侧栏", about: "关于 Tinybot", whatsNew: "更新内容", documentation: "使用文档",
       shortcutHelp: "快捷键", reportIssue: "报告问题", tinybotRepo: "Tinybot 仓库",

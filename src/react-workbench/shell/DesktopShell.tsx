@@ -82,7 +82,6 @@ type TopMenuCommandId =
   | "open-files"
   | "open-graphs"
   | "open-memory"
-  | "open-github"
   | "open-tools"
   | "open-tinybot-repo"
   | "open-settings"
@@ -162,7 +161,6 @@ function createTopMenuItems(
       menuCommand({ id: "open-graphs", label: routeLabels.graphs, route: "graphs" }),
       menuCommand({ id: "open-files", label: routeLabels.files, route: "files" }),
       menuCommand({ id: "open-memory", label: routeLabels.memory, route: "memory" }),
-      menuCommand({ id: "open-github", label: t("menu.github"), externalUrl: TINYBOT_GITHUB_URL }),
       menuCommand({ id: "open-tools", label: routeLabels.tools, route: "tools" }),
     ],
   },

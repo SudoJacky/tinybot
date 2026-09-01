@@ -455,9 +455,10 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     const resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
-    for (const item of ["Chat", "Agent Graphs", "Workspace Files", "Memory", "GitHub", "Tools & Plugins"]) {
+    for (const item of ["Chat", "Agent Graphs", "Workspace Files", "Memory", "Tools & Plugins"]) {
       expect(within(resourcesMenu).getByRole("menuitem", { name: item })).toBeTruthy();
     }
+    expect(within(resourcesMenu).queryByRole("menuitem", { name: "GitHub" })).toBeNull();
     expect(within(resourcesMenu).getByRole("menuitem", { name: "Chat" }).getAttribute("aria-current")).toBe("page");
 
     await user.click(screen.getByRole("button", { name: "System" }));
@@ -491,6 +492,8 @@ describe("DesktopShell", () => {
     expect(within(helpMenu).getByRole("menuitem", { name: "Documentation (F1)" })
       .querySelector(".react-top-menu__external-link")).toBeTruthy();
     expect(within(helpMenu).getByRole("menuitem", { name: "Report an issue" })
+      .querySelector(".react-top-menu__external-link")).toBeTruthy();
+    expect(within(helpMenu).getByRole("menuitem", { name: "Tinybot repository" })
       .querySelector(".react-top-menu__external-link")).toBeTruthy();
   });
 
@@ -754,15 +757,6 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
-    const githubItem = within(resourcesMenu).getByRole("menuitem", { name: "GitHub" });
-    expect(githubItem.getAttribute("title")).toBe("Open GitHub in external browser");
-    expect(githubItem.querySelector(".react-top-menu__external-link")).toBeTruthy();
-    await user.click(githubItem);
-    await waitFor(() => expect(openUrl).toHaveBeenCalledWith("https://github.com/SudoJacky/tinybot"));
-    expect(screen.getByRole("heading", { name: "Memory" })).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "Resources" }));
-    resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
     await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Tools & Plugins" }));
     expect(await screen.findByRole("heading", { name: "Tools & Plugins" })).toBeTruthy();
     expect(await screen.findByText(/review-tools/)).toBeTruthy();
@@ -798,6 +792,12 @@ describe("DesktopShell", () => {
     helpMenu = screen.getByRole("menu", { name: "Help menu" });
     await user.click(within(helpMenu).getByRole("menuitem", { name: "Report an issue" }));
     await waitFor(() => expect(openUrl).toHaveBeenLastCalledWith("https://github.com/SudoJacky/tinybot/issues/new/choose"));
+    expect(screen.getByRole("heading", { name: "Keyboard shortcuts" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Help" }));
+    helpMenu = screen.getByRole("menu", { name: "Help menu" });
+    await user.click(within(helpMenu).getByRole("menuitem", { name: "Tinybot repository" }));
+    await waitFor(() => expect(openUrl).toHaveBeenLastCalledWith("https://github.com/SudoJacky/tinybot"));
     expect(screen.getByRole("heading", { name: "Keyboard shortcuts" })).toBeTruthy();
 
     expect(screen.queryByText(/Vue/i)).toBeNull();

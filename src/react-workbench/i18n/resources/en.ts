@@ -18,7 +18,6 @@ export const en = {
       resourcesLabel: "Resources menu",
       systemLabel: "System menu",
       helpLabel: "Help menu",
-      github: "GitHub",
       openExternal: "Open {{label}} in external browser",
       newChat: "New Chat",
       searchSessions: "Search Sessions",
