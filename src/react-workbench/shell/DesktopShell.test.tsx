@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import userEvent from "@testing-library/user-event";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,9 +26,14 @@ vi.mock("../../app-core/native/desktopNativePluginPicker", () => ({
   pickDesktopPluginMigrationDirectory: vi.fn(),
 }));
 
+vi.mock("@tauri-apps/plugin-opener", () => ({
+  openUrl: vi.fn(async () => undefined),
+}));
+
 beforeEach(() => {
   window.localStorage.clear();
   vi.mocked(pickDesktopPluginMigrationDirectory).mockReset();
+  vi.mocked(openUrl).mockClear();
 });
 afterEach(() => cleanup());
 
@@ -410,7 +416,7 @@ describe("DesktopShell", () => {
     expect(css).toMatch(/\.react-workbench-layout\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s);
     expect(css).toMatch(/\.react-route-surface\s*{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto;/s);
     expect(css).toMatch(/\.react-chat-surface\s*{[^}]*grid-template-rows:\s*45px minmax\(0,\s*1fr\) auto;/s);
-    expect(css).toMatch(/\.react-top-menu__menu-item\[aria-current="page"\]\s*{[^}]*background:/s);
+    expect(css).toMatch(/\.react-popover-item\[aria-current="page"\][^{]*\{[^}]*background:/s);
     expect(css).not.toMatch(/\.react-activity-rail/);
     expect(css).toMatch(/\.react-session-list\s*{[^}]*transition:\s*width var\(--motion-duration-medium\) var\(--motion-ease-standard\);/s);
     expect(css).toMatch(/\.react-session-list\[data-collapsed="true"\]\s*{[^}]*width:\s*64px;/s);
@@ -423,6 +429,8 @@ describe("DesktopShell", () => {
     expect(css).toMatch(/\.react-default-llm-panel\s*{[^}]*border-radius:\s*0;[^}]*background:\s*transparent;/s);
     expect(css).toMatch(/\.react-provider-grid\s*{[^}]*border-top:\s*1px solid var\(--color-hairline\);[^}]*border-bottom:\s*1px solid var\(--color-hairline\);/s);
     expect(css).toMatch(/\.react-provider-card\s*{[^}]*grid-template-columns:\s*minmax\(250px,\s*1\.35fr\) minmax\(150px,\s*0\.8fr\) minmax\(130px,\s*0\.6fr\) auto;/s);
+    expect(css).not.toMatch(/\.react-agent-defaults-form button\s*{/);
+    expect(css).toMatch(/\.react-agent-defaults-form footer > button\s*{/);
     expect(css).toMatch(/\.react-settings-dialog-backdrop\s*{[^}]*place-items:\s*stretch end;/s);
     expect(css).toMatch(/\.react-settings-choice-item \.react-top-menu__menu-label\s*{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) max-content;/s);
   });
@@ -447,9 +455,10 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     const resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
-    for (const item of ["Chat", "Agent Graphs", "Workspace Files", "Memory", "GitHub", "Tools & Plugins"]) {
+    for (const item of ["Chat", "Agent Graphs", "Workspace Files", "Memory", "Tools & Plugins"]) {
       expect(within(resourcesMenu).getByRole("menuitem", { name: item })).toBeTruthy();
     }
+    expect(within(resourcesMenu).queryByRole("menuitem", { name: "GitHub" })).toBeNull();
     expect(within(resourcesMenu).getByRole("menuitem", { name: "Chat" }).getAttribute("aria-current")).toBe("page");
 
     await user.click(screen.getByRole("button", { name: "System" }));
@@ -475,15 +484,17 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Help" }));
     const helpMenu = screen.getByRole("menu", { name: "Help menu" });
-    expect(within(helpMenu).getByRole("menuitem", { name: "Documentation (F1)" })).toBeTruthy();
-    const moreHelp = within(helpMenu).getByRole("menuitem", { name: "More" });
-    expect(moreHelp.getAttribute("aria-haspopup")).toBe("menu");
-
-    await user.click(moreHelp);
-    const moreHelpMenu = screen.getByRole("menu", { name: "More help options" });
-    for (const item of ["Shortcut Help", "Page Help", "Backend Logs", "Open native workbench", "Tinybot repo"]) {
-      expect(within(moreHelpMenu).getByRole("menuitem", { name: new RegExp(item) })).toBeTruthy();
+    for (const item of ["Documentation (F1)", "Keyboard shortcuts", "Report an issue", "Tinybot repository"]) {
+      expect(within(helpMenu).getByRole("menuitem", { name: item })).toBeTruthy();
     }
+    expect(within(helpMenu).getAllByRole("separator")).toHaveLength(1);
+    expect(within(helpMenu).queryByRole("menuitem", { name: "More" })).toBeNull();
+    expect(within(helpMenu).getByRole("menuitem", { name: "Documentation (F1)" })
+      .querySelector(".react-top-menu__external-link")).toBeTruthy();
+    expect(within(helpMenu).getByRole("menuitem", { name: "Report an issue" })
+      .querySelector(".react-top-menu__external-link")).toBeTruthy();
+    expect(within(helpMenu).getByRole("menuitem", { name: "Tinybot repository" })
+      .querySelector(".react-top-menu__external-link")).toBeTruthy();
   });
 
   it("drags the desktop pet and persists its bounded position", () => {
@@ -715,7 +726,7 @@ describe("DesktopShell", () => {
 
   it("renders native-style top menus and functional secondary pages", async () => {
     const user = userEvent.setup();
-    const services = createServices();
+    const services = withFullSettingsRoute(createServices());
     render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
 
     for (const menu of ["App", "Resources", "System", "Help"]) {
@@ -746,11 +757,6 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
-    await user.click(within(resourcesMenu).getByRole("menuitem", { name: "GitHub" }));
-    expect(await screen.findByRole("heading", { name: "GitHub" })).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "Resources" }));
-    resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
     await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Tools & Plugins" }));
     expect(await screen.findByRole("heading", { name: "Tools & Plugins" })).toBeTruthy();
     expect(await screen.findByText(/review-tools/)).toBeTruthy();
@@ -768,13 +774,31 @@ describe("DesktopShell", () => {
     const systemMenu = screen.getByRole("menu", { name: "System menu" });
     await user.click(within(systemMenu).getByRole("menuitem", { name: "Settings (Ctrl+,)" }));
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
-    expect(screen.getByText("Default model")).toBeTruthy();
+    expect((await screen.findByRole("button", { name: "Provider & Models" })).getAttribute("aria-current")).toBe("page");
     expect(screen.queryByText(/placeholder/i)).toBeNull();
 
     await user.click(screen.getByRole("button", { name: "Help" }));
-    const helpMenu = screen.getByRole("menu", { name: "Help menu" });
+    let helpMenu = screen.getByRole("menu", { name: "Help menu" });
     await user.click(within(helpMenu).getByRole("menuitem", { name: "Documentation (F1)" }));
-    expect(await screen.findByRole("heading", { name: "Docs" })).toBeTruthy();
+    await waitFor(() => expect(openUrl).toHaveBeenLastCalledWith("https://github.com/SudoJacky/tinybot#readme"));
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Help" }));
+    helpMenu = screen.getByRole("menu", { name: "Help menu" });
+    await user.click(within(helpMenu).getByRole("menuitem", { name: "Keyboard shortcuts" }));
+    expect(await screen.findByRole("heading", { name: "Keyboard shortcuts" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Help" }));
+    helpMenu = screen.getByRole("menu", { name: "Help menu" });
+    await user.click(within(helpMenu).getByRole("menuitem", { name: "Report an issue" }));
+    await waitFor(() => expect(openUrl).toHaveBeenLastCalledWith("https://github.com/SudoJacky/tinybot/issues/new/choose"));
+    expect(screen.getByRole("heading", { name: "Keyboard shortcuts" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Help" }));
+    helpMenu = screen.getByRole("menu", { name: "Help menu" });
+    await user.click(within(helpMenu).getByRole("menuitem", { name: "Tinybot repository" }));
+    await waitFor(() => expect(openUrl).toHaveBeenLastCalledWith("https://github.com/SudoJacky/tinybot"));
+    expect(screen.getByRole("heading", { name: "Keyboard shortcuts" })).toBeTruthy();
 
     expect(screen.queryByText(/Vue/i)).toBeNull();
   });
@@ -1153,7 +1177,7 @@ describe("DesktopShell", () => {
     });
   });
 
-  it("renders Agent Defaults settings and jumps back to Provider & Models", async () => {
+  it("renders and saves Agent Defaults with timezone suggestions and without removed controls", async () => {
     const user = userEvent.setup();
     const initialConfig = {
       revision: "hash:1",
@@ -1194,15 +1218,15 @@ describe("DesktopShell", () => {
     await user.click(await screen.findByRole("button", { name: "Agent Defaults" }));
 
     expect(await screen.findByRole("heading", { name: "Agent Defaults" })).toBeTruthy();
-    expect(screen.getByText("deepseek-default")).toBeTruthy();
+    expect(screen.queryByText("Fallback provider")).toBeNull();
+    expect(screen.queryByLabelText("Temperature")).toBeNull();
+    expect(screen.queryByText("deepseek-default")).toBeNull();
     expect(screen.queryByText("deepseek-v4-pro")).toBeNull();
-    await user.click(screen.getByRole("button", { name: "Manage providers and models" }));
-    expect(await screen.findByRole("heading", { name: "Provider & Models" })).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "Agent Defaults" }));
-    await user.clear(await screen.findByLabelText("Temperature"));
-    await user.type(screen.getByLabelText("Temperature"), "0.6");
-    await user.clear(screen.getByLabelText("Max output tokens"));
+    expect(screen.getByText(/IANA time zone\. Windows currently uses/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Timezone: Asia/Singapore" }));
+    await user.click(within(screen.getByRole("menu", { name: "Timezone options" }))
+      .getByRole("menuitemradio", { name: "Europe/Paris" }));
+    await user.clear(await screen.findByLabelText("Max output tokens"));
     await user.type(screen.getByLabelText("Max output tokens"), "2048");
     await user.click(screen.getByRole("button", { name: "Context window strategy: Discard old messages" }));
     const strategyMenu = screen.getByRole("menu", { name: "Context window strategy options" });
@@ -1215,8 +1239,7 @@ describe("DesktopShell", () => {
     expect(saveAgentDefaultsSettings.mock.calls[0][1]).toEqual({
       agents: {
         defaults: {
-          timezone: "Asia/Singapore",
-          temperature: 0.6,
+          timezone: "Europe/Paris",
           maxTokens: 2048,
           contextWindowStrategy: "compact",
           maxIterations: 12,

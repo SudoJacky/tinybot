@@ -13,6 +13,14 @@ npm run hooks:install
 The hook installation is per checkout. Platform prerequisites and desktop
 runtime commands are documented in [the desktop development guide](docs/desktop.md).
 
+## Reporting issues
+
+Use the [issue chooser](https://github.com/SudoJacky/tinybot/issues/new/choose)
+to submit a bug report or feature request. Bug reports should include the
+Tinybot and Windows versions, reproducible steps, expected behavior, and any
+relevant logs with credentials and private data removed. Feature requests
+should describe the underlying problem before the proposed solution.
+
 ## Documentation system
 
 Start with the [engineering documentation map](docs/README.md). Tinybot keeps

@@ -2351,17 +2351,17 @@ export function ChatPage({
               <MoreHorizontal aria-hidden="true" size={18} />
             </button>
             {headerMenuOpen ? (
-              <div className="react-menu" role="menu">
-                <button aria-label={activeSession?.pinned ? t("shell.unpin") : t("shell.pin")} role="menuitem" type="button" onClick={() => activeSession && void handlePinConversation(activeSession)}>
+              <div className="react-menu react-popover-surface" role="menu">
+                <button aria-label={activeSession?.pinned ? t("shell.unpin") : t("shell.pin")} className="react-popover-item" role="menuitem" type="button" onClick={() => activeSession && void handlePinConversation(activeSession)}>
                   {activeSession?.pinned ? t("shell.unpin") : t("shell.pin")}
                 </button>
-                <button aria-label={t("shell.rename")} role="menuitem" type="button" onClick={() => activeSession && void handleRenameConversation(activeSession)}>{t("shell.rename")}</button>
-                <button aria-label={t("shell.copyId")} role="menuitem" type="button" onClick={() => activeSession && void handleCopyId(activeSession)}>{t("shell.copyId")}</button>
-                <button aria-label={t("shell.copyMarkdown")} role="menuitem" type="button" onClick={() => activeSession && void handleCopyMarkdown(activeSession)}>{t("shell.copyMarkdown")}</button>
-                <button aria-label={t("shell.archive")} role="menuitem" type="button" onClick={() => activeSession && void handleArchiveConversation(activeSession)}>{t("shell.archive")}</button>
-                <button disabled role="menuitem" type="button">{t("shell.sideChat")}</button>
-                <button disabled role="menuitem" type="button">{t("shell.branch")} <ChevronDown aria-hidden="true" size={14} /></button>
-                <button disabled role="menuitem" type="button">{t("shell.newWindow")}</button>
+                <button aria-label={t("shell.rename")} className="react-popover-item" role="menuitem" type="button" onClick={() => activeSession && void handleRenameConversation(activeSession)}>{t("shell.rename")}</button>
+                <button aria-label={t("shell.copyId")} className="react-popover-item" role="menuitem" type="button" onClick={() => activeSession && void handleCopyId(activeSession)}>{t("shell.copyId")}</button>
+                <button aria-label={t("shell.copyMarkdown")} className="react-popover-item" role="menuitem" type="button" onClick={() => activeSession && void handleCopyMarkdown(activeSession)}>{t("shell.copyMarkdown")}</button>
+                <button aria-label={t("shell.archive")} className="react-popover-item" role="menuitem" type="button" onClick={() => activeSession && void handleArchiveConversation(activeSession)}>{t("shell.archive")}</button>
+                <button className="react-popover-item" disabled role="menuitem" type="button">{t("shell.sideChat")}</button>
+                <button className="react-popover-item" disabled role="menuitem" type="button">{t("shell.branch")} <ChevronDown aria-hidden="true" size={14} /></button>
+                <button className="react-popover-item" disabled role="menuitem" type="button">{t("shell.newWindow")}</button>
               </div>
             ) : null}
           </div>

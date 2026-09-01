@@ -94,6 +94,18 @@ describe("workbench CSS interaction contracts", () => {
     expect(settingsStylesheet).toContain(".react-theme-mode-grid");
   });
 
+  test("uses one shared visual authority for menu popover surfaces and items", () => {
+    const popoverSurfaceRule = shellStylesheet.match(/\.react-popover-surface\s*\{([^}]+)\}/);
+    const popoverItemRule = shellStylesheet.match(/\.react-popover-item\s*\{([^}]+)\}/);
+
+    expect(popoverSurfaceRule?.[1]).toContain("border-radius: 9px");
+    expect(popoverSurfaceRule?.[1]).toContain("padding: 6px");
+    expect(popoverSurfaceRule?.[1]).toContain("box-shadow: 0 18px 42px rgb(20 20 19 / 14%)");
+    expect(popoverItemRule?.[1]).toContain("min-height: 36px");
+    expect(popoverItemRule?.[1]).toContain("border-radius: 7px");
+    expect(shellStylesheet).toMatch(/\.react-popover-item:focus-visible\s*{[^}]*border-color:\s*var\(--color-primary\);/s);
+  });
+
   test("keeps Profile and Chat charts on the shared Lieflat Porcelain palette", () => {
     expect(shellStylesheet).toContain("--lieflat-porcelain-bg: #f7f2eb");
     expect(shellStylesheet).toContain("--lieflat-porcelain-data: #334eac");

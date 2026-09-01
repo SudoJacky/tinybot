@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:1858f38752c361026a6af3be59c616231445ec201c4a35c3d2aaa6229c1a6160 -->
+<!-- tinybot-module-fingerprint: sha256:d72a486d1590a637fe254385a6360590dcb56462c7a0b5d188e4144a0b2353f2 -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,
@@ -33,6 +33,8 @@ and distinguishes a reported zero-percent hit from unavailable usage data.
 Routes may advance the composer's `focusRequestId` after a contextual handoff;
 the shared input then focuses the active editor and places the caret at the end
 without stealing focus again on ordinary controlled-value updates.
+Composer slash, mention, tool, and model menus use the workbench's shared
+popover surface and item states while retaining their richer row layouts.
 
 Route orchestration and domain-specific state stay in `react-workbench` and
 `app-core`; shared UI receives data and actions through explicit props.

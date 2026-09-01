@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   buildAgentDefaultsPatch,
   buildAgentDefaultsSettings,
+  listSupportedTimeZones,
   validateAgentDefaultsInput,
 } from "./agentDefaultsSettings";
 
@@ -21,16 +22,13 @@ describe("agent defaults settings", () => {
           maxIterations: 12,
         },
       },
-    });
+    }, "Europe/Paris");
 
     expect(settings).toMatchObject({
       revision: "hash:1",
-      activeProfileId: "deepseek-default",
-      defaultModel: "deepseek-v4-pro",
       fallbackContextWindowTokens: 128000,
       values: {
         timezone: "Asia/Singapore",
-        temperature: "0.4",
         maxTokens: "4096",
         contextWindowStrategy: "compact",
         maxToolIterations: "12",
@@ -46,9 +44,10 @@ describe("agent defaults settings", () => {
           model: "deepseek-v4-pro",
         },
       },
-    });
+    }, "Asia/Shanghai");
 
     expect(settings.values).toMatchObject({
+      timezone: "Asia/Shanghai",
       maxTokens: "8192",
       contextWindowStrategy: "compact",
       maxToolIterations: "200",
@@ -59,7 +58,6 @@ describe("agent defaults settings", () => {
   test("builds agent defaults patch from valid form values", () => {
     expect(buildAgentDefaultsPatch({
       timezone: "UTC",
-      temperature: "0.2",
       maxTokens: "2048",
       contextWindowStrategy: "compact",
       maxToolIterations: "8",
@@ -67,7 +65,6 @@ describe("agent defaults settings", () => {
       agents: {
         defaults: {
           timezone: "UTC",
-          temperature: 0.2,
           maxTokens: 2048,
           contextWindowStrategy: "compact",
           maxIterations: 8,
@@ -76,44 +73,32 @@ describe("agent defaults settings", () => {
     });
   });
 
-  test("rejects non-numeric temperature values before save", () => {
-    expect(validateAgentDefaultsInput({
-      timezone: "UTC",
-      temperature: "abc",
-      maxTokens: "2048",
-      contextWindowStrategy: "compact",
-      maxToolIterations: "8",
-    })).toEqual({
-      temperature: "temperature-number",
-    });
-    expect(buildAgentDefaultsPatch({
-      timezone: "UTC",
-      temperature: "abc",
-      maxTokens: "",
-      contextWindowStrategy: "discard",
-      maxToolIterations: "",
-    })).toEqual({
-      agents: {
-        defaults: {
-          timezone: "UTC",
-          contextWindowStrategy: "discard",
-        },
-      },
-    });
-  });
-
   test("validates numeric agent defaults before save", () => {
     expect(validateAgentDefaultsInput({
       timezone: "UTC",
-      temperature: "3",
       maxTokens: "0",
       contextWindowStrategy: "invalid",
       maxToolIterations: "-1",
     })).toEqual({
-      temperature: "temperature-range",
       maxTokens: "max-tokens",
       contextWindowStrategy: "context-strategy",
       maxToolIterations: "max-tool-iterations",
     });
+  });
+
+  test("rejects an invalid timezone before save", () => {
+    expect(validateAgentDefaultsInput({
+      timezone: "Shanghai",
+      maxTokens: "2048",
+      contextWindowStrategy: "compact",
+      maxToolIterations: "8",
+    })).toEqual({ timezone: "timezone" });
+  });
+
+  test("lists the configured, Windows, UTC, and standard IANA timezones", () => {
+    const timezones = listSupportedTimeZones("Europe/Paris", "Asia/Shanghai");
+
+    expect(timezones.slice(0, 3)).toEqual(["Europe/Paris", "Asia/Shanghai", "UTC"]);
+    expect(timezones.length).toBeGreaterThan(3);
   });
 });

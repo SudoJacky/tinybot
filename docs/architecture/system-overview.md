@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:d1f72b9227c5de7167f23a36853a7f1fb7f0167ef71397df94943f07b8e78a18 -->
+<!-- tinybot-doc-fingerprint: sha256:483609690b2e7776906bad4dd1ce41560d0a0c5b07820e6e665e874f0fc1f106 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -50,7 +50,7 @@ Desktop Commands / Desktop Host
 
 | Module | Owns | Does not own |
 | --- | --- | --- |
-| `react-workbench` | React routes, presentation, route state | Native transport or durable domain state |
+| `react-workbench` | React routes, presentation, route state, and shared menu-popover primitives | Native transport or durable domain state |
 | `react-workbench/agent-graph` | Standalone Agent Graph library and unbounded spatial canvas, node configuration, Run history, and per-node inspection | Chat route state or native execution rules |
 | `react-workbench/sidecar` | Resource tabs, scope filtering, and Browser, Terminal, or contextual Artifact presentation | Native Browser or Terminal lifecycle, Artifact domain state, or workspace file authorization |
 | `app-core` | Framework-independent contracts, validation, commands, and projections | React rendering or Tauri invocation |

@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:d0f1a44ef14338ba91906fddc5d855131404ec4bd11b8a057a2d57bde07e820d -->
+<!-- tinybot-module-fingerprint: sha256:e45490825b113653564223b9f34b5b4b89e3a4cadb163351bb59846e4f58c284 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -65,6 +65,9 @@ Skill creates an atomic removable token inline with the user's editable text and
 through `selectedSkills`; Rust resolves and injects the full Skill document
 while assembling the native Turn request, so the visible user message remains
 unchanged.
+Chat header, session, composer, model, tool, and Sidecar resource menus share
+the workbench popover shell and interaction states; scenario-owned CSS defines
+only placement and rich-row layout.
 Chat also maps the active workspace's callable catalog into composer tool
 controls. Saved Agent Graphs appear only when the conversation has that exact
 working directory. The submitted `selectedTools` list preserves every toggle,

@@ -154,10 +154,6 @@
   justify-self: end;
 }
 
-.react-settings-choice-item[aria-checked="true"] {
-  background: var(--color-surface-card);
-}
-
 .react-settings-choice-item svg {
   color: var(--color-primary-active);
 }

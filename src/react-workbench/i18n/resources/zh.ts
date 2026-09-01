@@ -2,13 +2,12 @@ import type { en, TranslationResourceShape } from "./en";
 
 export const zh = {
   common: {
-    routes: { chat: "聊天", graphs: "Agent Graph", files: "工作区文件", memory: "记忆", github: "GitHub", docs: "文档", tools: "工具与插件", settings: "设置", performanceTrace: "性能追踪" },
+    routes: { chat: "聊天", graphs: "Agent Graph", files: "工作区文件", memory: "记忆", tools: "工具与插件", settings: "设置", performanceTrace: "性能追踪" },
     menu: {
-      app: "应用", resources: "资源", system: "系统", help: "帮助", applicationLabel: "应用菜单", resourcesLabel: "资源菜单",
+      app: "应用", resources: "资源", system: "系统", help: "帮助", applicationLabel: "应用菜单", resourcesLabel: "资源菜单", openExternal: "在外部浏览器中打开 {{label}}",
       systemLabel: "系统菜单", helpLabel: "帮助菜单", newChat: "新建会话", searchSessions: "搜索会话", stopGeneration: "停止生成",
-      toggleTheme: "切换主题", toggleSidebar: "切换侧栏", about: "关于 Tinybot", whatsNew: "更新内容", documentation: "使用文档", more: "更多",
-      moreHelpLabel: "更多帮助选项", shortcutHelp: "快捷键帮助", pageHelp: "页面帮助", backendLogs: "后端日志",
-      openNativeWorkbench: "打开原生工作台", tinybotRepo: "Tinybot 仓库",
+      toggleTheme: "切换主题", toggleSidebar: "切换侧栏", about: "关于 Tinybot", whatsNew: "更新内容", documentation: "使用文档",
+      shortcutHelp: "快捷键", reportIssue: "报告问题", tinybotRepo: "Tinybot 仓库",
     },
     shell: {
       frame: "Tinybot 桌面窗口框架", pageHistory: "页面历史", back: "后退", goBack: "返回上一页", forward: "前进", goForward: "前往下一页",
@@ -138,7 +137,6 @@ export const zh = {
       enabled: "已启用", disabled: "已停用", removeLabel: "移除 {{name}}", remove: "移除", removeConfirmation: "移除 {{name}}？插件数据会保留。",
     },
     settingsFallbackEmpty: "没有可显示的设置摘要。",
-    placeholder: "此 React 占位页会在对应页面重建期间保持导航可用。",
     deferredSurface: { loading: "正在加载{{name}}…", loadFailed: "无法加载{{name}}：{{message}}", retry: "重新加载{{name}}" },
     fatal: { title: "Tinybot 界面崩溃", unexpected: "渲染器发生意外错误。", crashId: "崩溃 ID：{{id}}", reload: "重新加载" },
     generic: { later: "稍后", cancel: "取消", retry: "重试", refresh: "刷新", save: "保存", saving: "正在保存", close: "关闭" },
@@ -350,19 +348,17 @@ export const zh = {
         "toggle-theme": { label: "切换主题", description: "在浅色与深色主题之间切换。" },
         "toggle-sidebar": { label: "切换侧栏", description: "显示或隐藏会话侧栏。" },
         "open-settings": { label: "打开设置", description: "打开 Tinybot 设置。" },
-        "open-docs": { label: "文档", description: "打开文档页面。" },
+        "open-docs": { label: "文档", description: "在系统浏览器中打开 Tinybot 文档。" },
       },
     },
     agent: {
       loading: "正在加载 Agent 默认设置…", title: "Agent 默认设置", description: "会话未指定值时使用的运行时兜底配置和执行上限。",
-      fallbackTitle: "兜底 Provider", fallbackDescription: "模型由每个会话选择；请在 Provider 与模型中管理连接和每个模型的上下文窗口。", activeProfile: "当前 Profile",
-      notConfigured: "未配置", manageProviders: "管理 Provider 与模型", providerModels: "Provider 与模型", runtime: "运行时",
-      timezone: "时区", temperature: "Temperature", maxTokens: "最大输出 Token",
+      runtime: "运行时", timezone: "时区", timezoneDescription: "IANA 标准时区；Windows 当前使用 {{timezone}}。", maxTokens: "最大输出 Token",
       contextStrategy: "上下文窗口策略", discard: "丢弃旧消息", discardDescription: "保持当前上下文精简。", compact: "压缩旧消息",
       compactDescription: "裁剪前先总结较早的会话。", maxToolIterations: "最大工具迭代次数", revision: "配置版本 {{revision}}", saveLabel: "保存 Agent 默认设置",
       saving: "正在保存…", saved: "已保存", saveFailed: "保存失败：{{message}}",
       validation: {
-        temperatureNumber: "Temperature 必须是 0 到 2 之间的数字。", temperatureRange: "Temperature 必须在 0 到 2 之间。",
+        timezone: "请选择有效的 IANA 标准时区。",
         maxTokens: "最大输出 Token 必须是正整数。",
         contextStrategy: "上下文窗口策略必须是丢弃或压缩。", maxToolIterations: "最大工具迭代次数必须是正整数。",
       },

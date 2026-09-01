@@ -307,19 +307,55 @@ button:disabled {
   background: var(--color-surface-card);
 }
 
-.react-top-menu__popover {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  z-index: 40;
+.react-popover-surface {
   display: grid;
   gap: 0;
-  width: 238px;
   border: 1px solid var(--color-hairline);
   border-radius: 9px;
   background: var(--color-panel);
   padding: 6px;
   box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
+}
+
+.react-popover-item {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  padding: 6px 10px;
+  color: var(--color-ink);
+  text-align: left;
+}
+
+.react-popover-item:hover,
+.react-popover-item:focus-visible,
+.react-popover-item[aria-expanded="true"] {
+  background: var(--color-surface-soft);
+}
+
+.react-popover-item:focus-visible {
+  border-color: var(--color-primary);
+  outline: none;
+}
+
+.react-popover-item[aria-checked="true"],
+.react-popover-item[aria-current="page"],
+.react-popover-item[aria-selected="true"] {
+  background: var(--color-surface-card);
+}
+
+.react-popover-item:disabled {
+  background: transparent;
+  color: var(--color-muted);
+}
+
+.react-top-menu__popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  width: 238px;
   opacity: 1;
   transform: translateY(0) scale(1);
   transform-origin: top left;
@@ -333,35 +369,9 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) max-content;
   align-items: center;
   gap: 16px;
-  width: 100%;
-  min-height: 34px;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  padding: 5px 11px;
-  color: var(--color-ink);
   cursor: default;
   font-size: 13px;
   line-height: 1.25;
-  text-align: left;
-}
-
-.react-top-menu__menu-item:hover,
-.react-top-menu__menu-item:focus-visible,
-.react-top-menu__menu-item[aria-expanded="true"] {
-  background: var(--color-surface-soft);
-}
-
-.react-top-menu__menu-item[aria-current="page"] {
-  background: var(--color-surface-card);
-}
-
-.react-top-menu__menu-item:focus-visible {
-  border-color: var(--color-primary);
-}
-
-.react-top-menu__menu-item:disabled {
-  background: transparent;
-  color: var(--color-muted);
 }
 
 .react-top-menu__separator {
@@ -370,49 +380,15 @@ button:disabled {
   background: var(--color-hairline);
 }
 
-.react-top-menu__submenu {
-  position: relative;
-}
-
-.react-top-menu__submenu-trigger {
-  grid-template-columns: minmax(0, 1fr) 16px;
-}
-
-.react-top-menu__submenu-arrow {
-  color: var(--color-muted);
-}
-
-.react-top-menu__submenu-popover {
-  position: absolute;
-  top: -6px;
-  left: calc(100% + 6px);
-  z-index: 45;
-  display: grid;
-  width: 238px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 9px;
-  background: var(--color-panel);
-  padding: 6px;
-  box-shadow: 0 18px 42px rgb(20 20 19 / 14%);
-  opacity: 1;
-  transform: translateY(0) scale(1);
-  transform-origin: top left;
-  transition:
-    opacity var(--motion-duration-fast) var(--motion-ease-standard),
-    transform var(--motion-duration-fast) var(--motion-ease-standard);
-}
-
 @starting-style {
   .react-top-menu__popover,
-.react-top-menu__submenu-popover,
-.react-menu {
+  .react-menu {
     opacity: 0;
     transform: translateY(-4px) scale(.98);
   }
 }
 
-.react-desktop-shell[data-menu-motion="keyboard"] .react-top-menu__popover,
-.react-desktop-shell[data-menu-motion="keyboard"] .react-top-menu__submenu-popover {
+.react-desktop-shell[data-menu-motion="keyboard"] .react-top-menu__popover {
   transition-duration: 0ms;
 }
 
@@ -433,6 +409,10 @@ button:disabled {
 
 .react-top-menu__current {
   color: var(--color-primary);
+}
+
+.react-top-menu__external-link {
+  color: var(--color-muted);
 }
 
 .react-top-menu__shortcut {
@@ -811,37 +791,17 @@ button:disabled {
   z-index: 30;
   top: 36px;
   right: 0;
-  display: grid;
   width: 196px;
-  padding: 5px;
-  border: 1px solid var(--color-line);
-  border-radius: 9px;
-  background: var(--color-panel);
-  box-shadow: 0 10px 24px rgb(66 53 40 / 13%);
 }
 
 .react-session-list__workspace-menu button {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 36px;
-  padding: 0 9px;
-  color: var(--color-ink);
   font-size: 11px;
-  text-align: left;
 }
 
-.react-session-list__workspace-menu button:hover,
-.react-session-list__workspace-menu button:focus-visible {
-  background: var(--color-cream-strong);
-}
-
-.react-session-list__workspace-menu button:disabled {
-  color: var(--color-muted-soft);
-}
-
-.react-session-list__header h2,
-.react-placeholder-page h1 {
+.react-session-list__header h2 {
   margin: 0;
   color: var(--color-ink);
   font-size: 15px;
@@ -1811,15 +1771,9 @@ button:disabled {
   top: calc(100% + 5px);
   right: 0;
   z-index: 20;
-  display: grid;
   width: min(280px, 42vw);
   max-height: min(360px, 60vh);
   overflow: auto;
-  padding: 6px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--color-panel) 94%, var(--color-canvas));
-  box-shadow: 0 18px 44px rgb(61 50 39 / 13%);
 }
 
 .react-session-tabs__menu button {
@@ -1829,11 +1783,6 @@ button:disabled {
   gap: 8px;
   min-height: 40px;
   padding: 8px 10px;
-  text-align: left;
-}
-
-.react-session-tabs__menu button[aria-current="page"] {
-  background: var(--color-cream-strong);
 }
 
 .react-session-tabs__menu button span {
@@ -1857,13 +1806,7 @@ button:disabled {
   top: calc(100% + 6px);
   right: 0;
   z-index: 10;
-  display: grid;
   min-width: 210px;
-  padding: 6px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  background: var(--color-panel);
-  box-shadow: 0 18px 44px rgb(20 20 19 / 12%);
   opacity: 1;
   transform: translateY(0) scale(1);
   transform-origin: top right;
@@ -1877,20 +1820,10 @@ button:disabled {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 10px;
-  text-align: left;
 }
 
 .react-empty-state {
   min-height: 1.5em;
-}
-
-.react-placeholder-page {
-  display: grid;
-  align-content: center;
-  justify-items: start;
-  min-height: 100%;
-  padding: 40px;
 }
 
 .react-workbench-page {
@@ -1990,7 +1923,6 @@ button:disabled {
   display: none;
 }
 
-.react-placeholder-page p,
 .react-empty-state {
   color: var(--color-muted);
 }
@@ -2181,8 +2113,7 @@ button:disabled {
   }
 
   .react-top-menu__popover,
-.react-top-menu__submenu-popover,
-.react-menu {
+  .react-menu {
     transform: none;
     transition-duration: 140ms;
   }

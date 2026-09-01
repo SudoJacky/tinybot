@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:62af7594155fa91579169b95744ce61bab65d954bedd51a6f97869ed0c5e13ac -->
+<!-- tinybot-module-fingerprint: sha256:32503b00bafe084b0a66554d5ce087a96a1ccde23c8f6c4ecd626d4362e827ff -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
@@ -18,6 +18,10 @@ remain untranslated.
 
 User-visible copy belongs in `resources/`. Domain identifiers, persisted
 values, protocol fields, and diagnostic codes must remain language-neutral.
+External menu actions localize their system-browser title while repository URLs
+remain language-neutral constants. Help-menu labels for documentation, issue
+reporting, the shortcut settings module, and the repository follow the same
+renderer-owned localization boundary.
 The Tools & Plugins resource-view labels, Skill/MCP descriptions, and empty
 states are localized here; Skill names, MCP IDs, and source paths remain
 language-neutral. Chat also localizes the slash-menu Skills heading, workspace
@@ -30,6 +34,8 @@ Provider model settings also localize automatic, fallback, and custom
 context-window modes, enabled-model counts, image-input controls, and the
 unsupported-image composer message while model IDs and numeric limits stay
 language-neutral.
+Agent Defaults localizes the system-time-zone hint while persisted IANA zone
+identifiers remain untranslated.
 Language-picker option names and descriptions use each target language's own
 copy (endonyms) instead of following the currently active interface language.
 Sidecar copy lives under the owning `chat` route namespace, including Terminal shell
