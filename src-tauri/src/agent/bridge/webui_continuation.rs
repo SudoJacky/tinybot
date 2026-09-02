@@ -4,13 +4,14 @@ use crate::agent::bridge::{
     persist_native_agent_turn_terminal_if_present,
 };
 use crate::agent::runtime::{
-    run_native_agent_turn_with_workspace_async, NativeAgentRuntimeServices,
+    run_native_agent_turn_with_workspace_async, NativeAgentRuntimeServices, NativeAgentTraceSink,
 };
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
 use crate::threads::workspace_store::WorkspaceThreadStore;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 #[cfg(test)]
 #[path = "webui_continuation_tests.rs"]
@@ -48,6 +49,7 @@ pub(crate) async fn resolve_agent_ui_form_body_with_services(
     cancelled: bool,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
+    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<(u16, serde_json::Value), String> {
     let thread_store = base_services.thread_store()?;
     let session_key = agent_ui_form_session_key(body).unwrap_or_default();
@@ -103,6 +105,7 @@ pub(crate) async fn resolve_agent_ui_form_body_with_services(
         cancelled,
         workspace_root,
         config_snapshot,
+        live_trace_sink,
     )
     .await?;
     Ok((200, continuation))
@@ -193,6 +196,13 @@ pub(crate) fn native_agent_ui_form_continuation_spec(
         .filter(|value| !value.trim().is_empty())
     {
         metadata["commandId"] = serde_json::Value::String(command_id.to_string());
+        metadata["_threadCommand"] = serde_json::json!({
+            "commandId": command_id,
+            "commandKind": if cancelled { "form.cancel" } else { "form.submit" },
+            "form": { "formId": form_id },
+            "source": body.get("source").cloned().unwrap_or(serde_json::Value::Null),
+            "target": body.get("target").cloned().unwrap_or(serde_json::Value::Null),
+        });
     }
     copy_thread_id_to_continuation_metadata(&mut metadata, checkpoint, body);
     if let Some(final_content) = body
@@ -258,6 +268,7 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
     cancelled: bool,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
+    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<serde_json::Value, String> {
     let thread_store = base_services.thread_store()?;
     let continuation_spec =
@@ -271,12 +282,17 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
     .with_context_checkpoint_committer(native_agent_context_checkpoint_committer(
         thread_store.clone(),
         config_snapshot.clone(),
-    ))
-    .with_trace_sink(native_agent_trace_sink(
-        thread_store.clone(),
-        config_snapshot.clone(),
-        None,
     ));
+    let services = match live_trace_sink {
+        Some(live_trace_sink) => services.with_trace_sink(native_agent_trace_sink(
+            thread_store.clone(),
+            config_snapshot.clone(),
+            Some(live_trace_sink),
+        )),
+        None => services.with_trace_sink_if_missing(|| {
+            native_agent_trace_sink(thread_store.clone(), config_snapshot.clone(), None)
+        }),
+    };
     let turn_result = run_native_agent_turn_with_workspace_async(
         &services,
         continuation_spec.clone(),

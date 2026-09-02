@@ -10,7 +10,7 @@ src/app-core/native/desktopNativeWorkspaceRegistry.ts
 src/app-core/native/desktopNativeWebui.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:a323b020bca237c6057b7ce41d40f02d0541c050c32fdba15832b7b387b52969 -->
+<!-- tinybot-doc-fingerprint: sha256:f7aaf122e056ebd75c39ec82c8f7348a08b72c5f8085794ebdc94202b5b6561d -->
 
 This document describes the API surfaces exposed by the Rust/Tauri backend in `src-tauri`.
 It is intended for frontend callers and integrators who need command names, invocation
@@ -132,7 +132,7 @@ Prefer these wrappers instead of direct command strings:
 | `createDesktopNativePetQuickChatHost` / quick-chat clients | `src/app-core/native/desktopNativePetQuickChat.ts` | Validated desktop-pet draft-and-attachment handoff, panel presentation, dismissal, and explicit Thread handoff to `main` through scoped Tauri events |
 | `createDesktopNativePerformanceTraceApi` | `src/app-core/native/desktopNativePerformanceTrace.ts` | Process-local performance snapshots, Windows Rust/WebView2 memory sampling, native JSON save, and diagnostic-bundle export |
 | `createDesktopNativeUpdateClient` | `src/app-core/native/desktopNativeUpdate.ts` | Desktop update status, check, install, and status events |
-| `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread and Turn timeline, effective-capability queries, and typed operation retry |
+| `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread and Turn timeline, effective-capability queries, correlated form resolution, and typed operation retry |
 | `createDesktopNativeTerminalApi` | `src/app-core/native/desktopNativeTerminal.ts` | User-only Sidecar terminal lifecycle and PTY input/output |
 | `createDesktopNativeWorkspaceApi` | `src/app-core/native/desktopNativeWorkspace.ts` | Default-workspace browsing plus Thread-scoped file chunks for contextual Artifact previews |
 | `createDesktopNativeWorkspaceRegistryApi` | `src/app-core/native/desktopNativeWorkspaceRegistry.ts` | Imported-workspace list, register, display-name rename, and non-destructive forget |

@@ -102,6 +102,7 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
     struct RequestInputThenReadProvider {
         calls: AtomicUsize,
         resumed_messages: Arc<Mutex<Vec<Value>>>,
+        trace_events: Arc<Mutex<Vec<AgentRuntimeEventEnvelope>>>,
     }
 
     impl NativeAgentProvider for RequestInputThenReadProvider {
@@ -137,6 +138,18 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
                     }],
                 }),
                 1 => {
+                    if !self
+                        .trace_events
+                        .lock()
+                        .expect("trace events lock should not be poisoned")
+                        .iter()
+                        .any(|event| event.event_name == "agent.command.acknowledged")
+                    {
+                        return Err(
+                            "form continuation reached the provider before command acknowledgement"
+                                .to_string(),
+                        );
+                    }
                     *self
                         .resumed_messages
                         .lock()
@@ -167,16 +180,23 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
     }
 
     let resumed_messages = Arc::new(Mutex::new(Vec::new()));
+    let trace_events = Arc::new(Mutex::new(Vec::new()));
+    let trace_sink = Arc::new(RecordingTraceSink {
+        events: trace_events.clone(),
+        ..RecordingTraceSink::default()
+    });
     let services = NativeAgentRuntimeServices::new(
         Arc::new(RequestInputThenReadProvider {
             calls: AtomicUsize::new(0),
             resumed_messages: resumed_messages.clone(),
+            trace_events,
         }),
         Arc::new(FakeNativeAgentToolDispatcher),
         Arc::new(InMemoryNativeAgentCheckpointStore::default()),
         Arc::new(InMemoryNativeAgentCancellation::default()),
     )
-    .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]));
+    .with_test_tool_registry_entries(test_registry_with_model_tools(&["workspace.read_file"]))
+    .with_trace_sink(trace_sink);
 
     let waiting = run_native_agent_turn_with_config(
         &services,
@@ -223,6 +243,16 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
             "sessionId": "session-user-input",
             "maxIterations": 4,
             "metadata": {
+                "_threadCommand": {
+                    "commandId": "command-form-1",
+                    "commandKind": "form.submit",
+                    "form": { "formId": "user-input:clarify-1" },
+                    "source": { "control": "chat-form", "surface": "chat" },
+                    "target": {
+                        "sessionId": "session-user-input",
+                        "turnId": "turn-user-input"
+                    }
+                },
                 "agentContinuation": {
                     "kind": "form",
                     "formId": "user-input:clarify-1",
@@ -255,6 +285,14 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
         .expect("runtime events should be an array")
         .iter()
         .any(|event| event["eventName"] == "agent.form.resolution"));
+    assert!(resumed["runtimeEvents"]
+        .as_array()
+        .expect("runtime events should be an array")
+        .iter()
+        .any(|event| {
+            event["eventName"] == "agent.form.resolution"
+                && event["payload"]["commandId"] == "command-form-1"
+        }));
     let messages = resumed_messages
         .lock()
         .expect("resumed messages lock should not be poisoned");

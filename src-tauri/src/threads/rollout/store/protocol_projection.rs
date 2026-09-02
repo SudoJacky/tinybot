@@ -176,9 +176,13 @@ fn enrich_response_items(
             let is_assistant_message = object.get("type").and_then(Value::as_str)
                 == Some("message")
                 && object.get("role").and_then(Value::as_str) == Some("assistant");
+            let is_reasoning = object.get("type").and_then(Value::as_str) == Some("reasoning");
             if contains_assistant_message && is_assistant_message {
                 insert_if_missing(object, "modelCallId", model_call_id.as_ref());
                 insert_if_missing(object, "phase", message_phase.as_ref());
+            }
+            if contains_assistant_message && is_reasoning {
+                insert_if_missing(object, "modelCallId", model_call_id.as_ref());
             }
             if preserve_event_identity || (contains_assistant_message && is_assistant_message) {
                 if let Some(sequence) = sequence {
@@ -588,6 +592,9 @@ pub(super) fn semantic_thread_item_from_runtime_event(
         }
         AgentEventKind::Usage => {
             crate::threads::domain::ThreadItemKind::Event(compact_persisted_usage_event(event))
+        }
+        AgentEventKind::ReasoningCompleted if api_mode == SessionApiMode::Responses => {
+            crate::threads::domain::ThreadItemKind::Event(event.clone())
         }
         AgentEventKind::ToolCallDelta if api_mode == SessionApiMode::Responses => {
             crate::threads::domain::ThreadItemKind::Event(event.clone())

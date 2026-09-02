@@ -582,7 +582,19 @@ fn native_turn_projects_core_canonical_timeline_equally_live_and_after_reload() 
             .count(),
         2
     );
-    assert!(items.iter().all(|item| item["kind"] != "reasoning"));
+    let reasoning = items
+        .iter()
+        .find(|item| item["kind"] == "reasoning")
+        .expect("canonical reasoning item should exist");
+    assert_eq!(reasoning["status"], "completed");
+    assert_eq!(
+        reasoning["data"]["summary"],
+        "Inspect the referenced inputs"
+    );
+    assert!(recorded_patches.iter().any(|patch| {
+        patch.item.kind == crate::agent::runtime_protocol::AgentTurnItemKind::Reasoning
+            && patch.item.status == crate::agent::runtime_protocol::AgentTurnItemStatus::Running
+    }));
     assert!(items.iter().any(|item| {
         item["kind"] == "tool_call"
             && item["status"] == "completed"

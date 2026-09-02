@@ -565,7 +565,7 @@ export const zh = {
       dotDateLegend: "每个点代表一个日期 · 空心代表周末", dotRecordLegend: "每个点代表一条记录",
       hairlineDateLegend: "每根发丝线代表一个日期", hairlineRecordLegend: "每根发丝线代表一条记录",
     },
-    reasoning: { label: "思考过程", thinking: "正在思考", underSecond: "思考了不到 1 秒", seconds: "思考了 {{count}} 秒" },
+    reasoning: { label: "思考过程", thinking: "正在思考", thinkingSeconds: "思考 {{count}} 秒", underSecond: "思考了不到 1 秒", seconds: "思考了 {{count}} 秒" },
     context: { attachments: "附件", context: "上下文" },
     steps: { count: "{{count}} 个步骤", title: "执行详情", label: "Agent 步骤", openDetails: "打开 {{name}} 的详情", status: { active: "执行中", success: "已完成", waiting: "等待确认", cancelled: "已取消", error: "失败", pending: "待执行" } },
     details: {

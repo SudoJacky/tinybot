@@ -62,8 +62,15 @@ export type NativeThreadTurnResult = {
 };
 
 export type NativeThreadFormInput = {
+  commandId: string;
   threadId: string;
   formId: string;
+  source: Record<string, unknown>;
+  target: {
+    sessionId: string;
+    turnId: string;
+    threadId?: string;
+  };
   values: Record<string, unknown>;
   action: "submit" | "cancel";
 };

@@ -111,6 +111,7 @@ fn persisted_semantic_event(value: &Value) -> Option<(AgentEventKind, Value)> {
             kind @ (AgentEventKind::ContextCompacted
             | AgentEventKind::ContextTrimmed
             | AgentEventKind::PlanProgress
+            | AgentEventKind::ReasoningCompleted
             | AgentEventKind::Usage
             | AgentEventKind::ToolCallDelta),
         ) => kind,
@@ -130,21 +131,32 @@ fn context_checkpoint(value: &Value) -> &Value {
 }
 
 fn reasoning_response_text(value: &Value) -> String {
-    if let Some(text) = value
+    let summary = value
         .get("summary")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|entry| entry.get("text").and_then(Value::as_str))
-        .next()
-    {
-        return text.to_string();
+        .map(response_content_text)
+        .unwrap_or_default();
+    if !summary.trim().is_empty() {
+        return summary;
     }
     value
-        .get("summary")
-        .and_then(Value::as_str)
+        .get("content")
+        .map(response_content_text)
         .unwrap_or_default()
-        .to_string()
+}
+
+fn response_content_text(content: &Value) -> String {
+    match content {
+        Value::String(content) => content.clone(),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|part| {
+                part.as_str()
+                    .or_else(|| part.get("text").and_then(Value::as_str))
+            })
+            .collect(),
+        Value::Null => String::new(),
+        content => content.to_string(),
+    }
 }
 
 fn normalized_response_tool_output(value: &Value) -> Value {
@@ -312,18 +324,10 @@ fn normalized_subagent_message_payload(item: &ThreadItem, value: &Value) -> Valu
 }
 
 fn response_item_text(value: &Value) -> String {
-    match value.get("content") {
-        Some(Value::String(content)) => content.clone(),
-        Some(Value::Array(parts)) => parts
-            .iter()
-            .filter_map(|part| {
-                part.as_str()
-                    .or_else(|| part.get("text").and_then(Value::as_str))
-            })
-            .collect(),
-        Some(Value::Null) | None => String::new(),
-        Some(content) => content.to_string(),
-    }
+    value
+        .get("content")
+        .map(response_content_text)
+        .unwrap_or_default()
 }
 
 pub(crate) fn runtime_events_from_thread_items(
@@ -344,6 +348,25 @@ pub(crate) fn runtime_events_from_thread_items(
                     payload
                         .get("toolCallId")
                         .or_else(|| payload.get("tool_call_id"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+                .flatten()
+        })
+        .collect::<HashSet<_>>();
+    let persisted_reasoning_model_call_ids = items
+        .iter()
+        .filter(|item| item.turn_id == turn_id)
+        .filter_map(|item| match &item.kind {
+            ThreadItemKind::Event(value) => persisted_semantic_event(value),
+            _ => None,
+        })
+        .filter_map(|(kind, payload)| {
+            (kind == AgentEventKind::ReasoningCompleted)
+                .then(|| {
+                    payload
+                        .get("modelCallId")
+                        .or_else(|| payload.get("model_call_id"))
                         .and_then(Value::as_str)
                         .map(str::to_string)
                 })
@@ -372,6 +395,19 @@ pub(crate) fn runtime_events_from_thread_items(
         .filter(|item| {
             !matches!(&item.kind, ThreadItemKind::ToolCallStarted(_))
                 || !persisted_tool_call_ids.contains(&semantic_item_id(item))
+        })
+        .filter(|item| {
+            !matches!(
+                &item.kind,
+                ThreadItemKind::Reasoning(value)
+                    if value
+                        .get("modelCallId")
+                        .or_else(|| value.get("model_call_id"))
+                        .and_then(Value::as_str)
+                        .is_some_and(|model_call_id| {
+                            persisted_reasoning_model_call_ids.contains(model_call_id)
+                        })
+            )
         })
         .filter(|item| {
             !has_persisted_context_event

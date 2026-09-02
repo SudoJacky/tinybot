@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:4ed79a458e7e7831015c3d7ce667c9f7c5f52b9de040728b792285bee2a2adcc -->
+<!-- tinybot-module-fingerprint: sha256:9b6178cf15fdb2a890ecf81d656527826117c25bd6423f30a5bdd400f24d9d02 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App` for the main window and selects lightweight
@@ -92,3 +92,6 @@ unavailability explicitly.
 Native Chat submission failures reload the canonical timeline before emitting
 the renderer error. This projects a backend-persisted failed Turn immediately
 instead of leaving the optimistic active state visible until restart.
+Form commands retain their command, source, and target correlation through the
+native boundary. Their lifecycle consumes the live canonical acknowledgement
+without waiting for the resumed Agent response to finish.

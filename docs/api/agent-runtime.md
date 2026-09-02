@@ -6,7 +6,7 @@ src-tauri/src/agent/runtime_protocol_tests.rs
 src-tauri/src/desktop_commands/runtime.rs
 src-tauri/src/desktop_commands/runtime_tests.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:235818abc2ad9e0dde6ce3eb00873aaa5146ecb92997dc9b8114175c1dce587c -->
+<!-- tinybot-doc-fingerprint: sha256:9e552cfed08bc790fb07e09472ce31508af89aad8169407cadb554539d42b284 -->
 
 This document covers native Agent turn execution and provider-facing behavior.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -210,5 +210,7 @@ after its active Turn stops, continue the conversation through the normal compos
 
 `request_user_input` creates an `awaiting_form` checkpoint and returns
 `stopReason: "awaiting_form"`. `worker_submit_thread_form` must use its matching `threadId` and
-`formId`; submitting resumes the same provider chain, while cancellation returns
-`stopReason: "form_cancelled"`.
+`formId`. The runtime emits a correlated `agent.command.acknowledged` event after accepting the
+resolution and before any resumed provider request, so transport callers do not wait for the
+provider response to confirm submission. Submitting resumes the same provider chain, while
+cancellation returns `stopReason: "form_cancelled"`.

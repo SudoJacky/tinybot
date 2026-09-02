@@ -1,5 +1,5 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:6169084176009b5e15308c8d45ae2e2ab380c129481307ce8d5e4d0dc83b1dc0 -->
+<!-- tinybot-module-fingerprint: sha256:6ea8ebffc88aec3e373ea73cd17542cd4177cb5386e108c0d8b2b05837a380f8 -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,
@@ -59,5 +59,7 @@ derivation, containment, size, and revision checks there; the command layer
 only resolves and validates the workspace.
 
 Chat creation, cancellation, form resolution, and operation retry use typed
-Thread commands. Retry validates the failed source Turn and canonical Item
-before starting a new correlated Agent turn.
+Thread commands. Form resolution forwards command correlation and the live
+desktop trace sink so acceptance is visible before the resumed provider call
+finishes. Retry validates the failed source Turn and canonical Item before
+starting a new correlated Agent turn.

@@ -58,7 +58,7 @@ impl StreamingResponsesCompletion {
                     }
                 }
             }
-            "response.reasoning_summary_text.delta" => {
+            "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" => {
                 if let Some(delta) = event.get("delta").and_then(Value::as_str) {
                     if !delta.is_empty() {
                         if let Some(observer) = observer.as_deref_mut() {

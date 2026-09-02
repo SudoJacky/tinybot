@@ -212,7 +212,7 @@ impl ResponsesAdapter {
                 }
                 Some("reasoning") => {
                     reasoning_id = reasoning_id.or_else(|| string_value(item, "id"));
-                    reasoning_summary.push_str(&decode_reasoning_summary(item, index)?);
+                    reasoning_summary.push_str(&decode_reasoning_text(item, index)?);
                 }
                 Some(unsupported) => {
                     return Err(format!(
@@ -542,6 +542,34 @@ fn decode_reasoning_summary(item: &Value, item_index: usize) -> Result<String, S
     Ok(text)
 }
 
+fn decode_reasoning_text(item: &Value, item_index: usize) -> Result<String, String> {
+    let summary = decode_reasoning_summary(item, item_index)?;
+    if !summary.is_empty() {
+        return Ok(summary);
+    }
+    let Some(content) = item.get("content") else {
+        return Ok(String::new());
+    };
+    let content = content.as_array().ok_or_else(|| {
+        format!("Responses API reasoning item at index {item_index} content must be an array")
+    })?;
+    let mut text = String::new();
+    for (content_index, part) in content.iter().enumerate() {
+        if part.get("type").and_then(Value::as_str) != Some("reasoning_text") {
+            return Err(format!(
+                "Responses API reasoning content at index {content_index} must have type `reasoning_text`"
+            ));
+        }
+        text.push_str(&required_string(
+            part,
+            "text",
+            "reasoning content",
+            content_index,
+        )?);
+    }
+    Ok(text)
+}
+
 fn responses_usage(value: &Value) -> Result<AgentUsageItem, String> {
     let usage = value
         .as_object()
@@ -794,5 +822,34 @@ mod tests {
         assert_eq!(decoded.assistant.tool_calls[0].id, "call-1");
         assert_eq!(decoded.assistant.tool_calls[0].name, "web.open");
         assert_eq!(decoded.usage.unwrap().input_tokens, Some(10));
+    }
+
+    #[test]
+    fn decodes_textual_reasoning_when_summary_is_empty() {
+        let decoded = ResponsesAdapter::decode_response(
+            &json!({
+                "id": "resp-1",
+                "output": [
+                    {
+                        "id": "reason-1",
+                        "type": "reasoning",
+                        "summary": [],
+                        "content": [
+                            { "type": "reasoning_text", "text": "thinking" }
+                        ]
+                    },
+                    {
+                        "id": "message-1",
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{ "type": "output_text", "text": "done" }]
+                    }
+                ]
+            }),
+            |name| Ok(name.to_string()),
+        )
+        .expect("textual reasoning response should decode");
+
+        assert_eq!(decoded.reasoning.unwrap().summary, "thinking");
     }
 }

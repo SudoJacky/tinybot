@@ -92,9 +92,11 @@ These state-machine checks belong to the backend; the renderer validates schema,
 continuity, and item identity, then renders the backend-provided order. Plan completion is not a
 final-answer signal.
 
-Provider reasoning is retained in provider-native replay records and debug runtime events, but it is
-never materialized in the product-facing canonical timeline. Chat rendering therefore does not
-depend on whether a provider emits reasoning summaries, raw `reasoning_text`, or no reasoning item.
+Textual provider reasoning is materialized in the product-facing canonical timeline. Live deltas
+revise one running Reasoning item without advancing the durable snapshot revision; the completed
+event advances the revision and folds into that same item. Reload prefers a provider reasoning
+summary and falls back to persisted `reasoning_text` when no summary exists. Providers that return
+only encrypted reasoning or token counts do not create an empty visible item.
 
 Persisted tool outputs are normalized before timeline projection. A JSON-encoded output string is
 decoded into `tool_call.data.result`, while `item.summary` is derived from a bounded human-readable

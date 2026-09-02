@@ -4,7 +4,10 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 import { createDesktopAppServices } from "./defaultServices";
 import type { ChatEvent } from "./services";
 import { createDesktopCompactCommand, createDesktopStopCommand, createDesktopTurnSubmitCommand } from "../app-core/chat/desktopCommand";
-import { createThreadOperationRetryCommand } from "../app-core/chat/threadCommand";
+import {
+  createThreadFormSubmitCommand,
+  createThreadOperationRetryCommand,
+} from "../app-core/chat/threadCommand";
 
 const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
@@ -127,6 +130,34 @@ describe("desktop native app services", () => {
         sourceTurnId: "turn-failed",
         targetTurnId: "turn-retry-1",
         threadId: "thread-1",
+      },
+    });
+  });
+
+  test("preserves command correlation when submitting a native form", async () => {
+    const services = createDesktopAppServices();
+    await services.sessionStore.list();
+
+    await services.chatStore.dispatch(createThreadFormSubmitCommand({
+      commandId: "command-form-1",
+      formId: "form-1",
+      issuedAt: "2026-09-02T00:00:00.000Z",
+      sessionId: "thread-1",
+      source: { control: "chat-form", surface: "chat" },
+      threadId: "thread-1",
+      turnId: "turn-1",
+      values: { target: "README.md" },
+    }));
+
+    expect(mocks.invoke).toHaveBeenCalledWith("worker_submit_thread_form", {
+      input: {
+        action: "submit",
+        commandId: "command-form-1",
+        formId: "form-1",
+        source: { control: "chat-form", surface: "chat" },
+        target: { sessionId: "thread-1", threadId: "thread-1", turnId: "turn-1" },
+        threadId: "thread-1",
+        values: { target: "README.md" },
       },
     });
   });

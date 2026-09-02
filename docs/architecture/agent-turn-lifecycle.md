@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:b7750fab49ca14aaf82905ee6f62e357bbafa0c815fb4e2bbfcf8ab5b27a238f -->
+<!-- tinybot-doc-fingerprint: sha256:b4a09135f0309a9f5459fb8d27d64ebccdc328e7aa7d1275f03048cc042439d3 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -121,10 +121,15 @@ checks, cancellation, trace, and result construction.
 ## Continuation and cancellation
 
 - A Turn awaiting typed form input is waiting, not terminal.
+- Entering `awaiting_form` checkpoints the resumable runtime and ends the active
+  invocation, so elapsed human response time is not treated as a tool timeout.
 - Checkpoints contain the canonical resumable runtime state and correlation
   identities.
 - Continuation must preserve Thread, Turn, request, trace, and pending-call
   identity.
+- A form submit or cancel command is acknowledged with its command identity
+  before provider work resumes. Submitted values become the original pending
+  tool call's model-visible result in that same provider chain.
 - Cancellation is cooperative at provider and tool seams. A replaced
   generation may drain, but its late result cannot become the current terminal
   result.
@@ -136,8 +141,12 @@ Runtime events drive live desktop updates and canonical persistence. Live
 presentation may use bounded diagnostics, but model-visible messages, tool
 calls, and tool results are materialized before diagnostic truncation. Reloaded
 timeline state is reconstructed from the Rollout rather than from renderer
-state. Legacy response records without an explicit Item ID derive one from the
-Thread, Turn, and sequence so Turn-local sequence reuse remains distinct.
+state. Textual reasoning deltas revise one live timeline item, and its completed
+semantic event is durable even when it flushes before the provider-native
+response batch. Reload uses that semantic event for the timeline and retains
+the matching native reasoning record only for provider replay. Legacy response
+records without an explicit Item ID derive one from the Thread, Turn, and
+sequence so Turn-local sequence reuse remains distinct.
 Plan-progress events are durable full snapshots. Normal Turn completion leaves
 their last reported step states unchanged; failure and interruption still
 project unfinished work to the corresponding terminal outcome.

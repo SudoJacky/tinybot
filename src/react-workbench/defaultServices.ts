@@ -201,8 +201,11 @@ export function createDesktopAppServices(
       });
     } else if (command.kind === "form.submit" || command.kind === "form.cancel") {
       await requireNative(nativeThreads, "Thread").submitForm({
+        commandId: command.commandId,
         threadId,
         formId: command.form.formId,
+        source: command.source,
+        target: { ...command.target, threadId },
         values: command.kind === "form.submit" ? command.form.values : {},
         action: command.kind === "form.submit" ? "submit" : "cancel",
       });

@@ -70,6 +70,9 @@ describe("workbench CSS interaction contracts", () => {
     const timelineSummaryRule = chatStylesheet.match(/\.react-execution-timeline__summary\s*\{([^}]+)\}/);
     const timelineContentRule = chatStylesheet.match(/\.react-execution-timeline__content\s*\{([^}]+)\}/);
     const reasoningRule = chatStylesheet.match(/\.react-execution-reasoning\s*\{([^}]+)\}/);
+    const reasoningTriggerRule = chatStylesheet.match(/\.react-execution-reasoning__trigger\s*\{([^}]+)\}/);
+    const reasoningPreviewRule = chatStylesheet.match(/\.react-execution-reasoning__preview\s*\{([^}]+)\}/);
+    const reasoningContentRule = chatStylesheet.match(/\.react-execution-reasoning__content\s*\{([^}]+)\}/);
     const headerRule = chatStylesheet.match(/\.react-tool-activity__header\s*\{([^}]+)\}/);
     const actionRule = chatStylesheet.match(/\.react-patch-file__copy\s*\{([^}]+)\}/);
     const detailsRule = chatStylesheet.match(/\.react-tool-activity__details\s*\{([^}]+)\}/);
@@ -86,6 +89,12 @@ describe("workbench CSS interaction contracts", () => {
     expect(timelineSummaryRule?.[1]).toContain("white-space: nowrap");
     expect(timelineContentRule?.[1]).toContain("padding: 4px 0 4px 28px");
     expect(reasoningRule?.[1]).toContain("min-height: 34px");
+    expect(reasoningTriggerRule?.[1]).toContain("grid-template-columns: max-content minmax(0, 1fr) max-content");
+    expect(reasoningPreviewRule?.[1]).toContain("overflow: hidden");
+    expect(reasoningPreviewRule?.[1]).toContain("text-overflow: ellipsis");
+    expect(reasoningPreviewRule?.[1]).toContain("white-space: nowrap");
+    expect(reasoningContentRule?.[1]).toContain("line-height: 1.6");
+    expect(reasoningContentRule?.[1]).not.toContain("max-height");
     expect(headerRule?.[1]).toContain("min-height: 34px");
     expect(headerRule?.[1]).toContain("padding: 2px 0");
     expect(headerRule?.[1]).toContain("display: flex");
@@ -101,12 +110,40 @@ describe("workbench CSS interaction contracts", () => {
     expect(toolChevronRule?.[1]).toContain("transform: rotate(90deg)");
   });
 
+  test("presents agent form choices as compact selectable cards", () => {
+    const formCardRule = chatStylesheet.match(/\.react-agent-ui-form-card\s*\{([^}]+)\}/);
+    const choiceRule = chatStylesheet.match(/\.react-agent-ui-form-field__choice\s*\{([^}]+)\}/);
+    const selectedRule = chatStylesheet.match(/\.react-agent-ui-form-field__choice:has\(input:checked\)\s*\{([^}]+)\}/);
+
+    expect(formCardRule?.[1]).toContain("border-radius: 14px");
+    expect(formCardRule?.[1]).toContain("padding: 18px");
+    expect(choiceRule?.[1]).toContain("grid-template-columns: 18px minmax(0, 1fr)");
+    expect(choiceRule?.[1]).toContain("min-height: 42px");
+    expect(selectedRule?.[1]).toContain("border-color: color-mix(in srgb, var(--color-primary) 68%");
+  });
+
   test("routes appearance controls through shared theme tokens", () => {
     expect(shellStylesheet).toContain("--color-panel:");
     expect(shellStylesheet).toContain("--color-accent: var(--color-primary)");
     expect(shellStylesheet).toContain("font-family: var(--font-ui)");
     expect(shellStylesheet).toContain("background: var(--sidebar-background)");
     expect(settingsStylesheet).toContain(".react-theme-mode-grid");
+  });
+
+  test("uses the available settings width without stretching wide-screen forms edge to edge", () => {
+    const layoutRule = settingsStylesheet.match(/\.react-settings-layout\s*\{([^}]+)\}/);
+
+    expect(layoutRule?.[1]).toContain("grid-template-columns: 204px minmax(0, 1fr)");
+    expect(layoutRule?.[1]).toContain("width: 100%");
+    expect(layoutRule?.[1]).toContain("max-width: 1560px");
+    expect(layoutRule?.[1]).toContain("margin-inline: auto");
+    expect(settingsStylesheet).toContain("@media (min-width: 1440px)");
+    expect(settingsStylesheet).toMatch(
+      /\.react-appearance-settings__themes\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s,
+    );
+    expect(settingsStylesheet).toContain(
+      ".react-appearance-settings__modes:has(.react-pet-settings__controls)",
+    );
   });
 
   test("uses one shared visual authority for menu popover surfaces and items", () => {

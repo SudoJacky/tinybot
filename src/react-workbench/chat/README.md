@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:e5967e011ff3da21315b231c086445ec8df682b6f759020c449371cfa5e314a8 -->
+<!-- tinybot-module-fingerprint: sha256:3e178e1cf0aee2cb78cef7edde1327b9f8d4709e96882f3a1aa83e6bc373cdd0 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -11,9 +11,13 @@ A running canonical execution trace starts expanded, then folds once when its
 final answer first appears; completed traces therefore mount folded. A user can
 still reopen the trace, and later streaming revisions preserve that explicit
 choice. Its summary derives compact counts from semantic Step and Tool kinds,
-exposes running and abnormal status without logos, and never renders reasoning
-content. Individual Tool and Diff rows start collapsed, so the ordered activity
-stays scannable until a user opens one row's details.
+and exposes running and abnormal status without logos. A folded Reasoning row
+keeps elapsed time and content on one line. While streaming, its clipped preview
+follows the latest text horizontally; completion returns to the beginning and
+uses an ellipsis when the line does not fit. The user can expand the row for the
+complete naturally wrapped text. Individual Tool and Diff rows also start
+collapsed, so the ordered activity stays scannable until a user opens one row's
+details.
 `FloatingPlanStatus.tsx` mirrors the most recent canonical plan across Turns in
 a fixed top-right note without introducing another plan store. A newer Turn
 without a plan keeps the previous plan visible; the next plan replaces it. New
@@ -67,6 +71,11 @@ expansion, and provenance controls, respect reduced motion, and never accept
 renderer code from the model. Inline data views remain attached to their owning
 tool step in the ordered execution trace instead of moving behind the final
 assistant answer.
+Pending Agent UI forms render below their canonical tool activity without
+changing the persisted form schema. Multi-select and radio fields use native
+inputs inside compact option cards so checked state, keyboard focus, and long
+labels remain legible; a required multi-select cannot submit until at least one
+option is checked.
 Composer removal remains independent from this persisted timeline presentation.
 The shared model catalog marks image-capable models for the picker. Selecting a
 text-only model rejects new images and blocks an already attached image from

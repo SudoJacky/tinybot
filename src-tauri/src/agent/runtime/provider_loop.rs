@@ -642,6 +642,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             0,
             AgentEventKind::TurnStarted.wire_name(),
         )?;
+        state.emit_thread_command_acknowledgement(&context)?;
         let is_continuation = continuation_resume.is_some();
         let start_iteration = match continuation_resume {
             Some(resume) => {
@@ -656,7 +657,6 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 if !manual_context_compaction_requested(&context.spec) {
                     state.emit_turn_started(&context)?;
                 }
-                state.emit_thread_command_acknowledgement(&context)?;
                 0
             }
         };

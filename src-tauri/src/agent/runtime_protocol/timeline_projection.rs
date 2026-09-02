@@ -208,7 +208,7 @@ impl AgentTimelineProjector {
         if event_kind.definition().is_durable() {
             self.snapshot_revision = self.snapshot_revision.saturating_add(1);
         }
-        self.validate_final_answer_boundary_for_item(&item_id)?;
+        self.validate_final_answer_boundary_for_item(&item_id, event_kind)?;
         let item = self
             .items
             .get(&item_id)
@@ -238,13 +238,33 @@ impl AgentTimelineProjector {
         })
     }
 
-    fn validate_final_answer_boundary_for_item(&mut self, item_id: &str) -> Result<(), String> {
+    fn validate_final_answer_boundary_for_item(
+        &mut self,
+        item_id: &str,
+        event_kind: AgentEventKind,
+    ) -> Result<(), String> {
         let item = self
             .items
             .get(item_id)
             .ok_or_else(|| format!("projected timeline item `{item_id}` is missing"))?;
         if let Some(final_item_id) = self.final_answer.as_ref() {
-            if item.item_id != *final_item_id && item_is_disallowed_after_final(item) {
+            let completes_reasoning_started_before_final = event_kind
+                == AgentEventKind::ReasoningCompleted
+                && item.kind == AgentTurnItemKind::Reasoning
+                && self
+                    .order
+                    .iter()
+                    .position(|candidate| candidate == &item.item_id)
+                    .zip(
+                        self.order
+                            .iter()
+                            .position(|candidate| candidate == final_item_id),
+                    )
+                    .is_some_and(|(item_index, final_index)| item_index < final_index);
+            if item.item_id != *final_item_id
+                && item_is_disallowed_after_final(item)
+                && !completes_reasoning_started_before_final
+            {
                 return Err(format!(
                     "canonical timeline item `{}` appears after final answer `{}`",
                     item.item_id, final_item_id
@@ -436,11 +456,10 @@ fn visible_item_kind(
     event: &AgentRuntimeEventEnvelope,
     kind: AgentTurnItemKind,
 ) -> Option<AgentTurnItemKind> {
-    if kind == AgentTurnItemKind::Reasoning {
-        return None;
-    }
-    if kind == AgentTurnItemKind::AssistantMessage
-        && event.visibility != AgentRuntimeEventVisibility::User
+    if matches!(
+        kind,
+        AgentTurnItemKind::AssistantMessage | AgentTurnItemKind::Reasoning
+    ) && event.visibility != AgentRuntimeEventVisibility::User
     {
         return None;
     }

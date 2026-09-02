@@ -1,5 +1,5 @@
 # Worker Thread Log
-<!-- tinybot-module-fingerprint: sha256:a2180c42390a2cd4fc84aacd753b404a38fd1bd41a0169dcdb475b5f720c87e8 -->
+<!-- tinybot-module-fingerprint: sha256:0ab0172bd574374238767e7ab45fe64ec61dcfda40c6a7b47d0592b9f9ec7ee0 -->
 
 `threads::rollout::store` owns Tinybot's canonical append-only Rollout. It validates
 paths, records typed lines, reconstructs Thread and runtime projections,
@@ -35,6 +35,12 @@ provider `response.output` item and local `function_call_output`, so a later tur
 can replay the exact stateless input. User-facing history still exposes the
 canonical message projection; `thread.context` includes raw response items only
 for the agent runtime.
+
+Responses reasoning completion is also persisted as a lightweight semantic
+timeline event before the provider-native output batch arrives. Reconstruction
+uses that event for the user-visible reasoning item and suppresses the matching
+native reasoning fallback by model-call identity; the raw item remains unchanged
+in model replay history.
 
 Tool outputs may also carry a local-only `tinybot_result` sidecar when a desktop
 projection needs structured data that the model-visible `output` cannot express,
@@ -107,11 +113,12 @@ successful append.
   than being silently discarded when they affect replay correctness.
 - Diagnostic agent trace may be bounded, but canonical messages, tool calls,
   and tool outputs are materialized from the lossless runtime event first and
-  never reconstructed from truncated text. Reasoning stays in provider-native
-  replay records and debug trace rather than the product timeline.
+  never reconstructed from truncated text. Completed reasoning remains durable
+  in both its semantic timeline record and, when provided, native replay record.
 - Streaming deltas, phase changes, and non-blocking status updates remain live
   presentation events. Blocking status boundaries remain persisted for
-  recovery. One completed reasoning ResponseItem is persisted per model call.
+  recovery. Reconstruction projects one completed reasoning timeline item per
+  model call.
 - Ordinary canonical runtime events are durably appended in batches of up to
   64 events or 50 milliseconds. Blocking status and turn/continuation exit
   remain explicit synchronous durability barriers.
@@ -153,9 +160,9 @@ Assistant-message identities are scoped to one provider/model call. Provider
 IDs are retained when available; otherwise the projector derives a stable ID
 from the provider attempt or iteration. Deltas coalesce only into that matching
 item. A tool-only provider response with no assistant content does not create a
-live-only empty item or advance `snapshotRevision`. Reasoning identities remain
-available to replay and diagnostics but do not create product-facing timeline
-items.
+live-only empty item or advance `snapshotRevision`. Reasoning completion keeps
+the live runtime identity in the user-facing timeline while provider-native
+reasoning remains available to replay and diagnostics.
 
 Durable usage events keep the typed usage `agentItem` and its original provider
 payload. The store omits redundant outer enriched usage fields; the adjacent

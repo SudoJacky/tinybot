@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:08e9bfb57e74c1e29338f5b82c4d19a574c9f068ff73be890701b8028e988cca -->
+<!-- tinybot-module-fingerprint: sha256:4e6b9160f0934355278100191567450b2b3ec6a2d3bc96ff4fb67fe0e4d650ae -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -83,7 +83,9 @@ when it failed.
 - Persist each completed assistant message and model-call reasoning item once.
   Final turn persistence closes the Turn and clears checkpoints; it does not
   append the same user or assistant messages again.
-- Form resolution must preserve turn, request, and trace correlation.
+- Form resolution must preserve turn, request, and trace correlation, compose
+  durable and live trace sinks, and acknowledge the command before resumed
+  provider work begins.
 - Persistence errors remain visible to callers; a partial durable write is not
   a successful turn.
 - Frontend event-emission failures log session, turn, event or item identity,

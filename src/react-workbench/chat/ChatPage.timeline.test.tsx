@@ -861,7 +861,7 @@ describe("ChatPage", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("summarizes execution by activity type without exposing reasoning content", async () => {
+  it("summarizes execution by activity type and keeps completed reasoning folded", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     const timeline = timelineFromReactMessages("s1", [{
@@ -881,7 +881,7 @@ describe("ChatPage", () => {
         sequence: 1,
         startedAt: "2026-07-04T12:01:00.000Z",
         status: "completed",
-        summary: "Private reasoning content must stay hidden.",
+        summary: "Detailed reasoning content.",
         title: "Thinking complete",
         completedAt: "2026-07-04T12:01:00.400Z",
       },
@@ -901,10 +901,54 @@ describe("ChatPage", () => {
       name: /Running · thought ×1 · file read ×1 · file change ×1 · command ×1 · search ×1 · web ×1 · browser action ×1/,
     });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.queryByText("Private reasoning content must stay hidden.")).toBeNull();
-    expect(screen.getByText("Thought for less than 1 second")).toBeTruthy();
+    const reasoningToggle = screen.getByRole("button", { name: "Thought for less than 1 second" });
+    expect(reasoningToggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByTestId("execution-reasoning-content")).toBeNull();
+    expect(screen.getByTestId("execution-reasoning-preview").textContent).toBe("Detailed reasoning content.");
+    await user.click(reasoningToggle);
+    expect(screen.getByTestId("execution-reasoning-content").textContent).toBe("Detailed reasoning content.");
     await user.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("keeps live reasoning folded and follows its latest text horizontally", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const timeline = timelineFromReactMessages("s1", [{
+      id: "u-live-reasoning",
+      role: "user" as const,
+      createdAtMs: Date.UTC(2026, 6, 4, 12, 1, 0),
+      text: "Think through this",
+      status: "complete" as const,
+    }]);
+    const turn = timeline.turns[0];
+    turn.status = "running";
+    turn.steps = [{
+      agentContext: { id: "main", title: "Tinybot", type: "main" },
+      id: "reasoning-live",
+      kind: "reasoning",
+      sequence: 1,
+      startedAt: "2026-07-04T12:01:00.000Z",
+      status: "running",
+      summary: "Earlier reasoning followed by the latest streamed tokens.",
+      title: "Thinking",
+    }];
+    turn.executionItems = turn.steps;
+    stores.chatStore.load = vi.fn(async () => timeline);
+
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 1, 2)} sessionStore={stores.sessionStore} />);
+
+    const reasoningToggle = await screen.findByRole("button", { name: /^Thinking · \d+s$/ });
+    const preview = screen.getByTestId("execution-reasoning-preview");
+    expect(reasoningToggle.getAttribute("aria-expanded")).toBe("false");
+    expect(preview.getAttribute("data-streaming")).toBe("true");
+    Object.defineProperty(preview, "scrollWidth", { configurable: true, value: 480 });
+
+    await user.click(reasoningToggle);
+    expect(screen.getByTestId("execution-reasoning-content").textContent)
+      .toBe("Earlier reasoning followed by the latest streamed tokens.");
+    await user.click(reasoningToggle);
+    await waitFor(() => expect(preview.scrollLeft).toBe(480));
   });
 
   it("renders apply_patch tool results as an inline file diff", async () => {

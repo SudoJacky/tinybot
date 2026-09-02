@@ -3,7 +3,9 @@ use super::{
     completed_tool_result_from_response_item, response_item_from_runtime_event,
     response_items_from_runtime_event,
 };
-use crate::agent::runtime_protocol::{project_timeline_snapshot, AgentRuntimeEventEnvelope};
+use crate::agent::runtime_protocol::{
+    project_timeline_snapshot, AgentRuntimeEventEnvelope, AgentTurnItemData, AgentTurnItemKind,
+};
 use crate::protocol::capability::{CapabilityPolicy, WorkerCapability};
 use crate::threads::rollout::format::SessionApiMode;
 use crate::threads::rollout::store::{
@@ -154,6 +156,171 @@ fn responses_events_keep_native_output_and_encode_function_results() {
             "tinybot_result": { "path": "README.md", "contents": "contents" },
         })]
     );
+}
+
+#[test]
+fn responses_reasoning_completion_persists_before_native_response_items_without_duplication() {
+    let root = std::env::temp_dir().join(format!(
+        "tinybot-responses-reasoning-persistence-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).unwrap();
+    let rpc = WorkerThreadLogRpc::new(
+        root.clone(),
+        CapabilityPolicy::new([
+            WorkerCapability::SessionWrite,
+            WorkerCapability::SessionMetadataRead,
+        ]),
+    );
+    let session_id = "responses-reasoning-session";
+    let turn_id = "responses-reasoning-turn";
+    let started_at = "2026-09-02T09:07:08.004Z";
+    rpc.ensure_turn_thread(
+        session_id,
+        started_at,
+        None,
+        Some(SessionApiMode::Responses),
+    )
+    .unwrap();
+    rpc.start_turn(
+        AgentTurnRecord {
+            session_id: session_id.to_string(),
+            turn_id: turn_id.to_string(),
+            thread_id: None,
+            parent_thread_id: None,
+            child_thread_ids: Vec::new(),
+            status: AgentTurnStatus::Running,
+            phase: "streaming_model".to_string(),
+            started_at: started_at.to_string(),
+            updated_at: started_at.to_string(),
+            completed_at: None,
+            stop_reason: None,
+            model: "test-model".to_string(),
+            provider: Some("openai".to_string()),
+            max_iterations: 1,
+            current_iteration: 0,
+            conversation_message_ids: Vec::new(),
+            trace_messages: Vec::new(),
+            completed_tool_results: Vec::new(),
+            pending_tool_calls: Vec::new(),
+            checkpoint: None,
+            artifacts: Vec::new(),
+            usage: Vec::new(),
+            token_usage_info: None,
+            instruction_provenance: None,
+            instruction_diagnostics: Vec::new(),
+            trace_context: None,
+            error: None,
+        },
+        None,
+        Vec::new(),
+    )
+    .unwrap();
+    let reasoning_event: AgentRuntimeEventEnvelope = serde_json::from_value(json!({
+        "schemaVersion": "tinybot.agent_event.v1",
+        "eventId": "responses-reasoning-completed-75",
+        "sequence": 75,
+        "sessionId": session_id,
+        "threadId": session_id,
+        "turnId": turn_id,
+        "itemId": "responses-reasoning-turn:reasoning:0",
+        "eventName": "agent.reasoning.completed",
+        "phase": "streaming_model",
+        "timestamp": "1788339680450",
+        "source": "provider",
+        "visibility": "user",
+        "payload": {
+            "iteration": 0,
+            "modelCallId": "responses-reasoning-turn:provider:0",
+            "reasoningId": "responses-reasoning-turn:reasoning:0",
+            "summary": "Inspect the request before answering."
+        }
+    }))
+    .unwrap();
+    let completed_event: AgentRuntimeEventEnvelope = serde_json::from_value(json!({
+        "schemaVersion": "tinybot.agent_event.v1",
+        "eventId": "responses-message-completed-76",
+        "sequence": 76,
+        "sessionId": session_id,
+        "threadId": session_id,
+        "turnId": turn_id,
+        "itemId": "responses-reasoning-turn:assistant:0",
+        "eventName": "agent.message.completed",
+        "phase": "completed",
+        "timestamp": "1788339680460",
+        "source": "provider",
+        "visibility": "user",
+        "payload": {
+            "content": "Hello.",
+            "messageId": "responses-reasoning-turn:assistant:0",
+            "messagePhase": "final_answer",
+            "modelCallId": "responses-reasoning-turn:provider:0",
+            "responseItems": [
+                {
+                    "type": "reasoning",
+                    "id": "provider-reasoning-item",
+                    "summary": [],
+                    "content": [{
+                        "type": "reasoning_text",
+                        "text": "Inspect the request before answering."
+                    }]
+                },
+                {
+                    "type": "message",
+                    "id": "provider-message-item",
+                    "role": "assistant",
+                    "content": [{ "type": "output_text", "text": "Hello." }]
+                }
+            ]
+        }
+    }))
+    .unwrap();
+    let live_timeline = project_timeline_snapshot(
+        session_id,
+        turn_id,
+        &[reasoning_event.clone(), completed_event.clone()],
+    )
+    .unwrap();
+
+    rpc.append_turn_semantic_event(
+        session_id,
+        turn_id,
+        serde_json::to_value(&reasoning_event).unwrap(),
+    )
+    .expect("reasoning completion must survive its own durable flush");
+    rpc.append_turn_semantic_event(
+        session_id,
+        turn_id,
+        serde_json::to_value(&completed_event).unwrap(),
+    )
+    .expect("native Responses output should persist after reasoning completion");
+
+    let reloaded = rpc
+        .get_turn_runtime_state(session_id, turn_id)
+        .unwrap()
+        .expect("persisted reasoning should reload");
+    let reasoning_items = reloaded
+        .timeline
+        .items
+        .iter()
+        .filter(|item| item.kind == AgentTurnItemKind::Reasoning)
+        .collect::<Vec<_>>();
+    assert_eq!(reasoning_items.len(), 1);
+    assert_eq!(reasoning_items[0].item_id, live_timeline.items[0].item_id);
+    assert_eq!(reasoning_items[0].sequence, 75);
+    assert!(matches!(
+        &reasoning_items[0].data,
+        AgentTurnItemData::Reasoning { summary, .. }
+            if summary == "Inspect the request before answering."
+    ));
+    assert_eq!(reloaded.timeline.items.len(), 2);
+
+    drop(rpc);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

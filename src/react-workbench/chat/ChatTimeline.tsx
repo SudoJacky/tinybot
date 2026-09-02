@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { TFunction } from "i18next";
 import {
@@ -477,14 +477,81 @@ function executionDurationMs(turn: ChatTurn): number | undefined {
 
 function ExecutionReasoningActivity({ step }: { step: ChatStep }) {
   const { t } = useTranslation("chat");
-  const label = step.status === "running"
-    ? t("reasoning.thinking")
+  const streaming = step.status === "running";
+  const contentId = useId();
+  const triggerId = useId();
+  const previewRef = useRef<HTMLSpanElement | null>(null);
+  const wasStreaming = useRef(streaming);
+  const [expanded, setExpanded] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!streaming) return;
+    setNowMs(Date.now());
+    const intervalId = window.setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => window.clearInterval(intervalId);
+  }, [step.startedAt, streaming]);
+
+  useEffect(() => {
+    if (wasStreaming.current === streaming) return;
+    if (!streaming) {
+      setExpanded(false);
+    }
+    wasStreaming.current = streaming;
+  }, [streaming]);
+
+  useLayoutEffect(() => {
+    const preview = previewRef.current;
+    if (!preview || expanded) return;
+    preview.scrollLeft = streaming ? preview.scrollWidth : 0;
+  }, [expanded, step.summary, streaming]);
+
+  const label = streaming
+    ? formatActiveThinkingLabel(reasoningActiveDurationMs(step, nowMs), t)
     : formatThinkingLabel(reasoningDurationMs(step), t);
   return (
-    <div aria-label={t("reasoning.label")} className="react-execution-reasoning">
-      <Lightbulb aria-hidden="true" size={16} />
-      <span>{label}</span>
-    </div>
+    <section
+      aria-label={t("reasoning.label")}
+      className="react-execution-reasoning"
+      data-expanded={expanded ? "true" : undefined}
+      data-streaming={streaming ? "true" : undefined}
+    >
+      <button
+        aria-controls={contentId}
+        aria-expanded={expanded}
+        aria-label={label}
+        className="react-execution-reasoning__trigger"
+        id={triggerId}
+        type="button"
+        onClick={() => setExpanded((open) => !open)}
+      >
+        <span className="react-execution-reasoning__label">
+          <Lightbulb aria-hidden="true" size={16} />
+          <span>{label}</span>
+        </span>
+        <span
+          ref={previewRef}
+          aria-hidden="true"
+          className="react-execution-reasoning__preview"
+          data-streaming={streaming && !expanded ? "true" : undefined}
+          data-testid="execution-reasoning-preview"
+        >
+          {expanded ? null : step.summary}
+        </span>
+        {expanded ? <ChevronDown aria-hidden="true" size={14} /> : <ChevronRight aria-hidden="true" size={14} />}
+      </button>
+      {expanded ? (
+        <div
+          aria-labelledby={triggerId}
+          className="react-execution-reasoning__content"
+          data-testid="execution-reasoning-content"
+          id={contentId}
+          role="region"
+        >
+          <PlainMessageText text={step.summary ?? ""} />
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -1306,6 +1373,21 @@ function reasoningDurationMs(step: ChatStep): number | undefined {
   }
   const duration = Date.parse(step.completedAt) - Date.parse(step.startedAt);
   return Number.isFinite(duration) && duration >= 0 ? duration : undefined;
+}
+
+function reasoningActiveDurationMs(step: ChatStep, nowMs: number): number | undefined {
+  if (!step.startedAt) {
+    return undefined;
+  }
+  const startedAtMs = Date.parse(step.startedAt);
+  return Number.isFinite(startedAtMs) ? Math.max(0, nowMs - startedAtMs) : undefined;
+}
+
+function formatActiveThinkingLabel(durationMs: number | undefined, t: TFunction<"chat">): string {
+  if (durationMs === undefined) {
+    return t("reasoning.thinking");
+  }
+  return t("reasoning.thinkingSeconds", { count: Math.floor(durationMs / 1_000) });
 }
 
 function formatThinkingLabel(durationMs: number | undefined, t: TFunction<"chat">): string {
