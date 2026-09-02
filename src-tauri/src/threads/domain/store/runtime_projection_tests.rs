@@ -93,6 +93,82 @@ fn persisted_runtime_events_replay_in_canonical_sequence_order() {
 }
 
 #[test]
+fn persisted_runtime_events_follow_rollout_time_across_sparse_source_sequences() {
+    let item = |item_id: &str, sequence: u64, created_at: &str, kind: ThreadItemKind| ThreadItem {
+        item_id: item_id.to_string(),
+        thread_id: "thread-1".to_string(),
+        turn_id: "turn-1".to_string(),
+        parent_item_id: None,
+        sequence,
+        created_at: created_at.to_string(),
+        kind,
+    };
+    // A reloaded Rollout is stored by Thread item sequence. Sparse runtime
+    // sequences can therefore place a later semantic event before the assistant
+    // message that preceded it in the append-only log.
+    let items = vec![
+        item(
+            "event:call-1",
+            13,
+            "2026-08-31T07:17:22.496Z",
+            ThreadItemKind::Event(json!({
+                "eventName": "agent.tool_call.delta",
+                "itemId": "call-1",
+                "sequence": 35,
+                "timestamp": "1788160642495",
+                "payload": {
+                    "toolCallId": "call-1",
+                    "toolName": "update_plan",
+                    "argumentsDelta": "{}",
+                },
+            })),
+        ),
+        item(
+            "tool-output:call-1",
+            14,
+            "2026-08-31T07:17:22.514Z",
+            ThreadItemKind::ToolCallOutput(json!({
+                "type": "function_call_output",
+                "call_id": "call-1",
+                "status": "ok",
+                "output": "Plan updated",
+                "threadItemSequence": 39,
+                "timestamp": "1788160642513",
+            })),
+        ),
+        item(
+            "assistant-1",
+            32,
+            "2026-08-31T07:17:22.478Z",
+            ThreadItemKind::AssistantMessageCompleted(json!({
+                "type": "message",
+                "id": "assistant-1",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": "I will make a plan." }],
+                "phase": "commentary",
+                "modelCallId": "provider-1",
+                "threadItemSequence": 32,
+                "timestamp": "1788160642477",
+            })),
+        ),
+    ];
+
+    let events = runtime_events_from_thread_items(&items, "thread-1", "turn-1");
+
+    assert_eq!(
+        events
+            .iter()
+            .map(|event| (event.event_name.as_str(), event.sequence))
+            .collect::<Vec<_>>(),
+        vec![
+            ("agent.message.completed", 32),
+            ("agent.tool_call.delta", 35),
+            ("agent.tool.result", 39),
+        ],
+    );
+}
+
+#[test]
 fn slim_tool_output_replays_through_the_tool_call_item() {
     let item = |item_id: &str, sequence: u64, kind: ThreadItemKind| ThreadItem {
         item_id: item_id.to_string(),

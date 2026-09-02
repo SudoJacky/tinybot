@@ -5,6 +5,7 @@ use crate::agent::runtime_protocol::{
 };
 use crate::threads::domain::types::{ThreadItem, ThreadItemKind};
 use serde_json::Value;
+use std::cmp::Ordering;
 use std::collections::HashSet;
 
 fn semantic_event_from_thread_item(item: &ThreadItem) -> Option<(AgentEventKind, Value)> {
@@ -360,9 +361,14 @@ pub(crate) fn runtime_events_from_thread_items(
                     ))
             )
     });
-    let mut events = items
+    let mut replay_items = items
         .iter()
         .filter(|item| item.turn_id == turn_id)
+        .collect::<Vec<_>>();
+    replay_items
+        .sort_by(|left, right| compare_replay_timestamps(&left.created_at, &right.created_at));
+    let mut events = replay_items
+        .into_iter()
         .filter(|item| {
             !matches!(&item.kind, ThreadItemKind::ToolCallStarted(_))
                 || !persisted_tool_call_ids.contains(&semantic_item_id(item))
@@ -398,6 +404,13 @@ pub(crate) fn runtime_events_from_thread_items(
         }
     }
     events
+}
+
+fn compare_replay_timestamps(left: &str, right: &str) -> Ordering {
+    match (left.parse::<u128>(), right.parse::<u128>()) {
+        (Ok(left), Ok(right)) => left.cmp(&right),
+        _ => left.cmp(right),
+    }
 }
 
 pub(super) fn turn_items_from_thread_items(

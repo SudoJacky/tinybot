@@ -142,8 +142,6 @@ function CanonicalChatTurn({
     && step.kind !== "error"
     && !(step.kind === "form" && step.form && interactiveFormIds.has(step.form.formId))
   ));
-  const dataViewArtifacts = uniqueArtifacts(executionItems.flatMap((step) => step.artifacts ?? []))
-    .filter((artifact) => artifact.kind === "data_view");
   const hasUserMessage = Boolean(turn.userMessage.text.trim() || turn.userMessage.references?.length);
   return (
     <section aria-label={t("turn.label")} className="react-canonical-turn" data-status={turn.status}>
@@ -173,6 +171,7 @@ function CanonicalChatTurn({
               <div className="react-canonical-tool-group" key={group.map((step) => step.id).join(":")}>
                 <AgentSteps onOpenTool={onOpenTool} toolCalls={group.map((step) => toolCallSummaryFromStep(step, step.toolCall!, t))} />
                 <CanonicalArtifacts artifacts={group.flatMap((step) => step.artifacts ?? [])} onOpen={onOpenArtifact} />
+                <CanonicalDataViews artifacts={group.flatMap((step) => step.artifacts ?? [])} onOpen={onOpenArtifact} />
                 <CanonicalScopedErrors errors={group.flatMap((step) => step.scopedErrors ?? [])} />
               </div>
             ) : (
@@ -213,9 +212,6 @@ function CanonicalChatTurn({
           onOpenFileLink={onOpenFileLink}
         />
       ) : null}
-      {dataViewArtifacts.map((artifact) => (
-        <DataViewCard artifact={artifact} key={artifact.id} onOpen={onOpenArtifact} />
-      ))}
     </section>
   );
 }
@@ -590,20 +586,21 @@ function CanonicalChatStep({
     );
   }
   if (step.kind === "tool_call" && step.toolCall) {
-    if (isApplyPatchToolCall(step.toolCall) && patchChangeSetFromToolResult(step.toolCall.resultJson)?.files.length) {
-      return (
-        <PatchDiffCard
+    const activity = isApplyPatchToolCall(step.toolCall) && patchChangeSetFromToolResult(step.toolCall.resultJson)?.files.length
+      ? <PatchDiffCard
           status={step.status}
           toolCall={step.toolCall}
         />
-      );
-    }
+      : <ToolActivityItem
+          fallbackSummary={step.summary}
+          status={step.status}
+          toolCall={step.toolCall}
+        />;
     return (
-      <ToolActivityItem
-        fallbackSummary={step.summary}
-        status={step.status}
-        toolCall={step.toolCall}
-      />
+      <>
+        {activity}
+        <CanonicalDataViews artifacts={step.artifacts ?? []} onOpen={onOpenArtifact} />
+      </>
     );
   }
   if (step.kind === "form" && step.form) {
@@ -862,6 +859,12 @@ function CanonicalArtifacts({ artifacts, onOpen }: { artifacts: ArtifactRef[]; o
       ))}
     </ul>
   );
+}
+
+function CanonicalDataViews({ artifacts, onOpen }: { artifacts: ArtifactRef[]; onOpen?: (artifact: ArtifactRef) => void }) {
+  return uniqueArtifacts(artifacts)
+    .filter((artifact) => artifact.kind === "data_view")
+    .map((artifact) => <DataViewCard artifact={artifact} key={artifact.id} onOpen={onOpen} />);
 }
 
 function uniqueArtifacts(artifacts: ArtifactRef[]): ArtifactRef[] {

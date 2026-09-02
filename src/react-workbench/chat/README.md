@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:65d78517d645d1d759f991ed8762f89de894985facf4b550cc15f1ba90904b53 -->
+<!-- tinybot-module-fingerprint: sha256:ecbbcef60e163c34ca0e93bf465f894e7fb50be6b55e64b986399bd154123042 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -60,7 +60,9 @@ waterfall data shapes. One shared blue luminance scale distinguishes series,
 rank, and emphasis; mixed, dual-axis, and over-limit shapes retain an ECharts
 SVG fallback using the same palette. Both paths preserve the shared table, CSV,
 expansion, and provenance controls, respect reduced motion, and never accept
-renderer code from the model.
+renderer code from the model. Inline data views remain attached to their owning
+tool step in the ordered execution trace instead of moving behind the final
+assistant answer.
 Composer removal remains independent from this persisted timeline presentation.
 The shared model catalog marks image-capable models for the picker. Selecting a
 text-only model rejects new images and blocks an already attached image from
