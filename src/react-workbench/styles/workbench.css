@@ -1033,6 +1033,9 @@ button:disabled {
   top: 6px;
   right: 1px;
   display: flex;
+  width: 64px;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
 }
 
 .react-session-workspace__actions > button {
@@ -1042,6 +1045,7 @@ button:disabled {
   min-width: 32px;
   height: 32px;
   min-height: 32px;
+  flex: 0 0 32px;
   padding: 0;
   color: var(--color-muted);
   opacity: .7;
