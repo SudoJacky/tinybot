@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:90c2fd66843f13e4400fe0bd6975e6419ee6cf8dfaef6d093e24be2133be7d2a -->
+<!-- tinybot-doc-fingerprint: sha256:59736ad1d349a3bf0fa6316644861b273314cb764a8544d9bbbcd5e54a4ffd64 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -137,8 +137,11 @@ presentation may use bounded diagnostics, but model-visible messages, tool
 calls, and tool results are materialized before diagnostic truncation. Reloaded
 timeline state is reconstructed from the Rollout rather than from renderer
 state. Textual reasoning deltas revise one live timeline item, and its completed
-provider record restores that item after reload. Legacy response records without an explicit Item ID derive one from the
-Thread, Turn, and sequence so Turn-local sequence reuse remains distinct.
+semantic event is durable even when it flushes before the provider-native
+response batch. Reload uses that semantic event for the timeline and retains
+the matching native reasoning record only for provider replay. Legacy response
+records without an explicit Item ID derive one from the Thread, Turn, and
+sequence so Turn-local sequence reuse remains distinct.
 Plan-progress events are durable full snapshots. Normal Turn completion leaves
 their last reported step states unchanged; failure and interruption still
 project unfinished work to the corresponding terminal outcome.

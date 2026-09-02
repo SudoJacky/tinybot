@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:554510ae9c5f45627ca76bbcbc0c3e34ce3ec94b875dc70e22403611555c4541 -->
+<!-- tinybot-module-fingerprint: sha256:127979f5efc83453452dcca91c20201e9cc5628cee886468936be4d17be2875b -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -152,9 +152,9 @@ dispatch.
 
 Textual provider reasoning is a product-facing canonical timeline item. Live
 reasoning deltas revise one running item, and the completed reasoning event
-advances the durable timeline revision. Responses replay prefers summary text
-and falls back to persisted `reasoning_text`; encrypted-only reasoning remains
-absent from the visible timeline.
+advances the durable timeline revision. Responses decoding and replay prefer
+summary text and fall back to provider-compatible `reasoning_text` content;
+encrypted-only reasoning remains absent from the visible timeline.
 
 OpenAI-compatible providers assume reasoning-effort parameters are supported
 unless their profile sets `supportsReasoningEffort: false`. This default applies

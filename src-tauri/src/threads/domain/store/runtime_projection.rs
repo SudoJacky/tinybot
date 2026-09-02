@@ -111,6 +111,7 @@ fn persisted_semantic_event(value: &Value) -> Option<(AgentEventKind, Value)> {
             kind @ (AgentEventKind::ContextCompacted
             | AgentEventKind::ContextTrimmed
             | AgentEventKind::PlanProgress
+            | AgentEventKind::ReasoningCompleted
             | AgentEventKind::Usage
             | AgentEventKind::ToolCallDelta),
         ) => kind,
@@ -353,6 +354,25 @@ pub(crate) fn runtime_events_from_thread_items(
                 .flatten()
         })
         .collect::<HashSet<_>>();
+    let persisted_reasoning_model_call_ids = items
+        .iter()
+        .filter(|item| item.turn_id == turn_id)
+        .filter_map(|item| match &item.kind {
+            ThreadItemKind::Event(value) => persisted_semantic_event(value),
+            _ => None,
+        })
+        .filter_map(|(kind, payload)| {
+            (kind == AgentEventKind::ReasoningCompleted)
+                .then(|| {
+                    payload
+                        .get("modelCallId")
+                        .or_else(|| payload.get("model_call_id"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+                .flatten()
+        })
+        .collect::<HashSet<_>>();
     let has_persisted_context_event = items.iter().any(|item| {
         item.turn_id == turn_id
             && matches!(
@@ -375,6 +395,19 @@ pub(crate) fn runtime_events_from_thread_items(
         .filter(|item| {
             !matches!(&item.kind, ThreadItemKind::ToolCallStarted(_))
                 || !persisted_tool_call_ids.contains(&semantic_item_id(item))
+        })
+        .filter(|item| {
+            !matches!(
+                &item.kind,
+                ThreadItemKind::Reasoning(value)
+                    if value
+                        .get("modelCallId")
+                        .or_else(|| value.get("model_call_id"))
+                        .and_then(Value::as_str)
+                        .is_some_and(|model_call_id| {
+                            persisted_reasoning_model_call_ids.contains(model_call_id)
+                        })
+            )
         })
         .filter(|item| {
             !has_persisted_context_event

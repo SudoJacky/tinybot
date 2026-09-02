@@ -1,5 +1,5 @@
 # Agent Providers
-<!-- tinybot-module-fingerprint: sha256:e7c8100f1b4a3fea13b56978c0c1ad85373de5496a917cbff73e9d3e9939159a -->
+<!-- tinybot-module-fingerprint: sha256:c17b2111a224265a7d710595c94f8510afa3b5a923b8f5c3c9644335900a1250 -->
 
 This module resolves provider and model configuration and performs streaming
 Chat Completions or Responses API requests.
@@ -34,4 +34,5 @@ Chat Completions or Responses API requests.
   increment `provider.tokenUsage.persistence.failed` and emit a diagnostic with
   the protocol, model ID, and storage error without replacing a successful
   provider response.
-- `streaming.rs` normalizes streamed provider events.
+- `streaming.rs` normalizes streamed provider events. Responses reasoning
+  accepts both summary deltas and provider-compatible textual reasoning deltas.

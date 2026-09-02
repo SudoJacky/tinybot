@@ -70,6 +70,8 @@ describe("workbench CSS interaction contracts", () => {
     const timelineSummaryRule = chatStylesheet.match(/\.react-execution-timeline__summary\s*\{([^}]+)\}/);
     const timelineContentRule = chatStylesheet.match(/\.react-execution-timeline__content\s*\{([^}]+)\}/);
     const reasoningRule = chatStylesheet.match(/\.react-execution-reasoning\s*\{([^}]+)\}/);
+    const reasoningTriggerRule = chatStylesheet.match(/\.react-execution-reasoning__trigger\s*\{([^}]+)\}/);
+    const reasoningPreviewRule = chatStylesheet.match(/\.react-execution-reasoning__preview\s*\{([^}]+)\}/);
     const reasoningContentRule = chatStylesheet.match(/\.react-execution-reasoning__content\s*\{([^}]+)\}/);
     const headerRule = chatStylesheet.match(/\.react-tool-activity__header\s*\{([^}]+)\}/);
     const actionRule = chatStylesheet.match(/\.react-patch-file__copy\s*\{([^}]+)\}/);
@@ -87,9 +89,12 @@ describe("workbench CSS interaction contracts", () => {
     expect(timelineSummaryRule?.[1]).toContain("white-space: nowrap");
     expect(timelineContentRule?.[1]).toContain("padding: 4px 0 4px 28px");
     expect(reasoningRule?.[1]).toContain("min-height: 34px");
-    expect(reasoningRule?.[1]).toContain("grid-template-columns: max-content minmax(0, 1fr)");
-    expect(reasoningContentRule?.[1]).toContain("max-height: 72px");
-    expect(reasoningContentRule?.[1]).toContain("overflow-y: auto");
+    expect(reasoningTriggerRule?.[1]).toContain("grid-template-columns: max-content minmax(0, 1fr) max-content");
+    expect(reasoningPreviewRule?.[1]).toContain("overflow: hidden");
+    expect(reasoningPreviewRule?.[1]).toContain("text-overflow: ellipsis");
+    expect(reasoningPreviewRule?.[1]).toContain("white-space: nowrap");
+    expect(reasoningContentRule?.[1]).toContain("line-height: 1.6");
+    expect(reasoningContentRule?.[1]).not.toContain("max-height");
     expect(headerRule?.[1]).toContain("min-height: 34px");
     expect(headerRule?.[1]).toContain("padding: 2px 0");
     expect(headerRule?.[1]).toContain("display: flex");

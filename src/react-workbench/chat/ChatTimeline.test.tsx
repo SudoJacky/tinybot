@@ -150,7 +150,7 @@ describe("ChatTimeline", () => {
     expect(dataView.compareDocumentPosition(finalAnswer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  test("streams canonical reasoning beside its timer and folds it back to the beginning when complete", () => {
+  test("streams canonical reasoning in a folded preview and resets it to the beginning when complete", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-02T00:00:05.000Z"));
     const reasoningStep: ChatStep = {
@@ -194,14 +194,15 @@ describe("ChatTimeline", () => {
 
     const reasoning = screen.getByLabelText("Reasoning");
     const toggle = within(reasoning).getByRole("button", { name: "Thinking · 5s" });
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    const content = within(reasoning).getByTestId("execution-reasoning-content");
-    expect(content.textContent).toContain("Inspecting the workspace.");
-    Object.defineProperty(content, "scrollHeight", { configurable: true, value: 120 });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(within(reasoning).queryByTestId("execution-reasoning-content")).toBeNull();
+    const preview = within(reasoning).getByTestId("execution-reasoning-preview");
+    expect(preview.textContent).toBe("Inspecting the workspace.");
+    Object.defineProperty(preview, "scrollWidth", { configurable: true, value: 120 });
 
     const streamedStep = { ...reasoningStep, summary: "Inspecting the workspace.\nChecking the tests." };
     rerender(view(streamedStep));
-    expect(content.scrollTop).toBe(120);
+    expect(preview.scrollLeft).toBe(120);
     act(() => vi.advanceTimersByTime(1_000));
     expect(within(reasoning).getByRole("button", { name: "Thinking · 6s" })).toBeTruthy();
 
@@ -213,10 +214,10 @@ describe("ChatTimeline", () => {
     const completedToggle = within(reasoning).getByRole("button", { name: "Thought for 7 seconds" });
     expect(completedToggle.getAttribute("aria-expanded")).toBe("false");
     expect(within(reasoning).queryByTestId("execution-reasoning-content")).toBeNull();
+    expect(preview.scrollLeft).toBe(0);
 
     fireEvent.click(completedToggle);
     const reopenedContent = within(reasoning).getByTestId("execution-reasoning-content");
-    expect(reopenedContent.scrollTop).toBe(0);
     expect(reopenedContent.textContent).toContain("Inspecting the workspace.");
   });
 });

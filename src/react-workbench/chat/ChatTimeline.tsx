@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { TFunction } from "i18next";
 import {
@@ -480,9 +480,9 @@ function ExecutionReasoningActivity({ step }: { step: ChatStep }) {
   const streaming = step.status === "running";
   const contentId = useId();
   const triggerId = useId();
-  const contentRef = useRef<HTMLDivElement | null>(null);
+  const previewRef = useRef<HTMLSpanElement | null>(null);
   const wasStreaming = useRef(streaming);
-  const [expanded, setExpanded] = useState(streaming);
+  const [expanded, setExpanded] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   useEffect(() => {
@@ -494,16 +494,16 @@ function ExecutionReasoningActivity({ step }: { step: ChatStep }) {
 
   useEffect(() => {
     if (wasStreaming.current === streaming) return;
-    if (!streaming && contentRef.current) {
-      contentRef.current.scrollTop = 0;
+    if (!streaming) {
+      setExpanded(false);
     }
-    setExpanded(streaming);
     wasStreaming.current = streaming;
   }, [streaming]);
 
-  useEffect(() => {
-    if (!expanded || !contentRef.current) return;
-    contentRef.current.scrollTop = streaming ? contentRef.current.scrollHeight : 0;
+  useLayoutEffect(() => {
+    const preview = previewRef.current;
+    if (!preview || expanded) return;
+    preview.scrollLeft = streaming ? preview.scrollWidth : 0;
   }, [expanded, step.summary, streaming]);
 
   const label = streaming
@@ -519,18 +519,29 @@ function ExecutionReasoningActivity({ step }: { step: ChatStep }) {
       <button
         aria-controls={contentId}
         aria-expanded={expanded}
+        aria-label={label}
         className="react-execution-reasoning__trigger"
         id={triggerId}
         type="button"
         onClick={() => setExpanded((open) => !open)}
       >
-        <Lightbulb aria-hidden="true" size={16} />
-        <span>{label}</span>
+        <span className="react-execution-reasoning__label">
+          <Lightbulb aria-hidden="true" size={16} />
+          <span>{label}</span>
+        </span>
+        <span
+          ref={previewRef}
+          aria-hidden="true"
+          className="react-execution-reasoning__preview"
+          data-streaming={streaming && !expanded ? "true" : undefined}
+          data-testid="execution-reasoning-preview"
+        >
+          {expanded ? null : step.summary}
+        </span>
         {expanded ? <ChevronDown aria-hidden="true" size={14} /> : <ChevronRight aria-hidden="true" size={14} />}
       </button>
       {expanded ? (
         <div
-          ref={contentRef}
           aria-labelledby={triggerId}
           className="react-execution-reasoning__content"
           data-testid="execution-reasoning-content"

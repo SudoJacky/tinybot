@@ -9,7 +9,7 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:7d9f3f82a98f28c6efa8ec42af8db49ac829742b4ce6ab04d1ea42984f9b6293 -->
+<!-- tinybot-doc-fingerprint: sha256:939081e7ed1ef873366ca42350fa668f963c4dfd37887a07c9b7a3e0562cb1f8 -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
@@ -99,6 +99,12 @@ diagnostic redaction or truncation. Blocking status boundaries and Turn exits
 are durable barriers. Eligible events may be appended in bounded batches while
 preserving their causal order, identity, timestamp, and sequence; streaming
 deltas and non-blocking status updates remain live-only.
+
+In Responses mode, reasoning completion can reach a durability boundary before
+the provider-native response batch. The Rollout therefore stores the completed
+semantic reasoning event immediately. When the native reasoning item arrives,
+it remains in exact model replay history while reconstruction suppresses its
+matching timeline fallback by model-call identity.
 
 When Agent execution or trace flushing returns an error, the bridge appends a
 failed terminal boundary with the original runtime error before returning to

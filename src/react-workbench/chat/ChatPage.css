@@ -2148,23 +2148,24 @@
 
 .react-execution-reasoning {
   display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
+  min-width: 0;
   min-height: 34px;
-  align-items: start;
-  gap: 12px;
   color: var(--color-body);
   font-size: 12px;
   font-weight: 500;
 }
 
 .react-execution-reasoning__trigger {
-  display: flex;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content;
+  width: 100%;
+  min-width: 0;
   min-height: 34px;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   color: inherit;
   cursor: pointer;
-  white-space: nowrap;
+  text-align: left;
 }
 
 .react-execution-reasoning__trigger:hover {
@@ -2177,23 +2178,42 @@
   outline-offset: 2px;
 }
 
-.react-execution-reasoning__trigger svg {
+.react-execution-reasoning__label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.react-execution-reasoning__label svg,
+.react-execution-reasoning__trigger > svg {
   flex: none;
   color: var(--color-muted-soft);
 }
 
+.react-execution-reasoning__preview {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-muted);
+  font-weight: 400;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-execution-reasoning__preview[data-streaming="true"] {
+  text-overflow: clip;
+}
+
 .react-execution-reasoning__content {
   min-width: 0;
-  max-height: 72px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 7px 10px;
-  border-left: 1px solid color-mix(in srgb, var(--color-hairline) 76%, transparent);
+  padding: 2px 22px 8px 24px;
   color: var(--color-muted);
   font-size: 12px;
   font-weight: 400;
-  line-height: 1.5;
-  scrollbar-width: thin;
+  line-height: 1.6;
 }
 
 .react-execution-timeline__item > .react-agent-steps > .react-agent-steps__header {

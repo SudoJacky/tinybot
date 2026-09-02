@@ -1,5 +1,5 @@
 # Agent Runtime Protocol
-<!-- tinybot-module-fingerprint: sha256:ee543fb89a7ba55d3fad1ad2e0cd57c56b75f07d6197ec2dfcaec0e79f7a2f71 -->
+<!-- tinybot-module-fingerprint: sha256:1488a4021fe9e8da1283e4ba55b065f92c7844e616bf991b7876ec49f25d52c8 -->
 
 `runtime_protocol` defines the durable events exchanged by the agent runtime
 and the projections built from them.
@@ -14,7 +14,9 @@ causality fails instead of being silently reordered or duplicated.
 
 Textual reasoning deltas project as one user-visible running item without
 advancing the durable timeline revision. Reasoning completion advances the
-revision and completes that item; debug-only reasoning events remain excluded.
+revision and completes that item. A provider may complete an existing reasoning
+item after final-answer streaming starts, but it may not create new post-final
+work; debug-only reasoning events remain excluded.
 
 Usage timeline items treat the typed `agentItem` as canonical. Their projected
 payload omits the redundant enriched `usage` and raw `providerUsage` event

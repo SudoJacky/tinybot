@@ -22,6 +22,30 @@ fn stream_message_phase_recognizes_provider_phase_fields() {
     );
 }
 
+#[test]
+fn responses_stream_observes_textual_reasoning_deltas() {
+    let mut completion = StreamingResponsesCompletion::default();
+    let mut observed = Vec::new();
+    let mut observer = |event| observed.push(event);
+
+    completion
+        .push_event(
+            &json!({
+                "type": "response.reasoning_text.delta",
+                "delta": "thinking"
+            }),
+            Some(&mut observer),
+        )
+        .expect("textual reasoning delta should be accepted");
+
+    assert_eq!(
+        observed,
+        vec![NativeProviderStreamEvent::ReasoningDelta(
+            "thinking".to_string()
+        )]
+    );
+}
+
 fn aggregate_stream_chunks(chunks: &[Value]) -> Result<Value, String> {
     let mut completion = StreamingChatCompletion::default();
     for chunk in chunks {

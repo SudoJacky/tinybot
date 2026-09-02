@@ -1139,6 +1139,58 @@ fn canonical_timeline_rejects_work_after_final_answer() {
 }
 
 #[test]
+fn canonical_timeline_allows_completing_reasoning_created_before_final_answer() {
+    let events = vec![
+        runtime_event(
+            "turn-late-reasoning-completion",
+            "agent.reasoning_delta",
+            AgentRuntimePhase::StreamingModel,
+            Some("reasoning-1"),
+            1,
+            json!({ "delta": "Inspecting" }),
+        ),
+        runtime_event(
+            "turn-late-reasoning-completion",
+            "agent.delta",
+            AgentRuntimePhase::Finalizing,
+            Some("assistant-1"),
+            2,
+            json!({ "delta": "Done.", "messagePhase": "final_answer" }),
+        ),
+        runtime_event(
+            "turn-late-reasoning-completion",
+            "agent.reasoning.completed",
+            AgentRuntimePhase::Finalizing,
+            Some("reasoning-1"),
+            3,
+            json!({ "summary": "Inspecting" }),
+        ),
+    ];
+
+    let timeline =
+        project_timeline_snapshot("session-1", "turn-late-reasoning-completion", &events)
+            .expect("an earlier reasoning item may complete after final answer streaming starts");
+
+    assert_eq!(
+        timeline
+            .items
+            .iter()
+            .map(|item| (&item.kind, &item.status))
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                &AgentTurnItemKind::Reasoning,
+                &AgentTurnItemStatus::Completed
+            ),
+            (
+                &AgentTurnItemKind::AssistantMessage,
+                &AgentTurnItemStatus::Running
+            ),
+        ]
+    );
+}
+
+#[test]
 fn canonical_timeline_uses_replay_order_for_final_answer_boundary() {
     let events = vec![
         runtime_event(
