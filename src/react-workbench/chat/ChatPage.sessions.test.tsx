@@ -256,7 +256,7 @@ describe("ChatPage", () => {
       render(<ChatPage chatStore={stores.chatStore} sessionStore={stores.sessionStore} />);
 
       const sidebar = await screen.findByRole("complementary", { name: "会话" });
-      expect(within(sidebar).getByRole("group", { name: "工作区 常规会话" })).toBeTruthy();
+      expect(await within(sidebar).findByRole("group", { name: "工作区 常规会话" })).toBeTruthy();
     } finally {
       cleanup();
       await act(async () => {
