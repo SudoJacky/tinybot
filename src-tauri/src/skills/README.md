@@ -4,7 +4,9 @@
 `skills` parses, renders, and resolves legacy workspace skill documents for the
 Workspace and Skills APIs. Native agent turns do not use this legacy managed
 resolver; they share its `SKILL.md` parser while discovering project-local
-`.agents/skills/*/SKILL.md` files and enabled global Agent Plugin skills.
+`.agents/skills/*/SKILL.md` and `.codex/skills/*/SKILL.md` files plus enabled
+global Agent Plugin skills. At the same scope, `.agents/skills` wins a
+same-name collision.
 
 - `definition.rs` owns the `SKILL.md` format.
 - `resolver.rs` selects and orders applicable skills.

@@ -14,7 +14,7 @@ to [`agent::bridge`](../bridge/README.md).
 
 - Normalize turn settings, input history, and context-window behavior.
 - Compose bounded context contributions and instruction provenance.
-- Catalog project-local `.agents/skills` alongside enabled Agent Plugin skills,
+- Catalog project-local `.agents/skills` and `.codex/skills` alongside enabled Agent Plugin skills,
   injecting full Skill content only for explicit selections.
 - Call the configured provider and adapt provider-specific responses.
 - Maintain the typed `AgentItem` history used inside the runtime.

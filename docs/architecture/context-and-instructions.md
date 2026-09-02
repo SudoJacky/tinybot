@@ -11,7 +11,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:4123447c9954f14416affa7dd45ab3cfc610429ee42a4bb5aa2c586a5192f940 -->
+<!-- tinybot-doc-fingerprint: sha256:cd35f24dbb99973df74f57286eaedcf704ca0421f4c8468b1a592d5a3790564a -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -45,7 +45,7 @@ exist and must be a directory.
 5. Project instructions discovered from the effective working directory.
 6. The Thread's fixed long-term-memory snapshot, explicitly marked as
    historical context rather than instructions.
-7. Project-local `.agents/skills` catalog (`640`), enabled Agent Plugin skill
+7. Project-local `.agents/skills` and `.codex/skills` catalog (`640`), enabled Agent Plugin skill
    catalog (`650`), and explicitly selected skill content (`700 + index`).
 8. Turn-scoped collaboration-mode and agent-role instructions.
 9. Runtime environment facts, including the effective working directory and
@@ -69,11 +69,13 @@ project root down to the working directory. `AGENTS.override.md` wins over
 precedence.
 
 The same project hierarchy discovers immediate child Skills at
-`.agents/skills/<name>/SKILL.md`. Catalog injection includes only Skill metadata
-and its absolute path; the full file is read when the Skill applies or injected
-when its unqualified name appears in `selectedSkills`. A deeper Skill with the
-same name replaces the outer definition. `.codex` directories and the legacy
-managed `<backend-workspace>/skills` directory are outside this path.
+`.agents/skills/<name>/SKILL.md` and `.codex/skills/<name>/SKILL.md`. Catalog
+injection includes only Skill metadata and its absolute path; the full file is
+read when the Skill applies or injected when its unqualified name appears in
+`selectedSkills`. A deeper Skill with the same name replaces the outer
+definition; at the same scope, `.agents/skills` wins a same-name collision.
+The legacy managed `<backend-workspace>/skills` directory remains outside this
+path.
 
 Tool selection is separate from instruction injection. An omitted
 `selectedTools` setting preserves the runtime's default model-visible tools;

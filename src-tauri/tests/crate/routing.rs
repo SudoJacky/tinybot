@@ -372,6 +372,10 @@ fn worker_webui_tools_route_returns_effective_catalog() {
         "packages/ui/.agents/skills/ui-review/SKILL.md",
         "---\nname: ui-review\ndescription: Review workspace UI.\n---\nReview the interaction.\n",
     );
+    fixture.write(
+        "packages/ui/.codex/skills/codex-ui-review/SKILL.md",
+        "---\nname: codex-ui-review\ndescription: Review Codex workspace UI.\n---\nReview the interaction.\n",
+    );
     let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
@@ -444,6 +448,11 @@ fn worker_webui_tools_route_returns_effective_catalog() {
     assert!(scoped["body"]["skills"]
         .as_array()
         .is_some_and(|skills| skills.iter().any(|skill| skill["name"] == "ui-review")));
+    assert!(scoped["body"]["skills"].as_array().is_some_and(|skills| {
+        skills
+            .iter()
+            .any(|skill| skill["name"] == "codex-ui-review")
+    }));
 }
 
 #[test]

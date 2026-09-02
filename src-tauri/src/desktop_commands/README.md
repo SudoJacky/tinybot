@@ -20,7 +20,7 @@ The Rust-owned `GET /api/tools` route combines the callable tool catalog with
 separate MCP server and Skill summaries. With an explicit `workingDirectory`,
 the catalog also contains deferred Agent Graph tools from that exact workspace;
 workspace-less requests receive no Graph tools. Workspace Skills come from
-`.agents/skills`; full Skill documents remain outside the list response and
+`.agents/skills` and `.codex/skills`; full Skill documents remain outside the list response and
 are loaded on demand through `GET /api/tools/skills/{id}` for workspace and
 enabled-plugin entries only. Both Tools routes accept an optional
 `workingDirectory` query so Chat can catalog the active Thread workspace while

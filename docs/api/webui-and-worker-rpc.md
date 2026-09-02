@@ -147,7 +147,7 @@ turn-local. `.codex` is not scanned.
 `mcp.capability_catalog` and `GET /api/tools` expose one effective snapshot containing configured
 servers, runtime status, discovered tools, allowlist state, callable state, denial reasons, input
 schemas, and a separate Skill catalog. Skill entries include enabled Agent Plugin skills and
-`.agents/skills/*/SKILL.md` files for the catalog workspace. One failed or disabled server remains
+`.agents/skills/*/SKILL.md` and `.codex/skills/*/SKILL.md` files for the catalog workspace. One failed or disabled server remains
 visible without hiding tools from healthy servers. The list contains Skill metadata and paths, not
 full documents; `GET /api/tools/skills/{id}` reads the selected `SKILL.md` on demand and returns
 `404` when the ID is no longer cataloged. Renderer callers can add a URL-encoded

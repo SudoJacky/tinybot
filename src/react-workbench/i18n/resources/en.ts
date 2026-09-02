@@ -285,7 +285,7 @@ export const en = {
       toolsDescription: "Inspect the capabilities currently available to the agent.",
       skillsLabel: "Available skills",
       availableSkills: "Available skills",
-      availableSkillsDescription: "Workspace .agents/skills and skills from enabled plugins.",
+      availableSkillsDescription: "Workspace .agents/skills, .codex/skills, and skills from enabled plugins.",
       skillsEmpty: "No skills found.",
       viewSkillDetails: "View {{name}} details",
       skillDetails: "Skill details",
