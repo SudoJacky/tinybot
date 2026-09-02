@@ -123,6 +123,7 @@ export function ChatSessionWorkspace({
   const [workspaceActionMenuOpen, setWorkspaceActionMenuOpen] = useState(false);
   const [workspaceError, setWorkspaceError] = useState("");
   const [workspacePickerPending, setWorkspacePickerPending] = useState(false);
+  const workspaceMutationRevisionRef = useRef(0);
   const [sidebarOrder, setSidebarOrder] = useState<SessionSidebarOrder>(() => (
     typeof window === "undefined"
       ? INITIAL_SESSION_SIDEBAR_ORDER
@@ -136,13 +137,16 @@ export function ChatSessionWorkspace({
 
   useEffect(() => {
     let cancelled = false;
+    const workspaceMutationRevision = workspaceMutationRevisionRef.current;
     void Promise.all([
       projectGroupStore?.list() ?? Promise.resolve([]),
       workspaceRegistryStore.list(),
     ]).then(([groups, registeredWorkspaces]) => {
       if (!cancelled) {
         setProjectGroups(groups);
-        setWorkspaces(registeredWorkspaces);
+        if (workspaceMutationRevisionRef.current === workspaceMutationRevision) {
+          setWorkspaces(registeredWorkspaces);
+        }
         setWorkspaceError("");
       }
     }).catch((cause) => {
@@ -441,6 +445,7 @@ export function ChatSessionWorkspace({
       const workingDirectory = await pickDesktopWorkspaceDirectory();
       if (workingDirectory) {
         const registered = await workspaceRegistryStore.register(workingDirectory);
+        workspaceMutationRevisionRef.current += 1;
         setWorkspaces((current) => upsertWorkspace(current, registered));
         await actions.onCreateSession(registered.path);
       }
@@ -482,6 +487,7 @@ export function ChatSessionWorkspace({
       const path = await pickDesktopWorkspaceDirectory();
       if (!path) return undefined;
       const registered = await workspaceRegistryStore.register(path);
+      workspaceMutationRevisionRef.current += 1;
       setWorkspaces((current) => upsertWorkspace(current, registered));
       return registered.path;
     } catch (cause) {
@@ -495,11 +501,13 @@ export function ChatSessionWorkspace({
 
   async function handleRenameWorkspace(path: string, name: string): Promise<void> {
     const renamed = await workspaceRegistryStore.rename(path, name);
+    workspaceMutationRevisionRef.current += 1;
     setWorkspaces((current) => upsertWorkspace(current, renamed));
   }
 
   async function handleForgetWorkspace(path: string): Promise<void> {
     await workspaceRegistryStore.forget(path);
+    workspaceMutationRevisionRef.current += 1;
     const key = normalizedWorkspacePathKey(path);
     setWorkspaces((current) => current.filter((workspace) => (
       normalizedWorkspacePathKey(workspace.path) !== key

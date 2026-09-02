@@ -466,6 +466,52 @@ describe("ChatPage", () => {
     await waitFor(() => expect(stores.chatStore.load).toHaveBeenLastCalledWith("workspace-session"));
   });
 
+  it("keeps a newly registered workspace after its pristine draft is discarded", async () => {
+    const user = userEvent.setup();
+    const workingDirectory = "D:\\Code\\VirtualHome";
+    const stores = createStores();
+    const workspace = {
+      addedAtMs: 1,
+      exists: true,
+      name: "VirtualHome",
+      path: workingDirectory,
+      updatedAtMs: 1,
+    };
+    let resolveWorkspaceList!: (workspaces: (typeof workspace)[]) => void;
+    const workspaceRegistryStore: WorkspaceRegistryStore = {
+      list: vi.fn(() => new Promise<(typeof workspace)[]>((resolve) => {
+        resolveWorkspaceList = resolve;
+      })),
+      register: vi.fn(async () => workspace),
+      rename: vi.fn(async (_path, name) => ({ ...workspace, name })),
+      forget: vi.fn(async () => undefined),
+    };
+    nativeWorkspacePickerMocks.pickDesktopWorkspaceDirectory.mockResolvedValueOnce(workingDirectory);
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
+        sessionStore={stores.sessionStore}
+        workspaceRegistryStore={workspaceRegistryStore}
+      />,
+    );
+
+    const sidebar = await screen.findByLabelText("Sessions");
+    await user.click(within(sidebar).getByRole("button", { name: "Workspace and project actions" }));
+    await user.click(within(sidebar).getByRole("menuitem", { name: "Add workspace folder" }));
+    expect(await within(sidebar).findByRole("group", { name: "Workspace VirtualHome" })).toBeTruthy();
+    expect(workspaceRegistryStore.register).toHaveBeenCalledWith(workingDirectory);
+
+    await act(async () => resolveWorkspaceList([]));
+
+    await user.click(within(sidebar).getByRole("button", { name: "Planning notes" }));
+
+    expect(await within(sidebar).findByRole("group", { name: "Workspace VirtualHome" })).toBeTruthy();
+    expect(within(sidebar).getByRole("button", { name: "Manage VirtualHome" })).toBeTruthy();
+    expect(stores.sessionStore.create).not.toHaveBeenCalled();
+  });
+
   it("defers workspace creation failures until the first send and exposes them", async () => {
     const user = userEvent.setup();
     const stores = createStores();

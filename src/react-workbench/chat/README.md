@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:e796355782f4ba43d28dc00527f55cfa84ae2ac45994db88dc9b1c96e238e088 -->
+<!-- tinybot-module-fingerprint: sha256:c21b198bc050ba84fba1b474c0f616856fe165b3436dca995dbcc5b2c47bd255 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -175,10 +175,13 @@ The sidebar reads imported folders and their display names from the shared
 `WorkspaceRegistryStore`. Choosing a folder registers it before creating a
 workspace draft, so every new Thread receives the portable canonical path
 returned by Rust rather than the file picker's raw Windows path. Rename changes
-only the registry display name. Forget removes only the registry entry, leaves
-historical sessions and disk content intact, disables new sessions from that
-historical group, and surfaces the backend error when a project still references
-the workspace. Project-folder selection uses the same register operation.
+only the registry display name. An older in-flight registry snapshot cannot
+replace a successful register, rename, or forget, so discarding a pristine
+workspace draft does not remove its already registered folder. Forget removes
+only the registry entry, leaves historical sessions and disk content intact,
+disables new sessions from that historical group, and surfaces the backend error
+when a project still references the workspace. Project-folder selection uses the
+same register operation.
 
 Session creation follows the entry point's target. Workspace and project
 actions capture their workspace and project context on the local draft. With the
