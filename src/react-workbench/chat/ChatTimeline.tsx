@@ -302,11 +302,19 @@ function ExecutionTimeline({
     || turn.status === "failed"
     || turn.status === "interrupted"
     || turn.status === "awaiting_user";
-  const [open, setOpen] = useState(true);
+  const hasFinalAnswer = Boolean(turn.finalAnswer ?? turn.finalMessage);
+  const finalAnswerObservedRef = useRef(hasFinalAnswer);
+  const [open, setOpen] = useState(!hasFinalAnswer);
   const visibleExecutionItems = turn.status === "interrupted"
     ? executionItems.filter((step) => step.kind !== "error")
     : executionItems;
   const errorItems = visibleExecutionItems.filter((step) => step.kind === "error");
+
+  useEffect(() => {
+    if (!hasFinalAnswer || finalAnswerObservedRef.current) return;
+    finalAnswerObservedRef.current = true;
+    setOpen(false);
+  }, [hasFinalAnswer]);
 
   const summary = executionTimelineSummary(turn, executionItems, abnormal, t);
   return (

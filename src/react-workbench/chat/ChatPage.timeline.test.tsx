@@ -773,7 +773,7 @@ describe("ChatPage", () => {
     expect(within(error).queryByRole("button", { name: /Continue|Retry|Start over|View details/ })).toBeNull();
   });
 
-  it("renders canonical execution items chronologically with the outer timeline expanded", async () => {
+  it("renders canonical execution items chronologically with completed work collapsed", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     const timeline = timelineFromReactMessages("s1", [{
@@ -843,7 +843,7 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 2, 0)} sessionStore={stores.sessionStore} />);
 
     const toggle = await screen.findByRole("button", { name: /Work performed: thought ×1 · file read ×1/ });
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(screen.getByText("Verification passed.")).toBeTruthy();
     const orderedItems = document.querySelectorAll(".react-execution-timeline__item");
     expect([...orderedItems].map((item) => item.getAttribute("data-kind"))).toEqual([
@@ -858,7 +858,7 @@ describe("ChatPage", () => {
     expect(screen.getByText("I found the first file.")).toBeTruthy();
     expect(screen.getByText("Now I will verify it.")).toBeTruthy();
     await user.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("summarizes execution by activity type without exposing reasoning content", async () => {
@@ -961,7 +961,7 @@ describe("ChatPage", () => {
     expect(screen.queryByRole("button", { name: "Open details for Edited parser.rs" })).toBeNull();
   });
 
-  it("keeps untouched execution expanded through live updates and preserves explicit user-closed intent", async () => {
+  it("collapses execution when the final answer starts and preserves explicit user-open intent", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     let listener: ((event: ChatEvent) => void) | undefined;
@@ -1014,11 +1014,11 @@ describe("ChatPage", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     act(() => listener?.({ type: "timeline.patch", timeline: timelineFor(true) }));
     toggle = await screen.findByRole("button", { name: /Work performed:/ });
-    await waitFor(() => expect(toggle.getAttribute("aria-expanded")).toBe("true"));
-    await user.click(toggle);
-    expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    act(() => listener?.({ type: "timeline.patch", timeline: timelineFor(true, 42) }));
     await waitFor(() => expect(toggle.getAttribute("aria-expanded")).toBe("false"));
+    await user.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    act(() => listener?.({ type: "timeline.patch", timeline: timelineFor(true, 42) }));
+    await waitFor(() => expect(toggle.getAttribute("aria-expanded")).toBe("true"));
   });
 
   it("does not reopen explicitly closed execution when the final answer arrives", async () => {
