@@ -477,14 +477,70 @@ function executionDurationMs(turn: ChatTurn): number | undefined {
 
 function ExecutionReasoningActivity({ step }: { step: ChatStep }) {
   const { t } = useTranslation("chat");
-  const label = step.status === "running"
-    ? t("reasoning.thinking")
+  const streaming = step.status === "running";
+  const contentId = useId();
+  const triggerId = useId();
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const wasStreaming = useRef(streaming);
+  const [expanded, setExpanded] = useState(streaming);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!streaming) return;
+    setNowMs(Date.now());
+    const intervalId = window.setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => window.clearInterval(intervalId);
+  }, [step.startedAt, streaming]);
+
+  useEffect(() => {
+    if (wasStreaming.current === streaming) return;
+    if (!streaming && contentRef.current) {
+      contentRef.current.scrollTop = 0;
+    }
+    setExpanded(streaming);
+    wasStreaming.current = streaming;
+  }, [streaming]);
+
+  useEffect(() => {
+    if (!expanded || !contentRef.current) return;
+    contentRef.current.scrollTop = streaming ? contentRef.current.scrollHeight : 0;
+  }, [expanded, step.summary, streaming]);
+
+  const label = streaming
+    ? formatActiveThinkingLabel(reasoningActiveDurationMs(step, nowMs), t)
     : formatThinkingLabel(reasoningDurationMs(step), t);
   return (
-    <div aria-label={t("reasoning.label")} className="react-execution-reasoning">
-      <Lightbulb aria-hidden="true" size={16} />
-      <span>{label}</span>
-    </div>
+    <section
+      aria-label={t("reasoning.label")}
+      className="react-execution-reasoning"
+      data-expanded={expanded ? "true" : undefined}
+      data-streaming={streaming ? "true" : undefined}
+    >
+      <button
+        aria-controls={contentId}
+        aria-expanded={expanded}
+        className="react-execution-reasoning__trigger"
+        id={triggerId}
+        type="button"
+        onClick={() => setExpanded((open) => !open)}
+      >
+        <Lightbulb aria-hidden="true" size={16} />
+        <span>{label}</span>
+        {expanded ? <ChevronDown aria-hidden="true" size={14} /> : <ChevronRight aria-hidden="true" size={14} />}
+      </button>
+      {expanded ? (
+        <div
+          ref={contentRef}
+          aria-labelledby={triggerId}
+          className="react-execution-reasoning__content"
+          data-testid="execution-reasoning-content"
+          id={contentId}
+          role="region"
+        >
+          <PlainMessageText text={step.summary ?? ""} />
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -1306,6 +1362,21 @@ function reasoningDurationMs(step: ChatStep): number | undefined {
   }
   const duration = Date.parse(step.completedAt) - Date.parse(step.startedAt);
   return Number.isFinite(duration) && duration >= 0 ? duration : undefined;
+}
+
+function reasoningActiveDurationMs(step: ChatStep, nowMs: number): number | undefined {
+  if (!step.startedAt) {
+    return undefined;
+  }
+  const startedAtMs = Date.parse(step.startedAt);
+  return Number.isFinite(startedAtMs) ? Math.max(0, nowMs - startedAtMs) : undefined;
+}
+
+function formatActiveThinkingLabel(durationMs: number | undefined, t: TFunction<"chat">): string {
+  if (durationMs === undefined) {
+    return t("reasoning.thinking");
+  }
+  return t("reasoning.thinkingSeconds", { count: Math.floor(durationMs / 1_000) });
 }
 
 function formatThinkingLabel(durationMs: number | undefined, t: TFunction<"chat">): string {

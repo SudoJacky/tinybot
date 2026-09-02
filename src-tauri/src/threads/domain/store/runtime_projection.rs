@@ -130,21 +130,32 @@ fn context_checkpoint(value: &Value) -> &Value {
 }
 
 fn reasoning_response_text(value: &Value) -> String {
-    if let Some(text) = value
+    let summary = value
         .get("summary")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(|entry| entry.get("text").and_then(Value::as_str))
-        .next()
-    {
-        return text.to_string();
+        .map(response_content_text)
+        .unwrap_or_default();
+    if !summary.trim().is_empty() {
+        return summary;
     }
     value
-        .get("summary")
-        .and_then(Value::as_str)
+        .get("content")
+        .map(response_content_text)
         .unwrap_or_default()
-        .to_string()
+}
+
+fn response_content_text(content: &Value) -> String {
+    match content {
+        Value::String(content) => content.clone(),
+        Value::Array(parts) => parts
+            .iter()
+            .filter_map(|part| {
+                part.as_str()
+                    .or_else(|| part.get("text").and_then(Value::as_str))
+            })
+            .collect(),
+        Value::Null => String::new(),
+        content => content.to_string(),
+    }
 }
 
 fn normalized_response_tool_output(value: &Value) -> Value {
@@ -312,18 +323,10 @@ fn normalized_subagent_message_payload(item: &ThreadItem, value: &Value) -> Valu
 }
 
 fn response_item_text(value: &Value) -> String {
-    match value.get("content") {
-        Some(Value::String(content)) => content.clone(),
-        Some(Value::Array(parts)) => parts
-            .iter()
-            .filter_map(|part| {
-                part.as_str()
-                    .or_else(|| part.get("text").and_then(Value::as_str))
-            })
-            .collect(),
-        Some(Value::Null) | None => String::new(),
-        Some(content) => content.to_string(),
-    }
+    value
+        .get("content")
+        .map(response_content_text)
+        .unwrap_or_default()
 }
 
 pub(crate) fn runtime_events_from_thread_items(

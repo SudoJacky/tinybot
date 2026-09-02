@@ -332,7 +332,7 @@ fn artifact_tool_output_replays_the_persisted_envelope() {
 }
 
 #[test]
-fn responses_raw_reasoning_stays_hidden_and_tool_output_gets_a_display_summary() {
+fn responses_raw_reasoning_reloads_into_the_timeline_and_tool_output_gets_a_display_summary() {
     let item = |item_id: &str, sequence: u64, kind: ThreadItemKind| ThreadItem {
         item_id: item_id.to_string(),
         thread_id: "thread-1".to_string(),
@@ -383,15 +383,24 @@ fn responses_raw_reasoning_stays_hidden_and_tool_output_gets_a_display_summary()
         .iter()
         .find(|event| event.event_name == "agent.reasoning.completed")
         .expect("reasoning remains available in the runtime trace");
-    assert_eq!(reasoning.visibility, AgentRuntimeEventVisibility::Debug);
-    assert_eq!(reasoning.payload["summary"], "");
+    assert_eq!(reasoning.visibility, AgentRuntimeEventVisibility::User);
+    assert_eq!(
+        reasoning.payload["summary"],
+        "Private provider chain of thought."
+    );
 
     let projected = turn_items_from_thread_items(&items, "thread-1", "turn-1");
-    assert_eq!(projected.len(), 1);
-    assert_eq!(projected[0].kind, AgentTurnItemKind::ToolCall);
-    assert_eq!(projected[0].summary.as_deref(), Some("reply.json"));
+    assert_eq!(projected.len(), 2);
+    assert_eq!(projected[0].kind, AgentTurnItemKind::Reasoning);
     assert!(matches!(
         &projected[0].data,
+        AgentTurnItemData::Reasoning { summary, .. }
+            if summary == "Private provider chain of thought."
+    ));
+    assert_eq!(projected[1].kind, AgentTurnItemKind::ToolCall);
+    assert_eq!(projected[1].summary.as_deref(), Some("reply.json"));
+    assert!(matches!(
+        &projected[1].data,
         AgentTurnItemData::ToolCall { name, result, .. }
             if name == "exec_command"
                 && result["stdout"] == "reply.json\r\n"
@@ -400,7 +409,7 @@ fn responses_raw_reasoning_stays_hidden_and_tool_output_gets_a_display_summary()
 }
 
 #[test]
-fn typed_completed_records_replay_without_stream_deltas_or_user_reasoning() {
+fn typed_completed_records_replay_without_stream_deltas() {
     let persisted_item = |item_id: &str, sequence: u64, kind: ThreadItemKind| ThreadItem {
         item_id: item_id.to_string(),
         thread_id: "thread-1".to_string(),
@@ -442,9 +451,14 @@ fn typed_completed_records_replay_without_stream_deltas_or_user_reasoning() {
     )));
     let projected = turn_items_from_thread_items(&items, "thread-1", "turn-1");
 
-    assert_eq!(projected.len(), 1);
+    assert_eq!(projected.len(), 2);
     assert!(matches!(
         &projected[0],
+        item if item.kind == AgentTurnItemKind::Reasoning
+            && matches!(&item.data, AgentTurnItemData::Reasoning { summary, .. } if summary == "Inspect first.")
+    ));
+    assert!(matches!(
+        &projected[1],
         item if item.kind == AgentTurnItemKind::AssistantMessage
             && matches!(&item.data, AgentTurnItemData::AssistantMessage { content, .. } if content == "Hello world.")
     ));

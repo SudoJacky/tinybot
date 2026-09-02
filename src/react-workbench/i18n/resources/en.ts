@@ -1085,7 +1085,7 @@ export const en = {
       dotDateLegend: "One dot = one date · hollow = weekend", dotRecordLegend: "One dot = one record",
       hairlineDateLegend: "One hairline = one date", hairlineRecordLegend: "One hairline = one record",
     },
-    reasoning: { label: "Reasoning", thinking: "Thinking", underSecond: "Thought for less than 1 second", seconds: "Thought for {{count}} seconds" },
+    reasoning: { label: "Reasoning", thinking: "Thinking", thinkingSeconds: "Thinking · {{count}}s", underSecond: "Thought for less than 1 second", seconds: "Thought for {{count}} seconds" },
     context: { attachments: "Attachments", context: "Context" },
     steps: { count: "{{count}} steps", title: "Execution details", label: "Agent steps", openDetails: "Open details for {{name}}", status: { active: "In progress", success: "Completed", waiting: "Waiting for confirmation", cancelled: "Cancelled", error: "Failed", pending: "Pending" } },
     details: {

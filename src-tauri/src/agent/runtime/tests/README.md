@@ -1,5 +1,5 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:2ac5ba71a27e6280919551db24ef144eab447458245ef50a9948c7869d91d093 -->
+<!-- tinybot-module-fingerprint: sha256:80210eb57e9a6a5479185e7573f987f6ab68107d461f004045dc5e58b03683a0 -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.
@@ -20,8 +20,9 @@ Profile per-model overrides.
 Shared fixtures and helpers live in `mod.rs`.
 
 Lifecycle coverage verifies prompt, before-tool, and after-tool hook stages and
-confirms that normalized before-tool replacements reach dispatch. Interaction
-coverage keeps resumable user-input checkpoints and their deferred tool-hook
+confirms that normalized before-tool replacements reach dispatch. It also
+checks that provider reasoning has matching live and reloaded canonical items.
+Interaction coverage keeps resumable user-input checkpoints and their deferred tool-hook
 context on the same Turn.
 
 Tool coverage verifies provider call/result pairing, multi-call batches, and

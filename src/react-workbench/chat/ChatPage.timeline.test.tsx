@@ -861,7 +861,7 @@ describe("ChatPage", () => {
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("summarizes execution by activity type without exposing reasoning content", async () => {
+  it("summarizes execution by activity type and keeps completed reasoning folded", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     const timeline = timelineFromReactMessages("s1", [{
@@ -881,7 +881,7 @@ describe("ChatPage", () => {
         sequence: 1,
         startedAt: "2026-07-04T12:01:00.000Z",
         status: "completed",
-        summary: "Private reasoning content must stay hidden.",
+        summary: "Detailed reasoning content.",
         title: "Thinking complete",
         completedAt: "2026-07-04T12:01:00.400Z",
       },
@@ -901,8 +901,11 @@ describe("ChatPage", () => {
       name: /Running · thought ×1 · file read ×1 · file change ×1 · command ×1 · search ×1 · web ×1 · browser action ×1/,
     });
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.queryByText("Private reasoning content must stay hidden.")).toBeNull();
-    expect(screen.getByText("Thought for less than 1 second")).toBeTruthy();
+    expect(screen.queryByText("Detailed reasoning content.")).toBeNull();
+    const reasoningToggle = screen.getByRole("button", { name: "Thought for less than 1 second" });
+    expect(reasoningToggle.getAttribute("aria-expanded")).toBe("false");
+    await user.click(reasoningToggle);
+    expect(screen.getByText("Detailed reasoning content.")).toBeTruthy();
     await user.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
   });

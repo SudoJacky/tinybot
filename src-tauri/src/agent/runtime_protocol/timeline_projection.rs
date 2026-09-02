@@ -436,11 +436,10 @@ fn visible_item_kind(
     event: &AgentRuntimeEventEnvelope,
     kind: AgentTurnItemKind,
 ) -> Option<AgentTurnItemKind> {
-    if kind == AgentTurnItemKind::Reasoning {
-        return None;
-    }
-    if kind == AgentTurnItemKind::AssistantMessage
-        && event.visibility != AgentRuntimeEventVisibility::User
+    if matches!(
+        kind,
+        AgentTurnItemKind::AssistantMessage | AgentTurnItemKind::Reasoning
+    ) && event.visibility != AgentRuntimeEventVisibility::User
     {
         return None;
     }

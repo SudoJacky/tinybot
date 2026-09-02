@@ -150,10 +150,11 @@ rejects explicitly requested parallel tool calls. Its Provider Profile is
 Chat Completions only, so an invalid Responses selection fails before network
 dispatch.
 
-Reasoning remains provider/replay data and a debug trace concern; it is not a
-product-facing canonical timeline item. This keeps Chat Completions and
-Responses rendering focused on messages and observable work without exposing
-raw chain-of-thought content.
+Textual provider reasoning is a product-facing canonical timeline item. Live
+reasoning deltas revise one running item, and the completed reasoning event
+advances the durable timeline revision. Responses replay prefers summary text
+and falls back to persisted `reasoning_text`; encrypted-only reasoning remains
+absent from the visible timeline.
 
 OpenAI-compatible providers assume reasoning-effort parameters are supported
 unless their profile sets `supportsReasoningEffort: false`. This default applies

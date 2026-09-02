@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:e5967e011ff3da21315b231c086445ec8df682b6f759020c449371cfa5e314a8 -->
+<!-- tinybot-module-fingerprint: sha256:fe0bb965596830b45c74795c0c0770516be069641348f0f10cb62c4dee8fd480 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -11,9 +11,12 @@ A running canonical execution trace starts expanded, then folds once when its
 final answer first appears; completed traces therefore mount folded. A user can
 still reopen the trace, and later streaming revisions preserve that explicit
 choice. Its summary derives compact counts from semantic Step and Tool kinds,
-exposes running and abnormal status without logos, and never renders reasoning
-content. Individual Tool and Diff rows start collapsed, so the ordered activity
-stays scannable until a user opens one row's details.
+and exposes running and abnormal status without logos. An active Reasoning row
+shows elapsed time beside a bounded text viewport that follows the latest
+content. Completion returns that viewport to its first line and folds the row;
+the user can reopen it for the full scrollable detail. Individual Tool and Diff
+rows also start collapsed, so the ordered activity stays scannable until a user
+opens one row's details.
 `FloatingPlanStatus.tsx` mirrors the most recent canonical plan across Turns in
 a fixed top-right note without introducing another plan store. A newer Turn
 without a plan keeps the previous plan visible; the next plan replaces it. New

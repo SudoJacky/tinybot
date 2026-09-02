@@ -1030,14 +1030,16 @@ fn canonical_timeline_preserves_interleaved_messages_tools_and_phases() {
             .map(|item| (&item.kind, item.sequence))
             .collect::<Vec<_>>(),
         vec![
+            (&AgentTurnItemKind::Reasoning, 1),
             (&AgentTurnItemKind::AssistantMessage, 2),
             (&AgentTurnItemKind::ToolCall, 4),
             (&AgentTurnItemKind::PlanProgress, 6),
+            (&AgentTurnItemKind::Reasoning, 7),
             (&AgentTurnItemKind::AssistantMessage, 8),
         ]
     );
     assert!(matches!(
-        &snapshot.items[0].data,
+        &snapshot.items[1].data,
         AgentTurnItemData::AssistantMessage {
             model_call_id,
             phase: AgentAssistantMessagePhase::Commentary,
@@ -1046,7 +1048,7 @@ fn canonical_timeline_preserves_interleaved_messages_tools_and_phases() {
         } if model_call_id == "call-0" && content == "I will inspect the workspace."
     ));
     assert!(matches!(
-        &snapshot.items[3].data,
+        &snapshot.items[5].data,
         AgentTurnItemData::AssistantMessage {
             model_call_id,
             phase: AgentAssistantMessagePhase::FinalAnswer,
@@ -1311,7 +1313,7 @@ fn incremental_timeline_projector_matches_full_projection_at_every_event() {
 }
 
 #[test]
-fn hidden_reasoning_and_live_deltas_do_not_advance_durable_timeline_revision() {
+fn live_deltas_keep_the_revision_while_completed_reasoning_advances_it() {
     let events = vec![
         runtime_event(
             "turn-durable-revision",
@@ -1357,13 +1359,13 @@ fn hidden_reasoning_and_live_deltas_do_not_advance_durable_timeline_revision() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(revisions, vec![None, None, Some(0), Some(1)]);
-    assert_eq!(projector.snapshot().unwrap().snapshot_revision, 1);
+    assert_eq!(revisions, vec![Some(0), Some(1), Some(1), Some(2)]);
+    assert_eq!(projector.snapshot().unwrap().snapshot_revision, 2);
     assert_eq!(
         project_timeline_snapshot("session-1", "turn-durable-revision", &events)
             .unwrap()
             .snapshot_revision,
-        1
+        2
     );
 }
 

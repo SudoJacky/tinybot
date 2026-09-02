@@ -8,7 +8,7 @@ src/app-core/native/desktopNativeTauriEvents.ts
 src/app-core/native/desktopNativeTauriEvents.test.ts
 src/react-workbench/adapters/desktopNativeEventBridge.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:c7ba1dbba1af6aa82087b90f28a10533161b5e45d4b28d8ab596e14e798c05ac -->
+<!-- tinybot-doc-fingerprint: sha256:15d4167050f2f384d0798f9f52563a1fa1c62e3ea86be21a33e08292ce60d5e8 -->
 
 This document lists frontend-visible events emitted by the native runtime. It
 is part of the [Rust backend API reference](rust-backend-api.md), which defines
@@ -71,6 +71,10 @@ the error remains visible. Identity/schema mismatches, invalid assistant-phase t
 post-final work, and terminal-state regressions are rejected;
 lower item revisions are ignored with a diagnostic. Raw events remain available for traces but are
 not a second Chat state source.
+
+Textual `agent.reasoning_delta` events update one user-visible running Reasoning item without
+advancing `snapshotRevision`. `agent.reasoning.completed` completes the same item and advances the
+durable revision, so Chat can stream reasoning and later restore it from the canonical Thread.
 
 `thread.task_progress.upsert` requires non-empty `threadId` and `turnId` values plus the same
 complete `steps` snapshot, and persists the resulting `plan_progress` item under `_agent_item`.
