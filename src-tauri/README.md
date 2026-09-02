@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:56f38f2f5f54377c1c4a5f365c23a7f53b1b349bf229f826fc926610867363cc -->
+<!-- tinybot-module-fingerprint: sha256:f36bf15552a5fd6533370c59962207c12842d7228f78634efd3c18b1d3142709 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -211,6 +211,10 @@ Windows verbatim prefixes, and scans legacy Thread/group references only once.
 Project-group membership is loaded from its own atomic JSON store, registers
 every member through that registry, and authorizes coordinator-created
 workspace Threads.
+The Rust-owned Tools catalog uses that registry for its all-workspace Skill
+inventory while Chat continues to resolve project-local Skills from only the
+active Turn working directory. Aggregate entries are de-duplicated by portable
+Skill path, so overlapping imported scopes do not duplicate one file.
 Agent Graph definitions use one atomically replaced JSON file per Graph and an
 exact-byte SHA-256 revision for optimistic saves and deletes. Agent nodes may
 store additional role instructions plus a provider/model/reasoning override;

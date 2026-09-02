@@ -281,8 +281,8 @@ export type ToolCatalogSummary = {
 };
 
 export type ToolsStore = {
-  loadCatalog(options?: { workingDirectory?: string }): Promise<ToolCatalogSummary>;
-  loadSkillDetail(id: string, options?: { workingDirectory?: string }): Promise<SkillDetail>;
+  loadCatalog(options?: { skillScope?: "allWorkspaces"; workingDirectory?: string }): Promise<ToolCatalogSummary>;
+  loadSkillDetail(id: string, options?: { skillScope?: "allWorkspaces"; workingDirectory?: string }): Promise<SkillDetail>;
   listPlugins(): Promise<PluginSummary[]>;
   installPlugin(path: string): Promise<PluginSummary>;
   preparePluginMigration(path: string): Promise<PluginMigrationJob>;

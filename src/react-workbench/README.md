@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:1e2406007a1b6714585ab26187d3885302111aa76dcfedbcb33343e4460e397f -->
+<!-- tinybot-module-fingerprint: sha256:4ed79a458e7e7831015c3d7ce667c9f7c5f52b9de040728b792285bee2a2adcc -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App` for the main window and selects lightweight
@@ -50,13 +50,14 @@ catalog instead of consuming every discovered Provider model.
 
 The Tools & Plugins route presents Plugins, Skills, MCP servers, and callable
 Tools as separate resource views over one normalized catalog. Skill rows load
-their full `SKILL.md` detail only when selected. The desktop shell carries the
-active Chat working directory into both catalog and detail requests, falling
-back to the configured backend workspace when no workspace-backed conversation
-is active.
+their full `SKILL.md` detail only when selected. Its Skills inventory requests
+all existing imported workspaces from the backend registry, while MCP,
+callable Tool, and Agent Graph discovery still receives the active Chat working
+directory and falls back to the configured backend workspace when no
+workspace-backed conversation is active.
 The shared Tools store accepts an optional working directory so Chat's slash
-menu and composer tool controls can request the catalog scoped to its active
-conversation. Workspace-less Chats filter Agent Graph tools.
+menu and composer tool controls can request the catalog scoped only to its
+active conversation. Workspace-less Chats filter Agent Graph tools.
 
 Chat hosts Sidecar, whose Browser
 resources attach directly to the shared native WebView2 session used by Agent

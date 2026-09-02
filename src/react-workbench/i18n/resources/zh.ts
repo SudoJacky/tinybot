@@ -118,9 +118,9 @@ export const zh = {
     tools: {
       title: "工具与插件", viewLabel: "工具与插件视图", plugins: "插件", skills: "Skills", mcp: "MCP", tools: "工具",
       pluginDescription: "通过可移植的 Skill 和 MCP Server 扩展 Tinybot，并在所有工作区中共享。",
-      skillsDescription: "查看当前工作区及已启用插件中发现的 Agent Skills。", mcpDescription: "查看当前工作区可以使用的 MCP Server。",
+      skillsDescription: "查看所有已导入工作区及已启用插件中发现的 Agent Skills。", mcpDescription: "查看当前工作区可以使用的 MCP Server。",
       toolsDescription: "查看 Agent 当前可以使用的能力。", availableToolsLabel: "可用工具", mcpServers: "MCP Server",
-      skillsLabel: "可用 Skills", availableSkills: "可用 Skills", availableSkillsDescription: "工作区 .agents/skills、.codex/skills 与已启用插件提供的 Skills。", skillsEmpty: "没有发现 Skill。",
+      skillsLabel: "可用 Skills", availableSkills: "可用 Skills", availableSkillsDescription: "所有已导入工作区的 .agents/skills、.codex/skills 与已启用插件提供的 Skills。", skillsEmpty: "没有发现 Skill。",
       viewSkillDetails: "查看 {{name}} 详情", skillDetails: "Skill 详情", closeSkillDetails: "关闭 Skill 详情", loadingSkillDetails: "正在加载 Skill 详情…",
       skillDetailsFailed: "无法加载 Skill 详情：{{message}}", retrySkillDetails: "重试", skillSource: "来源", skillPath: "SKILL.md 路径",
       mcpServersDescription: "Tinybot 当前已知的外部工具 Provider。", mcpEmpty: "没有发现 MCP Server。", availableTools: "可用工具",

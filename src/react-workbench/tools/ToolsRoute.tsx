@@ -168,7 +168,10 @@ function SkillsCatalogView({
     }
     let cancelled = false;
     setDetailState({ status: "loading" });
-    void services.toolsStore.loadSkillDetail(selectedSkillId, { workingDirectory })
+    void services.toolsStore.loadSkillDetail(selectedSkillId, {
+      skillScope: "allWorkspaces",
+      workingDirectory,
+    })
       .then((detail) => {
         if (!cancelled) setDetailState({ status: "ready", detail });
       })
@@ -596,7 +599,7 @@ function useToolCatalog(
   useEffect(() => {
     let cancelled = false;
     setState({ status: "loading" });
-    void services.toolsStore.loadCatalog({ workingDirectory })
+    void services.toolsStore.loadCatalog({ skillScope: "allWorkspaces", workingDirectory })
       .then((catalog) => {
         if (!cancelled) setState({ status: "ready", catalog });
       })

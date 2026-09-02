@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:c0e41ee13c97af92897b281ce375defc56bd8072a2297df878f64adeb8f398c2 -->
+<!-- tinybot-doc-fingerprint: sha256:0040e1b25f3845986a733ed5384eb4fcfc29d2b9cc3bfa5e33c76d0870e6cce0 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -107,7 +107,9 @@ Desktop Commands / Desktop Host
   when upgrading from the pre-registry model; the persisted migration marker
   prevents subsequent workspace reads from scanning Thread history. Forgetting
   removes only the catalog record and is rejected while a project group still
-  references the workspace; it never deletes or moves the directory.
+  references the workspace; it never deletes or moves the directory. The Tools
+  & Plugins Skill inventory reads this complete catalog, while Chat's slash
+  menu continues to discover only global and active-workspace Skills.
 - Chat startup selection: `DesktopShell` marks only the first Chat mount in a
   desktop app lifetime as an uncreated conversation. Persisted tab state may be
   reused by later route remounts in that same lifetime, but it is not the app

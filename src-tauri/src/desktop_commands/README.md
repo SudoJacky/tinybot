@@ -1,5 +1,5 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:3a9408784f644a7d9fdf2ae2ba177d94c91dea97cc0e718360f72aeb20bd30d0 -->
+<!-- tinybot-module-fingerprint: sha256:6169084176009b5e15308c8d45ae2e2ab380c129481307ce8d5e4d0dc83b1dc0 -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,
@@ -25,7 +25,11 @@ are loaded on demand through `GET /api/tools/skills/{id}` for workspace and
 enabled-plugin entries only. Both Tools routes accept an optional
 `workingDirectory` query so Chat can catalog the active Thread workspace while
 non-Graph entries for callers that omit it continue to use the configured
-backend workspace.
+backend workspace. The Tools & Plugins inventory adds
+`skillScope=allWorkspaces`; this reads `WorkspaceRegistry` once and combines
+Skills from every existing imported workspace without changing the
+`workingDirectory` scope used for MCP, callable Tools, or Agent Graphs. The
+detail route accepts the same scope for aggregate workspace Skill IDs.
 Invalid Agent Graph files are omitted only from this tool-discovery response and
 reported in `agentGraphDiagnostics`; the dedicated Graph management commands
 continue to reject invalid saved definitions.

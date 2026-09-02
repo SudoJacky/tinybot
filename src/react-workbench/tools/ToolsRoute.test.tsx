@@ -77,6 +77,10 @@ describe("ToolsRoute", () => {
     await user.click(await screen.findByRole("button", { name: "Skills" }));
     expect(await screen.findByText("review-work")).toBeTruthy();
     expect(screen.getByText("Review changes in this workspace.")).toBeTruthy();
+    expect(toolsStore.loadCatalog).toHaveBeenCalledWith({
+      skillScope: "allWorkspaces",
+      workingDirectory,
+    });
 
     await user.click(screen.getByRole("button", { name: "MCP" }));
     expect(await screen.findByText("docs")).toBeTruthy();
@@ -120,7 +124,10 @@ describe("ToolsRoute", () => {
     await user.click(screen.getByRole("button", { name: "View review-work details" }));
 
     expect(await screen.findByText(/Review the full diff\./)).toBeTruthy();
-    expect(toolsStore.loadSkillDetail).toHaveBeenCalledWith("workspace:review-work", { workingDirectory });
+    expect(toolsStore.loadSkillDetail).toHaveBeenCalledWith("workspace:review-work", {
+      skillScope: "allWorkspaces",
+      workingDirectory,
+    });
   });
 });
 

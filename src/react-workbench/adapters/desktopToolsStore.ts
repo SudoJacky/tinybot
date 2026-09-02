@@ -25,22 +25,15 @@ export function createDesktopToolsStore({
   return {
     async loadCatalog(options) {
       await initialize();
-      const workingDirectory = options?.workingDirectory?.trim();
-      const path = workingDirectory
-        ? `/api/tools?workingDirectory=${encodeURIComponent(workingDirectory)}`
-        : "/api/tools";
+      const path = `/api/tools${toolsQuery(options)}`;
       const payload = await requireNative(nativeWebui, "WebUI").route({ method: "GET", path });
       return normalizeToolCatalog(payload);
     },
     async loadSkillDetail(id, options) {
       await initialize();
-      const workingDirectory = options?.workingDirectory?.trim();
-      const query = workingDirectory
-        ? `?workingDirectory=${encodeURIComponent(workingDirectory)}`
-        : "";
       const payload = await requireNative(nativeWebui, "WebUI").route({
         method: "GET",
-        path: `/api/tools/skills/${encodeURIComponent(id)}${query}`,
+        path: `/api/tools/skills/${encodeURIComponent(id)}${toolsQuery(options)}`,
       });
       return normalizeSkillDetail(payload);
     },
@@ -69,6 +62,14 @@ export function createDesktopToolsStore({
       await requireNative(nativePlugins, "Plugins").uninstall(name);
     },
   };
+}
+
+function toolsQuery(options?: { skillScope?: "allWorkspaces"; workingDirectory?: string }): string {
+  const parameters: string[] = [];
+  const workingDirectory = options?.workingDirectory?.trim();
+  if (workingDirectory) parameters.push(`workingDirectory=${encodeURIComponent(workingDirectory)}`);
+  if (options?.skillScope) parameters.push(`skillScope=${encodeURIComponent(options.skillScope)}`);
+  return parameters.length ? `?${parameters.join("&")}` : "";
 }
 
 function normalizeToolCatalog(payload: unknown): ToolCatalogSummary {

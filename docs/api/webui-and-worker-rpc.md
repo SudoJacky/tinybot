@@ -6,7 +6,7 @@ src-tauri/src/protocol/params.rs
 src-tauri/src/rpc/method.rs
 src-tauri/src/rpc/runtime.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:c41525abe1ad61c4184db499b994eb302204834546d8e82f9b05bcd307bd9629 -->
+<!-- tinybot-doc-fingerprint: sha256:871f82df7998cadf9bc6095285f7f16d27eb77df8d3ce3dca857d9670c9f1467 -->
 
 This document covers the Rust-owned WebUI route wrapper and Worker RPC protocol.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -153,6 +153,14 @@ full documents; `GET /api/tools/skills/{id}` reads the selected `SKILL.md` on de
 `404` when the ID is no longer cataloged. Renderer callers can add a URL-encoded
 `workingDirectory` query to either Tools route so workspace entries resolve against the active
 conversation directory instead of the configured backend default.
+
+The Tools & Plugins resource page additionally sends `skillScope=allWorkspaces` to both routes.
+That scope reads the `WorkspaceRegistry` once, scans every existing imported workspace, and
+de-duplicates Skill files by normalized path while preserving same-named files from different
+workspaces. Aggregate workspace Skill IDs include the file path so each detail request remains
+unambiguous. The `workingDirectory` still scopes MCP, callable Tool, and Agent Graph discovery.
+Chat omits `skillScope`, so its slash menu continues to receive only global plugin Skills plus the
+active conversation's effective workspace Skills.
 
 When `/api/tools` receives an explicit `workingDirectory`, it also includes one
 deferred `agent_graph` tool for each saved Graph whose definition belongs to

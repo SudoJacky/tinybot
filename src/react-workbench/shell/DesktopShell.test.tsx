@@ -360,7 +360,7 @@ describe("DesktopShell", () => {
     expect(services.chatStore.load).not.toHaveBeenCalled();
   });
 
-  it("carries the active Chat workspace into Tools and Plugins", async () => {
+  it("keeps Chat workspace-scoped while Tools and Plugins aggregates Skills", async () => {
     const user = userEvent.setup();
     const workingDirectory = "D:\\Code\\tinybot";
     const services = createServices({
@@ -384,7 +384,10 @@ describe("DesktopShell", () => {
       .getByRole("menuitem", { name: "Tools & Plugins" }));
 
     expect(await screen.findByRole("heading", { name: "Tools & Plugins" })).toBeTruthy();
-    await waitFor(() => expect(services.toolsStore.loadCatalog).toHaveBeenCalledWith({ workingDirectory }));
+    await waitFor(() => expect(services.toolsStore.loadCatalog).toHaveBeenCalledWith({
+      skillScope: "allWorkspaces",
+      workingDirectory,
+    }));
   });
 
   it("keeps the React window frame draggable and top menus compact", () => {

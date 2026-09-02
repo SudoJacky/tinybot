@@ -1,5 +1,5 @@
 # Desktop Adapters
-<!-- tinybot-module-fingerprint: sha256:62bdaa6a4fa27860c9c6b5fa0a22937c5f4967d693237f167e36b48c5212ba06 -->
+<!-- tinybot-module-fingerprint: sha256:c3da56c6d773189c54fb5290d752a9f987e35366d3bccc96180f0d22da6014c3 -->
 
 `adapters` implements renderer store interfaces over Tinybot's native and
 app-core modules. It owns event projection and the Settings, Tools, and
@@ -39,7 +39,9 @@ dedicated Skill-detail route when the UI requests one entry; filesystem reads
 remain in Rust. Catalog callers may provide a conversation working directory,
 which the adapter URL-encodes for Rust-owned workspace Skill and MCP discovery.
 Skill-detail calls carry the same optional directory so a row and its full
-`SKILL.md` content are always resolved from one workspace scope.
+`SKILL.md` content are always resolved from one workspace scope. The resource
+page additionally requests `allWorkspaces` Skill scope on both catalog and
+detail calls; Chat omits it and remains bound to its active workspace.
 
 The native event bridge records opt-in lifecycle stages through
 `tinybot.desktop.nativeDebug`. Entries contain only correlation identities,
