@@ -15,7 +15,13 @@ describe("ProjectGroupDialog", () => {
 
     render(
       <ProjectGroupDialog
-        availableWorkspaceIds={["D:\\Services\\payments"]}
+        availableWorkspaces={[{
+          addedAtMs: 1,
+          exists: true,
+          name: "payments",
+          path: "D:\\Services\\payments",
+          updatedAtMs: 1,
+        }]}
         onChooseWorkspace={async () => undefined}
         onClose={() => undefined}
         onSave={onSave}

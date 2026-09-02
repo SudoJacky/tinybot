@@ -372,6 +372,10 @@ fn worker_webui_tools_route_returns_effective_catalog() {
         "packages/ui/.agents/skills/ui-review/SKILL.md",
         "---\nname: ui-review\ndescription: Review workspace UI.\n---\nReview the interaction.\n",
     );
+    fixture.write(
+        "packages/ui/.codex/skills/codex-ui-review/SKILL.md",
+        "---\nname: codex-ui-review\ndescription: Review Codex workspace UI.\n---\nReview the interaction.\n",
+    );
     let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
         fixture.thread_store.clone(),
     )));
@@ -444,6 +448,133 @@ fn worker_webui_tools_route_returns_effective_catalog() {
     assert!(scoped["body"]["skills"]
         .as_array()
         .is_some_and(|skills| skills.iter().any(|skill| skill["name"] == "ui-review")));
+    assert!(scoped["body"]["skills"].as_array().is_some_and(|skills| {
+        skills
+            .iter()
+            .any(|skill| skill["name"] == "codex-ui-review")
+    }));
+}
+
+#[test]
+fn worker_webui_tools_route_lists_skills_from_all_registered_workspaces() {
+    let fixture = WorkspaceFixture::new();
+    fixture.write(
+        "alpha/.codex/skills/shared-review/SKILL.md",
+        "---\nname: shared-review\ndescription: Review alpha.\n---\nReview alpha.\n",
+    );
+    fixture.write(
+        "beta/.agents/skills/shared-review/SKILL.md",
+        "---\nname: shared-review\ndescription: Review beta.\n---\nReview beta.\n",
+    );
+    fixture.write("alpha/.git/keep", "");
+    fixture.write("alpha/nested/README.md", "nested workspace");
+    let alpha = fixture.root.join("alpha");
+    let beta = fixture.root.join("beta");
+    let nested_alpha = alpha.join("nested");
+    let registry = fixture.thread_store.workspace_registry();
+    registry
+        .register(&alpha.display().to_string())
+        .expect("alpha workspace should register");
+    registry
+        .register(&beta.display().to_string())
+        .expect("beta workspace should register");
+    registry
+        .register(&nested_alpha.display().to_string())
+        .expect("nested alpha workspace should register");
+    let shared = Arc::new(Mutex::new(NativeRuntimeState::with_thread_store(
+        fixture.thread_store.clone(),
+    )));
+
+    let response = worker_webui_route_with_options(
+        &shared,
+        WorkerWebuiRouteInput {
+            method: "GET".to_string(),
+            path: "/api/tools?skillScope=allWorkspaces".to_string(),
+            headers: None,
+            body: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_secs(1),
+    )
+    .expect("all-workspace Skill catalog should be Rust-owned");
+
+    assert_eq!(response["status"], 200);
+    let workspace_skills = response["body"]["skills"]
+        .as_array()
+        .expect("Skill catalog should be an array")
+        .iter()
+        .filter(|skill| skill["name"] == "shared-review")
+        .collect::<Vec<_>>();
+    assert_eq!(workspace_skills.len(), 2);
+    assert_ne!(workspace_skills[0]["id"], workspace_skills[1]["id"]);
+    assert!(workspace_skills
+        .iter()
+        .any(|skill| skill["description"] == "Review alpha."));
+    assert!(workspace_skills
+        .iter()
+        .any(|skill| skill["description"] == "Review beta."));
+    assert!(workspace_skills
+        .iter()
+        .any(|skill| skill["source"] == "workspace:alpha"));
+    assert!(workspace_skills
+        .iter()
+        .any(|skill| skill["source"] == "workspace:beta"));
+
+    let alpha_skill = workspace_skills
+        .iter()
+        .find(|skill| skill["description"] == "Review alpha.")
+        .expect("alpha Skill should be present");
+    let alpha_skill_id = alpha_skill["id"]
+        .as_str()
+        .expect("aggregate Skill should have an id");
+    let encoded_skill_id =
+        url::form_urlencoded::byte_serialize(alpha_skill_id.as_bytes()).collect::<String>();
+    let detail = worker_webui_route_with_options(
+        &shared,
+        WorkerWebuiRouteInput {
+            method: "GET".to_string(),
+            path: format!("/api/tools/skills/{encoded_skill_id}?skillScope=allWorkspaces"),
+            headers: None,
+            body: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_secs(1),
+    )
+    .expect("aggregate Skill detail should be Rust-owned");
+    assert_eq!(detail["status"], 200);
+    assert_eq!(detail["body"]["id"], alpha_skill_id);
+    assert!(detail["body"]["content"]
+        .as_str()
+        .is_some_and(|content| content.contains("Review alpha.")));
+
+    let scoped = worker_webui_route_with_options(
+        &shared,
+        WorkerWebuiRouteInput {
+            method: "GET".to_string(),
+            path: format!("/api/tools?workingDirectory={}", alpha.display()),
+            headers: None,
+            body: None,
+        },
+        fixture.root.clone(),
+        serde_json::json!({}),
+        Duration::from_secs(1),
+    )
+    .expect("workspace-scoped Skill catalog should remain Rust-owned");
+    let scoped_skills = scoped["body"]["skills"]
+        .as_array()
+        .expect("scoped Skill catalog should be an array");
+    assert_eq!(
+        scoped_skills
+            .iter()
+            .filter(|skill| skill["name"] == "shared-review")
+            .count(),
+        1
+    );
+    assert!(scoped_skills
+        .iter()
+        .any(|skill| skill["id"] == "workspace:shared-review"));
 }
 
 #[test]

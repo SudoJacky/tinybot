@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:35591f3a87733e20009ade38e32580004916e9a22ef19dcfa78b0b8ce2f6ec80 -->
+<!-- tinybot-module-fingerprint: sha256:3c3ac5a50bb08bc71e31313696d6d716592d1a75b354e78845ad54998c1a3999 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
@@ -23,8 +23,10 @@ remain language-neutral constants. Help-menu labels for documentation, issue
 reporting, the shortcut settings module, and the repository follow the same
 renderer-owned localization boundary.
 The Tools & Plugins resource-view labels, Skill/MCP descriptions, and empty
-states are localized here; Skill names, MCP IDs, and source paths remain
-language-neutral. Chat also localizes the slash-menu Skills heading, workspace
+states are localized here; the workspace description names both `.agents/skills`
+and `.codex/skills` across all imported workspaces, while Skill names, MCP IDs,
+and source paths remain language-neutral. Chat separately localizes the
+workspace-scoped slash-menu Skills heading, workspace
 source label, inline Skill removal label, and Skill-only fallback prompt.
 Context-window usage and latest-call cache-hit labels are localized here while
 their Token counts and computed percentage remain language-neutral values.
@@ -72,3 +74,6 @@ position remain language-neutral requests.
 Session-sidebar whole-row keyboard instructions and live-region move
 announcements are localized here. Persisted container and item IDs remain
 language-neutral so changing the interface language cannot reset user order.
+Workspace register, display-name rename, forget confirmation, missing-folder,
+and project-reference failure copy is localized here; canonical paths remain
+native-owned untranslated identifiers.

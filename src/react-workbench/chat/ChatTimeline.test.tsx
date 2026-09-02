@@ -3,6 +3,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { ChatStep, ChatTurn } from "../../app-core/chat/chatTurnContracts";
+import { parseDataViewDocument } from "../../app-core/chat/dataView";
 import type { ReactChatMessage } from "./messageActions";
 import { ChatTimeline, type ChatTimelineActions } from "./ChatTimeline";
 import { timelineFromReactMessages } from "./test/timelineFixtures";
@@ -120,6 +121,31 @@ describe("ChatTimeline", () => {
     expect(screen.getByText("Script exited with code 1").closest("li")?.dataset.status).toBe("error");
     expect(results.textContent).not.toContain("tool-1");
   });
+
+  test("keeps a published data view at its execution position", () => {
+    const turn = dataViewTurn();
+    const { container } = render(
+      <ChatTimeline
+        actions={createActions()}
+        hookResults={[]}
+        interactiveFormIds={new Set()}
+        latestFailedTurnId=""
+        optimisticMessages={[]}
+        sessionRunning={false}
+        turns={[turn]}
+      />,
+    );
+
+    const dataView = container.querySelector<HTMLElement>(".react-data-view");
+    const laterUpdate = screen.getByText("Continue after publishing.");
+    const finalAnswer = screen.getByText("Canonical answer");
+    if (!dataView) {
+      throw new Error("Expected the published data view to render");
+    }
+    expect((dataView.closest(".react-execution-timeline__item") as HTMLElement | null)?.dataset.kind).toBe("tool_call");
+    expect(dataView.compareDocumentPosition(laterUpdate) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(dataView.compareDocumentPosition(finalAnswer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
 });
 
 function createActions(): ChatTimelineActions {
@@ -171,6 +197,61 @@ function failedTurn(): ChatTurn {
     status: "failed",
     steps: [errorStep],
   };
+}
+
+function dataViewTurn(): ChatTurn {
+  const turn = completedTurn();
+  const step = (patch: Partial<ChatStep> & Pick<ChatStep, "id" | "kind" | "sequence" | "title">): ChatStep => ({
+    agentContext: { id: "main", title: "Tinybot", type: "main" },
+    status: "completed",
+    ...patch,
+  });
+  const executionItems = [
+    step({
+      id: "message-before-chart",
+      kind: "message",
+      messageId: "message-before-chart",
+      messagePhase: "commentary",
+      modelCallId: "provider-1",
+      sequence: 1,
+      summary: "Publishing the chart.",
+      title: "Progress update",
+    }),
+    step({
+      artifacts: [{
+        id: "data-view-1",
+        kind: "data_view",
+        title: "Repository stars",
+        dataView: parseDataViewDocument({
+          schemaVersion: "tinybot.data_view.v1",
+          title: "Repository stars",
+          insight: "Repository A leads.",
+          dataset: {
+            columns: [{ key: "repo", label: "Repository", type: "category" }],
+            rows: [{ id: "repo-a", values: { repo: "Repository A" } }],
+          },
+          view: { kind: "table", columns: ["repo"] },
+          provenance: { status: "user_provided", sources: [] },
+        }),
+      }],
+      id: "publish-chart",
+      kind: "tool_call",
+      sequence: 2,
+      title: "publish_data_view",
+      toolCall: { id: "publish-chart", name: "publish_data_view" },
+    }),
+    step({
+      id: "message-after-chart",
+      kind: "message",
+      messageId: "message-after-chart",
+      messagePhase: "commentary",
+      modelCallId: "provider-2",
+      sequence: 3,
+      summary: "Continue after publishing.",
+      title: "Progress update",
+    }),
+  ];
+  return { ...turn, executionItems, steps: executionItems };
 }
 
 function optimisticMessage(): ReactChatMessage {

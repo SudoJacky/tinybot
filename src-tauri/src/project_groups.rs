@@ -1,9 +1,11 @@
 use crate::storage::atomic::{
     read_json_store, write_json_pretty_atomic, AtomicWriteOptions, WorkerStorageError,
 };
+use crate::workspace_registry::{
+    canonical_workspace, normalized_workspace_key, WorkspaceRegistry, WorkspaceRegistryEntry,
+};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeSet,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -19,6 +21,8 @@ static PROJECT_GROUP_ID_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 pub(crate) struct ProjectGroupStore {
     path: Arc<PathBuf>,
     lock: Arc<Mutex<()>>,
+    workspace_catalog_lock: Arc<Mutex<()>>,
+    workspace_registry: WorkspaceRegistry,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -61,10 +65,20 @@ impl Default for ProjectGroupDocument {
 }
 
 impl ProjectGroupStore {
+    #[cfg(test)]
     pub(crate) fn new(data_root: &Path) -> Self {
+        Self::with_workspace_registry(data_root, WorkspaceRegistry::new(data_root))
+    }
+
+    pub(crate) fn with_workspace_registry(
+        data_root: &Path,
+        workspace_registry: WorkspaceRegistry,
+    ) -> Self {
         Self {
             path: Arc::new(data_root.join("project-groups.json")),
             lock: Arc::new(Mutex::new(())),
+            workspace_catalog_lock: Arc::new(Mutex::new(())),
+            workspace_registry,
         }
     }
 
@@ -78,7 +92,13 @@ impl ProjectGroupStore {
 
     pub(crate) fn save(&self, input: SaveProjectGroupInput) -> Result<ProjectGroup, String> {
         let name = non_empty("project group name", input.name)?;
-        let workspace_ids = canonical_workspace_ids(input.workspace_ids)?;
+        let _catalog_guard = self.workspace_catalog_lock()?;
+        let workspace_ids = self
+            .workspace_registry
+            .register_many(input.workspace_ids)?
+            .into_iter()
+            .map(|workspace| workspace.path)
+            .collect::<Vec<_>>();
         if workspace_ids.is_empty() {
             return Err("project group requires at least one workspace".to_string());
         }
@@ -116,6 +136,28 @@ impl ProjectGroupStore {
             group.workspace_ids.len()
         );
         Ok(group)
+    }
+
+    pub(crate) fn forget_workspace(
+        &self,
+        workspace_path: &str,
+    ) -> Result<WorkspaceRegistryEntry, String> {
+        let _catalog_guard = self.workspace_catalog_lock()?;
+        let registered = self.workspace_registry.get(workspace_path)?;
+        let path_key = normalized_workspace_key(&registered.path);
+        let _guard = self.lock()?;
+        if let Some(group) = self.read_document()?.groups.into_iter().find(|group| {
+            group
+                .workspace_ids
+                .iter()
+                .any(|workspace_id| normalized_workspace_key(workspace_id) == path_key)
+        }) {
+            return Err(format!(
+                "workspace `{}` belongs to project group `{}`; remove it from the project before forgetting it",
+                registered.path, group.name
+            ));
+        }
+        self.workspace_registry.forget(&registered.path)
     }
 
     pub(crate) fn delete(&self, project_group_id: &str) -> Result<ProjectGroup, String> {
@@ -162,7 +204,9 @@ impl ProjectGroupStore {
         let stored = group
             .workspace_ids
             .iter()
-            .find(|candidate| candidate.as_str() == workspace_id)
+            .find(|candidate| {
+                normalized_workspace_key(candidate) == normalized_workspace_key(workspace_id)
+            })
             .ok_or_else(|| {
                 format!(
                     "workspace `{workspace_id}` is not a member of project group `{project_group_id}`"
@@ -175,6 +219,12 @@ impl ProjectGroupStore {
         self.lock
             .lock()
             .map_err(|_| "project group store lock is poisoned".to_string())
+    }
+
+    fn workspace_catalog_lock(&self) -> Result<std::sync::MutexGuard<'_, ()>, String> {
+        self.workspace_catalog_lock
+            .lock()
+            .map_err(|_| "workspace catalog coordination lock is poisoned".to_string())
     }
 
     fn read_document(&self) -> Result<ProjectGroupDocument, String> {
@@ -192,51 +242,6 @@ impl ProjectGroupStore {
     fn write_document(&self, document: &ProjectGroupDocument) -> Result<(), String> {
         write_json_pretty_atomic(&self.path, document, AtomicWriteOptions::default())
             .map_err(storage_error)
-    }
-}
-
-pub(crate) fn canonical_workspace(path: &Path) -> Result<PathBuf, String> {
-    let canonical = std::fs::canonicalize(path)
-        .map_err(|error| format!("failed to resolve workspace `{}`: {error}", path.display()))?;
-    if !canonical.is_dir() {
-        return Err(format!("workspace `{}` is not a directory", path.display()));
-    }
-    Ok(canonical)
-}
-
-pub(crate) fn workspace_id(path: &Path) -> String {
-    let value = path.to_string_lossy();
-    if cfg!(windows) {
-        if let Some(network_path) = value.strip_prefix(r"\\?\UNC\") {
-            return format!(r"\\{network_path}");
-        }
-        if let Some(local_path) = value.strip_prefix(r"\\?\") {
-            return local_path.to_string();
-        }
-    }
-    value.to_string()
-}
-
-fn canonical_workspace_ids(values: Vec<String>) -> Result<Vec<String>, String> {
-    let mut seen = BTreeSet::new();
-    let mut workspace_ids = Vec::new();
-    for value in values {
-        let value = non_empty("workspaceId", value)?;
-        let canonical = canonical_workspace(Path::new(&value))?;
-        let key = normalized_workspace_key(&canonical);
-        if seen.insert(key) {
-            workspace_ids.push(workspace_id(&canonical));
-        }
-    }
-    Ok(workspace_ids)
-}
-
-fn normalized_workspace_key(path: &Path) -> String {
-    let value = path.to_string_lossy().replace('\\', "/");
-    if cfg!(windows) {
-        value.to_lowercase()
-    } else {
-        value
     }
 }
 
@@ -289,7 +294,8 @@ mod tests {
     fn project_groups_persist_arbitrary_workspace_membership() {
         let fixture = Fixture::new();
         let data_root = fixture.root.join("data");
-        let store = ProjectGroupStore::new(&data_root);
+        let registry = WorkspaceRegistry::new(&data_root);
+        let store = ProjectGroupStore::with_workspace_registry(&data_root, registry.clone());
         let saved = store
             .save(SaveProjectGroupInput {
                 project_group_id: None,
@@ -303,6 +309,16 @@ mod tests {
 
         let reloaded = ProjectGroupStore::new(&data_root).snapshot().unwrap();
         assert_eq!(reloaded.groups, vec![saved.clone()]);
+        assert_eq!(
+            registry
+                .snapshot()
+                .unwrap()
+                .workspaces
+                .into_iter()
+                .map(|workspace| workspace.path)
+                .collect::<Vec<_>>(),
+            saved.workspace_ids
+        );
         assert_eq!(
             store
                 .authorize_workspace(&saved.project_group_id, &saved.workspace_ids[1])
@@ -329,7 +345,9 @@ mod tests {
     #[test]
     fn deleting_a_group_only_removes_the_membership_record() {
         let fixture = Fixture::new();
-        let store = ProjectGroupStore::new(&fixture.root.join("data"));
+        let data_root = fixture.root.join("data");
+        let registry = WorkspaceRegistry::new(&data_root);
+        let store = ProjectGroupStore::with_workspace_registry(&data_root, registry.clone());
         let saved = store
             .save(SaveProjectGroupInput {
                 project_group_id: None,
@@ -337,8 +355,13 @@ mod tests {
                 workspace_ids: vec![fixture.root.join("gateway").display().to_string()],
             })
             .unwrap();
+        let workspace_id = saved.workspace_ids[0].clone();
+        let error = store.forget_workspace(&workspace_id).unwrap_err();
+        assert!(error.contains("belongs to project group `Commerce`"));
         assert_eq!(store.delete(&saved.project_group_id).unwrap(), saved);
         assert!(fixture.root.join("gateway").is_dir());
         assert!(store.snapshot().unwrap().groups.is_empty());
+        store.forget_workspace(&workspace_id).unwrap();
+        assert!(registry.snapshot().unwrap().workspaces.is_empty());
     }
 }

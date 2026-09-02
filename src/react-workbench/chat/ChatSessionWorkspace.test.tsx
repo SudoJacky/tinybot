@@ -2,11 +2,16 @@
 
 import { cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { ProjectGroupStore, SessionSummary } from "../services";
+import { pickDesktopWorkspaceDirectory } from "../../app-core/native/desktopNativeWorkspacePicker";
+import type { ProjectGroupStore, SessionSummary, WorkspaceRegistryStore } from "../services";
 import {
   ChatSessionWorkspace,
   type ChatSessionWorkspaceActions,
 } from "./ChatSessionWorkspace";
+
+vi.mock("../../app-core/native/desktopNativeWorkspacePicker", () => ({
+  pickDesktopWorkspaceDirectory: vi.fn(),
+}));
 
 afterEach(() => {
   cleanup();
@@ -204,6 +209,52 @@ describe("ChatSessionWorkspace", () => {
     expect(sessionTitles(workspace)).toEqual(["Knowledge review", "Planning notes"]);
     expect(screen.getByText("Moved Planning notes after Knowledge review.")).toBeTruthy();
   });
+
+  test("registers a picked workspace before creating its first session", async () => {
+    const actions = createActions();
+    const workspaceRegistryStore = createWorkspaceRegistryStore([]);
+    vi.mocked(pickDesktopWorkspaceDirectory).mockResolvedValue("\\\\?\\D:\\Code\\new-workspace");
+    vi.mocked(workspaceRegistryStore.register).mockResolvedValue({
+      addedAtMs: 1,
+      exists: true,
+      name: "new-workspace",
+      path: "D:\\Code\\new-workspace",
+      updatedAtMs: 1,
+    });
+    renderWorkspace({ actions, sessions: [], workspaceRegistryStore });
+
+    fireEvent.click(screen.getByRole("button", { name: "Workspace and project actions" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Add workspace folder" }));
+
+    await waitFor(() => expect(workspaceRegistryStore.register).toHaveBeenCalledWith(
+      "\\\\?\\D:\\Code\\new-workspace",
+    ));
+    await waitFor(() => expect(actions.onCreateSession).toHaveBeenCalledWith(
+      "D:\\Code\\new-workspace",
+    ));
+  });
+
+  test("renames and forgets workspaces through the registry", async () => {
+    const workspaceRegistryStore = createWorkspaceRegistryStore([planningSession()]);
+    renderWorkspace({ workspaceRegistryStore });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Manage tinybot" }));
+    const name = screen.getByRole("textbox", { name: "Workspace name" });
+    fireEvent.change(name, { target: { value: "Tinybot Desktop" } });
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    await waitFor(() => expect(workspaceRegistryStore.rename).toHaveBeenCalledWith(
+      "D:\\Code\\tinybot",
+      "Tinybot Desktop",
+    ));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Manage Tinybot Desktop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Forget workspace" }));
+    fireEvent.click(screen.getByRole("button", { name: "Confirm forget" }));
+    await waitFor(() => expect(workspaceRegistryStore.forget).toHaveBeenCalledWith(
+      "D:\\Code\\tinybot",
+    ));
+    expect(screen.queryByRole("button", { name: /Manage Tinybot Desktop/ })).toBeNull();
+  });
 });
 
 function sidebarGroupLabels(rows: HTMLElement): string[] {
@@ -255,10 +306,12 @@ function renderWorkspace({
   actions = createActions(),
   projectGroupStore,
   sessions = [planningSession()],
+  workspaceRegistryStore = createWorkspaceRegistryStore(sessions),
 }: {
   actions?: ChatSessionWorkspaceActions;
   projectGroupStore?: ProjectGroupStore;
   sessions?: SessionSummary[];
+  workspaceRegistryStore?: WorkspaceRegistryStore;
 } = {}) {
   return render(
     <ChatSessionWorkspace
@@ -272,10 +325,39 @@ function renderWorkspace({
       now={() => Date.UTC(2026, 7, 15)}
       projectGroupStore={projectGroupStore}
       sessions={sessions}
+      workspaceRegistryStore={workspaceRegistryStore}
     >
       <main>Conversation surface</main>
     </ChatSessionWorkspace>,
   );
+}
+
+function createWorkspaceRegistryStore(sessions: SessionSummary[]): WorkspaceRegistryStore {
+  const workspaces = sessions.flatMap((session) => session.workingDirectory ? [{
+    addedAtMs: session.updatedAtMs,
+    exists: true,
+    name: session.workingDirectory.split(/[\\/]+/).filter(Boolean).slice(-1)[0] ?? session.workingDirectory,
+    path: session.workingDirectory,
+    updatedAtMs: session.updatedAtMs,
+  }] : []);
+  return {
+    list: vi.fn(async () => workspaces),
+    register: vi.fn(async (path) => ({
+      addedAtMs: 0,
+      exists: true,
+      name: path.split(/[\\/]+/).filter(Boolean).slice(-1)[0] ?? path,
+      path,
+      updatedAtMs: 0,
+    })),
+    rename: vi.fn(async (path, name) => ({
+      addedAtMs: 0,
+      exists: true,
+      name,
+      path,
+      updatedAtMs: 1,
+    })),
+    forget: vi.fn(async () => undefined),
+  };
 }
 
 function createActions(): ChatSessionWorkspaceActions {

@@ -553,13 +553,13 @@ impl<'a> NativeAgentTurnExecution<'a> {
                     context.settings.working_directory.as_deref()
                 {
                     let definition_workspace =
-                        crate::project_groups::canonical_workspace(definition_workspace_root)?;
+                        crate::workspace_registry::canonical_workspace(definition_workspace_root)?;
                     let discovery =
                         crate::agent_graphs::discover_tools_for_workspace(&definition_workspace)?;
                     if !discovery.graphs.is_empty() {
                         tool_registry = tool_registry.with_contributor(Arc::new(
                             AgentGraphToolContributor::new(
-                                crate::project_groups::workspace_id(&definition_workspace),
+                                crate::workspace_registry::workspace_id(&definition_workspace),
                                 discovery.graphs,
                             )?,
                         ))?;

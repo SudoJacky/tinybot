@@ -15,7 +15,7 @@ import type {
   NativeManagedHookScript,
   NativeManagedHookTestResult,
 } from "../../app-core/native/desktopNativeHooks";
-import type { HooksStore, ProjectGroupStore, SessionStore } from "../services";
+import type { HooksStore, WorkspaceRegistryEntry, WorkspaceRegistryStore } from "../services";
 import { SettingsChoiceList } from "./SettingsChoiceList";
 import {
   indentScriptLines,
@@ -50,15 +50,13 @@ type ManagedScriptEditor = NativeManagedHookScript & {
 
 export function HooksSettingsPage({
   hooksStore,
-  projectGroupStore,
-  sessionStore,
+  workspaceRegistryStore,
 }: {
   hooksStore: HooksStore;
-  projectGroupStore: ProjectGroupStore;
-  sessionStore: SessionStore;
+  workspaceRegistryStore: WorkspaceRegistryStore;
 }) {
   const { t } = useTranslation("settings");
-  const [workspaceOptions, setWorkspaceOptions] = useState<string[]>([]);
+  const [workspaceOptions, setWorkspaceOptions] = useState<WorkspaceRegistryEntry[]>([]);
   const [workspacePath, setWorkspacePath] = useState<string>();
   const [workspaceCatalogReady, setWorkspaceCatalogReady] = useState(false);
   const [snapshot, setSnapshot] = useState<NativeCommandHookSnapshot | null>(null);
@@ -79,17 +77,13 @@ export function HooksSettingsPage({
   useEffect(() => {
     let cancelled = false;
     setWorkspaceCatalogReady(false);
-    void Promise.all([sessionStore.list(), projectGroupStore.list()])
-      .then(([sessions, groups]) => {
+    void workspaceRegistryStore.list()
+      .then((workspaces) => {
         if (cancelled) return;
-        const paths = uniqueWorkspacePaths([
-          ...sessions.flatMap((session) => (
-            session.workingDirectory && !session.pluginMigration ? [session.workingDirectory] : []
-          )),
-          ...groups.flatMap((group) => group.workspaceIds),
-        ]);
-        setWorkspaceOptions(paths);
-        setWorkspacePath((current) => current || paths[0]);
+        setWorkspaceOptions(workspaces);
+        setWorkspacePath((current) => (
+          current || workspaces.find((workspace) => workspace.exists)?.path
+        ));
       })
       .catch((cause: unknown) => {
         if (!cancelled) setError(errorMessage(cause));
@@ -100,7 +94,7 @@ export function HooksSettingsPage({
     return () => {
       cancelled = true;
     };
-  }, [projectGroupStore, sessionStore]);
+  }, [workspaceRegistryStore]);
 
   useEffect(() => {
     if (!workspaceCatalogReady) return;
@@ -110,7 +104,6 @@ export function HooksSettingsPage({
       .then((next) => {
         if (cancelled) return;
         setSnapshot(next);
-        setWorkspaceOptions((current) => uniqueWorkspacePaths([...current, next.workspaceRoot]));
         setWorkspacePath((current) => current || workspaceDisplayPath(next.workspaceRoot));
       })
       .catch((cause: unknown) => {
@@ -424,13 +417,14 @@ export function HooksSettingsPage({
         <SettingsChoiceList
           ariaLabel={t("hooks.workspace")}
           description={t("hooks.workspaceDescription")}
-          disabled={!workspaceCatalogReady || !workspaceOptions.length}
+          disabled={!workspaceCatalogReady || !workspaceOptions.some((workspace) => workspace.exists)}
           label={t("hooks.workspace")}
           onChange={selectWorkspace}
-          options={workspaceOptions.map((path) => ({
-            description: path,
-            label: workspaceName(path),
-            value: path,
+          options={workspaceOptions.map((workspace) => ({
+            description: workspace.path,
+            disabled: !workspace.exists,
+            label: workspace.name,
+            value: workspace.path,
           }))}
           optionsAriaLabel={t("hooks.workspaceOptions")}
           value={selectedWorkspace || ""}
@@ -784,25 +778,6 @@ function defaultManagedHookLanguage(): NativeManagedHookLanguage {
   return navigator.userAgent.includes("Windows") ? "powershell" : "shell";
 }
 
-function uniqueWorkspacePaths(paths: string[]): string[] {
-  const seen = new Set<string>();
-  return paths.flatMap((path) => {
-    const normalized = workspaceDisplayPath(path);
-    if (!normalized) return [];
-    const key = workspacePathKey(normalized);
-    if (seen.has(key)) return [];
-    seen.add(key);
-    return [normalized];
-  });
-}
-
-function workspacePathKey(path: string): string {
-  const normalized = workspaceDisplayPath(path).replace(/\\/g, "/");
-  return /^[a-zA-Z]:\//.test(normalized) || normalized.startsWith("//")
-    ? normalized.toLocaleLowerCase("en-US")
-    : normalized;
-}
-
 function workspaceDisplayPath(path: string): string {
   const trimmed = path.trim();
   const verbatimUnc = trimmed.match(/^[\\/]{2}\?[\\/]UNC[\\/](.*)$/i);
@@ -813,12 +788,6 @@ function workspaceDisplayPath(path: string): string {
     return withoutVerbatimPrefix;
   }
   return withoutVerbatimPrefix.replace(/[\\/]+$/, "") || withoutVerbatimPrefix;
-}
-
-function workspaceName(path: string): string {
-  const displayPath = workspaceDisplayPath(path);
-  const parts = displayPath.split(/[\\/]+/).filter(Boolean);
-  return parts[parts.length - 1] || displayPath;
 }
 
 function fileName(path: string): string {

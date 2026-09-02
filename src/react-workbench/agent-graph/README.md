@@ -1,5 +1,5 @@
 # Agent Graph Workbench
-<!-- tinybot-module-fingerprint: sha256:bdce3621e62aa933519df83bffdfdb29eb8b4c5f2186de931f95dfbe7a73df34 -->
+<!-- tinybot-module-fingerprint: sha256:6ec7e9a2c16199eb0e4ffea0dda5d8d334f286c1ae21905b98175bdd47074a42 -->
 
 `agent-graph` owns the standalone Agent Graph route and its React presentation.
 The page creates one honest in-memory starter draft and exposes an unbounded
@@ -14,7 +14,7 @@ read-only node inspection: clicking a node selects its configuration in Edit
 mode, with the configuration panel anchored below or above that node so it
 tracks canvas pan and zoom without covering the selection. View mode reuses the
 same anchored panel placement for read-only Run status and messages. The route selects a
-definition workspace from workspaces already known to Chat and project groups.
+definition workspace from the shared application workspace registry.
 Before a definition is opened, the same workspace command bar serves both the
 empty and saved-library states. The empty state previews the starter
 Input-to-Agent-to-Output topology; saved definitions render their real nodes
@@ -58,8 +58,9 @@ contains the complete loop history. Backend preflight rejects non-Router
 branching, uncontrolled cycles, disconnected nodes, incomplete route
 connections, and missing Agent workspaces.
 
-The page may reuse the workspaces already known to Chat and project groups as
-choices, but the selected definition workspace and each Agent node's execution
+The page reads workspace choices and display names from `WorkspaceRegistryStore`;
+missing folders remain visible but disabled. The selected definition workspace
+and each Agent node's execution
 workspace belong to Graph state. Graph definitions and Runs use distinct stores,
 and each Agent node's first visit creates a parentless standard Thread identified
 by `source: "agent_graph"` without routing execution through Chat. See

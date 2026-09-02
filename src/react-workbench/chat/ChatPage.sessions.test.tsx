@@ -3,7 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { ChatEvent, ProjectGroupStore, SessionSummary } from "../services";
+import type { ChatEvent, ProjectGroupStore, SessionSummary, WorkspaceRegistryStore } from "../services";
 import { i18n } from "../i18n";
 import { CHAT_SESSION_TABS_STORAGE_KEY } from "./sessionTabWorkspace";
 import { timelineFromReactMessages } from "./test/timelineFixtures";
@@ -256,7 +256,7 @@ describe("ChatPage", () => {
       render(<ChatPage chatStore={stores.chatStore} sessionStore={stores.sessionStore} />);
 
       const sidebar = await screen.findByRole("complementary", { name: "会话" });
-      expect(within(sidebar).getByRole("group", { name: "工作区 常规会话" })).toBeTruthy();
+      expect(await within(sidebar).findByRole("group", { name: "工作区 常规会话" })).toBeTruthy();
     } finally {
       cleanup();
       await act(async () => {
@@ -466,6 +466,52 @@ describe("ChatPage", () => {
     await waitFor(() => expect(stores.chatStore.load).toHaveBeenLastCalledWith("workspace-session"));
   });
 
+  it("keeps a newly registered workspace after its pristine draft is discarded", async () => {
+    const user = userEvent.setup();
+    const workingDirectory = "D:\\Code\\VirtualHome";
+    const stores = createStores();
+    const workspace = {
+      addedAtMs: 1,
+      exists: true,
+      name: "VirtualHome",
+      path: workingDirectory,
+      updatedAtMs: 1,
+    };
+    let resolveWorkspaceList!: (workspaces: (typeof workspace)[]) => void;
+    const workspaceRegistryStore: WorkspaceRegistryStore = {
+      list: vi.fn(() => new Promise<(typeof workspace)[]>((resolve) => {
+        resolveWorkspaceList = resolve;
+      })),
+      register: vi.fn(async () => workspace),
+      rename: vi.fn(async (_path, name) => ({ ...workspace, name })),
+      forget: vi.fn(async () => undefined),
+    };
+    nativeWorkspacePickerMocks.pickDesktopWorkspaceDirectory.mockResolvedValueOnce(workingDirectory);
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
+        sessionStore={stores.sessionStore}
+        workspaceRegistryStore={workspaceRegistryStore}
+      />,
+    );
+
+    const sidebar = await screen.findByLabelText("Sessions");
+    await user.click(within(sidebar).getByRole("button", { name: "Workspace and project actions" }));
+    await user.click(within(sidebar).getByRole("menuitem", { name: "Add workspace folder" }));
+    expect(await within(sidebar).findByRole("group", { name: "Workspace VirtualHome" })).toBeTruthy();
+    expect(workspaceRegistryStore.register).toHaveBeenCalledWith(workingDirectory);
+
+    await act(async () => resolveWorkspaceList([]));
+
+    await user.click(within(sidebar).getByRole("button", { name: "Planning notes" }));
+
+    expect(await within(sidebar).findByRole("group", { name: "Workspace VirtualHome" })).toBeTruthy();
+    expect(within(sidebar).getByRole("button", { name: "Manage VirtualHome" })).toBeTruthy();
+    expect(stores.sessionStore.create).not.toHaveBeenCalled();
+  });
+
   it("defers workspace creation failures until the first send and exposes them", async () => {
     const user = userEvent.setup();
     const stores = createStores();
@@ -524,6 +570,24 @@ describe("ChatPage", () => {
       })),
       delete: vi.fn(async () => undefined),
     };
+    const workspaceRegistryStore: WorkspaceRegistryStore = {
+      list: vi.fn(async () => [{
+        addedAtMs: 1,
+        exists: true,
+        name: "payments",
+        path: "D:\\Services\\payments",
+        updatedAtMs: 1,
+      }]),
+      register: vi.fn(async (path) => ({
+        addedAtMs: 2,
+        exists: true,
+        name: "payments",
+        path,
+        updatedAtMs: 2,
+      })),
+      rename: vi.fn(),
+      forget: vi.fn(),
+    };
     nativeWorkspacePickerMocks.pickDesktopWorkspaceDirectory.mockResolvedValueOnce("E:\\Services\\payments");
 
     render(
@@ -532,6 +596,7 @@ describe("ChatPage", () => {
         now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
         projectGroupStore={projectGroupStore}
         sessionStore={stores.sessionStore}
+        workspaceRegistryStore={workspaceRegistryStore}
       />,
     );
 

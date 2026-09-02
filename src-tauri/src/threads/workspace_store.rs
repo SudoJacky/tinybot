@@ -3,6 +3,7 @@ use super::rollout::store::WorkerThreadLogRpc;
 use crate::project_groups::ProjectGroupStore;
 use crate::protocol::capability::CapabilityPolicy;
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
+use crate::workspace_registry::WorkspaceRegistry;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -20,6 +21,7 @@ struct WorkspaceThreadStoreInner {
     thread: WorkerThreadRpc,
     thread_log: WorkerThreadLogRpc,
     project_groups: ProjectGroupStore,
+    workspace_registry: WorkspaceRegistry,
     lifecycle: Mutex<WorkspaceThreadStoreLifecycle>,
 }
 
@@ -46,9 +48,14 @@ impl WorkspaceThreadStore {
         data_root: PathBuf,
         policy: CapabilityPolicy,
     ) -> Self {
+        let workspace_registry = WorkspaceRegistry::new(&data_root);
         Self {
             inner: Arc::new(WorkspaceThreadStoreInner {
-                project_groups: ProjectGroupStore::new(&data_root),
+                project_groups: ProjectGroupStore::with_workspace_registry(
+                    &data_root,
+                    workspace_registry.clone(),
+                ),
+                workspace_registry,
                 thread: WorkerThreadRpc::new(workspace_root.clone(), policy.clone()),
                 thread_log: WorkerThreadLogRpc::new_with_data_root(
                     workspace_root.clone(),
@@ -75,6 +82,10 @@ impl WorkspaceThreadStore {
 
     pub(crate) fn project_groups(&self) -> ProjectGroupStore {
         self.inner.project_groups.clone()
+    }
+
+    pub(crate) fn workspace_registry(&self) -> WorkspaceRegistry {
+        self.inner.workspace_registry.clone()
     }
 
     pub(crate) fn begin_operation(

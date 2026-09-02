@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:307611b1fac222545c3220ef5c8136aabc70c7821f0328e83a09d30bb9b6f820 -->
+<!-- tinybot-module-fingerprint: sha256:554510ae9c5f45627ca76bbcbc0c3e34ce3ec94b875dc70e22403611555c4541 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -14,7 +14,7 @@ to [`agent::bridge`](../bridge/README.md).
 
 - Normalize turn settings, input history, and context-window behavior.
 - Compose bounded context contributions and instruction provenance.
-- Catalog project-local `.agents/skills` alongside enabled Agent Plugin skills,
+- Catalog project-local `.agents/skills` and `.codex/skills` alongside enabled Agent Plugin skills,
   injecting full Skill content only for explicit selections.
 - Call the configured provider and adapt provider-specific responses.
 - Maintain the typed `AgentItem` history used inside the runtime.

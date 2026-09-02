@@ -5,22 +5,53 @@ src-tauri/src/desktop_commands/agent_graphs.rs
 src-tauri/src/desktop_commands/graph_runs.rs
 src-tauri/src/desktop_commands/skills.rs
 src-tauri/src/desktop_commands/workspace.rs
+src-tauri/src/desktop_commands/workspace_registry.rs
 src-tauri/src/agent_graphs.rs
 src-tauri/src/graph_runs.rs
+src-tauri/src/project_groups.rs
+src-tauri/src/workspace_registry.rs
 src/app-core/native/desktopNativeAgentGraphs.ts
 src/app-core/native/desktopNativeAgentGraphRuntime.ts
+src/app-core/native/desktopNativeWorkspaceRegistry.ts
 src-tauri/src/plugins/manifest.rs
 src-tauri/src/plugins/manifest_tests.rs
 src-tauri/src/skills/definition.rs
 src-tauri/src/workspace/types.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:452709f846ca9fdbe1aadd7a4929a87c2a784c584c8e1c6df0ba59068238ebbd -->
+<!-- tinybot-doc-fingerprint: sha256:d4c72819fd8d8967715b76d006101463aa0cc1a3ef824b05f00f578fe5bfc85d -->
 
 This document covers workspace operations and the extension catalogs available
 to Agents. It is part of the [Rust backend API reference](rust-backend-api.md),
 which defines the shared invocation conventions and source-backed freshness
 policy for this reference set.
+
+## Workspace Registry Commands
+
+| Command | Args | Response |
+| --- | --- | --- |
+| `worker_workspace_registry_list` | none | `{ workspaces: WorkspaceRegistryEntry[] }` |
+| `worker_workspace_register` | `{ input: { path } }` | `WorkspaceRegistryEntry` |
+| `worker_workspace_rename` | `{ input: { path, name } }` | `WorkspaceRegistryEntry` |
+| `worker_workspace_forget` | `{ input: { path } }` | `WorkspaceRegistryEntry` |
+
+The Rust `WorkspaceRegistry` is the only imported-workspace catalog mutation
+path. It persists `~/.tinybot/workspaces.json` atomically. Registration requires
+an existing directory, canonicalizes aliases, de-duplicates paths
+case-insensitively on Windows, and returns a portable path without `\\?\` or
+`\\?\UNC\` prefixes. Rename changes only the display name. Forget removes only
+the catalog entry, never filesystem content, and fails while a project group
+still references the workspace. Saving project membership registers every
+member through the same Registry.
+
+On the first list after upgrading, the command imports project-group members
+and paginates the existing Thread catalog for recorded `workingDirectory`
+values. It then writes a migration marker. Later lists read the Registry file
+directly and do not rescan the Thread history; missing legacy folders remain
+visible with `exists: false` so the renderer can disable new-work actions.
+
+`WorkspaceRegistryEntry` contains `path`, `name`, `exists`, `addedAtMs`, and
+`updatedAtMs`.
 
 ## Skills Commands
 
@@ -33,7 +64,7 @@ policy for this reference set.
 | `worker_skills_delete` | `{ input: { name } }` | delete result |
 | `worker_skills_validate` | `{ input: { name } }` | validation result |
 
-These commands belong to the legacy skills API. Native agent turns do not use that managed `<backend-workspace>/skills` directory. They discover enabled global Agent Plugin skills plus project-local `.agents/skills/*/SKILL.md` files from the effective working-directory hierarchy. Project-local skill names are unqualified; plugin skill names remain qualified as `<plugin-name>:<skill-name>`.
+These commands belong to the legacy skills API. Native agent turns do not use that managed `<backend-workspace>/skills` directory. They discover enabled global Agent Plugin skills plus project-local `.agents/skills/*/SKILL.md` and `.codex/skills/*/SKILL.md` files from the effective working-directory hierarchy. Deeper scopes override outer scopes; at the same scope, `.agents/skills` wins a same-name collision with `.codex/skills`. Project-local skill names are unqualified; plugin skill names remain qualified as `<plugin-name>:<skill-name>`. Chat's slash menu uses this turn-scoped catalog. The Tools & Plugins Skills view is an inventory instead: it applies the same discovery rules to every existing entry in `WorkspaceRegistry` and shows the combined result.
 
 Native turns also merge project-local MCP definitions from `mcp.json`, `.mcp.json`, and `.github/mcp.json`. The files may expose a `mcpServers` or `servers` object. Discovery walks from the nearest Git root to the effective working directory, and deeper same-named definitions win without mutating the saved global configuration. `.codex` directories are not scanned.
 

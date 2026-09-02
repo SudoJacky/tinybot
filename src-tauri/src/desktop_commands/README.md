@@ -1,24 +1,35 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:4e02096a89e768a2745c1f88d8a2cd3a515fe5c4dd2a9a9105cdf5ec5bfd24b7 -->
+<!-- tinybot-module-fingerprint: sha256:6169084176009b5e15308c8d45ae2e2ab380c129481307ce8d5e4d0dc83b1dc0 -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,
-skills, plugins, project groups, Agent Graph definitions, threads, retry,
-WebUI, and workspace operations.
+skills, plugins, project groups, the workspace registry, Agent Graph
+definitions, threads, retry, WebUI, and workspace operations.
 
 These handlers should stay thin and delegate domain behavior to the owning
 backend module.
+
+Workspace-registry commands expose the single renderer-facing catalog write
+path: list, register, rename, and forget. Rust canonicalizes registered folders,
+persists portable paths in `workspaces.json`, and performs the legacy
+Thread/project-group import only until the registry's migration marker is
+written. Forget is rejected while a project group references the path and never
+deletes filesystem content.
 
 The Rust-owned `GET /api/tools` route combines the callable tool catalog with
 separate MCP server and Skill summaries. With an explicit `workingDirectory`,
 the catalog also contains deferred Agent Graph tools from that exact workspace;
 workspace-less requests receive no Graph tools. Workspace Skills come from
-`.agents/skills`; full Skill documents remain outside the list response and
+`.agents/skills` and `.codex/skills`; full Skill documents remain outside the list response and
 are loaded on demand through `GET /api/tools/skills/{id}` for workspace and
 enabled-plugin entries only. Both Tools routes accept an optional
 `workingDirectory` query so Chat can catalog the active Thread workspace while
 non-Graph entries for callers that omit it continue to use the configured
-backend workspace.
+backend workspace. The Tools & Plugins inventory adds
+`skillScope=allWorkspaces`; this reads `WorkspaceRegistry` once and combines
+Skills from every existing imported workspace without changing the
+`workingDirectory` scope used for MCP, callable Tools, or Agent Graphs. The
+detail route accepts the same scope for aggregate workspace Skill IDs.
 Invalid Agent Graph files are omitted only from this tool-discovery response and
 reported in `agentGraphDiagnostics`; the dedicated Graph management commands
 continue to reject invalid saved definitions.

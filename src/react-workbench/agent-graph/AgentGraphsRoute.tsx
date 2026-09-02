@@ -30,8 +30,8 @@ import {
 } from "../../app-core/agent-graph/agentGraphDefinition";
 import type { StoredAgentGraph } from "../../app-core/agent-graph/agentGraphStore";
 import type { AgentGraphRun } from "../../app-core/agent-graph/agentGraphRuntime";
-import { normalizedWorkspacePathKey, sessionWorkspaceName } from "../chat/sessionWorkspaces";
-import type { AppServices, ChatModelOption } from "../services";
+import { sessionWorkspaceName } from "../chat/sessionWorkspaces";
+import type { AppServices, ChatModelOption, WorkspaceRegistryEntry } from "../services";
 import { SettingsChoiceList, type SettingsChoiceOption } from "../settings/SettingsChoiceList";
 import {
   AGENT_GRAPH_NODE_DRAG_TYPE,
@@ -54,7 +54,7 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
   const { t } = useTranslation("common");
   const draftSequence = useRef(0);
   const nodeSequence = useRef(0);
-  const [workspaceOptions, setWorkspaceOptions] = useState<string[]>([]);
+  const [workspaceOptions, setWorkspaceOptions] = useState<WorkspaceRegistryEntry[]>([]);
   const [definitionWorkspacePath, setDefinitionWorkspacePath] = useState("");
   const [workspaceCatalogError, setWorkspaceCatalogError] = useState<string | null>(null);
   const [workspaceCatalogReady, setWorkspaceCatalogReady] = useState(false);
@@ -106,17 +106,13 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     let cancelled = false;
     setWorkspaceCatalogReady(false);
     setWorkspaceCatalogError(null);
-    void Promise.all([services.sessionStore.list(), services.projectGroupStore.list()])
-      .then(([sessions, groups]) => {
+    void services.workspaceRegistryStore.list()
+      .then((workspaces) => {
         if (cancelled) return;
-        const paths = uniqueWorkspacePaths([
-          ...sessions.flatMap((session) => (
-            session.workingDirectory && !session.pluginMigration ? [session.workingDirectory] : []
-          )),
-          ...groups.flatMap((group) => group.workspaceIds),
-        ]);
-        setWorkspaceOptions(paths);
-        setDefinitionWorkspacePath((current) => current || paths[0] || "");
+        setWorkspaceOptions(workspaces);
+        setDefinitionWorkspacePath((current) => (
+          current || workspaces.find((workspace) => workspace.exists)?.path || ""
+        ));
       })
       .catch((cause: unknown) => {
         if (!cancelled) setWorkspaceCatalogError(errorMessage(cause));
@@ -127,7 +123,14 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
     return () => {
       cancelled = true;
     };
-  }, [services.projectGroupStore, services.sessionStore]);
+  }, [services.workspaceRegistryStore]);
+
+  const workspaceChoices = workspaceOptions.map((workspace) => ({
+    description: workspace.path,
+    disabled: !workspace.exists,
+    label: workspace.name,
+    value: workspace.path,
+  }));
 
   useEffect(() => {
     if (!services.settingsStore.loadChatModels) return;
@@ -477,14 +480,10 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
             <SettingsChoiceList
               ariaLabel={t("graphs.definitionWorkspace")}
               description={t("graphs.definitionWorkspaceDescription")}
-              disabled={!workspaceCatalogReady || !workspaceOptions.length}
+              disabled={!workspaceCatalogReady || !workspaceOptions.some((workspace) => workspace.exists)}
               label={t("graphs.definitionWorkspace")}
               onChange={setDefinitionWorkspacePath}
-              options={workspaceOptions.map((path) => ({
-                description: path,
-                label: sessionWorkspaceName(path),
-                value: path,
-              }))}
+              options={workspaceChoices}
               optionsAriaLabel={t("graphs.workspaceOptions")}
               value={definitionWorkspacePath}
             />
@@ -493,7 +492,8 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                 {t("graphs.workspaceLoadFailed", { message: workspaceCatalogError })}
               </p>
             ) : null}
-            {workspaceCatalogReady && !workspaceCatalogError && !workspaceOptions.length ? (
+            {workspaceCatalogReady && !workspaceCatalogError
+              && !workspaceOptions.some((workspace) => workspace.exists) ? (
               <p className="react-agent-graph-workspace__empty" role="status">{t("graphs.workspaceEmpty")}</p>
             ) : null}
           </section>
@@ -571,7 +571,8 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
               </label>
               <span className="react-agent-graph-editor__workspace">
                 <small>{t("graphs.definitionWorkspace")}</small>
-                <strong>{sessionWorkspaceName(definitionWorkspacePath)}</strong>
+                <strong>{workspaceOptions.find((workspace) => workspace.path === definitionWorkspacePath)?.name
+                  ?? sessionWorkspaceName(definitionWorkspacePath)}</strong>
               </span>
               <span className="react-agent-graph-draft__actions">
                 <span
@@ -666,17 +667,13 @@ export default function AgentGraphsRoute({ services }: { services: AppServices }
                     <SettingsChoiceList
                       ariaLabel={t("graphs.executionWorkspace")}
                       description={t("graphs.executionWorkspaceDescription")}
-                      disabled={!workspaceOptions.length}
+                      disabled={!workspaceOptions.some((workspace) => workspace.exists)}
                       label={t("graphs.executionWorkspace")}
                       onChange={(workspacePath) => updateSelectedAgentConfig({
                         ...selectedAgentNode.config,
                         workspacePath,
                       })}
-                      options={workspaceOptions.map((path) => ({
-                        description: path,
-                        label: sessionWorkspaceName(path),
-                        value: path,
-                      }))}
+                      options={workspaceChoices}
                       optionsAriaLabel={t("graphs.workspaceOptions")}
                       value={selectedAgentNode.config.workspacePath}
                     />
@@ -1131,30 +1128,6 @@ function agentGraphModelChoices(
     });
   }
   return choices;
-}
-
-function uniqueWorkspacePaths(paths: string[]): string[] {
-  const seen = new Set<string>();
-  return paths.flatMap((path) => {
-    const normalized = workspaceDisplayPath(path);
-    if (!normalized) return [];
-    const key = normalizedWorkspacePathKey(normalized);
-    if (seen.has(key)) return [];
-    seen.add(key);
-    return [normalized];
-  });
-}
-
-function workspaceDisplayPath(path: string): string {
-  const trimmed = path.trim();
-  const verbatimUnc = trimmed.match(/^[\\/]{2}\?[\\/]UNC[\\/](.*)$/i);
-  const withoutVerbatimPrefix = verbatimUnc
-    ? `\\\\${verbatimUnc[1]}`
-    : trimmed.replace(/^[\\/]{2}\?[\\/]/, "");
-  if (/^[a-zA-Z]:[\\/]$/.test(withoutVerbatimPrefix)) {
-    return withoutVerbatimPrefix;
-  }
-  return withoutVerbatimPrefix.replace(/[\\/]+$/, "") || withoutVerbatimPrefix;
 }
 
 function errorMessage(cause: unknown): string {

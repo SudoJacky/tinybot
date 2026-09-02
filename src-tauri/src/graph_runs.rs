@@ -7,11 +7,11 @@ use crate::agent_graphs::{
     self, validate_graph_id, AgentGraphDefinition, AgentGraphNodeConfig, AgentGraphNodeKind,
     AgentGraphRouterNodeConfig, AgentLoopModelConfig,
 };
-use crate::project_groups::{canonical_workspace, workspace_id};
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
 use crate::storage::atomic::{write_json_pretty_atomic, AtomicWriteOptions};
+use crate::workspace_registry::{canonical_workspace, workspace_id};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs;

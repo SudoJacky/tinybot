@@ -115,6 +115,21 @@ describe("desktop tools store", () => {
     });
   });
 
+  it("requests Skills from every imported workspace for the resource catalog", async () => {
+    const route = vi.fn(async () => ({ mcpServers: [], skills: [], tools: [] }));
+    const store = createDesktopToolsStore({ initialize: async () => undefined, nativeWebui: { route } });
+
+    await store.loadCatalog({
+      skillScope: "allWorkspaces",
+      workingDirectory: "D:\\Code\\workspace with spaces",
+    });
+
+    expect(route).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/api/tools?workingDirectory=D%3A%5CCode%5Cworkspace%20with%20spaces&skillScope=allWorkspaces",
+    });
+  });
+
   it("delegates plugin lifecycle operations after initialization", async () => {
     const initialize = vi.fn(async () => undefined);
     const nativePlugins = createNativePlugins();
@@ -147,14 +162,17 @@ describe("desktop tools store", () => {
     }));
     const store = createDesktopToolsStore({ initialize, nativeWebui: { route } });
 
-    await expect(store.loadSkillDetail("workspace:review-work")).resolves.toMatchObject({
+    await expect(store.loadSkillDetail("workspace:review-work", {
+      skillScope: "allWorkspaces",
+      workingDirectory: "D:\\Code\\workspace with spaces",
+    })).resolves.toMatchObject({
       id: "workspace:review-work",
       content: expect.stringContaining("Review the diff."),
     });
     expect(initialize).toHaveBeenCalledTimes(1);
     expect(route).toHaveBeenCalledWith({
       method: "GET",
-      path: "/api/tools/skills/workspace%3Areview-work",
+      path: "/api/tools/skills/workspace%3Areview-work?workingDirectory=D%3A%5CCode%5Cworkspace%20with%20spaces&skillScope=allWorkspaces",
     });
   });
 

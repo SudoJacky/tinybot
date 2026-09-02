@@ -13,3 +13,4 @@ pub(crate) mod thread;
 pub(crate) mod token_usage;
 pub(crate) mod webui;
 pub(crate) mod workspace;
+pub(crate) mod workspace_registry;

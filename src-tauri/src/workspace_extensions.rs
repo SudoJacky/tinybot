@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-const WORKSPACE_SKILLS_PATH: [&str; 2] = [".agents", "skills"];
+const WORKSPACE_SKILLS_PATHS: [[&str; 2]; 2] = [[".codex", "skills"], [".agents", "skills"]];
 const WORKSPACE_MCP_PATHS: [&str; 3] = [".github/mcp.json", "mcp.json", ".mcp.json"];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -57,84 +57,84 @@ pub(crate) fn discover_workspace_skills(
 ) -> Result<Vec<WorkspaceSkill>, String> {
     let mut discovered = BTreeMap::new();
     for scope_root in project_scope_directories(working_directory)? {
-        let skills_root = scope_root
-            .join(WORKSPACE_SKILLS_PATH[0])
-            .join(WORKSPACE_SKILLS_PATH[1]);
-        let entries = match fs::read_dir(&skills_root) {
-            Ok(entries) => entries,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(error) => {
-                return Err(format!(
-                    "failed to enumerate workspace skills `{}`: {error}",
-                    skills_root.display()
-                ));
-            }
-        };
-        let mut entries = entries.collect::<Result<Vec<_>, _>>().map_err(|error| {
-            format!(
-                "failed to enumerate workspace skills `{}`: {error}",
-                skills_root.display()
-            )
-        })?;
-        entries.sort_by_key(|entry| entry.file_name());
-        for entry in entries {
-            let metadata = entry.metadata().map_err(|error| {
-                format!(
-                    "failed to inspect workspace skill `{}`: {error}",
-                    entry.path().display()
-                )
-            })?;
-            if !metadata.is_dir() {
-                continue;
-            }
-            let skill_path = entry.path().join("SKILL.md");
-            let metadata = match fs::metadata(&skill_path) {
-                Ok(metadata) => metadata,
+        for relative_path in WORKSPACE_SKILLS_PATHS {
+            let skills_root = scope_root.join(relative_path[0]).join(relative_path[1]);
+            let entries = match fs::read_dir(&skills_root) {
+                Ok(entries) => entries,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(error) => {
                     return Err(format!(
-                        "failed to inspect workspace skill `{}`: {error}",
-                        skill_path.display()
+                        "failed to enumerate workspace skills `{}`: {error}",
+                        skills_root.display()
                     ));
                 }
             };
-            if !metadata.is_file() {
-                return Err(format!(
-                    "workspace skill path is not a file: `{}`",
-                    skill_path.display()
-                ));
-            }
-            let content = fs::read_to_string(&skill_path).map_err(|error| {
+            let mut entries = entries.collect::<Result<Vec<_>, _>>().map_err(|error| {
                 format!(
-                    "failed to read workspace skill `{}`: {error}",
-                    skill_path.display()
+                    "failed to enumerate workspace skills `{}`: {error}",
+                    skills_root.display()
                 )
             })?;
-            let definition = SkillDefinition::parse(&content).map_err(|error| {
-                format!(
-                    "workspace skill `{}` is invalid: {error}",
-                    skill_path.display()
-                )
-            })?;
-            let directory_name = entry.file_name().to_string_lossy().to_string();
-            definition
-                .validate_directory_name(&directory_name)
-                .map_err(|error| {
+            entries.sort_by_key(|entry| entry.file_name());
+            for entry in entries {
+                let metadata = entry.metadata().map_err(|error| {
+                    format!(
+                        "failed to inspect workspace skill `{}`: {error}",
+                        entry.path().display()
+                    )
+                })?;
+                if !metadata.is_dir() {
+                    continue;
+                }
+                let skill_path = entry.path().join("SKILL.md");
+                let metadata = match fs::metadata(&skill_path) {
+                    Ok(metadata) => metadata,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(error) => {
+                        return Err(format!(
+                            "failed to inspect workspace skill `{}`: {error}",
+                            skill_path.display()
+                        ));
+                    }
+                };
+                if !metadata.is_file() {
+                    return Err(format!(
+                        "workspace skill path is not a file: `{}`",
+                        skill_path.display()
+                    ));
+                }
+                let content = fs::read_to_string(&skill_path).map_err(|error| {
+                    format!(
+                        "failed to read workspace skill `{}`: {error}",
+                        skill_path.display()
+                    )
+                })?;
+                let definition = SkillDefinition::parse(&content).map_err(|error| {
                     format!(
                         "workspace skill `{}` is invalid: {error}",
                         skill_path.display()
                     )
                 })?;
-            discovered.insert(
-                definition.name.clone(),
-                WorkspaceSkill {
-                    name: definition.name,
-                    description: definition.description,
-                    path: skill_path,
-                    root: entry.path(),
-                    content,
-                },
-            );
+                let directory_name = entry.file_name().to_string_lossy().to_string();
+                definition
+                    .validate_directory_name(&directory_name)
+                    .map_err(|error| {
+                        format!(
+                            "workspace skill `{}` is invalid: {error}",
+                            skill_path.display()
+                        )
+                    })?;
+                discovered.insert(
+                    definition.name.clone(),
+                    WorkspaceSkill {
+                        name: definition.name,
+                        description: definition.description,
+                        path: skill_path,
+                        root: entry.path(),
+                        content,
+                    },
+                );
+            }
         }
     }
     Ok(discovered.into_values().collect())
@@ -384,6 +384,57 @@ mod tests {
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].description, "API review rules.");
         assert!(skills[0].path.starts_with(&nested));
+    }
+
+    #[test]
+    fn discovers_codex_skills_alongside_portable_workspace_skills() {
+        let fixture = Fixture::new("codex-skills");
+        fs::create_dir_all(fixture.root.join(".git")).expect("git marker should create");
+        for (relative_path, name, description) in [
+            (
+                ".codex/skills/codex-review",
+                "codex-review",
+                "Review through the Codex workspace catalog.",
+            ),
+            (
+                ".agents/skills/portable-review",
+                "portable-review",
+                "Review through the portable workspace catalog.",
+            ),
+            (
+                ".codex/skills/shared-review",
+                "shared-review",
+                "Codex-specific shared review rules.",
+            ),
+            (
+                ".agents/skills/shared-review",
+                "shared-review",
+                "Portable shared review rules.",
+            ),
+        ] {
+            let skill = fixture.root.join(relative_path);
+            fs::create_dir_all(&skill).expect("skill directory should create");
+            fs::write(
+                skill.join("SKILL.md"),
+                format!("---\nname: {name}\ndescription: {description}\n---\nFollow the rules.\n"),
+            )
+            .expect("skill should write");
+        }
+
+        let skills = discover_workspace_skills(&fixture.root).expect("skills should discover");
+        assert_eq!(
+            skills
+                .iter()
+                .map(|skill| skill.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["codex-review", "portable-review", "shared-review"]
+        );
+        let shared = skills
+            .iter()
+            .find(|skill| skill.name == "shared-review")
+            .expect("shared Skill should discover");
+        assert_eq!(shared.description, "Portable shared review rules.");
+        assert!(shared.path.starts_with(fixture.root.join(".agents")));
     }
 
     #[test]

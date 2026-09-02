@@ -118,9 +118,9 @@ export const zh = {
     tools: {
       title: "工具与插件", viewLabel: "工具与插件视图", plugins: "插件", skills: "Skills", mcp: "MCP", tools: "工具",
       pluginDescription: "通过可移植的 Skill 和 MCP Server 扩展 Tinybot，并在所有工作区中共享。",
-      skillsDescription: "查看当前工作区及已启用插件中发现的 Agent Skills。", mcpDescription: "查看当前工作区可以使用的 MCP Server。",
+      skillsDescription: "查看所有已导入工作区及已启用插件中发现的 Agent Skills。", mcpDescription: "查看当前工作区可以使用的 MCP Server。",
       toolsDescription: "查看 Agent 当前可以使用的能力。", availableToolsLabel: "可用工具", mcpServers: "MCP Server",
-      skillsLabel: "可用 Skills", availableSkills: "可用 Skills", availableSkillsDescription: "工作区 .agents/skills 与已启用插件提供的 Skills。", skillsEmpty: "没有发现 Skill。",
+      skillsLabel: "可用 Skills", availableSkills: "可用 Skills", availableSkillsDescription: "所有已导入工作区的 .agents/skills、.codex/skills 与已启用插件提供的 Skills。", skillsEmpty: "没有发现 Skill。",
       viewSkillDetails: "查看 {{name}} 详情", skillDetails: "Skill 详情", closeSkillDetails: "关闭 Skill 详情", loadingSkillDetails: "正在加载 Skill 详情…",
       skillDetailsFailed: "无法加载 Skill 详情：{{message}}", retrySkillDetails: "重试", skillSource: "来源", skillPath: "SKILL.md 路径",
       mcpServersDescription: "Tinybot 当前已知的外部工具 Provider。", mcpEmpty: "没有发现 MCP Server。", availableTools: "可用工具",
@@ -488,6 +488,10 @@ export const zh = {
       name: "项目名称", namePlaceholder: "电商平台", workspaces: "成员工作区", workspacesHelp: "选择已有工作区，或从其他位置添加文件夹。", noWorkspaces: "目前还没有可用的工作区文件夹。", chooseFolder: "选择其他文件夹…",
       save: "保存项目", cancel: "取消", close: "关闭项目对话框", delete: "删除项目", confirmDelete: "确认删除", unavailable: "当前运行时不支持项目组。",
       groupLabel: "项目 {{name}}", edit: "编辑 {{name}}", coordination: "协调会话", newCoordinator: "在 {{name}} 中新建协调会话", newCoordinatorTitle: "协调 {{name}}", newWorkspaceSession: "在 {{name}} 中新建会话",
+    },
+    workspaces: {
+      manage: "管理 {{name}}", title: "管理工作区", description: "修改 Tinybot 中的显示名称，或忘记此工作区；不会改动磁盘文件。",
+      name: "工作区名称", rename: "重命名", forget: "忘记工作区", confirmForget: "确认忘记", cancel: "取消", close: "关闭工作区对话框",
     },
     migration: {
       label: "插件迁移结果", installed: "{{name}} 已安装{{state}}", keptDisabled: "（保持停用）", enabled: "并已启用", complete: "迁移完成——安装生成的插件",

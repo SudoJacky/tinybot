@@ -30,6 +30,7 @@ mod tools;
 mod transport;
 mod workspace;
 mod workspace_extensions;
+mod workspace_registry;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

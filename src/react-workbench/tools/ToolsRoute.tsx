@@ -26,13 +26,14 @@ type ToolCatalogState =
 export type ToolsRouteProps = {
   services: AppServices;
   onOpenChat: () => void;
+  workingDirectory?: string;
 };
 
-export default function ToolsRoute({ services, onOpenChat }: ToolsRouteProps) {
+export default function ToolsRoute({ services, onOpenChat, workingDirectory }: ToolsRouteProps) {
   const { t } = useTranslation("common");
   const [activeView, setActiveView] = useState<ResourceView>("plugins");
   const [catalogRevision, setCatalogRevision] = useState(0);
-  const catalogState = useToolCatalog(services, catalogRevision);
+  const catalogState = useToolCatalog(services, catalogRevision, workingDirectory);
   const toolCount = catalogState.status === "ready" ? catalogState.catalog.tools.length : null;
   const skillCount = catalogState.status === "ready" ? catalogState.catalog.skills.length : null;
   const mcpCount = catalogState.status === "ready" ? catalogState.catalog.mcpServers.length : null;
@@ -100,6 +101,7 @@ export default function ToolsRoute({ services, onOpenChat }: ToolsRouteProps) {
             services={services}
             state={catalogState}
             view={activeView}
+            workingDirectory={workingDirectory}
           />
         )}
       </div>
@@ -112,11 +114,13 @@ function ToolCatalogPanel({
   services,
   state,
   view,
+  workingDirectory,
 }: {
   onRetry: () => void;
   services: AppServices;
   state: ToolCatalogState;
   view: Exclude<ResourceView, "plugins">;
+  workingDirectory?: string;
 }) {
   const { t } = useTranslation("common");
   const viewName = t(`tools.${view}`);
@@ -131,7 +135,9 @@ function ToolCatalogPanel({
       </div>
     );
   }
-  if (view === "skills") return <SkillsCatalogView catalog={state.catalog} services={services} />;
+  if (view === "skills") {
+    return <SkillsCatalogView catalog={state.catalog} services={services} workingDirectory={workingDirectory} />;
+  }
   if (view === "mcp") return <McpCatalogView catalog={state.catalog} />;
   return <ToolsCatalogView catalog={state.catalog} />;
 }
@@ -142,7 +148,15 @@ type SkillDetailState =
   | { status: "ready"; detail: SkillDetail }
   | { status: "failed"; error: Error };
 
-function SkillsCatalogView({ catalog, services }: { catalog: ToolCatalogSummary; services: AppServices }) {
+function SkillsCatalogView({
+  catalog,
+  services,
+  workingDirectory,
+}: {
+  catalog: ToolCatalogSummary;
+  services: AppServices;
+  workingDirectory?: string;
+}) {
   const { t } = useTranslation("common");
   const [selectedSkillId, setSelectedSkillId] = useState<string>();
   const [detailRevision, setDetailRevision] = useState(0);
@@ -154,7 +168,10 @@ function SkillsCatalogView({ catalog, services }: { catalog: ToolCatalogSummary;
     }
     let cancelled = false;
     setDetailState({ status: "loading" });
-    void services.toolsStore.loadSkillDetail(selectedSkillId)
+    void services.toolsStore.loadSkillDetail(selectedSkillId, {
+      skillScope: "allWorkspaces",
+      workingDirectory,
+    })
       .then((detail) => {
         if (!cancelled) setDetailState({ status: "ready", detail });
       })
@@ -167,7 +184,7 @@ function SkillsCatalogView({ catalog, services }: { catalog: ToolCatalogSummary;
     return () => {
       cancelled = true;
     };
-  }, [detailRevision, selectedSkillId, services]);
+  }, [detailRevision, selectedSkillId, services, workingDirectory]);
 
   const detailPanelId = selectedSkillId ? `skill-detail-${cssIdentifier(selectedSkillId)}` : undefined;
   return (
@@ -573,12 +590,16 @@ function PluginsSection({
   );
 }
 
-function useToolCatalog(services: AppServices, revision: number): ToolCatalogState {
+function useToolCatalog(
+  services: AppServices,
+  revision: number,
+  workingDirectory?: string,
+): ToolCatalogState {
   const [state, setState] = useState<ToolCatalogState>({ status: "loading" });
   useEffect(() => {
     let cancelled = false;
     setState({ status: "loading" });
-    void services.toolsStore.loadCatalog()
+    void services.toolsStore.loadCatalog({ skillScope: "allWorkspaces", workingDirectory })
       .then((catalog) => {
         if (!cancelled) setState({ status: "ready", catalog });
       })
@@ -591,7 +612,7 @@ function useToolCatalog(services: AppServices, revision: number): ToolCatalogSta
     return () => {
       cancelled = true;
     };
-  }, [revision, services]);
+  }, [revision, services, workingDirectory]);
   return state;
 }
 

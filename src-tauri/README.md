@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:afb4cb03be76b78fd4e5dc2baf99785add8701918ffd42ba8caab163d9f52ef3 -->
+<!-- tinybot-module-fingerprint: sha256:f36bf15552a5fd6533370c59962207c12842d7228f78634efd3c18b1d3142709 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -143,12 +143,13 @@ The main layers are:
    - [`threads/rollout/store/`](src/threads/rollout/store/README.md) owns
      canonical append-only Rollouts and their process-local Thread index.
 5. **Domain services**
-   - `workspace/`, `workspace_extensions.rs`, `tools/`, `automation/`, `collaboration/`, `config/`,
-     `agent_graphs.rs`, `graph_runs.rs`, `project_groups.rs`, `plugins/`,
+   - `workspace/`, `workspace_registry.rs`, `workspace_extensions.rs`, `tools/`,
+     `automation/`, `collaboration/`, `config/`, `agent_graphs.rs`,
+     `graph_runs.rs`, `project_groups.rs`, `plugins/`,
      `skills/`, and `memory/` own their business rules and do not depend on RPC
      or Tauri.
-   - `workspace_extensions.rs` discovers project-local `.agents/skills` and
-     supported MCP configuration files from the effective working-directory
+   - `workspace_extensions.rs` discovers project-local `.agents/skills`,
+     `.codex/skills`, and supported MCP configuration files from the effective working-directory
      hierarchy, normalizing them for one Turn without mutating saved global
      configuration.
 6. **Process and transport infrastructure**
@@ -194,6 +195,7 @@ roles:
 | `~/.tinybot/config.json` and one-time `config.json.v1.bak` | `config` | Active schema v2 application configuration and pre-migration recovery copy |
 | `~/.tinybot/threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | `threads::rollout::store` | Active canonical Rollouts |
 | `~/.tinybot/archived_threads/<year>/<month>/<day>/thread-*.jsonl[.zst]` | `threads::rollout::store` | Archived canonical Rollouts |
+| `~/.tinybot/workspaces.json` | `workspace_registry` | Canonical imported-workspace paths, display names, and the one-time legacy-import marker |
 | `~/.tinybot/project-groups.json` | `project_groups` | Named groups and their workspace memberships |
 | `~/.tinybot/chat-attachments/images/<sha256>.<ext>` | `chat_attachments` | Content-addressed local image copies referenced by durable chat messages and encoded only while building provider requests |
 | `<workspace>/.tinybot/graphs/<graph-id>.json` | `agent_graphs` | Versioned Agent Graph definitions |
@@ -203,8 +205,16 @@ roles:
 | `<workspace>/.tinybot/hooks.json` | `command_hooks` | Workspace-scoped command-hook definitions |
 
 Thread metadata, checkpoint pointers, and Rollout heads are rebuilt into a
-process-local index from the Rollouts. Project-group membership is loaded from
-its own atomic JSON store and authorizes coordinator-created workspace Threads.
+process-local index from the Rollouts. The workspace registry is the authority
+for imported-folder listing and mutation; it canonicalizes paths, removes
+Windows verbatim prefixes, and scans legacy Thread/group references only once.
+Project-group membership is loaded from its own atomic JSON store, registers
+every member through that registry, and authorizes coordinator-created
+workspace Threads.
+The Rust-owned Tools catalog uses that registry for its all-workspace Skill
+inventory while Chat continues to resolve project-local Skills from only the
+active Turn working directory. Aggregate entries are de-duplicated by portable
+Skill path, so overlapping imported scopes do not duplicate one file.
 Agent Graph definitions use one atomically replaced JSON file per Graph and an
 exact-byte SHA-256 revision for optimistic saves and deletes. Agent nodes may
 store additional role instructions plus a provider/model/reasoning override;

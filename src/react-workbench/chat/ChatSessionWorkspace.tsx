@@ -5,6 +5,7 @@ import {
   useState,
   type CSSProperties,
   type DragEvent as ReactDragEvent,
+  type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
@@ -15,11 +16,14 @@ import {
   FolderOpen,
   FolderPlus,
   GitBranch,
+  Loader2,
   MoreHorizontal,
+  PencilLine,
   Plus,
   Search,
   Settings,
   Trash2,
+  X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useModalDialog } from "../../components/ui/useModalDialog";
@@ -28,6 +32,8 @@ import type {
   ProjectGroup,
   ProjectGroupStore,
   SessionSummary,
+  WorkspaceRegistryEntry,
+  WorkspaceRegistryStore,
 } from "../services";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
 import { ProjectGroupDialog } from "./ProjectGroupDialog";
@@ -93,6 +99,7 @@ export function ChatSessionWorkspace({
   now,
   projectGroupStore,
   sessions,
+  workspaceRegistryStore,
 }: {
   actions: ChatSessionWorkspaceActions;
   activeSessionId: string;
@@ -105,14 +112,18 @@ export function ChatSessionWorkspace({
   now: () => number;
   projectGroupStore?: ProjectGroupStore;
   sessions: readonly SessionSummary[];
+  workspaceRegistryStore: WorkspaceRegistryStore;
 }) {
   const { t } = useTranslation("chat");
   const [projectGroups, setProjectGroups] = useState<ProjectGroup[]>([]);
+  const [workspaces, setWorkspaces] = useState<WorkspaceRegistryEntry[]>([]);
   const [projectDialogGroupId, setProjectDialogGroupId] = useState<string | "new">();
+  const [workspaceDialogPath, setWorkspaceDialogPath] = useState<string>();
   const [searchOpen, setSearchOpen] = useState(false);
   const [workspaceActionMenuOpen, setWorkspaceActionMenuOpen] = useState(false);
   const [workspaceError, setWorkspaceError] = useState("");
   const [workspacePickerPending, setWorkspacePickerPending] = useState(false);
+  const workspaceMutationRevisionRef = useRef(0);
   const [sidebarOrder, setSidebarOrder] = useState<SessionSidebarOrder>(() => (
     typeof window === "undefined"
       ? INITIAL_SESSION_SIDEBAR_ORDER
@@ -125,14 +136,17 @@ export function ChatSessionWorkspace({
   const draggedSidebarItemRef = useRef<SidebarDragItem | undefined>(undefined);
 
   useEffect(() => {
-    if (!projectGroupStore) {
-      setProjectGroups([]);
-      return;
-    }
     let cancelled = false;
-    void projectGroupStore.list().then((groups) => {
+    const workspaceMutationRevision = workspaceMutationRevisionRef.current;
+    void Promise.all([
+      projectGroupStore?.list() ?? Promise.resolve([]),
+      workspaceRegistryStore.list(),
+    ]).then(([groups, registeredWorkspaces]) => {
       if (!cancelled) {
         setProjectGroups(groups);
+        if (workspaceMutationRevisionRef.current === workspaceMutationRevision) {
+          setWorkspaces(registeredWorkspaces);
+        }
         setWorkspaceError("");
       }
     }).catch((cause) => {
@@ -144,7 +158,7 @@ export function ChatSessionWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [projectGroupStore]);
+  }, [projectGroupStore, workspaceRegistryStore]);
 
   useEffect(() => {
     if (!workspaceActionMenuOpen) return;
@@ -163,16 +177,62 @@ export function ChatSessionWorkspace({
     }
   }, [sidebarOrder]);
 
-  const projectProjection = useMemo(
-    () => projectSessionGroups(projectGroups, [...sessions]),
-    [projectGroups, sessions],
-  );
+  const workspaceByKey = useMemo(() => new Map(workspaces.map((workspace) => [
+    normalizedWorkspacePathKey(workspace.path),
+    workspace,
+  ])), [workspaces]);
+  const projectProjection = useMemo(() => {
+    const projection = projectSessionGroups(projectGroups, [...sessions]);
+    return {
+      ...projection,
+      groups: projection.groups.map((group) => ({
+        ...group,
+        workspaces: group.workspaces.map((workspace) => ({
+          ...workspace,
+          label: workspaceByKey.get(normalizedWorkspacePathKey(workspace.workspaceId))?.name
+            ?? workspace.label,
+        })),
+      })),
+    };
+  }, [projectGroups, sessions, workspaceByKey]);
   const sessionWorkspaces = useMemo(
-    () => groupSessionsByWorkspace(projectProjection.ungroupedSessions).map((workspace) => ({
-      ...workspace,
-      label: workspace.label ?? t("shell.generalSessions"),
-    })),
-    [projectProjection.ungroupedSessions, t],
+    () => {
+      const groups = groupSessionsByWorkspace(projectProjection.ungroupedSessions).map((workspace) => {
+        const registered = workspace.workingDirectory
+          ? workspaceByKey.get(normalizedWorkspacePathKey(workspace.workingDirectory))
+          : undefined;
+        return {
+          ...workspace,
+          exists: registered?.exists ?? true,
+          label: registered?.name ?? workspace.label ?? t("shell.generalSessions"),
+          registered: Boolean(registered),
+          workingDirectory: registered?.path ?? workspace.workingDirectory,
+        };
+      });
+      const represented = new Set(groups.flatMap((workspace) => (
+        workspace.workingDirectory
+          ? [normalizedWorkspacePathKey(workspace.workingDirectory)]
+          : []
+      )));
+      const projectWorkspaceKeys = new Set(projectGroups.flatMap((group) => (
+        group.workspaceIds.map(normalizedWorkspacePathKey)
+      )));
+      const emptyRegisteredGroups = workspaces.flatMap((workspace) => {
+        const key = normalizedWorkspacePathKey(workspace.path);
+        if (represented.has(key) || projectWorkspaceKeys.has(key)) return [];
+        return [{
+          exists: workspace.exists,
+          key: `session-workspace:${key}`,
+          label: workspace.name,
+          registered: true,
+          sessions: [],
+          updatedAtMs: workspace.updatedAtMs,
+          workingDirectory: workspace.path,
+        }];
+      });
+      return [...groups, ...emptyRegisteredGroups];
+    },
+    [projectGroups, projectProjection.ungroupedSessions, t, workspaceByKey, workspaces],
   );
   const rootGroups = useMemo(() => orderSidebarItems([
     ...projectProjection.groups.map((group) => ({
@@ -196,12 +256,11 @@ export function ChatSessionWorkspace({
     itemId: group.itemId,
     label: group.label,
   })), [rootGroups]);
-  const availableProjectWorkspaceIds = useMemo(() => Array.from(new Set([
-    ...sessions.flatMap((session) => session.workingDirectory ? [session.workingDirectory] : []),
-    ...projectGroups.flatMap((group) => group.workspaceIds),
-  ])), [projectGroups, sessions]);
   const projectDialogGroup = projectDialogGroupId && projectDialogGroupId !== "new"
     ? projectGroups.find((group) => group.projectGroupId === projectDialogGroupId)
+    : undefined;
+  const workspaceDialogEntry = workspaceDialogPath
+    ? workspaceByKey.get(normalizedWorkspacePathKey(workspaceDialogPath))
     : undefined;
   const displayError = error || workspaceError;
 
@@ -385,7 +444,10 @@ export function ChatSessionWorkspace({
     try {
       const workingDirectory = await pickDesktopWorkspaceDirectory();
       if (workingDirectory) {
-        await actions.onCreateSession(workingDirectory);
+        const registered = await workspaceRegistryStore.register(workingDirectory);
+        workspaceMutationRevisionRef.current += 1;
+        setWorkspaces((current) => upsertWorkspace(current, registered));
+        await actions.onCreateSession(registered.path);
       }
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
@@ -422,7 +484,12 @@ export function ChatSessionWorkspace({
     if (workspacePickerPending) return undefined;
     setWorkspacePickerPending(true);
     try {
-      return await pickDesktopWorkspaceDirectory() || undefined;
+      const path = await pickDesktopWorkspaceDirectory();
+      if (!path) return undefined;
+      const registered = await workspaceRegistryStore.register(path);
+      workspaceMutationRevisionRef.current += 1;
+      setWorkspaces((current) => upsertWorkspace(current, registered));
+      return registered.path;
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       console.error("[session-workspaces] project-workspace.pick.failed", { error: message });
@@ -430,6 +497,21 @@ export function ChatSessionWorkspace({
     } finally {
       setWorkspacePickerPending(false);
     }
+  }
+
+  async function handleRenameWorkspace(path: string, name: string): Promise<void> {
+    const renamed = await workspaceRegistryStore.rename(path, name);
+    workspaceMutationRevisionRef.current += 1;
+    setWorkspaces((current) => upsertWorkspace(current, renamed));
+  }
+
+  async function handleForgetWorkspace(path: string): Promise<void> {
+    await workspaceRegistryStore.forget(path);
+    workspaceMutationRevisionRef.current += 1;
+    const key = normalizedWorkspacePathKey(path);
+    setWorkspaces((current) => current.filter((workspace) => (
+      normalizedWorkspacePathKey(workspace.path) !== key
+    )));
   }
 
   function handleCreateCoordinatorSession(project: ProjectGroup): void {
@@ -566,16 +648,28 @@ export function ChatSessionWorkspace({
                       {workspace.workingDirectory ? <small>{workspace.workingDirectory}</small> : null}
                     </span>
                   </summary>
-                  <button
-                    aria-label={t("shell.newSessionIn", { name: workspace.label })}
-                    className="react-session-workspace__new"
-                    disabled={createPending}
-                    title={t("shell.newSessionIn", { name: workspace.label })}
-                    type="button"
-                    onClick={() => void actions.onCreateSession(workspace.workingDirectory)}
-                  >
-                    <Plus aria-hidden="true" size={15} />
-                  </button>
+                  <div className="react-session-workspace__actions">
+                    <button
+                      aria-label={t("shell.newSessionIn", { name: workspace.label })}
+                      disabled={createPending || !workspace.exists
+                        || Boolean(workspace.workingDirectory && !workspace.registered)}
+                      title={t("shell.newSessionIn", { name: workspace.label })}
+                      type="button"
+                      onClick={() => void actions.onCreateSession(workspace.workingDirectory)}
+                    >
+                      <Plus aria-hidden="true" size={15} />
+                    </button>
+                    {workspace.registered && workspace.workingDirectory ? (
+                      <button
+                        aria-label={t("workspaces.manage", { name: workspace.label })}
+                        title={t("workspaces.manage", { name: workspace.label })}
+                        type="button"
+                        onClick={() => setWorkspaceDialogPath(workspace.workingDirectory)}
+                      >
+                        <MoreHorizontal aria-hidden="true" size={15} />
+                      </button>
+                    ) : null}
+                  </div>
                   <div className="react-session-workspace__sessions">
                     {renderSidebarSessionRows(workspace.sessions, sidebarWorkspaceSessionsId(workspace.key))}
                   </div>
@@ -665,6 +759,9 @@ export function ChatSessionWorkspace({
                     </section>
                   ) : null}
                   {orderedProjectWorkspaces.map((workspace) => {
+                    const registeredWorkspace = workspaceByKey.get(
+                      normalizedWorkspacePathKey(workspace.workspaceId),
+                    );
                     const workspaceReorderItem = {
                       containerId: projectWorkspacesContainerId,
                       itemId: sidebarProjectWorkspaceItemId(workspace.workspaceId),
@@ -711,7 +808,7 @@ export function ChatSessionWorkspace({
                         </span>
                         <button
                           aria-label={t("projectGroups.newWorkspaceSession", { name: workspace.label })}
-                          disabled={createPending}
+                          disabled={createPending || registeredWorkspace?.exists === false}
                           draggable={false}
                           onClick={() => void actions.onCreateSession(workspace.workspaceId, {
                             projectGroupId: projectGroup.project.projectGroupId,
@@ -721,6 +818,17 @@ export function ChatSessionWorkspace({
                         >
                           <Plus aria-hidden="true" size={13} />
                         </button>
+                        {registeredWorkspace ? (
+                          <button
+                            aria-label={t("workspaces.manage", { name: workspace.label })}
+                            draggable={false}
+                            onClick={() => setWorkspaceDialogPath(registeredWorkspace.path)}
+                            title={t("workspaces.manage", { name: workspace.label })}
+                            type="button"
+                          >
+                            <MoreHorizontal aria-hidden="true" size={13} />
+                          </button>
+                        ) : null}
                       </div>
                       <div className="react-project-workspace__sessions">
                         {renderSidebarSessionRows(
@@ -759,7 +867,7 @@ export function ChatSessionWorkspace({
       ) : null}
       {projectDialogGroupId ? (
         <ProjectGroupDialog
-          availableWorkspaceIds={availableProjectWorkspaceIds}
+          availableWorkspaces={workspaces}
           group={projectDialogGroup}
           onChooseWorkspace={handleChooseProjectWorkspace}
           onClose={() => setProjectDialogGroupId(undefined)}
@@ -767,12 +875,146 @@ export function ChatSessionWorkspace({
           onSave={handleSaveProjectGroup}
         />
       ) : null}
+      {workspaceDialogEntry ? (
+        <WorkspaceDialog
+          workspace={workspaceDialogEntry}
+          onClose={() => setWorkspaceDialogPath(undefined)}
+          onForget={handleForgetWorkspace}
+          onRename={handleRenameWorkspace}
+        />
+      ) : null}
     </>
+  );
+}
+
+function WorkspaceDialog({
+  onClose,
+  onForget,
+  onRename,
+  workspace,
+}: {
+  onClose: () => void;
+  onForget: (path: string) => Promise<void>;
+  onRename: (path: string, name: string) => Promise<void>;
+  workspace: WorkspaceRegistryEntry;
+}) {
+  const { t } = useTranslation("chat");
+  const [name, setName] = useState(workspace.name);
+  const [pending, setPending] = useState(false);
+  const [forgetConfirm, setForgetConfirm] = useState(false);
+  const [error, setError] = useState("");
+  const { dialogRef, onBackdropPointerDown } = useModalDialog<HTMLDivElement>({
+    closeEnabled: !pending,
+    onClose,
+  });
+
+  async function handleRename(event: FormEvent) {
+    event.preventDefault();
+    const nextName = name.trim();
+    if (!nextName || nextName === workspace.name || pending) return;
+    setPending(true);
+    setError("");
+    try {
+      await onRename(workspace.path, nextName);
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      setPending(false);
+    }
+  }
+
+  async function handleForget() {
+    if (pending) return;
+    if (!forgetConfirm) {
+      setForgetConfirm(true);
+      return;
+    }
+    setPending(true);
+    setError("");
+    try {
+      await onForget(workspace.path);
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="react-project-dialog-backdrop" onPointerDown={onBackdropPointerDown}>
+      <div
+        aria-describedby="workspace-dialog-description"
+        aria-labelledby="workspace-dialog-title"
+        aria-modal="true"
+        className="react-project-dialog react-workspace-dialog"
+        ref={dialogRef}
+        role="dialog"
+      >
+        <header>
+          <div>
+            <h2 id="workspace-dialog-title">{t("workspaces.title")}</h2>
+            <p id="workspace-dialog-description">{t("workspaces.description")}</p>
+          </div>
+          <button aria-label={t("workspaces.close")} disabled={pending} onClick={onClose} type="button">
+            <X aria-hidden="true" size={16} />
+          </button>
+        </header>
+        <form onSubmit={handleRename}>
+          <label className="react-project-dialog__name" htmlFor="workspace-name">
+            <span>{t("workspaces.name")}</span>
+            <input
+              aria-label={t("workspaces.name")}
+              autoComplete="off"
+              data-dialog-initial-focus
+              id="workspace-name"
+              onChange={(event) => setName(event.currentTarget.value)}
+              value={name}
+            />
+            <small>{workspace.path}</small>
+          </label>
+          {error ? <p className="react-project-dialog__error" role="alert">{error}</p> : null}
+          <footer>
+            <button
+              className="react-project-dialog__delete"
+              disabled={pending}
+              onClick={() => void handleForget()}
+              type="button"
+            >
+              <Trash2 aria-hidden="true" size={14} />
+              {forgetConfirm ? t("workspaces.confirmForget") : t("workspaces.forget")}
+            </button>
+            <div>
+              <button disabled={pending} onClick={onClose} type="button">{t("workspaces.cancel")}</button>
+              <button disabled={pending || !name.trim() || name.trim() === workspace.name} type="submit">
+                {pending ? <Loader2 aria-hidden="true" className="react-session-list__pending" size={14} /> : (
+                  <PencilLine aria-hidden="true" size={14} />
+                )}
+                {t("workspaces.rename")}
+              </button>
+            </div>
+          </footer>
+        </form>
+      </div>
+    </div>
   );
 }
 
 function EmptyStateText({ text }: { text: string }) {
   return <p className="react-empty-state">{text}</p>;
+}
+
+function upsertWorkspace(
+  workspaces: WorkspaceRegistryEntry[],
+  workspace: WorkspaceRegistryEntry,
+): WorkspaceRegistryEntry[] {
+  const key = normalizedWorkspacePathKey(workspace.path);
+  const index = workspaces.findIndex((candidate) => (
+    normalizedWorkspacePathKey(candidate.path) === key
+  ));
+  if (index < 0) return [...workspaces, workspace];
+  const next = [...workspaces];
+  next[index] = workspace;
+  return next;
 }
 
 function sidebarProjectGroupId(projectGroupId: string): string {

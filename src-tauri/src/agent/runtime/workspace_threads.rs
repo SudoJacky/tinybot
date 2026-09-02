@@ -3,14 +3,15 @@ use crate::agent::bridge::{
     execute_thread_turn_with_services, native_agent_string_field, native_agent_turn_status,
     SubmitThreadTurnInput,
 };
+use crate::project_groups::ProjectGroup;
 #[cfg(test)]
 use crate::project_groups::SaveProjectGroupInput;
-use crate::project_groups::{canonical_workspace, workspace_id, ProjectGroup};
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::call_rust_state_service;
 use crate::threads::workspace_store::WorkspaceThreadStore;
 use crate::tools::registry::{WorkspaceThreadTarget, WorkspaceThreadToolContributor};
+use crate::workspace_registry::{canonical_workspace, workspace_id};
 use futures_util::future::BoxFuture;
 use serde::Deserialize;
 use serde_json::{json, Value};

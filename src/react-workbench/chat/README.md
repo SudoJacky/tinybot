@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:65d78517d645d1d759f991ed8762f89de894985facf4b550cc15f1ba90904b53 -->
+<!-- tinybot-module-fingerprint: sha256:e5967e011ff3da21315b231c086445ec8df682b6f759020c449371cfa5e314a8 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -7,12 +7,13 @@ canonical timeline presentation, the composer, and detail drawers.
 `ChatTimeline.tsx` owns the reusable canonical message and execution rendering;
 its action callbacks are optional so read-only consumers can omit unavailable
 branch, recovery, artifact, delegate, and tool-detail controls.
-Every canonical execution trace starts expanded and keeps the user's explicit
-fold choice across live timeline revisions. Its summary derives compact counts
-from semantic Step and Tool kinds, exposes running and abnormal status without
-logos, and never renders reasoning content. Individual Tool and Diff rows start
-collapsed, so the ordered activity stays scannable until a user opens one row's
-details.
+A running canonical execution trace starts expanded, then folds once when its
+final answer first appears; completed traces therefore mount folded. A user can
+still reopen the trace, and later streaming revisions preserve that explicit
+choice. Its summary derives compact counts from semantic Step and Tool kinds,
+exposes running and abnormal status without logos, and never renders reasoning
+content. Individual Tool and Diff rows start collapsed, so the ordered activity
+stays scannable until a user opens one row's details.
 `FloatingPlanStatus.tsx` mirrors the most recent canonical plan across Turns in
 a fixed top-right note without introducing another plan store. A newer Turn
 without a plan keeps the previous plan visible; the next plan replaces it. New
@@ -42,6 +43,9 @@ session rather than inferring a target from the currently selected chat.
 Chat projects the active session and Turn lifecycle into calm, curious, working,
 angry, and pleased mascot moods, then reports that presentation state to the
 desktop shell. It does not introduce a second source of truth for Agent status.
+It also reports the active persisted session or local draft's working directory
+so workspace-scoped resource routes retain the same context after Chat unmounts;
+plugin-migration sessions remain unbound from that user workspace context.
 `TinybotMascot` keeps the four-circle mark stable while its outer pose layers
 transition between moods independently from the longer ambient loops. Classic
 appearance uses the original flat fills; dimensional appearance adds only SVG
@@ -60,7 +64,9 @@ waterfall data shapes. One shared blue luminance scale distinguishes series,
 rank, and emphasis; mixed, dual-axis, and over-limit shapes retain an ECharts
 SVG fallback using the same palette. Both paths preserve the shared table, CSV,
 expansion, and provenance controls, respect reduced motion, and never accept
-renderer code from the model.
+renderer code from the model. Inline data views remain attached to their owning
+tool step in the ordered execution trace instead of moving behind the final
+assistant answer.
 Composer removal remains independent from this persisted timeline presentation.
 The shared model catalog marks image-capable models for the picker. Selecting a
 text-only model rejects new images and blocks an already attached image from
@@ -165,6 +171,18 @@ discovered blocks and sessions appear ahead of a saved manual order; stale saved
 IDs are ignored. Invalid persisted state is reported through the
 `session-sidebar-order` diagnostic boundary before the sidebar returns to its
 natural recency order.
+
+The sidebar reads imported folders and their display names from the shared
+`WorkspaceRegistryStore`. Choosing a folder registers it before creating a
+workspace draft, so every new Thread receives the portable canonical path
+returned by Rust rather than the file picker's raw Windows path. Rename changes
+only the registry display name. An older in-flight registry snapshot cannot
+replace a successful register, rename, or forget, so discarding a pristine
+workspace draft does not remove its already registered folder. Forget removes
+only the registry entry, leaves historical sessions and disk content intact,
+disables new sessions from that historical group, and surfaces the backend error
+when a project still references the workspace. Project-folder selection uses the
+same register operation.
 
 Session creation follows the entry point's target. Workspace and project
 actions capture their workspace and project context on the local draft. With the

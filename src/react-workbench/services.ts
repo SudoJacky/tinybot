@@ -83,6 +83,21 @@ export type ProjectGroupStore = {
   delete(projectGroupId: string): Promise<void>;
 };
 
+export type WorkspaceRegistryEntry = {
+  path: string;
+  name: string;
+  exists: boolean;
+  addedAtMs: number;
+  updatedAtMs: number;
+};
+
+export type WorkspaceRegistryStore = {
+  list(): Promise<WorkspaceRegistryEntry[]>;
+  register(path: string): Promise<WorkspaceRegistryEntry>;
+  rename(path: string, name: string): Promise<WorkspaceRegistryEntry>;
+  forget(path: string): Promise<void>;
+};
+
 export type ChatInput = DesktopChatInput;
 
 export type ChatEvent = {
@@ -266,8 +281,8 @@ export type ToolCatalogSummary = {
 };
 
 export type ToolsStore = {
-  loadCatalog(options?: { workingDirectory?: string }): Promise<ToolCatalogSummary>;
-  loadSkillDetail(id: string): Promise<SkillDetail>;
+  loadCatalog(options?: { skillScope?: "allWorkspaces"; workingDirectory?: string }): Promise<ToolCatalogSummary>;
+  loadSkillDetail(id: string, options?: { skillScope?: "allWorkspaces"; workingDirectory?: string }): Promise<SkillDetail>;
   listPlugins(): Promise<PluginSummary[]>;
   installPlugin(path: string): Promise<PluginSummary>;
   preparePluginMigration(path: string): Promise<PluginMigrationJob>;
@@ -337,6 +352,7 @@ export type AppServices = {
   chatStore: ChatStore;
   memoryStore: MemoryStore;
   projectGroupStore: ProjectGroupStore;
+  workspaceRegistryStore: WorkspaceRegistryStore;
   workspaceStore: WorkspaceStore;
   toolsStore: ToolsStore;
   hooksStore?: HooksStore;

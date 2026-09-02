@@ -6,7 +6,7 @@ src-tauri/src/protocol/params.rs
 src-tauri/src/rpc/method.rs
 src-tauri/src/rpc/runtime.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:1619d1a2459188208ff333ec0c37162834a79596bfe634c39a0ceb5e6829a927 -->
+<!-- tinybot-doc-fingerprint: sha256:871f82df7998cadf9bc6095285f7f16d27eb77df8d3ce3dca857d9670c9f1467 -->
 
 This document covers the Rust-owned WebUI route wrapper and Worker RPC protocol.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -147,12 +147,20 @@ turn-local. `.codex` is not scanned.
 `mcp.capability_catalog` and `GET /api/tools` expose one effective snapshot containing configured
 servers, runtime status, discovered tools, allowlist state, callable state, denial reasons, input
 schemas, and a separate Skill catalog. Skill entries include enabled Agent Plugin skills and
-`.agents/skills/*/SKILL.md` files for the catalog workspace. One failed or disabled server remains
+`.agents/skills/*/SKILL.md` and `.codex/skills/*/SKILL.md` files for the catalog workspace. One failed or disabled server remains
 visible without hiding tools from healthy servers. The list contains Skill metadata and paths, not
 full documents; `GET /api/tools/skills/{id}` reads the selected `SKILL.md` on demand and returns
 `404` when the ID is no longer cataloged. Renderer callers can add a URL-encoded
 `workingDirectory` query to either Tools route so workspace entries resolve against the active
 conversation directory instead of the configured backend default.
+
+The Tools & Plugins resource page additionally sends `skillScope=allWorkspaces` to both routes.
+That scope reads the `WorkspaceRegistry` once, scans every existing imported workspace, and
+de-duplicates Skill files by normalized path while preserving same-named files from different
+workspaces. Aggregate workspace Skill IDs include the file path so each detail request remains
+unambiguous. The `workingDirectory` still scopes MCP, callable Tool, and Agent Graph discovery.
+Chat omits `skillScope`, so its slash menu continues to receive only global plugin Skills plus the
+active conversation's effective workspace Skills.
 
 When `/api/tools` receives an explicit `workingDirectory`, it also includes one
 deferred `agent_graph` tool for each saved Graph whose definition belongs to

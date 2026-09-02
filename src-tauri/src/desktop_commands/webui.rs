@@ -15,10 +15,15 @@ use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
 use crate::rpc::native_request_router;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, path::PathBuf, time::Duration};
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::{Path, PathBuf},
+    time::Duration,
+};
 use tauri::State;
 
 const WORKER_WEBUI_ROUTE_TIMEOUT: Duration = Duration::from_secs(10);
+const ALL_WORKSPACES_SKILL_SCOPE: &str = "allWorkspaces";
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -133,11 +138,23 @@ async fn worker_webui_rust_route_with_options(
     let tools_workspace_root = tools_workspace_path
         .clone()
         .unwrap_or_else(|| workspace_root.clone());
+    let all_workspace_skills = query
+        .get("skillScope")
+        .is_some_and(|scope| scope == ALL_WORKSPACES_SKILL_SCOPE);
 
     if method == "GET" {
         if let Some(skill_id) = webui_tool_skill_detail_id(&path) {
-            let detail =
-                worker_webui_tool_skill_detail_body(skill_id, tools_workspace_root.clone()).await?;
+            let workspace_registry = {
+                let runtime = lock_runtime(shared);
+                runtime.thread_store.workspace_registry()
+            };
+            let detail = worker_webui_tool_skill_detail_body(
+                skill_id,
+                tools_workspace_root.clone(),
+                all_workspace_skills,
+                workspace_registry,
+            )
+            .await?;
             let (status, body) = match detail {
                 Some(detail) => (200, detail),
                 None => (
@@ -159,8 +176,14 @@ async fn worker_webui_rust_route_with_options(
     let result =
         match (method.as_str(), path.as_str()) {
             ("GET", "/api/tools") => Some(
-                worker_webui_tools_body(shared, tools_workspace_root, include_graphs, tools_config)
-                    .await,
+                worker_webui_tools_body(
+                    shared,
+                    tools_workspace_root,
+                    include_graphs,
+                    all_workspace_skills,
+                    tools_config,
+                )
+                .await,
             ),
             ("GET", "/api/providers") => Some(Ok(crate::agent::provider::provider_catalog_body(
                 &config_snapshot,
@@ -336,6 +359,7 @@ async fn worker_webui_tools_body(
     shared: &SharedNativeRuntime,
     workspace_root: PathBuf,
     include_workspace_graphs: bool,
+    all_workspace_skills: bool,
     mut config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let (mcp_runtime, thread_store) = {
@@ -348,7 +372,8 @@ async fn worker_webui_tools_body(
             &workspace_root,
         )?;
         let (graph_tools, graph_diagnostics) = if include_workspace_graphs {
-            let definition_workspace = crate::project_groups::canonical_workspace(&workspace_root)?;
+            let definition_workspace =
+                crate::workspace_registry::canonical_workspace(&workspace_root)?;
             let discovery =
                 crate::agent_graphs::discover_tools_for_workspace(&definition_workspace)?;
             let graph_tools = if discovery.graphs.is_empty() {
@@ -362,7 +387,7 @@ async fn worker_webui_tools_body(
                     config_snapshot.clone(),
                 )
                 .with_contributor(Arc::new(AgentGraphToolContributor::new(
-                    crate::project_groups::workspace_id(&definition_workspace),
+                    crate::workspace_registry::workspace_id(&definition_workspace),
                     discovery.graphs,
                 )?))?
                 .list_tools()
@@ -392,18 +417,22 @@ async fn worker_webui_tools_body(
         } else {
             (Vec::new(), Vec::new())
         };
-        let mut skills = crate::workspace_extensions::discover_workspace_skills(&workspace_root)?
-            .into_iter()
-            .map(|skill| {
-                serde_json::json!({
-                    "id": format!("workspace:{}", skill.name),
-                    "name": skill.name,
-                    "description": skill.description,
-                    "source": "workspace",
-                    "path": skill.path.display().to_string(),
-                })
+        let mut skills = webui_workspace_skills(
+            &thread_store.workspace_registry(),
+            &workspace_root,
+            all_workspace_skills,
+        )?
+        .into_iter()
+        .map(|skill| {
+            serde_json::json!({
+                "id": skill.id,
+                "name": skill.skill.name,
+                "description": skill.skill.description,
+                "source": skill.source,
+                "path": skill.skill.path.display().to_string(),
             })
-            .collect::<Vec<_>>();
+        })
+        .collect::<Vec<_>>();
         for plugin in crate::plugins::PluginStore::default_global()
             .enabled()
             .map_err(|error| format!("failed to discover Agent Plugin skills: {error}"))?
@@ -456,20 +485,22 @@ async fn worker_webui_tools_body(
 async fn worker_webui_tool_skill_detail_body(
     skill_id: String,
     workspace_root: PathBuf,
+    all_workspace_skills: bool,
+    workspace_registry: crate::workspace_registry::WorkspaceRegistry,
 ) -> Result<Option<serde_json::Value>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         if let Some(skill) =
-            crate::workspace_extensions::discover_workspace_skills(&workspace_root)?
+            webui_workspace_skills(&workspace_registry, &workspace_root, all_workspace_skills)?
                 .into_iter()
-                .find(|skill| format!("workspace:{}", skill.name) == skill_id)
+                .find(|skill| skill.id == skill_id)
         {
             return Ok(Some(serde_json::json!({
                 "id": skill_id,
-                "name": skill.name,
-                "description": skill.description,
-                "source": "workspace",
-                "path": skill.path.display().to_string(),
-                "content": skill.content,
+                "name": skill.skill.name,
+                "description": skill.skill.description,
+                "source": skill.source,
+                "path": skill.skill.path.display().to_string(),
+                "content": skill.skill.content,
             })));
         }
         for plugin in crate::plugins::PluginStore::default_global()
@@ -495,6 +526,56 @@ async fn worker_webui_tool_skill_detail_body(
     })
     .await
     .map_err(|error| format!("worker webui Skill detail task failed: {error}"))?
+}
+
+struct WebuiWorkspaceSkill {
+    id: String,
+    source: String,
+    skill: crate::workspace_extensions::WorkspaceSkill,
+}
+
+fn webui_workspace_skills(
+    workspace_registry: &crate::workspace_registry::WorkspaceRegistry,
+    workspace_root: &Path,
+    all_workspaces: bool,
+) -> Result<Vec<WebuiWorkspaceSkill>, String> {
+    if !all_workspaces {
+        return crate::workspace_extensions::discover_workspace_skills(workspace_root).map(
+            |skills| {
+                skills
+                    .into_iter()
+                    .map(|skill| WebuiWorkspaceSkill {
+                        id: format!("workspace:{}", skill.name),
+                        source: "workspace".to_string(),
+                        skill,
+                    })
+                    .collect()
+            },
+        );
+    }
+
+    let mut discovered = BTreeMap::new();
+    for workspace in workspace_registry
+        .snapshot()?
+        .workspaces
+        .into_iter()
+        .filter(|workspace| workspace.exists)
+    {
+        for skill in
+            crate::workspace_extensions::discover_workspace_skills(Path::new(&workspace.path))?
+        {
+            let path = crate::workspace_registry::workspace_id(&skill.path);
+            let key = crate::workspace_registry::normalized_workspace_key(&path);
+            discovered
+                .entry(key)
+                .or_insert_with(|| WebuiWorkspaceSkill {
+                    id: format!("workspace-file:{path}"),
+                    source: format!("workspace:{}", workspace.name),
+                    skill,
+                });
+        }
+    }
+    Ok(discovered.into_values().collect())
 }
 
 pub(crate) async fn native_webui_agent_ui_form_resolution_body_async(

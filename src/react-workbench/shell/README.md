@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:d952267d8fb63d8beb896f82a18fec38d564127785e787f1d7ee430933170231 -->
+<!-- tinybot-module-fingerprint: sha256:a9086316fe56ca44c3ab8823f2715adc404b2645604bf10df113c759e8b09381 -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
@@ -10,6 +10,12 @@ behavior remains in the route module rather than moving into the shell.
 The shell also marks only the first Chat mount in an app lifetime as a fresh,
 uncreated conversation. Once Chat finishes session hydration, later route
 remounts can restore the tabs opened during that same app lifetime.
+The shell retains the active Chat working directory across route unmounts and
+passes it to workspace-scoped MCP, callable Tool, and Agent Graph discovery in
+Tools & Plugins. That route independently requests its Skill inventory across
+all imported workspaces; Chat Skill selection remains scoped to the retained
+active directory. The shell does not derive that current selection from
+session recency or project-group order.
 Shell menu and keyboard new-chat commands only signal Chat to open a local
 draft; they do not create a native Thread before the draft's first send.
 Shell menu surfaces and items use the shared workbench popover primitives, so
