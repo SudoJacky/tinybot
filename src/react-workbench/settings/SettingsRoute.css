@@ -1,7 +1,9 @@
 .react-settings-layout {
   display: grid;
-  grid-template-columns: 204px minmax(0, 860px);
-  justify-content: start;
+  grid-template-columns: 204px minmax(0, 1fr);
+  width: 100%;
+  max-width: 1560px;
+  margin-inline: auto;
   gap: 46px;
   align-items: start;
 }
@@ -12,6 +14,12 @@
 
 .react-workbench-page--settings > .react-settings-layout {
   padding: 28px 30px 48px;
+}
+
+.react-workbench-page--settings > header > h1 {
+  width: 100%;
+  max-width: 1560px;
+  margin-inline: auto;
 }
 
 .react-settings-sidebar {
@@ -930,6 +938,46 @@
 .react-appearance-settings__themes {
   display: grid;
   gap: 16px;
+}
+
+@media (min-width: 1440px) {
+  .react-appearance-settings__modes:has(.react-pet-settings__controls) {
+    grid-template-areas:
+      "title title"
+      "description description"
+      "controls style"
+      "controls choices";
+    grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr);
+    align-items: start;
+    column-gap: 18px;
+  }
+
+  .react-appearance-settings__modes:has(.react-pet-settings__controls) > legend {
+    grid-area: title;
+  }
+
+  .react-appearance-settings__modes:has(.react-pet-settings__controls) > p {
+    grid-area: description;
+  }
+
+  .react-appearance-settings__modes:has(.react-pet-settings__controls) > .react-pet-settings__controls {
+    grid-area: controls;
+    margin-bottom: 0;
+  }
+
+  .react-appearance-settings__modes:has(.react-pet-settings__controls) > .react-pet-settings__style-copy {
+    grid-area: style;
+    margin-top: 0;
+  }
+
+  .react-appearance-settings__modes:has(.react-pet-settings__controls) > .react-pet-appearance-grid {
+    grid-area: choices;
+    max-width: none;
+  }
+
+  .react-appearance-settings__themes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .react-appearance-theme {

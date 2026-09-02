@@ -1,11 +1,15 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:61b8d682d6c15e6deb4e6f83eb02b55e7ab59110c413f03e5b24b325f8f5fa78 -->
+<!-- tinybot-module-fingerprint: sha256:6c17c9448a8eafd7b3c429db2320643851fbf8aeff0469325e26e6016b6e0216 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
 an optional desktop route together with `SettingsRoute.css`. The route's content
 row grows to its minimum content height so long forms retain the shared bottom
-inset instead of overflowing across it.
+inset instead of overflowing across it. The layout uses a centered 1560px ceiling
+with a flexible detail column; at 1440px and wider, Appearance places desktop-pet
+controls beside its style choices and presents the light and dark theme editors
+side by side. The existing 1080px and 780px collapse points keep narrower windows
+in a single-column flow.
 Shell actions may include a versioned module request when they navigate here;
 the route applies that request to its own active-module state so Help can open
 Keyboard shortcuts directly without moving Settings navigation ownership into

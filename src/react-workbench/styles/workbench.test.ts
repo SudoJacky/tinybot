@@ -130,6 +130,22 @@ describe("workbench CSS interaction contracts", () => {
     expect(settingsStylesheet).toContain(".react-theme-mode-grid");
   });
 
+  test("uses the available settings width without stretching wide-screen forms edge to edge", () => {
+    const layoutRule = settingsStylesheet.match(/\.react-settings-layout\s*\{([^}]+)\}/);
+
+    expect(layoutRule?.[1]).toContain("grid-template-columns: 204px minmax(0, 1fr)");
+    expect(layoutRule?.[1]).toContain("width: 100%");
+    expect(layoutRule?.[1]).toContain("max-width: 1560px");
+    expect(layoutRule?.[1]).toContain("margin-inline: auto");
+    expect(settingsStylesheet).toContain("@media (min-width: 1440px)");
+    expect(settingsStylesheet).toMatch(
+      /\.react-appearance-settings__themes\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s,
+    );
+    expect(settingsStylesheet).toContain(
+      ".react-appearance-settings__modes:has(.react-pet-settings__controls)",
+    );
+  });
+
   test("uses one shared visual authority for menu popover surfaces and items", () => {
     const popoverSurfaceRule = shellStylesheet.match(/\.react-popover-surface\s*\{([^}]+)\}/);
     const popoverItemRule = shellStylesheet.match(/\.react-popover-item\s*\{([^}]+)\}/);
