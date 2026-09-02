@@ -175,7 +175,7 @@ describe("AgentGraphsRoute", () => {
     expect(screen.queryByLabelText("Router node")).toBeNull();
   });
 
-  it("configures each Agent node with a workspace known to Chat", async () => {
+  it("configures each Agent node with a registered workspace", async () => {
     const user = userEvent.setup();
     render(<AgentGraphsRoute services={createServices({
       projectWorkspaces: ["\\\\?\\D:\\code\\tinybot", "E:\\services\\payments"],
@@ -579,6 +579,20 @@ function createServices({
         name: "Services",
         workspaceIds: projectWorkspaces,
       }] : []),
+    },
+    workspaceRegistryStore: {
+      list: vi.fn().mockResolvedValue([
+        "D:\\code\\tinybot",
+        ...projectWorkspaces.map((path) => path.replace(/^\\\\\?\\/, "")),
+      ].filter((path, index, paths) => (
+        paths.findIndex((candidate) => candidate.toLowerCase() === path.toLowerCase()) === index
+      )).map((path) => ({
+        addedAtMs: 1,
+        exists: true,
+        name: path.split(/[\\/]+/).filter(Boolean).slice(-1)[0] ?? path,
+        path,
+        updatedAtMs: 1,
+      }))),
     },
     settingsStore: {
       loadChatModels: vi.fn().mockResolvedValue(chatModels),

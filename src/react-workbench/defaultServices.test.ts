@@ -191,6 +191,34 @@ describe("desktop native app services", () => {
     expect(mocks.invoke).not.toHaveBeenCalledWith("worker_threads_list", expect.anything());
   });
 
+  test("loads the persisted workspace registry without initializing Chat sessions", async () => {
+    mocks.invoke.mockImplementation(async (command: string) => {
+      if (command === "worker_workspace_registry_list") {
+        return {
+          workspaces: [{
+            addedAtMs: 1,
+            exists: true,
+            name: "tinybot",
+            path: "D:\\code\\tinybot",
+            updatedAtMs: 1,
+          }],
+        };
+      }
+      if (command === "worker_threads_list") {
+        throw new Error("chat initialization should not run");
+      }
+      return {};
+    });
+    const services = createDesktopAppServices();
+
+    await expect(services.workspaceRegistryStore.list()).resolves.toEqual([
+      expect.objectContaining({ name: "tinybot", path: "D:\\code\\tinybot" }),
+    ]);
+
+    expect(mocks.invoke).toHaveBeenCalledWith("worker_workspace_registry_list");
+    expect(mocks.invoke).not.toHaveBeenCalledWith("worker_threads_list", expect.anything());
+  });
+
   test("exports a performance snapshot without waiting for chat initialization", async () => {
     mocks.invoke.mockImplementation(async (command: string) => {
       if (command === "save_export_file") {

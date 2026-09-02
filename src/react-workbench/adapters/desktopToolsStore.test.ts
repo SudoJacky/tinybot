@@ -147,14 +147,16 @@ describe("desktop tools store", () => {
     }));
     const store = createDesktopToolsStore({ initialize, nativeWebui: { route } });
 
-    await expect(store.loadSkillDetail("workspace:review-work")).resolves.toMatchObject({
+    await expect(store.loadSkillDetail("workspace:review-work", {
+      workingDirectory: "D:\\Code\\workspace with spaces",
+    })).resolves.toMatchObject({
       id: "workspace:review-work",
       content: expect.stringContaining("Review the diff."),
     });
     expect(initialize).toHaveBeenCalledTimes(1);
     expect(route).toHaveBeenCalledWith({
       method: "GET",
-      path: "/api/tools/skills/workspace%3Areview-work",
+      path: "/api/tools/skills/workspace%3Areview-work?workingDirectory=D%3A%5CCode%5Cworkspace%20with%20spaces",
     });
   });
 

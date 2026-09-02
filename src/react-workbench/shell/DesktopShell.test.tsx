@@ -122,6 +122,12 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
       })),
       delete: vi.fn(async () => undefined),
     },
+    workspaceRegistryStore: {
+      list: vi.fn(async () => []),
+      register: vi.fn(),
+      rename: vi.fn(),
+      forget: vi.fn(async () => undefined),
+    },
     workspaceStore: {
       listFiles: vi.fn(async () => [
         { path: "src/main.ts", size: 512 },
@@ -352,6 +358,33 @@ describe("DesktopShell", () => {
     expect(await screen.findByRole("heading", { name: "New chat" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Previously open" })).toBeTruthy();
     expect(services.chatStore.load).not.toHaveBeenCalled();
+  });
+
+  it("carries the active Chat workspace into Tools and Plugins", async () => {
+    const user = userEvent.setup();
+    const workingDirectory = "D:\\Code\\tinybot";
+    const services = createServices({
+      sessions: [{
+        id: "s1",
+        chatId: "chat-1",
+        title: "Workspace chat",
+        updatedAtMs: Date.UTC(2026, 6, 4, 12, 0, 0),
+        status: "idle",
+        workingDirectory,
+      }],
+    });
+    render(<DesktopShell services={services} />);
+
+    await user.click(await screen.findByRole("button", { name: "Workspace chat" }));
+    await waitFor(() => expect(services.toolsStore.loadCatalog).toHaveBeenCalledWith({ workingDirectory }));
+    services.toolsStore.loadCatalog.mockClear();
+
+    await user.click(screen.getByRole("button", { name: "Resources" }));
+    await user.click(within(screen.getByRole("menu", { name: "Resources menu" }))
+      .getByRole("menuitem", { name: "Tools & Plugins" }));
+
+    expect(await screen.findByRole("heading", { name: "Tools & Plugins" })).toBeTruthy();
+    await waitFor(() => expect(services.toolsStore.loadCatalog).toHaveBeenCalledWith({ workingDirectory }));
   });
 
   it("keeps the React window frame draggable and top menus compact", () => {

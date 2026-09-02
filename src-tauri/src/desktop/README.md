@@ -1,5 +1,5 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:5458f6bc797d5614bebbb64ee39c85e9a97fc4df99a185dad727b8b1ab4f2783 -->
+<!-- tinybot-module-fingerprint: sha256:bfa2d484a7739e5e3d7a3bfb2a133c2fe577c320db43c0008e6e6c9ca02e8f99 -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
@@ -38,6 +38,11 @@ exact-definition trust commands. Graph definition storage remains owned by
 `agent_graphs`, while `graph_runs` owns Run status and delegates Agent nodes to
 the standard Thread/Agent path. Hook behavior remains owned by `command_hooks`
 and the Agent runtime.
+
+Bootstrap gives the Thread store and project-group store one shared
+`WorkspaceRegistry`. The registry owns `workspaces.json`; the desktop commands
+only expose its list, register, display-name rename, and non-destructive forget
+operations.
 
 Bootstrap also registers the Thread-scoped workspace file-chunk and raw-byte
 commands used by contextual Sidecar Artifact previews. The handlers derive the

@@ -1,5 +1,5 @@
-use crate::project_groups::{canonical_workspace, workspace_id};
 use crate::storage::atomic::{write_text_atomic, AtomicWriteOptions, WorkerStorageError};
+use crate::workspace_registry::{canonical_workspace, workspace_id};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{

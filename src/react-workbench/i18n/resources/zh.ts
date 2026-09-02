@@ -489,6 +489,10 @@ export const zh = {
       save: "保存项目", cancel: "取消", close: "关闭项目对话框", delete: "删除项目", confirmDelete: "确认删除", unavailable: "当前运行时不支持项目组。",
       groupLabel: "项目 {{name}}", edit: "编辑 {{name}}", coordination: "协调会话", newCoordinator: "在 {{name}} 中新建协调会话", newCoordinatorTitle: "协调 {{name}}", newWorkspaceSession: "在 {{name}} 中新建会话",
     },
+    workspaces: {
+      manage: "管理 {{name}}", title: "管理工作区", description: "修改 Tinybot 中的显示名称，或忘记此工作区；不会改动磁盘文件。",
+      name: "工作区名称", rename: "重命名", forget: "忘记工作区", confirmForget: "确认忘记", cancel: "取消", close: "关闭工作区对话框",
+    },
     migration: {
       label: "插件迁移结果", installed: "{{name}} 已安装{{state}}", keptDisabled: "（保持停用）", enabled: "并已启用", complete: "迁移完成——安装生成的插件",
       cleaned: "临时迁移工作区已清理。", validate: "Tinybot 会先验证生成的 Package，再进行全局安装。", installing: "正在安装…", install: "安装迁移后的插件",

@@ -6,10 +6,11 @@ src/app-core/native/desktopNativeConfig.ts
 src/app-core/native/desktopNativeTerminal.ts
 src/app-core/native/desktopNativeThreads.ts
 src/app-core/native/desktopNativeUpdate.ts
+src/app-core/native/desktopNativeWorkspaceRegistry.ts
 src/app-core/native/desktopNativeWebui.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:070dd9dad397487313154551dbb5ff62a02d317456cb142cd94447970afd6406 -->
+<!-- tinybot-doc-fingerprint: sha256:a323b020bca237c6057b7ce41d40f02d0541c050c32fdba15832b7b387b52969 -->
 
 This document describes the API surfaces exposed by the Rust/Tauri backend in `src-tauri`.
 It is intended for frontend callers and integrators who need command names, invocation
@@ -29,7 +30,7 @@ entire backend inventory.
 | Desktop lifecycle, dialogs, diagnostics, updates, configuration, and command-hook trust | [Desktop commands](desktop.md) |
 | Agent turns, provider behavior, cancellation, and checkpoints | [Agent runtime](agent-runtime.md) |
 | Timeline queries, memory, persistence, project groups, and Threads | [Threads and memory](threads-and-memory.md) |
-| Skills, Agent Plugins, and workspace operations | [Workspace and extensions](workspace-and-extensions.md) |
+| Imported workspaces, Skills, Agent Plugins, and workspace operations | [Workspace and extensions](workspace-and-extensions.md) |
 | Shell sessions, background work, subagents, Chat retry compatibility, and browser sessions | [Tools and processes](tools-and-processes.md) |
 | Rust-owned WebUI routes and Worker/MCP RPC methods | [WebUI and Worker RPC](webui-and-worker-rpc.md) |
 | Live runtime events emitted through Tauri | [Tauri events](events.md) |
@@ -134,6 +135,7 @@ Prefer these wrappers instead of direct command strings:
 | `createDesktopNativeThreadsApi` | `src/app-core/native/desktopNativeThreads.ts` | Thread and Turn timeline, effective-capability queries, and typed operation retry |
 | `createDesktopNativeTerminalApi` | `src/app-core/native/desktopNativeTerminal.ts` | User-only Sidecar terminal lifecycle and PTY input/output |
 | `createDesktopNativeWorkspaceApi` | `src/app-core/native/desktopNativeWorkspace.ts` | Default-workspace browsing plus Thread-scoped file chunks for contextual Artifact previews |
+| `createDesktopNativeWorkspaceRegistryApi` | `src/app-core/native/desktopNativeWorkspaceRegistry.ts` | Imported-workspace list, register, display-name rename, and non-destructive forget |
 | `createDesktopNativeWebuiApi` | `src/app-core/native/desktopNativeWebui.ts` | `worker_webui_route` |
 
 ## Examples

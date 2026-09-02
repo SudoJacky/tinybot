@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:307611b1fac222545c3220ef5c8136aabc70c7821f0328e83a09d30bb9b6f820 -->
+<!-- tinybot-module-fingerprint: sha256:554510ae9c5f45627ca76bbcbc0c3e34ce3ec94b875dc70e22403611555c4541 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed

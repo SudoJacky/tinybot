@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:4aca524d38c4e044dbdc71cafdb39290b92a8b1ffb8a5e1b797ab57c487fb945 -->
+<!-- tinybot-module-fingerprint: sha256:61b8d682d6c15e6deb4e6f83eb02b55e7ab59110c413f03e5b24b325f8f5fa78 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
@@ -42,12 +42,13 @@ commented configuration template and PowerShell/POSIX script-template paths.
 Editing `hooks.json` and copying templates stay explicit filesystem operations
 outside the renderer.
 
-For managed hooks, the page derives workspace choices from the same session and
-project-group stores used by Chat. The form asks only for name, lifecycle event,
+For managed hooks, the page derives workspace choices from the shared
+`WorkspaceRegistryStore`. The form asks only for name, lifecycle event,
 an applicable-tool/compaction preset, language, and timeout. Tinybot creates the
 manifest and safe script, while the card exposes reveal, edit, enable/disable,
-isolated sample test, recoverable remove, and definition trust actions. Windows
-verbatim path prefixes are normalized before workspace choices are deduplicated.
+isolated sample test, recoverable remove, and definition trust actions. Rust's
+registry returns already canonical portable paths and marks missing folders as
+disabled choices.
 The workspace's managed scripts also appear in a selector and open in a
 monospace inline editor. Unsaved changes require confirmation before switching,
 and version-conflict handling remains native. Hand-written hooks remain visible

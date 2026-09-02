@@ -20,6 +20,7 @@ import { createDesktopNativeMemoryApi } from "../app-core/native/desktopNativeMe
 import { createDesktopNativeTokenUsageApi } from "../app-core/native/desktopNativeTokenUsage";
 import { createDesktopNativeHooksApi } from "../app-core/native/desktopNativeHooks";
 import { createDesktopNativeProjectGroupsApi } from "../app-core/native/desktopNativeProjectGroups";
+import { createDesktopNativeWorkspaceRegistryApi } from "../app-core/native/desktopNativeWorkspaceRegistry";
 import { createDesktopNativeBrowserApi } from "../app-core/native/desktopNativeBrowser";
 import { createDesktopNativeTerminalApi } from "../app-core/native/desktopNativeTerminal";
 import { createDesktopNativeWebuiApi } from "../app-core/native/desktopNativeWebui";
@@ -73,6 +74,7 @@ export function createDesktopAppServices(
   const nativeTokenUsage = nativeMode ? createDesktopNativeTokenUsageApi({ invoke }) : undefined;
   const nativeHooks = nativeMode ? createDesktopNativeHooksApi({ invoke }) : undefined;
   const nativeProjectGroups = nativeMode ? createDesktopNativeProjectGroupsApi({ invoke }) : undefined;
+  const nativeWorkspaceRegistry = nativeMode ? createDesktopNativeWorkspaceRegistryApi({ invoke }) : undefined;
   const nativeBrowser = nativeMode ? createDesktopNativeBrowserApi({ invoke }) : undefined;
   const nativeTerminal = nativeMode ? createDesktopNativeTerminalApi({ invoke }) : undefined;
   const nativeWebui = nativeMode ? createDesktopNativeWebuiApi({ invoke }) : undefined;
@@ -622,6 +624,20 @@ export function createDesktopAppServices(
       async delete(projectGroupId) {
         await initialize();
         await requireNative(nativeProjectGroups, "Project group").delete(projectGroupId);
+      },
+    },
+    workspaceRegistryStore: {
+      async list() {
+        return (await requireNative(nativeWorkspaceRegistry, "Workspace registry").list()).workspaces;
+      },
+      async register(path) {
+        return requireNative(nativeWorkspaceRegistry, "Workspace registry").register(path);
+      },
+      async rename(path, name) {
+        return requireNative(nativeWorkspaceRegistry, "Workspace registry").rename(path, name);
+      },
+      async forget(path) {
+        await requireNative(nativeWorkspaceRegistry, "Workspace registry").forget(path);
       },
     },
     toolsStore: createDesktopToolsStore({ initialize, nativePlugins, nativeWebui }),

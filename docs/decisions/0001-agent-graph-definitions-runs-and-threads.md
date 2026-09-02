@@ -76,8 +76,8 @@ type AgentGraphRouterNode = {
 ```
 
 A newly inserted Agent node defaults to the definition workspace. The editor
-may build its workspace choices from workspaces already known to Chat and
-project groups, but it stores only the selected `workspacePath`; it does not
+builds its workspace choices from the application `WorkspaceRegistry`, but it
+stores only the selected `workspacePath`; it does not
 depend on Chat route state or a Chat session identity.
 
 A missing or moved execution workspace does not make the definition

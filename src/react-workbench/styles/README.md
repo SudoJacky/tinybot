@@ -1,5 +1,5 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:e936f35da3cc62c13afb69f2022074247b580cd943e399ea87b7356bc13c5aac -->
+<!-- tinybot-module-fingerprint: sha256:8e78be81386db34c0275b3a7b5f3ebd9f8afa4fefd2df95b33acc91e683c58e7 -->
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
@@ -21,6 +21,8 @@ The desktop session sidebar uses workspace headers and complete session rows as
 drag sources, with a grab cursor and high-contrast insertion line but no
 separate grip control. Dragging lowers the source opacity while keeping its
 footprint stable; reduced-motion mode retains these static state cues.
+Workspace rename and forget actions stay compact beside the owning header and
+use the same visible focus treatment as other sidebar controls.
 
 The desktop document root is fixed to the WebView viewport and never owns page
 scrolling. `html`, `body`, and `#root` contain the `100%` shell while route,

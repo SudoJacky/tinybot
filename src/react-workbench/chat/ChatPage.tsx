@@ -34,7 +34,7 @@ import {
   type PastedContent,
 } from "../../components/ui/claude-style-ai-input";
 import { formatRelativeUpdatedTime } from "../lib/relativeTime";
-import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, SkillSummary, ToolSummary, ToolsStore, WorkspaceStore } from "../services";
+import type { ChatEvent, ChatInput, ChatModelOption, ChatStore, ProjectGroupStore, SessionStore, SessionSummary, SettingsStore, SkillSummary, ToolSummary, ToolsStore, WorkspaceRegistryStore, WorkspaceStore } from "../services";
 import { createDesktopCompactCommand, createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import {
   clearDefaultChatModel,
@@ -161,6 +161,7 @@ export type ChatPageProps = {
   chatStore: ChatStore;
   sessionStore: SessionStore;
   projectGroupStore?: ProjectGroupStore;
+  workspaceRegistryStore?: WorkspaceRegistryStore;
   settingsStore?: SettingsStore;
   toolsStore?: Partial<Pick<ToolsStore, "installPluginMigration" | "loadCatalog">>;
   workspaceStore?: Pick<WorkspaceStore, "readThreadFile" | "readThreadFileBytes">;
@@ -168,6 +169,7 @@ export type ChatPageProps = {
   activateSessionRequest?: { sessionId: string; signal: number } | null;
   sessionSidebarCollapsed?: boolean;
   onSessionSidebarCollapsedChange?: (collapsed: boolean) => void;
+  onActiveWorkspaceChange?: (workingDirectory?: string) => void;
   onStopGenerationTargetChange?: (sessionId: string) => void;
   onMascotMoodChange?: (mood: TinybotMascotMood) => void;
   onOpenFiles?: () => void;
@@ -175,6 +177,19 @@ export type ChatPageProps = {
   onStartupSessionHydrated?: () => void;
   startInNewSession?: boolean;
   now?: () => number;
+};
+
+const unavailableWorkspaceRegistryStore: WorkspaceRegistryStore = {
+  list: async () => [],
+  register: async () => {
+    throw new Error("Workspace registry is unavailable in this runtime");
+  },
+  rename: async () => {
+    throw new Error("Workspace registry is unavailable in this runtime");
+  },
+  forget: async () => {
+    throw new Error("Workspace registry is unavailable in this runtime");
+  },
 };
 
 type DrawerState =
@@ -311,6 +326,7 @@ export function ChatPage({
   now = Date.now,
   onOpenFiles,
   onOpenSettings,
+  onActiveWorkspaceChange,
   onMascotMoodChange,
   onSessionSidebarCollapsedChange,
   onStartupSessionHydrated,
@@ -319,6 +335,7 @@ export function ChatPage({
   sessionStore,
   startInNewSession = false,
   projectGroupStore,
+  workspaceRegistryStore = unavailableWorkspaceRegistryStore,
   settingsStore,
   toolsStore,
   workspaceStore,
@@ -418,6 +435,12 @@ export function ChatPage({
     [draftSessions, sessions],
   );
   const activeDisplaySession = activeSession ?? activeDraftSession;
+  useEffect(() => {
+    const workingDirectory = activeDisplaySession?.pluginMigration
+      ? undefined
+      : activeDisplaySession?.workingDirectory?.trim() || undefined;
+    onActiveWorkspaceChange?.(workingDirectory);
+  }, [activeDisplaySession?.pluginMigration, activeDisplaySession?.workingDirectory, onActiveWorkspaceChange]);
   const activePersistedSessionId = activeSession?.id ?? "";
   const sessionRuntime = useChatSessionRuntime({
     chatStore,
@@ -2311,6 +2334,7 @@ export function ChatPage({
         now={now}
         projectGroupStore={projectGroupStore}
         sessions={displayedSessions}
+        workspaceRegistryStore={workspaceRegistryStore}
       >
       <div
         className="react-chat-workspace"

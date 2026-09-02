@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:ecbbcef60e163c34ca0e93bf465f894e7fb50be6b55e64b986399bd154123042 -->
+<!-- tinybot-module-fingerprint: sha256:e796355782f4ba43d28dc00527f55cfa84ae2ac45994db88dc9b1c96e238e088 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -42,6 +42,9 @@ session rather than inferring a target from the currently selected chat.
 Chat projects the active session and Turn lifecycle into calm, curious, working,
 angry, and pleased mascot moods, then reports that presentation state to the
 desktop shell. It does not introduce a second source of truth for Agent status.
+It also reports the active persisted session or local draft's working directory
+so workspace-scoped resource routes retain the same context after Chat unmounts;
+plugin-migration sessions remain unbound from that user workspace context.
 `TinybotMascot` keeps the four-circle mark stable while its outer pose layers
 transition between moods independently from the longer ambient loops. Classic
 appearance uses the original flat fills; dimensional appearance adds only SVG
@@ -167,6 +170,15 @@ discovered blocks and sessions appear ahead of a saved manual order; stale saved
 IDs are ignored. Invalid persisted state is reported through the
 `session-sidebar-order` diagnostic boundary before the sidebar returns to its
 natural recency order.
+
+The sidebar reads imported folders and their display names from the shared
+`WorkspaceRegistryStore`. Choosing a folder registers it before creating a
+workspace draft, so every new Thread receives the portable canonical path
+returned by Rust rather than the file picker's raw Windows path. Rename changes
+only the registry display name. Forget removes only the registry entry, leaves
+historical sessions and disk content intact, disables new sessions from that
+historical group, and surfaces the backend error when a project still references
+the workspace. Project-folder selection uses the same register operation.
 
 Session creation follows the entry point's target. Workspace and project
 actions capture their workspace and project context on the local draft. With the

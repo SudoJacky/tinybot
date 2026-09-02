@@ -1,13 +1,20 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:4e02096a89e768a2745c1f88d8a2cd3a515fe5c4dd2a9a9105cdf5ec5bfd24b7 -->
+<!-- tinybot-module-fingerprint: sha256:3a9408784f644a7d9fdf2ae2ba177d94c91dea97cc0e718360f72aeb20bd30d0 -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,
-skills, plugins, project groups, Agent Graph definitions, threads, retry,
-WebUI, and workspace operations.
+skills, plugins, project groups, the workspace registry, Agent Graph
+definitions, threads, retry, WebUI, and workspace operations.
 
 These handlers should stay thin and delegate domain behavior to the owning
 backend module.
+
+Workspace-registry commands expose the single renderer-facing catalog write
+path: list, register, rename, and forget. Rust canonicalizes registered folders,
+persists portable paths in `workspaces.json`, and performs the legacy
+Thread/project-group import only until the registry's migration marker is
+written. Forget is rejected while a project group references the path and never
+deletes filesystem content.
 
 The Rust-owned `GET /api/tools` route combines the callable tool catalog with
 separate MCP server and Skill summaries. With an explicit `workingDirectory`,

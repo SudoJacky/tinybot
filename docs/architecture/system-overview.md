@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:483609690b2e7776906bad4dd1ce41560d0a0c5b07820e6e665e874f0fc1f106 -->
+<!-- tinybot-doc-fingerprint: sha256:b61b15ac0c0ee29385e368c6601ad52dbeae93f49f037b6e15ae31bf8b19ca5e -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -65,6 +65,7 @@ Desktop Commands / Desktop Host
 | `desktop_terminal` | User-only Sidecar PTY lifecycle and resource ownership | Agent shell sessions or renderer presentation |
 | `chat_attachments` | Content-addressed managed image storage, validation, and request-local Data URL encoding | Conversation authority or provider protocol selection |
 | `workspace_extensions` | Project-local `.agents/skills` and supported MCP configuration discovery for an effective working directory | Global plugin installation or saved configuration mutation |
+| `workspace_registry` | The application workspace catalog, portable canonical paths, display names, and atomic `workspaces.json` persistence | Thread history, project membership, or filesystem folder lifecycle |
 | `agent::bridge` | Complete Turn orchestration and persistence coordination | Provider iteration or the Thread data model |
 | `agent::runtime` | Provider-and-tool loop, context, checkpoints, and runtime events | Tauri state or durable-store selection |
 | `command_hooks` | Hand-written and managed Hook discovery, managed manifest/script generation and constrained editing, exact definition-and-script trust, bounded command execution, and event output parsing | Agent capability policy or renderer state |
@@ -98,12 +99,24 @@ Desktop Commands / Desktop Host
 - Tool metadata and exposure: the backend tool registry.
 - Renderer product state: route stores composed through the React workbench
   interfaces.
+- Imported workspace catalog: `~/.tinybot/workspaces.json`, owned by the Rust
+  `WorkspaceRegistry`. Register, rename, and forget are the only catalog write
+  operations. Register canonicalizes an existing directory and removes Windows
+  verbatim `\\?\` and `\\?\UNC\` prefixes before persistence or renderer output.
+  Existing Thread working directories and project memberships are imported once
+  when upgrading from the pre-registry model; the persisted migration marker
+  prevents subsequent workspace reads from scanning Thread history. Forgetting
+  removes only the catalog record and is rejected while a project group still
+  references the workspace; it never deletes or moves the directory.
 - Chat startup selection: `DesktopShell` marks only the first Chat mount in a
   desktop app lifetime as an uncreated conversation. Persisted tab state may be
   reused by later route remounts in that same lifetime, but it is not the app
   launch selection authority. User new-chat commands create renderer-owned draft
   sessions; only drafts with composer text survive navigation, and the first
   send replaces the draft with a canonical Thread before dispatching its Turn.
+  Chat reports its active persisted session or local draft working directory to
+  the shell as transient cross-route context; workspace-scoped resource routes
+  consume that projection without deriving a current workspace from recency.
 - Agent Graph definitions: versioned `app-core/agent-graph` values stored under
   `<workspace>/.tinybot/graphs/` through the native `agent_graphs` Adapter.
   Node positions are signed world coordinates; viewport pan, zoom, and fit-to-view

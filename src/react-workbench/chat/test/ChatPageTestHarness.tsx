@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs";
 import { cleanup } from "@testing-library/react";
 import { afterEach, expect, vi } from "vitest";
-import { ChatPage } from "../ChatPage";
-import type { ChatStore, SessionStore, SessionSummary } from "../../services";
+import { useState } from "react";
+import { ChatPage, type ChatPageProps } from "../ChatPage";
+import type { ChatStore, SessionStore, SessionSummary, WorkspaceRegistryEntry, WorkspaceRegistryStore } from "../../services";
 import type { DesktopTurnSubmitCommand } from "../../../app-core/chat/desktopCommand";
 import type { ReactChatMessage } from "../messageActions";
 import { createNativeBrowserSessionSnapshot } from "../../../app-core/native/nativeBrowserSnapshot";
@@ -11,7 +12,69 @@ import type { NativeTerminalRuntimeApi } from "../../../app-core/native/desktopN
 import type { ThreadEffectiveCapabilities } from "../../../app-core/chat/threadCapabilities";
 import { timelineFromReactMessages } from "./timelineFixtures";
 
-export const ChatPageUnderTest = ChatPage;
+export function ChatPageUnderTest(props: ChatPageProps) {
+  const [workspaceRegistryStore] = useState(() => (
+    testWorkspaceRegistryStores.get(props.sessionStore) ?? createTestWorkspaceRegistryStore()
+  ));
+  return (
+    <ChatPage
+      {...props}
+      workspaceRegistryStore={props.workspaceRegistryStore ?? workspaceRegistryStore}
+    />
+  );
+}
+
+const testWorkspaceRegistryStores = new WeakMap<SessionStore, WorkspaceRegistryStore>();
+
+function createTestWorkspaceRegistryStore(sessions: SessionSummary[] = []): WorkspaceRegistryStore {
+  const registered = new Map<string, WorkspaceRegistryEntry>();
+  for (const session of sessions) {
+    if (!session.workingDirectory || session.pluginMigration) continue;
+    const path = portableTestWorkspacePath(session.workingDirectory);
+    const key = testWorkspaceKey(path);
+    if (!registered.has(key)) {
+      registered.set(key, testWorkspaceEntry(path, session.updatedAtMs));
+    }
+  }
+  return {
+    async list() {
+      return [...registered.values()];
+    },
+    async register(value) {
+      const path = portableTestWorkspacePath(value);
+      const workspace = registered.get(testWorkspaceKey(path)) ?? testWorkspaceEntry(path, Date.now());
+      registered.set(testWorkspaceKey(path), workspace);
+      return workspace;
+    },
+    async rename(path, name) {
+      const current = registered.get(testWorkspaceKey(path)) ?? testWorkspaceEntry(path, Date.now());
+      const renamed = { ...current, name, updatedAtMs: Date.now() };
+      registered.set(testWorkspaceKey(path), renamed);
+      return renamed;
+    },
+    async forget(path) {
+      registered.delete(testWorkspaceKey(path));
+    },
+  };
+}
+
+function portableTestWorkspacePath(path: string): string {
+  return path.replace(/^\\\\\?\\UNC\\/i, "\\\\").replace(/^\\\\\?\\/, "");
+}
+
+function testWorkspaceKey(path: string): string {
+  return path.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
+}
+
+function testWorkspaceEntry(path: string, updatedAtMs: number): WorkspaceRegistryEntry {
+  return {
+    addedAtMs: updatedAtMs,
+    exists: true,
+    name: path.split(/[\\/]+/).filter(Boolean).slice(-1)[0] ?? path,
+    path,
+    updatedAtMs,
+  };
+}
 
 const nativeFilePickerMockState = vi.hoisted(() => ({
   pickDesktopChatFiles: vi.fn(),
@@ -115,7 +178,7 @@ export function createStores(options: {
       toolCalls: [{ id: "tool-1", name: "shell", status: "complete", summary: "Done" }],
     },
   ];
-  return {
+  const stores = {
     sessionStore: {
       list: vi.fn(async () => sessions),
       create: vi.fn(async () => ({
@@ -142,6 +205,8 @@ export function createStores(options: {
       subscribe: vi.fn(() => () => undefined),
     },
   };
+  testWorkspaceRegistryStores.set(stores.sessionStore, createTestWorkspaceRegistryStore(sessions));
+  return stores;
 }
 
 export function sidecarBrowserSnapshot(

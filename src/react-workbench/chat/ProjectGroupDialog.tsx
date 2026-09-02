@@ -2,11 +2,11 @@ import { FolderPlus, Loader2, Trash2, X } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { useModalDialog } from "../../components/ui/useModalDialog";
-import type { ProjectGroup } from "../services";
+import type { ProjectGroup, WorkspaceRegistryEntry } from "../services";
 import { normalizedWorkspacePathKey, sessionWorkspaceName } from "./sessionWorkspaces";
 
 type ProjectGroupDialogProps = {
-  availableWorkspaceIds: string[];
+  availableWorkspaces: WorkspaceRegistryEntry[];
   group?: ProjectGroup;
   onChooseWorkspace: () => Promise<string | undefined>;
   onClose: () => void;
@@ -19,7 +19,7 @@ type ProjectGroupDialogProps = {
 };
 
 export function ProjectGroupDialog({
-  availableWorkspaceIds,
+  availableWorkspaces,
   group,
   onChooseWorkspace,
   onClose,
@@ -35,9 +35,13 @@ export function ProjectGroupDialog({
   const [error, setError] = useState("");
   const workspaceIds = useMemo(() => uniqueWorkspaceIds([
     ...(group?.workspaceIds ?? []),
-    ...availableWorkspaceIds,
+    ...availableWorkspaces.map((workspace) => workspace.path),
     ...addedIds,
-  ]), [addedIds, availableWorkspaceIds, group?.workspaceIds]);
+  ]), [addedIds, availableWorkspaces, group?.workspaceIds]);
+  const workspaceNames = useMemo(() => new Map(availableWorkspaces.map((workspace) => [
+    normalizedWorkspacePathKey(workspace.path),
+    workspace.name,
+  ])), [availableWorkspaces]);
   const { dialogRef, onBackdropPointerDown } = useModalDialog<HTMLDivElement>({
     closeEnabled: !pending,
     onClose,
@@ -150,7 +154,8 @@ export function ProjectGroupDialog({
                     type="checkbox"
                   />
                   <span>
-                    <strong>{sessionWorkspaceName(workspaceId)}</strong>
+                    <strong>{workspaceNames.get(normalizedWorkspacePathKey(workspaceId))
+                      ?? sessionWorkspaceName(workspaceId)}</strong>
                     <small>{workspaceId}</small>
                   </span>
                 </label>

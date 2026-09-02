@@ -348,7 +348,8 @@ async fn worker_webui_tools_body(
             &workspace_root,
         )?;
         let (graph_tools, graph_diagnostics) = if include_workspace_graphs {
-            let definition_workspace = crate::project_groups::canonical_workspace(&workspace_root)?;
+            let definition_workspace =
+                crate::workspace_registry::canonical_workspace(&workspace_root)?;
             let discovery =
                 crate::agent_graphs::discover_tools_for_workspace(&definition_workspace)?;
             let graph_tools = if discovery.graphs.is_empty() {
@@ -362,7 +363,7 @@ async fn worker_webui_tools_body(
                     config_snapshot.clone(),
                 )
                 .with_contributor(Arc::new(AgentGraphToolContributor::new(
-                    crate::project_groups::workspace_id(&definition_workspace),
+                    crate::workspace_registry::workspace_id(&definition_workspace),
                     discovery.graphs,
                 )?))?
                 .list_tools()

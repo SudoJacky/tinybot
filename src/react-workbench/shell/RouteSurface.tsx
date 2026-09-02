@@ -19,6 +19,7 @@ type ChatRouteProps = {
   createSessionSignal: number;
   now?: () => number;
   sessionSidebarCollapsed: boolean;
+  onActiveWorkspaceChange?: (workingDirectory?: string) => void;
   onSessionSidebarCollapsedChange: (collapsed: boolean) => void;
   onStopGenerationTargetChange: (sessionId: string) => void;
   onMascotMoodChange: (mood: TinybotMascotMood) => void;
@@ -50,6 +51,7 @@ export function RouteSurface({
   route,
   settingsNavigationRequest,
   services,
+  workingDirectory,
 }: {
   chat: ChatRouteProps;
   desktopPet: DesktopPetRouteProps;
@@ -57,6 +59,7 @@ export function RouteSurface({
   route: AppRoute;
   settingsNavigationRequest?: SettingsNavigationRequest | null;
   services: AppServices;
+  workingDirectory?: string;
 }) {
   const { t } = useTranslation("common");
   const routeName = t(`routes.${route}`);
@@ -70,11 +73,13 @@ export function RouteSurface({
           createSessionSignal={chat.createSessionSignal}
           now={chat.now}
           projectGroupStore={services.projectGroupStore}
+          workspaceRegistryStore={services.workspaceRegistryStore}
           sessionStore={services.sessionStore}
           settingsStore={services.settingsStore}
           toolsStore={services.toolsStore}
           workspaceStore={services.workspaceStore}
           sessionSidebarCollapsed={chat.sessionSidebarCollapsed}
+          onActiveWorkspaceChange={chat.onActiveWorkspaceChange}
           onOpenFiles={() => onNavigate("files")}
           onOpenSettings={() => onNavigate("settings")}
           onMascotMoodChange={chat.onMascotMoodChange}
@@ -95,7 +100,7 @@ export function RouteSurface({
         <DeferredSurface
           load={loadToolsRoute}
           name={routeName}
-          surfaceProps={{ services, onOpenChat: () => onNavigate("chat") }}
+          surfaceProps={{ services, onOpenChat: () => onNavigate("chat"), workingDirectory }}
         />
       );
     case "settings":

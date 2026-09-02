@@ -3,7 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { ChatEvent, ProjectGroupStore, SessionSummary } from "../services";
+import type { ChatEvent, ProjectGroupStore, SessionSummary, WorkspaceRegistryStore } from "../services";
 import { i18n } from "../i18n";
 import { CHAT_SESSION_TABS_STORAGE_KEY } from "./sessionTabWorkspace";
 import { timelineFromReactMessages } from "./test/timelineFixtures";
@@ -524,6 +524,24 @@ describe("ChatPage", () => {
       })),
       delete: vi.fn(async () => undefined),
     };
+    const workspaceRegistryStore: WorkspaceRegistryStore = {
+      list: vi.fn(async () => [{
+        addedAtMs: 1,
+        exists: true,
+        name: "payments",
+        path: "D:\\Services\\payments",
+        updatedAtMs: 1,
+      }]),
+      register: vi.fn(async (path) => ({
+        addedAtMs: 2,
+        exists: true,
+        name: "payments",
+        path,
+        updatedAtMs: 2,
+      })),
+      rename: vi.fn(),
+      forget: vi.fn(),
+    };
     nativeWorkspacePickerMocks.pickDesktopWorkspaceDirectory.mockResolvedValueOnce("E:\\Services\\payments");
 
     render(
@@ -532,6 +550,7 @@ describe("ChatPage", () => {
         now={() => Date.UTC(2026, 6, 4, 12, 0, 0)}
         projectGroupStore={projectGroupStore}
         sessionStore={stores.sessionStore}
+        workspaceRegistryStore={workspaceRegistryStore}
       />,
     );
 

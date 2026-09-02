@@ -226,6 +226,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
   const [aboutOpenSignal, setAboutOpenSignal] = useState(0);
   const [whatsNewOpenSignal, setWhatsNewOpenSignal] = useState(0);
   const [stopGenerationSessionId, setStopGenerationSessionId] = useState("");
+  const [activeWorkspaceDirectory, setActiveWorkspaceDirectory] = useState<string>();
   const [desktopPetMood, setDesktopPetMood] = useState<TinybotMascotMood>("calm");
   const [desktopPetResetPositionSignal, setDesktopPetResetPositionSignal] = useState(0);
   const [desktopPetPreferences, setDesktopPetPreferences] = useState<DesktopPetPreferences>(
@@ -687,6 +688,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
               createSessionSignal: createChatSignal,
               now,
               sessionSidebarCollapsed,
+              onActiveWorkspaceChange: setActiveWorkspaceDirectory,
               onSessionSidebarCollapsedChange: (collapsed) => {
                 setSidebarMotionSource("pointer");
                 setSessionSidebarCollapsed(collapsed);
@@ -704,6 +706,7 @@ function DesktopShellContent({ now, services, updateClient, windowControls }: De
             route={route}
             settingsNavigationRequest={settingsNavigationRequest}
             services={services}
+            workingDirectory={activeWorkspaceDirectory}
             onNavigate={navigateToRoute}
           />
         </section>

@@ -32,11 +32,15 @@ export function createDesktopToolsStore({
       const payload = await requireNative(nativeWebui, "WebUI").route({ method: "GET", path });
       return normalizeToolCatalog(payload);
     },
-    async loadSkillDetail(id) {
+    async loadSkillDetail(id, options) {
       await initialize();
+      const workingDirectory = options?.workingDirectory?.trim();
+      const query = workingDirectory
+        ? `?workingDirectory=${encodeURIComponent(workingDirectory)}`
+        : "";
       const payload = await requireNative(nativeWebui, "WebUI").route({
         method: "GET",
-        path: `/api/tools/skills/${encodeURIComponent(id)}`,
+        path: `/api/tools/skills/${encodeURIComponent(id)}${query}`,
       });
       return normalizeSkillDetail(payload);
     },

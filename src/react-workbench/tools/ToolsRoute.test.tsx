@@ -64,8 +64,15 @@ describe("ToolsRoute", () => {
       tools: [],
     });
     const user = userEvent.setup();
+    const workingDirectory = "D:\\project";
 
-    render(<ToolsRoute onOpenChat={vi.fn()} services={{ toolsStore } as unknown as AppServices} />);
+    render(
+      <ToolsRoute
+        onOpenChat={vi.fn()}
+        services={{ toolsStore } as unknown as AppServices}
+        workingDirectory={workingDirectory}
+      />,
+    );
 
     await user.click(await screen.findByRole("button", { name: "Skills" }));
     expect(await screen.findByText("review-work")).toBeTruthy();
@@ -98,15 +105,22 @@ describe("ToolsRoute", () => {
       content: "---\nname: review-work\n---\nReview the full diff.\n",
     });
     const user = userEvent.setup();
+    const workingDirectory = "D:\\project";
 
-    render(<ToolsRoute onOpenChat={vi.fn()} services={{ toolsStore } as unknown as AppServices} />);
+    render(
+      <ToolsRoute
+        onOpenChat={vi.fn()}
+        services={{ toolsStore } as unknown as AppServices}
+        workingDirectory={workingDirectory}
+      />,
+    );
     await user.click(await screen.findByRole("button", { name: "Skills" }));
 
     expect(toolsStore.loadSkillDetail).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "View review-work details" }));
 
     expect(await screen.findByText(/Review the full diff\./)).toBeTruthy();
-    expect(toolsStore.loadSkillDetail).toHaveBeenCalledWith("workspace:review-work");
+    expect(toolsStore.loadSkillDetail).toHaveBeenCalledWith("workspace:review-work", { workingDirectory });
   });
 });
 

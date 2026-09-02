@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { NativeCommandHookSnapshot } from "../../app-core/native/desktopNativeHooks";
-import type { HooksStore, ProjectGroupStore, SessionStore } from "../services";
+import type { HooksStore, WorkspaceRegistryStore } from "../services";
 import { HooksSettingsPage } from "./HooksSettingsPage";
 
 afterEach(() => {
@@ -34,24 +34,14 @@ const snapshot: NativeCommandHookSnapshot = {
   }],
 };
 
-const sessionStore: SessionStore = {
-  list: vi.fn(async () => [{
-    id: "thread-1",
-    title: "Workspace chat",
-    updatedAtMs: 2,
-    workingDirectory: "D:\\work",
-  }]),
-  create: vi.fn(),
+const workspaceRegistryStore: WorkspaceRegistryStore = {
+  list: vi.fn(async () => [
+    { addedAtMs: 1, exists: true, name: "work", path: "D:\\work", updatedAtMs: 2 },
+    { addedAtMs: 1, exists: true, name: "project", path: "D:\\project", updatedAtMs: 2 },
+  ]),
+  register: vi.fn(),
   rename: vi.fn(),
-  delete: vi.fn(),
-  pin: vi.fn(),
-  archive: vi.fn(),
-};
-
-const projectGroupStore: ProjectGroupStore = {
-  list: vi.fn(async () => [{ projectGroupId: "group-1", name: "Project", workspaceIds: ["D:\\project"] }]),
-  save: vi.fn(),
-  delete: vi.fn(),
+  forget: vi.fn(),
 };
 
 describe("HooksSettingsPage", () => {
@@ -70,8 +60,7 @@ describe("HooksSettingsPage", () => {
     render(
       <HooksSettingsPage
         hooksStore={hooksStore}
-        projectGroupStore={projectGroupStore}
-        sessionStore={sessionStore}
+        workspaceRegistryStore={workspaceRegistryStore}
       />,
     );
 
@@ -122,8 +111,7 @@ describe("HooksSettingsPage", () => {
     render(
       <HooksSettingsPage
         hooksStore={hooksStore}
-        projectGroupStore={projectGroupStore}
-        sessionStore={sessionStore}
+        workspaceRegistryStore={workspaceRegistryStore}
       />,
     );
     expect(await screen.findByText(snapshot.templateConfigPath)).toBeTruthy();
@@ -139,7 +127,7 @@ describe("HooksSettingsPage", () => {
     expect(await screen.findByText("Trusted")).toBeTruthy();
   });
 
-  test("creates a managed hook in a workspace already configured by Chat", async () => {
+  test("creates a managed hook in a registered workspace", async () => {
     const user = userEvent.setup();
     const hooksStore: HooksStore = {
       load: vi.fn(async () => ({ ...snapshot, hooks: [] })),
@@ -173,8 +161,7 @@ describe("HooksSettingsPage", () => {
     render(
       <HooksSettingsPage
         hooksStore={hooksStore}
-        projectGroupStore={projectGroupStore}
-        sessionStore={sessionStore}
+        workspaceRegistryStore={workspaceRegistryStore}
       />,
     );
     await user.click(await screen.findByRole("button", { name: /Workspace directory: work/ }));
@@ -246,8 +233,7 @@ describe("HooksSettingsPage", () => {
     render(
       <HooksSettingsPage
         hooksStore={hooksStore}
-        projectGroupStore={projectGroupStore}
-        sessionStore={sessionStore}
+        workspaceRegistryStore={workspaceRegistryStore}
       />,
     );
     await user.click(await screen.findByRole("button", { name: "Edit script" }));

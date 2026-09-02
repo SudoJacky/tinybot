@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:429bac609e082f5ece3f126de7ea6511b069a8d5bfd54938a6b47d194738dac9 -->
+<!-- tinybot-module-fingerprint: sha256:38b1ee0ef7e03ef9a5f2159285b9495f587d5bc394c2647218e57458edbda11c -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -76,6 +76,11 @@ file-chunk and raw-byte requests for contextual Artifact previews. The raw-byte
 request sends only `threadId`, path, and the optional metadata revision; Rust
 remains responsible for selecting the canonical Thread workspace, enforcing
 its filesystem bounds and size limit, and rejecting changed sources.
+
+`desktopNativeWorkspaceRegistry` is the typed transport seam for the global
+workspace catalog. It exposes only list, register, rename, and forget; path
+canonicalization, Windows verbatim-prefix removal, persistence, migration, and
+project-reference checks remain in Rust.
 
 `rendererLogger` is the renderer-wide observability entry point. It emits
 structured `debug`, `info`, `warn`, and `error` events to the console and a

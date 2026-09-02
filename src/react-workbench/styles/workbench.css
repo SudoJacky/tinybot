@@ -950,7 +950,7 @@ button:disabled {
   align-items: center;
   gap: 6px;
   min-height: 44px;
-  padding: 5px 36px 5px 5px;
+  padding: 5px 68px 5px 5px;
   border-radius: 8px;
   color: var(--color-muted);
   cursor: pointer;
@@ -1028,10 +1028,14 @@ button:disabled {
   font-weight: 450;
 }
 
-.react-session-workspace__new {
+.react-session-workspace__actions {
   position: absolute;
   top: 6px;
   right: 1px;
+  display: flex;
+}
+
+.react-session-workspace__actions > button {
   display: inline-grid;
   place-items: center;
   width: 32px;
@@ -1043,8 +1047,8 @@ button:disabled {
   opacity: .7;
 }
 
-.react-session-workspace__new:hover,
-.react-session-workspace__new:focus-visible {
+.react-session-workspace__actions > button:hover,
+.react-session-workspace__actions > button:focus-visible {
   background: color-mix(in srgb, var(--color-panel) 72%, transparent);
   color: var(--color-ink);
   opacity: 1;

@@ -1008,6 +1008,10 @@ export const en = {
       save: "Save project", cancel: "Cancel", close: "Close project dialog", delete: "Delete project", confirmDelete: "Confirm delete", unavailable: "Project groups are unavailable in this runtime.",
       groupLabel: "Project {{name}}", edit: "Edit {{name}}", coordination: "Coordination chats", newCoordinator: "New coordination chat in {{name}}", newCoordinatorTitle: "Coordinate {{name}}", newWorkspaceSession: "New session in {{name}}",
     },
+    workspaces: {
+      manage: "Manage {{name}}", title: "Manage workspace", description: "Change Tinybot's display name or forget this workspace without changing files on disk.",
+      name: "Workspace name", rename: "Rename", forget: "Forget workspace", confirmForget: "Confirm forget", cancel: "Cancel", close: "Close workspace dialog",
+    },
     migration: {
       label: "Plugin migration result", installed: "{{name}} installed{{state}}", keptDisabled: " (kept disabled)", enabled: " and enabled",
       complete: "Migration complete — install the generated plugin", cleaned: "The temporary migration workspace was cleaned up.",

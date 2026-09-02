@@ -17,7 +17,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:45bbe69961a8d6b73be8c506b93754551b05af6effe11329c0f1baafedab4418 -->
+<!-- tinybot-doc-fingerprint: sha256:b32e3ac2a83324ed369a40d3069a32941af00d2ca1e8038081e59d35da0d36ac -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -333,8 +333,8 @@ Existing template files are never overwritten. The snapshot returns
 next to the active configuration paths. Copy a script into the workspace and
 copy/uncomment only the required event properties into an active `hooks.json`.
 
-Settings > Hooks obtains its workspace choices from the same Chat state: thread
-`workingDirectory` values plus project-group `workspaceIds`. The managed-hook
+Settings > Hooks obtains its workspace choices from the shared persisted
+workspace registry. Missing folders remain visible but disabled. The managed-hook
 form owns configuration below `<workspace>/.tinybot/hooks/<id>/hook.json` and
 creates `hook.ps1` or `hook.sh` beside it. Users edit the script while Tinybot
 maintains the event, matcher, interpreter command, timeout, and enabled state.
