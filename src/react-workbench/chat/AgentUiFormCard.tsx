@@ -33,6 +33,13 @@ export function AgentUiFormCard({
     onSubmit(normalizeAgentUiFormValues(form, values));
   }
 
+  const missingRequiredMultiselect = form.fields.some((field) => {
+    const value = values[field.name];
+    return field.type === "multiselect"
+      && field.required
+      && (!Array.isArray(value) || value.length === 0);
+  });
+
   return (
     <form aria-label={form.title || form.form_id} className="react-agent-ui-form-card" onSubmit={handleSubmit}>
       <div className="react-agent-ui-form-card__header">
@@ -51,7 +58,7 @@ export function AgentUiFormCard({
         ))}
       </div>
       <div className="react-agent-ui-form-card__actions">
-        <button disabled={submitting} type="submit">{form.submit_label || t("formUi.submit")}</button>
+        <button disabled={submitting || missingRequiredMultiselect} type="submit">{form.submit_label || t("formUi.submit")}</button>
         <button disabled={submitting} type="button" onClick={onCancel}>{form.cancel_label || t("formUi.cancel")}</button>
       </div>
     </form>
@@ -71,12 +78,16 @@ function AgentUiFormFieldControl({
 }) {
   const { t } = useTranslation("chat");
   const id = `agent-ui-form-${field.name}`;
+  const labelId = `${id}-label`;
   const errorId = `${id}-error`;
   const stringValue = value === undefined || value === null ? "" : String(value);
+  const groupedChoices = field.type === "multiselect" || field.type === "radio";
   return (
     <div className="react-agent-ui-form-field">
-      <label htmlFor={id}>{field.label}</label>
-      {renderAgentUiFormInput(field, id, stringValue, value, onChange, error ? errorId : undefined, t("formUi.select"))}
+      {groupedChoices
+        ? <span className="react-agent-ui-form-field__label" id={labelId}>{field.label}</span>
+        : <label htmlFor={id} id={labelId}>{field.label}</label>}
+      {renderAgentUiFormInput(field, id, labelId, stringValue, value, onChange, error ? errorId : undefined, t("formUi.select"))}
       {field.help ? <small>{field.help}</small> : null}
       {error ? <small className="react-agent-ui-form-field__error" id={errorId} role="alert">{error}</small> : null}
     </div>
@@ -86,6 +97,7 @@ function AgentUiFormFieldControl({
 function renderAgentUiFormInput(
   field: AgentUiFormField,
   id: string,
+  labelId: string,
   stringValue: string,
   value: unknown,
   onChange: (value: unknown) => void,
@@ -120,28 +132,38 @@ function renderAgentUiFormInput(
   if (field.type === "multiselect") {
     const selected = Array.isArray(value) ? value.map(String) : [];
     return (
-      <select
+      <span
         aria-describedby={errorId}
         aria-invalid={Boolean(errorId)}
-        id={id}
-        multiple
-        required={field.required}
-        value={selected}
-        onChange={(event) => onChange(Array.from(event.currentTarget.selectedOptions).map((option) => optionValueFromString(field, option.value)))}
+        aria-labelledby={labelId}
+        aria-required={field.required}
+        className="react-agent-ui-form-field__choices react-agent-ui-form-field__choices--multiselect"
+        role="group"
       >
-        {(field.options ?? []).map((option) => (
-          <option key={String(option.value)} value={String(option.value)}>{option.label}</option>
+        {(field.options ?? []).map((option, index) => (
+          <label className="react-agent-ui-form-field__choice" key={String(option.value)}>
+            <input
+              checked={selected.includes(String(option.value))}
+              id={`${id}-${index}`}
+              name={field.name}
+              type="checkbox"
+              value={String(option.value)}
+              onChange={(event) => onChange(toggleMultiselectOption(field, value, option.value, event.currentTarget.checked))}
+            />
+            <span>{option.label}</span>
+          </label>
         ))}
-      </select>
+      </span>
     );
   }
   if (field.type === "radio") {
     return (
-      <span aria-describedby={errorId} aria-invalid={Boolean(errorId)} className="react-agent-ui-form-field__choices">
-        {(field.options ?? []).map((option) => (
-          <label key={String(option.value)}>
+      <span aria-describedby={errorId} aria-invalid={Boolean(errorId)} aria-labelledby={labelId} aria-required={field.required} className="react-agent-ui-form-field__choices" role="radiogroup">
+        {(field.options ?? []).map((option, index) => (
+          <label className="react-agent-ui-form-field__choice" key={String(option.value)}>
             <input
               checked={stringValue === String(option.value)}
+              id={`${id}-${index}`}
               name={field.name}
               required={field.required}
               type="radio"
@@ -224,4 +246,21 @@ function normalizeAgentUiFormValues(form: AgentUiForm, values: Record<string, un
 
 function optionValueFromString(field: AgentUiFormField, value: string): string | number | boolean {
   return field.options?.find((option) => String(option.value) === value)?.value ?? value;
+}
+
+function toggleMultiselectOption(
+  field: AgentUiFormField,
+  value: unknown,
+  optionValue: string | number | boolean,
+  checked: boolean,
+): Array<string | number | boolean> {
+  const selected = new Set(Array.isArray(value) ? value.map(String) : []);
+  if (checked) {
+    selected.add(String(optionValue));
+  } else {
+    selected.delete(String(optionValue));
+  }
+  return (field.options ?? [])
+    .filter((option) => selected.has(String(option.value)))
+    .map((option) => option.value);
 }

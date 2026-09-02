@@ -11,7 +11,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:f2a75667dce98ab9d1b4f8bd97be546a5f12adceea7f8e02aca3ae58ac052e73 -->
+<!-- tinybot-doc-fingerprint: sha256:790a3c52606dd3f42ac77cf0040bfef2fc9457627e088978884d001c53d660aa -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -147,6 +147,12 @@ If any call contains malformed JSON or a non-object argument, no call in that
 batch is dispatched. The invalid call retains its parser error, otherwise-valid
 calls receive an explicit batch-rejection error, and every provider call ID is
 committed as a model-visible tool result before the next provider iteration.
+
+`request_user_input` is a checkpointed interaction rather than a long-running
+tool execution. A valid request ends the active invocation in `awaiting_form`
+without a human-response timeout. Submit resumes the same provider chain with
+the selected values as the original tool call's result; cancel resolves the
+checkpoint with a distinct cancelled outcome.
 
 Cancellation behavior is part of the registry entry. Tools may cooperate,
 terminate an owned process, or require bounded cleanup. A timeout, cancellation,

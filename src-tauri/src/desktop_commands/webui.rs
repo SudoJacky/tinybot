@@ -597,6 +597,7 @@ pub(crate) async fn native_webui_agent_ui_form_resolution_body_async(
         cancelled,
         workspace_root,
         config_snapshot,
+        None,
     )
     .await
 }

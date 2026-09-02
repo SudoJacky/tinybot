@@ -210,5 +210,7 @@ after its active Turn stops, continue the conversation through the normal compos
 
 `request_user_input` creates an `awaiting_form` checkpoint and returns
 `stopReason: "awaiting_form"`. `worker_submit_thread_form` must use its matching `threadId` and
-`formId`; submitting resumes the same provider chain, while cancellation returns
-`stopReason: "form_cancelled"`.
+`formId`. The runtime emits a correlated `agent.command.acknowledged` event after accepting the
+resolution and before any resumed provider request, so transport callers do not wait for the
+provider response to confirm submission. Submitting resumes the same provider chain, while
+cancellation returns `stopReason: "form_cancelled"`.

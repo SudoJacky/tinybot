@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:38b1ee0ef7e03ef9a5f2159285b9495f587d5bc394c2647218e57458edbda11c -->
+<!-- tinybot-module-fingerprint: sha256:8efd0eede8cdf262e07515cddc1165aadf605681f58715d04507bdd5220f9caf -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -61,9 +61,9 @@ shows, restores, and focuses `main` before dispatching the route event. Invalid
 or oversized payloads fail at these Adapter boundaries.
 
 `desktopNativeThreads` owns typed Thread reads, runtime-state queries,
-effective-capability queries, and operation retry. Browser sessions remain a
-separate native adapter so another desktop surface can attach to the same
-WebView2 runtime used by Agent web tools.
+effective-capability queries, correlated form resolution, and operation retry.
+Browser sessions remain a separate native adapter so another desktop surface
+can attach to the same WebView2 runtime used by Agent web tools.
 
 `desktopNativeTerminal` is the user-only Sidecar PTY adapter. It exposes only
 typed PowerShell or Command Prompt creation plus poll, input, resize, and

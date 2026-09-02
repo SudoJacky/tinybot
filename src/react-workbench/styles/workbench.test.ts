@@ -110,6 +110,18 @@ describe("workbench CSS interaction contracts", () => {
     expect(toolChevronRule?.[1]).toContain("transform: rotate(90deg)");
   });
 
+  test("presents agent form choices as compact selectable cards", () => {
+    const formCardRule = chatStylesheet.match(/\.react-agent-ui-form-card\s*\{([^}]+)\}/);
+    const choiceRule = chatStylesheet.match(/\.react-agent-ui-form-field__choice\s*\{([^}]+)\}/);
+    const selectedRule = chatStylesheet.match(/\.react-agent-ui-form-field__choice:has\(input:checked\)\s*\{([^}]+)\}/);
+
+    expect(formCardRule?.[1]).toContain("border-radius: 14px");
+    expect(formCardRule?.[1]).toContain("padding: 18px");
+    expect(choiceRule?.[1]).toContain("grid-template-columns: 18px minmax(0, 1fr)");
+    expect(choiceRule?.[1]).toContain("min-height: 42px");
+    expect(selectedRule?.[1]).toContain("border-color: color-mix(in srgb, var(--color-primary) 68%");
+  });
+
   test("routes appearance controls through shared theme tokens", () => {
     expect(shellStylesheet).toContain("--color-panel:");
     expect(shellStylesheet).toContain("--color-accent: var(--color-primary)");

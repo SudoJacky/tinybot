@@ -4042,29 +4042,32 @@
 
 .react-agent-ui-forms {
   display: grid;
-  gap: 10px;
-  width: min(720px, 100%);
-  margin: 8px auto 0;
+  gap: 12px;
+  width: min(680px, 100%);
+  margin: 12px auto 4px;
 }
 
 .react-agent-ui-form-card {
   display: grid;
-  gap: 12px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  background: var(--color-panel);
-  padding: 14px;
+  gap: 18px;
+  border: 1px solid color-mix(in srgb, var(--color-hairline) 88%, var(--color-ink));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--color-panel) 96%, var(--color-surface-soft));
+  box-shadow: 0 10px 30px rgb(28 24 19 / 5%);
+  padding: 18px;
 }
 
 .react-agent-ui-form-card__header {
   display: grid;
-  gap: 4px;
+  gap: 6px;
 }
 
 .react-agent-ui-form-card__header h2 {
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
 }
 
 .react-agent-ui-form-card__header p,
@@ -4077,77 +4080,159 @@
 
 .react-agent-ui-form-card__fields {
   display: grid;
-  gap: 10px;
+  gap: 16px;
 }
 
 .react-agent-ui-form-field {
   display: grid;
-  gap: 5px;
+  gap: 8px;
   color: var(--color-ink);
-  font-size: 12px;
+  font-size: 13px;
+}
+
+.react-agent-ui-form-field > label,
+.react-agent-ui-form-field__label {
   font-weight: 650;
+  line-height: 1.4;
 }
 
 .react-agent-ui-form-field input,
 .react-agent-ui-form-field select,
 .react-agent-ui-form-field textarea {
   width: 100%;
-  min-height: 34px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  background: var(--color-surface-soft);
-  padding: 7px 9px;
+  min-height: 40px;
+  border: 1px solid color-mix(in srgb, var(--color-hairline) 88%, var(--color-ink));
+  border-radius: 10px;
+  background: var(--color-panel);
+  padding: 8px 10px;
   color: var(--color-ink);
   font: 13px/1.4 inherit;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.react-agent-ui-form-field input:focus-visible,
+.react-agent-ui-form-field select:focus-visible,
+.react-agent-ui-form-field textarea:focus-visible {
+  border-color: var(--color-primary);
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 
 .react-agent-ui-form-field textarea {
-  min-height: 76px;
+  min-height: 88px;
   resize: vertical;
 }
 
 .react-agent-ui-form-field input[type="checkbox"] {
   width: 18px;
   min-height: 18px;
+  accent-color: var(--color-primary);
 }
 
 .react-agent-ui-form-field__choices {
   display: grid;
-  gap: 6px;
-}
-
-.react-agent-ui-form-field__choices label {
-  display: flex;
-  align-items: center;
   gap: 8px;
-  font-weight: 500;
+  max-height: min(320px, 42vh);
+  overflow-y: auto;
+  padding: 2px;
+  scrollbar-width: thin;
 }
 
-.react-agent-ui-form-field__choices input {
+.react-agent-ui-form-field__choice {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  border: 1px solid color-mix(in srgb, var(--color-hairline) 88%, var(--color-ink));
+  border-radius: 10px;
+  background: var(--color-panel);
+  padding: 9px 11px;
+  cursor: pointer;
+  font-weight: 500;
+  line-height: 1.4;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+
+.react-agent-ui-form-field__choice:hover {
+  border-color: color-mix(in srgb, var(--color-primary) 38%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-primary) 3%, var(--color-panel));
+}
+
+.react-agent-ui-form-field__choice:has(input:checked) {
+  border-color: color-mix(in srgb, var(--color-primary) 68%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+.react-agent-ui-form-field__choice:has(input:focus-visible) {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+}
+
+.react-agent-ui-form-field__choice input {
   width: 16px;
   min-height: 16px;
+  margin: 0;
+  padding: 0;
+  box-shadow: none;
+}
+
+.react-agent-ui-form-field__choice input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.react-agent-ui-form-field__error {
+  color: var(--color-error) !important;
 }
 
 .react-agent-ui-form-card__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  padding-top: 2px;
 }
 
 .react-agent-ui-form-card__actions button {
-  min-height: 34px;
+  min-height: 38px;
   border: 1px solid var(--color-hairline);
-  border-radius: 8px;
+  border-radius: 9px;
   background: var(--color-panel);
-  padding: 0 12px;
+  padding: 0 14px;
   color: var(--color-ink);
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 650;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease, transform 120ms ease;
+}
+
+.react-agent-ui-form-card__actions button:not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--color-ink) 36%, var(--color-hairline));
+  background: var(--color-surface-soft);
+}
+
+.react-agent-ui-form-card__actions button:not(:disabled):active {
+  transform: translateY(1px);
+}
+
+.react-agent-ui-form-card__actions button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 52%, transparent);
+  outline-offset: 2px;
+}
+
+.react-agent-ui-form-card__actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .react-agent-ui-form-card__actions button[type="submit"] {
   background: var(--color-ink);
   color: var(--color-canvas);
+}
+
+.react-agent-ui-form-card__actions button[type="submit"]:not(:disabled):hover {
+  border-color: var(--color-ink);
+  background: color-mix(in srgb, var(--color-ink) 88%, var(--color-panel));
 }
 
 .react-composer-drop-target {

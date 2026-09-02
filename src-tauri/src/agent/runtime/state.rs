@@ -483,6 +483,7 @@ impl AgentTurnState {
                     "commandKind": command_kind,
                     "commandStatus": "acknowledged",
                     "message": "Agent command acknowledged",
+                    "form": command.get("form").cloned().unwrap_or(Value::Null),
                     "operation": command.get("operation").cloned().unwrap_or(Value::Null),
                     "source": command.get("source").cloned().unwrap_or(Value::Null),
                     "target": command.get("target").cloned().unwrap_or(Value::Null),

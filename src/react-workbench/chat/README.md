@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:b622d144ad68773091fa6bc013f70ba83e456f49b0c908b32b7cdf189e167f58 -->
+<!-- tinybot-module-fingerprint: sha256:3e178e1cf0aee2cb78cef7edde1327b9f8d4709e96882f3a1aa83e6bc373cdd0 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -71,6 +71,11 @@ expansion, and provenance controls, respect reduced motion, and never accept
 renderer code from the model. Inline data views remain attached to their owning
 tool step in the ordered execution trace instead of moving behind the final
 assistant answer.
+Pending Agent UI forms render below their canonical tool activity without
+changing the persisted form schema. Multi-select and radio fields use native
+inputs inside compact option cards so checked state, keyboard focus, and long
+labels remain legible; a required multi-select cannot submit until at least one
+option is checked.
 Composer removal remains independent from this persisted timeline presentation.
 The shared model catalog marks image-capable models for the picker. Selecting a
 text-only model rejects new images and blocks an already attached image from

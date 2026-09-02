@@ -12,7 +12,7 @@ src-tauri/src/rpc/tests/threads_and_tools.rs
 src-tauri/tests/crate/retry.rs
 src/app-core/native/desktopNativeThreads.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:3e3b1a28eeffa1d420458fc553725c32f9e4d5614b3974ae29e95b657ce6c876 -->
+<!-- tinybot-doc-fingerprint: sha256:fa087837137c95b43dd6534670701ac5bdf5e2beea22c76c7235ec9168c8e97d -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -185,6 +185,8 @@ await invoke("worker_retry_thread_operation", {
 The handler validates that the latest Thread turn and selected canonical Item
 both failed before starting a new correlated Agent turn. Chat submission,
 interruption, forms, and retry all use typed Thread commands.
+Form submit and cancel commands preserve their command correlation through the
+continuation and are acknowledged before the resumed provider request begins.
 
 ## Native Browser session runtime
 

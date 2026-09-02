@@ -34,8 +34,11 @@ pub(crate) struct ExecutedThreadTurn {
 }
 
 pub(crate) struct SubmitThreadFormInput {
+    pub(crate) command_id: String,
     pub(crate) thread_id: String,
     pub(crate) form_id: String,
+    pub(crate) source: serde_json::Value,
+    pub(crate) target: serde_json::Value,
     pub(crate) values: serde_json::Value,
     pub(crate) action: Option<String>,
 }
@@ -317,7 +320,12 @@ pub(crate) async fn submit_thread_form_with_services(
     input: SubmitThreadFormInput,
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
+    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<serde_json::Value, String> {
+    let command_id = input.command_id.trim();
+    if command_id.is_empty() {
+        return Err("thread form commandId must not be empty".to_string());
+    }
     let thread_store = base_services.thread_store()?;
     let target_snapshot = read_thread_snapshot(
         &input.thread_id,
@@ -340,7 +348,10 @@ pub(crate) async fn submit_thread_form_with_services(
     .ok_or_else(|| "thread form target has no Rollout checkpoint".to_string())?;
     let cancelled = thread_form_action_is_cancel(input.action.as_deref());
     let body = serde_json::json!({
+        "commandId": command_id,
         "session_key": session_id.clone(),
+        "source": input.source,
+        "target": input.target,
         "thread_id": thread_id.clone(),
         "values": input.values,
         "action": input.action,
@@ -353,6 +364,7 @@ pub(crate) async fn submit_thread_form_with_services(
         cancelled,
         workspace_root.clone(),
         config_snapshot.clone(),
+        live_trace_sink,
     )
     .await?;
     result["statusCode"] = serde_json::Value::Number(status_code.into());

@@ -73,9 +73,27 @@ describe("desktop native threads API", () => {
       command: "worker_compact_thread",
       args: { input: { threadId: "thread-1", clientEventId: "command-compact-1" } },
     });
-    await expect(api.submitForm({ threadId: "thread-1", formId: "form-1", values: {}, action: "submit" })).resolves.toEqual({
+    await expect(api.submitForm({
+      commandId: "command-form-1",
+      threadId: "thread-1",
+      formId: "form-1",
+      source: { control: "chat-form", surface: "chat" },
+      target: { sessionId: "thread-1", turnId: "turn-1" },
+      values: {},
+      action: "submit",
+    })).resolves.toEqual({
       command: "worker_submit_thread_form",
-      args: { input: { threadId: "thread-1", formId: "form-1", values: {}, action: "submit" } },
+      args: {
+        input: {
+          commandId: "command-form-1",
+          threadId: "thread-1",
+          formId: "form-1",
+          source: { control: "chat-form", surface: "chat" },
+          target: { sessionId: "thread-1", turnId: "turn-1" },
+          values: {},
+          action: "submit",
+        },
+      },
     });
     const retry = {
       commandId: "command-retry-1",

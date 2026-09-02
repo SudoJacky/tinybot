@@ -46,16 +46,18 @@ impl UserInputResume {
             .completed_tool_results
             .extend(self.restored_completed_results);
         state.tools_used.push(self.tool_call.name.clone());
+        let mut resolution = serde_json::json!({
+            "iteration": self.iteration,
+            "formId": self.form_id,
+            "detailId": format!("form:{}", self.form_id),
+            "status": "completed",
+            "action": "submit",
+            "values": self.values,
+        });
+        attach_thread_command_id(&mut resolution, context);
         state.emit(PendingAgentEvent::new(
             AgentEventKind::FormResolution,
-            serde_json::json!({
-                "iteration": self.iteration,
-                "formId": self.form_id,
-                "detailId": format!("form:{}", self.form_id),
-                "status": "completed",
-                "action": "submit",
-                "values": self.values,
-            }),
+            resolution,
         ))?;
         let prepared = PreparedToolCall::prepare(self.tool_call)?;
         let mut result = self.result;
@@ -291,15 +293,18 @@ fn cancelled_user_input_result(
         iteration,
         AgentEventKind::FormResolution.wire_name(),
     )?;
+    state.emit_thread_command_acknowledgement(context)?;
+    let mut resolution = serde_json::json!({
+        "iteration": iteration,
+        "formId": form_id,
+        "detailId": format!("form:{form_id}"),
+        "status": "completed",
+        "action": "cancel",
+    });
+    attach_thread_command_id(&mut resolution, context);
     state.emit(PendingAgentEvent::new(
         AgentEventKind::FormResolution,
-        serde_json::json!({
-            "iteration": iteration,
-            "formId": form_id,
-            "detailId": format!("form:{form_id}"),
-            "status": "completed",
-            "action": "cancel",
-        }),
+        resolution,
     ))?;
     state.set_stop_reason(
         "form_cancelled",
@@ -330,6 +335,19 @@ fn cancelled_user_input_result(
         },
         "runtimeEvents": runtime_events,
     }))
+}
+
+fn attach_thread_command_id(payload: &mut Value, context: &AgentTurnContext) {
+    let Some(command_id) = context
+        .metadata
+        .pointer("/_threadCommand/commandId")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return;
+    };
+    payload["commandId"] = Value::String(command_id.to_string());
 }
 
 fn validate_user_input_checkpoint(checkpoint: &Value, form_id: &str) -> Result<(), String> {

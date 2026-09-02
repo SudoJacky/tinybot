@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:127979f5efc83453452dcca91c20201e9cc5628cee886468936be4d17be2875b -->
+<!-- tinybot-module-fingerprint: sha256:40f1a543d664546500fbca51c11ff819b9dc20476421e0b654b56d72c762ad8e -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -377,8 +377,10 @@ malformed arrays, or provider-name collisions fail explicitly.
 `request_user_input` accepts strict fields of type `text`, `textarea`, `number`,
 `select`, `multiselect`, `radio`, or `checkbox`. It persists an
 `awaiting_form` checkpoint and emits `agent.awaiting_form`. Submission becomes
-the real tool observation and resumes the same provider chain; cancellation
-clears the checkpoint and returns `form_cancelled`.
+the real tool observation and resumes the same provider chain. A correlated
+`agent.command.acknowledged` event is committed before that resumed provider
+request starts, keeping submission acceptance separate from model latency;
+cancellation clears the checkpoint and returns `form_cancelled`.
 
 For frontend-visible shapes and event names, see the
 [Agent runtime API](../../../../docs/api/agent-runtime.md) and

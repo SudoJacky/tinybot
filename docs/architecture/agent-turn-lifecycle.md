@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:59736ad1d349a3bf0fa6316644861b273314cb764a8544d9bbbcd5e54a4ffd64 -->
+<!-- tinybot-doc-fingerprint: sha256:b4a09135f0309a9f5459fb8d27d64ebccdc328e7aa7d1275f03048cc042439d3 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -121,10 +121,15 @@ checks, cancellation, trace, and result construction.
 ## Continuation and cancellation
 
 - A Turn awaiting typed form input is waiting, not terminal.
+- Entering `awaiting_form` checkpoints the resumable runtime and ends the active
+  invocation, so elapsed human response time is not treated as a tool timeout.
 - Checkpoints contain the canonical resumable runtime state and correlation
   identities.
 - Continuation must preserve Thread, Turn, request, trace, and pending-call
   identity.
+- A form submit or cancel command is acknowledged with its command identity
+  before provider work resumes. Submitted values become the original pending
+  tool call's model-visible result in that same provider chain.
 - Cancellation is cooperative at provider and tool seams. A replaced
   generation may drain, but its late result cannot become the current terminal
   result.

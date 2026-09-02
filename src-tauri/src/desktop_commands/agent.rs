@@ -30,8 +30,11 @@ pub(crate) struct WorkerSubmitThreadTurnInput {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkerSubmitThreadFormInput {
+    pub(crate) command_id: String,
     pub(crate) thread_id: String,
     pub(crate) form_id: String,
+    pub(crate) source: serde_json::Value,
+    pub(crate) target: serde_json::Value,
     #[serde(default)]
     pub(crate) values: serde_json::Value,
     #[serde(default)]
@@ -792,23 +795,24 @@ pub(crate) async fn worker_submit_thread_form_with_live_trace_sink_async(
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<serde_json::Value, String> {
     let _ = timeout;
-    let mut base_services = {
+    let base_services = {
         let runtime = lock_runtime(shared);
         runtime.native_agent_services()
     };
-    if let Some(live_trace_sink) = live_trace_sink {
-        base_services = base_services.with_trace_sink(live_trace_sink);
-    }
     submit_thread_form_with_services(
         base_services,
         SubmitThreadFormInput {
+            command_id: input.command_id,
             thread_id: input.thread_id,
             form_id: input.form_id,
+            source: input.source,
+            target: input.target,
             values: input.values,
             action: input.action,
         },
         workspace_root,
         config_snapshot,
+        live_trace_sink,
     )
     .await
 }
