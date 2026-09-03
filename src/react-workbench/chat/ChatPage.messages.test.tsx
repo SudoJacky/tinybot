@@ -370,7 +370,7 @@ describe("ChatPage", () => {
 
     await screen.findByText("No sessions yet.");
     await user.click(screen.getByRole("button", { name: "Collapse session sidebar" }));
-    await user.click(screen.getByRole("button", { name: "New conversation tab" }));
+    await user.click(screen.getByRole("button", { name: "New chat" }));
     const input = await screen.findByRole("textbox", { name: /message/i });
     await user.type(input, "Summarize this pending chat");
     await user.click(screen.getByRole("button", { name: /send message/i }));

@@ -37,6 +37,18 @@ describe("workbench CSS interaction contracts", () => {
     expect(buttonRule?.[1]).toContain("flex: 0 0 32px");
   });
 
+  test("turns the collapsed sidebar mascot into the expand control on hover and focus", () => {
+    const navigationRule = shellStylesheet.match(/\.react-session-list__collapsed-nav\s*\{([^}]+)\}/);
+
+    expect(navigationRule?.[1]).toContain("flex-direction: column");
+    expect(shellStylesheet).toMatch(
+      /\.react-session-list__collapsed-home:hover \.react-session-list__collapsed-mascot,[^{]*\.react-session-list__collapsed-home:focus-visible \.react-session-list__collapsed-mascot\s*\{[^}]*opacity:\s*0;/s,
+    );
+    expect(shellStylesheet).toMatch(
+      /\.react-session-list__collapsed-home:hover \.react-session-list__collapsed-expand,[^{]*\.react-session-list__collapsed-home:focus-visible \.react-session-list__collapsed-expand\s*\{[^}]*opacity:\s*1;/s,
+    );
+  });
+
   test("keeps conversation rows intrinsic and scopes drawer header layout", () => {
     const conversationRule = chatStylesheet.match(/\.react-conversation-view\s*\{([^}]+)\}/);
     const drawerHeaderRule = chatStylesheet.match(/\.react-right-drawer__header\s*\{([^}]+)\}/);

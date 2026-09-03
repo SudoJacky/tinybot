@@ -997,7 +997,7 @@ export const en = {
       sending: "Sending {{operation}} command…", waiting: "{{operation}} delivered. Waiting for runtime confirmation…", acknowledged: "{{operation}} acknowledged by canonical item {{itemId}}. Waiting for completion.", completed: "{{operation}} {{status}} at canonical item {{itemId}}.",
     },
     shell: {
-      label: "Chat", sessions: "Sessions", addWorkspace: "Add workspace folder", workspaceActions: "Workspace and project actions", searchChats: "Search chats", expandSidebar: "Expand session sidebar",
+      label: "Chat", sessions: "Sessions", addWorkspace: "Add workspace folder", workspaceActions: "Workspace and project actions", searchChats: "Search chats", expandSidebar: "Expand session sidebar", collapsedNavigation: "Collapsed session sidebar shortcuts",
       collapseSidebar: "Collapse session sidebar", newChat: "New chat", sessionRows: "Session list rows", workspace: "Workspace {{name}}", generalSessions: "General chats",
       newSessionIn: "New session in {{name}}", confirmDelete: "Confirm delete {{name}}", delete: "Delete {{name}}", noSessions: "No sessions yet.",
       reorderWorkspace: "Reorder workspace {{name}}. Drag or press Alt+Arrow Up or Down.", reorderProject: "Reorder project {{name}}. Drag or press Alt+Arrow Up or Down.",
@@ -1025,7 +1025,7 @@ export const en = {
     },
     search: { label: "Session search", placeholder: "Search sessions…", close: "Close session search", chats: "Chats", noMatches: "No matching sessions.", regular: "General chat", suggested: "Suggested", start: "Start a new chat", openFolder: "Open folder", settings: "Settings", noDate: "No date" },
     empty: { title: "What do you want Tinybot to do?", description: "Choose a suggestion or describe your task below.", suggestions: "Prompt suggestions" },
-    tabs: { open: "Open conversations", closeTab: "Close {{name}} tab", close: "Close {{name}}", newTab: "New conversation tab", newConversation: "New conversation", menu: "Open tabs menu", openTabs: "Open tabs", status: { running: "running", failed: "failed", unread: "unread activity" } },
+    tabs: { open: "Open conversations", closeTab: "Close {{name}} tab", close: "Close {{name}}", menu: "Open tabs menu", openTabs: "Open tabs", status: { running: "running", failed: "failed", unread: "unread activity" } },
     sidecar: {
       label: "Sidecar", show: "Show Sidecar", hide: "Hide Sidecar", expand: "Expand Sidecar", restore: "Restore Sidecar", resize: "Resize Sidecar",
       openTabs: "Open Sidecar tabs", closeTab: "Close {{name}} tab", newTab: "New Sidecar tab", newTabMenu: "Choose a resource", chooseShell: "Choose a terminal", resourceTypes: "Back to resource types", more: "More Sidecar actions",

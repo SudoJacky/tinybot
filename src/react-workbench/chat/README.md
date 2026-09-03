@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:02719ffb6e36fc733ee24d04961792e90621279c962232868f9bbbf467e7be24 -->
+<!-- tinybot-module-fingerprint: sha256:89997ccc9b9664c0618cd4c0767ae6a842b9ead9ad1f28b410ff306774e3300e -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -170,10 +170,12 @@ module while delegating modal focus, keyboard, dismissal, and scroll-lock
 behavior to `components/ui/useModalDialog`.
 
 Session search stays inside the expanded sidebar instead of opening a desktop
-dialog. Its icon expands into an auto-focused input that filters session title,
-ID, and working-directory fields while preserving matching workspace and
-project context. Closing with its button or Escape clears the query, restores
-the full hierarchy, and returns focus to the search trigger.
+dialog. The expanded-sidebar icon opens an auto-focused input; the collapsed
+rail's search shortcut expands the sidebar into that same focused state. Search
+filters session title, ID, and working-directory fields while preserving
+matching workspace and project context. Closing with its button or Escape
+clears the query, restores the full hierarchy, and returns focus to the search
+trigger.
 
 The expanded session sidebar keeps a renderer-local, versioned user order for
 its top-level workspace/project blocks, each project's member workspaces, and
@@ -202,8 +204,9 @@ same register operation.
 Session creation follows the entry point's target. Workspace and project
 actions capture their workspace and project context on the local draft. With the
 session sidebar expanded, those contextual actions and the draft's first
-submission are the primary creation paths; the tab-strip create action appears
-only while the sidebar is collapsed. Collapsed-tab, menu, and keyboard
+submission are the primary creation paths; the compact rail exposes global new
+chat and workspace shortcuts only while the sidebar is collapsed. Collapsed-rail,
+menu, and keyboard
 actions may inherit an ordinary active workspace, but never an active project
 coordinator; coordinator sessions are created only by the project's coordinator
 action. System-owned flows such as plugin migration continue to create their

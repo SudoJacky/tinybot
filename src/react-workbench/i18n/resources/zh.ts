@@ -474,7 +474,7 @@ export const zh = {
       sending: "正在发送{{operation}}命令…", waiting: "{{operation}}已送达，正在等待运行时确认…", acknowledged: "{{operation}}已由规范项目 {{itemId}} 确认，正在等待完成。", completed: "{{operation}}已于规范项目 {{itemId}} 结束，状态：{{status}}。",
     },
     shell: {
-      label: "聊天", sessions: "会话", addWorkspace: "添加工作区文件夹", workspaceActions: "工作区和项目操作", searchChats: "搜索会话", expandSidebar: "展开会话侧栏", collapseSidebar: "收起会话侧栏",
+      label: "聊天", sessions: "会话", addWorkspace: "添加工作区文件夹", workspaceActions: "工作区和项目操作", searchChats: "搜索会话", expandSidebar: "展开会话侧栏", collapsedNavigation: "折叠会话侧栏快捷操作", collapseSidebar: "收起会话侧栏",
       newChat: "新会话", sessionRows: "会话列表", workspace: "工作区 {{name}}", generalSessions: "常规会话", newSessionIn: "在 {{name}} 中新建会话", confirmDelete: "确认删除 {{name}}",
       delete: "删除 {{name}}", noSessions: "还没有会话。", noSelection: "未选择会话", conversationMenu: "打开会话菜单",
       reorderWorkspace: "调整工作区 {{name}} 的顺序。拖动，或按 Alt+上/下方向键。", reorderProject: "调整项目 {{name}} 的顺序。拖动，或按 Alt+上/下方向键。",
@@ -501,7 +501,7 @@ export const zh = {
     },
     search: { label: "会话搜索", placeholder: "搜索会话…", close: "关闭会话搜索", chats: "会话", noMatches: "没有符合条件的会话。", regular: "常规会话", suggested: "推荐", start: "开始新会话", openFolder: "打开文件夹", settings: "设置", noDate: "无日期" },
     empty: { title: "想让 Tinybot 做什么？", description: "选择一个建议，或直接在下方描述你的任务。", suggestions: "任务建议" },
-    tabs: { open: "打开的会话", closeTab: "关闭 {{name}} 标签页", close: "关闭 {{name}}", newTab: "新建会话标签页", newConversation: "新建会话", menu: "打开标签页菜单", openTabs: "打开的标签页", status: { running: "运行中", failed: "失败", unread: "有未读活动" } },
+    tabs: { open: "打开的会话", closeTab: "关闭 {{name}} 标签页", close: "关闭 {{name}}", menu: "打开标签页菜单", openTabs: "打开的标签页", status: { running: "运行中", failed: "失败", unread: "有未读活动" } },
     sidecar: {
       label: "侧边工作区", show: "打开侧边工作区", hide: "隐藏侧边工作区", expand: "展开侧边工作区", restore: "还原侧边工作区", resize: "调整侧边工作区宽度",
       openTabs: "打开的侧边工作区标签页", closeTab: "关闭 {{name}} 标签页", newTab: "新建侧边工作区标签页", newTabMenu: "选择资源类型", chooseShell: "选择终端类型", resourceTypes: "返回资源类型", more: "更多侧边工作区操作",

@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  CirclePlus,
   ChevronLeft,
   ChevronRight,
   Folder,
@@ -18,6 +19,7 @@ import {
   GitBranch,
   Loader2,
   MoreHorizontal,
+  PanelLeftOpen,
   PencilLine,
   Plus,
   Search,
@@ -46,6 +48,7 @@ import {
   type SessionSidebarOrder,
 } from "./sessionSidebarOrder";
 import { displaySessionTitle } from "./sessionTitle";
+import { TinybotMascot } from "./TinybotMascot";
 import {
   groupSessionsByWorkspace,
   normalizedWorkspacePathKey,
@@ -550,115 +553,162 @@ export function ChatSessionWorkspace({
     setSearchOpen(false);
   }
 
+  function openSessionSearch(): void {
+    setWorkspaceActionMenuOpen(false);
+    if (collapsed) actions.onCollapsedChange(false);
+    setSearchOpen(true);
+  }
+
   return (
     <>
       <aside className="react-session-list" aria-label={t("shell.sessions")} data-collapsed={collapsed}>
-        <div className="react-session-list__header">
-          <div className="react-session-list__title-row" data-search-open={searchOpen ? "true" : undefined}>
-            {searchOpen ? (
-              <div aria-label={t("search.label")} className="react-session-list__inline-search" role="search">
-                <Search aria-hidden="true" size={15} />
-                <input
-                  aria-label={t("shell.searchChats")}
-                  placeholder={t("search.placeholder")}
-                  ref={searchInputRef}
-                  type="text"
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.currentTarget.value)}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Escape") return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    closeSessionSearch();
-                  }}
-                />
-                <button
-                  aria-label={t("search.close")}
-                  className="react-session-list__search-close"
-                  title={t("search.close")}
-                  type="button"
-                  onClick={closeSessionSearch}
-                >
-                  <X aria-hidden="true" size={14} />
-                </button>
-              </div>
-            ) : (
-              <>
-                <h2>Tinybot</h2>
-                <div className="react-session-list__title-actions">
-                  <div className="react-session-list__workspace-actions" ref={workspaceActionMenuRef}>
-                    <button
-                      aria-expanded={workspaceActionMenuOpen}
-                      aria-haspopup="menu"
-                      aria-label={t("shell.workspaceActions")}
-                      className="react-session-list__add-workspace"
-                      disabled={workspacePickerPending || createPending}
-                      title={t("shell.workspaceActions")}
-                      type="button"
-                      onClick={() => setWorkspaceActionMenuOpen((open) => !open)}
-                    >
-                      <FolderPlus aria-hidden="true" size={15} />
-                    </button>
-                    {workspaceActionMenuOpen ? (
-                      <div aria-label={t("shell.workspaceActions")} className="react-popover-surface react-session-list__workspace-menu" role="menu">
-                        <button
-                          className="react-popover-item"
-                          role="menuitem"
-                          type="button"
-                          onClick={() => {
-                            setWorkspaceActionMenuOpen(false);
-                            void handleAddWorkspace();
-                          }}
-                        >
-                          <FolderPlus aria-hidden="true" size={14} />
-                          {t("shell.addWorkspace")}
-                        </button>
-                        <button
-                          className="react-popover-item"
-                          disabled={!projectGroupStore}
-                          role="menuitem"
-                          type="button"
-                          onClick={() => {
-                            setWorkspaceActionMenuOpen(false);
-                            setProjectDialogGroupId("new");
-                          }}
-                        >
-                          <GitBranch aria-hidden="true" size={14} />
-                          {t("projectGroups.create")}
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                  <button
+        {collapsed ? (
+          <nav aria-label={t("shell.collapsedNavigation")} className="react-session-list__collapsed-nav">
+            <button
+              aria-label={t("shell.expandSidebar")}
+              className="react-session-list__collapsed-home"
+              title={t("shell.expandSidebar")}
+              type="button"
+              onClick={() => actions.onCollapsedChange(false)}
+            >
+              <span aria-hidden="true" className="react-session-list__collapsed-mascot">
+                <TinybotMascot appearance="classic" label="Tinybot" mood="calm" />
+              </span>
+              <PanelLeftOpen aria-hidden="true" className="react-session-list__collapsed-expand" size={18} />
+            </button>
+            <button
+              aria-label={t("shell.newChat")}
+              disabled={createPending}
+              title={t("shell.newChat")}
+              type="button"
+              onClick={() => void actions.onCreateSession()}
+            >
+              <CirclePlus aria-hidden="true" size={18} />
+            </button>
+            <button
+              aria-label={t("shell.addWorkspace")}
+              disabled={workspacePickerPending || createPending}
+              title={t("shell.addWorkspace")}
+              type="button"
+              onClick={() => void handleAddWorkspace()}
+            >
+              <FolderPlus aria-hidden="true" size={18} />
+            </button>
+            <button
+              aria-label={t("shell.searchChats")}
+              ref={searchTriggerRef}
+              title={t("shell.searchChats")}
+              type="button"
+              onClick={openSessionSearch}
+            >
+              <Search aria-hidden="true" size={18} />
+            </button>
+          </nav>
+        ) : (
+          <div className="react-session-list__header">
+            <div className="react-session-list__title-row" data-search-open={searchOpen ? "true" : undefined}>
+              {searchOpen ? (
+                <div aria-label={t("search.label")} className="react-session-list__inline-search" role="search">
+                  <Search aria-hidden="true" size={15} />
+                  <input
                     aria-label={t("shell.searchChats")}
-                    className="react-session-list__search"
-                    ref={searchTriggerRef}
-                    title={t("shell.searchChats")}
-                    type="button"
-                    onClick={() => {
-                      setWorkspaceActionMenuOpen(false);
-                      setSearchOpen(true);
+                    placeholder={t("search.placeholder")}
+                    ref={searchInputRef}
+                    type="text"
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Escape") return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      closeSessionSearch();
                     }}
-                  >
-                    <Search aria-hidden="true" size={15} />
-                  </button>
+                  />
                   <button
-                    aria-label={collapsed ? t("shell.expandSidebar") : t("shell.collapseSidebar")}
-                    className="react-session-list__collapse"
-                    title={collapsed ? t("shell.expandSidebar") : t("shell.collapseSidebar")}
+                    aria-label={t("search.close")}
+                    className="react-session-list__search-close"
+                    title={t("search.close")}
                     type="button"
-                    onClick={() => actions.onCollapsedChange(!collapsed)}
+                    onClick={closeSessionSearch}
                   >
-                    <ChevronLeft aria-hidden="true" data-direction={collapsed ? "expand" : "collapse"} size={16} />
+                    <X aria-hidden="true" size={14} />
                   </button>
                 </div>
-              </>
-            )}
+              ) : (
+                <>
+                  <h2>Tinybot</h2>
+                  <div className="react-session-list__title-actions">
+                    <div className="react-session-list__workspace-actions" ref={workspaceActionMenuRef}>
+                      <button
+                        aria-expanded={workspaceActionMenuOpen}
+                        aria-haspopup="menu"
+                        aria-label={t("shell.workspaceActions")}
+                        className="react-session-list__add-workspace"
+                        disabled={workspacePickerPending || createPending}
+                        title={t("shell.workspaceActions")}
+                        type="button"
+                        onClick={() => setWorkspaceActionMenuOpen((open) => !open)}
+                      >
+                        <FolderPlus aria-hidden="true" size={15} />
+                      </button>
+                      {workspaceActionMenuOpen ? (
+                        <div aria-label={t("shell.workspaceActions")} className="react-popover-surface react-session-list__workspace-menu" role="menu">
+                          <button
+                            className="react-popover-item"
+                            role="menuitem"
+                            type="button"
+                            onClick={() => {
+                              setWorkspaceActionMenuOpen(false);
+                              void handleAddWorkspace();
+                            }}
+                          >
+                            <FolderPlus aria-hidden="true" size={14} />
+                            {t("shell.addWorkspace")}
+                          </button>
+                          <button
+                            className="react-popover-item"
+                            disabled={!projectGroupStore}
+                            role="menuitem"
+                            type="button"
+                            onClick={() => {
+                              setWorkspaceActionMenuOpen(false);
+                              setProjectDialogGroupId("new");
+                            }}
+                          >
+                            <GitBranch aria-hidden="true" size={14} />
+                            {t("projectGroups.create")}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                    <button
+                      aria-label={t("shell.searchChats")}
+                      className="react-session-list__search"
+                      ref={searchTriggerRef}
+                      title={t("shell.searchChats")}
+                      type="button"
+                      onClick={openSessionSearch}
+                    >
+                      <Search aria-hidden="true" size={15} />
+                    </button>
+                    <button
+                      aria-label={t("shell.collapseSidebar")}
+                      className="react-session-list__collapse"
+                      title={t("shell.collapseSidebar")}
+                      type="button"
+                      onClick={() => actions.onCollapsedChange(true)}
+                    >
+                      <ChevronLeft aria-hidden="true" size={16} />
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+            {displayError ? (
+              <p className="react-session-list__error" role="alert">{displayError}</p>
+            ) : null}
           </div>
-          {displayError ? (
-            <p className="react-session-list__error" role="alert">{displayError}</p>
-          ) : null}
-        </div>
+        )}
         <div className="react-session-list__rows" aria-label={t("shell.sessionRows")} data-motion="animated-list">
           {rootGroups.map((rootGroup) => {
             if (rootGroup.kind === "workspace") {

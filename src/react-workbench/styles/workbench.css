@@ -911,6 +911,65 @@ button:disabled {
   color: var(--color-muted);
 }
 
+.react-session-list__collapsed-nav {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+}
+
+.react-session-list__collapsed-nav > button {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  color: var(--color-muted);
+}
+
+.react-session-list__collapsed-nav > button:hover,
+.react-session-list__collapsed-nav > button:focus-visible {
+  background: color-mix(in srgb, var(--color-surface-card) 74%, transparent);
+  color: var(--color-ink);
+}
+
+.react-session-list__collapsed-home > * {
+  grid-area: 1 / 1;
+  transition:
+    opacity var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-session-list__collapsed-mascot {
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.react-session-list__collapsed-mascot .react-tinybot-mascot {
+  --tinybot-mascot-size: 30px;
+}
+
+.react-session-list__collapsed-expand {
+  opacity: 0;
+  transform: scale(.82);
+}
+
+.react-session-list__collapsed-home:hover .react-session-list__collapsed-mascot,
+.react-session-list__collapsed-home:focus-visible .react-session-list__collapsed-mascot {
+  opacity: 0;
+  transform: scale(.82);
+}
+
+.react-session-list__collapsed-home:hover .react-session-list__collapsed-expand,
+.react-session-list__collapsed-home:focus-visible .react-session-list__collapsed-expand {
+  opacity: 1;
+  transform: scale(1);
+}
+
 .react-session-list__search-close:hover,
 .react-session-list__search-close:focus-visible {
   color: var(--color-ink);
@@ -932,55 +991,14 @@ button:disabled {
   color: var(--color-muted-soft);
 }
 
-.react-session-list__collapse svg {
-  transition: transform 160ms ease;
-}
-
-.react-session-list__collapse svg[data-direction="expand"] {
-  transform: rotate(180deg);
-}
-
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list,
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list__header h2,
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list__add-workspace,
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list__search,
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-row__title,
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-row__select small,
-.react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-row__delete,
-.react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list__collapse svg {
+.react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-row__delete {
   transition-duration: 0ms;
-}
-
-.react-session-list[data-collapsed="true"] .react-session-list__header {
-  justify-items: center;
-  padding: 10px 7px;
-}
-
-.react-session-list[data-collapsed="true"] .react-session-list__title-row {
-  justify-content: center;
-}
-
-.react-session-list[data-collapsed="true"] .react-session-list__header h2,
-.react-session-list[data-collapsed="true"] .react-session-list__add-workspace,
-.react-session-list[data-collapsed="true"] .react-session-list__search {
-  max-width: 0;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(-6px);
-}
-
-.react-session-list[data-collapsed="true"] .react-session-list__add-workspace,
-.react-session-list[data-collapsed="true"] .react-session-list__search {
-  width: 0;
-  min-width: 0;
-}
-
-.react-session-list[data-collapsed="true"] .react-session-list__collapse {
-  width: 40px;
-  min-width: 40px;
-  height: 40px;
-  min-height: 40px;
-  padding: 0;
 }
 
 .react-session-list__rows {
@@ -2043,7 +2061,7 @@ button:disabled {
   }
 
   .react-session-list,
-.react-session-list__collapse svg {
+.react-session-list__collapsed-home > * {
     transition-duration: 0ms;
   }
 
@@ -2054,12 +2072,6 @@ button:disabled {
 .react-session-row__select small,
 .react-session-row__delete {
     transition-duration: 140ms;
-  }
-
-  .react-session-list[data-collapsed="true"] .react-session-list__header h2,
-.react-session-list[data-collapsed="true"] .react-session-list__add-workspace,
-.react-session-list[data-collapsed="true"] .react-session-list__search {
-    transform: none;
   }
 
   .react-top-menu__popover,

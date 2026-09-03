@@ -1,5 +1,5 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:58abd3b23f55008093d41403b7a3e09bcd13ed5e62d07e6fbd146d4d99575fba -->
+<!-- tinybot-module-fingerprint: sha256:9c07b8adc401d540bae0255d63601f07e9e4b2bb474d7125a578abc701bb705e -->
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
@@ -24,6 +24,9 @@ footprint stable; reduced-motion mode retains these static state cues.
 Its search action expands from the compact icon into a full-width inline input;
 focus-within styling keeps the active boundary visible and reduced-motion mode
 shortens the reveal through the shared global motion rule.
+The collapsed sidebar is a vertical shortcut rail. Its top control presents the
+Tinybot mascot at rest, then reveals the expand icon on pointer hover or keyboard
+focus; new-chat, add-workspace, and search actions follow in that order.
 Workspace rename and forget actions stay compact beside the owning header and
 use the same visible focus treatment as other sidebar controls. The workspace
 row, rather than the native `details` content box, anchors a fixed right-aligned

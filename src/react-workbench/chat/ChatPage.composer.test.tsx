@@ -1024,7 +1024,7 @@ describe("ChatPage", () => {
 
     await screen.findByLabelText("Sessions");
     await user.click(screen.getByRole("button", { name: "Collapse session sidebar" }));
-    await user.click(screen.getByRole("button", { name: "New conversation tab" }));
+    await user.click(screen.getByRole("button", { name: "New chat" }));
 
     expect(stores.sessionStore.create).not.toHaveBeenCalled();
     await user.type(screen.getByRole("textbox", { name: /message/i }), "Use the saved model");
