@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:c91b276d00fe6b2111999cdd7ddaacb709e18ef4f6126813700f267fc7262a69 -->
+<!-- tinybot-module-fingerprint: sha256:43ad4d1a80c650074fa213c917e319a7e10ad2852c89ca13a99114a2d5192738 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -110,9 +110,14 @@ the local tab workspace and is restored on a later route mount. Opening another
 draft materializes non-empty startup text as its own navigable local tab. The
 first send materializes that draft with its captured workspace or project
 context, replaces the local tab with the returned Thread ID, and only then
-dispatches the Turn. A successful first send clears the draft under the returned
-Thread ID; creation or dispatch failures reject the submission so the controlled
-composer keeps the user's input.
+dispatches the Turn. Chat immediately shows a deterministic title derived from
+the first prompt, but does not persist it through the manual-rename path. After
+the durable Turn start, native code launches a separate tool-free request with
+the same Provider and model; its eventual title update refreshes the session
+list without delaying the main Turn. If title generation fails, the deterministic
+title remains. A successful first send clears the draft under the returned Thread
+ID; creation or dispatch failures reject the submission so the controlled composer
+keeps the user's input.
 The empty conversation continues to use the persisted composer model preference.
 Changing its model uses the Settings-store default-model operation, which saves
 the native Provider Profile/model pair before updating that renderer preference;

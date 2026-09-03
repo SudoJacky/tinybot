@@ -30,6 +30,7 @@ const NATIVE_EVENT_NAMES = [
   toDesktopNativeTauriEventName("agent.timeline.patch"),
   toDesktopNativeTauriEventName("agent.awaiting_form"),
   toDesktopNativeTauriEventName("agent.hook.decision"),
+  toDesktopNativeTauriEventName("thread.title.updated"),
   "browser:snapshot",
 ] as const;
 const MAX_LOGGED_ERROR_LENGTH = 500;
@@ -216,6 +217,20 @@ export function createDesktopNativeEventBridge({
     }
   }
 
+  async function handleThreadTitleUpdated(event: NativeEvent): Promise<void> {
+    try {
+      if (!isRecord(event.payload)) throw new Error("Generated Thread title event must be an object.");
+      const threadId = stringValue(event.payload.threadId ?? event.payload.thread_id);
+      if (!threadId) throw new Error("Generated Thread title event is missing threadId.");
+      await controller.loadSessions();
+      notifyAll({ type: "session-title-generated" });
+    } catch (error) {
+      const message = errorMessage(error);
+      reportNativeEventBridgeError("threadTitleUpdated", error);
+      notifyAll({ type: "session-title-generated.error", error: message });
+    }
+  }
+
   return {
     async register() {
       const startedAt = readMonotonicNow();
@@ -227,7 +242,8 @@ export function createDesktopNativeEventBridge({
           listen(NATIVE_EVENT_NAMES[0], handleTimelinePatch),
           listen(NATIVE_EVENT_NAMES[1], handleAgentForm),
           listen(NATIVE_EVENT_NAMES[2], handleHookDecision),
-          listen(NATIVE_EVENT_NAMES[3], handleBrowserSnapshot),
+          listen(NATIVE_EVENT_NAMES[3], handleThreadTitleUpdated),
+          listen(NATIVE_EVENT_NAMES[4], handleBrowserSnapshot),
         ]);
         logDesktopNativeDebug("nativeEventBridge.register.complete", {
           durationMs: roundedDuration(readMonotonicNow() - startedAt),

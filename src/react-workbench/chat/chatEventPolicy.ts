@@ -19,6 +19,7 @@ const MESSAGE_RELOAD_EVENT_TYPES = new Set([
 const SESSION_RELOAD_EVENT_TYPES = new Set([
   "chat.created",
   "interrupted",
+  "session-title-generated",
 ]);
 
 const TERMINAL_AGENT_EVENT_TYPES = new Set([

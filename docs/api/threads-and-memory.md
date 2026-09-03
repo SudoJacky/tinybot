@@ -10,10 +10,12 @@ src-tauri/src/threads/domain/types/events.rs
 src-tauri/src/threads/domain/types/items.rs
 src-tauri/src/threads/domain/types/records.rs
 src-tauri/src/threads/domain/types/requests.rs
+src-tauri/src/threads/domain/store/memory.rs
+src-tauri/src/threads/workspace_store.rs
 src-tauri/tests/crate/threads.rs
 src/app-core/chat/agentInputReference.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:6b544014ad78d9b369e9bb914b3bf3d788b54c5e58547243a79ede5a661c9de9 -->
+<!-- tinybot-doc-fingerprint: sha256:ed3055b072c01b3b3a5c862c6bc255833ba7d361e3aab46a30458f75d13d950d -->
 
 This document covers Thread queries, memory, persistence, and project grouping.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -267,6 +269,14 @@ The durable hierarchy is strict: a Thread may exist without an active Turn, but 
 `ThreadItem` and every Turn checkpoint has one non-empty `turnId`. Thread-level metadata updates made
 while no Turn is active update Thread metadata without manufacturing a turnless Item. A Rollout
 record that would project to a Thread item without a Turn identity is a consistency error.
+
+After the first user Turn is durably started, a default-titled Thread may receive a generated title
+from a separate tool-free request using that Turn's Provider and model. The metadata update carries
+the source Turn ID and is applied under the `WorkspaceThreadStore` operation lock only when it still
+matches the first user Turn, the Thread is not archived, and no manual title owns the field.
+Successful generated titles set `metadata.extra.titleSource` to `model`; manual metadata updates set
+it to `manual` and always win. This update changes Thread metadata only and does not create a
+turnless Item.
 
 Turn writes follow Codex-style ordering: one start batch contains `turn_started`, `turn_context`,
 the materialized system/developer prompt when it changed, and the user message. Later batches append

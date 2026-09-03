@@ -1,5 +1,6 @@
 # Context and Instructions
 <!-- tinybot-doc-watch:
+src-tauri/src/agent/README.md
 src-tauri/src/agent/bridge/thread_flow.rs
 src-tauri/src/agent/runtime/README.md
 src-tauri/src/agent/runtime/instructions.rs
@@ -11,11 +12,15 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:2aaa942b1369e4c14b51e928ed4a9ce81f4bf89a968d0b66b935bb27776b1933 -->
+<!-- tinybot-doc-fingerprint: sha256:e395c9b8578a2bb496f1c0f9e90bffc2ed17bbb10a5b246f22ccd3c7f9b69034 -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
 composition and context-window management are separate stages.
+
+The optional first-Turn title request is a separate tool-free request, not part
+of this composed Agent context. Its fixed system prompt treats the bounded user
+input as untrusted data and asks only for a short same-language title.
 
 ## Workspace concepts
 

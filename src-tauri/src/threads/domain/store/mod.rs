@@ -18,6 +18,7 @@ use super::types::{
     ThreadChildActivity, ThreadChildSummary, ThreadEvent, ThreadEventsRequest, ThreadEventsResult,
     ThreadItem, ThreadItemKind, ThreadMetadata, ThreadMetadataPatch, ThreadPagination,
     ThreadRecord, ThreadSnapshot, ThreadStatus, ThreadStatusResult,
+    UpdateGeneratedThreadTitleResult,
 };
 use crate::collaboration::subagents::{
     SubagentMailboxInput, SubagentThreadStatus, SubagentThreadSummary,
@@ -57,6 +58,7 @@ const CLIENT_EVENT_IDS_KEY: &str = "clientEventIds";
 pub(super) const DEFAULT_THREAD_TITLE: &str = "New session";
 pub(super) const TITLE_SOURCE_KEY: &str = "titleSource";
 pub(super) const TITLE_SOURCE_MANUAL: &str = "manual";
+pub(super) const TITLE_SOURCE_MODEL: &str = "model";
 
 static THREAD_ID_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 static ITEM_ID_SEQUENCE: AtomicU64 = AtomicU64::new(0);

@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:50a0b987ea8b9a2c6a122f5b928f49783c3139d7b355ccb79dc4a488a0568a89 -->
+<!-- tinybot-module-fingerprint: sha256:c35119b39d9c612b351d4ba948cd3858cdca834e174204160a9d155d805de3d4 -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -16,6 +16,7 @@ loop.
 - Reject invalid re-entry into an already terminal turn.
 - Build tool-dispatch and trace-sink services for the turn owner.
 - Persist turn start, runtime trace, checkpoints, and terminal turn state.
+- Start first-Turn title generation only after that Turn is durably visible.
 - Project runtime results into session- and Thread-compatible response shapes.
 - Continue turns after forms or additional Thread input.
 
@@ -30,7 +31,9 @@ Thread data model. Those belong to `agent::runtime` and `threads::domain`.
 2. Hydrate the Thread's fixed memory snapshot, compose instructions, merge the
    working directory's project-local MCP definitions, and attach instruction
    diagnostics to the persisted spec.
-3. Persist the turn start before history loading or provider work begins.
+3. Persist the turn start before history loading or provider work begins. A
+   default-titled empty Thread may then start its independent title request;
+   failure is logged and never fails or delays the main Turn.
 4. Hydrate the runtime history from the canonical Thread projection.
 5. Build tool, context-checkpoint, trace, and workspace command-hook services,
    selecting the Thread-owned or direct-session trace path.
@@ -72,6 +75,8 @@ when it failed.
 ## Invariants
 
 - Persist turn start before starting provider work.
+- Generated titles must carry the first user Turn ID and emit only a
+  metadata-refresh event after their guarded durable update succeeds.
 - Do not execute a terminal turn again under the same durable identity.
 - Flush trace output before final persistence reports success.
 - Runtime and trace errors must leave a durable failed terminal state rather

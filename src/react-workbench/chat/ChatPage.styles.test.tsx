@@ -221,6 +221,28 @@ describe("ChatPage", () => {
     expect(inputSource).toContain("strokeDasharray={`${view.percent} 100`}");
   });
 
+  it("keeps composer popovers above the pointer-following border glow", () => {
+    const css = readWorkbenchCss();
+
+    expect(css).toMatch(
+      /\.claude-ai-input__panel::before\s*{[^}]*z-index:\s*0;/s,
+    );
+    expect(css).toMatch(
+      /\.claude-ai-input__panel > \*\s*{[^}]*z-index:\s*1;/s,
+    );
+  });
+
+  it("lets the empty-chat workspace menu extend past the conversation row", () => {
+    const css = readWorkbenchCss();
+
+    expect(css).toMatch(
+      /\.react-chat-surface\[data-empty-session="true"\] \.react-conversation-view\s*{[^}]*overflow:\s*visible;/s,
+    );
+    expect(css).toMatch(
+      /\.react-empty-chat-workspace__menu\s*{[^}]*z-index:\s*30;/s,
+    );
+  });
+
   it("uses a restrained 180ms fade and short horizontal exit for session deletion", () => {
     const css = readWorkbenchCss();
     const source = readFileSync("src/react-workbench/chat/ChatPage.tsx", "utf8");

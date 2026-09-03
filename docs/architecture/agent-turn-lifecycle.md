@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:aeec810fc4d6c4b096d80e0615637f990b35105981c01844f36dca80f2e13f32 -->
+<!-- tinybot-doc-fingerprint: sha256:a80a7307c2a0e8a098fd580bc11a2932cbe5b74b8d4d4103269509666c26b5e8 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -43,6 +43,7 @@ agent::bridge
     |-- merge project-local MCP definitions for the effective working directory
     |-- discover same-workspace Agent Graph tools for ordinary Chat Turns
     |-- persist Turn start
+    |-- optionally spawn the independent first-Turn title request
     |-- hydrate canonical history
     |-- install tool, checkpoint, trace, and trusted command-hook adapters
     v
@@ -68,6 +69,13 @@ successful terminal result is persisted. If runtime execution or trace flush
 fails, the bridge persists a failed terminal state with `runtime_error` before
 returning the original error to the desktop caller; the renderer can then
 reload the canonical Rollout instead of leaving the Turn active.
+
+For an empty default-titled Thread, that durable start also gates one detached
+title request. It uses the resolved Provider and model but has no tools and does
+not enter or block the Agent Loop. Failure is recorded in native diagnostics and
+leaves the deterministic first-prompt title in place. A late result is committed
+only if its source remains the first user Turn and a manual rename has not taken
+ownership; successful persistence emits a metadata-only frontend refresh event.
 
 Project-local MCP configuration is discovered after instruction composition
 establishes the effective working directory and before runtime services are
@@ -164,6 +172,8 @@ reconstruct the updated log before recovery decisions are made.
   across seams.
 - Persist Turn start before provider work and flush trace before terminal
   success; persist a failed terminal before returning a runtime or trace error.
+- Keep first-Turn title generation independent from the main Turn and never let
+  a late model title replace a manual rename.
 - Do not append the same user, assistant, or tool item again during terminal
   persistence.
 - Keep provider failures, tool failures, trace failures, cancellation, and

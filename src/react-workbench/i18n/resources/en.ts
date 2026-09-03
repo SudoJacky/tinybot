@@ -970,12 +970,6 @@ export const en = {
   },
   chat: {
     browserHandoffContinue: "I completed the required action in the browser. Read the current page again and continue from where control was handed off.",
-    prompts: [
-      "Plan a task and list the implementation steps",
-      "Analyze the current project and suggest improvements",
-      "Organize the material into a short summary",
-      "Check the approach for anything that may have been missed",
-    ],
     commands: {
       compact: { label: "Compact context", description: "Summarize older context now and free window space" },
     },
@@ -1031,8 +1025,6 @@ export const en = {
       titleSuffix: "today?",
       workspacePicker: "Workspace: {{workspace}}",
       workspaceMenu: "Choose a workspace",
-      description: "Choose a suggestion or describe your task below.",
-      suggestions: "Prompt suggestions",
     },
     tabs: { open: "Open conversations", closeTab: "Close {{name}} tab", close: "Close {{name}}", menu: "Open tabs menu", openTabs: "Open tabs", status: { running: "running", failed: "failed", unread: "unread activity" } },
     sidecar: {

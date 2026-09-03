@@ -9,7 +9,7 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:327f2f1a0da587cac51c7706d53d76cfcb70ccb451b0742cc5a602db998190c4 -->
+<!-- tinybot-doc-fingerprint: sha256:643fba0d0610eaf53d136e8ee87d833ede95a230b740dea54cfa3f65beecb559 -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
@@ -54,6 +54,13 @@ MemoryThreadStore projection               v
 The process-local Thread index and `MemoryThreadStore` are derived projections.
 They improve lookup and typed access but cannot become alternate durable write
 paths.
+
+Generated first-Turn titles follow the same authority boundary. The in-memory
+compare-and-set and Rollout metadata snapshot are committed within one
+`WorkspaceThreadStore` operation, serialized against archive and manual-title
+updates. The mutation verifies the first user Turn ID, records `titleSource` as
+`model`, and never appends a synthetic Thread Item. A manual title records
+`titleSource: manual`, so a slower background result is discarded.
 
 ## Storage lifecycle
 

@@ -725,6 +725,18 @@ impl<R: Runtime + 'static> NativeAgentTraceSink for DesktopAgentEventSink<R> {
         });
         result
     }
+
+    fn thread_title_updated(&self, thread_id: &str, source_turn_id: &str) -> Result<(), String> {
+        self.app
+            .emit(
+                &tauri_safe_event_name("thread.title.updated"),
+                serde_json::json!({
+                    "sourceTurnId": source_turn_id,
+                    "threadId": thread_id,
+                }),
+            )
+            .map_err(|error| format!("generated Thread title frontend event emit failed: {error}"))
+    }
 }
 
 fn report_trace_sink_log(

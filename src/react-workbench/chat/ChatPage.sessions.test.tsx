@@ -996,7 +996,8 @@ describe("ChatPage", () => {
     expect(screen.getByRole("heading", { name: "New chat" })).toBeTruthy();
     expect(screen.queryByLabelText("Select or create a session.")).toBeNull();
     expect(stores.sessionStore.create).not.toHaveBeenCalled();
-    expect(within(start).getByLabelText("Prompt suggestions")).toBeTruthy();
+    expect(within(start).queryByLabelText("Prompt suggestions")).toBeNull();
+    expect(within(start).getByRole("button", { name: "Workspace: General chats" })).toBeTruthy();
   });
 
   it("starts in a draft new chat when there are no sessions", async () => {
@@ -1279,17 +1280,18 @@ describe("ChatPage", () => {
     fireEvent.change(input, { target: { value: "Keep this optimistic title" } });
     fireEvent.click(screen.getByRole("button", { name: /send message/i }));
     expect(await screen.findByRole("heading", { name: "Keep this optimistic title" })).toBeTruthy();
-    await waitFor(() => expect(stores.sessionStore.rename).toHaveBeenCalledWith(
-      "s1",
-      "Keep this optimistic title",
-    ));
+    expect(stores.sessionStore.rename).not.toHaveBeenCalled();
 
     act(() => subscribed?.({ type: "chat.created" }));
     await waitFor(() => expect(stores.sessionStore.list).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(stores.chatStore.load).toHaveBeenLastCalledWith("s2"));
     expect(screen.getByRole("heading", { name: "Keep this optimistic title" })).toBeTruthy();
 
-    resolveSend?.();
+    await act(async () => {
+      resolveSend?.();
+    });
+    await waitFor(() => expect(stores.sessionStore.list).toHaveBeenCalledTimes(3));
+    expect(stores.sessionStore.rename).not.toHaveBeenCalled();
   });
 
   it("runs conversation menu actions through stores and clipboard", async () => {

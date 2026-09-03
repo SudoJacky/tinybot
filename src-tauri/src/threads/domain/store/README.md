@@ -1,5 +1,5 @@
 # Thread Stores
-<!-- tinybot-module-fingerprint: sha256:6e3f4685904c24ca901e218b37cbd0b9fbf0431a5a1f4dc841a4cbcb28e6fe95 -->
+<!-- tinybot-module-fingerprint: sha256:525b85a8f71a28ebd0cec23cba9c77aeff2fae8923d9087b06722d7d8f97215f -->
 
 This module implements thread storage operations and projections used by the
 thread domain.
@@ -16,3 +16,6 @@ record remains available for exact provider replay.
 When persisted Thread-item sequences are sparse, projection restores Rollout
 append order from canonical creation timestamps while retaining each runtime
 event's source sequence as identity metadata.
+Generated-title mutation validates the first user Turn while holding the store
+lock, rejects archived or manually titled Threads, and records `titleSource` as
+`model` only when the compare-and-set succeeds.

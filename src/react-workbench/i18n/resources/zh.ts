@@ -455,7 +455,6 @@ export const zh = {
   },
   chat: {
     browserHandoffContinue: "我已完成浏览器中的必要操作。请重新读取当前页面，并从转交前的位置继续。",
-    prompts: ["规划一个任务并列出执行步骤", "分析当前项目并提出改进建议", "整理资料并形成一份简短摘要", "检查方案中可能遗漏的问题"],
     commands: {
       compact: { label: "压缩上下文", description: "立即总结较早上下文并释放窗口空间" },
     },
@@ -507,8 +506,6 @@ export const zh = {
       titleSuffix: "做点什么？",
       workspacePicker: "工作区：{{workspace}}",
       workspaceMenu: "选择工作区",
-      description: "选择一个建议，或直接在下方描述你的任务。",
-      suggestions: "任务建议",
     },
     tabs: { open: "打开的会话", closeTab: "关闭 {{name}} 标签页", close: "关闭 {{name}}", menu: "打开标签页菜单", openTabs: "打开的标签页", status: { running: "运行中", failed: "失败", unread: "有未读活动" } },
     sidecar: {

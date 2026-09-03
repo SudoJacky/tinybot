@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:55f21de32b9ba183e31767df6185c10320a8e5d85fc2f643b0ce95409a8461cb -->
+<!-- tinybot-module-fingerprint: sha256:142c6c849077ac4f5d23ea48328b001e3bdddd2d8872cfb828586a62e9d301b8 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -106,7 +106,8 @@ The main injected boundaries are:
 - `NativeAgentToolDispatcher`: tool execution boundary.
 - `NativeAgentCheckpointStore`: resumable state storage.
 - `NativeAgentCancellation`: external cancellation state.
-- `NativeAgentTraceSink`: durable or live runtime-event destination.
+- `NativeAgentTraceSink`: durable or live runtime-event destination, including
+  the metadata-only notification used after an independent title update.
 - `AgentContextContributor`: bounded additions to model-visible context.
 - `AgentHook`: typed policy or observation around runtime stages.
 

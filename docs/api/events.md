@@ -2,13 +2,14 @@
 <!-- tinybot-doc-watch:
 src-tauri/src/agent/runtime_protocol/event_catalog.rs
 src-tauri/src/agent/runtime_protocol/timeline_projection.rs
+src-tauri/src/agent/bridge/trace_sink.rs
 src-tauri/src/native_browser/mod.rs
 src/app-core/chat/chatTurnContracts.ts
 src/app-core/native/desktopNativeTauriEvents.ts
 src/app-core/native/desktopNativeTauriEvents.test.ts
 src/react-workbench/adapters/desktopNativeEventBridge.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:b985e055f7a057fe50746dfd6efdfb0d3e571649509438c5adbc9e33150a42d3 -->
+<!-- tinybot-doc-fingerprint: sha256:1b0741d5125eaaed11a022bdd55537860ee8cdaea44e092e9ace61a7a5827e6c -->
 
 This document lists frontend-visible events emitted by the native runtime. It
 is part of the [Rust backend API reference](rust-backend-api.md), which defines
@@ -39,6 +40,7 @@ The desktop shell also emits:
 | `desktop-update-status` | `DesktopUpdateSnapshot` after each update phase or download-progress change |
 | `browser:snapshot` | `BrowserNativeSnapshot` |
 | `browser:diagnostic` | `BrowserRuntimeDiagnostic` |
+| `thread:title:updated` | `{ threadId: string, sourceTurnId: string }` after a generated title is durably applied |
 
 Semantic runtime events retain their existing compatibility fields and also include a typed
 `payload.agentItem` object. The discriminator is `type`. Current production projections cover

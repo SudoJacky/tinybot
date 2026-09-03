@@ -21,7 +21,6 @@ import { normalizedWorkspacePathKey, sessionWorkspaceName } from "./sessionWorks
 export function EmptyChatStart({
   availableWorkspaces,
   onAddWorkspace,
-  onSelectPrompt,
   onSelectWorkspace,
   selectedWorkspacePath,
   workspaceError,
@@ -30,7 +29,6 @@ export function EmptyChatStart({
 }: {
   availableWorkspaces: readonly WorkspaceRegistryEntry[];
   onAddWorkspace: () => Promise<string | undefined>;
-  onSelectPrompt: (prompt: string) => void;
   onSelectWorkspace: (workingDirectory?: string) => void;
   selectedWorkspacePath?: string;
   workspaceError: string;
@@ -38,7 +36,6 @@ export function EmptyChatStart({
   workspaceSelectionEnabled: boolean;
 }) {
   const { t } = useTranslation("chat");
-  const prompts = t("prompts", { returnObjects: true }) as readonly string[];
   const selectedWorkspace = useMemo(() => {
     const selectedKey = normalizedWorkspacePathKey(selectedWorkspacePath ?? "");
     return selectedKey
@@ -67,15 +64,9 @@ export function EmptyChatStart({
           <span>{t("empty.titleSuffix")}</span>
         </h2>
       ) : <h2>{t("empty.title")}</h2>}
-      <p>{t("empty.description")}</p>
       {workspaceSelectionEnabled && workspaceError ? (
         <p className="react-empty-chat-start__workspace-error" role="alert">{workspaceError}</p>
       ) : null}
-      <div className="react-empty-chat-prompts" aria-label={t("empty.suggestions")}>
-        {prompts.map((prompt) => (
-          <button key={prompt} type="button" onClick={() => onSelectPrompt(prompt)}>{prompt}</button>
-        ))}
-      </div>
     </section>
   );
 }

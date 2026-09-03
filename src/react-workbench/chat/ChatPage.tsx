@@ -1466,7 +1466,6 @@ export function ChatPage({
     if (optimisticSession !== sendSession) {
       optimisticSessionTitlesRef.current.set(sendSession.id, optimisticSession.title);
       setSessions((current) => current.map((session) => session.id === sendSession.id ? optimisticSession : session));
-      await sessionStore.rename(sendSession.id, optimisticSession.title);
     }
     await dispatchTurn(
       sendSession.id,
@@ -2456,7 +2455,6 @@ export function ChatPage({
                 && !activeDraft?.createInput.projectGroupId
               )}
               onAddWorkspace={chooseWorkspace}
-              onSelectPrompt={handleComposerDraftChange}
               onSelectWorkspace={handleDraftWorkspaceChange}
             />
           ) : activeSession ? null : <EmptyStateText text={t("shell.selectSession")} />}

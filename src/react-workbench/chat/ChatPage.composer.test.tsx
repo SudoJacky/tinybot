@@ -33,21 +33,6 @@ describe("ChatPage", () => {
     expect(screen.queryByLabelText("Select or create a session.")).toBeNull();
   });
 
-  it("fills the composer from an empty-session suggestion without sending", async () => {
-    const user = userEvent.setup();
-    const stores = createStores();
-    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
-
-    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
-
-    const start = await screen.findByLabelText("Start a new chat");
-    const suggestion = within(start).getByRole("button", { name: "Plan a task and list the implementation steps" });
-    await user.click(suggestion);
-
-    expect((screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement).value).toBe("Plan a task and list the implementation steps");
-    expect(turnSubmitCommands(stores.chatStore)).toHaveLength(0);
-  });
-
   it("keeps the normal bottom composer layout when a session has messages", async () => {
     const stores = createStores();
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
@@ -609,7 +594,7 @@ describe("ChatPage", () => {
     expect(screen.getByLabelText("Context window 0% used, 100% left").textContent).toContain("107 / 128k tokens used");
   });
 
-  it("keeps empty-session suggestions stable while the user is deciding", async () => {
+  it("keeps the empty-session start focused on the composer", async () => {
     const stores = createStores();
     stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
 
@@ -620,11 +605,8 @@ describe("ChatPage", () => {
     });
     const start = screen.getByLabelText("Start a new chat");
     expect(within(start).getByRole("heading", { name: "What do you want Tinybot to do?" })).toBeTruthy();
-    expect(within(start).getAllByRole("button")).toHaveLength(4);
-    expect(within(start).getByRole("button", { name: "Check the approach for anything that may have been missed" })).toBeTruthy();
-    const nextSuggestions = within(start).getByLabelText("Prompt suggestions");
-    expect(nextSuggestions.textContent).toContain("Plan a task and list the implementation steps");
-    expect(nextSuggestions.textContent).toContain("Check the approach for anything that may have been missed");
+    expect(within(start).queryByText("Choose a suggestion or describe your task below.")).toBeNull();
+    expect(within(start).queryAllByRole("button")).toHaveLength(0);
   });
 
   it("sends composer text through the chat store", async () => {

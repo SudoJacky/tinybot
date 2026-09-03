@@ -110,7 +110,7 @@
 .react-chat-surface[data-empty-session="true"] .react-conversation-view {
   align-content: end;
   justify-items: center;
-  overflow: hidden;
+  overflow: visible;
   padding-top: 32px;
   padding-bottom: 32px;
 }
@@ -230,38 +230,9 @@
 
 .react-empty-chat-start > p.react-empty-chat-start__workspace-error {
   max-width: min(680px, 100%);
-  color: var(--color-danger);
-}
-
-.react-empty-chat-start > p {
   margin: 0;
+  color: var(--color-danger);
   font-size: 14px;
-}
-
-.react-empty-chat-prompts {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-  width: min(620px, 100%);
-  margin-top: 4px;
-}
-
-.react-empty-chat-prompts button {
-  min-height: 44px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 10px;
-  background: var(--color-surface-card);
-  padding: 10px 12px;
-  color: var(--color-body);
-  text-align: left;
-  cursor: pointer;
-  transition: border-color var(--motion-duration-fast), background var(--motion-duration-fast);
-}
-
-.react-empty-chat-prompts button:hover,
-.react-empty-chat-prompts button:focus-visible {
-  border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-hairline));
-  background: color-mix(in srgb, var(--color-primary) 6%, var(--color-panel));
 }
 
 .react-back-to-latest {
@@ -1171,7 +1142,7 @@
 
 .claude-ai-input__panel::before {
   inset: 0;
-  z-index: 2;
+  z-index: 0;
   border-radius: inherit;
   padding: 2px;
   background:
@@ -4586,12 +4557,10 @@
   }
 }
 
-.react-empty-chat-prompts button,
 .claude-ai-input__send {
   transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
-.react-empty-chat-prompts button:active:not(:disabled),
 .claude-ai-input__send:active:not(:disabled) {
   transform: scale(.97);
 }
@@ -4639,10 +4608,6 @@
 
   .react-empty-chat-workspace__trigger span {
     max-width: 54vw;
-  }
-
-  .react-empty-chat-prompts {
-    grid-template-columns: 1fr;
   }
 
   .react-prompt-cycle {
@@ -4743,8 +4708,7 @@
   }
 
 
-  .react-empty-chat-prompts button:active:not(:disabled),
-.claude-ai-input__send:active:not(:disabled) {
+  .claude-ai-input__send:active:not(:disabled) {
     transform: none;
   }
 
