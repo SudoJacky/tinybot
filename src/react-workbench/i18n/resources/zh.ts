@@ -500,7 +500,16 @@ export const zh = {
       cleaned: "临时迁移工作区已清理。", validate: "Tinybot 会先验证生成的 Package，再进行全局安装。", installing: "正在安装…", install: "安装迁移后的插件",
     },
     search: { label: "会话搜索", placeholder: "搜索会话…", close: "关闭会话搜索", chats: "会话", noMatches: "没有符合条件的会话。", regular: "常规会话", suggested: "推荐", start: "开始新会话", openFolder: "打开文件夹", settings: "设置", noDate: "无日期" },
-    empty: { title: "想让 Tinybot 做什么？", description: "选择一个建议，或直接在下方描述你的任务。", suggestions: "任务建议" },
+    empty: {
+      title: "想让 Tinybot 做什么？",
+      titleWithWorkspace: "想和 Tinybot 在 {{workspace}} 做点什么？",
+      titlePrefix: "想和 Tinybot 在",
+      titleSuffix: "做点什么？",
+      workspacePicker: "工作区：{{workspace}}",
+      workspaceMenu: "选择工作区",
+      description: "选择一个建议，或直接在下方描述你的任务。",
+      suggestions: "任务建议",
+    },
     tabs: { open: "打开的会话", closeTab: "关闭 {{name}} 标签页", close: "关闭 {{name}}", menu: "打开标签页菜单", openTabs: "打开的标签页", status: { running: "运行中", failed: "失败", unread: "有未读活动" } },
     sidecar: {
       label: "侧边工作区", show: "打开侧边工作区", hide: "隐藏侧边工作区", expand: "展开侧边工作区", restore: "还原侧边工作区", resize: "调整侧边工作区宽度",

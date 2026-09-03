@@ -86,6 +86,13 @@ export type ChatSessionWorkspaceActions = {
   onSelectSession: (session: SessionSummary) => void;
 };
 
+export type ChatSessionWorkspaceRenderContext = {
+  availableWorkspaces: readonly WorkspaceRegistryEntry[];
+  chooseWorkspace: () => Promise<string | undefined>;
+  workspaceError: string;
+  workspacePickerPending: boolean;
+};
+
 export function ChatSessionWorkspace({
   actions,
   activeSessionId,
@@ -102,7 +109,7 @@ export function ChatSessionWorkspace({
 }: {
   actions: ChatSessionWorkspaceActions;
   activeSessionId: string;
-  children: ReactNode;
+  children: ReactNode | ((context: ChatSessionWorkspaceRenderContext) => ReactNode);
   collapsed: boolean;
   confirmingDeleteSessionId: string;
   createPending: boolean;
@@ -517,10 +524,19 @@ export function ChatSessionWorkspace({
       return registered.path;
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
-      console.error("[session-workspaces] project-workspace.pick.failed", { error: message });
+      setWorkspaceError(message);
+      console.error("[session-workspaces] workspace.choose.failed", { error: message });
       throw cause;
     } finally {
       setWorkspacePickerPending(false);
+    }
+  }
+
+  async function handleChooseEmptySessionWorkspace(): Promise<string | undefined> {
+    try {
+      return await handleChooseProjectWorkspace();
+    } catch {
+      return undefined;
     }
   }
 
@@ -956,7 +972,12 @@ export function ChatSessionWorkspace({
           <p aria-live="polite" className="react-sr-only">{reorderAnnouncement}</p>
         </div>
       </aside>
-      {children}
+      {typeof children === "function" ? children({
+        availableWorkspaces: workspaces,
+        chooseWorkspace: handleChooseEmptySessionWorkspace,
+        workspaceError,
+        workspacePickerPending,
+      }) : children}
       {projectDialogGroupId ? (
         <ProjectGroupDialog
           availableWorkspaces={workspaces}

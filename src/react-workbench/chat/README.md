@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:89997ccc9b9664c0618cd4c0767ae6a842b9ead9ad1f28b410ff306774e3300e -->
+<!-- tinybot-module-fingerprint: sha256:c91b276d00fe6b2111999cdd7ddaacb709e18ef4f6126813700f267fc7262a69 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -7,6 +7,8 @@ canonical timeline presentation, the composer, and detail drawers.
 `ChatTimeline.tsx` owns the reusable canonical message and execution rendering;
 its action callbacks are optional so read-only consumers can omit unavailable
 branch, recovery, artifact, delegate, and tool-detail controls.
+Assistant message actions belong only to a Turn's final answer; commentary in
+the ordered execution trace remains readable but does not expose copy actions.
 A running canonical execution trace starts expanded, then folds once when its
 final answer first appears; completed traces therefore mount folded. A user can
 still reopen the trace, and later streaming revisions preserve that explicit
@@ -200,6 +202,13 @@ only the registry entry, leaves historical sessions and disk content intact,
 disables new sessions from that historical group, and surfaces the backend error
 when a project still references the workspace. Project-folder selection uses the
 same register operation.
+
+The editable new-session empty state consumes that same registry through the
+sidebar owner. Its heading defaults to General chats and exposes a keyboard
+accessible workspace menu for choosing or registering a folder. Selection
+updates only the local draft creation input, preserves any composer text already
+entered, and reaches `SessionStore.create` on the first send. Persisted Threads
+do not expose this picker because their creation-time workspace is immutable.
 
 Session creation follows the entry point's target. Workspace and project
 actions capture their workspace and project context on the local draft. With the

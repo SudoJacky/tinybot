@@ -38,6 +38,85 @@ describe("ChatPage", () => {
     expect(stores.chatStore.load).not.toHaveBeenCalled();
   });
 
+  it("uses general chat by default and binds a selected workspace to the new session draft", async () => {
+    const user = userEvent.setup();
+    const workingDirectory = "D:\\Code\\py\\tinybot";
+    const stores = createStores();
+    const workspace = {
+      addedAtMs: 1,
+      exists: true,
+      name: "tinybot",
+      path: workingDirectory,
+      updatedAtMs: 1,
+    };
+    const workspaceRegistryStore: WorkspaceRegistryStore = {
+      list: vi.fn(async () => [workspace]),
+      register: vi.fn(async () => workspace),
+      rename: vi.fn(async (_path, name) => ({ ...workspace, name })),
+      forget: vi.fn(async () => undefined),
+    };
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        sessionStore={stores.sessionStore}
+        startInNewSession
+        workspaceRegistryStore={workspaceRegistryStore}
+      />,
+    );
+
+    const input = screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
+    const workspaceTrigger = await screen.findByRole("button", { name: "Workspace: General chats" });
+    expect(screen.getByRole("heading", { name: "What do you want to do with Tinybot in General chats today?" })).toBeTruthy();
+
+    await user.type(input, "Inspect the selected workspace");
+    workspaceTrigger.focus();
+    await user.keyboard("{ArrowDown}");
+    const generalOption = screen.getByRole("menuitemradio", { name: "General chats" });
+    await waitFor(() => expect(document.activeElement).toBe(generalOption));
+    await user.keyboard("{ArrowDown}{Enter}");
+
+    expect(input.value).toBe("Inspect the selected workspace");
+    expect(screen.getByRole("heading", { name: "What do you want to do with Tinybot in tinybot today?" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+    await waitFor(() => expect(stores.sessionStore.create).toHaveBeenCalledWith({ workingDirectory }));
+  });
+
+  it("adds and selects a workspace from the new-session heading", async () => {
+    const user = userEvent.setup();
+    const workingDirectory = "D:\\Code\\VirtualHome";
+    const stores = createStores();
+    const workspace = {
+      addedAtMs: 1,
+      exists: true,
+      name: "VirtualHome",
+      path: workingDirectory,
+      updatedAtMs: 1,
+    };
+    const workspaceRegistryStore: WorkspaceRegistryStore = {
+      list: vi.fn(async () => []),
+      register: vi.fn(async () => workspace),
+      rename: vi.fn(async (_path, name) => ({ ...workspace, name })),
+      forget: vi.fn(async () => undefined),
+    };
+    nativeWorkspacePickerMocks.pickDesktopWorkspaceDirectory.mockResolvedValueOnce(workingDirectory);
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        sessionStore={stores.sessionStore}
+        startInNewSession
+        workspaceRegistryStore={workspaceRegistryStore}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Workspace: General chats" }));
+    await user.click(screen.getByRole("menuitem", { name: "Add workspace folder" }));
+
+    await waitFor(() => expect(workspaceRegistryStore.register).toHaveBeenCalledWith(workingDirectory));
+    expect(screen.getByRole("heading", { name: "What do you want to do with Tinybot in VirtualHome today?" })).toBeTruthy();
+  });
+
   it("allows drafting while sessions load but prevents sending", async () => {
     const user = userEvent.setup();
     const stores = createStores({ sessions: [] });

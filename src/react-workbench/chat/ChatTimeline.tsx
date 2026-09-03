@@ -651,7 +651,7 @@ function CanonicalChatStep({
   if (step.kind === "message") {
     return (
       <CanonicalMessage
-        allowActions={step.status === "completed"}
+        allowActions={false}
         messageId={step.messageId || step.id}
         role="assistant"
         streaming={step.status === "running"}

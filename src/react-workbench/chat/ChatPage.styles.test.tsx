@@ -110,6 +110,27 @@ describe("ChatPage", () => {
     );
   });
 
+  it("animates Sidecar layout changes and preserves a reduced-motion path", () => {
+    const chatCss = readFileSync("src/react-workbench/chat/ChatPage.css", "utf8");
+    const sidecarCss = readFileSync("src/react-workbench/sidecar/Sidecar.css", "utf8");
+
+    expect(chatCss).toMatch(
+      /\.react-chat-workspace\s*{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 0;[^}]*transition:\s*grid-template-columns var\(--motion-duration-medium\) var\(--motion-ease-standard\);/s,
+    );
+    expect(sidecarCss).toMatch(
+      /\.react-sidecar\s*{[^}]*transform:\s*translateX\(0\);[^}]*transition:\s*transform var\(--motion-duration-medium\) var\(--motion-ease-drawer\);/s,
+    );
+    expect(sidecarCss).toMatch(
+      /\.react-sidecar\[data-hidden="true"\]\s*{[^}]*transform:\s*translateX\(100%\);/s,
+    );
+    expect(chatCss).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.react-chat-workspace\s*{\s*transition-duration:\s*0ms;/,
+    );
+    expect(sidecarCss).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.react-sidecar,[\s\S]*transition-duration:\s*0ms;/,
+    );
+  });
+
   it("keeps spreadsheet cells visually unchanged on hover", () => {
     const chatCss = readFileSync("src/react-workbench/chat/ChatPage.css", "utf8");
 

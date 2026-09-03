@@ -14,23 +14,26 @@ import {
 } from "./test/ChatPageTestHarness";
 
 describe("ChatPage", () => {
-  it("places message action buttons under each message on the role side", async () => {
+  it("places copy actions under user messages and final answers on the role side", async () => {
     const stores = createStores();
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const userMessage = await screen.findByTestId("message-u1");
-    const assistantMessage = screen.getByTestId("message-a1");
+    const commentaryMessage = screen.getByTestId("message-a1");
+    const finalMessage = screen.getByTestId("message-a2");
     const userBody = userMessage.querySelector(".react-message__body");
-    const assistantBody = assistantMessage.querySelector(".react-message__body");
+    const finalBody = finalMessage.querySelector(".react-message__body");
     const userActions = userMessage.querySelector(".react-message__actions");
-    const assistantActions = assistantMessage.querySelector(".react-message__actions");
+    const finalActions = finalMessage.querySelector(".react-message__actions");
 
     expect(userMessage.getAttribute("data-actions-placement")).toBe("bottom");
-    expect(assistantMessage.getAttribute("data-actions-placement")).toBe("bottom");
+    expect(commentaryMessage.getAttribute("data-actions-placement")).toBe("bottom");
+    expect(finalMessage.getAttribute("data-actions-placement")).toBe("bottom");
     expect(userBody?.nextElementSibling).toBe(userActions);
-    expect(assistantBody?.nextElementSibling).toBe(assistantActions);
+    expect(commentaryMessage.querySelector(".react-message__actions")).toBeNull();
+    expect(finalBody?.nextElementSibling).toBe(finalActions);
     expect(userActions?.getAttribute("data-align")).toBe("right");
-    expect(assistantActions?.getAttribute("data-align")).toBe("left");
+    expect(finalActions?.getAttribute("data-align")).toBe("left");
   });
 
   it("keeps assistant messages as inline prose instead of rounded bubbles", () => {

@@ -120,6 +120,7 @@ import {
   type SpreadsheetComposerAnnotation,
 } from "./chatSubmission";
 import { ChatTimeline } from "./ChatTimeline";
+import { EmptyChatStart } from "./EmptyChatStart";
 import { FloatingPlanStatus } from "./FloatingPlanStatus";
 import { AssistantMarkdown } from "./AssistantMarkdown";
 import {
@@ -426,6 +427,7 @@ export function ChatPage({
     () => draftSessions.find((session) => session.id === activeSessionId),
     [activeSessionId, draftSessions],
   );
+  const activeDraft = sessionTabs.draftSessionsById[activeSessionId];
   const displayedSessions = useMemo(
     () => [...draftSessions, ...sessions],
     [draftSessions, sessions],
@@ -1090,6 +1092,15 @@ export function ChatPage({
     }
   }, [activeSessionId, timeline, optimisticMessages, agentUiForms.length]);
 
+  function createLocalDraft(input: DraftSessionCreateInput): DraftSession {
+    const createdAtMs = now();
+    return {
+      id: `draft:${createdAtMs}:${++draftSessionSequence.current}`,
+      createdAtMs,
+      createInput: input,
+    };
+  }
+
   async function handleCreateSession(
     workingDirectory?: string,
     projectContext?: ProjectSessionContext,
@@ -1113,14 +1124,6 @@ export function ChatPage({
       ...(resolvedProjectContext?.projectCoordinator ? { projectCoordinator: true } : {}),
       ...(resolvedProjectContext?.title ? { title: resolvedProjectContext.title } : {}),
     };
-    const createLocalDraft = (input: DraftSessionCreateInput): DraftSession => {
-      const createdAtMs = now();
-      return {
-        id: `draft:${createdAtMs}:${++draftSessionSequence.current}`,
-        createdAtMs,
-        createInput: input,
-      };
-    };
     if (!activeSessionId && composerDraft.trim()) {
       dispatchSessionTabs({
         type: "startup-draft.materialize",
@@ -1131,6 +1134,30 @@ export function ChatPage({
     dispatchDelete({ type: "session-selected", sessionId: draft.id });
     dispatchSessionTabs({ type: "session-draft.open", draft });
     return projectDraftSessionSummary(draft);
+  }
+
+  function handleDraftWorkspaceChange(workingDirectory?: string): void {
+    if (!draftNewSession) {
+      throw new Error("Only a new local session draft can change its workspace.");
+    }
+    const normalizedWorkingDirectory = workingDirectory?.trim() || undefined;
+    if (activeDraft) {
+      dispatchSessionTabs({
+        type: "session-draft.workspace.changed",
+        sessionId: activeDraft.id,
+        workingDirectory: normalizedWorkingDirectory,
+      });
+      return;
+    }
+    if (!normalizedWorkingDirectory) return;
+
+    const startupDraft = composerDraft;
+    const draft = createLocalDraft({ workingDirectory: normalizedWorkingDirectory });
+    dispatchSessionTabs({ type: "session-draft.open", draft });
+    if (startupDraft) {
+      dispatchSessionTabs({ type: "draft.changed", sessionId: draft.id, value: startupDraft });
+      dispatchSessionTabs({ type: "draft.changed", sessionId: "", value: "" });
+    }
   }
 
   async function handleInstallPluginMigration(session: SessionSummary): Promise<void> {
@@ -2330,6 +2357,7 @@ export function ChatPage({
         sessions={displayedSessions}
         workspaceRegistryStore={workspaceRegistryStore}
       >
+      {({ availableWorkspaces, chooseWorkspace, workspaceError, workspacePickerPending }) => (
       <div
         className="react-chat-workspace"
         data-sidecar-presentation={sidecar.presentation}
@@ -2416,7 +2444,22 @@ export function ChatPage({
             sessionRunning={sessionRunning}
             turns={activeSession ? timeline?.turns ?? [] : []}
           />
-          {activeSession && timeline?.turns.length ? null : emptyActiveSession ? <EmptyChatStart onSelectPrompt={handleComposerDraftChange} /> : activeSession ? null : <EmptyStateText text={t("shell.selectSession")} />}
+          {activeSession && timeline?.turns.length ? null : emptyActiveSession ? (
+            <EmptyChatStart
+              availableWorkspaces={availableWorkspaces}
+              selectedWorkspacePath={activeDraft?.createInput.workingDirectory}
+              workspaceError={workspaceError}
+              workspacePickerPending={workspacePickerPending}
+              workspaceSelectionEnabled={Boolean(
+                draftNewSession
+                && !activeDraft?.createInput.projectCoordinator
+                && !activeDraft?.createInput.projectGroupId
+              )}
+              onAddWorkspace={chooseWorkspace}
+              onSelectPrompt={handleComposerDraftChange}
+              onSelectWorkspace={handleDraftWorkspaceChange}
+            />
+          ) : activeSession ? null : <EmptyStateText text={t("shell.selectSession")} />}
           {showPluginMigrationResult && activeSession?.pluginMigration ? (
             <section
               aria-label={t("migration.label")}
@@ -2592,26 +2635,24 @@ export function ChatPage({
         </div>
       </main>
 
-      {sidecar.presentation !== "closed" ? (
-        <Sidecar
-          activeTabId={sidecarActiveTab?.id ?? ""}
-          canCreateBrowser={Boolean(activeSession)}
-          canCreateTerminal={Boolean(activeWorkspaceId)}
-          presentation={sidecar.presentation}
-          renderArtifact={renderSidecarArtifact}
-          renderBrowser={renderSidecarBrowser}
-          renderTerminal={renderSidecarTerminal}
-          tabs={sidecarTabs}
-          width={sidecar.width}
-          onActivateTab={(tabId) => dispatchSidecar({ tabId, type: "tab.activate" })}
-          onCloseTab={handleCloseSidecarTab}
-          onCreateBrowser={() => dispatchSidecar({ type: "tab.newBrowser" })}
-          onCreateTerminal={(shell) => dispatchSidecar({ shell, type: "tab.newTerminal" })}
-          onHide={() => dispatchSidecar({ type: "presentation.hide" })}
-          onResize={(width, maxWidth) => dispatchSidecar({ maxWidth, type: "presentation.resize", width })}
-          onToggleExpanded={() => dispatchSidecar({ type: "presentation.toggleExpanded" })}
-        />
-      ) : null}
+      <Sidecar
+        activeTabId={sidecarActiveTab?.id ?? ""}
+        canCreateBrowser={Boolean(activeSession)}
+        canCreateTerminal={Boolean(activeWorkspaceId)}
+        presentation={sidecar.presentation}
+        renderArtifact={renderSidecarArtifact}
+        renderBrowser={renderSidecarBrowser}
+        renderTerminal={renderSidecarTerminal}
+        tabs={sidecarTabs}
+        width={sidecar.width}
+        onActivateTab={(tabId) => dispatchSidecar({ tabId, type: "tab.activate" })}
+        onCloseTab={handleCloseSidecarTab}
+        onCreateBrowser={() => dispatchSidecar({ type: "tab.newBrowser" })}
+        onCreateTerminal={(shell) => dispatchSidecar({ shell, type: "tab.newTerminal" })}
+        onHide={() => dispatchSidecar({ type: "presentation.hide" })}
+        onResize={(width, maxWidth) => dispatchSidecar({ maxWidth, type: "presentation.resize", width })}
+        onToggleExpanded={() => dispatchSidecar({ type: "presentation.toggleExpanded" })}
+      />
 
       {drawer ? (
         <aside className="react-right-drawer" aria-label={t("shell.detailsDrawer")} data-motion="fade-content" data-state="open">
@@ -2631,27 +2672,12 @@ export function ChatPage({
         </aside>
       ) : null}
       </div>
+      )}
       </ChatSessionWorkspace>
     </section>
   );
 }
 
-
-function EmptyChatStart({ onSelectPrompt }: { onSelectPrompt: (prompt: string) => void }) {
-  const { t } = useTranslation("chat");
-  const prompts = t("prompts", { returnObjects: true }) as readonly string[];
-  return (
-    <section aria-label={t("search.start")} className="react-empty-chat-start" data-empty-session="true">
-      <h2>{t("empty.title")}</h2>
-      <p>{t("empty.description")}</p>
-      <div className="react-empty-chat-prompts" aria-label={t("empty.suggestions")}>
-        {prompts.map((prompt) => (
-          <button key={prompt} type="button" onClick={() => onSelectPrompt(prompt)}>{prompt}</button>
-        ))}
-      </div>
-    </section>
-  );
-}
 
 function EmptyStateText({ text }: { text: string }) {
   return <p className="react-empty-state">{text}</p>;

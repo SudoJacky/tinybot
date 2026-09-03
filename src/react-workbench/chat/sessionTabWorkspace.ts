@@ -37,6 +37,7 @@ export type SessionTabWorkspaceEvent =
   | { type: "remove"; sessionId: string }
   | { type: "activity"; sessionId: string }
   | { type: "draft.changed"; sessionId: string; value: string }
+  | { type: "session-draft.workspace.changed"; sessionId: string; workingDirectory?: string }
   | { type: "startup-draft.materialize"; draft: DraftSession }
   | { type: "session-draft.open"; draft: DraftSession }
   | { type: "replace"; previousSessionId: string; sessionId: string }
@@ -162,6 +163,25 @@ export function reduceSessionTabWorkspace(
         delete draftsBySession[key];
       }
       return { ...state, draftsBySession };
+    }
+    case "session-draft.workspace.changed": {
+      const draft = state.draftSessionsById[event.sessionId];
+      if (!draft) return state;
+      const workingDirectory = event.workingDirectory?.trim() || undefined;
+      if (draft.createInput.workingDirectory === workingDirectory) return state;
+      const createInput = { ...draft.createInput };
+      if (workingDirectory) {
+        createInput.workingDirectory = workingDirectory;
+      } else {
+        delete createInput.workingDirectory;
+      }
+      return {
+        ...state,
+        draftSessionsById: {
+          ...state.draftSessionsById,
+          [event.sessionId]: { ...draft, createInput },
+        },
+      };
     }
     case "replace": {
       if (event.previousSessionId === event.sessionId) {

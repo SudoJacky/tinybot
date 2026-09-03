@@ -20,10 +20,11 @@
 .react-chat-workspace {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 0;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  transition: grid-template-columns var(--motion-duration-medium) var(--motion-ease-standard);
 }
 
 .react-chat-workspace[data-sidecar-presentation="docked"] {
@@ -130,6 +131,106 @@
   font-size: 30px;
   font-weight: 650;
   line-height: 1.18;
+}
+
+.react-empty-chat-start h2.react-empty-chat-start__workspace-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.react-empty-chat-workspace {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+.react-empty-chat-workspace__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 44px;
+  border: 1px solid color-mix(in srgb, var(--color-hairline) 88%, var(--color-ink));
+  border-radius: 13px;
+  padding: 0 13px;
+  background: var(--color-surface-soft);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color var(--motion-duration-fast), background var(--motion-duration-fast);
+}
+
+.react-empty-chat-workspace__trigger span {
+  overflow: hidden;
+  max-width: min(280px, 42vw);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-empty-chat-workspace__trigger:hover,
+.react-empty-chat-workspace__trigger:focus-visible,
+.react-empty-chat-workspace__trigger[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--color-primary) 58%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-panel));
+}
+
+.react-empty-chat-workspace__trigger:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 72%, transparent);
+  outline-offset: 2px;
+}
+
+.react-empty-chat-workspace__menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 8px);
+  left: 50%;
+  width: min(320px, calc(100vw - 48px));
+  max-height: min(320px, 48vh);
+  overflow-y: auto;
+  transform: translateX(-50%);
+  font-size: 14px;
+  font-weight: 450;
+  line-height: 1.35;
+}
+
+.react-empty-chat-workspace__option,
+.react-empty-chat-workspace__add {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.react-empty-chat-workspace__option > span:nth-child(2),
+.react-empty-chat-workspace__add > span:nth-child(2) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-empty-chat-workspace__option:disabled,
+.react-empty-chat-workspace__add:disabled {
+  cursor: not-allowed;
+}
+
+.react-empty-chat-workspace__add {
+  margin-top: 5px;
+  border-top-color: var(--color-hairline);
+  border-radius: 0 0 7px 7px;
+  padding-top: 5px;
+}
+
+.react-empty-chat-start > p.react-empty-chat-start__workspace-error {
+  max-width: min(680px, 100%);
+  color: var(--color-danger);
 }
 
 .react-empty-chat-start > p {
@@ -4532,6 +4633,14 @@
     font-size: 24px;
   }
 
+  .react-empty-chat-workspace__trigger {
+    font-size: 17px;
+  }
+
+  .react-empty-chat-workspace__trigger span {
+    max-width: 54vw;
+  }
+
   .react-empty-chat-prompts {
     grid-template-columns: 1fr;
   }
@@ -4605,6 +4714,10 @@
   }
 
   .react-chat-page {
+    transition-duration: 0ms;
+  }
+
+  .react-chat-workspace {
     transition-duration: 0ms;
   }
 

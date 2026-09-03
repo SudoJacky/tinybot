@@ -41,6 +41,7 @@ describe("ChatPage", () => {
 
     await user.click(within(sidecar).getByRole("button", { name: "Hide Sidecar" }));
     expect(screen.queryByLabelText("Sidecar")).toBeNull();
+    expect(document.querySelector<HTMLElement>(".react-sidecar")?.dataset.hidden).toBe("true");
 
     await user.click(screen.getByRole("button", { name: "Show Sidecar" }));
     expect(within(screen.getByLabelText("Sidecar")).getByRole("tab", { name: "PowerShell" })).toBeTruthy();
