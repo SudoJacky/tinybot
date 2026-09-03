@@ -367,6 +367,8 @@ export const zh = {
       loading: "正在加载 Provider 设置…", eyebrow: "AI 连接", title: "Provider 与模型", description: "管理当前模型，以及提供模型的 Provider 连接。",
       saving: "正在保存…", saved: "已保存", saveFailed: "保存失败：{{message}}", connections: "连接", connectionsDescription: "管理每个 Provider 的凭证、Endpoint 和模型。",
       addProvider: "添加 Provider", recentlyUsed: "最近使用", defaultModel: "新会话默认模型", defaultModelDescription: "新会话会使用此模型；已有会话会保留自己的模型选择。",
+      backgroundWork: "后台任务", memoryModel: "Memory 模型", memoryModelDescription: "为长期 Memory 提取与合并指定模型，或跟随全局默认配置。",
+      memoryModelSelection: "Memory 使用的模型", followGlobalDefault: "跟随全局默认 — {{selection}}", unavailableMemoryModel: "{{model}} — {{profile}}（不可用）",
       noModel: "未配置模型", noProvider: "没有 Provider", notConfigured: "未配置", responsesApi: "Responses API", chatCompletions: "Chat Completions",
       reasoningEffort: { title: "发送推理强度", description: "如果 Endpoint 不接受 reasoning effort 参数，请关闭此项。" },
       modelCount: "{{count}} 个模型", noModels: "没有模型", changeModel: "更换模型", changeModelDescription: "选择新会话默认使用的模型。",

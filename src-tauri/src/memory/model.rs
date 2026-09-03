@@ -80,10 +80,11 @@ async fn complete_json(
     system_prompt: &str,
     input: Value,
 ) -> Result<String, String> {
-    let body = model_request(config_snapshot, system_prompt, input)?;
+    let model_config = memory_model_config(config_snapshot)?;
+    let body = model_request_with_config(&model_config, system_prompt, input)?;
     let mut observer = |_event: crate::agent::provider::NativeProviderStreamEvent| {};
     let completion = crate::agent::provider::complete_chat_for_agent_with_observer_async(
-        config_snapshot,
+        &model_config,
         &body,
         &mut observer,
         None,
@@ -93,7 +94,17 @@ async fn complete_json(
     completion_content(&completion)
 }
 
+#[cfg(test)]
 fn model_request(
+    config_snapshot: &Value,
+    system_prompt: &str,
+    input: Value,
+) -> Result<Value, String> {
+    let model_config = memory_model_config(config_snapshot)?;
+    model_request_with_config(&model_config, system_prompt, input)
+}
+
+fn model_request_with_config(
     config_snapshot: &Value,
     system_prompt: &str,
     input: Value,
@@ -113,6 +124,52 @@ fn model_request(
             }
         ],
     }))
+}
+
+fn memory_model_config(config_snapshot: &Value) -> Result<Value, String> {
+    let memory = config_snapshot.get("memory").unwrap_or(&Value::Null);
+    let active_profile = memory
+        .get("activeProfile")
+        .or_else(|| memory.get("active_profile"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let model = memory
+        .get("model")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    let (Some(active_profile), Some(model)) = (active_profile, model) else {
+        if active_profile.is_none() && model.is_none() {
+            return Ok(config_snapshot.clone());
+        }
+        return Err(
+            "memory model override requires both memory.activeProfile and memory.model".to_string(),
+        );
+    };
+
+    let profile_exists = config_snapshot
+        .pointer("/providers/profiles")
+        .and_then(Value::as_object)
+        .is_some_and(|profiles| profiles.get(active_profile).is_some_and(Value::is_object));
+    if !profile_exists {
+        return Err(format!(
+            "memory model override references unknown provider profile '{active_profile}'"
+        ));
+    }
+
+    let mut effective = config_snapshot.clone();
+    let defaults = effective
+        .pointer_mut("/agents/defaults")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| "memory model configuration requires agents.defaults".to_string())?;
+    defaults.insert(
+        "activeProfile".to_string(),
+        Value::String(active_profile.to_string()),
+    );
+    defaults.insert("model".to_string(), Value::String(model.to_string()));
+    Ok(effective)
 }
 
 fn completion_content(completion: &Value) -> Result<String, String> {
@@ -165,6 +222,11 @@ pub(super) fn model_request_for_test(config_snapshot: &Value) -> Result<Value, S
         "test system prompt",
         json!({ "test": true }),
     )
+}
+
+#[cfg(test)]
+pub(super) fn model_config_for_test(config_snapshot: &Value) -> Result<Value, String> {
+    memory_model_config(config_snapshot)
 }
 
 #[cfg(test)]

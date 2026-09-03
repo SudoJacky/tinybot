@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
@@ -60,6 +60,71 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("ProviderModelsSettingsPage", () => {
+  test("saves a dedicated Memory model while defaulting to the global selection", async () => {
+    const user = userEvent.setup();
+    const saveProviderSettings = vi.fn(async (_config: unknown, _patch: unknown) => (
+      buildProviderModelsSettings({
+        ...currentConfig,
+        memory: { activeProfile: "zai-default", model: "glm-5.3-flash" },
+      })
+    ));
+    const settingsStore: SettingsStore = {
+      load: vi.fn(async () => []),
+      loadProviderSettings: vi.fn(async () => buildProviderModelsSettings(currentConfig)),
+      saveProviderSettings,
+    };
+
+    render(<ProviderModelsSettingsPage settingsStore={settingsStore} />);
+
+    const memoryPanel = (await screen.findByRole("heading", { name: "Memory model" })).closest("section");
+    expect(memoryPanel).toBeTruthy();
+    const memory = within(memoryPanel!);
+    expect(memory.getByRole("option", { name: "Follow global default — deepseek-v4-pro · DeepSeek" })).toBeTruthy();
+    await user.selectOptions(
+      memory.getByRole("combobox", { name: "Model used for Memory" }),
+      memory.getByRole("option", { name: "glm-5.3-flash" }),
+    );
+    await user.click(memory.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledWith(currentConfig, {
+      memory: {
+        activeProfile: "zai-default",
+        model: "glm-5.3-flash",
+      },
+    }));
+  });
+
+  test("can restore the Memory model to follow the global default", async () => {
+    const user = userEvent.setup();
+    const overrideConfig = {
+      ...currentConfig,
+      memory: { activeProfile: "zai-default", model: "glm-5.3-flash" },
+    };
+    const saveProviderSettings = vi.fn(async () => buildProviderModelsSettings(currentConfig));
+    const settingsStore: SettingsStore = {
+      load: vi.fn(async () => []),
+      loadProviderSettings: vi.fn(async () => buildProviderModelsSettings(overrideConfig)),
+      saveProviderSettings,
+    };
+
+    render(<ProviderModelsSettingsPage settingsStore={settingsStore} />);
+
+    const memoryPanel = (await screen.findByRole("heading", { name: "Memory model" })).closest("section");
+    const memory = within(memoryPanel!);
+    await user.selectOptions(
+      memory.getByRole("combobox", { name: "Model used for Memory" }),
+      memory.getByRole("option", { name: "Follow global default — deepseek-v4-pro · DeepSeek" }),
+    );
+    await user.click(memory.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(saveProviderSettings).toHaveBeenCalledWith(overrideConfig, {
+      memory: {
+        activeProfile: { __desktopConfigOperation: "remove" },
+        model: { __desktopConfigOperation: "remove" },
+      },
+    }));
+  });
+
   test("discovers models from the built-in local Ollama provider", async () => {
     const user = userEvent.setup();
     const fetchProviderModels = vi.fn(async () => ({

@@ -526,6 +526,41 @@ fn apply_operations_remove_deletes_target_without_empty_object_merge() {
 }
 
 #[test]
+fn apply_operations_clear_memory_model_override_and_refresh_provider_runtime() {
+    let fixture = ConfigStoreFixture::new();
+    let path = fixture.write(
+        "config.json",
+        r#"{
+              "schemaVersion": 2,
+              "memory": {
+                "activeProfile": "zai-default",
+                "model": "glm-5.3-flash"
+              }
+            }"#,
+    );
+    let mut store =
+        ConfigStore::load(path.clone(), default_snapshot()).expect("fixture config should load");
+
+    let result = store
+        .apply_operations(ConfigOperationRequest {
+            expected_revision: Some(store.revision()),
+            operations: vec![
+                ConfigOperation::Remove {
+                    path: "memory.activeProfile".to_string(),
+                },
+                ConfigOperation::Remove {
+                    path: "memory.model".to_string(),
+                },
+            ],
+        })
+        .expect("Memory override removal should save");
+
+    assert!(result.ok);
+    assert_eq!(result.side_effects.applied, ["providerRuntimeChanged"]);
+    assert_eq!(store.snapshot()["memory"], json!({}));
+}
+
+#[test]
 fn apply_operations_rejects_stale_revision_and_preserves_file() {
     let fixture = ConfigStoreFixture::new();
     let path = fixture.write(

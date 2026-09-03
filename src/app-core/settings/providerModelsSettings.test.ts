@@ -4,6 +4,7 @@ import {
   automaticModelCapabilities,
   automaticModelContextWindow,
   buildCustomProviderPatch,
+  buildMemoryLlmPatch,
   buildProviderConfigurePatch,
   buildProviderDefaultLlmPatch,
   buildProviderModelsPatch,
@@ -33,6 +34,8 @@ describe("provider models settings", () => {
 
     expect(settings.revision).toBe("hash:1");
     expect(settings.activeProfileId).toBe("deepseek-default");
+    expect(settings.memoryProfileId).toBeNull();
+    expect(settings.memoryModel).toBeNull();
     expect(settings.fallbackContextWindowTokens).toBe(128_000);
     expect(settings.providers.map((provider) => provider.id)).toEqual(["deepseek", "dashscope", "openai", "zai", "ollama"]);
     expect(settings.providers.find((provider) => provider.id === "deepseek")).toMatchObject({
@@ -80,6 +83,32 @@ describe("provider models settings", () => {
       modelDiscovery: { status: "openai-compatible", endpoint: "/models" },
     });
     expect(BUILT_IN_PROVIDER_PRESETS.every((preset) => preset.builtIn)).toBe(true);
+  });
+
+  test("reads and patches an optional Memory model override", () => {
+    const settings = buildProviderModelsSettings({
+      agents: { defaults: { activeProfile: "deepseek-default", model: "deepseek-v4-pro" } },
+      memory: { activeProfile: "zai-default", model: "glm-5.3-flash" },
+      providers: { profiles: {} },
+    });
+
+    expect(settings.memoryProfileId).toBe("zai-default");
+    expect(settings.memoryModel).toBe("glm-5.3-flash");
+    expect(buildMemoryLlmPatch({
+      profileId: "zai-default",
+      model: "glm-5.3-flash",
+    })).toEqual({
+      memory: {
+        activeProfile: "zai-default",
+        model: "glm-5.3-flash",
+      },
+    });
+    expect(buildMemoryLlmPatch(null)).toEqual({
+      memory: {
+        activeProfile: { __desktopConfigOperation: "remove" },
+        model: { __desktopConfigOperation: "remove" },
+      },
+    });
   });
 
   test("builds configured custom providers alongside built-in presets", () => {

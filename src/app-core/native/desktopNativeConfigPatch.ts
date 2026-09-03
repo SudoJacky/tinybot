@@ -109,6 +109,9 @@ function canonicalConfigSegment(parent: readonly string[], segment: string): str
       api_mode: "apiMode",
     } as Record<string, string>)[segment] ?? segment;
   }
+  if (parent.length === 1 && parent[0] === "memory" && segment === "active_profile") {
+    return "activeProfile";
+  }
   return segment;
 }
 

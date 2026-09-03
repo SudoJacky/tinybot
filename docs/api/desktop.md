@@ -550,7 +550,9 @@ Provider selection is profile-based. New config should use `agents.defaults.acti
 not infer a Provider from the model name.
 The Provider & Models default selector updates `agents.defaults.activeProfile` and
 `agents.defaults.model` in one native patch so Profile-based endpoint resolution and global model
-fallbacks cannot diverge.
+fallbacks cannot diverge. The same page can optionally set `memory.activeProfile` and
+`memory.model` as a pair for long-term Memory extraction and consolidation; when both fields are
+absent, Memory follows the global default pair.
 Reasoning effort is not an Agent Defaults setting. A legacy `agents.defaults.reasoningEffort` value
 may remain in raw config for read compatibility, but the settings registry does not expose it and the
 agent runtime does not apply it to model requests.

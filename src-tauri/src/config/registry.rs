@@ -572,6 +572,27 @@ fn provider_models_group(config: &Value) -> SettingsGroup {
             true,
             get_path(config, &["agents", "defaults", "model"]),
         ),
+        config_field(
+            "memory-active-profile",
+            "Memory profile override",
+            "memory.activeProfile",
+            SettingScope::RunDefault,
+            SettingValueType::String,
+            true,
+            pick_path(
+                config,
+                &[&["memory", "activeProfile"], &["memory", "active_profile"]],
+            ),
+        ),
+        config_field(
+            "memory-model",
+            "Memory model override",
+            "memory.model",
+            SettingScope::RunDefault,
+            SettingValueType::String,
+            true,
+            get_path(config, &["memory", "model"]),
+        ),
     ];
 
     if let Some(profiles) =

@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:844feb0d9c0cfe94e617dd5718c028ef7747502254b72b9a9b8c05369c3a8a41 -->
+<!-- tinybot-module-fingerprint: sha256:d36e7584c459113fb793b93b9c18b5b852b54bbb86a50daa24e15077cb48040c -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
@@ -36,6 +36,8 @@ Provider model settings also localize automatic, fallback, and custom
 context-window modes, enabled-model counts, image-input controls, and the
 unsupported-image composer message while model IDs and numeric limits stay
 language-neutral.
+The dedicated Memory-model selector localizes its follow-global option and
+availability state while Profile and model identifiers remain untranslated.
 Agent Defaults localizes the system-time-zone hint while persisted IANA zone
 identifiers remain untranslated.
 Language-picker option names and descriptions use each target language's own

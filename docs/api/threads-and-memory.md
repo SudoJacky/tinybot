@@ -13,7 +13,7 @@ src-tauri/src/threads/domain/types/requests.rs
 src-tauri/tests/crate/threads.rs
 src/app-core/chat/agentInputReference.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:313bea46f54f1237dfa7af10cd9474d24fe719c50795f6b6e7fc03c1e81f0dab -->
+<!-- tinybot-doc-fingerprint: sha256:d40def17afc1479f9692ae6f9cba0fbfa525b03c9a02d7726bd50cee2ff98ae4 -->
 
 This document covers Thread queries, memory, persistence, and project grouping.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -219,6 +219,11 @@ URLs remain inert text/metadata.
 Long-term memory is backend-owned automation. The desktop renderer has one read-only Tauri command,
 `worker_memory_snapshot`; there is no Worker RPC namespace, WebUI route, agent-callable tool, or
 renderer mutation path.
+
+Phase 1 extraction and Phase 2 consolidation use `memory.activeProfile` and `memory.model` when
+both are configured. If neither is configured, both phases dynamically follow
+`agents.defaults.activeProfile` and `agents.defaults.model`. Provider & Models writes or clears the
+override as a pair; a partial override is an explicit configuration error.
 
 | Tauri command | Params | Result |
 | --- | --- | --- |

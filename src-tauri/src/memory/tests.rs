@@ -1,6 +1,6 @@
 use super::model::{
-    extract_memories, model_request_for_test, parse_diff_for_test, parse_extraction_for_test,
-    select_diff, TurnEvidence,
+    extract_memories, model_config_for_test, model_request_for_test, parse_diff_for_test,
+    parse_extraction_for_test, select_diff, TurnEvidence,
 };
 use super::runtime::successful_tool_result_for_test;
 use super::{
@@ -502,6 +502,54 @@ fn memory_model_request_uses_the_synchronized_defaults_after_a_provider_switch()
     assert_eq!(
         provider.api_base.as_deref(),
         Some("https://open.bigmodel.cn/api/paas/v4")
+    );
+}
+
+#[test]
+fn memory_model_request_uses_an_explicit_memory_override() {
+    let config = json!({
+        "agents": {
+            "defaults": {
+                "activeProfile": "deepseek-default",
+                "model": "deepseek-v4-pro"
+            }
+        },
+        "memory": {
+            "activeProfile": "zai-default",
+            "model": "glm-5.3-flash"
+        },
+        "providers": {
+            "profiles": {
+                "deepseek-default": { "provider": "deepseek" },
+                "zai-default": { "provider": "zai" }
+            }
+        }
+    });
+
+    let request = model_request_for_test(&config).unwrap();
+    let effective = model_config_for_test(&config).unwrap();
+    let provider =
+        crate::agent::provider::resolve_provider_profile(&effective, None, None).unwrap();
+
+    assert_eq!(request["model"], "glm-5.3-flash");
+    assert_eq!(provider.provider_id, "zai");
+}
+
+#[test]
+fn incomplete_memory_model_override_fails_clearly() {
+    let config = json!({
+        "agents": {
+            "defaults": {
+                "activeProfile": "deepseek-default",
+                "model": "deepseek-v4-pro"
+            }
+        },
+        "memory": { "model": "glm-5.3-flash" }
+    });
+
+    assert_eq!(
+        model_request_for_test(&config).unwrap_err(),
+        "memory model override requires both memory.activeProfile and memory.model"
     );
 }
 

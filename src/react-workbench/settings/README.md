@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:6c17c9448a8eafd7b3c429db2320643851fbf8aeff0469325e26e6016b6e0216 -->
+<!-- tinybot-module-fingerprint: sha256:207771d65f546a9b9ee5d808239a758f3c78d8de3a842b14fec127b6a2ec7089 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
@@ -97,6 +97,9 @@ desktop-pet quick chat use that same operation for empty conversations, so no
 renderer surface can update only the local preference. Activating a Provider also
 requires and persists that Provider's enabled default model, so background
 model work cannot combine one Profile's endpoint with another Provider's model.
+The same page exposes a separate long-term Memory model selector. It follows
+the global default until the user chooses an enabled Profile/model pair, and
+can remove that override to resume dynamic fallback.
 Its model manager configures context windows per model with the shared
 `SettingsChoiceList`: known models default to Tinybot's automatic value,
 unknown models show the runtime fallback, and either can store a custom positive
