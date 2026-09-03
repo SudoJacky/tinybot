@@ -86,8 +86,24 @@ if [ "$frontend_changed" -eq 1 ]; then
     exit 1
   fi
 
-  echo "pre-commit: running npm test"
-  run_npm test
+  test_workers="${TINYBOT_TEST_WORKERS:-}"
+  if [ -z "$test_workers" ]; then
+    test_workers="$(git config --local --get tinybot.testWorkers || true)"
+  fi
+
+  if [ -n "$test_workers" ]; then
+    case "$test_workers" in
+      0|0[0-9]*|*[!0-9]*)
+        echo "pre-commit: TINYBOT_TEST_WORKERS or tinybot.testWorkers must be a positive integer." >&2
+        exit 1
+        ;;
+    esac
+    echo "pre-commit: running npm test with maxWorkers=$test_workers"
+    run_npm test -- "--maxWorkers=$test_workers"
+  else
+    echo "pre-commit: running npm test"
+    run_npm test
+  fi
 
   echo "pre-commit: running npm run build"
   run_npm run build

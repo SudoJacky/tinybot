@@ -133,4 +133,10 @@ npm run build
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
+On an HDD or another I/O-constrained machine, use `npm run test:hdd` to cap
+Vitest at four workers. To apply the same cap to the tracked pre-commit hook,
+run `git config --local tinybot.testWorkers 4` once in that checkout, or set
+`TINYBOT_TEST_WORKERS=4` in the shell that launches Git for a temporary
+override. Other checkouts retain Vitest's default concurrency.
+
 The pre-commit hook selects the applicable checks from the staged paths.
