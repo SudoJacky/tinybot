@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:4e6b9160f0934355278100191567450b2b3ec6a2d3bc96ff4fb67fe0e4d650ae -->
+<!-- tinybot-module-fingerprint: sha256:50a0b987ea8b9a2c6a122f5b928f49783c3139d7b355ccb79dc4a488a0568a89 -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -65,7 +65,8 @@ when it failed.
 - `persistence.rs`: turn/checkpoint persistence and cancellation/restore.
 - `trace_sink.rs`: live desktop and durable trace sinks.
 - `tool_dispatcher.rs`: construct runtime services backed by registered tools.
-- `result_projection.rs`: stable result, usage, artifact, and status accessors.
+- `result_projection.rs`: stable result, canonical token-usage, artifact, and
+  status accessors.
 - `webui_continuation.rs`: form continuations for WebUI callers.
 
 ## Invariants

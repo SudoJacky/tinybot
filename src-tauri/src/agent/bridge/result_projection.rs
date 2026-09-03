@@ -167,22 +167,15 @@ pub(crate) fn native_agent_token_usage_info(
         return Some(info.clone());
     }
     let usage = native_agent_usage(result).into_iter().last()?;
-    let last_total = usage_i64_field(
-        &usage,
-        &[
-            "totalTokens",
-            "total_tokens",
-            "contextUsageTokens",
-            "context_usage_tokens",
-            "total",
-        ],
-    )
-    .unwrap_or_default();
+    let last = crate::token_usage::normalize_provider_token_usage(&usage)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
     let total_usage = usage_i64_field(
         &usage,
         &["cumulativeUsageTokens", "cumulative_usage_tokens"],
     )
-    .unwrap_or(last_total);
+    .unwrap_or(last.total_tokens);
     Some(serde_json::json!({
         "totalTokenUsage": {
             "inputTokens": 0,
@@ -192,11 +185,11 @@ pub(crate) fn native_agent_token_usage_info(
             "totalTokens": total_usage,
         },
         "lastTokenUsage": {
-            "inputTokens": usage_i64_field(&usage, &["inputTokens", "input_tokens", "promptTokens", "prompt_tokens"]).unwrap_or_default(),
-            "cachedInputTokens": usage_i64_field(&usage, &["cachedInputTokens", "cached_input_tokens", "cachedTokens", "cached_tokens"]).unwrap_or_default(),
-            "outputTokens": usage_i64_field(&usage, &["outputTokens", "output_tokens", "completionTokens", "completion_tokens"]).unwrap_or_default(),
-            "reasoningOutputTokens": usage_i64_field(&usage, &["reasoningOutputTokens", "reasoning_output_tokens", "reasoningTokens", "reasoning_tokens"]).unwrap_or_default(),
-            "totalTokens": last_total,
+            "inputTokens": last.input_tokens,
+            "cachedInputTokens": last.cached_input_tokens,
+            "outputTokens": last.output_tokens,
+            "reasoningOutputTokens": last.reasoning_output_tokens,
+            "totalTokens": last.total_tokens,
         },
         "modelContextWindow": usage_i64_field(&usage, &["contextWindowTokens", "context_window_tokens"]),
     }))

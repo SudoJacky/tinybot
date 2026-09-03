@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:40f1a543d664546500fbca51c11ff819b9dc20476421e0b654b56d72c762ad8e -->
+<!-- tinybot-module-fingerprint: sha256:55f21de32b9ba183e31767df6185c10320a8e5d85fc2f643b0ce95409a8461cb -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -30,9 +30,10 @@ to [`agent::bridge`](../bridge/README.md).
 - Emit correlated runtime events and project typed items for compatibility
   consumers.
 - Track token usage, cancellation, and resumable form checkpoints. Provider
-  cache-read and reasoning-output counts are normalized from both top-level
-  usage fields and the Chat Completions/Responses prompt, input, completion,
-  or output Token detail objects. Context-window estimates serialize the fully
+  counts from Chat Completions and Responses pass through one shared canonical
+  mapper, including cache-read and reasoning-output counts from top-level or
+  nested prompt, input, completion, and output detail objects. Missing provider
+  usage remains distinct from an explicit zero. Context-window estimates serialize the fully
   assembled provider request after protocol encoding, so workspace instructions,
   replay items, references, images, tool definitions, and structured-output schemas
   share one accounting boundary. The final assembled request is retained and reused
@@ -139,7 +140,7 @@ The selected adapter owns all protocol-shaped behavior:
 - tool definition encoding;
 - request settings and request envelope fields;
 - endpoint dispatch and streaming reduction selection;
-- assistant text, reasoning, usage, and tool-call decoding;
+- assistant text, reasoning, raw usage, and tool-call decoding;
 - tool-result encoding for the following model request;
 - provider-native response items used by durable replay.
 

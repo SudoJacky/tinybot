@@ -301,8 +301,18 @@ impl DailyTokenUsageStore {
     }
 }
 
-pub(crate) fn token_usage_from_provider(usage: &Value) -> TokenUsage {
-    let input_tokens = i64_field(
+/// Maps token counts from either Chat Completions or Responses into the one
+/// usage shape stored by TinyBot. `None` means that the provider did not
+/// report token usage; it is intentionally different from an explicit zero.
+pub(crate) fn normalize_provider_token_usage(usage: &Value) -> Result<Option<TokenUsage>, String> {
+    if usage.is_null() {
+        return Ok(None);
+    }
+    usage
+        .as_object()
+        .ok_or_else(|| "provider usage must be an object".to_string())?;
+
+    let input_tokens = optional_i64_field(
         usage,
         &[
             "inputTokens",
@@ -310,8 +320,8 @@ pub(crate) fn token_usage_from_provider(usage: &Value) -> TokenUsage {
             "promptTokens",
             "prompt_tokens",
         ],
-    );
-    let output_tokens = i64_field(
+    )?;
+    let output_tokens = optional_i64_field(
         usage,
         &[
             "outputTokens",
@@ -319,63 +329,35 @@ pub(crate) fn token_usage_from_provider(usage: &Value) -> TokenUsage {
             "completionTokens",
             "completion_tokens",
         ],
+    )?;
+    let cached_input_tokens = max_optional(
+        optional_i64_field(
+            usage,
+            &[
+                "cachedInputTokens",
+                "cached_input_tokens",
+                "cachedTokens",
+                "cached_tokens",
+            ],
+        )?,
+        optional_detail_i64_field(
+            usage,
+            &[
+                "inputTokensDetails",
+                "input_tokens_details",
+                "promptTokensDetails",
+                "prompt_tokens_details",
+            ],
+            &[
+                "cachedInputTokens",
+                "cached_input_tokens",
+                "cachedTokens",
+                "cached_tokens",
+            ],
+        )?,
     );
-    let detailed_cached_input_tokens = [
-        "inputTokensDetails",
-        "input_tokens_details",
-        "promptTokensDetails",
-        "prompt_tokens_details",
-    ]
-    .iter()
-    .filter_map(|key| usage.get(key))
-    .map(|details| {
-        i64_field(
-            details,
-            &[
-                "cachedInputTokens",
-                "cached_input_tokens",
-                "cachedTokens",
-                "cached_tokens",
-            ],
-        )
-    })
-    .max()
-    .unwrap_or_default();
-    let detailed_reasoning_output_tokens = [
-        "outputTokensDetails",
-        "output_tokens_details",
-        "completionTokensDetails",
-        "completion_tokens_details",
-    ]
-    .iter()
-    .filter_map(|key| usage.get(key))
-    .map(|details| {
-        i64_field(
-            details,
-            &[
-                "reasoningOutputTokens",
-                "reasoning_output_tokens",
-                "reasoningTokens",
-                "reasoning_tokens",
-            ],
-        )
-    })
-    .max()
-    .unwrap_or_default();
-    TokenUsage {
-        input_tokens,
-        cached_input_tokens: i64_field(
-            usage,
-            &[
-                "cachedInputTokens",
-                "cached_input_tokens",
-                "cachedTokens",
-                "cached_tokens",
-            ],
-        )
-        .max(detailed_cached_input_tokens),
-        output_tokens,
-        reasoning_output_tokens: i64_field(
+    let reasoning_output_tokens = max_optional(
+        optional_i64_field(
             usage,
             &[
                 "reasoningOutputTokens",
@@ -383,27 +365,91 @@ pub(crate) fn token_usage_from_provider(usage: &Value) -> TokenUsage {
                 "reasoningTokens",
                 "reasoning_tokens",
             ],
-        )
-        .max(detailed_reasoning_output_tokens),
-        total_tokens: i64_field(
+        )?,
+        optional_detail_i64_field(
             usage,
             &[
-                "totalTokens",
-                "total_tokens",
-                "contextUsageTokens",
-                "context_usage_tokens",
-                "total",
+                "outputTokensDetails",
+                "output_tokens_details",
+                "completionTokensDetails",
+                "completion_tokens_details",
             ],
-        )
-        .max(input_tokens.saturating_add(output_tokens)),
+            &[
+                "reasoningOutputTokens",
+                "reasoning_output_tokens",
+                "reasoningTokens",
+                "reasoning_tokens",
+            ],
+        )?,
+    );
+    let reported_total = optional_i64_field(usage, &["totalTokens", "total_tokens", "total"])?;
+    let has_usage = input_tokens.is_some()
+        || cached_input_tokens.is_some()
+        || output_tokens.is_some()
+        || reasoning_output_tokens.is_some()
+        || reported_total.is_some();
+    if !has_usage {
+        return Ok(None);
     }
+
+    let input_tokens = input_tokens.unwrap_or_default();
+    let output_tokens = output_tokens.unwrap_or_default();
+    Ok(Some(TokenUsage {
+        input_tokens,
+        cached_input_tokens: cached_input_tokens.unwrap_or_default(),
+        output_tokens,
+        reasoning_output_tokens: reasoning_output_tokens.unwrap_or_default(),
+        total_tokens: reported_total.unwrap_or_else(|| input_tokens.saturating_add(output_tokens)),
+    }))
 }
 
-fn i64_field(value: &Value, keys: &[&str]) -> i64 {
-    keys.iter()
-        .find_map(|key| value.get(key).and_then(Value::as_i64))
-        .unwrap_or_default()
-        .max(0)
+fn optional_i64_field(value: &Value, keys: &[&str]) -> Result<Option<i64>, String> {
+    for key in keys {
+        let Some(value) = value.get(key) else {
+            continue;
+        };
+        if value.is_null() {
+            continue;
+        }
+        let number = value
+            .as_i64()
+            .or_else(|| value.as_u64().and_then(|number| i64::try_from(number).ok()))
+            .ok_or_else(|| format!("provider usage `{key}` must be an integer"))?;
+        if number < 0 {
+            return Err(format!("provider usage `{key}` must not be negative"));
+        }
+        return Ok(Some(number));
+    }
+    Ok(None)
+}
+
+fn optional_detail_i64_field(
+    usage: &Value,
+    detail_keys: &[&str],
+    value_keys: &[&str],
+) -> Result<Option<i64>, String> {
+    let mut result = None;
+    for key in detail_keys {
+        let Some(details) = usage.get(key) else {
+            continue;
+        };
+        if details.is_null() {
+            continue;
+        }
+        details
+            .as_object()
+            .ok_or_else(|| format!("provider usage `{key}` must be an object"))?;
+        result = max_optional(result, optional_i64_field(details, value_keys)?);
+    }
+    Ok(result)
+}
+
+fn max_optional(left: Option<i64>, right: Option<i64>) -> Option<i64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.max(right)),
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (None, None) => None,
+    }
 }
 
 fn non_negative_usage(usage: &TokenUsage) -> TokenUsage {
@@ -548,19 +594,81 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_nested_cache_and_reasoning_details() {
-        let usage = token_usage_from_provider(&serde_json::json!({
+    fn normalizes_responses_usage_details() {
+        let usage = normalize_provider_token_usage(&serde_json::json!({
             "input_tokens": 4_469,
             "input_tokens_details": { "cached_tokens": 4_096 },
             "output_tokens": 219,
             "output_tokens_details": { "reasoning_tokens": 47 },
             "total_tokens": 4_688
-        }));
+        }))
+        .unwrap()
+        .unwrap();
 
         assert_eq!(usage.input_tokens, 4_469);
         assert_eq!(usage.cached_input_tokens, 4_096);
         assert_eq!(usage.output_tokens, 219);
         assert_eq!(usage.reasoning_output_tokens, 47);
         assert_eq!(usage.total_tokens, 4_688);
+    }
+
+    #[test]
+    fn normalizes_chat_completions_usage_details() {
+        let usage = normalize_provider_token_usage(&serde_json::json!({
+            "prompt_tokens": 1_200,
+            "prompt_tokens_details": { "cached_tokens": 900 },
+            "completion_tokens": 80,
+            "completion_tokens_details": { "reasoning_tokens": 30 },
+            "total_tokens": 1_280
+        }))
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(usage.input_tokens, 1_200);
+        assert_eq!(usage.cached_input_tokens, 900);
+        assert_eq!(usage.output_tokens, 80);
+        assert_eq!(usage.reasoning_output_tokens, 30);
+        assert_eq!(usage.total_tokens, 1_280);
+    }
+
+    #[test]
+    fn distinguishes_missing_usage_from_explicit_zero() {
+        assert_eq!(normalize_provider_token_usage(&Value::Null).unwrap(), None);
+        assert_eq!(
+            normalize_provider_token_usage(&serde_json::json!({})).unwrap(),
+            None
+        );
+        assert_eq!(
+            normalize_provider_token_usage(&serde_json::json!({
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0
+            }))
+            .unwrap()
+            .unwrap(),
+            TokenUsage::default()
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_provider_usage_numbers() {
+        let error = normalize_provider_token_usage(&serde_json::json!({
+            "input_tokens": "100"
+        }))
+        .unwrap_err();
+
+        assert_eq!(error, "provider usage `input_tokens` must be an integer");
+    }
+
+    #[test]
+    fn infers_total_only_when_provider_omits_it() {
+        let usage = normalize_provider_token_usage(&serde_json::json!({
+            "input_tokens": 10,
+            "output_tokens": 3
+        }))
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(usage.total_tokens, 13);
     }
 }

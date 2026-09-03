@@ -1271,9 +1271,9 @@ fn agent_usage_event_includes_context_window_budget() {
         .expect("usage event should be present");
     let usage = &usage_event["payload"]["usage"];
 
-    assert_eq!(usage["context_window_tokens"], 100);
-    assert!(usage["context_window_remaining_tokens"].is_number());
-    assert!(usage["context_window_used_tokens"].is_number());
+    assert_eq!(usage["contextWindowTokens"], 100);
+    assert!(usage["contextWindowRemainingTokens"].is_number());
+    assert!(usage["contextWindowUsedTokens"].is_number());
     assert_eq!(usage_event["payload"]["agentItem"]["type"], "usage");
     assert!(usage_event["payload"]["agentItem"]["providerPayload"]
         .get("contextWindowTokens")
@@ -1360,7 +1360,7 @@ fn context_window_uses_whitelisted_model_default_when_unconfigured() {
     ] {
         let context = AgentTurnContext::from_spec(json!({ "model": model }), json!({}));
 
-        let usage = enrich_usage_with_context_window(&context, json!({}), 10, 0);
+        let usage = enrich_usage_with_context_window(&context, None, 10, 0);
 
         assert_eq!(usage["contextWindowTokens"], 1_000_000, "model: {model}");
     }
@@ -1370,7 +1370,7 @@ fn context_window_uses_whitelisted_model_default_when_unconfigured() {
 fn context_window_keeps_generic_default_for_unlisted_models() {
     let context = AgentTurnContext::from_spec(json!({ "model": "custom-model" }), json!({}));
 
-    let usage = enrich_usage_with_context_window(&context, json!({}), 10, 0);
+    let usage = enrich_usage_with_context_window(&context, None, 10, 0);
 
     assert_eq!(usage["contextWindowTokens"], 128_000);
 }
@@ -1388,7 +1388,7 @@ fn legacy_global_context_window_is_only_an_unknown_model_fallback() {
         }),
     );
 
-    let usage = enrich_usage_with_context_window(&context, json!({}), 10, 0);
+    let usage = enrich_usage_with_context_window(&context, None, 10, 0);
 
     assert_eq!(usage["contextWindowTokens"], 1_000_000);
 
@@ -1402,7 +1402,7 @@ fn legacy_global_context_window_is_only_an_unknown_model_fallback() {
             }
         }),
     );
-    let unknown_usage = enrich_usage_with_context_window(&unknown_context, json!({}), 10, 0);
+    let unknown_usage = enrich_usage_with_context_window(&unknown_context, None, 10, 0);
     assert_eq!(unknown_usage["contextWindowTokens"], 64_000);
 }
 
@@ -1431,7 +1431,7 @@ fn provider_profile_model_context_window_overrides_automatic_default() {
         }),
     );
 
-    let usage = enrich_usage_with_context_window(&context, json!({}), 10, 0);
+    let usage = enrich_usage_with_context_window(&context, None, 10, 0);
 
     assert_eq!(usage["contextWindowTokens"], 64_000);
 }
@@ -1499,19 +1499,17 @@ fn usage_context_window_prefers_provider_total_tokens() {
         }),
     );
 
-    let usage = enrich_usage_with_context_window(
-        &context,
-        json!({
-            "prompt_tokens": 5,
-            "completion_tokens": 167,
-            "total_tokens": 172
-        }),
-        9,
-        1000,
-    );
+    let provider_usage = crate::token_usage::normalize_provider_token_usage(&json!({
+        "prompt_tokens": 5,
+        "completion_tokens": 167,
+        "total_tokens": 172
+    }))
+    .unwrap()
+    .unwrap();
+    let usage = enrich_usage_with_context_window(&context, Some(&provider_usage), 9, 1000);
 
-    assert_eq!(usage["promptTokens"], 5);
-    assert_eq!(usage["completionTokens"], 167);
+    assert_eq!(usage["inputTokens"], 5);
+    assert_eq!(usage["outputTokens"], 167);
     assert_eq!(usage["totalTokens"], 172);
     assert_eq!(usage["contextWindowUsedTokens"], 172);
     assert_eq!(usage["contextUsageTokens"], 172);
@@ -1529,21 +1527,17 @@ fn responses_usage_is_normalized_for_existing_usage_consumers() {
         json!({}),
     );
 
-    let usage = enrich_usage_with_context_window(
-        &context,
-        json!({
-            "input_tokens": 5,
-            "output_tokens": 7,
-            "total_tokens": 12
-        }),
-        9,
-        0,
-    );
+    let provider_usage = crate::token_usage::normalize_provider_token_usage(&json!({
+        "input_tokens": 5,
+        "output_tokens": 7,
+        "total_tokens": 12
+    }))
+    .unwrap()
+    .unwrap();
+    let usage = enrich_usage_with_context_window(&context, Some(&provider_usage), 9, 0);
 
-    assert_eq!(usage["prompt_tokens"], 5);
-    assert_eq!(usage["promptTokens"], 5);
-    assert_eq!(usage["completion_tokens"], 7);
-    assert_eq!(usage["completionTokens"], 7);
+    assert_eq!(usage["inputTokens"], 5);
+    assert_eq!(usage["outputTokens"], 7);
     assert_eq!(usage["contextWindowUsedTokens"], 12);
 }
 
@@ -1615,17 +1609,17 @@ fn agent_usage_event_falls_back_to_estimated_context_when_provider_omits_usage()
         .expect("usage event should be present");
     let usage = &usage_event["payload"]["usage"];
 
-    assert_eq!(usage["context_window_tokens"], 128000);
-    assert!(
-        usage["estimated_context_tokens"]
-            .as_i64()
-            .unwrap_or_default()
-            > 0
-    );
+    assert_eq!(usage["contextWindowTokens"], 128000);
+    assert!(usage["estimatedContextTokens"].as_i64().unwrap_or_default() > 0);
     assert_eq!(
-        usage["context_window_used_tokens"],
-        usage["estimated_context_tokens"]
+        usage["contextWindowUsedTokens"],
+        usage["estimatedContextTokens"]
     );
+    assert!(!result["runtimeEvents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|event| event["eventName"] == "agent.token_count"));
 }
 
 #[test]

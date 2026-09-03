@@ -55,6 +55,16 @@ fn aggregate_stream_chunks(chunks: &[Value]) -> Result<Value, String> {
 }
 
 #[test]
+fn streaming_chat_does_not_fabricate_missing_usage() {
+    let completion = aggregate_stream_chunks(&[
+        json!({"model":"gpt-test","choices":[{"delta":{"content":"done"}}]}),
+    ])
+    .expect("streaming content should aggregate");
+
+    assert!(completion.get("usage").is_none());
+}
+
+#[test]
 fn provider_catalog_masks_secret_presence() {
     let body = provider_catalog_body(&json!({
         "providers": {
@@ -903,6 +913,7 @@ fn aggregates_streaming_tool_call_chunks_for_agent_completion() {
         completion["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"],
         "{\"path\":\"README.md\"}"
     );
+    assert!(completion.get("usage").is_none());
 }
 
 #[test]

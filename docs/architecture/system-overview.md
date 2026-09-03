@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:6bedb9347e2f660c5d0d5d3d5364cc0d7278b26fd14b4227acf871374ffc58c4 -->
+<!-- tinybot-doc-fingerprint: sha256:dca932a721e4372e03232862ba18ce01b94b14e9354cb982bb3c8b70ce61a0a3 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -88,6 +88,9 @@ Desktop Commands / Desktop Host
   `~/.tinybot/chat-attachments/images/`; Rollouts remain authoritative for the
   typed reference and never persist the Base64 request payload.
 - Typed in-process conversation projection: `threads::domain`.
+- Daily provider/model token totals: `~/.tinybot/state/token-usage.sqlite`,
+  derived only from calls that report provider usage. It is aggregate telemetry,
+  not conversation authority.
 - Current execution generation for a Turn: `TurnExecutionRuntime`.
 - Process-local performance diagnostics: the native runtime metric/event ring,
   augmented with the renderer's bounded startup trace and bounded Rust/WebView2

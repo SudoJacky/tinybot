@@ -1,5 +1,5 @@
 use super::{AgentItem, AgentItemHistory, AgentMessageContent};
-use crate::threads::rollout::format::TokenUsageInfo;
+use crate::threads::rollout::format::{TokenUsage, TokenUsageInfo};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
@@ -29,10 +29,9 @@ impl ContextManager {
 
     pub(super) fn update_token_info(
         &mut self,
-        provider_usage: &Value,
+        last: TokenUsage,
         model_context_window: Option<i64>,
     ) {
-        let last = crate::token_usage::token_usage_from_provider(provider_usage);
         self.token_info = Some(TokenUsageInfo::new_or_append(
             self.token_info.as_ref(),
             last,

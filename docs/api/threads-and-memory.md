@@ -13,7 +13,7 @@ src-tauri/src/threads/domain/types/requests.rs
 src-tauri/tests/crate/threads.rs
 src/app-core/chat/agentInputReference.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:d40def17afc1479f9692ae6f9cba0fbfa525b03c9a02d7726bd50cee2ff98ae4 -->
+<!-- tinybot-doc-fingerprint: sha256:6b544014ad78d9b369e9bb914b3bf3d788b54c5e58547243a79ede5a661c9de9 -->
 
 This document covers Thread queries, memory, persistence, and project grouping.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -270,8 +270,9 @@ record that would project to a Thread item without a Turn identity is a consiste
 
 Turn writes follow Codex-style ordering: one start batch contains `turn_started`, `turn_context`,
 the materialized system/developer prompt when it changed, and the user message. Later batches append
-typed message/tool/reasoning records, per-provider-call `token_count`, resumable checkpoints, and one
-`turn_complete` or `turn_aborted`. Compaction, metadata changes, rollback, fork, archive, and
+typed message/tool/reasoning records, a per-provider-call `token_count` when the provider reports
+usage, resumable checkpoints, and one `turn_complete` or `turn_aborted`. Compaction, metadata
+changes, rollback, fork, archive, and
 subagent communication use the same Rollout authority. UI thread snapshots, thread history, model
 context, AgentTurn records, and active checkpoints are reconstructed projections of that file.
 Canonical append or reconstruction errors fail the operation instead of falling back to an old

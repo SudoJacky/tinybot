@@ -11,7 +11,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:5f61c47e604731fe50ae1d6a9d150d936a1547181c44cd7eeca511f97990b7d6 -->
+<!-- tinybot-doc-fingerprint: sha256:2aaa942b1369e4c14b51e928ed4a9ce81f4bf89a968d0b66b935bb27776b1933 -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -139,6 +139,10 @@ strategy is `compact`. Compaction summarizes older context through the
 provider, persists a context checkpoint, and retains recent messages. Explicit
 `discard` remains available and keeps the newest messages that fit without
 creating a summary.
+
+Context usage prefers the provider's normalized total when one is reported and
+otherwise uses the local request estimate. The estimate remains available for
+window management without being persisted as provider token usage.
 
 Exact configuration names and defaults belong in the
 [desktop command reference](../api/desktop.md#config-commands).

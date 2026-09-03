@@ -1,4 +1,4 @@
-use super::items::{parse_tool_call, AgentUsageItem};
+use super::items::parse_tool_call;
 use super::provider_adapter::{
     apply_provider_request_adaptation, attach_provider_tools,
     provider_message_with_user_context_and_images, require_model_image_input,
@@ -112,9 +112,7 @@ impl ChatCompletionsAdapter {
         let usage = completion
             .get("usage")
             .filter(|value| !value.is_null())
-            .cloned()
-            .map(AgentUsageItem::from_provider_payload)
-            .transpose()?;
+            .cloned();
         Ok(DecodedProviderTurn {
             assistant: AgentAssistantMessage {
                 id: message

@@ -1,5 +1,5 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:bae5d425999b3392d40ab4b12b837e6e22d5bbcf378a67c322b462df1f9ccc88 -->
+<!-- tinybot-module-fingerprint: sha256:c8ccedbfa0295c8a2771e602c48bbe32593548e3ae5dbf913866b153980cdf8b -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.
@@ -13,9 +13,10 @@ by migration and rejection tests at the owning boundaries.
 
 Context coverage includes compaction and trimming budgets, estimates of the
 fully assembled provider request (including Responses-native replay), and
-normalization of nested cache and reasoning usage details. It also verifies
-known-model context defaults, the legacy unknown-model fallback, and Provider
-Profile per-model overrides.
+shared Chat Completions/Responses normalization of nested cache and reasoning
+usage details. It distinguishes missing usage from an explicit zero and also
+verifies known-model context defaults, the legacy unknown-model fallback, and
+Provider Profile per-model overrides.
 
 Shared fixtures and helpers live in `mod.rs`.
 

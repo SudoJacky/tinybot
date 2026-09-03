@@ -131,9 +131,15 @@ async fn record_completed_provider_usage(
     body: &Value,
     response: &Value,
 ) -> Result<(), String> {
+    let Some(usage) = crate::token_usage::normalize_provider_token_usage(
+        response.get("usage").unwrap_or(&Value::Null),
+    )?
+    else {
+        return Ok(());
+    };
     #[cfg(test)]
     {
-        let _ = (body, response);
+        let _ = (body, usage);
         if config
             .get("__test_token_usage_persistence_error")
             .and_then(Value::as_bool)
@@ -157,9 +163,6 @@ async fn record_completed_provider_usage(
                 )
             })?;
         let model_id = string_field(response, "model").unwrap_or(requested_model);
-        let usage = crate::token_usage::token_usage_from_provider(
-            response.get("usage").unwrap_or(&Value::Null),
-        );
         tauri::async_runtime::spawn_blocking(move || {
             crate::token_usage::DailyTokenUsageStore::global().record_model_call(
                 &model_call_id,
