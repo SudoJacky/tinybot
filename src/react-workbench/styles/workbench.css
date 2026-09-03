@@ -1010,7 +1010,7 @@ button:disabled {
   margin-top: 5px;
 }
 
-.react-session-workspace > summary {
+.react-session-workspace__details > summary {
   display: grid;
   grid-template-columns: 14px 16px minmax(0, 1fr);
   align-items: center;
@@ -1026,18 +1026,18 @@ button:disabled {
     color var(--motion-duration-fast) ease;
 }
 
-.react-session-workspace > summary::-webkit-details-marker {
+.react-session-workspace__details > summary::-webkit-details-marker {
   display: none;
 }
 
-.react-session-workspace > summary:hover,
-.react-session-workspace > summary:focus-visible,
-.react-session-workspace[data-active="true"] > summary {
+.react-session-workspace__details > summary:hover,
+.react-session-workspace__details > summary:focus-visible,
+.react-session-workspace[data-active="true"] > .react-session-workspace__details > summary {
   background: color-mix(in srgb, var(--color-cream-strong) 58%, transparent);
   color: var(--color-ink);
 }
 
-.react-session-workspace > summary:focus-visible {
+.react-session-workspace__details > summary:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--color-primary) 74%, transparent);
   outline-offset: -2px;
 }
@@ -1046,7 +1046,7 @@ button:disabled {
   transition: transform var(--motion-duration-fast) ease;
 }
 
-.react-session-workspace[open] > summary .react-session-workspace__chevron {
+.react-session-workspace__details[open] > summary .react-session-workspace__chevron {
   transform: rotate(90deg);
 }
 
@@ -1061,11 +1061,11 @@ button:disabled {
 }
 
 .react-session-workspace__folder-icon--expanded,
-.react-session-workspace[open] > summary .react-session-workspace__folder-icon--collapsed {
+.react-session-workspace__details[open] > summary .react-session-workspace__folder-icon--collapsed {
   display: none;
 }
 
-.react-session-workspace[open] > summary .react-session-workspace__folder-icon--expanded {
+.react-session-workspace__details[open] > summary .react-session-workspace__folder-icon--expanded {
   display: block;
 }
 
@@ -1096,6 +1096,7 @@ button:disabled {
 
 .react-session-workspace__actions {
   position: absolute;
+  z-index: 1;
   top: 6px;
   right: 1px;
   display: flex;
@@ -1124,7 +1125,7 @@ button:disabled {
   opacity: 1;
 }
 
-.react-session-workspace:not([open]) > .react-session-workspace__sessions {
+.react-session-workspace__details:not([open]) > .react-session-workspace__sessions {
   display: none;
 }
 
@@ -1489,7 +1490,7 @@ button:disabled {
     transform 180ms var(--motion-ease-standard);
 }
 
-.react-session-workspace > summary[draggable="true"],
+.react-session-workspace__details > summary[draggable="true"],
 .react-project-group > summary[draggable="true"],
 .react-project-group__member-title[draggable="true"],
 .react-session-row[draggable="true"] {
@@ -1511,7 +1512,7 @@ button:disabled {
   opacity: .52;
 }
 
-.react-session-workspace[data-dragging="true"] > summary,
+.react-session-workspace[data-dragging="true"] > .react-session-workspace__details > summary,
 .react-project-group[data-dragging="true"] > summary,
 .react-project-workspace[data-dragging="true"] > .react-project-group__member-title {
   cursor: grabbing;

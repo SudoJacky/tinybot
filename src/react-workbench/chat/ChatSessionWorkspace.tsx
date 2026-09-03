@@ -669,7 +669,7 @@ export function ChatSessionWorkspace({
                 label: rootGroup.label,
               };
               return (
-                <details
+                <div
                   aria-label={t("shell.workspace", { name: workspace.label })}
                   className="react-session-workspace"
                   data-active={workspace.sessions.some((session) => session.id === activeSessionId) ? "true" : undefined}
@@ -677,30 +677,34 @@ export function ChatSessionWorkspace({
                     && draggedSidebarItem.itemId === rootGroup.itemId ? "true" : undefined}
                   data-drop-position={sidebarDropPosition(SIDEBAR_ROOT_CONTAINER_ID, rootGroup.itemId)}
                   key={workspace.key}
-                  open
                   role="group"
                 >
-                  <summary
-                    aria-description={t("shell.reorderWorkspace", { name: workspace.label })}
-                    aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-                    draggable
-                    title={workspace.workingDirectory ?? workspace.label}
-                    onDragEnd={finishSidebarDrag}
-                    onDragOver={(event) => updateSidebarDropTarget(event, reorderItem)}
-                    onDragStart={(event) => beginSidebarDrag(event, reorderItem)}
-                    onDrop={(event) => dropSidebarItem(event, reorderItem, rootOrderItems)}
-                    onKeyDown={(event) => moveSidebarItemWithKeyboard(event, reorderItem, rootOrderItems)}
-                  >
-                    <ChevronRight aria-hidden="true" className="react-session-workspace__chevron" size={14} />
-                    <span aria-hidden="true" className="react-session-workspace__folder">
-                      <Folder className="react-session-workspace__folder-icon--collapsed" size={15} />
-                      <FolderOpen className="react-session-workspace__folder-icon--expanded" size={15} />
-                    </span>
-                    <span className="react-session-workspace__copy">
-                      <strong>{workspace.label}</strong>
-                      {workspace.workingDirectory ? <small>{workspace.workingDirectory}</small> : null}
-                    </span>
-                  </summary>
+                  <details className="react-session-workspace__details" open>
+                    <summary
+                      aria-description={t("shell.reorderWorkspace", { name: workspace.label })}
+                      aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                      draggable
+                      title={workspace.workingDirectory ?? workspace.label}
+                      onDragEnd={finishSidebarDrag}
+                      onDragOver={(event) => updateSidebarDropTarget(event, reorderItem)}
+                      onDragStart={(event) => beginSidebarDrag(event, reorderItem)}
+                      onDrop={(event) => dropSidebarItem(event, reorderItem, rootOrderItems)}
+                      onKeyDown={(event) => moveSidebarItemWithKeyboard(event, reorderItem, rootOrderItems)}
+                    >
+                      <ChevronRight aria-hidden="true" className="react-session-workspace__chevron" size={14} />
+                      <span aria-hidden="true" className="react-session-workspace__folder">
+                        <Folder className="react-session-workspace__folder-icon--collapsed" size={15} />
+                        <FolderOpen className="react-session-workspace__folder-icon--expanded" size={15} />
+                      </span>
+                      <span className="react-session-workspace__copy">
+                        <strong>{workspace.label}</strong>
+                        {workspace.workingDirectory ? <small>{workspace.workingDirectory}</small> : null}
+                      </span>
+                    </summary>
+                    <div className="react-session-workspace__sessions">
+                      {renderSidebarSessionRows(workspace.sessions, sidebarWorkspaceSessionsId(workspace.key))}
+                    </div>
+                  </details>
                   <div className="react-session-workspace__actions">
                     <button
                       aria-label={t("shell.newSessionIn", { name: workspace.label })}
@@ -723,10 +727,7 @@ export function ChatSessionWorkspace({
                       </button>
                     ) : null}
                   </div>
-                  <div className="react-session-workspace__sessions">
-                    {renderSidebarSessionRows(workspace.sessions, sidebarWorkspaceSessionsId(workspace.key))}
-                  </div>
-                </details>
+                </div>
               );
             }
             const projectGroup = rootGroup.group;

@@ -1,5 +1,5 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:08285588d35e1020ad914512c336a885debab67ea404c7b1794cd1d8562be033 -->
+<!-- tinybot-module-fingerprint: sha256:58abd3b23f55008093d41403b7a3e09bcd13ed5e62d07e6fbd146d4d99575fba -->
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
@@ -26,8 +26,9 @@ focus-within styling keeps the active boundary visible and reduced-motion mode
 shortens the reveal through the shared global motion rule.
 Workspace rename and forget actions stay compact beside the owning header and
 use the same visible focus treatment as other sidebar controls. The workspace
-header reserves a fixed right-aligned two-button row so its create and manage
-actions cannot wrap below the workspace label.
+row, rather than the native `details` content box, anchors a fixed right-aligned
+two-button area so its create and manage actions cannot drop below the workspace
+label.
 
 The desktop document root is fixed to the WebView viewport and never owns page
 scrolling. `html`, `body`, and `#root` contain the `100%` shell while route,

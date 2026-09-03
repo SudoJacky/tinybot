@@ -211,7 +211,8 @@ describe("ChatPage", () => {
 
     const sidebar = await screen.findByLabelText("Sessions");
     const workspace = within(sidebar).getByRole("group", { name: "Workspace tinybot" });
-    const workspaceSummary = workspace.querySelector("summary");
+    const workspaceDetails = workspace.querySelector("details");
+    const workspaceSummary = workspaceDetails?.querySelector("summary");
     const collapsedFolder = workspaceSummary?.querySelector(".react-session-workspace__folder-icon--collapsed");
     const expandedFolder = workspaceSummary?.querySelector(".react-session-workspace__folder-icon--expanded");
     expect(collapsedFolder).toBeTruthy();
@@ -223,7 +224,7 @@ describe("ChatPage", () => {
     expect(within(sidebar).getByRole("group", { name: "Workspace General chats" })).toBeTruthy();
 
     await user.click(workspaceSummary as HTMLElement);
-    expect(workspace.hasAttribute("open")).toBe(false);
+    expect(workspaceDetails?.hasAttribute("open")).toBe(false);
     expect(getComputedStyle(collapsedFolder as Element).display).not.toBe("none");
     expect(getComputedStyle(expandedFolder as Element).display).toBe("none");
 

@@ -76,6 +76,17 @@ describe("ChatSessionWorkspace", () => {
     expect(document.querySelector(".react-sidebar-reorder-handle")).toBeNull();
   });
 
+  test("keeps workspace actions outside the native details content box", async () => {
+    renderWorkspace();
+    const workspace = screen.getByRole("group", { name: "Workspace tinybot" });
+    const details = workspace.querySelector(":scope > details");
+    const manageButton = await within(workspace).findByRole("button", { name: "Manage tinybot" });
+
+    expect(workspace.tagName).toBe("DIV");
+    expect(details?.querySelector(":scope > summary")).toBeTruthy();
+    expect(manageButton.closest(".react-session-workspace__actions")?.parentElement).toBe(workspace);
+  });
+
   test("drags workspace groups into a persisted user order", () => {
     const sessions = [
       planningSession(),
@@ -265,7 +276,7 @@ describe("ChatSessionWorkspace", () => {
 
 function sidebarGroupLabels(rows: HTMLElement): string[] {
   return Array.from(rows.children)
-    .filter((element): element is HTMLElement => element instanceof HTMLElement && element.matches("details[role='group']"))
+    .filter((element): element is HTMLElement => element instanceof HTMLElement && element.matches("[role='group']"))
     .sort((left, right) => Number(left.style.order) - Number(right.style.order))
     .map((element) => element.getAttribute("aria-label") ?? "");
 }

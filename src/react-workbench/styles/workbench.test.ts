@@ -23,9 +23,14 @@ describe("workbench CSS interaction contracts", () => {
   });
 
   test("keeps workspace header actions in one fixed right-aligned row", () => {
+    const workspaceRule = shellStylesheet.match(/\.react-session-workspace\s*\{([^}]+)\}/);
     const actionsRule = shellStylesheet.match(/\.react-session-workspace__actions\s*\{([^}]+)\}/);
     const buttonRule = shellStylesheet.match(/\.react-session-workspace__actions > button\s*\{([^}]+)\}/);
 
+    expect(workspaceRule?.[1]).toContain("position: relative");
+    expect(actionsRule?.[1]).toContain("position: absolute");
+    expect(actionsRule?.[1]).toContain("top: 6px");
+    expect(actionsRule?.[1]).toContain("right: 1px");
     expect(actionsRule?.[1]).toContain("width: 64px");
     expect(actionsRule?.[1]).toContain("justify-content: flex-end");
     expect(actionsRule?.[1]).toContain("flex-wrap: nowrap");
