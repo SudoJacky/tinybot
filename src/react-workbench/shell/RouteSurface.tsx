@@ -80,8 +80,6 @@ export function RouteSurface({
           workspaceStore={services.workspaceStore}
           sessionSidebarCollapsed={chat.sessionSidebarCollapsed}
           onActiveWorkspaceChange={chat.onActiveWorkspaceChange}
-          onOpenFiles={() => onNavigate("files")}
-          onOpenSettings={() => onNavigate("settings")}
           onMascotMoodChange={chat.onMascotMoodChange}
           onSessionSidebarCollapsedChange={chat.onSessionSidebarCollapsedChange}
           onStartupSessionHydrated={chat.onStartupSessionHydrated}

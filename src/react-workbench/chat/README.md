@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:3e178e1cf0aee2cb78cef7edde1327b9f8d4709e96882f3a1aa83e6bc373cdd0 -->
+<!-- tinybot-module-fingerprint: sha256:54d6bd1e64a8585935c47ef02674c428517d8395d4a1047266b7b7b82965f23f -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -165,9 +165,15 @@ Regular chats share a stable default-workspace Sidecar scope; they omit the
 terminal working-directory argument so Rust resolves the same configured
 native default used by Agent turns.
 
-Desktop-level project and session-search dialogs keep their domain actions in
-this module while delegating modal focus, keyboard, dismissal, and scroll-lock
+Desktop-level project and workspace dialogs keep their domain actions in this
+module while delegating modal focus, keyboard, dismissal, and scroll-lock
 behavior to `components/ui/useModalDialog`.
+
+Session search stays inside the expanded sidebar instead of opening a desktop
+dialog. Its icon expands into an auto-focused input that filters session title,
+ID, and working-directory fields while preserving matching workspace and
+project context. Closing with its button or Escape clears the query, restores
+the full hierarchy, and returns focus to the search trigger.
 
 The expanded session sidebar keeps a renderer-local, versioned user order for
 its top-level workspace/project blocks, each project's member workspaces, and
@@ -197,7 +203,7 @@ Session creation follows the entry point's target. Workspace and project
 actions capture their workspace and project context on the local draft. With the
 session sidebar expanded, those contextual actions and the draft's first
 submission are the primary creation paths; the tab-strip create action appears
-only while the sidebar is collapsed. Collapsed-tab, search, menu, and keyboard
+only while the sidebar is collapsed. Collapsed-tab, menu, and keyboard
 actions may inherit an ordinary active workspace, but never an active project
 coordinator; coordinator sessions are created only by the project's coordinator
 action. System-owned flows such as plugin migration continue to create their

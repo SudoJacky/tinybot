@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:a9086316fe56ca44c3ab8823f2715adc404b2645604bf10df113c759e8b09381 -->
+<!-- tinybot-module-fingerprint: sha256:6e36fc4bdcfdfec13f497aa1dc935edb0661bafc8dc6d32f2799e33193a421c0 -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
@@ -18,6 +18,8 @@ active directory. The shell does not derive that current selection from
 session recency or project-group order.
 Shell menu and keyboard new-chat commands only signal Chat to open a local
 draft; they do not create a native Thread before the draft's first send.
+Session search is entirely owned by Chat's sidebar and no longer routes command
+recommendations or route-navigation callbacks through the desktop shell.
 Shell menu surfaces and items use the shared workbench popover primitives, so
 route-owned menus can reuse the same visual and focus states without copying
 shell-specific selectors.

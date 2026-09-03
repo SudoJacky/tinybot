@@ -20,7 +20,7 @@ afterEach(() => {
 });
 
 describe("ChatSessionWorkspace", () => {
-  test("owns sidebar selection and search lifecycle behind one actions interface", async () => {
+  test("owns sidebar selection and inline search lifecycle behind one actions interface", () => {
     const actions = createActions();
     const session = planningSession();
     renderWorkspace({ actions, sessions: [session] });
@@ -29,12 +29,18 @@ describe("ChatSessionWorkspace", () => {
     expect(actions.onSelectSession).toHaveBeenCalledWith(session);
 
     fireEvent.click(screen.getByRole("button", { name: /search chats/i }));
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("Planning notes")).toBeTruthy();
+    const search = screen.getByRole("search", { name: "Session search" });
+    const input = within(search).getByRole("textbox", { name: "Search chats" });
+    expect(document.activeElement).toBe(input);
 
-    fireEvent.click(within(dialog).getByRole("button", { name: /new chat/i }));
-    await waitFor(() => expect(actions.onCreateSession).toHaveBeenCalled());
-    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.change(input, { target: { value: "missing" } });
+    expect(screen.queryByRole("button", { name: "Planning notes" })).toBeNull();
+    expect(screen.getByText("No matching sessions.")).toBeTruthy();
+
+    fireEvent.click(within(search).getByRole("button", { name: "Close session search" }));
+    expect(screen.queryByRole("search", { name: "Session search" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Planning notes" })).toBeTruthy();
+    expect(actions.onCreateSession).not.toHaveBeenCalled();
   });
 
   test("surfaces and diagnoses project-group loading failures", async () => {

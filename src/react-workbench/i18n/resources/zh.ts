@@ -499,7 +499,7 @@ export const zh = {
       label: "插件迁移结果", installed: "{{name}} 已安装{{state}}", keptDisabled: "（保持停用）", enabled: "并已启用", complete: "迁移完成——安装生成的插件",
       cleaned: "临时迁移工作区已清理。", validate: "Tinybot 会先验证生成的 Package，再进行全局安装。", installing: "正在安装…", install: "安装迁移后的插件",
     },
-    search: { label: "会话搜索", placeholder: "搜索会话或运行命令", chats: "会话", noMatches: "没有符合条件的会话。", regular: "常规会话", suggested: "推荐", start: "开始新会话", openFolder: "打开文件夹", settings: "设置", noDate: "无日期" },
+    search: { label: "会话搜索", placeholder: "搜索会话…", close: "关闭会话搜索", chats: "会话", noMatches: "没有符合条件的会话。", regular: "常规会话", suggested: "推荐", start: "开始新会话", openFolder: "打开文件夹", settings: "设置", noDate: "无日期" },
     empty: { title: "想让 Tinybot 做什么？", description: "选择一个建议，或直接在下方描述你的任务。", suggestions: "任务建议" },
     tabs: { open: "打开的会话", closeTab: "关闭 {{name}} 标签页", close: "关闭 {{name}}", newTab: "新建会话标签页", newConversation: "新建会话", menu: "打开标签页菜单", openTabs: "打开的标签页", status: { running: "运行中", failed: "失败", unread: "有未读活动" } },
     sidecar: {

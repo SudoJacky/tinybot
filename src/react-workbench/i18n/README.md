@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:d36e7584c459113fb793b93b9c18b5b852b54bbb86a50daa24e15077cb48040c -->
+<!-- tinybot-module-fingerprint: sha256:a4b39a029d35f4f1aa686b7d07822a3369ee2ebd564bc0ef7f1e7e6b5847f9d1 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
@@ -76,6 +76,8 @@ position remain language-neutral requests.
 Session-sidebar whole-row keyboard instructions and live-region move
 announcements are localized here. Persisted container and item IDs remain
 language-neutral so changing the interface language cannot reset user order.
+The inline session-search placeholder, close action, and empty result state are
+localized here while session titles, IDs, and workspace paths remain user data.
 Workspace register, display-name rename, forget confirmation, missing-folder,
 and project-reference failure copy is localized here; canonical paths remain
 native-owned untranslated identifiers.

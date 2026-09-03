@@ -34,9 +34,7 @@ describe("workbench CSS interaction contracts", () => {
 
   test("keeps conversation rows intrinsic and scopes drawer header layout", () => {
     const conversationRule = chatStylesheet.match(/\.react-conversation-view\s*\{([^}]+)\}/);
-    const drawerHeaderRule = chatStylesheet.match(
-      /\.react-right-drawer__header,\s*\.react-command-palette > div\s*\{([^}]+)\}/,
-    );
+    const drawerHeaderRule = chatStylesheet.match(/\.react-right-drawer__header\s*\{([^}]+)\}/);
     const artifactDetailRule = chatStylesheet.match(/\.react-artifact-detail\s*\{([^}]+)\}/);
 
     expect(conversationRule?.[1]).toContain("grid-auto-rows: max-content");

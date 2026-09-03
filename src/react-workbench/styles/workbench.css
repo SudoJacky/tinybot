@@ -862,6 +862,72 @@ button:disabled {
   color: var(--color-ink);
 }
 
+.react-session-list__inline-search {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  overflow: hidden;
+  border: 1px solid var(--color-hairline);
+  border-radius: 9px;
+  background: var(--color-panel);
+  padding: 0 3px 0 9px;
+  color: var(--color-muted);
+  transform-origin: right center;
+  animation: react-session-search-expand var(--motion-duration-fast) var(--motion-ease-standard) both;
+}
+
+.react-session-list__inline-search:focus-within {
+  border-color: color-mix(in srgb, var(--color-primary) 62%, var(--color-hairline));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+.react-session-list__inline-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-ink);
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+}
+
+.react-session-list__inline-search input::placeholder {
+  color: var(--color-muted-soft);
+}
+
+.react-session-list__search-close {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--color-muted);
+}
+
+.react-session-list__search-close:hover,
+.react-session-list__search-close:focus-visible {
+  color: var(--color-ink);
+}
+
+@keyframes react-session-search-expand {
+  from {
+    clip-path: inset(0 0 0 calc(100% - 32px) round 9px);
+    opacity: .65;
+  }
+
+  to {
+    clip-path: inset(0 round 9px);
+    opacity: 1;
+  }
+}
+
 .react-session-list__add-workspace:disabled {
   color: var(--color-muted-soft);
 }
@@ -1933,131 +1999,6 @@ button:disabled {
 
 .react-empty-state {
   color: var(--color-muted);
-}
-
-.react-session-search-backdrop {
-  padding-top: 26px;
-  background: rgb(20 20 19 / 18%);
-}
-
-.react-session-search-dialog {
-  gap: 14px;
-  width: min(780px, calc(100vw - 48px));
-  max-height: min(82vh, 760px);
-  overflow: hidden;
-  border-radius: 26px;
-  padding: 16px 18px 18px;
-}
-
-.react-session-search__input-row {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  color: var(--color-muted);
-}
-
-.react-session-search__input-row input {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  color: var(--color-ink);
-  padding: 4px 0;
-  font-size: 18px;
-  line-height: 1.35;
-}
-
-.react-session-search__input-row input:focus-visible {
-  outline: none;
-}
-
-.react-session-search__section {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.react-session-search__section p {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 12px;
-}
-
-.react-session-search__list {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-  overflow: auto;
-}
-
-.react-session-search__item {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) max-content max-content max-content;
-  align-items: center;
-  gap: 10px;
-  min-height: 42px;
-  border-radius: 16px;
-  padding: 7px 12px;
-  color: var(--color-body);
-  font-size: 13px;
-  text-align: left;
-}
-
-.react-session-search__item:hover,
-.react-session-search__item:focus-visible,
-.react-session-search__item[aria-current="page"] {
-  background: var(--color-surface-soft);
-  color: var(--color-ink);
-}
-
-.react-session-search__rank {
-  display: inline-grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 999px;
-  color: var(--color-muted);
-  font-size: 11px;
-}
-
-.react-session-search__title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.react-session-search__meta,
-.react-session-search__item small {
-  color: var(--color-muted-soft);
-  white-space: nowrap;
-}
-
-.react-session-search__item kbd {
-  min-width: 46px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--color-surface-soft);
-  color: var(--color-muted);
-  padding: 2px 8px;
-  font: inherit;
-  font-size: 12px;
-  line-height: 1.2;
-  text-align: center;
-  white-space: nowrap;
-}
-
-.react-session-search__empty {
-  color: var(--color-muted);
-  padding: 8px 12px;
-  font-size: 13px;
-}
-
-.react-command-palette .react-session-search__input-row input {
-  border: 0;
-  border-radius: 0;
-  padding: 4px 0;
 }
 
 .react-sr-only {

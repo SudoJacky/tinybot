@@ -971,7 +971,7 @@ describe("ChatPage", () => {
     expect(row?.querySelector(".react-session-row__avatar")).toBeNull();
   });
 
-  it("opens session search, filters chats, and selects a matching session", async () => {
+  it("expands session search inline, filters the sidebar, and collapses from its close button", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     stores.sessionStore.list = vi.fn(async () => [
@@ -997,42 +997,45 @@ describe("ChatPage", () => {
     await screen.findByRole("button", { name: "Planning notes" });
     await user.click(screen.getByRole("button", { name: "Search chats" }));
 
-    const dialog = screen.getByRole("dialog", { name: "Chat search" });
-    const input = within(dialog).getByRole("textbox", { name: "Search chats or run a command" }) as HTMLInputElement;
+    const sidebar = screen.getByLabelText("Sessions");
+    const input = within(sidebar).getByRole("textbox", { name: "Search chats" }) as HTMLInputElement;
 
-    expect(input.placeholder).toBe("Search chats or run a command");
-    expect(within(dialog).getByRole("button", { name: /Planning notes/ })).toBeTruthy();
+    expect(input.placeholder).toBe("Search sessions…");
+    expect(document.activeElement).toBe(input);
+    expect(screen.queryByRole("dialog", { name: "Session search" })).toBeNull();
 
     await user.type(input, "react");
 
-    expect(within(dialog).queryByRole("button", { name: /Planning notes/ })).toBeNull();
-    await user.click(within(dialog).getByRole("button", { name: /ReactBits migration/ }));
+    expect(within(sidebar).queryByRole("button", { name: "Planning notes" })).toBeNull();
+    expect(within(sidebar).getByRole("button", { name: "ReactBits migration" })).toBeTruthy();
+    await user.click(within(sidebar).getByRole("button", { name: "Close session search" }));
 
-    expect(screen.queryByRole("dialog", { name: "Chat search" })).toBeNull();
-    expect(screen.getByRole("heading", { name: "ReactBits migration" })).toBeTruthy();
-    await waitFor(() => expect(stores.chatStore.load).toHaveBeenLastCalledWith("s2"));
+    expect(within(sidebar).queryByRole("textbox", { name: "Search chats" })).toBeNull();
+    expect(within(sidebar).getByRole("button", { name: "Planning notes" })).toBeTruthy();
+    expect(within(sidebar).getByRole("button", { name: "ReactBits migration" })).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(
+      within(sidebar).getByRole("button", { name: "Search chats" }),
+    ));
   });
 
-  it("runs the new chat recommendation from session search", async () => {
+  it("clears and collapses inline session search with Escape", async () => {
     const user = userEvent.setup();
     const stores = createStores();
-    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     await screen.findByRole("button", { name: "Planning notes" });
     await user.click(screen.getByRole("button", { name: "Search chats" }));
+    const sidebar = screen.getByLabelText("Sessions");
+    const input = within(sidebar).getByRole("textbox", { name: "Search chats" });
+    await user.type(input, "no matching session");
 
-    const dialog = screen.getByRole("dialog", { name: "Chat search" });
-    await user.click(within(dialog).getByRole("button", { name: /New chat/ }));
+    expect(within(sidebar).getByText("No matching sessions.")).toBeTruthy();
+    await user.keyboard("{Escape}");
 
-    expect(stores.sessionStore.create).not.toHaveBeenCalled();
-    expect(screen.queryByRole("dialog", { name: "Chat search" })).toBeNull();
-    expect(screen.getByRole("heading", { name: "New chat" })).toBeTruthy();
-
-    await user.type(screen.getByRole("textbox", { name: /message/i }), "Start from search");
-    await user.click(screen.getByRole("button", { name: /send message/i }));
-    await waitFor(() => expect(stores.sessionStore.create).toHaveBeenCalledTimes(1));
+    expect(within(sidebar).queryByRole("textbox", { name: "Search chats" })).toBeNull();
+    expect(within(sidebar).queryByText("No matching sessions.")).toBeNull();
+    expect(within(sidebar).getByRole("button", { name: "Planning notes" })).toBeTruthy();
   });
 
   it("uses a two-click delete confirmation in the session list", async () => {

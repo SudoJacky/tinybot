@@ -1023,7 +1023,7 @@ export const en = {
       complete: "Migration complete — install the generated plugin", cleaned: "The temporary migration workspace was cleaned up.",
       validate: "Tinybot will validate the generated package before installing it globally.", installing: "Installing…", install: "Install migrated plugin",
     },
-    search: { label: "Chat search", placeholder: "Search chats or run a command", chats: "Chats", noMatches: "No matching chats.", regular: "General chat", suggested: "Suggested", start: "Start a new chat", openFolder: "Open folder", settings: "Settings", noDate: "No date" },
+    search: { label: "Session search", placeholder: "Search sessions…", close: "Close session search", chats: "Chats", noMatches: "No matching sessions.", regular: "General chat", suggested: "Suggested", start: "Start a new chat", openFolder: "Open folder", settings: "Settings", noDate: "No date" },
     empty: { title: "What do you want Tinybot to do?", description: "Choose a suggestion or describe your task below.", suggestions: "Prompt suggestions" },
     tabs: { open: "Open conversations", closeTab: "Close {{name}} tab", close: "Close {{name}}", newTab: "New conversation tab", newConversation: "New conversation", menu: "Open tabs menu", openTabs: "Open tabs", status: { running: "running", failed: "failed", unread: "unread activity" } },
     sidecar: {

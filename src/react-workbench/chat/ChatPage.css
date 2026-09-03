@@ -35,7 +35,6 @@
 }
 
 .react-chat-header h1,
-.react-command-palette h2,
 .react-right-drawer h2 {
   margin: 0;
   color: var(--color-ink);
@@ -1843,8 +1842,7 @@
   }
 }
 
-.react-right-drawer__header,
-.react-command-palette > div {
+.react-right-drawer__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -4497,48 +4495,8 @@
   transform: scale(.97);
 }
 
-.react-command-palette p,
 .react-right-drawer p {
   color: var(--color-muted);
-}
-
-.react-command-palette-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 30;
-  display: grid;
-  place-items: start center;
-  padding-top: 84px;
-  background: rgb(20 20 19 / 22%);
-}
-
-.react-command-palette {
-  display: grid;
-  gap: 12px;
-  width: min(560px, calc(100vw - 32px));
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  background: var(--color-panel);
-  padding: 14px;
-  box-shadow: 0 18px 54px rgb(20 20 19 / 18%);
-}
-
-.react-command-palette input {
-  width: 100%;
-  border: 1px solid var(--color-hairline);
-  border-radius: 8px;
-  padding: 10px 12px;
-}
-
-.react-command-list {
-  display: grid;
-  gap: 4px;
-}
-
-.react-command-list button {
-  justify-content: start;
-  padding: 9px 10px;
-  text-align: left;
 }
 
 @media (max-width: 680px) {

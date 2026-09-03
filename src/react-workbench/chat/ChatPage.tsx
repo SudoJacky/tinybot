@@ -172,8 +172,6 @@ export type ChatPageProps = {
   onActiveWorkspaceChange?: (workingDirectory?: string) => void;
   onStopGenerationTargetChange?: (sessionId: string) => void;
   onMascotMoodChange?: (mood: TinybotMascotMood) => void;
-  onOpenFiles?: () => void;
-  onOpenSettings?: () => void;
   onStartupSessionHydrated?: () => void;
   startInNewSession?: boolean;
   now?: () => number;
@@ -324,8 +322,6 @@ export function ChatPage({
   chatStore,
   createSessionSignal = 0,
   now = Date.now,
-  onOpenFiles,
-  onOpenSettings,
   onActiveWorkspaceChange,
   onMascotMoodChange,
   onSessionSidebarCollapsedChange,
@@ -2321,8 +2317,6 @@ export function ChatPage({
           onCollapsedChange: handleSessionSidebarCollapsedChange,
           onCreateSession: handleCreateSession,
           onDeleteSession: handleDeleteSession,
-          onOpenFiles,
-          onOpenSettings,
           onSelectSession: handleSelectSession,
         }}
         activeSessionId={activeSessionId}
