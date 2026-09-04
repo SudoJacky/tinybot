@@ -52,7 +52,7 @@ export function buildDesktopSettingsFormState(
       activeProfile: stringOrNull(pick(defaults, "activeProfile", "active_profile")),
       provider: selectedProvider,
       temperature: numberOrDefault(pick(defaults, "temperature"), 0.1),
-      maxTokens: numberOrDefault(pick(defaults, "maxTokens", "max_tokens"), 8192),
+      maxTokens: numberOrNull(pick(defaults, "maxTokens", "max_tokens")),
       contextWindowTokens: numberOrDefault(pick(defaults, "contextWindowTokens", "context_window_tokens"), 128000),
       contextWindowStrategy: stringOrDefault(pick(defaults, "contextWindowStrategy", "context_window_strategy"), "compact"),
       maxToolIterations: numberOrDefault(pick(defaults, "maxIterations", "max_iterations", "maxToolIterations", "max_tool_iterations"), 200),
@@ -675,6 +675,11 @@ function numberOrNullInput(value: string): number | null {
     return null;
   }
   const numeric = Number.parseFloat(text);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function numberOrNull(value: unknown): number | null {
+  const numeric = typeof value === "number" ? value : Number.parseFloat(stringValue(value));
   return Number.isFinite(numeric) ? numeric : null;
 }
 

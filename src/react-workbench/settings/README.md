@@ -75,7 +75,9 @@ discoverable regardless of the currently selected interface language.
 The Agent Defaults time-zone choice lists runtime-supported IANA zones and
 starts from the Windows/system zone reported through `Intl`; Provider fallback
 and temperature remain owned by Provider/model configuration rather than being
-duplicated on this page.
+duplicated on this page. Max output tokens remains empty when it is not
+configured, and clearing it removes the override so generation uses the
+Provider's model default.
 
 `SettingsSheet.tsx` owns settings-specific layout and close animation while
 delegating modal focus, keyboard, dismissal, and scroll-lock behavior to the
