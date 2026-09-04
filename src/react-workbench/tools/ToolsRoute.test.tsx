@@ -147,7 +147,8 @@ describe("ToolsRoute", () => {
     await user.click(await screen.findByRole("button", { name: "MCP" }));
     await user.click(screen.getByRole("button", { name: "Add MCP server" }));
     expect(screen.getByRole("heading", { name: "Connect a custom MCP" })).toBeTruthy();
-    expect(screen.getByText("Streamable HTTP")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Streamable HTTP" }));
+    expect(screen.getByRole("button", { name: "Streamable HTTP" }).getAttribute("aria-pressed")).toBe("true");
     expect((screen.getByLabelText("Bearer token") as HTMLInputElement).type).toBe("password");
 
     await user.type(screen.getByLabelText("Name"), "docs.search");
@@ -167,6 +168,72 @@ describe("ToolsRoute", () => {
       envHttpHeaders: { "X-Trace-Token": "DOCS_TRACE_TOKEN" },
     }));
     await waitFor(() => expect(toolsStore.loadCatalog).toHaveBeenCalledTimes(2));
+  });
+
+  it("creates an STDIO MCP server from structured process fields", async () => {
+    const toolsStore = createToolsStore();
+    toolsStore.loadCatalog.mockResolvedValue({ skills: [], mcpServers: [], tools: [] });
+    const createStdioMcpServer = vi.fn(async () => undefined);
+    const user = userEvent.setup();
+
+    render(<ToolsRoute
+      onOpenChat={vi.fn()}
+      services={{
+        toolsStore,
+        settingsStore: { load: vi.fn(), createStdioMcpServer },
+      } as unknown as AppServices}
+    />);
+
+    await user.click(await screen.findByRole("button", { name: "MCP" }));
+    await user.click(screen.getByRole("button", { name: "Add MCP server" }));
+    expect(screen.getByRole("button", { name: "STDIO" }).getAttribute("aria-pressed")).toBe("true");
+
+    await user.type(screen.getByLabelText("Name"), "local.sqlite");
+    await user.type(screen.getByLabelText("Command to launch"), "openai-dev-mcp");
+    await user.type(screen.getByLabelText("Arguments: Argument 1"), "serve-sqlite");
+    await user.click(screen.getByRole("button", { name: "Add argument" }));
+    await user.type(screen.getByLabelText("Arguments: Argument 2"), "./data/app.db");
+    await user.type(screen.getByLabelText("Environment variables: Variable name 1"), "LOG_LEVEL");
+    await user.type(screen.getByLabelText("Environment variables: Value 1"), "debug");
+    await user.type(screen.getByLabelText("Environment variable passthrough: Environment variable 1"), "DATABASE_TOKEN");
+    await user.type(screen.getByLabelText("Working directory"), "./tools");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(createStdioMcpServer).toHaveBeenCalledWith({
+      name: "local.sqlite",
+      command: "openai-dev-mcp",
+      args: ["serve-sqlite", "./data/app.db"],
+      env: { LOG_LEVEL: "debug" },
+      envVarRefs: { DATABASE_TOKEN: "DATABASE_TOKEN" },
+      cwd: "./tools",
+    }));
+    await waitFor(() => expect(toolsStore.loadCatalog).toHaveBeenCalledTimes(2));
+  });
+
+  it("requires sensitive STDIO environment values to use passthrough", async () => {
+    const toolsStore = createToolsStore();
+    toolsStore.loadCatalog.mockResolvedValue({ skills: [], mcpServers: [], tools: [] });
+    const createStdioMcpServer = vi.fn(async () => undefined);
+    const user = userEvent.setup();
+
+    render(<ToolsRoute
+      onOpenChat={vi.fn()}
+      services={{
+        toolsStore,
+        settingsStore: { load: vi.fn(), createStdioMcpServer },
+      } as unknown as AppServices}
+    />);
+
+    await user.click(await screen.findByRole("button", { name: "MCP" }));
+    await user.click(screen.getByRole("button", { name: "Add MCP server" }));
+    await user.type(screen.getByLabelText("Name"), "local-secure");
+    await user.type(screen.getByLabelText("Command to launch"), "node");
+    await user.type(screen.getByLabelText("Environment variables: Variable name 1"), "API_TOKEN");
+    await user.type(screen.getByLabelText("Environment variables: Value 1"), "private-token");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Sensitive environment values must use environment variable passthrough.")).toBeTruthy();
+    expect(createStdioMcpServer).not.toHaveBeenCalled();
   });
 
   it("does not create an MCP server with a conflicting name", async () => {
@@ -190,7 +257,7 @@ describe("ToolsRoute", () => {
     await user.click(await screen.findByRole("button", { name: "MCP" }));
     await user.click(screen.getByRole("button", { name: "Add MCP server" }));
     await user.type(screen.getByLabelText("Name"), "docs");
-    await user.type(screen.getByLabelText("URL"), "https://example.com/mcp");
+    await user.type(screen.getByLabelText("Command to launch"), "node");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByText("A server with this name already exists in the current workspace.")).toBeTruthy();

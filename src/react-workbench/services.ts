@@ -292,6 +292,15 @@ export type StreamableHttpMcpServerInput = {
   envHttpHeaders: Record<string, string>;
 };
 
+export type StdioMcpServerInput = {
+  name: string;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  envVarRefs: Record<string, string>;
+  cwd?: string;
+};
+
 export type SettingsStore = {
   load(): Promise<Array<{ label: string; value: string }>>;
   loadTokenUsage?(): Promise<TokenUsageSnapshot>;
@@ -307,6 +316,7 @@ export type SettingsStore = {
   fetchProviderModels?(input: ProviderModelFetchInput): Promise<ProviderModelFetchResult>;
   saveProviderSettings?(currentConfig: unknown, patch: unknown): Promise<ProviderModelsSettingsData>;
   createStreamableHttpMcpServer?(input: StreamableHttpMcpServerInput): Promise<void>;
+  createStdioMcpServer?(input: StdioMcpServerInput): Promise<void>;
 };
 
 export type PersonalizationInstructionsData = {

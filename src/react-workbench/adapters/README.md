@@ -1,5 +1,5 @@
 # Desktop Adapters
-<!-- tinybot-module-fingerprint: sha256:6b101b69576834eb0fc5a245c40955396484ec0a0c12c58e7c628114a29058f2 -->
+<!-- tinybot-module-fingerprint: sha256:71758954fdb8934527606c73f2b8529ca1a11e55be51a9757458dfc1f28e711c -->
 
 `adapters` implements renderer store interfaces over Tinybot's native and
 app-core modules. It owns event projection and the Settings, Tools, and
@@ -32,6 +32,11 @@ before mirroring the renderer preference. Model-catalog loading also reconciles
 an explicitly selected native Profile whose model belongs to another Provider,
 using a valid renderer preference first and the active Profile's default model
 second; the repair is logged and persistence failures remain visible.
+
+The desktop Settings adapter also persists new global MCP definitions as one
+atomic server value, preserving dotted server names and ordered STDIO
+arguments. STDIO environment passthrough is stored as explicit `envVarRefs`;
+runtime resolution and sensitive-value enforcement remain native-owned.
 
 The desktop Tools adapter normalizes callable tools, MCP server source/status,
 and Skill summaries into the renderer-facing `ToolCatalogSummary`. It uses the

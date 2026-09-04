@@ -1,12 +1,16 @@
 # Tools Route
-<!-- tinybot-module-fingerprint: sha256:b58d5a056193af7afeb4c609b5adf1454c7ce8c624990cd5b1a082dfc5147294 -->
+<!-- tinybot-module-fingerprint: sha256:8da7ff64ec3421a119c0745c5ef562cfa5593329e37c8c229e71eae4783c7719 -->
 
 `tools` owns the lazy Tools and Plugins route, including separate Plugins,
 Skills, MCP, and callable Tools views plus catalog, lifecycle, migration,
 loading, and visible failure states. Its stylesheet is loaded with the route.
 
-Tool and plugin mutations go through `ToolsStore`. Native protocol details and
-normalization remain in the adapter and app-core modules.
+Tool and plugin mutations go through `ToolsStore`. Global MCP creation goes
+through the optional `SettingsStore` transport-specific operations. The shared
+creation form switches between STDIO process fields and Streamable HTTP
+connection fields while keeping runtime parsing and persistence outside React.
+Native protocol details and normalization remain in the adapter and app-core
+modules.
 
 The route requests its Skill catalog and Skill-detail reads across all existing
 workspaces in `WorkspaceRegistry`. It also inherits the active Chat workspace

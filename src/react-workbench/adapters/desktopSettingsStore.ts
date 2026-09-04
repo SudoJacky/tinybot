@@ -259,6 +259,30 @@ export function createDesktopSettingsStore({
         },
       });
     },
+    async createStdioMcpServer(input) {
+      await initialize();
+      const currentConfig = await loadSettingsSnapshot();
+      const name = input.name.trim();
+      if (configuredMcpServerExists(currentConfig, name)) {
+        throw new Error(`MCP server '${name}' already exists.`);
+      }
+      await persistSettingsConfig(currentConfig, {
+        tools: {
+          mcpServers: {
+            [name]: replaceDesktopConfigValue({
+              enabled: true,
+              transport: "stdio",
+              command: input.command.trim(),
+              ...(input.args.length ? { args: input.args } : {}),
+              ...(Object.keys(input.env).length ? { env: input.env } : {}),
+              ...(Object.keys(input.envVarRefs).length ? { envVarRefs: input.envVarRefs } : {}),
+              ...(input.cwd?.trim() ? { cwd: input.cwd.trim() } : {}),
+              enabledTools: ["*"],
+            }),
+          },
+        },
+      });
+    },
     async loadProviderSettings() {
       await initialize();
       return buildProviderModelsSettings(await loadSettingsSnapshot());

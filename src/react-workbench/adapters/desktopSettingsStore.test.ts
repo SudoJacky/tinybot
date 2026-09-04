@@ -381,6 +381,50 @@ describe("desktop settings store", () => {
     });
   });
 
+  it("persists an STDIO MCP server with ordered arguments and same-name environment passthrough", async () => {
+    const applyNativeConfigPatch = vi.fn(async () => ({
+      ok: true,
+      config,
+      revision: "revision-2",
+      updatedFields: ["tools.mcpServers.local.sqlite"],
+      sideEffects: { applied: ["mcpConfigChanged"], restartRequired: [], warnings: [] },
+    }));
+    const store = createDesktopSettingsStore({
+      applyNativeConfigPatch,
+      initialize: async () => undefined,
+      nativeConfig: { get: async () => config },
+    });
+
+    await store.createStdioMcpServer!({
+      name: "local.sqlite",
+      command: "openai-dev-mcp",
+      args: ["serve-sqlite", "./data/app.db"],
+      env: { LOG_LEVEL: "debug" },
+      envVarRefs: { DATABASE_TOKEN: "DATABASE_TOKEN" },
+      cwd: "./tools",
+    });
+
+    expect(applyNativeConfigPatch).toHaveBeenCalledWith(config, {
+      tools: {
+        mcpServers: {
+          "local.sqlite": {
+            __desktopConfigOperation: "replace",
+            value: {
+              enabled: true,
+              transport: "stdio",
+              command: "openai-dev-mcp",
+              args: ["serve-sqlite", "./data/app.db"],
+              env: { LOG_LEVEL: "debug" },
+              envVarRefs: { DATABASE_TOKEN: "DATABASE_TOKEN" },
+              cwd: "./tools",
+              enabledTools: ["*"],
+            },
+          },
+        },
+      },
+    });
+  });
+
   it("refuses to replace an existing global MCP server", async () => {
     const applyNativeConfigPatch = vi.fn();
     const store = createDesktopSettingsStore({

@@ -298,7 +298,7 @@ function McpCatalogView({
   const [creating, setCreating] = useState(false);
   if (creating) {
     return (
-      <StreamableHttpMcpForm
+      <McpServerForm
         existingNames={catalog.mcpServers.map((server) => server.id)}
         services={services}
         onCancel={() => setCreating(false)}
@@ -344,24 +344,39 @@ function McpCatalogView({
   );
 }
 
-type McpHeaderPair = {
+type McpKeyValuePair = {
   id: number;
   name: string;
   value: string;
 };
 
-type McpFormErrors = Partial<Record<"name" | "url" | "bearerToken" | "headers" | "envHeaders", string>>;
+type McpListItem = {
+  id: number;
+  value: string;
+};
+
+type McpTransport = "stdio" | "streamable-http";
+type McpFormErrors = Partial<Record<
+  "name" | "url" | "bearerToken" | "headers" | "envHeaders" | "command" | "environment" | "envPassthrough",
+  string
+>>;
 type McpHeaderError = "envVarInvalid" | "headerNameInvalid" | "headerPairIncomplete";
 type McpHeaderErrorTranslationKey =
   | "tools.mcpForm.errors.envVarInvalid"
   | "tools.mcpForm.errors.headerNameInvalid"
   | "tools.mcpForm.errors.headerPairIncomplete";
+type McpEnvironmentError = "envVarInvalid" | "environmentPairIncomplete" | "sensitiveEnvironment" | "environmentDuplicate";
+type McpEnvironmentErrorTranslationKey =
+  | "tools.mcpForm.errors.envVarInvalid"
+  | "tools.mcpForm.errors.environmentPairIncomplete"
+  | "tools.mcpForm.errors.sensitiveEnvironment"
+  | "tools.mcpForm.errors.environmentDuplicate";
 
 const MCP_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
 const ENV_VAR_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const HTTP_HEADER_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
-function StreamableHttpMcpForm({
+function McpServerForm({
   existingNames,
   onCancel,
   onSaved,
@@ -374,10 +389,16 @@ function StreamableHttpMcpForm({
 }) {
   const { t } = useTranslation("common");
   const [name, setName] = useState("");
+  const [transport, setTransport] = useState<McpTransport>("stdio");
+  const [command, setCommand] = useState("");
+  const [argumentItems, setArgumentItems] = useState<McpListItem[]>([{ id: 0, value: "" }]);
+  const [environment, setEnvironment] = useState<McpKeyValuePair[]>([{ id: 0, name: "", value: "" }]);
+  const [envPassthrough, setEnvPassthrough] = useState<McpListItem[]>([{ id: 0, value: "" }]);
+  const [cwd, setCwd] = useState("");
   const [url, setUrl] = useState("");
   const [bearerToken, setBearerToken] = useState("");
-  const [headers, setHeaders] = useState<McpHeaderPair[]>([{ id: 0, name: "", value: "" }]);
-  const [envHeaders, setEnvHeaders] = useState<McpHeaderPair[]>([{ id: 0, name: "", value: "" }]);
+  const [headers, setHeaders] = useState<McpKeyValuePair[]>([{ id: 0, name: "", value: "" }]);
+  const [envHeaders, setEnvHeaders] = useState<McpKeyValuePair[]>([{ id: 0, name: "", value: "" }]);
   const [showErrors, setShowErrors] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -392,70 +413,101 @@ function StreamableHttpMcpForm({
       next.name = t("tools.mcpForm.errors.nameExists");
     }
 
-    const normalizedUrl = url.trim();
-    if (!normalizedUrl) {
-      next.url = t("tools.mcpForm.errors.urlRequired");
-    } else {
-      try {
-        const parsed = new URL(normalizedUrl);
-        if (!["http:", "https:"].includes(parsed.protocol)
-          || !parsed.hostname
-          || parsed.username
-          || parsed.password
-          || parsed.hash) {
+    if (transport === "streamable-http") {
+      const normalizedUrl = url.trim();
+      if (!normalizedUrl) {
+        next.url = t("tools.mcpForm.errors.urlRequired");
+      } else {
+        try {
+          const parsed = new URL(normalizedUrl);
+          if (!["http:", "https:"].includes(parsed.protocol)
+            || !parsed.hostname
+            || parsed.username
+            || parsed.password
+            || parsed.hash) {
+            next.url = t("tools.mcpForm.errors.urlInvalid");
+          }
+        } catch {
           next.url = t("tools.mcpForm.errors.urlInvalid");
         }
-      } catch {
-        next.url = t("tools.mcpForm.errors.urlInvalid");
       }
-    }
+      const literalError = validateHeaderPairs(headers, false);
+      const environmentError = validateHeaderPairs(envHeaders, true);
+      if (literalError) next.headers = mcpHeaderErrorMessage(literalError, t);
+      if (environmentError) next.envHeaders = mcpHeaderErrorMessage(environmentError, t);
 
-    const literalError = validateHeaderPairs(headers, false);
-    const environmentError = validateHeaderPairs(envHeaders, true);
-    if (literalError) next.headers = mcpHeaderErrorMessage(literalError, t);
-    if (environmentError) next.envHeaders = mcpHeaderErrorMessage(environmentError, t);
-
-    const seen = new Set<string>();
-    for (const pair of [...headers, ...envHeaders]) {
-      const normalizedHeader = pair.name.trim().toLocaleLowerCase();
-      if (!normalizedHeader) continue;
-      if (seen.has(normalizedHeader)) {
-        next.headers = t("tools.mcpForm.errors.headerDuplicate");
-        next.envHeaders = t("tools.mcpForm.errors.headerDuplicate");
-        break;
+      const seen = new Set<string>();
+      for (const pair of [...headers, ...envHeaders]) {
+        const normalizedHeader = pair.name.trim().toLocaleLowerCase();
+        if (!normalizedHeader) continue;
+        if (seen.has(normalizedHeader)) {
+          next.headers = t("tools.mcpForm.errors.headerDuplicate");
+          next.envHeaders = t("tools.mcpForm.errors.headerDuplicate");
+          break;
+        }
+        seen.add(normalizedHeader);
       }
-      seen.add(normalizedHeader);
-    }
-    const hasLiteralAuthorization = headers.some((pair) => pair.name.trim().toLocaleLowerCase() === "authorization");
-    const hasEnvironmentAuthorization = envHeaders.some((pair) => pair.name.trim().toLocaleLowerCase() === "authorization");
-    if (bearerToken.trim() && (hasLiteralAuthorization || hasEnvironmentAuthorization)) {
-      next.bearerToken = t("tools.mcpForm.errors.bearerTokenConflict");
-      if (hasLiteralAuthorization) next.headers = t("tools.mcpForm.errors.bearerTokenConflict");
-      if (hasEnvironmentAuthorization) next.envHeaders = t("tools.mcpForm.errors.bearerTokenConflict");
+      const hasLiteralAuthorization = headers.some((pair) => pair.name.trim().toLocaleLowerCase() === "authorization");
+      const hasEnvironmentAuthorization = envHeaders.some((pair) => pair.name.trim().toLocaleLowerCase() === "authorization");
+      if (bearerToken.trim() && (hasLiteralAuthorization || hasEnvironmentAuthorization)) {
+        next.bearerToken = t("tools.mcpForm.errors.bearerTokenConflict");
+        if (hasLiteralAuthorization) next.headers = t("tools.mcpForm.errors.bearerTokenConflict");
+        if (hasEnvironmentAuthorization) next.envHeaders = t("tools.mcpForm.errors.bearerTokenConflict");
+      }
+    } else {
+      if (!command.trim()) next.command = t("tools.mcpForm.errors.commandRequired");
+      const environmentError = validateEnvironmentPairs(environment);
+      if (environmentError) next.environment = mcpEnvironmentErrorMessage(environmentError, t);
+      const passthroughError = validateEnvironmentPassthrough(envPassthrough);
+      if (passthroughError) next.envPassthrough = mcpEnvironmentErrorMessage(passthroughError, t);
+
+      const directNames = new Set(environment
+        .filter((pair) => pair.name.trim() && pair.value.trim())
+        .map((pair) => pair.name.trim()));
+      if (envPassthrough.some((item) => directNames.has(item.value.trim()))) {
+        next.environment = t("tools.mcpForm.errors.environmentConflict");
+        next.envPassthrough = t("tools.mcpForm.errors.environmentConflict");
+      }
     }
     return next;
-  }, [bearerToken, envHeaders, existingNames, headers, name, t, url]);
-  const hasRequiredValues = Boolean(name.trim() && url.trim());
+  }, [bearerToken, command, envHeaders, envPassthrough, environment, existingNames, headers, name, t, transport, url]);
+  const hasRequiredValues = Boolean(name.trim() && (transport === "stdio" ? command.trim() : url.trim()));
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setShowErrors(true);
     setSaveError("");
     if (Object.keys(errors).length) return;
-    const createServer = services.settingsStore.createStreamableHttpMcpServer;
-    if (!createServer) {
-      setSaveError(t("tools.mcpForm.errors.unavailable"));
-      return;
-    }
     setSaving(true);
     try {
-      await createServer({
-        name: name.trim(),
-        url: url.trim(),
-        ...(bearerToken.trim() ? { bearerToken: bearerToken.trim() } : {}),
-        httpHeaders: headerPairsToRecord(headers),
-        envHttpHeaders: headerPairsToRecord(envHeaders),
-      });
+      if (transport === "stdio") {
+        const createServer = services.settingsStore.createStdioMcpServer;
+        if (!createServer) {
+          setSaveError(t("tools.mcpForm.errors.unavailable"));
+          return;
+        }
+        await createServer({
+          name: name.trim(),
+          command: command.trim(),
+          args: listItemsToValues(argumentItems),
+          env: keyValuePairsToRecord(environment),
+          envVarRefs: environmentPassthroughToRecord(envPassthrough),
+          ...(cwd.trim() ? { cwd: cwd.trim() } : {}),
+        });
+      } else {
+        const createServer = services.settingsStore.createStreamableHttpMcpServer;
+        if (!createServer) {
+          setSaveError(t("tools.mcpForm.errors.unavailable"));
+          return;
+        }
+        await createServer({
+          name: name.trim(),
+          url: url.trim(),
+          ...(bearerToken.trim() ? { bearerToken: bearerToken.trim() } : {}),
+          httpHeaders: keyValuePairsToRecord(headers),
+          envHttpHeaders: keyValuePairsToRecord(envHeaders),
+        });
+      }
       onSaved();
     } catch (cause) {
       setSaveError(errorMessage(cause));
@@ -485,53 +537,103 @@ function StreamableHttpMcpForm({
             required
             value={name}
           />
-          <div className="react-mcp-form__type-row">
-            <span>{t("tools.mcpForm.type")}</span>
-            <strong>{t("tools.mcpForm.streamableHttp")}</strong>
-          </div>
+          <McpTransportSelector onChange={setTransport} value={transport} />
         </div>
 
-        <div className="react-mcp-form__group">
-          <McpTextField
-            error={showErrors ? errors.url : undefined}
-            label={t("tools.mcpForm.url")}
-            onChange={setUrl}
-            placeholder="https://mcp.example.com/mcp"
-            required
-            type="url"
-            value={url}
-          />
-          <McpTextField
-            error={showErrors ? errors.bearerToken : undefined}
-            hint={t("tools.mcpForm.bearerTokenHint")}
-            label={t("tools.mcpForm.bearerToken")}
-            onChange={setBearerToken}
-            placeholder={t("tools.mcpForm.bearerTokenPlaceholder")}
-            type="password"
-            value={bearerToken}
-          />
-        </div>
+        {transport === "stdio" ? (
+          <>
+            <div className="react-mcp-form__group">
+              <McpTextField
+                error={showErrors ? errors.command : undefined}
+                label={t("tools.mcpForm.command")}
+                onChange={setCommand}
+                placeholder={t("tools.mcpForm.commandPlaceholder")}
+                required
+                value={command}
+              />
+            </div>
+            <McpListFields
+              addLabel={t("tools.mcpForm.addArgument")}
+              inputLabel={t("tools.mcpForm.argument")}
+              items={argumentItems}
+              onChange={setArgumentItems}
+              removeLabel={t("tools.mcpForm.removeArgument")}
+              title={t("tools.mcpForm.arguments")}
+            />
+            <McpPairFields
+              addLabel={t("tools.mcpForm.addEnvironment")}
+              error={showErrors ? errors.environment : undefined}
+              nameLabel={t("tools.mcpForm.environmentName")}
+              onChange={setEnvironment}
+              pairs={environment}
+              removeLabel={t("tools.mcpForm.removeEnvironment")}
+              title={t("tools.mcpForm.environment")}
+              valueLabel={t("tools.mcpForm.environmentValue")}
+            />
+            <McpListFields
+              addLabel={t("tools.mcpForm.addPassthrough")}
+              error={showErrors ? errors.envPassthrough : undefined}
+              inputLabel={t("tools.mcpForm.environmentVariable")}
+              items={envPassthrough}
+              onChange={setEnvPassthrough}
+              removeLabel={t("tools.mcpForm.removePassthrough")}
+              title={t("tools.mcpForm.envPassthrough")}
+            />
+            <div className="react-mcp-form__group">
+              <McpTextField
+                hint={t("tools.mcpForm.cwdHint")}
+                label={t("tools.mcpForm.cwd")}
+                onChange={setCwd}
+                placeholder={t("tools.mcpForm.cwdPlaceholder")}
+                value={cwd}
+              />
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="react-mcp-form__group">
+              <McpTextField
+                error={showErrors ? errors.url : undefined}
+                label={t("tools.mcpForm.url")}
+                onChange={setUrl}
+                placeholder="https://mcp.example.com/mcp"
+                required
+                type="url"
+                value={url}
+              />
+              <McpTextField
+                error={showErrors ? errors.bearerToken : undefined}
+                hint={t("tools.mcpForm.bearerTokenHint")}
+                label={t("tools.mcpForm.bearerToken")}
+                onChange={setBearerToken}
+                placeholder={t("tools.mcpForm.bearerTokenPlaceholder")}
+                type="password"
+                value={bearerToken}
+              />
+            </div>
 
-        <McpHeaderFields
-          addLabel={t("tools.mcpForm.addHeader")}
-          error={showErrors ? errors.headers : undefined}
-          nameLabel={t("tools.mcpForm.headerName")}
-          onChange={setHeaders}
-          pairs={headers}
-          removeLabel={t("tools.mcpForm.removeHeader")}
-          title={t("tools.mcpForm.headers")}
-          valueLabel={t("tools.mcpForm.headerValue")}
-        />
-        <McpHeaderFields
-          addLabel={t("tools.mcpForm.addEnvHeader")}
-          error={showErrors ? errors.envHeaders : undefined}
-          nameLabel={t("tools.mcpForm.headerName")}
-          onChange={setEnvHeaders}
-          pairs={envHeaders}
-          removeLabel={t("tools.mcpForm.removeEnvHeader")}
-          title={t("tools.mcpForm.envHeaders")}
-          valueLabel={t("tools.mcpForm.environmentVariable")}
-        />
+            <McpPairFields
+              addLabel={t("tools.mcpForm.addHeader")}
+              error={showErrors ? errors.headers : undefined}
+              nameLabel={t("tools.mcpForm.headerName")}
+              onChange={setHeaders}
+              pairs={headers}
+              removeLabel={t("tools.mcpForm.removeHeader")}
+              title={t("tools.mcpForm.headers")}
+              valueLabel={t("tools.mcpForm.headerValue")}
+            />
+            <McpPairFields
+              addLabel={t("tools.mcpForm.addEnvHeader")}
+              error={showErrors ? errors.envHeaders : undefined}
+              nameLabel={t("tools.mcpForm.headerName")}
+              onChange={setEnvHeaders}
+              pairs={envHeaders}
+              removeLabel={t("tools.mcpForm.removeEnvHeader")}
+              title={t("tools.mcpForm.envHeaders")}
+              valueLabel={t("tools.mcpForm.environmentVariable")}
+            />
+          </>
+        )}
 
         {saveError ? <p className="react-mcp-form__save-error" role="alert">{saveError}</p> : null}
         <footer className="react-mcp-form__footer">
@@ -541,6 +643,37 @@ function StreamableHttpMcpForm({
           </button>
         </footer>
       </form>
+    </div>
+  );
+}
+
+function McpTransportSelector({
+  onChange,
+  value,
+}: {
+  onChange: (value: McpTransport) => void;
+  value: McpTransport;
+}) {
+  const { t } = useTranslation("common");
+  const options: Array<{ label: string; value: McpTransport }> = [
+    { label: t("tools.mcpForm.stdio"), value: "stdio" },
+    { label: t("tools.mcpForm.streamableHttp"), value: "streamable-http" },
+  ];
+  return (
+    <div className="react-mcp-form__type-row">
+      <span>{t("tools.mcpForm.type")}</span>
+      <div aria-label={t("tools.mcpForm.type")} className="react-mcp-form__type-options" role="group">
+        {options.map((option) => (
+          <button
+            aria-pressed={value === option.value}
+            key={option.value}
+            onClick={() => onChange(option.value)}
+            type="button"
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -586,7 +719,7 @@ function McpTextField({
   );
 }
 
-function McpHeaderFields({
+function McpPairFields({
   addLabel,
   error,
   nameLabel,
@@ -599,8 +732,8 @@ function McpHeaderFields({
   addLabel: string;
   error?: string;
   nameLabel: string;
-  onChange: (pairs: McpHeaderPair[]) => void;
-  pairs: McpHeaderPair[];
+  onChange: (pairs: McpKeyValuePair[]) => void;
+  pairs: McpKeyValuePair[];
   removeLabel: string;
   title: string;
   valueLabel: string;
@@ -652,7 +785,64 @@ function McpHeaderFields({
   );
 }
 
-function validateHeaderPairs(pairs: McpHeaderPair[], environmentValues: boolean): McpHeaderError | null {
+function McpListFields({
+  addLabel,
+  error,
+  inputLabel,
+  items,
+  onChange,
+  removeLabel,
+  title,
+}: {
+  addLabel: string;
+  error?: string;
+  inputLabel: string;
+  items: McpListItem[];
+  onChange: (items: McpListItem[]) => void;
+  removeLabel: string;
+  title: string;
+}) {
+  function update(id: number, value: string): void {
+    onChange(items.map((item) => item.id === id ? { ...item, value } : item));
+  }
+
+  function add(): void {
+    const id = items.reduce((highest, item) => Math.max(highest, item.id), -1) + 1;
+    onChange([...items, { id, value: "" }]);
+  }
+
+  return (
+    <section className="react-mcp-form__header-group" aria-label={title}>
+      <h3>{title}</h3>
+      {items.map((item, index) => (
+        <div className="react-mcp-form__list-row" key={item.id}>
+          <input
+            aria-invalid={Boolean(error) || undefined}
+            aria-label={`${title}: ${inputLabel} ${index + 1}`}
+            onChange={(event) => update(item.id, event.currentTarget.value)}
+            placeholder={inputLabel}
+            value={item.value}
+          />
+          <button
+            aria-label={`${removeLabel} ${index + 1}`}
+            className="react-mcp-form__remove-row"
+            type="button"
+            onClick={() => onChange(items.filter((candidate) => candidate.id !== item.id))}
+          >
+            <Trash2 aria-hidden="true" size={14} />
+          </button>
+        </div>
+      ))}
+      <button className="react-mcp-form__add-row" type="button" onClick={add}>
+        <Plus aria-hidden="true" size={14} />
+        {addLabel}
+      </button>
+      {error ? <small className="react-mcp-form__field-error" role="alert">{error}</small> : null}
+    </section>
+  );
+}
+
+function validateHeaderPairs(pairs: McpKeyValuePair[], environmentValues: boolean): McpHeaderError | null {
   for (const pair of pairs) {
     const name = pair.name.trim();
     const value = pair.value.trim();
@@ -664,6 +854,39 @@ function validateHeaderPairs(pairs: McpHeaderPair[], environmentValues: boolean)
   return null;
 }
 
+function validateEnvironmentPairs(pairs: McpKeyValuePair[]): McpEnvironmentError | null {
+  const seen = new Set<string>();
+  for (const pair of pairs) {
+    const name = pair.name.trim();
+    const value = pair.value.trim();
+    if (!name && !value) continue;
+    if (!name || !value) return "environmentPairIncomplete";
+    if (!ENV_VAR_PATTERN.test(name)) return "envVarInvalid";
+    if (isSensitiveEnvironmentName(name)) return "sensitiveEnvironment";
+    if (seen.has(name)) return "environmentDuplicate";
+    seen.add(name);
+  }
+  return null;
+}
+
+function validateEnvironmentPassthrough(items: McpListItem[]): McpEnvironmentError | null {
+  const seen = new Set<string>();
+  for (const item of items) {
+    const name = item.value.trim();
+    if (!name) continue;
+    if (!ENV_VAR_PATTERN.test(name)) return "envVarInvalid";
+    if (seen.has(name)) return "environmentDuplicate";
+    seen.add(name);
+  }
+  return null;
+}
+
+function isSensitiveEnvironmentName(name: string): boolean {
+  const compact = name.replace(/[^A-Za-z0-9]/g, "").toLocaleLowerCase();
+  return ["token", "secret", "password", "authorization", "credentials", "apikey"]
+    .some((suffix) => compact.endsWith(suffix));
+}
+
 function mcpHeaderErrorMessage(
   error: McpHeaderError,
   translate: (key: McpHeaderErrorTranslationKey) => string,
@@ -673,12 +896,30 @@ function mcpHeaderErrorMessage(
   return translate("tools.mcpForm.errors.headerPairIncomplete");
 }
 
-function headerPairsToRecord(pairs: McpHeaderPair[]): Record<string, string> {
+function mcpEnvironmentErrorMessage(
+  error: McpEnvironmentError,
+  translate: (key: McpEnvironmentErrorTranslationKey) => string,
+): string {
+  if (error === "envVarInvalid") return translate("tools.mcpForm.errors.envVarInvalid");
+  if (error === "environmentPairIncomplete") return translate("tools.mcpForm.errors.environmentPairIncomplete");
+  if (error === "sensitiveEnvironment") return translate("tools.mcpForm.errors.sensitiveEnvironment");
+  return translate("tools.mcpForm.errors.environmentDuplicate");
+}
+
+function keyValuePairsToRecord(pairs: McpKeyValuePair[]): Record<string, string> {
   return Object.fromEntries(pairs.flatMap((pair) => {
     const name = pair.name.trim();
     const value = pair.value.trim();
     return name && value ? [[name, value]] : [];
   }));
+}
+
+function listItemsToValues(items: McpListItem[]): string[] {
+  return items.map((item) => item.value.trim()).filter(Boolean);
+}
+
+function environmentPassthroughToRecord(items: McpListItem[]): Record<string, string> {
+  return Object.fromEntries(listItemsToValues(items).map((name) => [name, name]));
 }
 
 function ToolsCatalogView({ catalog }: { catalog: ToolCatalogSummary }) {

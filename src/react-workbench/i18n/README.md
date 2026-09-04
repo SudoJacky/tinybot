@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:9455970b0556fb20370189c53b55af5c95a51da178b72c1b72f2d2fd10e38429 -->
+<!-- tinybot-module-fingerprint: sha256:24acc57ad75893756f71ecf50f6aabe99e8452d3ce76ef5c04c48460a9fd6b79 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
