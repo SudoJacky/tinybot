@@ -102,7 +102,7 @@ describe("workbench CSS interaction contracts", () => {
     expect(timelineHeadingRule?.[1]).toContain("flex: 1 1 auto");
     expect(timelineSummaryRule?.[1]).toContain("text-overflow: ellipsis");
     expect(timelineSummaryRule?.[1]).toContain("white-space: nowrap");
-    expect(timelineContentRule?.[1]).toContain("padding: 4px 0 4px 28px");
+    expect(timelineContentRule?.[1]).toContain("padding: 8px 0 8px 28px");
     expect(reasoningRule?.[1]).toContain("min-height: 34px");
     expect(reasoningTriggerRule?.[1]).toContain("grid-template-columns: max-content minmax(0, 1fr) max-content");
     expect(reasoningPreviewRule?.[1]).toContain("overflow: hidden");
