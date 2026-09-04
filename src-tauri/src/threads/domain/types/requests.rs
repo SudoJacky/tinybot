@@ -149,6 +149,14 @@ pub struct UpdateThreadMetadataRequest {
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct UpdateGeneratedThreadTitleResult {
+    pub applied: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread: Option<ThreadRecord>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AppendThreadItemsRequest {
     pub thread_id: String,
     #[serde(default)]

@@ -17,7 +17,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:b32e3ac2a83324ed369a40d3069a32941af00d2ca1e8038081e59d35da0d36ac -->
+<!-- tinybot-doc-fingerprint: sha256:639c0133eefceb1dab9175e0fd6ea7f829aa2f59ce50cab2a38ed6b09c112f05 -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -414,16 +414,18 @@ sandboxed by the Agent tool capability policy.
 | --- | --- | --- |
 | `worker_token_usage_snapshot` | none | `TokenUsageSnapshot` |
 
-Every successful Chat Completions or Responses provider call records input,
-cached-input, output, reasoning-output, and total tokens in
+Every successful Chat Completions or Responses provider call that reports usage
+uses one shared field mapper and records canonical input, cached-input, output,
+reasoning-output, and total tokens in
 `~/.tinybot/state/token-usage.sqlite`. The provider completion boundary covers
 ordinary Agent turns, tool-loop continuations, subagents, context compaction,
 memory maintenance, and Agent Graph routing. Records are atomically aggregated
 by the device's local `YYYY-MM-DD` calendar day and by the resolved
 Provider/model pair; an internal unique model-call identifier prevents a
-completed call from being counted twice. Existing v1 daily rows are retained
-during migration and exposed as `unknown` Provider and model dimensions. Usage
-persistence is best effort: a storage failure increments
+completed call from being counted twice. Missing provider usage is kept distinct
+from an explicit zero and does not create a zero-token record. Existing v1 daily
+rows are retained during migration and exposed as `unknown` Provider and model
+dimensions. Usage persistence is best effort: a storage failure increments
 `provider.tokenUsage.persistence.failed` and emits a provider diagnostic, while
 the already successful completion remains available to the caller.
 
@@ -550,7 +552,9 @@ Provider selection is profile-based. New config should use `agents.defaults.acti
 not infer a Provider from the model name.
 The Provider & Models default selector updates `agents.defaults.activeProfile` and
 `agents.defaults.model` in one native patch so Profile-based endpoint resolution and global model
-fallbacks cannot diverge.
+fallbacks cannot diverge. The same page can optionally set `memory.activeProfile` and
+`memory.model` as a pair for long-term Memory extraction and consolidation; when both fields are
+absent, Memory follows the global default pair.
 Reasoning effort is not an Agent Defaults setting. A legacy `agents.defaults.reasoningEffort` value
 may remain in raw config for read compatibility, but the settings registry does not expose it and the
 agent runtime does not apply it to model requests.

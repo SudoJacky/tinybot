@@ -101,6 +101,37 @@ describe("desktop native config patch host action", () => {
     });
   });
 
+  test("removes both Memory override fields when restoring global defaults", async () => {
+    const invoke = vi.fn().mockResolvedValue({
+      ok: true,
+      config: { memory: {} },
+      updatedFields: ["memory.activeProfile", "memory.model"],
+      sideEffects: { applied: ["providerRuntimeChanged"], restartRequired: [], warnings: [] },
+      error: null,
+    });
+
+    await applyNativeConfigPatch(
+      { memory: { activeProfile: "zai-default", model: "glm-5.3-flash" } },
+      {
+        memory: {
+          activeProfile: { __desktopConfigOperation: "remove" },
+          model: { __desktopConfigOperation: "remove" },
+        },
+      },
+      { invoke },
+    );
+
+    expect(invoke).toHaveBeenCalledWith("apply_config_operations", {
+      request: {
+        expectedRevision: undefined,
+        operations: [
+          { op: "remove", path: "memory.activeProfile" },
+          { op: "remove", path: "memory.model" },
+        ],
+      },
+    });
+  });
+
   test("canonicalizes legacy alias paths before sending operations", async () => {
     const invoke = vi.fn().mockResolvedValue({
       ok: true,

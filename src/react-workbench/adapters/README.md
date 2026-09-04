@@ -1,5 +1,5 @@
 # Desktop Adapters
-<!-- tinybot-module-fingerprint: sha256:c3da56c6d773189c54fb5290d752a9f987e35366d3bccc96180f0d22da6014c3 -->
+<!-- tinybot-module-fingerprint: sha256:d064c9472faedbfe1f0ea2de9b617f430c65a3cad7c9fd27520987389603a03e -->
 
 `adapters` implements renderer store interfaces over Tinybot's native and
 app-core modules. It owns event projection and the Settings, Tools, and
@@ -51,4 +51,6 @@ listener failures also emit an always-visible structured renderer error, which
 is persisted by the native backend when Tauri is available.
 
 The bridge listens for native browser snapshots and diagnostics and projects
-them into the owning Chat session.
+them into the owning Chat session. A generated Thread-title event first reloads
+the native session controller, then notifies all Chat subscribers so a title
+completed after navigation still reaches the sidebar.

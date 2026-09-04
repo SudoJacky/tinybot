@@ -748,6 +748,9 @@ fn canonical_config_segment(parent: &[String], _index: usize, segment: &str) -> 
             other => other.to_string(),
         };
     }
+    if parent == ["memory"] && segment == "active_profile" {
+        return "activeProfile".to_string();
+    }
     if parent == ["tools"] && segment == "mcp_servers" {
         return "mcpServers".to_string();
     }
@@ -1014,6 +1017,9 @@ fn plan_config_patch_side_effects(updated_fields: &[String]) -> ConfigPatchSideE
             || field == "agents.defaults.provider"
             || field == "agents.defaults.activeProfile"
             || field == "agents.defaults.active_profile"
+            || field == "memory.model"
+            || field == "memory.activeProfile"
+            || field == "memory.active_profile"
             || field.starts_with("providers.")
         {
             push_unique(&mut applied, "providerRuntimeChanged".to_string());

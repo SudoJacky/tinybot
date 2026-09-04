@@ -591,6 +591,10 @@ pub trait NativeAgentTraceSink: Send + Sync {
         Ok(())
     }
 
+    fn thread_title_updated(&self, _thread_id: &str, _source_turn_id: &str) -> Result<(), String> {
+        Ok(())
+    }
+
     fn flush(&self) -> Result<(), String> {
         Ok(())
     }

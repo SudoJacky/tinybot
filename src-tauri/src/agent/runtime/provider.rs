@@ -159,7 +159,7 @@ fn provider_response_from_completion(
     Ok(NativeAgentProviderResponse {
         final_content,
         reasoning_delta: decoded.reasoning.map(|reasoning| reasoning.summary),
-        usage: decoded.usage.map(|usage| usage.provider_payload),
+        usage: decoded.usage,
         tool_calls: fixture_tool_calls
             .unwrap_or_else(|| native_tool_calls(decoded.assistant.tool_calls)),
         response_items,

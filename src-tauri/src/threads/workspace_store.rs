@@ -1,4 +1,4 @@
-use super::domain::WorkerThreadRpc;
+use super::domain::{UpdateGeneratedThreadTitleResult, WorkerThreadRpc};
 use super::rollout::store::WorkerThreadLogRpc;
 use crate::project_groups::ProjectGroupStore;
 use crate::protocol::capability::CapabilityPolicy;
@@ -112,6 +112,36 @@ impl WorkspaceThreadStore {
     pub(crate) fn flush(&self) -> Result<(), WorkerProtocolError> {
         let _lifecycle = self.lock_lifecycle()?;
         self.inner.thread_log.flush_all()
+    }
+
+    pub(crate) fn update_generated_thread_title(
+        &self,
+        thread_id: &str,
+        source_turn_id: &str,
+        title: String,
+    ) -> Result<UpdateGeneratedThreadTitleResult, WorkerProtocolError> {
+        let mut operation = self.begin_operation()?;
+        let result: Result<UpdateGeneratedThreadTitleResult, WorkerProtocolError> = (|| {
+            let result = operation.thread().update_generated_thread_title(
+                thread_id,
+                source_turn_id,
+                title,
+            )?;
+            if let Some(thread) = result.thread.as_ref() {
+                operation.thread_log().create_from_thread_record(thread)?;
+            }
+            Ok(result)
+        })();
+        if let Err(error) = &result {
+            if let Err(reload_error) = operation.reload_projection() {
+                eprintln!(
+                    "generated_thread_title_projection_reload_failed thread_id={} operation_error={} reload_error={}",
+                    thread_id, error.message, reload_error.message
+                );
+                return Err(reload_error);
+            }
+        }
+        result
     }
 
     pub(crate) fn shutdown(&self) -> Result<(), WorkerProtocolError> {

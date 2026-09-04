@@ -1220,7 +1220,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             &self.context,
             attempt.iteration,
             &attempt.id,
-            response.usage.unwrap_or_else(|| serde_json::json!({})),
+            response.usage,
             attempt.estimated_context_tokens,
         )?;
         Ok(IterationOutcome::Continue)
@@ -1236,7 +1236,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             &self.context,
             attempt.iteration,
             &attempt.id,
-            response.usage.unwrap_or_else(|| serde_json::json!({})),
+            response.usage,
             attempt.estimated_context_tokens,
         )?;
         self.state.transition_phase(

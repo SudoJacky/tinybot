@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:4e6b9160f0934355278100191567450b2b3ec6a2d3bc96ff4fb67fe0e4d650ae -->
+<!-- tinybot-module-fingerprint: sha256:c35119b39d9c612b351d4ba948cd3858cdca834e174204160a9d155d805de3d4 -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -16,6 +16,7 @@ loop.
 - Reject invalid re-entry into an already terminal turn.
 - Build tool-dispatch and trace-sink services for the turn owner.
 - Persist turn start, runtime trace, checkpoints, and terminal turn state.
+- Start first-Turn title generation only after that Turn is durably visible.
 - Project runtime results into session- and Thread-compatible response shapes.
 - Continue turns after forms or additional Thread input.
 
@@ -30,7 +31,9 @@ Thread data model. Those belong to `agent::runtime` and `threads::domain`.
 2. Hydrate the Thread's fixed memory snapshot, compose instructions, merge the
    working directory's project-local MCP definitions, and attach instruction
    diagnostics to the persisted spec.
-3. Persist the turn start before history loading or provider work begins.
+3. Persist the turn start before history loading or provider work begins. A
+   default-titled empty Thread may then start its independent title request;
+   failure is logged and never fails or delays the main Turn.
 4. Hydrate the runtime history from the canonical Thread projection.
 5. Build tool, context-checkpoint, trace, and workspace command-hook services,
    selecting the Thread-owned or direct-session trace path.
@@ -65,12 +68,15 @@ when it failed.
 - `persistence.rs`: turn/checkpoint persistence and cancellation/restore.
 - `trace_sink.rs`: live desktop and durable trace sinks.
 - `tool_dispatcher.rs`: construct runtime services backed by registered tools.
-- `result_projection.rs`: stable result, usage, artifact, and status accessors.
+- `result_projection.rs`: stable result, canonical token-usage, artifact, and
+  status accessors.
 - `webui_continuation.rs`: form continuations for WebUI callers.
 
 ## Invariants
 
 - Persist turn start before starting provider work.
+- Generated titles must carry the first user Turn ID and emit only a
+  metadata-refresh event after their guarded durable update succeeds.
 - Do not execute a terminal turn again under the same durable identity.
 - Flush trace output before final persistence reports success.
 - Runtime and trace errors must leave a durable failed terminal state rather

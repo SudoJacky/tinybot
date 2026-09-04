@@ -8,6 +8,7 @@ use super::{
     responses_adapter::ResponsesAdapter,
 };
 use crate::agent::runtime_protocol::AgentEventKind;
+use crate::threads::rollout::format::TokenUsage;
 use serde_json::Value;
 use std::sync::Arc;
 
@@ -282,15 +283,13 @@ fn estimate_context_tokens_for_messages(
 
 pub(super) fn enrich_usage_with_context_window(
     context: &AgentTurnContext,
-    usage: Value,
+    provider_usage: Option<&TokenUsage>,
     estimated_context_tokens: i64,
     cumulative_usage_tokens_before: i64,
 ) -> Value {
-    let mut usage = match usage {
-        Value::Object(map) => Value::Object(map),
-        other => serde_json::json!({ "raw": other }),
-    };
-    normalize_provider_usage_fields(&mut usage);
+    let mut usage = provider_usage
+        .map(|usage| serde_json::to_value(usage).expect("TokenUsage must serialize"))
+        .unwrap_or_else(|| serde_json::json!({}));
     let context_window_tokens = resolve_context_window_tokens(context);
     let usage_source = if usage_context_used_tokens(&usage).is_some() {
         "provider_usage"
@@ -306,21 +305,13 @@ pub(super) fn enrich_usage_with_context_window(
         0.0
     };
 
-    usage["context_window_strategy"] = serde_json::json!(context_window_strategy(context));
     usage["contextWindowStrategy"] = serde_json::json!(context_window_strategy(context));
-    usage["context_window_tokens"] = serde_json::json!(context_window_tokens);
     usage["contextWindowTokens"] = serde_json::json!(context_window_tokens);
-    usage["context_window_used_tokens"] = serde_json::json!(used_tokens);
     usage["contextWindowUsedTokens"] = serde_json::json!(used_tokens);
-    usage["context_usage_tokens"] = serde_json::json!(used_tokens);
     usage["contextUsageTokens"] = serde_json::json!(used_tokens);
-    usage["cumulative_usage_tokens"] = serde_json::json!(cumulative_usage_tokens);
     usage["cumulativeUsageTokens"] = serde_json::json!(cumulative_usage_tokens);
-    usage["token_usage_source"] = serde_json::json!(usage_source);
     usage["tokenUsageSource"] = serde_json::json!(usage_source);
-    usage["context_window_remaining_tokens"] = serde_json::json!(remaining_tokens);
     usage["contextWindowRemainingTokens"] = serde_json::json!(remaining_tokens);
-    usage["estimated_context_tokens"] = serde_json::json!(estimated_context_tokens);
     usage["estimatedContextTokens"] = serde_json::json!(estimated_context_tokens);
     usage["percent"] = serde_json::json!(percent);
     usage
@@ -914,24 +905,4 @@ fn estimate_message_tokens(message: &Value) -> i64 {
         .saturating_add(APPROX_BYTES_PER_TOKEN.saturating_sub(1)))
         / APPROX_BYTES_PER_TOKEN;
     i64::try_from(tokens.max(1)).unwrap_or(i64::MAX)
-}
-
-fn normalize_provider_usage_fields(usage: &mut Value) {
-    copy_usage_number(usage, "input_tokens", "prompt_tokens");
-    copy_usage_number(usage, "output_tokens", "completion_tokens");
-    copy_usage_number(usage, "prompt_tokens", "promptTokens");
-    copy_usage_number(usage, "completion_tokens", "completionTokens");
-    copy_usage_number(usage, "total_tokens", "totalTokens");
-}
-
-fn copy_usage_number(usage: &mut Value, snake_key: &str, camel_key: &str) {
-    if usage.get(camel_key).is_some() {
-        return;
-    }
-    let Some(value) = usage.get(snake_key).cloned() else {
-        return;
-    };
-    if value.is_number() {
-        usage[camel_key] = value;
-    }
 }

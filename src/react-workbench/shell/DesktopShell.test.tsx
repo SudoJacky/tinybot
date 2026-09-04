@@ -703,17 +703,15 @@ describe("DesktopShell", () => {
     expect(updateClient.check).toHaveBeenCalledTimes(1);
   });
 
-  it("routes session search recommendations through the shell", async () => {
+  it("keeps session search inline in the sidebar", async () => {
     const user = userEvent.setup();
     const services = createServices();
     render(<DesktopShell now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} services={services} />);
 
     await user.click(await screen.findByRole("button", { name: "Search chats" }));
-    const dialog = screen.getByRole("dialog", { name: "Chat search" });
-    await user.click(within(dialog).getByRole("button", { name: /Open folder/ }));
 
-    expect(screen.queryByRole("dialog", { name: "Chat search" })).toBeNull();
-    expect(await screen.findByRole("heading", { name: "Workspace Files" })).toBeTruthy();
+    expect(within(screen.getByLabelText("Sessions")).getByRole("textbox", { name: "Search chats" })).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Session search" })).toBeNull();
   });
 
   it("closes an open top menu when clicking outside it", async () => {

@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { SettingsStore } from "../services";
 import { ProfileSettingsPage } from "./ProfileSettingsPage";
@@ -78,7 +78,7 @@ describe("ProfileSettingsPage", () => {
     const chartCards = [...container.querySelectorAll<HTMLElement>(".react-profile-chart-card")];
     expect(chartCards).toHaveLength(2);
     expect(chartCards.every((card) => card.dataset.revealState === "pending")).toBe(true);
-    expect(observerCallbacks).toHaveLength(2);
+    await waitFor(() => expect(observerCallbacks).toHaveLength(2));
 
     act(() => {
       for (const callback of observerCallbacks) {

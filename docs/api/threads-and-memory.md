@@ -10,10 +10,12 @@ src-tauri/src/threads/domain/types/events.rs
 src-tauri/src/threads/domain/types/items.rs
 src-tauri/src/threads/domain/types/records.rs
 src-tauri/src/threads/domain/types/requests.rs
+src-tauri/src/threads/domain/store/memory.rs
+src-tauri/src/threads/workspace_store.rs
 src-tauri/tests/crate/threads.rs
 src/app-core/chat/agentInputReference.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:313bea46f54f1237dfa7af10cd9474d24fe719c50795f6b6e7fc03c1e81f0dab -->
+<!-- tinybot-doc-fingerprint: sha256:5b2bbe59f0d8f5408363b6ea5e33bab577f39d66a5d583ba0a2dd29761ccc5af -->
 
 This document covers Thread queries, memory, persistence, and project grouping.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -220,6 +222,14 @@ Long-term memory is backend-owned automation. The desktop renderer has one read-
 `worker_memory_snapshot`; there is no Worker RPC namespace, WebUI route, agent-callable tool, or
 renderer mutation path.
 
+Phase 1 extraction and Phase 2 consolidation use `memory.activeProfile` and `memory.model` when
+both are configured. If neither is configured, both phases dynamically follow
+`agents.defaults.activeProfile` and `agents.defaults.model`. Provider & Models writes or clears the
+override as a pair; a partial override is an explicit configuration error.
+Each phase uses the selected Profile's configured API mode for its request, transport, and response
+parsing: Chat Completions uses `messages`/`choices`, while Responses uses non-persisted
+`input`/`output`.
+
 | Tauri command | Params | Result |
 | --- | --- | --- |
 | `worker_memory_snapshot` | none | `{ currentWorkspacePath, userMemories, workspaces }` |
@@ -263,10 +273,19 @@ The durable hierarchy is strict: a Thread may exist without an active Turn, but 
 while no Turn is active update Thread metadata without manufacturing a turnless Item. A Rollout
 record that would project to a Thread item without a Turn identity is a consistency error.
 
+After the first user Turn is durably started, a default-titled Thread may receive a generated title
+from a separate tool-free request using that Turn's Provider and model. The metadata update carries
+the source Turn ID and is applied under the `WorkspaceThreadStore` operation lock only when it still
+matches the first user Turn, the Thread is not archived, and no manual title owns the field.
+Successful generated titles set `metadata.extra.titleSource` to `model`; manual metadata updates set
+it to `manual` and always win. This update changes Thread metadata only and does not create a
+turnless Item.
+
 Turn writes follow Codex-style ordering: one start batch contains `turn_started`, `turn_context`,
 the materialized system/developer prompt when it changed, and the user message. Later batches append
-typed message/tool/reasoning records, per-provider-call `token_count`, resumable checkpoints, and one
-`turn_complete` or `turn_aborted`. Compaction, metadata changes, rollback, fork, archive, and
+typed message/tool/reasoning records, a per-provider-call `token_count` when the provider reports
+usage, resumable checkpoints, and one `turn_complete` or `turn_aborted`. Compaction, metadata
+changes, rollback, fork, archive, and
 subagent communication use the same Rollout authority. UI thread snapshots, thread history, model
 context, AgentTurn records, and active checkpoints are reconstructed projections of that file.
 Canonical append or reconstruction errors fail the operation instead of falling back to an old

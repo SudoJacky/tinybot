@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:27fff7cd7a5d484dd8ba0c8418f592b9b00e2826dcb132f97772c43c20c8d527 -->
+<!-- tinybot-doc-fingerprint: sha256:725315ad13c88a96fcd557f2cd41c983aba9dd55269f2fed6a887febf86be65f -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -88,6 +88,9 @@ Desktop Commands / Desktop Host
   `~/.tinybot/chat-attachments/images/`; Rollouts remain authoritative for the
   typed reference and never persist the Base64 request payload.
 - Typed in-process conversation projection: `threads::domain`.
+- Daily provider/model token totals: `~/.tinybot/state/token-usage.sqlite`,
+  derived only from calls that report provider usage. It is aggregate telemetry,
+  not conversation authority.
 - Current execution generation for a Turn: `TurnExecutionRuntime`.
 - Process-local performance diagnostics: the native runtime metric/event ring,
   augmented with the renderer's bounded startup trace and bounded Rust/WebView2
@@ -116,6 +119,9 @@ Desktop Commands / Desktop Host
   launch selection authority. User new-chat commands create renderer-owned draft
   sessions; only drafts with composer text survive navigation, and the first
   send replaces the draft with a canonical Thread before dispatching its Turn.
+  After that Turn is durable, an independent tool-free request may refine the
+  optimistic first-prompt title without delaying the Turn or overriding a later
+  manual rename.
   Chat reports its active persisted session or local draft working directory to
   the shell as transient cross-route context; workspace-scoped resource routes
   consume that projection without deriving a current workspace from recency.

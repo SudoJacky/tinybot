@@ -1,6 +1,6 @@
 use super::model::{
-    extract_memories, model_request_for_test, parse_diff_for_test, parse_extraction_for_test,
-    select_diff, TurnEvidence,
+    extract_memories, model_config_for_test, model_request_for_test, parse_diff_for_test,
+    parse_extraction_for_test, select_diff, TurnEvidence,
 };
 use super::runtime::successful_tool_result_for_test;
 use super::{
@@ -467,6 +467,23 @@ fn memory_models_use_the_configured_provider_protocol() {
 }
 
 #[test]
+fn memory_models_use_the_responses_provider_protocol() {
+    let extraction = tauri::async_runtime::block_on(extract_memories(
+        &fixture_responses_model_config(
+            "{\"memories\":[{\"scope\":\"workspace\",\"content\":\"Uses Rust.\"}]}",
+        ),
+        &TurnEvidence {
+            user_messages: vec!["This project uses Rust.".to_string()],
+            successful_tool_results: Vec::new(),
+        },
+    ))
+    .unwrap();
+
+    assert_eq!(extraction[0].scope, MemoryScope::Workspace);
+    assert_eq!(extraction[0].content, "Uses Rust.");
+}
+
+#[test]
 fn memory_model_request_uses_the_synchronized_defaults_after_a_provider_switch() {
     let mut config = json!({
         "agents": {
@@ -505,6 +522,81 @@ fn memory_model_request_uses_the_synchronized_defaults_after_a_provider_switch()
     );
 }
 
+#[test]
+fn memory_model_request_uses_an_explicit_memory_override() {
+    let config = json!({
+        "agents": {
+            "defaults": {
+                "activeProfile": "deepseek-default",
+                "model": "deepseek-v4-pro"
+            }
+        },
+        "memory": {
+            "activeProfile": "zai-default",
+            "model": "glm-5.3-flash"
+        },
+        "providers": {
+            "profiles": {
+                "deepseek-default": { "provider": "deepseek" },
+                "zai-default": { "provider": "zai" }
+            }
+        }
+    });
+
+    let request = model_request_for_test(&config).unwrap();
+    let effective = model_config_for_test(&config).unwrap();
+    let provider =
+        crate::agent::provider::resolve_provider_profile(&effective, None, None).unwrap();
+
+    assert_eq!(request["model"], "glm-5.3-flash");
+    assert_eq!(provider.provider_id, "zai");
+}
+
+#[test]
+fn memory_model_request_uses_responses_shape_for_a_responses_profile() {
+    let config = json!({
+        "agents": {
+            "defaults": {
+                "activeProfile": "openai-responses",
+                "model": "gpt-5"
+            }
+        },
+        "providers": {
+            "profiles": {
+                "openai-responses": {
+                    "provider": "openai",
+                    "apiMode": "responses"
+                }
+            }
+        }
+    });
+
+    let request = model_request_for_test(&config).unwrap();
+
+    assert!(request.get("messages").is_none());
+    assert_eq!(request["input"][0]["role"], "system");
+    assert_eq!(request["input"][1]["role"], "user");
+    assert_eq!(request["store"], false);
+}
+
+#[test]
+fn incomplete_memory_model_override_fails_clearly() {
+    let config = json!({
+        "agents": {
+            "defaults": {
+                "activeProfile": "deepseek-default",
+                "model": "deepseek-v4-pro"
+            }
+        },
+        "memory": { "model": "glm-5.3-flash" }
+    });
+
+    assert_eq!(
+        model_request_for_test(&config).unwrap_err(),
+        "memory model override requires both memory.activeProfile and memory.model"
+    );
+}
+
 fn fixture_model_config(content: &str) -> serde_json::Value {
     json!({
         "agents": {
@@ -514,6 +606,28 @@ fn fixture_model_config(content: &str) -> serde_json::Value {
             }
         },
         "providers": {
+            "fixture": {
+                "responses": [{ "content": content }]
+            }
+        }
+    })
+}
+
+fn fixture_responses_model_config(content: &str) -> serde_json::Value {
+    json!({
+        "agents": {
+            "defaults": {
+                "activeProfile": "fixture-responses",
+                "model": "fixture-model"
+            }
+        },
+        "providers": {
+            "profiles": {
+                "fixture-responses": {
+                    "provider": "fixture",
+                    "apiMode": "responses"
+                }
+            },
             "fixture": {
                 "responses": [{ "content": content }]
             }

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import {
   buildCustomProviderPatch,
+  buildMemoryLlmPatch,
   buildProviderConfigurePatch,
   buildProviderModelsPatch,
   buildProviderModelsSettings,
@@ -111,6 +112,11 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
 
       <DefaultLlmPanel data={data} onSave={saveDefaultSelection} />
 
+      <MemoryLlmPanel
+        data={data}
+        onSave={(selection) => savePatch(buildMemoryLlmPatch(selection))}
+      />
+
       <SettingsSaveStatus message={saveStatus} state={saveState} />
 
       <section className="react-provider-directory" aria-labelledby="providers-title">
@@ -178,6 +184,120 @@ export function ProviderModelsSettingsPage({ settingsStore }: ProviderModelsSett
       ) : null}
     </section>
   );
+}
+
+function MemoryLlmPanel({
+  data,
+  onSave,
+}: {
+  data: ProviderModelsSettingsData;
+  onSave: (selection: { profileId: string; model: string } | null) => Promise<void>;
+}) {
+  const { t: tCommon } = useTranslation("common");
+  const { t } = useTranslation("settings");
+  const configuredSelection = data.memoryProfileId && data.memoryModel
+    ? memoryModelSelectionKey(data.memoryProfileId, data.memoryModel)
+    : "";
+  const options = useMemo(() => data.providers.flatMap((provider) => (
+    provider.models
+      .filter((model) => model.enabled)
+      .map((model) => ({
+        key: memoryModelSelectionKey(provider.profileId, model.id),
+        model,
+        provider,
+      }))
+  )), [data.providers]);
+  const configuredOptionAvailable = options.some((option) => option.key === configuredSelection);
+  const activeProvider = data.providers.find((provider) => provider.profileId === data.activeProfileId);
+  const [selection, setSelection] = useState(configuredSelection);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setSelection(configuredSelection);
+  }, [configuredSelection]);
+
+  const selectedOption = options.find((option) => option.key === selection);
+  const dirty = selection !== configuredSelection;
+  const canSave = dirty && !saving && (!selection || Boolean(selectedOption));
+  const globalDefaultLabel = [data.agentDefaultModel, activeProvider?.label]
+    .filter(Boolean)
+    .join(" · ");
+
+  async function saveMemoryModel() {
+    if (!canSave) {
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(selectedOption ? {
+        profileId: selectedOption.provider.profileId,
+        model: selectedOption.model.id,
+      } : null);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="react-default-llm-panel" aria-labelledby="memory-llm-title">
+      <header>
+        <div>
+          <span className="react-settings-eyebrow">{t("provider.backgroundWork")}</span>
+          <h3 id="memory-llm-title">{t("provider.memoryModel")}</h3>
+          <p>{t("provider.memoryModelDescription")}</p>
+        </div>
+      </header>
+      <div className="react-memory-llm-control">
+        <label>
+          <span>{t("provider.memoryModelSelection")}</span>
+          <select
+            aria-label={t("provider.memoryModelSelection")}
+            value={selection}
+            onChange={(event) => setSelection(event.target.value)}
+          >
+            <option value="">
+              {t("provider.followGlobalDefault", { selection: globalDefaultLabel || t("provider.noModel") })}
+            </option>
+            {!configuredOptionAvailable && configuredSelection ? (
+              <option disabled value={configuredSelection}>
+                {t("provider.unavailableMemoryModel", {
+                  model: data.memoryModel ?? "",
+                  profile: data.memoryProfileId ?? "",
+                })}
+              </option>
+            ) : null}
+            {data.providers.map((provider) => {
+              const models = provider.models.filter((model) => model.enabled);
+              return models.length ? (
+                <optgroup key={provider.profileId} label={provider.label}>
+                  {models.map((model) => (
+                    <option key={model.id} value={memoryModelSelectionKey(provider.profileId, model.id)}>
+                      {model.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null;
+            })}
+          </select>
+        </label>
+        <button
+          data-press-feedback="true"
+          type="button"
+          disabled={!canSave}
+          onClick={saveMemoryModel}
+        >
+          {saving
+            ? <Loader2 aria-hidden="true" className="react-settings-spinner" size={15} />
+            : <Check aria-hidden="true" size={15} />}
+          {saving ? tCommon("generic.saving") : dirty ? tCommon("generic.save") : t("provider.saved")}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function memoryModelSelectionKey(profileId: string, model: string): string {
+  return JSON.stringify([profileId, model]);
 }
 
 function DefaultLlmPanel({

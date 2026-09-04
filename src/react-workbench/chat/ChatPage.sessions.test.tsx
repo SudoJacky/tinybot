@@ -38,6 +38,85 @@ describe("ChatPage", () => {
     expect(stores.chatStore.load).not.toHaveBeenCalled();
   });
 
+  it("uses general chat by default and binds a selected workspace to the new session draft", async () => {
+    const user = userEvent.setup();
+    const workingDirectory = "D:\\Code\\py\\tinybot";
+    const stores = createStores();
+    const workspace = {
+      addedAtMs: 1,
+      exists: true,
+      name: "tinybot",
+      path: workingDirectory,
+      updatedAtMs: 1,
+    };
+    const workspaceRegistryStore: WorkspaceRegistryStore = {
+      list: vi.fn(async () => [workspace]),
+      register: vi.fn(async () => workspace),
+      rename: vi.fn(async (_path, name) => ({ ...workspace, name })),
+      forget: vi.fn(async () => undefined),
+    };
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        sessionStore={stores.sessionStore}
+        startInNewSession
+        workspaceRegistryStore={workspaceRegistryStore}
+      />,
+    );
+
+    const input = screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
+    const workspaceTrigger = await screen.findByRole("button", { name: "Workspace: General chats" });
+    expect(screen.getByRole("heading", { name: "What do you want to do with Tinybot in General chats today?" })).toBeTruthy();
+
+    await user.type(input, "Inspect the selected workspace");
+    workspaceTrigger.focus();
+    await user.keyboard("{ArrowDown}");
+    const generalOption = screen.getByRole("menuitemradio", { name: "General chats" });
+    await waitFor(() => expect(document.activeElement).toBe(generalOption));
+    await user.keyboard("{ArrowDown}{Enter}");
+
+    expect(input.value).toBe("Inspect the selected workspace");
+    expect(screen.getByRole("heading", { name: "What do you want to do with Tinybot in tinybot today?" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+    await waitFor(() => expect(stores.sessionStore.create).toHaveBeenCalledWith({ workingDirectory }));
+  });
+
+  it("adds and selects a workspace from the new-session heading", async () => {
+    const user = userEvent.setup();
+    const workingDirectory = "D:\\Code\\VirtualHome";
+    const stores = createStores();
+    const workspace = {
+      addedAtMs: 1,
+      exists: true,
+      name: "VirtualHome",
+      path: workingDirectory,
+      updatedAtMs: 1,
+    };
+    const workspaceRegistryStore: WorkspaceRegistryStore = {
+      list: vi.fn(async () => []),
+      register: vi.fn(async () => workspace),
+      rename: vi.fn(async (_path, name) => ({ ...workspace, name })),
+      forget: vi.fn(async () => undefined),
+    };
+    nativeWorkspacePickerMocks.pickDesktopWorkspaceDirectory.mockResolvedValueOnce(workingDirectory);
+
+    render(
+      <ChatPage
+        chatStore={stores.chatStore}
+        sessionStore={stores.sessionStore}
+        startInNewSession
+        workspaceRegistryStore={workspaceRegistryStore}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Workspace: General chats" }));
+    await user.click(screen.getByRole("menuitem", { name: "Add workspace folder" }));
+
+    await waitFor(() => expect(workspaceRegistryStore.register).toHaveBeenCalledWith(workingDirectory));
+    expect(screen.getByRole("heading", { name: "What do you want to do with Tinybot in VirtualHome today?" })).toBeTruthy();
+  });
+
   it("allows drafting while sessions load but prevents sending", async () => {
     const user = userEvent.setup();
     const stores = createStores({ sessions: [] });
@@ -165,14 +244,42 @@ describe("ChatPage", () => {
 
     expect(sidebar.getAttribute("data-collapsed")).toBe("true");
     expect(screen.getByRole("button", { name: "Planning notes" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Expand session sidebar" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "New conversation tab" })).toBeTruthy();
+    const shortcuts = within(sidebar).getByRole("navigation", {
+      name: "Collapsed session sidebar shortcuts",
+    });
+    expect(within(shortcuts).getAllByRole("button").map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Expand session sidebar",
+      "New chat",
+      "Add workspace folder",
+      "Search chats",
+    ]);
+    expect(shortcuts.querySelector(".react-session-list__collapsed-mascot")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "New conversation tab" })).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Expand session sidebar" }));
+    await user.click(within(shortcuts).getByRole("button", { name: "Expand session sidebar" }));
 
     expect(sidebar.getAttribute("data-collapsed")).toBe("false");
     expect(screen.getByRole("heading", { name: "Tinybot" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "New conversation tab" })).toBeNull();
+  });
+
+  it("expands the collapsed sidebar directly into focused session search", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    render(<ChatPage chatStore={stores.chatStore} sessionStore={stores.sessionStore} />);
+
+    const sidebar = await screen.findByLabelText("Sessions");
+    await user.click(within(sidebar).getByRole("button", { name: "Collapse session sidebar" }));
+    await user.click(within(sidebar).getByRole("button", { name: "Search chats" }));
+
+    const input = within(sidebar).getByRole("textbox", { name: "Search chats" });
+    expect(sidebar.getAttribute("data-collapsed")).toBe("false");
+    expect(input).toBe(document.activeElement);
+    expect(input.getAttribute("placeholder")).toBe("Search sessions…");
+
+    await user.click(within(sidebar).getByRole("button", { name: "Close session search" }));
+    await waitFor(() => expect(within(sidebar).getByRole("button", { name: "Search chats" }))
+      .toBe(document.activeElement));
   });
 
   it("groups sessions by workspace and creates another session in that directory", async () => {
@@ -211,7 +318,8 @@ describe("ChatPage", () => {
 
     const sidebar = await screen.findByLabelText("Sessions");
     const workspace = within(sidebar).getByRole("group", { name: "Workspace tinybot" });
-    const workspaceSummary = workspace.querySelector("summary");
+    const workspaceDetails = workspace.querySelector("details");
+    const workspaceSummary = workspaceDetails?.querySelector("summary");
     const collapsedFolder = workspaceSummary?.querySelector(".react-session-workspace__folder-icon--collapsed");
     const expandedFolder = workspaceSummary?.querySelector(".react-session-workspace__folder-icon--expanded");
     expect(collapsedFolder).toBeTruthy();
@@ -223,7 +331,7 @@ describe("ChatPage", () => {
     expect(within(sidebar).getByRole("group", { name: "Workspace General chats" })).toBeTruthy();
 
     await user.click(workspaceSummary as HTMLElement);
-    expect(workspace.hasAttribute("open")).toBe(false);
+    expect(workspaceDetails?.hasAttribute("open")).toBe(false);
     expect(getComputedStyle(collapsedFolder as Element).display).not.toBe("none");
     expect(getComputedStyle(expandedFolder as Element).display).toBe("none");
 
@@ -283,7 +391,7 @@ describe("ChatPage", () => {
 
     await screen.findByLabelText("Sessions");
     await user.click(screen.getByRole("button", { name: "Collapse session sidebar" }));
-    await user.click(screen.getByRole("button", { name: "New conversation tab" }));
+    await user.click(screen.getByRole("button", { name: "New chat" }));
 
     expect(stores.sessionStore.create).not.toHaveBeenCalled();
     await user.type(screen.getByRole("textbox", { name: /message/i }), "Continue here");
@@ -299,7 +407,7 @@ describe("ChatPage", () => {
 
     await screen.findByLabelText("Sessions");
     await user.click(screen.getByRole("button", { name: "Collapse session sidebar" }));
-    await user.click(screen.getByRole("button", { name: "New conversation tab" }));
+    await user.click(screen.getByRole("button", { name: "New chat" }));
     expect(screen.getByRole("tab", { name: "New chat" })).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Planning notes" }));
@@ -317,7 +425,7 @@ describe("ChatPage", () => {
 
     await screen.findByLabelText("Sessions");
     await user.click(screen.getByRole("button", { name: "Collapse session sidebar" }));
-    await user.click(screen.getByRole("button", { name: "New conversation tab" }));
+    await user.click(screen.getByRole("button", { name: "New chat" }));
     await user.type(screen.getByRole("textbox", { name: /message/i }), "Keep this draft");
 
     await user.click(screen.getByRole("button", { name: "Planning notes" }));
@@ -347,7 +455,7 @@ describe("ChatPage", () => {
     await user.click(screen.getByRole("button", { name: "Collapse session sidebar" }));
     const input = screen.getByRole("textbox", { name: /message/i }) as HTMLTextAreaElement;
     await user.type(input, "Keep the startup draft");
-    await user.click(screen.getByRole("button", { name: "New conversation tab" }));
+    await user.click(screen.getByRole("button", { name: "New chat" }));
 
     const draftTabs = screen.getAllByRole("tab", { name: "New chat" });
     expect(draftTabs).toHaveLength(2);
@@ -364,7 +472,7 @@ describe("ChatPage", () => {
 
     await screen.findByLabelText("Sessions");
     await user.click(screen.getByRole("button", { name: "Collapse session sidebar" }));
-    await user.click(screen.getByRole("button", { name: "New conversation tab" }));
+    await user.click(screen.getByRole("button", { name: "New chat" }));
     await user.type(screen.getByRole("textbox", { name: /message/i }), "Restore this draft");
     view.unmount();
 
@@ -394,7 +502,7 @@ describe("ChatPage", () => {
 
     await screen.findByLabelText("Sessions");
     await user.click(screen.getByRole("button", { name: "Collapse session sidebar" }));
-    await user.click(screen.getByRole("button", { name: "New conversation tab" }));
+    await user.click(screen.getByRole("button", { name: "New chat" }));
 
     expect(stores.sessionStore.create).not.toHaveBeenCalled();
     await user.type(screen.getByRole("textbox", { name: /message/i }), "Start independently");
@@ -429,7 +537,7 @@ describe("ChatPage", () => {
 
     await screen.findByLabelText("Sessions");
     await user.click(screen.getByRole("button", { name: "Collapse session sidebar" }));
-    await user.click(screen.getByRole("button", { name: "New conversation tab" }));
+    await user.click(screen.getByRole("button", { name: "New chat" }));
 
     expect(stores.sessionStore.create).not.toHaveBeenCalled();
     await user.type(screen.getByRole("textbox", { name: /message/i }), "Start cleanly");
@@ -452,8 +560,8 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const sidebar = await screen.findByLabelText("Sessions");
-    await user.click(within(sidebar).getByRole("button", { name: "Workspace and project actions" }));
-    await user.click(within(sidebar).getByRole("menuitem", { name: "Add workspace folder" }));
+    await user.click(within(sidebar).getByRole("button", { name: "Collapse session sidebar" }));
+    await user.click(within(sidebar).getByRole("button", { name: "Add workspace folder" }));
 
     expect(await within(sidebar).findByRole("group", { name: "Workspace VirtualHome" })).toBeTruthy();
     expect(stores.sessionStore.create).not.toHaveBeenCalled();
@@ -888,7 +996,8 @@ describe("ChatPage", () => {
     expect(screen.getByRole("heading", { name: "New chat" })).toBeTruthy();
     expect(screen.queryByLabelText("Select or create a session.")).toBeNull();
     expect(stores.sessionStore.create).not.toHaveBeenCalled();
-    expect(within(start).getByLabelText("Prompt suggestions")).toBeTruthy();
+    expect(within(start).queryByLabelText("Prompt suggestions")).toBeNull();
+    expect(within(start).getByRole("button", { name: "Workspace: General chats" })).toBeTruthy();
   });
 
   it("starts in a draft new chat when there are no sessions", async () => {
@@ -971,7 +1080,7 @@ describe("ChatPage", () => {
     expect(row?.querySelector(".react-session-row__avatar")).toBeNull();
   });
 
-  it("opens session search, filters chats, and selects a matching session", async () => {
+  it("expands session search inline, filters the sidebar, and collapses from its close button", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     stores.sessionStore.list = vi.fn(async () => [
@@ -997,42 +1106,45 @@ describe("ChatPage", () => {
     await screen.findByRole("button", { name: "Planning notes" });
     await user.click(screen.getByRole("button", { name: "Search chats" }));
 
-    const dialog = screen.getByRole("dialog", { name: "Chat search" });
-    const input = within(dialog).getByRole("textbox", { name: "Search chats or run a command" }) as HTMLInputElement;
+    const sidebar = screen.getByLabelText("Sessions");
+    const input = within(sidebar).getByRole("textbox", { name: "Search chats" }) as HTMLInputElement;
 
-    expect(input.placeholder).toBe("Search chats or run a command");
-    expect(within(dialog).getByRole("button", { name: /Planning notes/ })).toBeTruthy();
+    expect(input.placeholder).toBe("Search sessions…");
+    expect(document.activeElement).toBe(input);
+    expect(screen.queryByRole("dialog", { name: "Session search" })).toBeNull();
 
     await user.type(input, "react");
 
-    expect(within(dialog).queryByRole("button", { name: /Planning notes/ })).toBeNull();
-    await user.click(within(dialog).getByRole("button", { name: /ReactBits migration/ }));
+    expect(within(sidebar).queryByRole("button", { name: "Planning notes" })).toBeNull();
+    expect(within(sidebar).getByRole("button", { name: "ReactBits migration" })).toBeTruthy();
+    await user.click(within(sidebar).getByRole("button", { name: "Close session search" }));
 
-    expect(screen.queryByRole("dialog", { name: "Chat search" })).toBeNull();
-    expect(screen.getByRole("heading", { name: "ReactBits migration" })).toBeTruthy();
-    await waitFor(() => expect(stores.chatStore.load).toHaveBeenLastCalledWith("s2"));
+    expect(within(sidebar).queryByRole("textbox", { name: "Search chats" })).toBeNull();
+    expect(within(sidebar).getByRole("button", { name: "Planning notes" })).toBeTruthy();
+    expect(within(sidebar).getByRole("button", { name: "ReactBits migration" })).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(
+      within(sidebar).getByRole("button", { name: "Search chats" }),
+    ));
   });
 
-  it("runs the new chat recommendation from session search", async () => {
+  it("clears and collapses inline session search with Escape", async () => {
     const user = userEvent.setup();
     const stores = createStores();
-    stores.chatStore.load = vi.fn(async (sessionId) => timelineFromReactMessages(sessionId, []));
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     await screen.findByRole("button", { name: "Planning notes" });
     await user.click(screen.getByRole("button", { name: "Search chats" }));
+    const sidebar = screen.getByLabelText("Sessions");
+    const input = within(sidebar).getByRole("textbox", { name: "Search chats" });
+    await user.type(input, "no matching session");
 
-    const dialog = screen.getByRole("dialog", { name: "Chat search" });
-    await user.click(within(dialog).getByRole("button", { name: /New chat/ }));
+    expect(within(sidebar).getByText("No matching sessions.")).toBeTruthy();
+    await user.keyboard("{Escape}");
 
-    expect(stores.sessionStore.create).not.toHaveBeenCalled();
-    expect(screen.queryByRole("dialog", { name: "Chat search" })).toBeNull();
-    expect(screen.getByRole("heading", { name: "New chat" })).toBeTruthy();
-
-    await user.type(screen.getByRole("textbox", { name: /message/i }), "Start from search");
-    await user.click(screen.getByRole("button", { name: /send message/i }));
-    await waitFor(() => expect(stores.sessionStore.create).toHaveBeenCalledTimes(1));
+    expect(within(sidebar).queryByRole("textbox", { name: "Search chats" })).toBeNull();
+    expect(within(sidebar).queryByText("No matching sessions.")).toBeNull();
+    expect(within(sidebar).getByRole("button", { name: "Planning notes" })).toBeTruthy();
   });
 
   it("uses a two-click delete confirmation in the session list", async () => {
@@ -1168,17 +1280,18 @@ describe("ChatPage", () => {
     fireEvent.change(input, { target: { value: "Keep this optimistic title" } });
     fireEvent.click(screen.getByRole("button", { name: /send message/i }));
     expect(await screen.findByRole("heading", { name: "Keep this optimistic title" })).toBeTruthy();
-    await waitFor(() => expect(stores.sessionStore.rename).toHaveBeenCalledWith(
-      "s1",
-      "Keep this optimistic title",
-    ));
+    expect(stores.sessionStore.rename).not.toHaveBeenCalled();
 
     act(() => subscribed?.({ type: "chat.created" }));
     await waitFor(() => expect(stores.sessionStore.list).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(stores.chatStore.load).toHaveBeenLastCalledWith("s2"));
     expect(screen.getByRole("heading", { name: "Keep this optimistic title" })).toBeTruthy();
 
-    resolveSend?.();
+    await act(async () => {
+      resolveSend?.();
+    });
+    await waitFor(() => expect(stores.sessionStore.list).toHaveBeenCalledTimes(3));
+    expect(stores.sessionStore.rename).not.toHaveBeenCalled();
   });
 
   it("runs conversation menu actions through stores and clipboard", async () => {

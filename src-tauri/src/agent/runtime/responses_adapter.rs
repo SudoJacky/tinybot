@@ -1,4 +1,4 @@
-use super::items::{AgentContentPart, AgentUsageItem};
+use super::items::AgentContentPart;
 use super::provider_adapter::{
     apply_provider_request_adaptation, attach_provider_tools,
     provider_message_with_user_context_and_images, require_model_image_input,
@@ -234,8 +234,7 @@ impl ResponsesAdapter {
         let usage = response
             .get("usage")
             .filter(|value| !value.is_null())
-            .map(responses_usage)
-            .transpose()?;
+            .cloned();
         Ok(DecodedProviderTurn {
             assistant: AgentAssistantMessage {
                 id: assistant_id,
@@ -570,37 +569,6 @@ fn decode_reasoning_text(item: &Value, item_index: usize) -> Result<String, Stri
     Ok(text)
 }
 
-fn responses_usage(value: &Value) -> Result<AgentUsageItem, String> {
-    let usage = value
-        .as_object()
-        .ok_or_else(|| "Responses API usage must be an object".to_string())?;
-    Ok(AgentUsageItem {
-        id: None,
-        input_tokens: usage_number(usage, "input_tokens")?,
-        output_tokens: usage_number(usage, "output_tokens")?,
-        total_tokens: usage_number(usage, "total_tokens")?,
-        context_window_remaining_tokens: None,
-        context_window_strategy: None,
-        context_window_tokens: None,
-        context_window_used_tokens: None,
-        estimated_context_tokens: None,
-        percent: None,
-        provider_payload: value.clone(),
-    })
-}
-
-fn usage_number(usage: &Map<String, Value>, key: &str) -> Result<Option<i64>, String> {
-    usage
-        .get(key)
-        .filter(|value| !value.is_null())
-        .map(|value| {
-            value
-                .as_i64()
-                .ok_or_else(|| format!("Responses API usage `{key}` must be an integer"))
-        })
-        .transpose()
-}
-
 fn required_string(value: &Value, key: &str, kind: &str, index: usize) -> Result<String, String> {
     string_value(value, key)
         .ok_or_else(|| format!("Responses API {kind} at index {index} requires {key}"))
@@ -821,7 +789,7 @@ mod tests {
         assert_eq!(decoded.reasoning.unwrap().summary, "checked");
         assert_eq!(decoded.assistant.tool_calls[0].id, "call-1");
         assert_eq!(decoded.assistant.tool_calls[0].name, "web.open");
-        assert_eq!(decoded.usage.unwrap().input_tokens, Some(10));
+        assert_eq!(decoded.usage.unwrap()["input_tokens"], 10);
     }
 
     #[test]

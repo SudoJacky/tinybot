@@ -75,6 +75,35 @@ fn provider_api_mode_is_exposed_with_chat_completions_as_the_default() {
 }
 
 #[test]
+fn memory_model_override_is_exposed_as_an_editable_profile_model_pair() {
+    let mut config = config_fixture();
+    config["memory"] = json!({
+        "activeProfile": "openai-work",
+        "model": "gpt-5-mini"
+    });
+    let snapshot = build_settings_snapshot(SettingsSnapshotInput {
+        config,
+        config_path: PathBuf::from("C:/Users/example/.tinybot/config.json"),
+        revision: "rev-1".to_string(),
+        diagnostics: Vec::new(),
+    });
+
+    let profile = snapshot
+        .field("memory.activeProfile")
+        .expect("Memory profile field should exist");
+    let model = snapshot
+        .field("memory.model")
+        .expect("Memory model field should exist");
+
+    assert!(profile.editable);
+    assert!(model.editable);
+    assert_eq!(profile.scope, SettingScope::RunDefault);
+    assert_eq!(model.scope, SettingScope::RunDefault);
+    assert_eq!(profile.value, json!("openai-work"));
+    assert_eq!(model.value, json!("gpt-5-mini"));
+}
+
+#[test]
 fn provider_model_enablement_and_capabilities_are_exposed_as_profile_json() {
     let snapshot = build_settings_snapshot(SettingsSnapshotInput {
         config: config_fixture(),

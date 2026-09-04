@@ -11,11 +11,14 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:790a3c52606dd3f42ac77cf0040bfef2fc9457627e088978884d001c53d660aa -->
+<!-- tinybot-doc-fingerprint: sha256:a1483ec78029186e4a81fa82b87421649307593264b22ff9cb91a3ba7333346f -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
 and result projection remain separate concerns joined through narrow seams.
+
+The independent first-Turn title request does not enter the Agent Runtime and
+never receives this registry; it is always a single tool-free Provider call.
 
 ## Tool flow
 

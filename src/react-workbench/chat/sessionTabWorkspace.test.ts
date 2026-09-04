@@ -196,6 +196,42 @@ describe("sessionTabWorkspace", () => {
     expect(sessionTabDraft(state, "draft:1")).toBe("Keep this locally");
   });
 
+  it("changes a local draft workspace without losing its text or other creation input", () => {
+    let state = reduceSessionTabWorkspace(INITIAL_SESSION_TAB_WORKSPACE, {
+      type: "session-draft.open",
+      draft: {
+        id: "draft:1",
+        createdAtMs: 10,
+        createInput: { title: "Draft title", workingDirectory: "D:\\Code\\tinybot" },
+      },
+    });
+    state = reduceSessionTabWorkspace(state, {
+      type: "draft.changed",
+      sessionId: "draft:1",
+      value: "Keep this prompt",
+    });
+    state = reduceSessionTabWorkspace(state, {
+      type: "session-draft.workspace.changed",
+      sessionId: "draft:1",
+      workingDirectory: "D:\\Code\\VirtualHome",
+    });
+
+    expect(state.draftSessionsById["draft:1"]?.createInput).toEqual({
+      title: "Draft title",
+      workingDirectory: "D:\\Code\\VirtualHome",
+    });
+    expect(sessionTabDraft(state, "draft:1")).toBe("Keep this prompt");
+
+    state = reduceSessionTabWorkspace(state, {
+      type: "session-draft.workspace.changed",
+      sessionId: "draft:1",
+      workingDirectory: undefined,
+    });
+
+    expect(state.draftSessionsById["draft:1"]?.createInput).toEqual({ title: "Draft title" });
+    expect(sessionTabDraft(state, "draft:1")).toBe("Keep this prompt");
+  });
+
   it("replaces a local session draft with the created Thread without losing composer text", () => {
     let state = reduceSessionTabWorkspace(INITIAL_SESSION_TAB_WORKSPACE, {
       type: "session-draft.open",

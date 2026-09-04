@@ -112,6 +112,7 @@ describe("desktop native event bridge", () => {
       "agent:timeline:patch",
       "agent:awaiting_form",
       "agent:hook:decision",
+      "thread:title:updated",
       "browser:snapshot",
     ]);
     const timelineHandler = harness.handlers.get("agent:timeline:patch");
@@ -129,6 +130,28 @@ describe("desktop native event bridge", () => {
     expect(harness.notifyAll).toHaveBeenCalledWith({
       type: "timeline.error",
       error: "Canonical timeline patch is missing sessionId",
+    });
+  });
+
+  it("reloads sessions when a generated Thread title arrives", async () => {
+    const harness = createHarness();
+    harness.loadSessions.mockImplementation(async () => {
+      harness.state.threads = [{ ...nativeThread("thread-1"), title: "Investigate sign-in" }];
+      return 1;
+    });
+    await harness.bridge.register();
+
+    await harness.handlers.get("thread:title:updated")?.({
+      payload: { sourceTurnId: "turn-1", threadId: "thread-1" },
+    });
+
+    expect(harness.loadSessions).toHaveBeenCalledTimes(1);
+    expect(harness.notifyAll).toHaveBeenCalledWith({ type: "session-title-generated" });
+
+    await harness.handlers.get("thread:title:updated")?.({ payload: null });
+    expect(harness.notifyAll).toHaveBeenCalledWith({
+      type: "session-title-generated.error",
+      error: "Generated Thread title event must be an object.",
     });
   });
 

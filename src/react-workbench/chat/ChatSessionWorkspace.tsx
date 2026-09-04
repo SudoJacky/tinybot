@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  CirclePlus,
   ChevronLeft,
   ChevronRight,
   Folder,
@@ -18,10 +19,10 @@ import {
   GitBranch,
   Loader2,
   MoreHorizontal,
+  PanelLeftOpen,
   PencilLine,
   Plus,
   Search,
-  Settings,
   Trash2,
   X,
 } from "lucide-react";
@@ -47,10 +48,10 @@ import {
   type SessionSidebarOrder,
 } from "./sessionSidebarOrder";
 import { displaySessionTitle } from "./sessionTitle";
+import { TinybotMascot } from "./TinybotMascot";
 import {
   groupSessionsByWorkspace,
   normalizedWorkspacePathKey,
-  sessionWorkspaceName,
 } from "./sessionWorkspaces";
 
 const SIDEBAR_ROOT_CONTAINER_ID = "sidebar:root";
@@ -82,9 +83,14 @@ export type ChatSessionWorkspaceActions = {
     projectContext?: ProjectSessionContext,
   ) => Promise<SessionSummary | null>;
   onDeleteSession: (session: SessionSummary) => Promise<void>;
-  onOpenFiles?: () => void;
-  onOpenSettings?: () => void;
   onSelectSession: (session: SessionSummary) => void;
+};
+
+export type ChatSessionWorkspaceRenderContext = {
+  availableWorkspaces: readonly WorkspaceRegistryEntry[];
+  chooseWorkspace: () => Promise<string | undefined>;
+  workspaceError: string;
+  workspacePickerPending: boolean;
 };
 
 export function ChatSessionWorkspace({
@@ -103,7 +109,7 @@ export function ChatSessionWorkspace({
 }: {
   actions: ChatSessionWorkspaceActions;
   activeSessionId: string;
-  children: ReactNode;
+  children: ReactNode | ((context: ChatSessionWorkspaceRenderContext) => ReactNode);
   collapsed: boolean;
   confirmingDeleteSessionId: string;
   createPending: boolean;
@@ -120,6 +126,7 @@ export function ChatSessionWorkspace({
   const [projectDialogGroupId, setProjectDialogGroupId] = useState<string | "new">();
   const [workspaceDialogPath, setWorkspaceDialogPath] = useState<string>();
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [workspaceActionMenuOpen, setWorkspaceActionMenuOpen] = useState(false);
   const [workspaceError, setWorkspaceError] = useState("");
   const [workspacePickerPending, setWorkspacePickerPending] = useState(false);
@@ -132,6 +139,9 @@ export function ChatSessionWorkspace({
   const [draggedSidebarItem, setDraggedSidebarItem] = useState<SidebarDragItem>();
   const [sidebarDropTarget, setSidebarDropTarget] = useState<SidebarDropTarget>();
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchTriggerRef = useRef<HTMLButtonElement>(null);
+  const restoreSearchTriggerFocusRef = useRef(false);
   const workspaceActionMenuRef = useRef<HTMLDivElement | null>(null);
   const draggedSidebarItemRef = useRef<SidebarDragItem | undefined>(undefined);
 
@@ -177,24 +187,46 @@ export function ChatSessionWorkspace({
     }
   }, [sidebarOrder]);
 
+  useEffect(() => {
+    if (searchOpen) {
+      searchInputRef.current?.focus();
+    } else if (restoreSearchTriggerFocusRef.current) {
+      restoreSearchTriggerFocusRef.current = false;
+      searchTriggerRef.current?.focus();
+    }
+  }, [searchOpen]);
+
   const workspaceByKey = useMemo(() => new Map(workspaces.map((workspace) => [
     normalizedWorkspacePathKey(workspace.path),
     workspace,
   ])), [workspaces]);
+  const normalizedSearchQuery = searchQuery.trim().toLocaleLowerCase();
+  const visibleSessions = useMemo(() => (
+    normalizedSearchQuery
+      ? sessions.filter((session) => (
+          [session.title, session.chatId ?? "", session.id, session.workingDirectory ?? ""]
+            .some((value) => value.toLocaleLowerCase().includes(normalizedSearchQuery))
+        ))
+      : sessions
+  ), [normalizedSearchQuery, sessions]);
   const projectProjection = useMemo(() => {
-    const projection = projectSessionGroups(projectGroups, [...sessions]);
+    const projection = projectSessionGroups(projectGroups, [...visibleSessions]);
     return {
       ...projection,
-      groups: projection.groups.map((group) => ({
-        ...group,
-        workspaces: group.workspaces.map((workspace) => ({
-          ...workspace,
-          label: workspaceByKey.get(normalizedWorkspacePathKey(workspace.workspaceId))?.name
-            ?? workspace.label,
-        })),
-      })),
+      groups: projection.groups.flatMap((group) => {
+        const visibleWorkspaces = group.workspaces
+          .map((workspace) => ({
+            ...workspace,
+            label: workspaceByKey.get(normalizedWorkspacePathKey(workspace.workspaceId))?.name
+              ?? workspace.label,
+          }))
+          .filter((workspace) => !normalizedSearchQuery || workspace.sessions.length);
+        return normalizedSearchQuery && !group.coordinatorSessions.length && !visibleWorkspaces.length
+          ? []
+          : [{ ...group, workspaces: visibleWorkspaces }];
+      }),
     };
-  }, [projectGroups, sessions, workspaceByKey]);
+  }, [normalizedSearchQuery, projectGroups, visibleSessions, workspaceByKey]);
   const sessionWorkspaces = useMemo(
     () => {
       const groups = groupSessionsByWorkspace(projectProjection.ungroupedSessions).map((workspace) => {
@@ -217,7 +249,7 @@ export function ChatSessionWorkspace({
       const projectWorkspaceKeys = new Set(projectGroups.flatMap((group) => (
         group.workspaceIds.map(normalizedWorkspacePathKey)
       )));
-      const emptyRegisteredGroups = workspaces.flatMap((workspace) => {
+      const emptyRegisteredGroups = normalizedSearchQuery ? [] : workspaces.flatMap((workspace) => {
         const key = normalizedWorkspacePathKey(workspace.path);
         if (represented.has(key) || projectWorkspaceKeys.has(key)) return [];
         return [{
@@ -232,7 +264,7 @@ export function ChatSessionWorkspace({
       });
       return [...groups, ...emptyRegisteredGroups];
     },
-    [projectGroups, projectProjection.ungroupedSessions, t, workspaceByKey, workspaces],
+    [normalizedSearchQuery, projectGroups, projectProjection.ungroupedSessions, t, workspaceByKey, workspaces],
   );
   const rootGroups = useMemo(() => orderSidebarItems([
     ...projectProjection.groups.map((group) => ({
@@ -492,10 +524,19 @@ export function ChatSessionWorkspace({
       return registered.path;
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
-      console.error("[session-workspaces] project-workspace.pick.failed", { error: message });
+      setWorkspaceError(message);
+      console.error("[session-workspaces] workspace.choose.failed", { error: message });
       throw cause;
     } finally {
       setWorkspacePickerPending(false);
+    }
+  }
+
+  async function handleChooseEmptySessionWorkspace(): Promise<string | undefined> {
+    try {
+      return await handleChooseProjectWorkspace();
+    } catch {
+      return undefined;
     }
   }
 
@@ -522,90 +563,168 @@ export function ChatSessionWorkspace({
     });
   }
 
-  async function handleCreateSessionFromSearch(): Promise<void> {
-    const created = await actions.onCreateSession();
-    if (created) setSearchOpen(false);
+  function closeSessionSearch(): void {
+    restoreSearchTriggerFocusRef.current = true;
+    setSearchQuery("");
+    setSearchOpen(false);
   }
 
-  function handleSelectSession(session: SessionSummary): void {
-    actions.onSelectSession(session);
-    setSearchOpen(false);
+  function openSessionSearch(): void {
+    setWorkspaceActionMenuOpen(false);
+    if (collapsed) actions.onCollapsedChange(false);
+    setSearchOpen(true);
   }
 
   return (
     <>
       <aside className="react-session-list" aria-label={t("shell.sessions")} data-collapsed={collapsed}>
-        <div className="react-session-list__header">
-          <div className="react-session-list__title-row">
-            <h2>Tinybot</h2>
-            <div className="react-session-list__title-actions">
-              <div className="react-session-list__workspace-actions" ref={workspaceActionMenuRef}>
-                <button
-                  aria-expanded={workspaceActionMenuOpen}
-                  aria-haspopup="menu"
-                  aria-label={t("shell.workspaceActions")}
-                  className="react-session-list__add-workspace"
-                  disabled={workspacePickerPending || createPending}
-                  title={t("shell.workspaceActions")}
-                  type="button"
-                  onClick={() => setWorkspaceActionMenuOpen((open) => !open)}
-                >
-                  <FolderPlus aria-hidden="true" size={15} />
-                </button>
-                {workspaceActionMenuOpen ? (
-                  <div aria-label={t("shell.workspaceActions")} className="react-popover-surface react-session-list__workspace-menu" role="menu">
+        {collapsed ? (
+          <nav aria-label={t("shell.collapsedNavigation")} className="react-session-list__collapsed-nav">
+            <button
+              aria-label={t("shell.expandSidebar")}
+              className="react-session-list__collapsed-home"
+              title={t("shell.expandSidebar")}
+              type="button"
+              onClick={() => actions.onCollapsedChange(false)}
+            >
+              <span aria-hidden="true" className="react-session-list__collapsed-mascot">
+                <TinybotMascot appearance="classic" label="Tinybot" mood="calm" />
+              </span>
+              <PanelLeftOpen aria-hidden="true" className="react-session-list__collapsed-expand" size={18} />
+            </button>
+            <button
+              aria-label={t("shell.newChat")}
+              disabled={createPending}
+              title={t("shell.newChat")}
+              type="button"
+              onClick={() => void actions.onCreateSession()}
+            >
+              <CirclePlus aria-hidden="true" size={18} />
+            </button>
+            <button
+              aria-label={t("shell.addWorkspace")}
+              disabled={workspacePickerPending || createPending}
+              title={t("shell.addWorkspace")}
+              type="button"
+              onClick={() => void handleAddWorkspace()}
+            >
+              <FolderPlus aria-hidden="true" size={18} />
+            </button>
+            <button
+              aria-label={t("shell.searchChats")}
+              ref={searchTriggerRef}
+              title={t("shell.searchChats")}
+              type="button"
+              onClick={openSessionSearch}
+            >
+              <Search aria-hidden="true" size={18} />
+            </button>
+          </nav>
+        ) : (
+          <div className="react-session-list__header">
+            <div className="react-session-list__title-row" data-search-open={searchOpen ? "true" : undefined}>
+              {searchOpen ? (
+                <div aria-label={t("search.label")} className="react-session-list__inline-search" role="search">
+                  <Search aria-hidden="true" size={15} />
+                  <input
+                    aria-label={t("shell.searchChats")}
+                    placeholder={t("search.placeholder")}
+                    ref={searchInputRef}
+                    type="text"
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.currentTarget.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Escape") return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      closeSessionSearch();
+                    }}
+                  />
+                  <button
+                    aria-label={t("search.close")}
+                    className="react-session-list__search-close"
+                    title={t("search.close")}
+                    type="button"
+                    onClick={closeSessionSearch}
+                  >
+                    <X aria-hidden="true" size={14} />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <h2>Tinybot</h2>
+                  <div className="react-session-list__title-actions">
+                    <div className="react-session-list__workspace-actions" ref={workspaceActionMenuRef}>
+                      <button
+                        aria-expanded={workspaceActionMenuOpen}
+                        aria-haspopup="menu"
+                        aria-label={t("shell.workspaceActions")}
+                        className="react-session-list__add-workspace"
+                        disabled={workspacePickerPending || createPending}
+                        title={t("shell.workspaceActions")}
+                        type="button"
+                        onClick={() => setWorkspaceActionMenuOpen((open) => !open)}
+                      >
+                        <FolderPlus aria-hidden="true" size={15} />
+                      </button>
+                      {workspaceActionMenuOpen ? (
+                        <div aria-label={t("shell.workspaceActions")} className="react-popover-surface react-session-list__workspace-menu" role="menu">
+                          <button
+                            className="react-popover-item"
+                            role="menuitem"
+                            type="button"
+                            onClick={() => {
+                              setWorkspaceActionMenuOpen(false);
+                              void handleAddWorkspace();
+                            }}
+                          >
+                            <FolderPlus aria-hidden="true" size={14} />
+                            {t("shell.addWorkspace")}
+                          </button>
+                          <button
+                            className="react-popover-item"
+                            disabled={!projectGroupStore}
+                            role="menuitem"
+                            type="button"
+                            onClick={() => {
+                              setWorkspaceActionMenuOpen(false);
+                              setProjectDialogGroupId("new");
+                            }}
+                          >
+                            <GitBranch aria-hidden="true" size={14} />
+                            {t("projectGroups.create")}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
                     <button
-                      className="react-popover-item"
-                      role="menuitem"
+                      aria-label={t("shell.searchChats")}
+                      className="react-session-list__search"
+                      ref={searchTriggerRef}
+                      title={t("shell.searchChats")}
                       type="button"
-                      onClick={() => {
-                        setWorkspaceActionMenuOpen(false);
-                        void handleAddWorkspace();
-                      }}
+                      onClick={openSessionSearch}
                     >
-                      <FolderPlus aria-hidden="true" size={14} />
-                      {t("shell.addWorkspace")}
+                      <Search aria-hidden="true" size={15} />
                     </button>
                     <button
-                      className="react-popover-item"
-                      disabled={!projectGroupStore}
-                      role="menuitem"
+                      aria-label={t("shell.collapseSidebar")}
+                      className="react-session-list__collapse"
+                      title={t("shell.collapseSidebar")}
                       type="button"
-                      onClick={() => {
-                        setWorkspaceActionMenuOpen(false);
-                        setProjectDialogGroupId("new");
-                      }}
+                      onClick={() => actions.onCollapsedChange(true)}
                     >
-                      <GitBranch aria-hidden="true" size={14} />
-                      {t("projectGroups.create")}
+                      <ChevronLeft aria-hidden="true" size={16} />
                     </button>
                   </div>
-                ) : null}
-              </div>
-              <button
-                aria-label={t("shell.searchChats")}
-                className="react-session-list__search"
-                title={t("shell.searchChats")}
-                type="button"
-                onClick={() => setSearchOpen(true)}
-              >
-                <Search aria-hidden="true" size={15} />
-              </button>
-              <button
-                aria-label={collapsed ? t("shell.expandSidebar") : t("shell.collapseSidebar")}
-                className="react-session-list__collapse"
-                title={collapsed ? t("shell.expandSidebar") : t("shell.collapseSidebar")}
-                type="button"
-                onClick={() => actions.onCollapsedChange(!collapsed)}
-              >
-                <ChevronLeft aria-hidden="true" data-direction={collapsed ? "expand" : "collapse"} size={16} />
-              </button>
+                </>
+              )}
             </div>
+            {displayError ? (
+              <p className="react-session-list__error" role="alert">{displayError}</p>
+            ) : null}
           </div>
-          {displayError ? (
-            <p className="react-session-list__error" role="alert">{displayError}</p>
-          ) : null}
-        </div>
+        )}
         <div className="react-session-list__rows" aria-label={t("shell.sessionRows")} data-motion="animated-list">
           {rootGroups.map((rootGroup) => {
             if (rootGroup.kind === "workspace") {
@@ -616,7 +735,7 @@ export function ChatSessionWorkspace({
                 label: rootGroup.label,
               };
               return (
-                <details
+                <div
                   aria-label={t("shell.workspace", { name: workspace.label })}
                   className="react-session-workspace"
                   data-active={workspace.sessions.some((session) => session.id === activeSessionId) ? "true" : undefined}
@@ -624,30 +743,34 @@ export function ChatSessionWorkspace({
                     && draggedSidebarItem.itemId === rootGroup.itemId ? "true" : undefined}
                   data-drop-position={sidebarDropPosition(SIDEBAR_ROOT_CONTAINER_ID, rootGroup.itemId)}
                   key={workspace.key}
-                  open
                   role="group"
                 >
-                  <summary
-                    aria-description={t("shell.reorderWorkspace", { name: workspace.label })}
-                    aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-                    draggable
-                    title={workspace.workingDirectory ?? workspace.label}
-                    onDragEnd={finishSidebarDrag}
-                    onDragOver={(event) => updateSidebarDropTarget(event, reorderItem)}
-                    onDragStart={(event) => beginSidebarDrag(event, reorderItem)}
-                    onDrop={(event) => dropSidebarItem(event, reorderItem, rootOrderItems)}
-                    onKeyDown={(event) => moveSidebarItemWithKeyboard(event, reorderItem, rootOrderItems)}
-                  >
-                    <ChevronRight aria-hidden="true" className="react-session-workspace__chevron" size={14} />
-                    <span aria-hidden="true" className="react-session-workspace__folder">
-                      <Folder className="react-session-workspace__folder-icon--collapsed" size={15} />
-                      <FolderOpen className="react-session-workspace__folder-icon--expanded" size={15} />
-                    </span>
-                    <span className="react-session-workspace__copy">
-                      <strong>{workspace.label}</strong>
-                      {workspace.workingDirectory ? <small>{workspace.workingDirectory}</small> : null}
-                    </span>
-                  </summary>
+                  <details className="react-session-workspace__details" open>
+                    <summary
+                      aria-description={t("shell.reorderWorkspace", { name: workspace.label })}
+                      aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                      draggable
+                      title={workspace.workingDirectory ?? workspace.label}
+                      onDragEnd={finishSidebarDrag}
+                      onDragOver={(event) => updateSidebarDropTarget(event, reorderItem)}
+                      onDragStart={(event) => beginSidebarDrag(event, reorderItem)}
+                      onDrop={(event) => dropSidebarItem(event, reorderItem, rootOrderItems)}
+                      onKeyDown={(event) => moveSidebarItemWithKeyboard(event, reorderItem, rootOrderItems)}
+                    >
+                      <ChevronRight aria-hidden="true" className="react-session-workspace__chevron" size={14} />
+                      <span aria-hidden="true" className="react-session-workspace__folder">
+                        <Folder className="react-session-workspace__folder-icon--collapsed" size={15} />
+                        <FolderOpen className="react-session-workspace__folder-icon--expanded" size={15} />
+                      </span>
+                      <span className="react-session-workspace__copy">
+                        <strong>{workspace.label}</strong>
+                        {workspace.workingDirectory ? <small>{workspace.workingDirectory}</small> : null}
+                      </span>
+                    </summary>
+                    <div className="react-session-workspace__sessions">
+                      {renderSidebarSessionRows(workspace.sessions, sidebarWorkspaceSessionsId(workspace.key))}
+                    </div>
+                  </details>
                   <div className="react-session-workspace__actions">
                     <button
                       aria-label={t("shell.newSessionIn", { name: workspace.label })}
@@ -670,10 +793,7 @@ export function ChatSessionWorkspace({
                       </button>
                     ) : null}
                   </div>
-                  <div className="react-session-workspace__sessions">
-                    {renderSidebarSessionRows(workspace.sessions, sidebarWorkspaceSessionsId(workspace.key))}
-                  </div>
-                </details>
+                </div>
               );
             }
             const projectGroup = rootGroup.group;
@@ -846,25 +966,18 @@ export function ChatSessionWorkspace({
               </details>
             );
           })}
-          {!projectProjection.groups.length && !sessionWorkspaces.length && !collapsed
-            ? <EmptyStateText text={t("shell.noSessions")} />
+          {!rootGroups.length && !collapsed
+            ? <EmptyStateText text={t(normalizedSearchQuery ? "search.noMatches" : "shell.noSessions")} />
             : null}
           <p aria-live="polite" className="react-sr-only">{reorderAnnouncement}</p>
         </div>
       </aside>
-      {children}
-      {searchOpen ? (
-        <SessionSearchDialog
-          activeSessionId={activeSessionId}
-          now={now}
-          sessions={[...sessions]}
-          onClose={() => setSearchOpen(false)}
-          onCreateSession={() => void handleCreateSessionFromSearch()}
-          onOpenFiles={actions.onOpenFiles}
-          onOpenSettings={actions.onOpenSettings}
-          onSelectSession={handleSelectSession}
-        />
-      ) : null}
+      {typeof children === "function" ? children({
+        availableWorkspaces: workspaces,
+        chooseWorkspace: handleChooseEmptySessionWorkspace,
+        workspaceError,
+        workspacePickerPending,
+      }) : children}
       {projectDialogGroupId ? (
         <ProjectGroupDialog
           availableWorkspaces={workspaces}
@@ -1048,126 +1161,4 @@ function sidebarProjectWorkspaceSessionsId(projectGroupId: string, workspaceId: 
     "workspace",
     encodeURIComponent(normalizedWorkspacePathKey(workspaceId)),
   ].join(":");
-}
-
-function SessionSearchDialog({
-  activeSessionId,
-  now,
-  onClose,
-  onCreateSession,
-  onOpenFiles,
-  onOpenSettings,
-  onSelectSession,
-  sessions,
-}: {
-  activeSessionId: string;
-  now: () => number;
-  onClose: () => void;
-  onCreateSession: () => void;
-  onOpenFiles?: () => void;
-  onOpenSettings?: () => void;
-  onSelectSession: (session: SessionSummary) => void;
-  sessions: SessionSummary[];
-}) {
-  const { i18n, t } = useTranslation("chat");
-  const [query, setQuery] = useState("");
-  const normalizedQuery = query.trim().toLowerCase();
-  const filteredSessions = normalizedQuery
-    ? sessions.filter((session) => [session.title, session.chatId ?? "", session.id, session.workingDirectory ?? ""]
-      .some((value) => value.toLowerCase().includes(normalizedQuery)))
-    : sessions;
-  const recommendations = [
-    {
-      id: "new-chat",
-      label: t("shell.newChat"),
-      shortcut: "Ctrl+N",
-      icon: Plus,
-      run: onCreateSession,
-    },
-    ...(onOpenFiles ? [{
-      id: "open-files",
-      label: t("search.openFolder"),
-      shortcut: "Ctrl+O",
-      icon: FolderOpen,
-      run: () => {
-        onOpenFiles();
-        onClose();
-      },
-    }] : []),
-    ...(onOpenSettings ? [{
-      id: "open-settings",
-      label: t("search.settings"),
-      shortcut: "Ctrl+,",
-      icon: Settings,
-      run: () => {
-        onOpenSettings();
-        onClose();
-      },
-    }] : []),
-  ];
-
-  const { dialogRef, onBackdropPointerDown } = useModalDialog<HTMLElement>({ onClose });
-
-  return (
-    <div
-      className="react-command-palette-backdrop react-session-search-backdrop"
-      onPointerDown={onBackdropPointerDown}
-    >
-      <section
-        aria-label={t("search.label")}
-        aria-modal="true"
-        className="react-command-palette react-session-search-dialog"
-        ref={dialogRef}
-        role="dialog"
-      >
-        <div className="react-session-search__input-row">
-          <Search aria-hidden="true" size={18} />
-          <input
-            aria-label={t("search.placeholder")}
-            data-dialog-initial-focus
-            placeholder={t("search.placeholder")}
-            value={query}
-            onChange={(event) => setQuery(event.currentTarget.value)}
-          />
-        </div>
-        <div className="react-session-search__section">
-          <p>{t("search.chats")}</p>
-          <div className="react-session-search__list">
-            {filteredSessions.length ? filteredSessions.map((session, index) => (
-              <button
-                aria-current={session.id === activeSessionId ? "page" : undefined}
-                className="react-session-search__item"
-                key={session.id}
-                type="button"
-                onClick={() => onSelectSession(session)}
-              >
-                <span className="react-session-search__rank">{index + 1}</span>
-                <span className="react-session-search__title">{session.title}</span>
-                <span className="react-session-search__meta">
-                  {session.workingDirectory ? sessionWorkspaceName(session.workingDirectory) : t("search.regular")}
-                </span>
-                <kbd>{`Ctrl+${index + 1}`}</kbd>
-                <small>{formatRelativeUpdatedTime(session.updatedAtMs, now(), i18n.language, t("search.noDate"))}</small>
-              </button>
-            )) : <span className="react-session-search__empty">{t("search.noMatches")}</span>}
-          </div>
-        </div>
-        <div className="react-session-search__section">
-          <p>{t("search.suggested")}</p>
-          <div className="react-session-search__list">
-            {recommendations.map((recommendation) => {
-              const Icon = recommendation.icon;
-              return (
-                <button className="react-session-search__item" key={recommendation.id} type="button" onClick={recommendation.run}>
-                  <Icon aria-hidden="true" size={17} />
-                  <span className="react-session-search__title">{recommendation.label}</span>
-                  <kbd>{recommendation.shortcut}</kbd>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-    </div>
-  );
 }

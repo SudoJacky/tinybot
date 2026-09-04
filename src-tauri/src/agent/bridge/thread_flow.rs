@@ -2,6 +2,7 @@ use crate::agent::bridge::{
     native_agent_current_user_message, native_agent_model, native_agent_provider,
     native_agent_string_field, native_agent_turn_id,
 };
+use crate::agent::conversation_title::{should_generate_title, ConversationTitleTask};
 use crate::agent::runtime::{
     ensure_agent_trace_context, AgentHookInvocation, AgentHookStage, NativeAgentRuntimeServices,
     NativeAgentTraceSink,
@@ -242,6 +243,23 @@ pub(crate) async fn execute_thread_turn_with_services(
         }
     }
     let trace_context = ensure_agent_trace_context(&mut spec)?;
+    let title_task = should_generate_title(&thread)
+        .then(|| native_agent_current_user_message(&spec))
+        .flatten()
+        .and_then(|message| {
+            message
+                .get("content")
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|content| !content.is_empty())
+                .map(|content| ConversationTitleTask {
+                    thread_id: thread_id.clone(),
+                    source_turn_id: turn_id.clone(),
+                    input: content.to_string(),
+                    model: native_agent_model(&spec, &config_snapshot),
+                    provider: native_agent_provider(&spec, &config_snapshot),
+                })
+        });
     let thread_hook_services = base_services.clone();
     let thread_start_invocation =
         AgentHookInvocation::lifecycle(AgentHookStage::ThreadStart, trace_context.clone());
@@ -259,6 +277,13 @@ pub(crate) async fn execute_thread_turn_with_services(
         &thread_store,
         config_snapshot.clone(),
     )?;
+    if let Some(title_task) = title_task {
+        title_task.spawn(
+            thread_store.clone(),
+            config_snapshot.clone(),
+            live_trace_sink.clone(),
+        );
+    }
     let result = run_agent_with_services(
         base_services,
         spec,

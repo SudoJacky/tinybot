@@ -59,6 +59,18 @@ function mockWorkspaceWidth(readWidth: () => number) {
 }
 
 describe("Sidecar", () => {
+  it("keeps a non-interactive shell mounted while closed", () => {
+    const renderTerminal = vi.fn(() => <p>Terminal surface</p>);
+    const { container } = renderSidecar({ presentation: "closed", renderTerminal });
+    const sidecar = container.querySelector<HTMLElement>(".react-sidecar");
+
+    expect(sidecar?.dataset.hidden).toBe("true");
+    expect(sidecar?.getAttribute("aria-hidden")).toBe("true");
+    expect(sidecar?.hasAttribute("inert")).toBe(true);
+    expect(screen.queryByLabelText("Sidecar")).toBeNull();
+    expect(renderTerminal).not.toHaveBeenCalled();
+  });
+
   it("renders resource tabs and exposes only Browser and Terminal in the New Tab menu", async () => {
     const user = userEvent.setup();
     renderSidecar();

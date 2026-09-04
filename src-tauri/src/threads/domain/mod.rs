@@ -19,7 +19,8 @@ pub use self::types::{
     ThreadAgentRegistryRequest, ThreadAgentRegistryResult, ThreadApplyOpRequest, ThreadCheckpoint,
     ThreadEventsRequest, ThreadEventsResult, ThreadIdParams, ThreadItem, ThreadItemKind,
     ThreadMetadata, ThreadOp, ThreadPagination, ThreadRecord, ThreadSnapshot, ThreadStatus,
-    ThreadStatusResult, ThreadTurnRuntimeResult, ThreadTurnSummary, UpdateThreadMetadataRequest,
+    ThreadStatusResult, ThreadTurnRuntimeResult, ThreadTurnSummary,
+    UpdateGeneratedThreadTitleResult, UpdateThreadMetadataRequest,
 };
 
 use crate::collaboration::subagents::{SubagentMailboxInput, SubagentThreadSummary};
@@ -128,6 +129,17 @@ impl WorkerThreadRpc {
                 .update_thread_session_key(&request.thread_id, session_key)?;
         }
         Ok(updated)
+    }
+
+    pub fn update_generated_thread_title(
+        &self,
+        thread_id: &str,
+        source_turn_id: &str,
+        title: String,
+    ) -> Result<UpdateGeneratedThreadTitleResult, WorkerProtocolError> {
+        self.require(WorkerCapability::SessionWrite)?;
+        self.store
+            .update_generated_thread_title(thread_id, source_turn_id, title)
     }
 
     fn resolve_metadata_working_directory(

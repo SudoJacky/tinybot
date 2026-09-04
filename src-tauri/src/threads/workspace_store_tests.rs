@@ -64,6 +64,118 @@ fn short_lived_routers_share_one_workspace_store() {
 }
 
 #[test]
+fn generated_title_is_durable_and_never_overwrites_a_manual_title() {
+    let root = workspace_root("generated-title");
+    let store = WorkspaceThreadStore::new(root.clone(), default_desktop_capability_policy());
+    let mut router = native_request_router(store.clone(), json!({}));
+    let created = router.dispatch(&WorkerRequest::new(
+        "req-generated-title-create",
+        "trace-generated-title",
+        "thread.create",
+        json!({
+            "threadId": "thread-generated-title",
+            "title": "New session"
+        }),
+    ));
+    assert_eq!(created.error, None);
+    let started = router.dispatch(&WorkerRequest::new(
+        "req-generated-title-start",
+        "trace-generated-title",
+        "thread.start_turn",
+        json!({
+            "threadId": "thread-generated-title",
+            "turnId": "turn-generated-title",
+            "input": { "content": "登录后页面变成空白" }
+        }),
+    ));
+    assert_eq!(started.error, None);
+    drop(router);
+
+    let wrong_turn = store
+        .update_generated_thread_title(
+            "thread-generated-title",
+            "turn-other",
+            "Wrong turn title".to_string(),
+        )
+        .expect("wrong-turn generated title should be discarded");
+    assert!(!wrong_turn.applied);
+    let generated = store
+        .update_generated_thread_title(
+            "thread-generated-title",
+            "turn-generated-title",
+            "调查登录故障".to_string(),
+        )
+        .expect("generated title should update");
+    assert!(generated.applied);
+    let generated_thread = generated
+        .thread
+        .expect("applied update should return Thread");
+    assert_eq!(generated_thread.title, "调查登录故障");
+    assert_eq!(generated_thread.metadata.extra["titleSource"], "model");
+    store
+        .shutdown()
+        .expect("generated title should flush with the Thread store");
+
+    let restarted = WorkspaceThreadStore::new(root.clone(), default_desktop_capability_policy());
+    let mut restarted_router = native_request_router(restarted.clone(), json!({}));
+    let persisted = restarted_router.dispatch(&WorkerRequest::new(
+        "req-generated-title-read",
+        "trace-generated-title",
+        "thread.read",
+        json!({ "threadId": "thread-generated-title" }),
+    ));
+    assert_eq!(persisted.error, None);
+    assert_eq!(
+        persisted.result.as_ref().unwrap()["thread"]["title"],
+        "调查登录故障"
+    );
+    assert_eq!(
+        persisted.result.as_ref().unwrap()["thread"]["metadata"]["extra"]["titleSource"],
+        "model"
+    );
+
+    let renamed = restarted_router.dispatch(&WorkerRequest::new(
+        "req-generated-title-manual-rename",
+        "trace-generated-title",
+        "thread.update_metadata",
+        json!({
+            "threadId": "thread-generated-title",
+            "metadata": { "title": "Manual title" }
+        }),
+    ));
+    assert_eq!(renamed.error, None);
+    drop(restarted_router);
+
+    let discarded = restarted
+        .update_generated_thread_title(
+            "thread-generated-title",
+            "turn-generated-title",
+            "Late generated title".to_string(),
+        )
+        .expect("late generated title should be safely discarded");
+    assert!(!discarded.applied);
+    assert!(discarded.thread.is_none());
+    let operation = restarted
+        .begin_operation()
+        .expect("restarted Thread store should remain readable");
+    let snapshot = operation
+        .thread()
+        .read_thread(ReadThreadRequest {
+            thread_id: "thread-generated-title".to_string(),
+            ..ReadThreadRequest::default()
+        })
+        .expect("renamed Thread should remain readable");
+    assert_eq!(snapshot.thread.title, "Manual title");
+    assert_eq!(snapshot.thread.metadata.extra["titleSource"], "manual");
+    drop(operation);
+
+    restarted
+        .shutdown()
+        .expect("restarted Thread store should shut down");
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
 fn explicit_reload_recovers_domain_projection_from_canonical_rollout() {
     let root = workspace_root("projection-reload");
     let store = WorkspaceThreadStore::new(root.clone(), default_desktop_capability_policy());

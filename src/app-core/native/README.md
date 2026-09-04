@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:8efd0eede8cdf262e07515cddc1165aadf605681f58715d04507bdd5220f9caf -->
+<!-- tinybot-module-fingerprint: sha256:1ca29a90ddd154f78a63216ec38a71b4eb790103fa2a752603b082654ceb05a3 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -36,6 +36,9 @@ boundary.
 Adapters preserve native failures and normalize only their transport contract.
 React state and product projections remain in the workbench and other app-core
 modules. `nativeBackendContract` guards frontend/backend contract parity.
+`desktopNativeConfigPatch` flattens public settings patches into canonical
+replace/remove operations; the explicit remove marker lets optional paired
+settings such as the Memory Provider/model override return to inherited values.
 `desktopNativeCommandPermissions.test` keeps the registered Tauri handler list,
 the build-time application-command manifest, and window-scoped permission sets
 in lockstep. It also pins the quick-chat webview to its bounded chat command

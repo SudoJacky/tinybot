@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "test": "vitest run",
+    "test:hdd": "vitest run --maxWorkers=4",
     "test:frontend-analysis": "node --test tools/frontend-analysis/analysis.test.mjs",
     "lint": "node tools/frontend-analysis/cli.mjs lint",
     "typecheck": "tsc --noEmit",

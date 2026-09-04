@@ -80,11 +80,21 @@ fn token_info_tracks_total_and_last_model_call_usage() {
     let mut history = ContextManager::from_legacy_messages(&[]).unwrap();
 
     history.update_token_info(
-        &json!({"prompt_tokens": 10, "completion_tokens": 3, "total_tokens": 13}),
+        crate::threads::rollout::format::TokenUsage {
+            input_tokens: 10,
+            output_tokens: 3,
+            total_tokens: 13,
+            ..Default::default()
+        },
         Some(128_000),
     );
     history.update_token_info(
-        &json!({"input_tokens": 7, "output_tokens": 2, "total_tokens": 9}),
+        crate::threads::rollout::format::TokenUsage {
+            input_tokens: 7,
+            output_tokens: 2,
+            total_tokens: 9,
+            ..Default::default()
+        },
         Some(128_000),
     );
 
@@ -96,16 +106,17 @@ fn token_info_tracks_total_and_last_model_call_usage() {
 }
 
 #[test]
-fn token_info_reads_cached_input_tokens_from_provider_details() {
+fn token_info_tracks_cached_input_tokens() {
     let mut history = ContextManager::from_legacy_messages(&[]).unwrap();
 
     history.update_token_info(
-        &json!({
-            "input_tokens": 4216,
-            "input_tokens_details": { "cached_tokens": 4096 },
-            "output_tokens": 60,
-            "total_tokens": 4276
-        }),
+        crate::threads::rollout::format::TokenUsage {
+            input_tokens: 4216,
+            cached_input_tokens: 4096,
+            output_tokens: 60,
+            total_tokens: 4276,
+            ..Default::default()
+        },
         Some(128_000),
     );
 
@@ -115,16 +126,17 @@ fn token_info_reads_cached_input_tokens_from_provider_details() {
 }
 
 #[test]
-fn token_info_reads_reasoning_output_tokens_from_provider_details() {
+fn token_info_tracks_reasoning_output_tokens() {
     let mut history = ContextManager::from_legacy_messages(&[]).unwrap();
 
     history.update_token_info(
-        &json!({
-            "input_tokens": 4130,
-            "output_tokens": 81,
-            "output_tokens_details": { "reasoning_tokens": 47 },
-            "total_tokens": 4211
-        }),
+        crate::threads::rollout::format::TokenUsage {
+            input_tokens: 4130,
+            output_tokens: 81,
+            reasoning_output_tokens: 47,
+            total_tokens: 4211,
+            ..Default::default()
+        },
         Some(128_000),
     );
 

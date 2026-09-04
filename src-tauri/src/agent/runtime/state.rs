@@ -514,10 +514,13 @@ impl AgentTurnState {
         context: &AgentTurnContext,
         iteration: i64,
         model_call_id: &str,
-        usage: Value,
+        provider_usage: Option<Value>,
         estimated_context_tokens: i64,
     ) -> Result<(), String> {
-        let provider_usage = usage.clone();
+        let normalized_provider_usage = crate::token_usage::normalize_provider_token_usage(
+            provider_usage.as_ref().unwrap_or(&Value::Null),
+        )?;
+        let provider_usage = provider_usage.unwrap_or_else(|| serde_json::json!({}));
         let cumulative_before = latest_cumulative_usage_tokens(&self.usage).unwrap_or_else(|| {
             self.usage
                 .iter()
@@ -526,7 +529,7 @@ impl AgentTurnState {
         });
         let usage = enrich_usage_with_context_window(
             context,
-            usage,
+            normalized_provider_usage.as_ref(),
             estimated_context_tokens,
             cumulative_before,
         );
@@ -534,22 +537,29 @@ impl AgentTurnState {
             .get("contextWindowTokens")
             .and_then(Value::as_i64)
             .filter(|value| *value > 0);
-        self.history.update_token_info(&usage, model_context_window);
-        let token_info = self.history.token_info();
+        let token_info = if let Some(token_usage) = normalized_provider_usage {
+            self.history
+                .update_token_info(token_usage, model_context_window);
+            self.history.token_info()
+        } else {
+            None
+        };
         self.usage.push(usage.clone());
         self.emit(ModelOutputEvent::ModelCallCompleted(serde_json::json!({
             "iteration": iteration,
             "modelCallId": model_call_id,
             "tokenUsage": provider_usage.clone(),
         })))?;
-        self.emit(PendingAgentEvent::new(
-            AgentEventKind::TokenCount,
-            serde_json::json!({
-                "iteration": iteration,
-                "modelCallId": model_call_id,
-                "info": token_info,
-            }),
-        ))?;
+        if let Some(token_info) = token_info {
+            self.emit(PendingAgentEvent::new(
+                AgentEventKind::TokenCount,
+                serde_json::json!({
+                    "iteration": iteration,
+                    "modelCallId": model_call_id,
+                    "info": token_info,
+                }),
+            ))?;
+        }
         self.emit(ModelOutputEvent::Usage(serde_json::json!({
             "iteration": iteration,
             "modelCallId": model_call_id,

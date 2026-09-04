@@ -1,5 +1,5 @@
 # Settings Application Core
-<!-- tinybot-module-fingerprint: sha256:6a3014da40e30de46d7fd9f3749977cbb5b365670a86c73e3f086c806993bb1f -->
+<!-- tinybot-module-fingerprint: sha256:95fbbb92c030c9402def63ffbb3dc5fd368ea74fa777b9d8637c806d2e1eee42 -->
 
 `settings` owns framework-independent settings contracts, metadata, value
 semantics, validation, pane models, and persistence patch construction.
@@ -32,6 +32,9 @@ Default-LLM patches treat `agents.defaults.activeProfile` and
 `agents.defaults.model` as one pair. Provider activation builders require a
 non-empty enabled/default model and fail instead of persisting a Profile with a
 stale model inherited from another Provider.
+Memory-LLM patches similarly persist `memory.activeProfile` and `memory.model`
+as one optional pair. Selecting the global-default mode emits explicit remove
+operations for both fields instead of copying the current global values.
 The retired general Provider Auto selector is not projected or persisted;
 Provider routing is presented through the Profile-based Provider & Models flow.
 

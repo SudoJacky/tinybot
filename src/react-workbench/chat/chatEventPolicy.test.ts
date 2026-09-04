@@ -66,6 +66,17 @@ describe("chatEventPolicy", () => {
       },
     },
     {
+      event: { type: "session-title-generated" },
+      expected: {
+        backgroundTabActivity: false,
+        queuedInputDisposition: "unchanged",
+        reloadAgentUiForms: false,
+        reloadMessages: false,
+        reloadSessions: true,
+        terminalAgentEvent: false,
+      },
+    },
+    {
       event: { type: "stream", error: "connection closed" },
       expected: {
         backgroundTabActivity: true,

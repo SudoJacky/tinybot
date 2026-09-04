@@ -23,20 +23,35 @@ describe("workbench CSS interaction contracts", () => {
   });
 
   test("keeps workspace header actions in one fixed right-aligned row", () => {
+    const workspaceRule = shellStylesheet.match(/\.react-session-workspace\s*\{([^}]+)\}/);
     const actionsRule = shellStylesheet.match(/\.react-session-workspace__actions\s*\{([^}]+)\}/);
     const buttonRule = shellStylesheet.match(/\.react-session-workspace__actions > button\s*\{([^}]+)\}/);
 
+    expect(workspaceRule?.[1]).toContain("position: relative");
+    expect(actionsRule?.[1]).toContain("position: absolute");
+    expect(actionsRule?.[1]).toContain("top: 6px");
+    expect(actionsRule?.[1]).toContain("right: 1px");
     expect(actionsRule?.[1]).toContain("width: 64px");
     expect(actionsRule?.[1]).toContain("justify-content: flex-end");
     expect(actionsRule?.[1]).toContain("flex-wrap: nowrap");
     expect(buttonRule?.[1]).toContain("flex: 0 0 32px");
   });
 
+  test("turns the collapsed sidebar mascot into the expand control on hover and focus", () => {
+    const navigationRule = shellStylesheet.match(/\.react-session-list__collapsed-nav\s*\{([^}]+)\}/);
+
+    expect(navigationRule?.[1]).toContain("flex-direction: column");
+    expect(shellStylesheet).toMatch(
+      /\.react-session-list__collapsed-home:hover \.react-session-list__collapsed-mascot,[^{]*\.react-session-list__collapsed-home:focus-visible \.react-session-list__collapsed-mascot\s*\{[^}]*opacity:\s*0;/s,
+    );
+    expect(shellStylesheet).toMatch(
+      /\.react-session-list__collapsed-home:hover \.react-session-list__collapsed-expand,[^{]*\.react-session-list__collapsed-home:focus-visible \.react-session-list__collapsed-expand\s*\{[^}]*opacity:\s*1;/s,
+    );
+  });
+
   test("keeps conversation rows intrinsic and scopes drawer header layout", () => {
     const conversationRule = chatStylesheet.match(/\.react-conversation-view\s*\{([^}]+)\}/);
-    const drawerHeaderRule = chatStylesheet.match(
-      /\.react-right-drawer__header,\s*\.react-command-palette > div\s*\{([^}]+)\}/,
-    );
+    const drawerHeaderRule = chatStylesheet.match(/\.react-right-drawer__header\s*\{([^}]+)\}/);
     const artifactDetailRule = chatStylesheet.match(/\.react-artifact-detail\s*\{([^}]+)\}/);
 
     expect(conversationRule?.[1]).toContain("grid-auto-rows: max-content");

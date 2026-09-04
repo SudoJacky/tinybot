@@ -1,5 +1,5 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:eb415aac536b5b0ad62cc07bef17181d35d714e7339ca956ba3a2bad197a5309 -->
+<!-- tinybot-module-fingerprint: sha256:9c07b8adc401d540bae0255d63601f07e9e4b2bb474d7125a578abc701bb705e -->
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
@@ -21,10 +21,17 @@ The desktop session sidebar uses workspace headers and complete session rows as
 drag sources, with a grab cursor and high-contrast insertion line but no
 separate grip control. Dragging lowers the source opacity while keeping its
 footprint stable; reduced-motion mode retains these static state cues.
+Its search action expands from the compact icon into a full-width inline input;
+focus-within styling keeps the active boundary visible and reduced-motion mode
+shortens the reveal through the shared global motion rule.
+The collapsed sidebar is a vertical shortcut rail. Its top control presents the
+Tinybot mascot at rest, then reveals the expand icon on pointer hover or keyboard
+focus; new-chat, add-workspace, and search actions follow in that order.
 Workspace rename and forget actions stay compact beside the owning header and
 use the same visible focus treatment as other sidebar controls. The workspace
-header reserves a fixed right-aligned two-button row so its create and manage
-actions cannot wrap below the workspace label.
+row, rather than the native `details` content box, anchors a fixed right-aligned
+two-button area so its create and manage actions cannot drop below the workspace
+label.
 
 The desktop document root is fixed to the WebView viewport and never owns page
 scrolling. `html`, `body`, and `#root` contain the `100%` shell while route,

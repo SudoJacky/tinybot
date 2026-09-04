@@ -1,11 +1,10 @@
-use super::items::AgentUsageItem;
 use super::{AgentAssistantMessage, AgentReasoningItem, AgentTurnSettings};
 use serde_json::Value;
 
 pub(super) struct DecodedProviderTurn {
     pub assistant: AgentAssistantMessage,
     pub reasoning: Option<AgentReasoningItem>,
-    pub usage: Option<AgentUsageItem>,
+    pub usage: Option<Value>,
 }
 
 pub(super) fn attach_provider_tools(

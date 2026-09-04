@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:b4a09135f0309a9f5459fb8d27d64ebccdc328e7aa7d1275f03048cc042439d3 -->
+<!-- tinybot-doc-fingerprint: sha256:a80a7307c2a0e8a098fd580bc11a2932cbe5b74b8d4d4103269509666c26b5e8 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -43,6 +43,7 @@ agent::bridge
     |-- merge project-local MCP definitions for the effective working directory
     |-- discover same-workspace Agent Graph tools for ordinary Chat Turns
     |-- persist Turn start
+    |-- optionally spawn the independent first-Turn title request
     |-- hydrate canonical history
     |-- install tool, checkpoint, trace, and trusted command-hook adapters
     v
@@ -69,6 +70,13 @@ fails, the bridge persists a failed terminal state with `runtime_error` before
 returning the original error to the desktop caller; the renderer can then
 reload the canonical Rollout instead of leaving the Turn active.
 
+For an empty default-titled Thread, that durable start also gates one detached
+title request. It uses the resolved Provider and model but has no tools and does
+not enter or block the Agent Loop. Failure is recorded in native diagnostics and
+leaves the deterministic first-prompt title in place. A late result is committed
+only if its source remains the first user Turn and a manual rename has not taken
+ownership; successful persistence emits a metadata-only frontend refresh event.
+
 Project-local MCP configuration is discovered after instruction composition
 establishes the effective working directory and before runtime services are
 installed. The merged snapshot is Turn-local: persistence, discovery, and tool
@@ -94,8 +102,10 @@ For each provider iteration, the runtime:
 1. Restores any continuation and prepares typed `AgentItem` history.
 2. Builds the bounded request context and records provenance.
 3. Encodes and estimates the final provider request, then dispatches that same value.
-4. Decodes assistant text, reasoning metadata, usage (including nested cache
-   and reasoning detail counters), and tool calls.
+4. Decodes assistant text, reasoning metadata, optional provider usage, and tool
+   calls. Chat Completions and Responses usage pass through one shared mapper,
+   including nested cache and reasoning detail counters; missing usage remains
+   absent instead of becoming an all-zero provider count.
 5. Records the complete tool batch before the next provider request.
 6. Converts provider-authored argument preparation failures into correlated
    tool results for every call in the batch, then continues planning without
@@ -162,6 +172,8 @@ reconstruct the updated log before recovery decisions are made.
   across seams.
 - Persist Turn start before provider work and flush trace before terminal
   success; persist a failed terminal before returning a runtime or trace error.
+- Keep first-Turn title generation independent from the main Turn and never let
+  a late model title replace a manual rename.
 - Do not append the same user, assistant, or tool item again during terminal
   persistence.
 - Keep provider failures, tool failures, trace failures, cancellation, and

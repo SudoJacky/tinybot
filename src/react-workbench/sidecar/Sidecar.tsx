@@ -37,7 +37,7 @@ export type SidecarProps = {
   activeTabId: string;
   canCreateBrowser: boolean;
   canCreateTerminal: boolean;
-  presentation: Exclude<SidecarPresentation, "closed">;
+  presentation: SidecarPresentation;
   tabs: readonly SidecarTab[];
   width: number;
   onActivateTab: (tabId: string) => void;
@@ -83,12 +83,13 @@ export function Sidecar({
   onResizeRef.current = onResize;
   widthRef.current = width;
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
+  const hidden = presentation === "closed";
   const expanded = presentation === "expanded";
 
   useEffect(() => {
     setNewTabMenuOpen(false);
     setNewTabMenuView("resources");
-  }, [activeTabId]);
+  }, [activeTabId, hidden]);
 
   useEffect(() => {
     if (!newTabMenuOpen) return;
@@ -239,14 +240,17 @@ export function Sidecar({
 
   return (
     <aside
-      aria-label={t("sidecar.label")}
+      aria-hidden={hidden || undefined}
+      aria-label={hidden ? undefined : t("sidecar.label")}
       className="react-sidecar"
+      data-hidden={hidden}
       data-presentation={presentation}
+      inert={hidden || undefined}
       ref={sidecarRef}
       style={{ "--react-sidecar-width": `${width}px` } as CSSProperties}
     >
       <div
-        aria-disabled={expanded || undefined}
+        aria-disabled={expanded || hidden || undefined}
         aria-label={t("sidecar.resize")}
         aria-orientation="vertical"
         aria-valuemax={maxWidth}
@@ -254,7 +258,7 @@ export function Sidecar({
         aria-valuenow={width}
         className="react-sidecar__resize"
         role="separator"
-        tabIndex={expanded ? -1 : 0}
+        tabIndex={expanded || hidden ? -1 : 0}
         onKeyDown={handleResizeKeyDown}
         onPointerDown={handleResizePointerDown}
       >
@@ -377,12 +381,12 @@ export function Sidecar({
         id="tinybot-sidecar-panel"
         role="tabpanel"
       >
-        {activeTab?.kind === "browser" ? renderBrowser(activeTab, !newTabMenuOpen) : null}
-        {activeTab?.kind === "terminal" ? renderTerminal(activeTab) : null}
-        {activeTab?.kind === "artifact" ? (
+        {!hidden && activeTab?.kind === "browser" ? renderBrowser(activeTab, !newTabMenuOpen) : null}
+        {!hidden && activeTab?.kind === "terminal" ? renderTerminal(activeTab) : null}
+        {!hidden && activeTab?.kind === "artifact" ? (
           <div className="react-sidecar__artifact">{renderArtifact(activeTab)}</div>
         ) : null}
-        {!activeTab ? (
+        {!hidden && !activeTab ? (
           <SidecarEmptyState
             canCreateBrowser={canCreateBrowser}
             canCreateTerminal={canCreateTerminal}

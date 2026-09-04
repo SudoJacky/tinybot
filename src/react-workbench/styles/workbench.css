@@ -862,16 +862,133 @@ button:disabled {
   color: var(--color-ink);
 }
 
-.react-session-list__add-workspace:disabled {
+.react-session-list__inline-search {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  height: 34px;
+  overflow: hidden;
+  border: 1px solid var(--color-hairline);
+  border-radius: 9px;
+  background: var(--color-panel);
+  padding: 0 3px 0 9px;
+  color: var(--color-muted);
+  transform-origin: right center;
+  animation: react-session-search-expand var(--motion-duration-fast) var(--motion-ease-standard) both;
+}
+
+.react-session-list__inline-search:focus-within {
+  border-color: color-mix(in srgb, var(--color-primary) 62%, var(--color-hairline));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+.react-session-list__inline-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--color-ink);
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+}
+
+.react-session-list__inline-search input::placeholder {
   color: var(--color-muted-soft);
 }
 
-.react-session-list__collapse svg {
-  transition: transform 160ms ease;
+.react-session-list__search-close {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--color-muted);
 }
 
-.react-session-list__collapse svg[data-direction="expand"] {
-  transform: rotate(180deg);
+.react-session-list__collapsed-nav {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+}
+
+.react-session-list__collapsed-nav > button {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
+  color: var(--color-muted);
+}
+
+.react-session-list__collapsed-nav > button:hover,
+.react-session-list__collapsed-nav > button:focus-visible {
+  background: color-mix(in srgb, var(--color-surface-card) 74%, transparent);
+  color: var(--color-ink);
+}
+
+.react-session-list__collapsed-home > * {
+  grid-area: 1 / 1;
+  transition:
+    opacity var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-session-list__collapsed-mascot {
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.react-session-list__collapsed-mascot .react-tinybot-mascot {
+  --tinybot-mascot-size: 30px;
+}
+
+.react-session-list__collapsed-expand {
+  opacity: 0;
+  transform: scale(.82);
+}
+
+.react-session-list__collapsed-home:hover .react-session-list__collapsed-mascot,
+.react-session-list__collapsed-home:focus-visible .react-session-list__collapsed-mascot {
+  opacity: 0;
+  transform: scale(.82);
+}
+
+.react-session-list__collapsed-home:hover .react-session-list__collapsed-expand,
+.react-session-list__collapsed-home:focus-visible .react-session-list__collapsed-expand {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.react-session-list__search-close:hover,
+.react-session-list__search-close:focus-visible {
+  color: var(--color-ink);
+}
+
+@keyframes react-session-search-expand {
+  from {
+    clip-path: inset(0 0 0 calc(100% - 32px) round 9px);
+    opacity: .65;
+  }
+
+  to {
+    clip-path: inset(0 round 9px);
+    opacity: 1;
+  }
+}
+
+.react-session-list__add-workspace:disabled {
+  color: var(--color-muted-soft);
 }
 
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list,
@@ -880,41 +997,8 @@ button:disabled {
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list__search,
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-row__title,
 .react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-row__select small,
-.react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-row__delete,
-.react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-list__collapse svg {
+.react-desktop-shell[data-sidebar-motion="keyboard"] .react-session-row__delete {
   transition-duration: 0ms;
-}
-
-.react-session-list[data-collapsed="true"] .react-session-list__header {
-  justify-items: center;
-  padding: 10px 7px;
-}
-
-.react-session-list[data-collapsed="true"] .react-session-list__title-row {
-  justify-content: center;
-}
-
-.react-session-list[data-collapsed="true"] .react-session-list__header h2,
-.react-session-list[data-collapsed="true"] .react-session-list__add-workspace,
-.react-session-list[data-collapsed="true"] .react-session-list__search {
-  max-width: 0;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(-6px);
-}
-
-.react-session-list[data-collapsed="true"] .react-session-list__add-workspace,
-.react-session-list[data-collapsed="true"] .react-session-list__search {
-  width: 0;
-  min-width: 0;
-}
-
-.react-session-list[data-collapsed="true"] .react-session-list__collapse {
-  width: 40px;
-  min-width: 40px;
-  height: 40px;
-  min-height: 40px;
-  padding: 0;
 }
 
 .react-session-list__rows {
@@ -944,7 +1028,7 @@ button:disabled {
   margin-top: 5px;
 }
 
-.react-session-workspace > summary {
+.react-session-workspace__details > summary {
   display: grid;
   grid-template-columns: 14px 16px minmax(0, 1fr);
   align-items: center;
@@ -960,18 +1044,18 @@ button:disabled {
     color var(--motion-duration-fast) ease;
 }
 
-.react-session-workspace > summary::-webkit-details-marker {
+.react-session-workspace__details > summary::-webkit-details-marker {
   display: none;
 }
 
-.react-session-workspace > summary:hover,
-.react-session-workspace > summary:focus-visible,
-.react-session-workspace[data-active="true"] > summary {
+.react-session-workspace__details > summary:hover,
+.react-session-workspace__details > summary:focus-visible,
+.react-session-workspace[data-active="true"] > .react-session-workspace__details > summary {
   background: color-mix(in srgb, var(--color-cream-strong) 58%, transparent);
   color: var(--color-ink);
 }
 
-.react-session-workspace > summary:focus-visible {
+.react-session-workspace__details > summary:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--color-primary) 74%, transparent);
   outline-offset: -2px;
 }
@@ -980,7 +1064,7 @@ button:disabled {
   transition: transform var(--motion-duration-fast) ease;
 }
 
-.react-session-workspace[open] > summary .react-session-workspace__chevron {
+.react-session-workspace__details[open] > summary .react-session-workspace__chevron {
   transform: rotate(90deg);
 }
 
@@ -995,11 +1079,11 @@ button:disabled {
 }
 
 .react-session-workspace__folder-icon--expanded,
-.react-session-workspace[open] > summary .react-session-workspace__folder-icon--collapsed {
+.react-session-workspace__details[open] > summary .react-session-workspace__folder-icon--collapsed {
   display: none;
 }
 
-.react-session-workspace[open] > summary .react-session-workspace__folder-icon--expanded {
+.react-session-workspace__details[open] > summary .react-session-workspace__folder-icon--expanded {
   display: block;
 }
 
@@ -1030,6 +1114,7 @@ button:disabled {
 
 .react-session-workspace__actions {
   position: absolute;
+  z-index: 1;
   top: 6px;
   right: 1px;
   display: flex;
@@ -1058,7 +1143,7 @@ button:disabled {
   opacity: 1;
 }
 
-.react-session-workspace:not([open]) > .react-session-workspace__sessions {
+.react-session-workspace__details:not([open]) > .react-session-workspace__sessions {
   display: none;
 }
 
@@ -1423,7 +1508,7 @@ button:disabled {
     transform 180ms var(--motion-ease-standard);
 }
 
-.react-session-workspace > summary[draggable="true"],
+.react-session-workspace__details > summary[draggable="true"],
 .react-project-group > summary[draggable="true"],
 .react-project-group__member-title[draggable="true"],
 .react-session-row[draggable="true"] {
@@ -1445,7 +1530,7 @@ button:disabled {
   opacity: .52;
 }
 
-.react-session-workspace[data-dragging="true"] > summary,
+.react-session-workspace[data-dragging="true"] > .react-session-workspace__details > summary,
 .react-project-group[data-dragging="true"] > summary,
 .react-project-workspace[data-dragging="true"] > .react-project-group__member-title {
   cursor: grabbing;
@@ -1935,131 +2020,6 @@ button:disabled {
   color: var(--color-muted);
 }
 
-.react-session-search-backdrop {
-  padding-top: 26px;
-  background: rgb(20 20 19 / 18%);
-}
-
-.react-session-search-dialog {
-  gap: 14px;
-  width: min(780px, calc(100vw - 48px));
-  max-height: min(82vh, 760px);
-  overflow: hidden;
-  border-radius: 26px;
-  padding: 16px 18px 18px;
-}
-
-.react-session-search__input-row {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
-  align-items: center;
-  gap: 8px;
-  color: var(--color-muted);
-}
-
-.react-session-search__input-row input {
-  width: 100%;
-  border: 0;
-  background: transparent;
-  color: var(--color-ink);
-  padding: 4px 0;
-  font-size: 18px;
-  line-height: 1.35;
-}
-
-.react-session-search__input-row input:focus-visible {
-  outline: none;
-}
-
-.react-session-search__section {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-}
-
-.react-session-search__section p {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 12px;
-}
-
-.react-session-search__list {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-  overflow: auto;
-}
-
-.react-session-search__item {
-  display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) max-content max-content max-content;
-  align-items: center;
-  gap: 10px;
-  min-height: 42px;
-  border-radius: 16px;
-  padding: 7px 12px;
-  color: var(--color-body);
-  font-size: 13px;
-  text-align: left;
-}
-
-.react-session-search__item:hover,
-.react-session-search__item:focus-visible,
-.react-session-search__item[aria-current="page"] {
-  background: var(--color-surface-soft);
-  color: var(--color-ink);
-}
-
-.react-session-search__rank {
-  display: inline-grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 999px;
-  color: var(--color-muted);
-  font-size: 11px;
-}
-
-.react-session-search__title {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.react-session-search__meta,
-.react-session-search__item small {
-  color: var(--color-muted-soft);
-  white-space: nowrap;
-}
-
-.react-session-search__item kbd {
-  min-width: 46px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--color-surface-soft);
-  color: var(--color-muted);
-  padding: 2px 8px;
-  font: inherit;
-  font-size: 12px;
-  line-height: 1.2;
-  text-align: center;
-  white-space: nowrap;
-}
-
-.react-session-search__empty {
-  color: var(--color-muted);
-  padding: 8px 12px;
-  font-size: 13px;
-}
-
-.react-command-palette .react-session-search__input-row input {
-  border: 0;
-  border-radius: 0;
-  padding: 4px 0;
-}
-
 .react-sr-only {
   position: absolute;
   width: 1px;
@@ -2101,7 +2061,7 @@ button:disabled {
   }
 
   .react-session-list,
-.react-session-list__collapse svg {
+.react-session-list__collapsed-home > * {
     transition-duration: 0ms;
   }
 
@@ -2112,12 +2072,6 @@ button:disabled {
 .react-session-row__select small,
 .react-session-row__delete {
     transition-duration: 140ms;
-  }
-
-  .react-session-list[data-collapsed="true"] .react-session-list__header h2,
-.react-session-list[data-collapsed="true"] .react-session-list__add-workspace,
-.react-session-list[data-collapsed="true"] .react-session-list__search {
-    transform: none;
   }
 
   .react-top-menu__popover,

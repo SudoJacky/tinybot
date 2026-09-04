@@ -1,5 +1,6 @@
 # Context and Instructions
 <!-- tinybot-doc-watch:
+src-tauri/src/agent/README.md
 src-tauri/src/agent/bridge/thread_flow.rs
 src-tauri/src/agent/runtime/README.md
 src-tauri/src/agent/runtime/instructions.rs
@@ -11,11 +12,15 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:36d2e77f1b69df5335ed2847f40fced922a123245d397d594e6a0ec015e8c260 -->
+<!-- tinybot-doc-fingerprint: sha256:13cf4a138e1697814e837efbee5516f3f3a8061e79eb783a7c1fa27bdb80390c -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
 composition and context-window management are separate stages.
+
+The optional first-Turn title request is a separate tool-free request, not part
+of this composed Agent context. Its fixed system prompt treats the bounded user
+input as untrusted data and asks only for a short same-language title.
 
 ## Workspace concepts
 
@@ -139,6 +144,10 @@ strategy is `compact`. Compaction summarizes older context through the
 provider, persists a context checkpoint, and retains recent messages. Explicit
 `discard` remains available and keeps the newest messages that fit without
 creating a summary.
+
+Context usage prefers the provider's normalized total when one is reported and
+otherwise uses the local request estimate. The estimate remains available for
+window management without being persisted as provider token usage.
 
 Exact configuration names and defaults belong in the
 [desktop command reference](../api/desktop.md#config-commands).

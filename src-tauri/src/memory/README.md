@@ -1,5 +1,5 @@
 # Long-Term Memory
-<!-- tinybot-module-fingerprint: sha256:4a28b4a805a1cdd733b21a87738ee6abd940f7cf4f1163397be071a9cca5ad6b -->
+<!-- tinybot-module-fingerprint: sha256:778a5358fbc4208b18ef772b37fe894019b9ac5426f98396c4a44cfebb4a8d0e -->
 
 `memory` provides Tinybot's local long-term memory. The V1 implementation is
 intentionally limited to two model-backed phases:
@@ -50,11 +50,15 @@ A Turn with no eligible evidence is durably marked as processed with no
 fragments, avoiding both retry loops and an evidence-free model request. This
 work must not delay delivery of the completed assistant response.
 
-Both model-backed phases resolve the model from `agents.defaults.model` and the
+Both model-backed phases use the optional `memory.model` and
+`memory.activeProfile` override when both fields are configured. When the
+override is absent, they resolve the model from `agents.defaults.model` and the
 endpoint/protocol from `agents.defaults.activeProfile`. The Provider & Models
-settings flow persists those two defaults in one native config patch; they must
-not be updated independently because Memory has no Thread-specific model to
-override an inconsistent global pair.
+settings page persists or clears the Memory override as one coherent pair; an
+incomplete pair fails explicitly instead of mixing two Provider configurations.
+The selected Profile's API mode is honored end to end: Chat Completions uses
+`messages` and reads `choices`, while Responses uses non-persisted `input` and
+reads message `output_text` parts from `output`.
 
 The extraction input is built from persisted Turn content:
 

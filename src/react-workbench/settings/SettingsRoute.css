@@ -2463,6 +2463,35 @@
   font-size: 13px;
 }
 
+.react-memory-llm-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  border-top: 1px solid var(--color-hairline);
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 14px 0;
+}
+
+.react-memory-llm-control > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 108px;
+  min-height: 38px;
+  gap: 6px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-primary-active);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.react-memory-llm-control > button:disabled {
+  opacity: 0.55;
+}
+
 .react-default-llm-summary > button,
 .react-default-llm-editor footer button {
   display: inline-flex;
@@ -3707,6 +3736,11 @@
 
   .react-default-llm-summary > button {
     grid-area: action;
+  }
+
+  .react-memory-llm-control {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
   }
 
   .react-default-model-picker {

@@ -201,6 +201,8 @@ fn streaming_completion_body(state: StreamingCompletionState) -> Value {
         }
         if let Some(usage) = state.usage {
             completion["usage"] = usage;
+        } else if let Some(completion) = completion.as_object_mut() {
+            completion.remove("usage");
         }
         return completion;
     }
@@ -227,7 +229,7 @@ fn streaming_completion_body(state: StreamingCompletionState) -> Value {
     if !state.reasoning_content.is_empty() {
         message["reasoning_content"] = Value::String(state.reasoning_content);
     }
-    serde_json::json!({
+    let mut completion = serde_json::json!({
         "id": chat_completion_id(),
         "object": "chat.completion",
         "created": unix_timestamp(),
@@ -236,13 +238,12 @@ fn streaming_completion_body(state: StreamingCompletionState) -> Value {
             "index": 0,
             "message": message,
             "finish_reason": "tool_calls",
-        }],
-        "usage": state.usage.unwrap_or_else(|| serde_json::json!({
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-        }))
-    })
+        }]
+    });
+    if let Some(usage) = state.usage {
+        completion["usage"] = usage;
+    }
+    completion
 }
 
 #[derive(Default)]

@@ -1,5 +1,5 @@
 # Agent Providers
-<!-- tinybot-module-fingerprint: sha256:c17b2111a224265a7d710595c94f8510afa3b5a923b8f5c3c9644335900a1250 -->
+<!-- tinybot-module-fingerprint: sha256:175cc974eab79215e1cf98c53a73a9825df676ff58913266a051aff41695f27e -->
 
 This module resolves provider and model configuration and performs streaming
 Chat Completions or Responses API requests.
@@ -25,14 +25,16 @@ Chat Completions or Responses API requests.
 - `completion.rs` performs provider requests. Provider selection requires an
   explicit request override or an active profile; it never infers a Provider
   from the model, and the retired `auto` Provider ID is rejected. API base URLs
-  are normalized before the OpenAI-compatible request path is appended. Every successful Chat
-  Completions or Responses call records the provider-reported token usage at
-  this shared boundary, so Agent turns, context compaction, memory maintenance,
-  and Agent Graph routing all feed the same daily SQLite totals. The recorded
-  dimensions use the resolved Provider profile and the response model ID, with
-  the requested model as a fallback. Usage persistence is best effort: failures
-  increment `provider.tokenUsage.persistence.failed` and emit a diagnostic with
-  the protocol, model ID, and storage error without replacing a successful
-  provider response.
+  are normalized before the OpenAI-compatible request path is appended. Every
+  successful Chat Completions or Responses call that reports usage passes through
+  the same token-field mapper and records the canonical result at this shared
+  boundary, so Agent turns, context compaction, memory maintenance, and Agent
+  Graph routing all feed the same daily SQLite totals. A response without usage
+  is not recorded as a zero-token call. The recorded dimensions use the resolved
+  Provider profile and the response model ID, with the requested model as a
+  fallback. Usage persistence is best effort: failures increment
+  `provider.tokenUsage.persistence.failed` and emit a diagnostic with the
+  protocol, model ID, and storage error without replacing a successful provider
+  response.
 - `streaming.rs` normalizes streamed provider events. Responses reasoning
   accepts both summary deltas and provider-compatible textual reasoning deltas.

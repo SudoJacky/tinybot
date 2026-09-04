@@ -54,6 +54,8 @@ export type ProviderModelsSettingsData = {
   activeProfileId: string | null;
   agentDefaultProviderId: string | null;
   agentDefaultModel: string | null;
+  memoryProfileId: string | null;
+  memoryModel: string | null;
   fallbackContextWindowTokens: number;
   providers: ProviderCardModel[];
 };
@@ -99,6 +101,11 @@ export type ProviderDefaultLlmPatchInput = {
   profileId: string;
   model: string;
 };
+
+export type MemoryLlmPatchInput = {
+  profileId: string;
+  model: string;
+} | null;
 
 export type ProviderModelFetchInput = {
   providerId: string;
@@ -193,6 +200,9 @@ export function buildProviderModelsSettings(config: unknown): ProviderModelsSett
   const activeProfileId = stringOrNull(pick(defaults, "activeProfile", "active_profile"));
   const agentDefaultProviderId = stringOrNull(defaults.provider);
   const agentDefaultModel = stringOrNull(defaults.model);
+  const memory = asRecord(root.memory);
+  const memoryProfileId = stringOrNull(pick(memory, "activeProfile", "active_profile"));
+  const memoryModel = stringOrNull(memory.model);
   const configuredContextWindowFallback = Number(pick(defaults, "contextWindowTokens", "context_window_tokens"));
   const fallbackContextWindowTokens = Number.isSafeInteger(configuredContextWindowFallback)
     && configuredContextWindowFallback > 0
@@ -221,6 +231,8 @@ export function buildProviderModelsSettings(config: unknown): ProviderModelsSett
     activeProfileId,
     agentDefaultProviderId,
     agentDefaultModel,
+    memoryProfileId,
+    memoryModel,
     fallbackContextWindowTokens,
     providers: [...builtInProviders, ...customProviders],
   };
@@ -362,6 +374,30 @@ export function buildProviderDefaultLlmPatch(input: ProviderDefaultLlmPatchInput
         activeProfile: input.profileId,
         model: input.model,
       },
+    },
+  };
+}
+
+export function buildMemoryLlmPatch(input: MemoryLlmPatchInput): JsonRecord {
+  if (!input) {
+    const remove = { __desktopConfigOperation: "remove" };
+    return {
+      memory: {
+        activeProfile: remove,
+        model: remove,
+      },
+    };
+  }
+
+  const profileId = input.profileId.trim();
+  const model = input.model.trim();
+  if (!profileId || !model) {
+    throw new Error("Memory model override requires both a provider profile and model.");
+  }
+  return {
+    memory: {
+      activeProfile: profileId,
+      model,
     },
   };
 }

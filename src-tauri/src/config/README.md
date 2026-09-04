@@ -1,5 +1,5 @@
 # Configuration
-<!-- tinybot-module-fingerprint: sha256:e07de5bbcffa1560dbfdcc280569c3e46ca46f72d2d4737b1a6c4375999bac79 -->
+<!-- tinybot-module-fingerprint: sha256:f411f27276a78826df279f1fcda8626d3d483d9b6ce33103c0785c2749c7c2d1 -->
 
 `config` owns loading, validating, and persisting Tinybot configuration.
 
@@ -16,3 +16,7 @@ Provider Profile `enabledModels`, `modelContextWindows`, and
 `modelCapabilities` are canonical camelCase configuration. The store accepts
 their snake_case aliases on input, and the registry exposes each per-model
 collection as profile-scoped JSON.
+
+Long-term Memory may optionally set `memory.activeProfile` and `memory.model`
+as one Provider/model override. Removing both fields restores the global Agent
+defaults; changing or clearing either field refreshes Provider runtime state.

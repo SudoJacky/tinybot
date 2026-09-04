@@ -627,31 +627,22 @@ impl AgentContentPart {
 }
 
 impl AgentUsageItem {
-    pub fn from_provider_payload(provider_payload: Value) -> Result<Self, String> {
-        let object = provider_payload
+    pub fn from_runtime_usage(
+        provider_payload: Value,
+        normalized_usage: Value,
+    ) -> Result<Self, String> {
+        let provider_token_usage =
+            crate::token_usage::normalize_provider_token_usage(&provider_payload)?;
+        let object = normalized_usage
             .as_object()
-            .ok_or_else(|| "provider usage must be an object".to_string())?;
-        Ok(Self {
+            .ok_or_else(|| "normalized usage must be an object".to_string())?;
+        let token_usage = crate::token_usage::normalize_provider_token_usage(&normalized_usage)?
+            .or(provider_token_usage);
+        let mut item = Self {
             id: None,
-            input_tokens: optional_usage_number(
-                object,
-                &[
-                    "prompt_tokens",
-                    "promptTokens",
-                    "input_tokens",
-                    "inputTokens",
-                ],
-            )?,
-            output_tokens: optional_usage_number(
-                object,
-                &[
-                    "completion_tokens",
-                    "completionTokens",
-                    "output_tokens",
-                    "outputTokens",
-                ],
-            )?,
-            total_tokens: optional_usage_number(object, &["total_tokens", "totalTokens"])?,
+            input_tokens: token_usage.as_ref().map(|usage| usage.input_tokens),
+            output_tokens: token_usage.as_ref().map(|usage| usage.output_tokens),
+            total_tokens: token_usage.as_ref().map(|usage| usage.total_tokens),
             context_window_remaining_tokens: None,
             context_window_strategy: None,
             context_window_tokens: None,
@@ -659,39 +650,7 @@ impl AgentUsageItem {
             estimated_context_tokens: None,
             percent: None,
             provider_payload,
-        })
-    }
-
-    pub fn from_runtime_usage(
-        provider_payload: Value,
-        normalized_usage: Value,
-    ) -> Result<Self, String> {
-        let mut item = Self::from_provider_payload(provider_payload)?;
-        let object = normalized_usage
-            .as_object()
-            .ok_or_else(|| "normalized usage must be an object".to_string())?;
-        item.input_tokens = item.input_tokens.or(optional_usage_number(
-            object,
-            &[
-                "prompt_tokens",
-                "promptTokens",
-                "input_tokens",
-                "inputTokens",
-            ],
-        )?);
-        item.output_tokens = item.output_tokens.or(optional_usage_number(
-            object,
-            &[
-                "completion_tokens",
-                "completionTokens",
-                "output_tokens",
-                "outputTokens",
-            ],
-        )?);
-        item.total_tokens = item.total_tokens.or(optional_usage_number(
-            object,
-            &["total_tokens", "totalTokens"],
-        )?);
+        };
         item.context_window_remaining_tokens = optional_usage_number(
             object,
             &[
@@ -909,19 +868,5 @@ mod tests {
         .expect("provider tool call should parse");
 
         assert_eq!(call.arguments_json, arguments_json);
-    }
-
-    #[test]
-    fn provider_usage_accepts_responses_token_names() {
-        let usage = AgentUsageItem::from_provider_payload(serde_json::json!({
-            "input_tokens": 7,
-            "output_tokens": 5,
-            "total_tokens": 12
-        }))
-        .expect("Responses usage should parse");
-
-        assert_eq!(usage.input_tokens, Some(7));
-        assert_eq!(usage.output_tokens, Some(5));
-        assert_eq!(usage.total_tokens, Some(12));
     }
 }

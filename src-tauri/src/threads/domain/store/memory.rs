@@ -19,8 +19,9 @@ use super::{
     ThreadChildActivity, ThreadChildSummary, ThreadEvent, ThreadEventsRequest, ThreadEventsResult,
     ThreadItem, ThreadItemKind, ThreadMetadata, ThreadMetadataPatch, ThreadPagination,
     ThreadRecord, ThreadSnapshot, ThreadStatus, ThreadStatusResult, ThreadStore,
-    CLIENT_EVENT_IDS_KEY, DEFAULT_LIST_LIMIT, DEFAULT_READ_LIMIT, DEFAULT_SEARCH_LIMIT,
-    DEFAULT_THREAD_TITLE, MAX_LIST_LIMIT, MAX_READ_LIMIT, MAX_SEARCH_LIMIT,
+    UpdateGeneratedThreadTitleResult, CLIENT_EVENT_IDS_KEY, DEFAULT_LIST_LIMIT, DEFAULT_READ_LIMIT,
+    DEFAULT_SEARCH_LIMIT, DEFAULT_THREAD_TITLE, MAX_LIST_LIMIT, MAX_READ_LIMIT, MAX_SEARCH_LIMIT,
+    TITLE_SOURCE_KEY, TITLE_SOURCE_MANUAL, TITLE_SOURCE_MODEL,
 };
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
 use crate::threads::domain::ThreadTurnSummary;
@@ -77,6 +78,82 @@ impl MemoryThreadStore {
         state.client_events = client_events;
         state.client_forks = client_forks;
         Ok(())
+    }
+
+    pub(crate) fn update_generated_thread_title(
+        &self,
+        thread_id: &str,
+        source_turn_id: &str,
+        title: String,
+    ) -> Result<UpdateGeneratedThreadTitleResult, WorkerProtocolError> {
+        validate_thread_id(thread_id)?;
+        let title = title.trim();
+        if source_turn_id.trim().is_empty() || title.is_empty() {
+            return Err(invalid_thread_request(
+                "generated title requires non-empty sourceTurnId and title",
+                serde_json::json!({ "threadId": thread_id }),
+            ));
+        }
+        let mut state = self.lock()?;
+        let first_user_turn_id =
+            state
+                .items
+                .get(thread_id)
+                .into_iter()
+                .flatten()
+                .find_map(|item| {
+                    matches!(&item.kind, ThreadItemKind::UserMessage(_))
+                        .then(|| item.turn_id.clone())
+                });
+        let record = state
+            .threads
+            .iter_mut()
+            .find(|thread| thread.thread_id == thread_id)
+            .ok_or_else(|| unknown_thread_error(thread_id))?;
+        let manual_title = record
+            .metadata
+            .extra
+            .get(TITLE_SOURCE_KEY)
+            .and_then(Value::as_str)
+            == Some(TITLE_SOURCE_MANUAL);
+        if manual_title
+            || record.status == ThreadStatus::Archived
+            || first_user_turn_id.as_deref() != Some(source_turn_id)
+        {
+            return Ok(UpdateGeneratedThreadTitleResult {
+                applied: false,
+                thread: None,
+            });
+        }
+        if !record.metadata.extra.is_null() && !record.metadata.extra.is_object() {
+            return Err(invalid_thread_request(
+                "Thread metadata.extra must be an object before setting a generated title",
+                serde_json::json!({ "threadId": thread_id }),
+            ));
+        }
+        record.title = title.to_string();
+        if record.metadata.extra.is_null() {
+            record.metadata.extra = serde_json::json!({});
+        }
+        record
+            .metadata
+            .extra
+            .as_object_mut()
+            .ok_or_else(|| {
+                invalid_thread_request(
+                    "Thread metadata.extra must be an object before setting a generated title",
+                    serde_json::json!({ "threadId": thread_id }),
+                )
+            })?
+            .insert(
+                TITLE_SOURCE_KEY.to_string(),
+                Value::String(TITLE_SOURCE_MODEL.to_string()),
+            );
+        record.updated_at = now_timestamp();
+        Ok(UpdateGeneratedThreadTitleResult {
+            applied: true,
+            thread: Some(record.clone()),
+        })
     }
 
     pub(crate) fn archive_target_records(

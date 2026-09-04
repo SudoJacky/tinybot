@@ -23,8 +23,6 @@ function tabStrip(activeSessionId = tabs[0].id) {
       tabs={tabs}
       onActivate={vi.fn()}
       onClose={vi.fn()}
-      onCreate={vi.fn()}
-      showCreate
     />
   );
 }

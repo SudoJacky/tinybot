@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:3e178e1cf0aee2cb78cef7edde1327b9f8d4709e96882f3a1aa83e6bc373cdd0 -->
+<!-- tinybot-module-fingerprint: sha256:43ad4d1a80c650074fa213c917e319a7e10ad2852c89ca13a99114a2d5192738 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -7,6 +7,8 @@ canonical timeline presentation, the composer, and detail drawers.
 `ChatTimeline.tsx` owns the reusable canonical message and execution rendering;
 its action callbacks are optional so read-only consumers can omit unavailable
 branch, recovery, artifact, delegate, and tool-detail controls.
+Assistant message actions belong only to a Turn's final answer; commentary in
+the ordered execution trace remains readable but does not expose copy actions.
 A running canonical execution trace starts expanded, then folds once when its
 final answer first appears; completed traces therefore mount folded. A user can
 still reopen the trace, and later streaming revisions preserve that explicit
@@ -108,9 +110,14 @@ the local tab workspace and is restored on a later route mount. Opening another
 draft materializes non-empty startup text as its own navigable local tab. The
 first send materializes that draft with its captured workspace or project
 context, replaces the local tab with the returned Thread ID, and only then
-dispatches the Turn. A successful first send clears the draft under the returned
-Thread ID; creation or dispatch failures reject the submission so the controlled
-composer keeps the user's input.
+dispatches the Turn. Chat immediately shows a deterministic title derived from
+the first prompt, but does not persist it through the manual-rename path. After
+the durable Turn start, native code launches a separate tool-free request with
+the same Provider and model; its eventual title update refreshes the session
+list without delaying the main Turn. If title generation fails, the deterministic
+title remains. A successful first send clears the draft under the returned Thread
+ID; creation or dispatch failures reject the submission so the controlled composer
+keeps the user's input.
 The empty conversation continues to use the persisted composer model preference.
 Changing its model uses the Settings-store default-model operation, which saves
 the native Provider Profile/model pair before updating that renderer preference;
@@ -165,9 +172,17 @@ Regular chats share a stable default-workspace Sidecar scope; they omit the
 terminal working-directory argument so Rust resolves the same configured
 native default used by Agent turns.
 
-Desktop-level project and session-search dialogs keep their domain actions in
-this module while delegating modal focus, keyboard, dismissal, and scroll-lock
+Desktop-level project and workspace dialogs keep their domain actions in this
+module while delegating modal focus, keyboard, dismissal, and scroll-lock
 behavior to `components/ui/useModalDialog`.
+
+Session search stays inside the expanded sidebar instead of opening a desktop
+dialog. The expanded-sidebar icon opens an auto-focused input; the collapsed
+rail's search shortcut expands the sidebar into that same focused state. Search
+filters session title, ID, and working-directory fields while preserving
+matching workspace and project context. Closing with its button or Escape
+clears the query, restores the full hierarchy, and returns focus to the search
+trigger.
 
 The expanded session sidebar keeps a renderer-local, versioned user order for
 its top-level workspace/project blocks, each project's member workspaces, and
@@ -193,11 +208,19 @@ disables new sessions from that historical group, and surfaces the backend error
 when a project still references the workspace. Project-folder selection uses the
 same register operation.
 
+The editable new-session empty state consumes that same registry through the
+sidebar owner. Its heading defaults to General chats and exposes a keyboard
+accessible workspace menu for choosing or registering a folder. Selection
+updates only the local draft creation input, preserves any composer text already
+entered, and reaches `SessionStore.create` on the first send. Persisted Threads
+do not expose this picker because their creation-time workspace is immutable.
+
 Session creation follows the entry point's target. Workspace and project
 actions capture their workspace and project context on the local draft. With the
 session sidebar expanded, those contextual actions and the draft's first
-submission are the primary creation paths; the tab-strip create action appears
-only while the sidebar is collapsed. Collapsed-tab, search, menu, and keyboard
+submission are the primary creation paths; the compact rail exposes global new
+chat and workspace shortcuts only while the sidebar is collapsed. Collapsed-rail,
+menu, and keyboard
 actions may inherit an ordinary active workspace, but never an active project
 coordinator; coordinator sessions are created only by the project's coordinator
 action. System-owned flows such as plugin migration continue to create their

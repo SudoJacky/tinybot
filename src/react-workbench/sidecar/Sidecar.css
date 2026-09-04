@@ -369,14 +369,22 @@
     bottom: 0;
     width: min(var(--react-sidecar-width), calc(100% - 48px));
     box-shadow: -18px 0 44px rgb(20 20 19 / 10%);
+    transform: translateX(0);
+    transition: transform var(--motion-duration-medium) var(--motion-ease-drawer);
+    will-change: transform;
   }
 
   .react-sidecar[data-presentation="expanded"] {
     width: 100%;
   }
+
+  .react-sidecar[data-hidden="true"] {
+    transform: translateX(100%);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .react-sidecar,
   .react-sidecar__resize > span {
     transition-duration: 0ms;
   }

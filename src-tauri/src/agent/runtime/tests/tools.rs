@@ -2059,7 +2059,6 @@ fn provider_error_after_tool_result_preserves_accumulated_tool_state() {
             "agent.tool.start",
             "agent.tool.result",
             "agent.model_call.completed",
-            "agent.token_count",
             "agent.usage",
             "agent.error"
         ]

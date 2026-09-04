@@ -110,6 +110,27 @@ describe("ChatPage", () => {
     );
   });
 
+  it("animates Sidecar layout changes and preserves a reduced-motion path", () => {
+    const chatCss = readFileSync("src/react-workbench/chat/ChatPage.css", "utf8");
+    const sidecarCss = readFileSync("src/react-workbench/sidecar/Sidecar.css", "utf8");
+
+    expect(chatCss).toMatch(
+      /\.react-chat-workspace\s*{[^}]*grid-template-columns:\s*minmax\(0, 1fr\) 0;[^}]*transition:\s*grid-template-columns var\(--motion-duration-medium\) var\(--motion-ease-standard\);/s,
+    );
+    expect(sidecarCss).toMatch(
+      /\.react-sidecar\s*{[^}]*transform:\s*translateX\(0\);[^}]*transition:\s*transform var\(--motion-duration-medium\) var\(--motion-ease-drawer\);/s,
+    );
+    expect(sidecarCss).toMatch(
+      /\.react-sidecar\[data-hidden="true"\]\s*{[^}]*transform:\s*translateX\(100%\);/s,
+    );
+    expect(chatCss).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.react-chat-workspace\s*{\s*transition-duration:\s*0ms;/,
+    );
+    expect(sidecarCss).toMatch(
+      /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.react-sidecar,[\s\S]*transition-duration:\s*0ms;/,
+    );
+  });
+
   it("keeps spreadsheet cells visually unchanged on hover", () => {
     const chatCss = readFileSync("src/react-workbench/chat/ChatPage.css", "utf8");
 
@@ -198,6 +219,28 @@ describe("ChatPage", () => {
     expect(css).toContain(".claude-ai-input__context-usage");
     expect(css).toContain(".claude-ai-input__context-usage-tip");
     expect(inputSource).toContain("strokeDasharray={`${view.percent} 100`}");
+  });
+
+  it("keeps composer popovers above the pointer-following border glow", () => {
+    const css = readWorkbenchCss();
+
+    expect(css).toMatch(
+      /\.claude-ai-input__panel::before\s*{[^}]*z-index:\s*0;/s,
+    );
+    expect(css).toMatch(
+      /\.claude-ai-input__panel > \*\s*{[^}]*z-index:\s*1;/s,
+    );
+  });
+
+  it("lets the empty-chat workspace menu extend past the conversation row", () => {
+    const css = readWorkbenchCss();
+
+    expect(css).toMatch(
+      /\.react-chat-surface\[data-empty-session="true"\] \.react-conversation-view\s*{[^}]*overflow:\s*visible;/s,
+    );
+    expect(css).toMatch(
+      /\.react-empty-chat-workspace__menu\s*{[^}]*z-index:\s*30;/s,
+    );
   });
 
   it("uses a restrained 180ms fade and short horizontal exit for session deletion", () => {

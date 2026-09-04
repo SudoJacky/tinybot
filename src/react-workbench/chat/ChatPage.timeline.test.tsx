@@ -44,16 +44,22 @@ function executionToolStep(id: string, sequence: number, name: string): ChatStep
 }
 
 describe("ChatPage", () => {
-  it("shows branch on a completed tool-backed final answer but not on user or commentary messages", async () => {
+  it("keeps message actions on final answers, not commentary messages", async () => {
     const user = userEvent.setup();
     const stores = createStores();
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const userMessage = await screen.findByTestId("message-u1");
+    expect(within(userMessage).getByRole("button", { name: "Copy message" })).toBeTruthy();
     expect(within(userMessage).queryByRole("button", { name: /branch from here/i })).toBeNull();
 
-    expect(within(screen.getByTestId("message-a1")).queryByRole("button", { name: /branch from here/i })).toBeNull();
-    expect(within(screen.getByTestId("message-a2")).getByRole("button", { name: /branch from here/i })).toBeTruthy();
+    const commentaryMessage = screen.getByTestId("message-a1");
+    expect(within(commentaryMessage).queryByRole("button", { name: "Copy message" })).toBeNull();
+    expect(within(commentaryMessage).queryByRole("button", { name: /branch from here/i })).toBeNull();
+
+    const finalMessage = screen.getByTestId("message-a2");
+    expect(within(finalMessage).getByRole("button", { name: "Copy message" })).toBeTruthy();
+    expect(within(finalMessage).getByRole("button", { name: /branch from here/i })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: /Agent steps, 1 step/i }));
     expect(screen.getByRole("button", { name: /open details for shell/i })).toBeTruthy();
   });
