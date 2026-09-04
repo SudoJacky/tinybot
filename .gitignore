@@ -43,3 +43,4 @@ docs/superpowers/
 *.bak
 *.tmp
 *.temp
+.VSCodeCounter/
