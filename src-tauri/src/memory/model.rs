@@ -1,4 +1,8 @@
 use super::{ExtractedMemory, Phase2Input, SelectionDiff};
+use crate::agent::provider::{
+    complete_chat_for_agent_with_observer_async, complete_responses_for_agent_with_observer_async,
+    configured_model, resolve_provider_profile, NativeProviderApiMode, NativeProviderStreamEvent,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -81,17 +85,26 @@ async fn complete_json(
     input: Value,
 ) -> Result<String, String> {
     let model_config = memory_model_config(config_snapshot)?;
-    let body = model_request_with_config(&model_config, system_prompt, input)?;
-    let mut observer = |_event: crate::agent::provider::NativeProviderStreamEvent| {};
-    let completion = crate::agent::provider::complete_chat_for_agent_with_observer_async(
-        &model_config,
-        &body,
-        &mut observer,
-        None,
-    )
-    .await
+    let api_mode = memory_api_mode(&model_config)?;
+    let body = model_request_with_config(&model_config, api_mode, system_prompt, input)?;
+    let mut observer = |_event: NativeProviderStreamEvent| {};
+    let completion = match api_mode {
+        NativeProviderApiMode::ChatCompletions => {
+            complete_chat_for_agent_with_observer_async(&model_config, &body, &mut observer, None)
+                .await
+        }
+        NativeProviderApiMode::Responses => {
+            complete_responses_for_agent_with_observer_async(
+                &model_config,
+                &body,
+                &mut observer,
+                None,
+            )
+            .await
+        }
+    }
     .map_err(|error| format!("memory model request failed: {}", error.message()))?;
-    completion_content(&completion)
+    completion_content(api_mode, &completion)
 }
 
 #[cfg(test)]
@@ -101,29 +114,44 @@ fn model_request(
     input: Value,
 ) -> Result<Value, String> {
     let model_config = memory_model_config(config_snapshot)?;
-    model_request_with_config(&model_config, system_prompt, input)
+    let api_mode = memory_api_mode(&model_config)?;
+    model_request_with_config(&model_config, api_mode, system_prompt, input)
 }
 
 fn model_request_with_config(
     config_snapshot: &Value,
+    api_mode: NativeProviderApiMode,
     system_prompt: &str,
     input: Value,
 ) -> Result<Value, String> {
-    Ok(json!({
-        "model": crate::agent::provider::configured_model(config_snapshot),
-        "stream": false,
-        "messages": [
-            {
-                "role": "system",
-                "content": system_prompt,
-            },
-            {
-                "role": "user",
-                "content": serde_json::to_string(&input)
-                    .map_err(|error| format!("failed to serialize memory model input: {error}"))?,
-            }
-        ],
-    }))
+    let input = serde_json::to_string(&input)
+        .map_err(|error| format!("failed to serialize memory model input: {error}"))?;
+    let model = configured_model(config_snapshot);
+    Ok(match api_mode {
+        NativeProviderApiMode::ChatCompletions => json!({
+            "model": model,
+            "stream": false,
+            "messages": [
+                { "role": "system", "content": system_prompt },
+                { "role": "user", "content": input },
+            ],
+        }),
+        NativeProviderApiMode::Responses => json!({
+            "model": model,
+            "stream": false,
+            "store": false,
+            "input": [
+                { "role": "system", "content": system_prompt },
+                { "role": "user", "content": input },
+            ],
+        }),
+    })
+}
+
+fn memory_api_mode(config_snapshot: &Value) -> Result<NativeProviderApiMode, String> {
+    resolve_provider_profile(config_snapshot, None, None)
+        .ok_or_else(|| "memory model provider is not configured".to_string())?
+        .parsed_api_mode()
 }
 
 fn memory_model_config(config_snapshot: &Value) -> Result<Value, String> {
@@ -172,21 +200,59 @@ fn memory_model_config(config_snapshot: &Value) -> Result<Value, String> {
     Ok(effective)
 }
 
-fn completion_content(completion: &Value) -> Result<String, String> {
-    let content = completion
-        .pointer("/choices/0/message/content")
-        .ok_or_else(|| "memory model response is missing assistant content".to_string())?;
-    match content {
-        Value::String(content) => Ok(content.clone()),
-        Value::Array(parts) => Ok(parts
-            .iter()
-            .filter_map(|part| {
-                part.as_str()
-                    .or_else(|| part.get("text").and_then(Value::as_str))
-            })
-            .collect::<Vec<_>>()
-            .join("")),
-        _ => Err("memory model assistant content must be text".to_string()),
+fn completion_content(
+    api_mode: NativeProviderApiMode,
+    completion: &Value,
+) -> Result<String, String> {
+    match api_mode {
+        NativeProviderApiMode::ChatCompletions => {
+            let content = completion
+                .pointer("/choices/0/message/content")
+                .ok_or_else(|| "memory model response is missing assistant content".to_string())?;
+            match content {
+                Value::String(content) => Ok(content.clone()),
+                Value::Array(parts) => Ok(parts
+                    .iter()
+                    .filter_map(|part| {
+                        part.as_str()
+                            .or_else(|| part.get("text").and_then(Value::as_str))
+                    })
+                    .collect::<Vec<_>>()
+                    .join("")),
+                _ => Err("memory model assistant content must be text".to_string()),
+            }
+        }
+        NativeProviderApiMode::Responses => responses_completion_content(completion),
+    }
+}
+
+fn responses_completion_content(completion: &Value) -> Result<String, String> {
+    let output = completion
+        .get("output")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "memory model response is missing output".to_string())?;
+    let mut text = String::new();
+    for item in output {
+        if item.get("type").and_then(Value::as_str) != Some("message") {
+            continue;
+        }
+        for part in item
+            .get("content")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if part.get("type").and_then(Value::as_str) == Some("output_text") {
+                text.push_str(part.get("text").and_then(Value::as_str).ok_or_else(|| {
+                    "memory model response output_text is missing text".to_string()
+                })?);
+            }
+        }
+    }
+    if text.is_empty() {
+        Err("memory model response contains no output text".to_string())
+    } else {
+        Ok(text)
     }
 }
 

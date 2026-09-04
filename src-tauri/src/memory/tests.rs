@@ -467,6 +467,23 @@ fn memory_models_use_the_configured_provider_protocol() {
 }
 
 #[test]
+fn memory_models_use_the_responses_provider_protocol() {
+    let extraction = tauri::async_runtime::block_on(extract_memories(
+        &fixture_responses_model_config(
+            "{\"memories\":[{\"scope\":\"workspace\",\"content\":\"Uses Rust.\"}]}",
+        ),
+        &TurnEvidence {
+            user_messages: vec!["This project uses Rust.".to_string()],
+            successful_tool_results: Vec::new(),
+        },
+    ))
+    .unwrap();
+
+    assert_eq!(extraction[0].scope, MemoryScope::Workspace);
+    assert_eq!(extraction[0].content, "Uses Rust.");
+}
+
+#[test]
 fn memory_model_request_uses_the_synchronized_defaults_after_a_provider_switch() {
     let mut config = json!({
         "agents": {
@@ -536,6 +553,33 @@ fn memory_model_request_uses_an_explicit_memory_override() {
 }
 
 #[test]
+fn memory_model_request_uses_responses_shape_for_a_responses_profile() {
+    let config = json!({
+        "agents": {
+            "defaults": {
+                "activeProfile": "openai-responses",
+                "model": "gpt-5"
+            }
+        },
+        "providers": {
+            "profiles": {
+                "openai-responses": {
+                    "provider": "openai",
+                    "apiMode": "responses"
+                }
+            }
+        }
+    });
+
+    let request = model_request_for_test(&config).unwrap();
+
+    assert!(request.get("messages").is_none());
+    assert_eq!(request["input"][0]["role"], "system");
+    assert_eq!(request["input"][1]["role"], "user");
+    assert_eq!(request["store"], false);
+}
+
+#[test]
 fn incomplete_memory_model_override_fails_clearly() {
     let config = json!({
         "agents": {
@@ -562,6 +606,28 @@ fn fixture_model_config(content: &str) -> serde_json::Value {
             }
         },
         "providers": {
+            "fixture": {
+                "responses": [{ "content": content }]
+            }
+        }
+    })
+}
+
+fn fixture_responses_model_config(content: &str) -> serde_json::Value {
+    json!({
+        "agents": {
+            "defaults": {
+                "activeProfile": "fixture-responses",
+                "model": "fixture-model"
+            }
+        },
+        "providers": {
+            "profiles": {
+                "fixture-responses": {
+                    "provider": "fixture",
+                    "apiMode": "responses"
+                }
+            },
             "fixture": {
                 "responses": [{ "content": content }]
             }

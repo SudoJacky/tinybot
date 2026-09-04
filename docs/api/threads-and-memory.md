@@ -15,7 +15,7 @@ src-tauri/src/threads/workspace_store.rs
 src-tauri/tests/crate/threads.rs
 src/app-core/chat/agentInputReference.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:ed3055b072c01b3b3a5c862c6bc255833ba7d361e3aab46a30458f75d13d950d -->
+<!-- tinybot-doc-fingerprint: sha256:5b2bbe59f0d8f5408363b6ea5e33bab577f39d66a5d583ba0a2dd29761ccc5af -->
 
 This document covers Thread queries, memory, persistence, and project grouping.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -226,6 +226,9 @@ Phase 1 extraction and Phase 2 consolidation use `memory.activeProfile` and `mem
 both are configured. If neither is configured, both phases dynamically follow
 `agents.defaults.activeProfile` and `agents.defaults.model`. Provider & Models writes or clears the
 override as a pair; a partial override is an explicit configuration error.
+Each phase uses the selected Profile's configured API mode for its request, transport, and response
+parsing: Chat Completions uses `messages`/`choices`, while Responses uses non-persisted
+`input`/`output`.
 
 | Tauri command | Params | Result |
 | --- | --- | --- |
