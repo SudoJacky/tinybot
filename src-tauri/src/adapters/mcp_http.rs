@@ -73,25 +73,28 @@ pub(crate) fn parse_http_server_config(
         });
     }
 
-    if server
-        .get("bearerToken")
-        .or_else(|| server.get("bearer_token"))
-        .is_some_and(|value| !value.is_null())
-    {
+    let bearer_token = optional_inline_secret(
+        server_name,
+        server
+            .get("bearerToken")
+            .or_else(|| server.get("bearer_token")),
+        "bearer_token",
+    )?;
+    let bearer_token_env_var = server
+        .get("bearerTokenEnvVar")
+        .or_else(|| server.get("bearer_token_env_var"));
+    if bearer_token.is_some() && bearer_token_env_var.is_some_and(|value| !value.is_null()) {
         return Err(HttpConfigError {
             message: format!(
-                "MCP HTTP server `{server_name}` uses unsupported bearer_token; set bearer_token_env_var"
+                "MCP HTTP server `{server_name}` must configure either bearer_token or bearer_token_env_var, not both"
             ),
             transport: "http".to_string(),
         });
     }
-    let bearer_token = optional_env_secret(
-        server_name,
-        server
-            .get("bearerTokenEnvVar")
-            .or_else(|| server.get("bearer_token_env_var")),
-        "bearer_token_env_var",
-    )?;
+    let bearer_token = match bearer_token {
+        Some(token) => Some(token),
+        None => optional_env_secret(server_name, bearer_token_env_var, "bearer_token_env_var")?,
+    };
     let mut headers = parse_header_map(
         server_name,
         server
@@ -112,6 +115,14 @@ pub(crate) fn parse_http_server_config(
         let name = parse_header_name(server_name, &name)?;
         let value = parse_header_value(server_name, &name, &value)?;
         headers.insert(name, value);
+    }
+    if bearer_token.is_some() && headers.contains_key(&http::header::AUTHORIZATION) {
+        return Err(HttpConfigError {
+            message: format!(
+                "MCP HTTP server `{server_name}` must configure either a bearer token or an Authorization header, not both"
+            ),
+            transport: "http".to_string(),
+        });
     }
     let timeout_seconds = server
         .get("timeout_seconds")
@@ -138,6 +149,25 @@ pub(crate) fn parse_http_server_config(
         call_timeout: Duration::from_secs(timeout_seconds),
         fingerprint,
     })
+}
+
+fn optional_inline_secret(
+    server_name: &str,
+    value: Option<&Value>,
+    field: &str,
+) -> Result<Option<String>, HttpConfigError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    value
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| Some(value.to_string()))
+        .ok_or_else(|| HttpConfigError {
+            message: format!("MCP HTTP server `{server_name}` {field} must be a non-empty string"),
+            transport: "http".to_string(),
+        })
 }
 
 fn optional_env_secret(

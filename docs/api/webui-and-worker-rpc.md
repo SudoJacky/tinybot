@@ -207,7 +207,7 @@ Streamable HTTP configuration example:
         "enabled": true,
         "transport": "http",
         "url": "https://example.com/mcp",
-        "bearerTokenEnvVar": "DOCS_MCP_TOKEN",
+        "bearerToken": "<token>",
         "httpHeaders": { "X-Tenant": "tinybot" },
         "envHttpHeaders": { "X-Trace-Token": "DOCS_TRACE_TOKEN" },
         "startupTimeoutSeconds": 10,
@@ -219,10 +219,13 @@ Streamable HTTP configuration example:
 }
 ```
 
-`bearerTokenEnvVar` and `envHttpHeaders` contain environment-variable names, not secret values.
-Missing, empty, or non-Unicode values fail startup explicitly. Inline `bearerToken` / `bearer_token`
-is rejected; use the environment-backed field. URL credentials and fragments are also rejected.
-Snake-case aliases are accepted for these fields.
+`bearerToken` stores a bearer token directly in Tinybot's local configuration;
+`bearerTokenEnvVar` stores an environment-variable name instead. Configure at most one of them.
+`envHttpHeaders` also contains environment-variable names rather than secret values. Missing,
+empty, or non-Unicode environment values fail startup explicitly. Direct bearer tokens and
+sensitive header values are omitted from public settings and diagnostic projections. URL
+credentials and fragments are rejected. Snake-case aliases are accepted for these fields. Plugin
+packages should continue to use environment-backed secret fields rather than embedding credentials.
 
 `mcp.list_tools` takes no params and returns enabled servers, normalized real tool schemas, and live
 status:

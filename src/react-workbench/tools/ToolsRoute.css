@@ -560,6 +560,291 @@
   font-size: 11px;
 }
 
+.react-mcp-heading-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.react-mcp-add,
+.react-mcp-form__save {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 34px;
+  border: 1px solid var(--color-primary);
+  border-radius: 9px;
+  background: var(--color-primary);
+  padding: 0 13px;
+  color: var(--color-on-primary);
+  font-size: 12px;
+  font-weight: 680;
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--color-primary) 22%, transparent);
+  transition:
+    background var(--motion-duration-fast) var(--motion-ease-standard),
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-standard),
+    transform 100ms ease-out;
+}
+
+.react-mcp-add:hover,
+.react-mcp-form__save:hover:not(:disabled) {
+  border-color: var(--color-primary-active);
+  background: var(--color-primary-active);
+}
+
+.react-mcp-add:active,
+.react-mcp-form__back:active,
+.react-mcp-form__add-row:active,
+.react-mcp-form__remove-row:active,
+.react-mcp-form__save:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.react-mcp-add:focus-visible,
+.react-mcp-form__back:focus-visible,
+.react-mcp-form__add-row:focus-visible,
+.react-mcp-form__remove-row:focus-visible,
+.react-mcp-form__save:focus-visible,
+.react-mcp-form input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 58%, transparent);
+  outline-offset: 2px;
+}
+
+.react-mcp-form-panel {
+  width: min(100%, 820px);
+  gap: 14px;
+}
+
+.react-mcp-form__back {
+  display: inline-flex;
+  justify-self: start;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 8px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 650;
+  transition:
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    background var(--motion-duration-fast) var(--motion-ease-standard),
+    transform 100ms ease-out;
+}
+
+.react-mcp-form__back:hover {
+  background: color-mix(in srgb, var(--color-panel) 62%, transparent);
+  color: var(--color-ink);
+}
+
+.react-mcp-form__intro {
+  display: grid;
+  gap: 3px;
+}
+
+.react-mcp-form__intro h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 16px;
+  font-weight: 720;
+  letter-spacing: -0.015em;
+}
+
+.react-mcp-form__intro small,
+.react-mcp-form__field > small:not(.react-mcp-form__field-error) {
+  color: var(--color-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.react-mcp-form {
+  display: grid;
+  gap: 10px;
+}
+
+.react-mcp-form__group,
+.react-mcp-form__header-group {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--color-hairline);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--color-panel) 86%, transparent);
+}
+
+.react-mcp-form__field {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+}
+
+.react-mcp-form__field + .react-mcp-form__field,
+.react-mcp-form__type-row {
+  border-top: 1px solid color-mix(in srgb, var(--color-hairline) 74%, transparent);
+}
+
+.react-mcp-form__field > span,
+.react-mcp-form__type-row > span,
+.react-mcp-form__header-group h3 {
+  color: var(--color-ink);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 680;
+}
+
+.react-mcp-form__field > span i {
+  margin-left: 3px;
+  color: var(--color-error);
+  font-style: normal;
+}
+
+.react-mcp-form input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 8px;
+  outline: 0;
+  background: color-mix(in srgb, var(--color-body) 28%, var(--color-panel));
+  padding: 0 10px;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 12px;
+  transition:
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    box-shadow var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-mcp-form input::placeholder {
+  color: color-mix(in srgb, var(--color-muted) 72%, transparent);
+}
+
+.react-mcp-form input:hover {
+  border-color: color-mix(in srgb, var(--color-muted) 45%, var(--color-hairline));
+}
+
+.react-mcp-form input:focus-visible {
+  border-color: color-mix(in srgb, var(--color-primary) 58%, var(--color-hairline));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 10%, transparent);
+}
+
+.react-mcp-form input[aria-invalid="true"] {
+  border-color: color-mix(in srgb, var(--color-error) 58%, var(--color-hairline));
+}
+
+.react-mcp-form__type-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 12px;
+}
+
+.react-mcp-form__type-row strong {
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-primary) 9%, var(--color-panel));
+  padding: 6px 9px;
+  color: var(--color-primary-active);
+  font-size: 11px;
+  font-weight: 680;
+}
+
+.react-mcp-form__header-group {
+  gap: 8px;
+  padding: 12px;
+}
+
+.react-mcp-form__header-group h3 {
+  margin: 0 0 1px;
+}
+
+.react-mcp-form__header-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 30px;
+  gap: 8px;
+  align-items: center;
+}
+
+.react-mcp-form__remove-row,
+.react-mcp-form__add-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 8px;
+  color: var(--color-muted);
+  transition:
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    background var(--motion-duration-fast) var(--motion-ease-standard),
+    transform 100ms ease-out;
+}
+
+.react-mcp-form__remove-row {
+  width: 30px;
+  min-height: 30px;
+}
+
+.react-mcp-form__remove-row:hover {
+  background: color-mix(in srgb, var(--color-error) 8%, var(--color-panel));
+  color: var(--color-error);
+}
+
+.react-mcp-form__add-row {
+  gap: 5px;
+  width: 100%;
+  min-height: 31px;
+  background: color-mix(in srgb, var(--color-surface-soft) 74%, transparent);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.react-mcp-form__add-row:hover {
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-panel));
+  color: var(--color-primary-active);
+}
+
+.react-mcp-form__field-error,
+.react-mcp-form__save-error {
+  margin: 0;
+  color: var(--color-error);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.react-mcp-form__save-error {
+  border: 1px solid color-mix(in srgb, var(--color-error) 30%, var(--color-hairline));
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--color-error) 7%, var(--color-panel));
+  padding: 9px 11px;
+}
+
+.react-mcp-form__footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 2px;
+}
+
+.react-mcp-form__save:disabled {
+  border-color: color-mix(in srgb, var(--color-hairline) 82%, transparent);
+  background: color-mix(in srgb, var(--color-muted) 15%, var(--color-panel));
+  color: color-mix(in srgb, var(--color-muted) 72%, transparent);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+.react-mcp-form__save .react-spin {
+  animation: react-mcp-form-spin 850ms linear infinite;
+}
+
+@keyframes react-mcp-form-spin {
+  to { transform: rotate(360deg); }
+}
+
 .react-tool-row {
   min-height: 54px;
   border-radius: 10px;
@@ -798,6 +1083,29 @@
     justify-content: flex-start;
   }
 
+  .react-mcp-heading-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .react-mcp-form-panel {
+    width: 100%;
+  }
+
+  .react-mcp-form__header-row {
+    grid-template-columns: minmax(0, 1fr) 30px;
+  }
+
+  .react-mcp-form__header-row input:nth-child(2) {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .react-mcp-form__header-row .react-mcp-form__remove-row {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+
   .react-plugin-card {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -829,6 +1137,19 @@
     transition-duration: 0ms;
   }
 
+  .react-mcp-add,
+  .react-mcp-form__back,
+  .react-mcp-form__add-row,
+  .react-mcp-form__remove-row,
+  .react-mcp-form__save,
+  .react-mcp-form input {
+    transition-duration: 0ms;
+  }
+
+  .react-mcp-form__save .react-spin {
+    animation: none;
+  }
+
   .react-skill-row,
   .react-skill-row .react-tool-row__meta svg {
     transition-duration: 0ms;
@@ -841,8 +1162,10 @@
   .react-plugin-empty,
   .react-plugin-card,
   .react-tool-search,
-  .react-mcp-card,
-  .react-tool-row {
+    .react-mcp-card,
+    .react-mcp-form__group,
+    .react-mcp-form__header-group,
+    .react-tool-row {
     background: var(--color-panel);
     backdrop-filter: none;
   }

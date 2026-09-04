@@ -1,5 +1,8 @@
 import type { NativeConfigApi } from "../../app-core/native/desktopNativeConfig";
-import type { DesktopNativeConfigPatchResponse } from "../../app-core/native/desktopNativeConfigPatch";
+import {
+  replaceDesktopConfigValue,
+  type DesktopNativeConfigPatchResponse,
+} from "../../app-core/native/desktopNativeConfigPatch";
 import type { NativeWebuiRouteRequest } from "../../app-core/native/desktopNativeWebui";
 import type { NativeWorkspaceApi } from "../../app-core/native/desktopNativeWorkspace";
 import type { NativeTokenUsageApi } from "../../app-core/native/desktopNativeTokenUsage";
@@ -228,6 +231,34 @@ export function createDesktopSettingsStore({
         saveDetails,
       };
     },
+    async createStreamableHttpMcpServer(input) {
+      await initialize();
+      const currentConfig = await loadSettingsSnapshot();
+      const name = input.name.trim();
+      if (configuredMcpServerExists(currentConfig, name)) {
+        throw new Error(`MCP server '${name}' already exists.`);
+      }
+      const bearerToken = input.bearerToken?.trim();
+      const headerNames = [...Object.keys(input.httpHeaders), ...Object.keys(input.envHttpHeaders)];
+      if (bearerToken && headerNames.some((header) => header.toLocaleLowerCase() === "authorization")) {
+        throw new Error("Configure either the bearer token or the Authorization header, not both.");
+      }
+      await persistSettingsConfig(currentConfig, {
+        tools: {
+          mcpServers: {
+            [name]: replaceDesktopConfigValue({
+              enabled: true,
+              transport: "streamable-http",
+              url: input.url.trim(),
+              ...(bearerToken ? { bearerToken } : {}),
+              ...(Object.keys(input.httpHeaders).length ? { httpHeaders: input.httpHeaders } : {}),
+              ...(Object.keys(input.envHttpHeaders).length ? { envHttpHeaders: input.envHttpHeaders } : {}),
+              enabledTools: ["*"],
+            }),
+          },
+        },
+      });
+    },
     async loadProviderSettings() {
       await initialize();
       return buildProviderModelsSettings(await loadSettingsSnapshot());
@@ -274,6 +305,14 @@ export function createDesktopSettingsStore({
       return buildProviderModelsSettings(savedConfig);
     },
   };
+}
+
+function configuredMcpServerExists(config: unknown, name: string): boolean {
+  if (!name || !isRecord(config)) return false;
+  const tools = isRecord(config.tools) ? config.tools : {};
+  const mcp = isRecord(config.mcp) ? config.mcp : {};
+  return [tools.mcpServers, tools.mcp_servers, mcp.servers]
+    .some((servers) => isRecord(servers) && Object.prototype.hasOwnProperty.call(servers, name));
 }
 
 function normalizePersonalizationInstructions(payload: unknown): PersonalizationInstructionsData {

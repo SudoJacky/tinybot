@@ -23,6 +23,15 @@ type DesktopConfigOperation =
 
 type TauriInvoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
+type DesktopConfigReplaceValue = {
+  __desktopConfigOperation: "replace";
+  value: unknown;
+};
+
+export function replaceDesktopConfigValue(value: unknown): DesktopConfigReplaceValue {
+  return { __desktopConfigOperation: "replace", value };
+}
+
 export async function applyNativeConfigPatch(
   currentConfig: unknown,
   patch: unknown,
@@ -62,6 +71,14 @@ function collectDesktopConfigOperations(
     const fieldPath = [...path, key];
     if (isConfigRemoveOperation(patchValue)) {
       operations.push({ op: isSensitiveConfigKey(key) ? "secretRemove" : "remove", path: canonicalConfigPath(fieldPath) });
+      continue;
+    }
+    if (isConfigReplaceOperation(patchValue)) {
+      operations.push({
+        op: isSensitiveConfigKey(key) ? "secretReplace" : "replace",
+        path: canonicalConfigPointer(fieldPath),
+        value: patchValue.value,
+      });
       continue;
     }
     if (isRecord(patchValue) && Object.entries(patchValue).length > 0) {
@@ -115,6 +132,14 @@ function canonicalConfigSegment(parent: readonly string[], segment: string): str
   return segment;
 }
 
+function canonicalConfigPointer(path: readonly string[]): string {
+  const canonical: string[] = [];
+  for (const segment of path) {
+    canonical.push(canonicalConfigSegment(canonical, segment));
+  }
+  return `/${canonical.map((segment) => segment.replace(/~/g, "~0").replace(/\//g, "~1")).join("/")}`;
+}
+
 function extractExpectedRevision(currentConfig: unknown): string | undefined {
   if (!isRecord(currentConfig)) {
     return undefined;
@@ -139,6 +164,13 @@ function isConfigRemoveOperation(value: unknown): boolean {
   return isRecord(value)
     && (value.__desktopConfigOperation === "remove" || value.op === "remove")
     && Object.keys(value).every((key) => ["__desktopConfigOperation", "op"].includes(key));
+}
+
+function isConfigReplaceOperation(value: unknown): value is DesktopConfigReplaceValue {
+  return isRecord(value)
+    && value.__desktopConfigOperation === "replace"
+    && Object.prototype.hasOwnProperty.call(value, "value")
+    && Object.keys(value).every((key) => ["__desktopConfigOperation", "value"].includes(key));
 }
 
 function isSensitiveConfigKey(key: string): boolean {

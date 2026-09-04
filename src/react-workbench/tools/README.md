@@ -1,5 +1,5 @@
 # Tools Route
-<!-- tinybot-module-fingerprint: sha256:e04cff785dd8201db1ce807e7529b10b583bb23c78ab2620c450e3d1d9da506d -->
+<!-- tinybot-module-fingerprint: sha256:b58d5a056193af7afeb4c609b5adf1454c7ce8c624990cd5b1a082dfc5147294 -->
 
 `tools` owns the lazy Tools and Plugins route, including separate Plugins,
 Skills, MCP, and callable Tools views plus catalog, lifecycle, migration,

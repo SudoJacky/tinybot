@@ -1,5 +1,18 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BookOpen, ChevronRight, Network, PackagePlus, Puzzle, Search, WandSparkles, X } from "lucide-react";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import {
+  ArrowLeft,
+  BookOpen,
+  ChevronRight,
+  LoaderCircle,
+  Network,
+  PackagePlus,
+  Plus,
+  Puzzle,
+  Search,
+  Trash2,
+  WandSparkles,
+  X,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { createDesktopTurnSubmitCommand } from "../../app-core/chat/desktopCommand";
 import { readDefaultChatModel } from "../../app-core/chat/chatModelPreference";
@@ -98,6 +111,7 @@ export default function ToolsRoute({ services, onOpenChat, workingDirectory }: T
         ) : (
           <ToolCatalogPanel
             onRetry={() => setCatalogRevision((revision) => revision + 1)}
+            onRuntimeChanged={() => setCatalogRevision((revision) => revision + 1)}
             services={services}
             state={catalogState}
             view={activeView}
@@ -111,12 +125,14 @@ export default function ToolsRoute({ services, onOpenChat, workingDirectory }: T
 
 function ToolCatalogPanel({
   onRetry,
+  onRuntimeChanged,
   services,
   state,
   view,
   workingDirectory,
 }: {
   onRetry: () => void;
+  onRuntimeChanged: () => void;
   services: AppServices;
   state: ToolCatalogState;
   view: Exclude<ResourceView, "plugins">;
@@ -138,7 +154,9 @@ function ToolCatalogPanel({
   if (view === "skills") {
     return <SkillsCatalogView catalog={state.catalog} services={services} workingDirectory={workingDirectory} />;
   }
-  if (view === "mcp") return <McpCatalogView catalog={state.catalog} />;
+  if (view === "mcp") {
+    return <McpCatalogView catalog={state.catalog} onRuntimeChanged={onRuntimeChanged} services={services} />;
+  }
   return <ToolsCatalogView catalog={state.catalog} />;
 }
 
@@ -267,8 +285,30 @@ function SkillsCatalogView({
   );
 }
 
-function McpCatalogView({ catalog }: { catalog: ToolCatalogSummary }) {
+function McpCatalogView({
+  catalog,
+  onRuntimeChanged,
+  services,
+}: {
+  catalog: ToolCatalogSummary;
+  onRuntimeChanged: () => void;
+  services: AppServices;
+}) {
   const { t } = useTranslation("common");
+  const [creating, setCreating] = useState(false);
+  if (creating) {
+    return (
+      <StreamableHttpMcpForm
+        existingNames={catalog.mcpServers.map((server) => server.id)}
+        services={services}
+        onCancel={() => setCreating(false)}
+        onSaved={() => {
+          setCreating(false);
+          onRuntimeChanged();
+        }}
+      />
+    );
+  }
   return (
     <div className="react-resource-panel" role="region" aria-label={t("tools.mcpServers")}>
       <section className="react-tool-group" aria-labelledby="mcp-server-heading">
@@ -277,7 +317,13 @@ function McpCatalogView({ catalog }: { catalog: ToolCatalogSummary }) {
             <h2 id="mcp-server-heading">{t("tools.mcpServers")}</h2>
             <small>{t("tools.mcpServersDescription")}</small>
           </span>
-          <span className="react-resource-count">{catalog.mcpServers.length}</span>
+          <div className="react-mcp-heading-actions">
+            <span className="react-resource-count">{catalog.mcpServers.length}</span>
+            <button className="react-mcp-add" type="button" onClick={() => setCreating(true)}>
+              <Plus aria-hidden="true" size={15} />
+              {t("tools.mcpForm.add")}
+            </button>
+          </div>
         </div>
         {catalog.mcpServers.length ? (
           <div className="react-mcp-grid">
@@ -296,6 +342,343 @@ function McpCatalogView({ catalog }: { catalog: ToolCatalogSummary }) {
       </section>
     </div>
   );
+}
+
+type McpHeaderPair = {
+  id: number;
+  name: string;
+  value: string;
+};
+
+type McpFormErrors = Partial<Record<"name" | "url" | "bearerToken" | "headers" | "envHeaders", string>>;
+type McpHeaderError = "envVarInvalid" | "headerNameInvalid" | "headerPairIncomplete";
+type McpHeaderErrorTranslationKey =
+  | "tools.mcpForm.errors.envVarInvalid"
+  | "tools.mcpForm.errors.headerNameInvalid"
+  | "tools.mcpForm.errors.headerPairIncomplete";
+
+const MCP_NAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
+const ENV_VAR_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const HTTP_HEADER_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+
+function StreamableHttpMcpForm({
+  existingNames,
+  onCancel,
+  onSaved,
+  services,
+}: {
+  existingNames: string[];
+  onCancel: () => void;
+  onSaved: () => void;
+  services: AppServices;
+}) {
+  const { t } = useTranslation("common");
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [bearerToken, setBearerToken] = useState("");
+  const [headers, setHeaders] = useState<McpHeaderPair[]>([{ id: 0, name: "", value: "" }]);
+  const [envHeaders, setEnvHeaders] = useState<McpHeaderPair[]>([{ id: 0, name: "", value: "" }]);
+  const [showErrors, setShowErrors] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const errors = useMemo<McpFormErrors>(() => {
+    const next: McpFormErrors = {};
+    const normalizedName = name.trim();
+    if (!normalizedName) {
+      next.name = t("tools.mcpForm.errors.nameRequired");
+    } else if (!MCP_NAME_PATTERN.test(normalizedName)) {
+      next.name = t("tools.mcpForm.errors.nameInvalid");
+    } else if (existingNames.includes(normalizedName)) {
+      next.name = t("tools.mcpForm.errors.nameExists");
+    }
+
+    const normalizedUrl = url.trim();
+    if (!normalizedUrl) {
+      next.url = t("tools.mcpForm.errors.urlRequired");
+    } else {
+      try {
+        const parsed = new URL(normalizedUrl);
+        if (!["http:", "https:"].includes(parsed.protocol)
+          || !parsed.hostname
+          || parsed.username
+          || parsed.password
+          || parsed.hash) {
+          next.url = t("tools.mcpForm.errors.urlInvalid");
+        }
+      } catch {
+        next.url = t("tools.mcpForm.errors.urlInvalid");
+      }
+    }
+
+    const literalError = validateHeaderPairs(headers, false);
+    const environmentError = validateHeaderPairs(envHeaders, true);
+    if (literalError) next.headers = mcpHeaderErrorMessage(literalError, t);
+    if (environmentError) next.envHeaders = mcpHeaderErrorMessage(environmentError, t);
+
+    const seen = new Set<string>();
+    for (const pair of [...headers, ...envHeaders]) {
+      const normalizedHeader = pair.name.trim().toLocaleLowerCase();
+      if (!normalizedHeader) continue;
+      if (seen.has(normalizedHeader)) {
+        next.headers = t("tools.mcpForm.errors.headerDuplicate");
+        next.envHeaders = t("tools.mcpForm.errors.headerDuplicate");
+        break;
+      }
+      seen.add(normalizedHeader);
+    }
+    const hasLiteralAuthorization = headers.some((pair) => pair.name.trim().toLocaleLowerCase() === "authorization");
+    const hasEnvironmentAuthorization = envHeaders.some((pair) => pair.name.trim().toLocaleLowerCase() === "authorization");
+    if (bearerToken.trim() && (hasLiteralAuthorization || hasEnvironmentAuthorization)) {
+      next.bearerToken = t("tools.mcpForm.errors.bearerTokenConflict");
+      if (hasLiteralAuthorization) next.headers = t("tools.mcpForm.errors.bearerTokenConflict");
+      if (hasEnvironmentAuthorization) next.envHeaders = t("tools.mcpForm.errors.bearerTokenConflict");
+    }
+    return next;
+  }, [bearerToken, envHeaders, existingNames, headers, name, t, url]);
+  const hasRequiredValues = Boolean(name.trim() && url.trim());
+
+  async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setShowErrors(true);
+    setSaveError("");
+    if (Object.keys(errors).length) return;
+    const createServer = services.settingsStore.createStreamableHttpMcpServer;
+    if (!createServer) {
+      setSaveError(t("tools.mcpForm.errors.unavailable"));
+      return;
+    }
+    setSaving(true);
+    try {
+      await createServer({
+        name: name.trim(),
+        url: url.trim(),
+        ...(bearerToken.trim() ? { bearerToken: bearerToken.trim() } : {}),
+        httpHeaders: headerPairsToRecord(headers),
+        envHttpHeaders: headerPairsToRecord(envHeaders),
+      });
+      onSaved();
+    } catch (cause) {
+      setSaveError(errorMessage(cause));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="react-resource-panel react-mcp-form-panel" role="region" aria-label={t("tools.mcpForm.title")}>
+      <button className="react-mcp-form__back" type="button" onClick={onCancel}>
+        <ArrowLeft aria-hidden="true" size={15} />
+        {t("tools.mcpForm.back")}
+      </button>
+      <div className="react-mcp-form__intro">
+        <h2>{t("tools.mcpForm.title")}</h2>
+        <small>{t("tools.mcpForm.description")}</small>
+      </div>
+      <form className="react-mcp-form" noValidate onSubmit={(event) => void submit(event)}>
+        <div className="react-mcp-form__group">
+          <McpTextField
+            autoFocus
+            error={showErrors ? errors.name : undefined}
+            label={t("tools.mcpForm.name")}
+            onChange={setName}
+            placeholder={t("tools.mcpForm.namePlaceholder")}
+            required
+            value={name}
+          />
+          <div className="react-mcp-form__type-row">
+            <span>{t("tools.mcpForm.type")}</span>
+            <strong>{t("tools.mcpForm.streamableHttp")}</strong>
+          </div>
+        </div>
+
+        <div className="react-mcp-form__group">
+          <McpTextField
+            error={showErrors ? errors.url : undefined}
+            label={t("tools.mcpForm.url")}
+            onChange={setUrl}
+            placeholder="https://mcp.example.com/mcp"
+            required
+            type="url"
+            value={url}
+          />
+          <McpTextField
+            error={showErrors ? errors.bearerToken : undefined}
+            hint={t("tools.mcpForm.bearerTokenHint")}
+            label={t("tools.mcpForm.bearerToken")}
+            onChange={setBearerToken}
+            placeholder={t("tools.mcpForm.bearerTokenPlaceholder")}
+            type="password"
+            value={bearerToken}
+          />
+        </div>
+
+        <McpHeaderFields
+          addLabel={t("tools.mcpForm.addHeader")}
+          error={showErrors ? errors.headers : undefined}
+          nameLabel={t("tools.mcpForm.headerName")}
+          onChange={setHeaders}
+          pairs={headers}
+          removeLabel={t("tools.mcpForm.removeHeader")}
+          title={t("tools.mcpForm.headers")}
+          valueLabel={t("tools.mcpForm.headerValue")}
+        />
+        <McpHeaderFields
+          addLabel={t("tools.mcpForm.addEnvHeader")}
+          error={showErrors ? errors.envHeaders : undefined}
+          nameLabel={t("tools.mcpForm.headerName")}
+          onChange={setEnvHeaders}
+          pairs={envHeaders}
+          removeLabel={t("tools.mcpForm.removeEnvHeader")}
+          title={t("tools.mcpForm.envHeaders")}
+          valueLabel={t("tools.mcpForm.environmentVariable")}
+        />
+
+        {saveError ? <p className="react-mcp-form__save-error" role="alert">{saveError}</p> : null}
+        <footer className="react-mcp-form__footer">
+          <button className="react-mcp-form__save" disabled={!hasRequiredValues || saving} type="submit">
+            {saving ? <LoaderCircle aria-hidden="true" className="react-spin" size={15} /> : null}
+            {saving ? t("generic.saving") : t("generic.save")}
+          </button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function McpTextField({
+  autoFocus,
+  error,
+  hint,
+  label,
+  onChange,
+  placeholder,
+  required,
+  type = "text",
+  value,
+}: {
+  autoFocus?: boolean;
+  error?: string;
+  hint?: string;
+  label: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  required?: boolean;
+  type?: "password" | "text" | "url";
+  value: string;
+}) {
+  return (
+    <label className="react-mcp-form__field">
+      <span>{label}{required ? <i aria-hidden="true">*</i> : null}</span>
+      {hint ? <small>{hint}</small> : null}
+      <input
+        aria-label={label}
+        aria-invalid={Boolean(error) || undefined}
+        autoFocus={autoFocus}
+        autoComplete={type === "password" ? "off" : undefined}
+        onChange={(event) => onChange(event.currentTarget.value)}
+        placeholder={placeholder}
+        required={required}
+        type={type}
+        value={value}
+      />
+      {error ? <small className="react-mcp-form__field-error" role="alert">{error}</small> : null}
+    </label>
+  );
+}
+
+function McpHeaderFields({
+  addLabel,
+  error,
+  nameLabel,
+  onChange,
+  pairs,
+  removeLabel,
+  title,
+  valueLabel,
+}: {
+  addLabel: string;
+  error?: string;
+  nameLabel: string;
+  onChange: (pairs: McpHeaderPair[]) => void;
+  pairs: McpHeaderPair[];
+  removeLabel: string;
+  title: string;
+  valueLabel: string;
+}) {
+  function update(id: number, field: "name" | "value", value: string): void {
+    onChange(pairs.map((pair) => pair.id === id ? { ...pair, [field]: value } : pair));
+  }
+
+  function add(): void {
+    const id = pairs.reduce((highest, pair) => Math.max(highest, pair.id), -1) + 1;
+    onChange([...pairs, { id, name: "", value: "" }]);
+  }
+
+  return (
+    <section className="react-mcp-form__header-group" aria-label={title}>
+      <h3>{title}</h3>
+      {pairs.map((pair, index) => (
+        <div className="react-mcp-form__header-row" key={pair.id}>
+          <input
+            aria-invalid={Boolean(error) || undefined}
+            aria-label={`${title}: ${nameLabel} ${index + 1}`}
+            onChange={(event) => update(pair.id, "name", event.currentTarget.value)}
+            placeholder={nameLabel}
+            value={pair.name}
+          />
+          <input
+            aria-invalid={Boolean(error) || undefined}
+            aria-label={`${title}: ${valueLabel} ${index + 1}`}
+            onChange={(event) => update(pair.id, "value", event.currentTarget.value)}
+            placeholder={valueLabel}
+            value={pair.value}
+          />
+          <button
+            aria-label={`${removeLabel} ${index + 1}`}
+            className="react-mcp-form__remove-row"
+            type="button"
+            onClick={() => onChange(pairs.filter((candidate) => candidate.id !== pair.id))}
+          >
+            <Trash2 aria-hidden="true" size={14} />
+          </button>
+        </div>
+      ))}
+      <button className="react-mcp-form__add-row" type="button" onClick={add}>
+        <Plus aria-hidden="true" size={14} />
+        {addLabel}
+      </button>
+      {error ? <small className="react-mcp-form__field-error" role="alert">{error}</small> : null}
+    </section>
+  );
+}
+
+function validateHeaderPairs(pairs: McpHeaderPair[], environmentValues: boolean): McpHeaderError | null {
+  for (const pair of pairs) {
+    const name = pair.name.trim();
+    const value = pair.value.trim();
+    if (!name && !value) continue;
+    if (!name || !value) return "headerPairIncomplete";
+    if (!HTTP_HEADER_PATTERN.test(name)) return "headerNameInvalid";
+    if (environmentValues && !ENV_VAR_PATTERN.test(value)) return "envVarInvalid";
+  }
+  return null;
+}
+
+function mcpHeaderErrorMessage(
+  error: McpHeaderError,
+  translate: (key: McpHeaderErrorTranslationKey) => string,
+): string {
+  if (error === "envVarInvalid") return translate("tools.mcpForm.errors.envVarInvalid");
+  if (error === "headerNameInvalid") return translate("tools.mcpForm.errors.headerNameInvalid");
+  return translate("tools.mcpForm.errors.headerPairIncomplete");
+}
+
+function headerPairsToRecord(pairs: McpHeaderPair[]): Record<string, string> {
+  return Object.fromEntries(pairs.flatMap((pair) => {
+    const name = pair.name.trim();
+    const value = pair.value.trim();
+    return name && value ? [[name, value]] : [];
+  }));
 }
 
 function ToolsCatalogView({ catalog }: { catalog: ToolCatalogSummary }) {

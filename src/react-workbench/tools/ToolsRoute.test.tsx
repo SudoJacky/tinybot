@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AppServices, ToolsStore } from "../services";
@@ -128,6 +128,73 @@ describe("ToolsRoute", () => {
       skillScope: "allWorkspaces",
       workingDirectory,
     });
+  });
+
+  it("creates a Streamable HTTP MCP server from the MCP form", async () => {
+    const toolsStore = createToolsStore();
+    toolsStore.loadCatalog.mockResolvedValue({ skills: [], mcpServers: [], tools: [] });
+    const createStreamableHttpMcpServer = vi.fn(async () => undefined);
+    const user = userEvent.setup();
+
+    render(<ToolsRoute
+      onOpenChat={vi.fn()}
+      services={{
+        toolsStore,
+        settingsStore: { load: vi.fn(), createStreamableHttpMcpServer },
+      } as unknown as AppServices}
+    />);
+
+    await user.click(await screen.findByRole("button", { name: "MCP" }));
+    await user.click(screen.getByRole("button", { name: "Add MCP server" }));
+    expect(screen.getByRole("heading", { name: "Connect a custom MCP" })).toBeTruthy();
+    expect(screen.getByText("Streamable HTTP")).toBeTruthy();
+    expect((screen.getByLabelText("Bearer token") as HTMLInputElement).type).toBe("password");
+
+    await user.type(screen.getByLabelText("Name"), "docs.search");
+    await user.type(screen.getByLabelText("URL"), "https://example.com/mcp");
+    await user.type(screen.getByLabelText("Bearer token"), "private-token");
+    await user.type(screen.getByLabelText("Headers: Header name 1"), "X-Tenant");
+    await user.type(screen.getByLabelText("Headers: Value 1"), "tinybot");
+    await user.type(screen.getByLabelText("Headers from environment variables: Header name 1"), "X-Trace-Token");
+    await user.type(screen.getByLabelText("Headers from environment variables: Environment variable 1"), "DOCS_TRACE_TOKEN");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(createStreamableHttpMcpServer).toHaveBeenCalledWith({
+      name: "docs.search",
+      url: "https://example.com/mcp",
+      bearerToken: "private-token",
+      httpHeaders: { "X-Tenant": "tinybot" },
+      envHttpHeaders: { "X-Trace-Token": "DOCS_TRACE_TOKEN" },
+    }));
+    await waitFor(() => expect(toolsStore.loadCatalog).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not create an MCP server with a conflicting name", async () => {
+    const toolsStore = createToolsStore();
+    toolsStore.loadCatalog.mockResolvedValue({
+      skills: [],
+      mcpServers: [{ id: "docs", enabled: true, transport: "stdio", state: "ready", toolCount: 1 }],
+      tools: [],
+    });
+    const createStreamableHttpMcpServer = vi.fn(async () => undefined);
+    const user = userEvent.setup();
+
+    render(<ToolsRoute
+      onOpenChat={vi.fn()}
+      services={{
+        toolsStore,
+        settingsStore: { load: vi.fn(), createStreamableHttpMcpServer },
+      } as unknown as AppServices}
+    />);
+
+    await user.click(await screen.findByRole("button", { name: "MCP" }));
+    await user.click(screen.getByRole("button", { name: "Add MCP server" }));
+    await user.type(screen.getByLabelText("Name"), "docs");
+    await user.type(screen.getByLabelText("URL"), "https://example.com/mcp");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("A server with this name already exists in the current workspace.")).toBeTruthy();
+    expect(createStreamableHttpMcpServer).not.toHaveBeenCalled();
   });
 });
 

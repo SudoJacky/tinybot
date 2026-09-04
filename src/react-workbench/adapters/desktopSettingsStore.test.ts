@@ -339,6 +339,67 @@ describe("desktop settings store", () => {
     });
   });
 
+  it("persists a Streamable HTTP MCP server as one atomic config value", async () => {
+    const applyNativeConfigPatch = vi.fn(async () => ({
+      ok: true,
+      config,
+      revision: "revision-2",
+      updatedFields: ["tools.mcpServers.docs.search"],
+      sideEffects: { applied: ["mcpConfigChanged"], restartRequired: [], warnings: [] },
+    }));
+    const store = createDesktopSettingsStore({
+      applyNativeConfigPatch,
+      initialize: async () => undefined,
+      nativeConfig: { get: async () => config },
+    });
+
+    await store.createStreamableHttpMcpServer!({
+      name: "docs.search",
+      url: "https://example.com/mcp",
+      bearerToken: "private-token",
+      httpHeaders: { "X-Tenant": "tinybot" },
+      envHttpHeaders: { "X-Trace-Token": "DOCS_TRACE_TOKEN" },
+    });
+
+    expect(applyNativeConfigPatch).toHaveBeenCalledWith(config, {
+      tools: {
+        mcpServers: {
+          "docs.search": {
+            __desktopConfigOperation: "replace",
+            value: {
+              enabled: true,
+              transport: "streamable-http",
+              url: "https://example.com/mcp",
+              bearerToken: "private-token",
+              httpHeaders: { "X-Tenant": "tinybot" },
+              envHttpHeaders: { "X-Trace-Token": "DOCS_TRACE_TOKEN" },
+              enabledTools: ["*"],
+            },
+          },
+        },
+      },
+    });
+  });
+
+  it("refuses to replace an existing global MCP server", async () => {
+    const applyNativeConfigPatch = vi.fn();
+    const store = createDesktopSettingsStore({
+      applyNativeConfigPatch,
+      initialize: async () => undefined,
+      nativeConfig: {
+        get: async () => ({ tools: { mcpServers: { docs: { transport: "stdio" } } } }),
+      },
+    });
+
+    await expect(store.createStreamableHttpMcpServer!({
+      name: "docs",
+      url: "https://example.com/mcp",
+      httpHeaders: {},
+      envHttpHeaders: {},
+    })).rejects.toThrow("MCP server 'docs' already exists.");
+    expect(applyNativeConfigPatch).not.toHaveBeenCalled();
+  });
+
   it("routes live provider model discovery and preserves its result", async () => {
     const route = vi.fn(async () => ({ ok: true, models: ["gpt-5", "gpt-5-mini"], url: "https://api.example/models" }));
     const store = createDesktopSettingsStore({

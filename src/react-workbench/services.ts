@@ -284,6 +284,14 @@ export type ToolsStore = {
   uninstallPlugin(name: string): Promise<void>;
 };
 
+export type StreamableHttpMcpServerInput = {
+  name: string;
+  url: string;
+  bearerToken?: string;
+  httpHeaders: Record<string, string>;
+  envHttpHeaders: Record<string, string>;
+};
+
 export type SettingsStore = {
   load(): Promise<Array<{ label: string; value: string }>>;
   loadTokenUsage?(): Promise<TokenUsageSnapshot>;
@@ -298,6 +306,7 @@ export type SettingsStore = {
   saveDefaultChatModel?(input: { modelId: string; providerId: string }): Promise<void>;
   fetchProviderModels?(input: ProviderModelFetchInput): Promise<ProviderModelFetchResult>;
   saveProviderSettings?(currentConfig: unknown, patch: unknown): Promise<ProviderModelsSettingsData>;
+  createStreamableHttpMcpServer?(input: StreamableHttpMcpServerInput): Promise<void>;
 };
 
 export type PersonalizationInstructionsData = {
