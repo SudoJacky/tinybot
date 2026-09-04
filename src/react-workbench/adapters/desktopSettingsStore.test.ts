@@ -444,6 +444,128 @@ describe("desktop settings store", () => {
     expect(applyNativeConfigPatch).not.toHaveBeenCalled();
   });
 
+  it("loads an editable MCP server configuration without exposing a stored bearer token", async () => {
+    const store = createDesktopSettingsStore({
+      initialize: async () => undefined,
+      nativeConfig: {
+        get: async () => ({
+          tools: {
+            mcpServers: {
+              docs: {
+                enabled: false,
+                transport: "streamable_http",
+                url: "https://example.com/mcp",
+                http_headers: { "X-Tenant": "tinybot" },
+                env_http_headers: { "X-Trace": "TRACE_TOKEN" },
+              },
+            },
+          },
+          configMetadata: {
+            secretPresence: {
+              "tools.mcpServers.docs.bearerToken": { configured: true, source: "config" },
+            },
+          },
+        }),
+      },
+    });
+
+    await expect(store.loadMcpServerConfiguration!("docs")).resolves.toEqual({
+      name: "docs",
+      enabled: false,
+      transport: "streamable-http",
+      url: "https://example.com/mcp",
+      bearerTokenConfigured: true,
+      httpHeaders: { "X-Tenant": "tinybot" },
+      envHttpHeaders: { "X-Trace": "TRACE_TOKEN" },
+    });
+  });
+
+  it("updates only the configured MCP server enabled field", async () => {
+    const currentConfig = {
+      tools: { mcpServers: { "docs.search": { enabled: true, transport: "stdio", command: "node" } } },
+      revision: "revision-1",
+    };
+    const applyNativeConfigPatch = vi.fn(async () => ({
+      ok: true,
+      config: currentConfig,
+      revision: "revision-2",
+      updatedFields: ["tools.mcpServers.docs.search.enabled"],
+      sideEffects: { applied: ["mcpConfigChanged"], restartRequired: [], warnings: [] },
+    }));
+    const store = createDesktopSettingsStore({
+      applyNativeConfigPatch,
+      initialize: async () => undefined,
+      nativeConfig: { get: async () => currentConfig },
+    });
+
+    await store.setMcpServerEnabled!("docs.search", false);
+
+    expect(applyNativeConfigPatch).toHaveBeenCalledWith(currentConfig, {
+      tools: {
+        mcpServers: {
+          "docs.search": {
+            enabled: { __desktopConfigOperation: "replace", value: false },
+          },
+        },
+      },
+    });
+  });
+
+  it("updates visible HTTP fields without replacing redacted server secrets", async () => {
+    const currentConfig = {
+      tools: {
+        mcpServers: {
+          docs: {
+            enabled: true,
+            transport: "streamable-http",
+            url: "https://old.example.com/mcp",
+            httpHeaders: { "X-Tenant": "old", "X-Remove": "unused" },
+          },
+        },
+      },
+      configMetadata: {
+        secretPresence: {
+          "tools.mcpServers.docs.bearerToken": { configured: true, source: "config" },
+        },
+      },
+      revision: "revision-1",
+    };
+    const applyNativeConfigPatch = vi.fn(async () => ({
+      ok: true,
+      config: currentConfig,
+      revision: "revision-2",
+      updatedFields: ["tools.mcpServers.docs.url"],
+      sideEffects: { applied: ["mcpConfigChanged"], restartRequired: [], warnings: [] },
+    }));
+    const store = createDesktopSettingsStore({
+      applyNativeConfigPatch,
+      initialize: async () => undefined,
+      nativeConfig: { get: async () => currentConfig },
+    });
+
+    await store.updateStreamableHttpMcpServer!({
+      name: "docs",
+      url: "https://new.example.com/mcp",
+      httpHeaders: { "X-Tenant": "new" },
+      envHttpHeaders: {},
+    });
+
+    expect(applyNativeConfigPatch).toHaveBeenCalledWith(currentConfig, {
+      tools: {
+        mcpServers: {
+          docs: {
+            transport: { __desktopConfigOperation: "replace", value: "streamable-http" },
+            url: { __desktopConfigOperation: "replace", value: "https://new.example.com/mcp" },
+            httpHeaders: {
+              "X-Remove": { __desktopConfigOperation: "remove", useJsonPointer: true },
+              "X-Tenant": { __desktopConfigOperation: "replace", value: "new" },
+            },
+          },
+        },
+      },
+    });
+  });
+
   it("routes live provider model discovery and preserves its result", async () => {
     const route = vi.fn(async () => ({ ok: true, models: ["gpt-5", "gpt-5-mini"], url: "https://api.example/models" }));
     const store = createDesktopSettingsStore({

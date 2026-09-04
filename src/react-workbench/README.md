@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:e88ad504299da1c287a33c76c92518db212068adf1c514c19cf33e896093aba8 -->
+<!-- tinybot-module-fingerprint: sha256:0ad67d3b14a87e9b3df4315821c3a05a3c38cbed8454df2c73f538c9984aa800 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App` for the main window and selects lightweight
@@ -54,7 +54,10 @@ their full `SKILL.md` detail only when selected. Its Skills inventory requests
 all existing imported workspaces from the backend registry, while MCP,
 callable Tool, and Agent Graph discovery still receives the active Chat working
 directory and falls back to the configured backend workspace when no
-workspace-backed conversation is active.
+workspace-backed conversation is active. Configured MCP rows expose settings
+and enabled-state controls through `SettingsStore`; saved configuration changes
+surface an explicit restart action that keeps the current catalog visible while
+runtime discovery refreshes.
 The shared Tools store accepts an optional working directory so Chat's slash
 menu and composer tool controls can request the catalog scoped only to its
 active conversation. Workspace-less Chats filter Agent Graph tools.

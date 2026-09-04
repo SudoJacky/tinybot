@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   ArrowLeft,
   BookOpen,
@@ -8,7 +8,9 @@ import {
   PackagePlus,
   Plus,
   Puzzle,
+  RotateCw,
   Search,
+  Settings,
   Trash2,
   WandSparkles,
   X,
@@ -22,6 +24,8 @@ import {
 } from "../../app-core/native/desktopNativePluginPicker";
 import type {
   AppServices,
+  McpServerConfiguration,
+  McpServerSummary,
   PluginMigrationJob,
   PluginSummary,
   SkillDetail,
@@ -33,7 +37,7 @@ type ResourceView = "plugins" | "skills" | "mcp" | "tools";
 
 type ToolCatalogState =
   | { status: "loading" }
-  | { status: "ready"; catalog: ToolCatalogSummary }
+  | { status: "ready"; catalog: ToolCatalogSummary; refreshing: boolean }
   | { status: "failed"; error: Error };
 
 export type ToolsRouteProps = {
@@ -45,11 +49,15 @@ export type ToolsRouteProps = {
 export default function ToolsRoute({ services, onOpenChat, workingDirectory }: ToolsRouteProps) {
   const { t } = useTranslation("common");
   const [activeView, setActiveView] = useState<ResourceView>("plugins");
-  const [catalogRevision, setCatalogRevision] = useState(0);
-  const catalogState = useToolCatalog(services, catalogRevision, workingDirectory);
+  const [mcpRestartPending, setMcpRestartPending] = useState(false);
+  const { reload: reloadCatalog, state: catalogState } = useToolCatalog(services, workingDirectory);
   const toolCount = catalogState.status === "ready" ? catalogState.catalog.tools.length : null;
   const skillCount = catalogState.status === "ready" ? catalogState.catalog.skills.length : null;
   const mcpCount = catalogState.status === "ready" ? catalogState.catalog.mcpServers.length : null;
+  async function refreshRuntime(): Promise<void> {
+    await reloadCatalog();
+    setMcpRestartPending(false);
+  }
 
   return (
     <WorkbenchPage title={t("tools.title")}>
@@ -106,12 +114,14 @@ export default function ToolsRoute({ services, onOpenChat, workingDirectory }: T
           <PluginsSection
             services={services}
             onOpenChat={onOpenChat}
-            onRuntimeChanged={() => setCatalogRevision((revision) => revision + 1)}
+            onRuntimeChanged={() => void refreshRuntime().catch(() => undefined)}
           />
         ) : (
           <ToolCatalogPanel
-            onRetry={() => setCatalogRevision((revision) => revision + 1)}
-            onRuntimeChanged={() => setCatalogRevision((revision) => revision + 1)}
+            mcpRestartPending={mcpRestartPending}
+            onMcpConfigSaved={() => setMcpRestartPending(true)}
+            onRetry={() => void refreshRuntime().catch(() => undefined)}
+            onRuntimeChanged={refreshRuntime}
             services={services}
             state={catalogState}
             view={activeView}
@@ -124,6 +134,8 @@ export default function ToolsRoute({ services, onOpenChat, workingDirectory }: T
 }
 
 function ToolCatalogPanel({
+  mcpRestartPending,
+  onMcpConfigSaved,
   onRetry,
   onRuntimeChanged,
   services,
@@ -131,8 +143,10 @@ function ToolCatalogPanel({
   view,
   workingDirectory,
 }: {
+  mcpRestartPending: boolean;
+  onMcpConfigSaved: () => void;
   onRetry: () => void;
-  onRuntimeChanged: () => void;
+  onRuntimeChanged: () => Promise<void>;
   services: AppServices;
   state: ToolCatalogState;
   view: Exclude<ResourceView, "plugins">;
@@ -155,7 +169,16 @@ function ToolCatalogPanel({
     return <SkillsCatalogView catalog={state.catalog} services={services} workingDirectory={workingDirectory} />;
   }
   if (view === "mcp") {
-    return <McpCatalogView catalog={state.catalog} onRuntimeChanged={onRuntimeChanged} services={services} />;
+    return (
+      <McpCatalogView
+        catalog={state.catalog}
+        onConfigSaved={onMcpConfigSaved}
+        onRuntimeChanged={onRuntimeChanged}
+        restartPending={mcpRestartPending}
+        restarting={state.refreshing}
+        services={services}
+      />
+    );
   }
   return <ToolsCatalogView catalog={state.catalog} />;
 }
@@ -287,15 +310,83 @@ function SkillsCatalogView({
 
 function McpCatalogView({
   catalog,
+  onConfigSaved,
   onRuntimeChanged,
+  restartPending,
+  restarting,
   services,
 }: {
   catalog: ToolCatalogSummary;
-  onRuntimeChanged: () => void;
+  onConfigSaved: () => void;
+  onRuntimeChanged: () => Promise<void>;
+  restartPending: boolean;
+  restarting: boolean;
   services: AppServices;
 }) {
   const { t } = useTranslation("common");
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<McpServerConfiguration | null>(null);
+  const [busyServer, setBusyServer] = useState("");
+  const [actionError, setActionError] = useState("");
+  async function editServer(server: McpServerSummary): Promise<void> {
+    const loadConfiguration = services.settingsStore.loadMcpServerConfiguration;
+    if (!loadConfiguration) {
+      setActionError(t("tools.mcpForm.errors.unavailable"));
+      return;
+    }
+    setBusyServer(server.id);
+    setActionError("");
+    try {
+      setEditing(await loadConfiguration(server.id));
+    } catch (cause) {
+      console.error("[tinybot-tools-route] MCP configuration load failed", { cause, serverId: server.id });
+      setActionError(errorMessage(cause));
+    } finally {
+      setBusyServer("");
+    }
+  }
+  async function toggleServer(server: McpServerSummary): Promise<void> {
+    const setEnabled = services.settingsStore.setMcpServerEnabled;
+    if (!setEnabled) {
+      setActionError(t("tools.mcpForm.errors.unavailable"));
+      return;
+    }
+    const enabled = !server.enabled;
+    setBusyServer(server.id);
+    setActionError("");
+    try {
+      await setEnabled(server.id, enabled);
+      await onRuntimeChanged();
+    } catch (cause) {
+      console.error("[tinybot-tools-route] MCP enabled state update failed", { cause, enabled, serverId: server.id });
+      setActionError(errorMessage(cause));
+    } finally {
+      setBusyServer("");
+    }
+  }
+  async function restartServers(): Promise<void> {
+    setActionError("");
+    try {
+      await onRuntimeChanged();
+    } catch (cause) {
+      console.error("[tinybot-tools-route] MCP restart failed", { cause });
+      setActionError(errorMessage(cause));
+    }
+  }
+  if (editing) {
+    return (
+      <McpServerForm
+        existingNames={catalog.mcpServers.map((server) => server.id)}
+        initialServer={editing}
+        services={services}
+        onCancel={() => setEditing(null)}
+        onSaved={() => {
+          setEditing(null);
+          onConfigSaved();
+        }}
+      />
+    );
+  }
   if (creating) {
     return (
       <McpServerForm
@@ -304,7 +395,7 @@ function McpCatalogView({
         onCancel={() => setCreating(false)}
         onSaved={() => {
           setCreating(false);
-          onRuntimeChanged();
+          onConfigSaved();
         }}
       />
     );
@@ -319,24 +410,68 @@ function McpCatalogView({
           </span>
           <div className="react-mcp-heading-actions">
             <span className="react-resource-count">{catalog.mcpServers.length}</span>
+            {restartPending ? (
+              <button
+                aria-busy={restarting}
+                aria-label={t("tools.restartMcp")}
+                className="react-mcp-restart"
+                disabled={restarting || Boolean(busyServer)}
+                title={t("tools.restartMcpHint")}
+                type="button"
+                onClick={() => void restartServers()}
+              >
+                <RotateCw aria-hidden="true" className={restarting ? "react-spin" : undefined} size={17} />
+              </button>
+            ) : null}
             <button className="react-mcp-add" type="button" onClick={() => setCreating(true)}>
               <Plus aria-hidden="true" size={15} />
               {t("tools.mcpForm.add")}
             </button>
           </div>
         </div>
+        {actionError ? <p className="react-plugin-section__error" role="alert">{actionError}</p> : null}
         {catalog.mcpServers.length ? (
           <div className="react-mcp-grid">
-            {catalog.mcpServers.map((server) => (
-              <article className="react-mcp-card" key={server.id}>
-                <span>
-                  <strong>{server.id}</strong>
-                  {server.source ? <small title={server.source}>{server.source}</small> : null}
-                  <small>{server.error || t("tools.transportSummary", { count: server.toolCount, transport: server.transport })}</small>
-                </span>
-                <span className="react-status-pill" data-state={server.state}>{server.state}</span>
-              </article>
-            ))}
+            {catalog.mcpServers.map((server) => {
+              const configurable = !server.source || server.source === "configuration";
+              return (
+                <article aria-busy={busyServer === server.id} className="react-mcp-card" key={server.id}>
+                  <span>
+                    <strong>{server.id}</strong>
+                    {server.source ? <small title={server.source}>{server.source}</small> : null}
+                    <small>{server.error || t("tools.transportSummary", { count: server.toolCount, transport: server.transport })}</small>
+                  </span>
+                  <footer className="react-mcp-card__actions">
+                    <span className="react-status-pill" data-state={server.state}>{server.state}</span>
+                    {configurable ? (
+                      <>
+                        <button
+                          aria-label={t("tools.mcpForm.editLabel", { name: server.id })}
+                          className="react-mcp-settings"
+                          disabled={Boolean(busyServer)}
+                          title={t("tools.mcpForm.editLabel", { name: server.id })}
+                          type="button"
+                          onClick={() => void editServer(server)}
+                        >
+                          {busyServer === server.id ? <LoaderCircle aria-hidden="true" className="react-spin" size={16} /> : <Settings aria-hidden="true" size={16} />}
+                        </button>
+                        <button
+                          aria-checked={server.enabled}
+                          aria-label={t(server.enabled ? "tools.mcpForm.disableLabel" : "tools.mcpForm.enableLabel", { name: server.id })}
+                          className="react-mcp-switch"
+                          disabled={Boolean(busyServer)}
+                          role="switch"
+                          type="button"
+                          onClick={() => void toggleServer(server)}
+                        >
+                          <span aria-hidden="true"><i /></span>
+                        </button>
+                      </>
+                    ) : null}
+                  </footer>
+                </article>
+              );
+            })}
           </div>
         ) : <p className="react-empty-state">{t("tools.mcpEmpty")}</p>}
       </section>
@@ -378,27 +513,31 @@ const HTTP_HEADER_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
 function McpServerForm({
   existingNames,
+  initialServer,
   onCancel,
   onSaved,
   services,
 }: {
   existingNames: string[];
+  initialServer?: McpServerConfiguration;
   onCancel: () => void;
   onSaved: () => void;
   services: AppServices;
 }) {
   const { t } = useTranslation("common");
-  const [name, setName] = useState("");
-  const [transport, setTransport] = useState<McpTransport>("stdio");
-  const [command, setCommand] = useState("");
-  const [argumentItems, setArgumentItems] = useState<McpListItem[]>([{ id: 0, value: "" }]);
-  const [environment, setEnvironment] = useState<McpKeyValuePair[]>([{ id: 0, name: "", value: "" }]);
-  const [envPassthrough, setEnvPassthrough] = useState<McpListItem[]>([{ id: 0, value: "" }]);
-  const [cwd, setCwd] = useState("");
-  const [url, setUrl] = useState("");
+  const initialStdio = initialServer?.transport === "stdio" ? initialServer : undefined;
+  const initialHttp = initialServer?.transport === "streamable-http" ? initialServer : undefined;
+  const [name, setName] = useState(initialServer?.name ?? "");
+  const [transport, setTransport] = useState<McpTransport>(initialServer?.transport ?? "stdio");
+  const [command, setCommand] = useState(initialStdio?.command ?? "");
+  const [argumentItems, setArgumentItems] = useState<McpListItem[]>(valuesToListItems(initialStdio?.args));
+  const [environment, setEnvironment] = useState<McpKeyValuePair[]>(recordToKeyValuePairs(initialStdio?.env));
+  const [envPassthrough, setEnvPassthrough] = useState<McpListItem[]>(valuesToListItems(Object.keys(initialStdio?.envVarRefs ?? {})));
+  const [cwd, setCwd] = useState(initialStdio?.cwd ?? "");
+  const [url, setUrl] = useState(initialHttp?.url ?? "");
   const [bearerToken, setBearerToken] = useState("");
-  const [headers, setHeaders] = useState<McpKeyValuePair[]>([{ id: 0, name: "", value: "" }]);
-  const [envHeaders, setEnvHeaders] = useState<McpKeyValuePair[]>([{ id: 0, name: "", value: "" }]);
+  const [headers, setHeaders] = useState<McpKeyValuePair[]>(recordToKeyValuePairs(initialHttp?.httpHeaders));
+  const [envHeaders, setEnvHeaders] = useState<McpKeyValuePair[]>(recordToKeyValuePairs(initialHttp?.envHttpHeaders));
   const [showErrors, setShowErrors] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -409,7 +548,7 @@ function McpServerForm({
       next.name = t("tools.mcpForm.errors.nameRequired");
     } else if (!MCP_NAME_PATTERN.test(normalizedName)) {
       next.name = t("tools.mcpForm.errors.nameInvalid");
-    } else if (existingNames.includes(normalizedName)) {
+    } else if (!initialServer && existingNames.includes(normalizedName)) {
       next.name = t("tools.mcpForm.errors.nameExists");
     }
 
@@ -449,7 +588,7 @@ function McpServerForm({
       }
       const hasLiteralAuthorization = headers.some((pair) => pair.name.trim().toLocaleLowerCase() === "authorization");
       const hasEnvironmentAuthorization = envHeaders.some((pair) => pair.name.trim().toLocaleLowerCase() === "authorization");
-      if (bearerToken.trim() && (hasLiteralAuthorization || hasEnvironmentAuthorization)) {
+      if ((bearerToken.trim() || initialHttp?.bearerTokenConfigured) && (hasLiteralAuthorization || hasEnvironmentAuthorization)) {
         next.bearerToken = t("tools.mcpForm.errors.bearerTokenConflict");
         if (hasLiteralAuthorization) next.headers = t("tools.mcpForm.errors.bearerTokenConflict");
         if (hasEnvironmentAuthorization) next.envHeaders = t("tools.mcpForm.errors.bearerTokenConflict");
@@ -470,7 +609,7 @@ function McpServerForm({
       }
     }
     return next;
-  }, [bearerToken, command, envHeaders, envPassthrough, environment, existingNames, headers, name, t, transport, url]);
+  }, [bearerToken, command, envHeaders, envPassthrough, environment, existingNames, headers, initialHttp?.bearerTokenConfigured, initialServer, name, t, transport, url]);
   const hasRequiredValues = Boolean(name.trim() && (transport === "stdio" ? command.trim() : url.trim()));
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -481,12 +620,14 @@ function McpServerForm({
     setSaving(true);
     try {
       if (transport === "stdio") {
-        const createServer = services.settingsStore.createStdioMcpServer;
-        if (!createServer) {
+        const saveServer = initialServer
+          ? services.settingsStore.updateStdioMcpServer
+          : services.settingsStore.createStdioMcpServer;
+        if (!saveServer) {
           setSaveError(t("tools.mcpForm.errors.unavailable"));
           return;
         }
-        await createServer({
+        await saveServer({
           name: name.trim(),
           command: command.trim(),
           args: listItemsToValues(argumentItems),
@@ -495,12 +636,14 @@ function McpServerForm({
           ...(cwd.trim() ? { cwd: cwd.trim() } : {}),
         });
       } else {
-        const createServer = services.settingsStore.createStreamableHttpMcpServer;
-        if (!createServer) {
+        const saveServer = initialServer
+          ? services.settingsStore.updateStreamableHttpMcpServer
+          : services.settingsStore.createStreamableHttpMcpServer;
+        if (!saveServer) {
           setSaveError(t("tools.mcpForm.errors.unavailable"));
           return;
         }
-        await createServer({
+        await saveServer({
           name: name.trim(),
           url: url.trim(),
           ...(bearerToken.trim() ? { bearerToken: bearerToken.trim() } : {}),
@@ -517,23 +660,24 @@ function McpServerForm({
   }
 
   return (
-    <div className="react-resource-panel react-mcp-form-panel" role="region" aria-label={t("tools.mcpForm.title")}>
+    <div className="react-resource-panel react-mcp-form-panel" role="region" aria-label={t(initialServer ? "tools.mcpForm.editTitle" : "tools.mcpForm.title", { name })}>
       <button className="react-mcp-form__back" type="button" onClick={onCancel}>
         <ArrowLeft aria-hidden="true" size={15} />
         {t("tools.mcpForm.back")}
       </button>
       <div className="react-mcp-form__intro">
-        <h2>{t("tools.mcpForm.title")}</h2>
-        <small>{t("tools.mcpForm.description")}</small>
+        <h2>{t(initialServer ? "tools.mcpForm.editTitle" : "tools.mcpForm.title", { name })}</h2>
+        <small>{t(initialServer ? "tools.mcpForm.editDescription" : "tools.mcpForm.description")}</small>
       </div>
       <form className="react-mcp-form" noValidate onSubmit={(event) => void submit(event)}>
         <div className="react-mcp-form__group">
           <McpTextField
-            autoFocus
+            autoFocus={!initialServer}
             error={showErrors ? errors.name : undefined}
             label={t("tools.mcpForm.name")}
             onChange={setName}
             placeholder={t("tools.mcpForm.namePlaceholder")}
+            readOnly={Boolean(initialServer)}
             required
             value={name}
           />
@@ -603,10 +747,10 @@ function McpServerForm({
               />
               <McpTextField
                 error={showErrors ? errors.bearerToken : undefined}
-                hint={t("tools.mcpForm.bearerTokenHint")}
+                hint={t(initialHttp?.bearerTokenConfigured ? "tools.mcpForm.bearerTokenConfiguredHint" : "tools.mcpForm.bearerTokenHint")}
                 label={t("tools.mcpForm.bearerToken")}
                 onChange={setBearerToken}
-                placeholder={t("tools.mcpForm.bearerTokenPlaceholder")}
+                placeholder={t(initialHttp?.bearerTokenConfigured ? "tools.mcpForm.bearerTokenConfiguredPlaceholder" : "tools.mcpForm.bearerTokenPlaceholder")}
                 type="password"
                 value={bearerToken}
               />
@@ -685,6 +829,7 @@ function McpTextField({
   label,
   onChange,
   placeholder,
+  readOnly,
   required,
   type = "text",
   value,
@@ -695,6 +840,7 @@ function McpTextField({
   label: string;
   onChange: (value: string) => void;
   placeholder: string;
+  readOnly?: boolean;
   required?: boolean;
   type?: "password" | "text" | "url";
   value: string;
@@ -710,6 +856,7 @@ function McpTextField({
         autoComplete={type === "password" ? "off" : undefined}
         onChange={(event) => onChange(event.currentTarget.value)}
         placeholder={placeholder}
+        readOnly={readOnly}
         required={required}
         type={type}
         value={value}
@@ -912,6 +1059,16 @@ function keyValuePairsToRecord(pairs: McpKeyValuePair[]): Record<string, string>
     const value = pair.value.trim();
     return name && value ? [[name, value]] : [];
   }));
+}
+
+function recordToKeyValuePairs(record?: Record<string, string>): McpKeyValuePair[] {
+  const pairs = Object.entries(record ?? {}).map(([name, value], id) => ({ id, name, value }));
+  return pairs.length ? pairs : [{ id: 0, name: "", value: "" }];
+}
+
+function valuesToListItems(values?: string[]): McpListItem[] {
+  const items = (values ?? []).map((value, id) => ({ id, value }));
+  return items.length ? items : [{ id: 0, value: "" }];
 }
 
 function listItemsToValues(items: McpListItem[]): string[] {
@@ -1216,28 +1373,36 @@ function PluginsSection({
 
 function useToolCatalog(
   services: AppServices,
-  revision: number,
   workingDirectory?: string,
-): ToolCatalogState {
+): { reload: () => Promise<void>; state: ToolCatalogState } {
   const [state, setState] = useState<ToolCatalogState>({ status: "loading" });
-  useEffect(() => {
-    let cancelled = false;
-    setState({ status: "loading" });
-    void services.toolsStore.loadCatalog({ skillScope: "allWorkspaces", workingDirectory })
-      .then((catalog) => {
-        if (!cancelled) setState({ status: "ready", catalog });
-      })
-      .catch((cause) => {
-        if (cancelled) return;
-        const error = cause instanceof Error ? cause : new Error(String(cause));
+  const latestRequest = useRef(0);
+  const reload = useCallback(async (): Promise<void> => {
+    const request = ++latestRequest.current;
+    setState((current) => current.status === "ready"
+      ? { ...current, refreshing: true }
+      : { status: "loading" });
+    try {
+      const catalog = await services.toolsStore.loadCatalog({ skillScope: "allWorkspaces", workingDirectory });
+      if (request === latestRequest.current) {
+        setState({ status: "ready", catalog, refreshing: false });
+      }
+    } catch (cause) {
+      const error = cause instanceof Error ? cause : new Error(String(cause));
+      if (request === latestRequest.current) {
         console.error("[tinybot-tools-route] catalog load failed", { error });
         setState({ status: "failed", error });
-      });
+      }
+      throw error;
+    }
+  }, [services, workingDirectory]);
+  useEffect(() => {
+    void reload().catch(() => undefined);
     return () => {
-      cancelled = true;
+      latestRequest.current += 1;
     };
-  }, [revision, services, workingDirectory]);
-  return state;
+  }, [reload]);
+  return { reload, state };
 }
 
 const OFFICIAL_PLUGIN_MIGRATION_SKILL = "create-agent-plugin:migrate-agent-plugin";

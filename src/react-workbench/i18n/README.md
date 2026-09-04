@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:24acc57ad75893756f71ecf50f6aabe99e8452d3ce76ef5c04c48460a9fd6b79 -->
+<!-- tinybot-module-fingerprint: sha256:5716a9d08929735ca7ed227095730c3e96db457eff346f5ec14558b977b3468c -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
@@ -25,7 +25,9 @@ renderer-owned localization boundary.
 The Tools & Plugins resource-view labels, Skill/MCP descriptions, and empty
 states are localized here; the workspace description names both `.agents/skills`
 and `.codex/skills` across all imported workspaces, while Skill names, MCP IDs,
-and source paths remain language-neutral. Chat separately localizes the
+and source paths remain language-neutral. MCP configuration editing,
+enabled-state controls, validation, and explicit restart guidance use the same
+renderer-owned bundles. Chat separately localizes the
 workspace-scoped slash-menu Skills heading, workspace
 source label, inline Skill removal label, and Skill-only fallback prompt.
 Context-window usage and latest-call cache-hit labels are localized here while

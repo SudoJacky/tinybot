@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:43ab7d6f8f7f493c5bac36cc41d113318c5097972a5e2fc2eba2cd130721a5fe -->
+<!-- tinybot-doc-fingerprint: sha256:1d5a7ff41c95ad15034a34a49dc78a40f4d96151b6135296c784edfc40b77d9c -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -84,6 +84,13 @@ Desktop Commands / Desktop Host
   Config store is the migration boundary and retains one pre-migration
   `config.json.v1.bak`; Provider routing requires an explicit Provider or
   active Profile and is never inferred from a model name.
+- Global MCP definitions share that configuration authority. The renderer
+  reads secret-safe editable projections and sends field-level settings patches;
+  native configuration and runtime services retain secret, process, and
+  transport ownership. Saving a definition marks the Tools & Plugins catalog
+  for an explicit restart, while enabled-state changes apply immediately and
+  then refresh discovery. A refresh keeps the last catalog visible until the
+  native runtime reports the replacement snapshot or a visible failure.
 - Managed chat image bytes: content-addressed files under
   `~/.tinybot/chat-attachments/images/`; Rollouts remain authoritative for the
   typed reference and never persist the Base64 request payload.

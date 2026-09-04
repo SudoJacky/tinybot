@@ -28,8 +28,17 @@ type DesktopConfigReplaceValue = {
   value: unknown;
 };
 
+type DesktopConfigRemoveValue = {
+  __desktopConfigOperation: "remove";
+  useJsonPointer: true;
+};
+
 export function replaceDesktopConfigValue(value: unknown): DesktopConfigReplaceValue {
   return { __desktopConfigOperation: "replace", value };
+}
+
+export function removeDesktopConfigValue(): DesktopConfigRemoveValue {
+  return { __desktopConfigOperation: "remove", useJsonPointer: true };
 }
 
 export async function applyNativeConfigPatch(
@@ -70,7 +79,10 @@ function collectDesktopConfigOperations(
     }
     const fieldPath = [...path, key];
     if (isConfigRemoveOperation(patchValue)) {
-      operations.push({ op: isSensitiveConfigKey(key) ? "secretRemove" : "remove", path: canonicalConfigPath(fieldPath) });
+      operations.push({
+        op: isSensitiveConfigKey(key) ? "secretRemove" : "remove",
+        path: patchValue.useJsonPointer ? canonicalConfigPointer(fieldPath) : canonicalConfigPath(fieldPath),
+      });
       continue;
     }
     if (isConfigReplaceOperation(patchValue)) {
@@ -160,10 +172,10 @@ function extractExpectedRevision(currentConfig: unknown): string | undefined {
   return undefined;
 }
 
-function isConfigRemoveOperation(value: unknown): boolean {
+function isConfigRemoveOperation(value: unknown): value is { useJsonPointer?: boolean } {
   return isRecord(value)
     && (value.__desktopConfigOperation === "remove" || value.op === "remove")
-    && Object.keys(value).every((key) => ["__desktopConfigOperation", "op"].includes(key));
+    && Object.keys(value).every((key) => ["__desktopConfigOperation", "op", "useJsonPointer"].includes(key));
 }
 
 function isConfigReplaceOperation(value: unknown): value is DesktopConfigReplaceValue {

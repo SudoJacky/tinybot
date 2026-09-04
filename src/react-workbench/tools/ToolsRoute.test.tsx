@@ -167,7 +167,8 @@ describe("ToolsRoute", () => {
       httpHeaders: { "X-Tenant": "tinybot" },
       envHttpHeaders: { "X-Trace-Token": "DOCS_TRACE_TOKEN" },
     }));
-    await waitFor(() => expect(toolsStore.loadCatalog).toHaveBeenCalledTimes(2));
+    expect(toolsStore.loadCatalog).toHaveBeenCalledTimes(1);
+    expect(await screen.findByRole("button", { name: "Restart MCP servers" })).toBeTruthy();
   });
 
   it("creates an STDIO MCP server from structured process fields", async () => {
@@ -207,7 +208,8 @@ describe("ToolsRoute", () => {
       envVarRefs: { DATABASE_TOKEN: "DATABASE_TOKEN" },
       cwd: "./tools",
     }));
-    await waitFor(() => expect(toolsStore.loadCatalog).toHaveBeenCalledTimes(2));
+    expect(toolsStore.loadCatalog).toHaveBeenCalledTimes(1);
+    expect(await screen.findByRole("button", { name: "Restart MCP servers" })).toBeTruthy();
   });
 
   it("requires sensitive STDIO environment values to use passthrough", async () => {
@@ -262,6 +264,112 @@ describe("ToolsRoute", () => {
 
     expect(await screen.findByText("A server with this name already exists in the current workspace.")).toBeTruthy();
     expect(createStreamableHttpMcpServer).not.toHaveBeenCalled();
+  });
+
+  it("toggles a globally configured MCP server from its catalog row", async () => {
+    const toolsStore = createToolsStore();
+    toolsStore.loadCatalog.mockResolvedValue({
+      skills: [],
+      mcpServers: [{
+        id: "docs",
+        enabled: true,
+        source: "configuration",
+        transport: "stdio",
+        state: "ready",
+        toolCount: 1,
+      }],
+      tools: [],
+    });
+    const setMcpServerEnabled = vi.fn(async () => undefined);
+    const user = userEvent.setup();
+
+    render(<ToolsRoute
+      onOpenChat={vi.fn()}
+      services={{
+        toolsStore,
+        settingsStore: { load: vi.fn(), setMcpServerEnabled },
+      } as unknown as AppServices}
+    />);
+
+    await user.click(await screen.findByRole("button", { name: "MCP" }));
+    const toggle = screen.getByRole("switch", { name: "Disable docs" });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    await user.click(toggle);
+
+    await waitFor(() => expect(setMcpServerEnabled).toHaveBeenCalledWith("docs", false));
+    await waitFor(() => expect(toolsStore.loadCatalog).toHaveBeenCalledTimes(2));
+  });
+
+  it("opens a configured MCP server in the existing structured form and saves edits", async () => {
+    const toolsStore = createToolsStore();
+    const catalog = {
+      skills: [],
+      mcpServers: [{
+        id: "local.sqlite",
+        enabled: true,
+        source: "configuration",
+        transport: "stdio",
+        state: "ready",
+        toolCount: 2,
+      }],
+      tools: [],
+    };
+    let finishRestart: ((catalogSnapshot: typeof catalog) => void) | undefined;
+    toolsStore.loadCatalog
+      .mockResolvedValueOnce(catalog)
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        finishRestart = resolve;
+      }));
+    const loadMcpServerConfiguration = vi.fn(async () => ({
+      name: "local.sqlite",
+      enabled: true,
+      transport: "stdio" as const,
+      command: "node",
+      args: ["server.js"],
+      env: { LOG_LEVEL: "info" },
+      envVarRefs: { API_TOKEN: "API_TOKEN" },
+      cwd: "./tools",
+    }));
+    const updateStdioMcpServer = vi.fn(async () => undefined);
+    const user = userEvent.setup();
+
+    render(<ToolsRoute
+      onOpenChat={vi.fn()}
+      services={{
+        toolsStore,
+        settingsStore: { load: vi.fn(), loadMcpServerConfiguration, updateStdioMcpServer },
+      } as unknown as AppServices}
+    />);
+
+    await user.click(await screen.findByRole("button", { name: "MCP" }));
+    await user.click(screen.getByRole("button", { name: "Configure local.sqlite" }));
+
+    expect(await screen.findByRole("heading", { name: "Configure local.sqlite" })).toBeTruthy();
+    expect((screen.getByLabelText("Name") as HTMLInputElement).readOnly).toBe(true);
+    expect((screen.getByLabelText("Arguments: Argument 1") as HTMLInputElement).value).toBe("server.js");
+    await user.clear(screen.getByLabelText("Command to launch"));
+    await user.type(screen.getByLabelText("Command to launch"), "uvx");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateStdioMcpServer).toHaveBeenCalledWith({
+      name: "local.sqlite",
+      command: "uvx",
+      args: ["server.js"],
+      env: { LOG_LEVEL: "info" },
+      envVarRefs: { API_TOKEN: "API_TOKEN" },
+      cwd: "./tools",
+    }));
+    expect(toolsStore.loadCatalog).toHaveBeenCalledTimes(1);
+
+    const restart = await screen.findByRole("button", { name: "Restart MCP servers" });
+    await user.click(restart);
+
+    await waitFor(() => expect(toolsStore.loadCatalog).toHaveBeenCalledTimes(2));
+    expect((screen.getByRole("button", { name: "Restart MCP servers" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("local.sqlite")).toBeTruthy();
+
+    finishRestart?.(catalog);
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Restart MCP servers" })).toBeNull());
   });
 });
 

@@ -526,15 +526,19 @@
 }
 
 .react-mcp-card {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   min-width: 0;
   border: 1px solid var(--color-hairline);
   border-radius: 10px;
   background: color-mix(in srgb, var(--color-panel) 84%, transparent);
   padding: 10px 11px;
+}
+
+.react-mcp-card[aria-busy="true"] {
+  opacity: 0.72;
 }
 
 .react-mcp-card > span:first-child {
@@ -548,6 +552,82 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.react-mcp-card__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+.react-mcp-settings,
+.react-mcp-switch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  border: 0;
+  border-radius: 9px;
+  color: var(--color-muted);
+  transition:
+    background var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    opacity var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-mcp-settings:hover,
+.react-mcp-switch:hover {
+  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-panel));
+  color: var(--color-primary-active);
+}
+
+.react-mcp-settings:focus-visible,
+.react-mcp-switch:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 58%, transparent);
+  outline-offset: 2px;
+}
+
+.react-mcp-settings:disabled,
+.react-mcp-switch:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.react-mcp-settings .react-spin {
+  animation: react-mcp-form-spin 850ms linear infinite;
+}
+
+.react-mcp-switch > span {
+  position: relative;
+  display: block;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-muted-soft) 45%, var(--color-panel));
+  box-shadow: inset 0 0 0 1px rgb(20 20 19 / 9%);
+  transition: background var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-mcp-switch i {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--color-panel);
+  box-shadow: 0 1px 3px rgb(20 20 19 / 24%);
+  transition: transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-mcp-switch[aria-checked="true"] > span {
+  background: var(--color-primary);
+}
+
+.react-mcp-switch[aria-checked="true"] i {
+  transform: translateX(16px);
 }
 
 .react-mcp-card strong {
@@ -565,6 +645,48 @@
   flex: none;
   align-items: center;
   gap: 8px;
+}
+
+.react-mcp-restart {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid color-mix(in srgb, var(--color-primary) 24%, var(--color-hairline));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-panel));
+  color: var(--color-primary-active);
+  box-shadow: 0 2px 7px color-mix(in srgb, var(--color-primary) 12%, transparent);
+  transition:
+    background var(--motion-duration-fast) var(--motion-ease-standard),
+    border-color var(--motion-duration-fast) var(--motion-ease-standard),
+    color var(--motion-duration-fast) var(--motion-ease-standard),
+    transform 100ms ease-out;
+}
+
+.react-mcp-restart:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-primary) 48%, var(--color-hairline));
+  background: color-mix(in srgb, var(--color-primary) 13%, var(--color-panel));
+}
+
+.react-mcp-restart:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-primary) 58%, transparent);
+  outline-offset: 2px;
+}
+
+.react-mcp-restart:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+.react-mcp-restart:disabled {
+  opacity: 0.62;
+  cursor: wait;
+}
+
+.react-mcp-restart .react-spin {
+  animation: react-mcp-form-spin 850ms linear infinite;
 }
 
 .react-mcp-add,
@@ -736,6 +858,12 @@
 
 .react-mcp-form input[aria-invalid="true"] {
   border-color: color-mix(in srgb, var(--color-error) 58%, var(--color-hairline));
+}
+
+.react-mcp-form input:read-only {
+  background: var(--color-surface-soft);
+  color: var(--color-muted);
+  cursor: default;
 }
 
 .react-mcp-form__type-row {
@@ -1127,6 +1255,14 @@
     width: 100%;
   }
 
+  .react-mcp-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .react-mcp-card__actions {
+    justify-content: flex-end;
+  }
+
   .react-mcp-form__header-row {
     grid-template-columns: minmax(0, 1fr) 30px;
   }
@@ -1173,16 +1309,29 @@
   }
 
   .react-mcp-add,
+  .react-mcp-restart,
   .react-mcp-form__back,
   .react-mcp-form__type-options button,
   .react-mcp-form__add-row,
   .react-mcp-form__remove-row,
   .react-mcp-form__save,
+  .react-mcp-settings,
+  .react-mcp-switch,
+  .react-mcp-switch > span,
+  .react-mcp-switch i,
   .react-mcp-form input {
     transition-duration: 0ms;
   }
 
   .react-mcp-form__save .react-spin {
+    animation: none;
+  }
+
+  .react-mcp-settings .react-spin {
+    animation: none;
+  }
+
+  .react-mcp-restart .react-spin {
     animation: none;
   }
 

@@ -308,6 +308,17 @@ export type StdioMcpServerInput = {
   cwd?: string;
 };
 
+export type McpServerConfiguration =
+  | (StdioMcpServerInput & {
+      enabled: boolean;
+      transport: "stdio";
+    })
+  | (Omit<StreamableHttpMcpServerInput, "bearerToken"> & {
+      bearerTokenConfigured: boolean;
+      enabled: boolean;
+      transport: "streamable-http";
+    });
+
 export type SettingsStore = {
   load(): Promise<Array<{ label: string; value: string }>>;
   loadTokenUsage?(): Promise<TokenUsageSnapshot>;
@@ -324,6 +335,10 @@ export type SettingsStore = {
   saveProviderSettings?(currentConfig: unknown, patch: unknown): Promise<ProviderModelsSettingsData>;
   createStreamableHttpMcpServer?(input: StreamableHttpMcpServerInput): Promise<void>;
   createStdioMcpServer?(input: StdioMcpServerInput): Promise<void>;
+  loadMcpServerConfiguration?(name: string): Promise<McpServerConfiguration>;
+  setMcpServerEnabled?(name: string, enabled: boolean): Promise<void>;
+  updateStreamableHttpMcpServer?(input: StreamableHttpMcpServerInput): Promise<void>;
+  updateStdioMcpServer?(input: StdioMcpServerInput): Promise<void>;
 };
 
 export type PersonalizationInstructionsData = {

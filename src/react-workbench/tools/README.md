@@ -1,14 +1,18 @@
 # Tools Route
-<!-- tinybot-module-fingerprint: sha256:7760860e703827c9efcfb2e843b1f6de377e057ae4b027cd43afbb5c751fde99 -->
+<!-- tinybot-module-fingerprint: sha256:b45343d42cf7162f25475225fc5fb6b47e4fee5811449cab2609e3a021b85212 -->
 
 `tools` owns the lazy Tools and Plugins route, including separate Plugins,
 Skills, MCP, and callable Tools views plus catalog, lifecycle, migration,
 loading, and visible failure states. Its stylesheet is loaded with the route.
 
 Tool and plugin mutations go through `ToolsStore`. Global MCP creation goes
-through the optional `SettingsStore` transport-specific operations. The shared
-creation form switches between STDIO process fields and Streamable HTTP
-connection fields while keeping runtime parsing and persistence outside React.
+through the optional `SettingsStore` transport-specific operations. Configured
+MCP rows also load editable settings and apply enabled-state changes through
+that boundary. The shared create/edit form switches between STDIO process
+fields and Streamable HTTP connection fields while keeping runtime parsing,
+secret ownership, and persistence outside React. Saving a definition marks the
+catalog for an explicit restart; the restart action preserves the current rows
+while discovery is in progress and disappears only after a successful refresh.
 Native protocol details and normalization remain in the adapter and app-core
 modules.
 
