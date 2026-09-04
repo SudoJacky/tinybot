@@ -36,6 +36,15 @@ fn explicit_policy_grants_only_named_capabilities() {
 }
 
 #[test]
+fn desktop_grants_mcp_configuration_without_generic_config_write() {
+    let policy = default_desktop_capability_policy();
+
+    assert!(policy.allows(&WorkerCapability::ConfigRead));
+    assert!(policy.allows(&WorkerCapability::McpConfigWrite));
+    assert!(!policy.allows(&WorkerCapability::ConfigWrite));
+}
+
+#[test]
 fn capability_names_serialize_as_protocol_strings() {
     let cases = [
         (WorkerCapability::NetworkOpenAi, "network.openai"),
@@ -59,6 +68,7 @@ fn capability_names_serialize_as_protocol_strings() {
         (WorkerCapability::BackgroundRead, "background.read"),
         (WorkerCapability::BackgroundWrite, "background.write"),
         (WorkerCapability::McpCall, "mcp.call"),
+        (WorkerCapability::McpConfigWrite, "mcp.config.write"),
         (WorkerCapability::ChannelConnector, "channel.connector"),
         (WorkerCapability::ShellExecute, "shell.execute"),
         (WorkerCapability::BrowserObserve, "browser.observe"),

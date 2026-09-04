@@ -45,8 +45,38 @@ pub(super) const CREATE_AGENT_PLUGIN: BundledPlugin = BundledPlugin {
     ],
 };
 
+pub(super) const TINYBOT_MCP_PLUGIN: BundledPlugin = BundledPlugin {
+    name: "tinybot-mcp",
+    version: "1.0.0",
+    source: "bundled:tinybot-mcp",
+    files: &[
+        (
+            "plugin.json",
+            include_bytes!("../../bundled-plugins/tinybot-mcp/plugin.json"),
+        ),
+        (
+            "LICENSE",
+            include_bytes!("../../bundled-plugins/tinybot-mcp/LICENSE"),
+        ),
+        (
+            "README.md",
+            include_bytes!("../../bundled-plugins/tinybot-mcp/README.md"),
+        ),
+        (
+            "skills/configure-mcp/SKILL.md",
+            include_bytes!("../../bundled-plugins/tinybot-mcp/skills/configure-mcp/SKILL.md"),
+        ),
+        (
+            "skills/configure-mcp/references/configuration.md",
+            include_bytes!(
+                "../../bundled-plugins/tinybot-mcp/skills/configure-mcp/references/configuration.md"
+            ),
+        ),
+    ],
+};
+
 pub(super) fn is_bundled_source(source: &str) -> bool {
-    source == CREATE_AGENT_PLUGIN.source
+    [CREATE_AGENT_PLUGIN.source, TINYBOT_MCP_PLUGIN.source].contains(&source)
 }
 
 pub(super) fn materialize(plugin: &BundledPlugin, target: &Path) -> Result<(), String> {

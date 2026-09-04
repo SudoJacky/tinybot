@@ -169,6 +169,14 @@ browser and subagent lifecycle tools are model-visible by default. Calls to inac
 `stopReason: "policy_denied"`. Form continuations revalidate the persisted activation set against
 the current registry and capability policy.
 
+Native desktop Turns also expose three global MCP configuration tools:
+
+- `mcp.config.list` returns a credential-redacted server list and the current configuration revision.
+- `mcp.config.upsert` atomically adds or replaces one typed `stdio` or `streamable-http` definition using that revision, reconciles the shared runtime, and returns a connection check. It accepts credential references through host environment-variable names but has no literal token field.
+- `mcp.config.status` starts or refreshes one configured server and returns runtime state plus discovered tool names.
+
+These are domain-specific operations backed by the `mcp.config.write` capability; the model does not receive generic `config.write`. Existing definitions with hidden literal credentials must be updated through **Tools & Plugins → MCP**, preventing an Agent replacement from erasing values it cannot read. A newly discovered MCP tool enters the model-visible tool catalog on the next Turn because each Turn's registry and configuration snapshot are fixed before provider execution.
+
 `update_plan` replaces the complete Turn plan and emits durable `agent.plan.progress`. Reloading a
 Thread reconstructs the last reported step states; a final assistant response does not implicitly
 mark unfinished plan steps completed or cancelled.

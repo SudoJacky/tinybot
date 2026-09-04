@@ -6,7 +6,7 @@ src-tauri/src/protocol/params.rs
 src-tauri/src/rpc/method.rs
 src-tauri/src/rpc/runtime.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:a98666536e7b26b27dd280084e16e03ca74bad46c425665ac89bd2e9f8f907a5 -->
+<!-- tinybot-doc-fingerprint: sha256:f7ba40c0c3ab5d698667ad5f0d9cc3c73bb0537d938cb08431be43b3dfe2c148 -->
 
 This document covers the Rust-owned WebUI route wrapper and Worker RPC protocol.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -86,6 +86,11 @@ The lower-level worker RPC router uses this request shape:
 
 It is primarily used internally by Rust command handlers through `call_rust_state_service`.
 External callers should usually prefer the Tauri commands above.
+
+The `mcp.config.write` capability belongs to the native Agent's restricted
+`mcp.config.*` tools. It does not add a Worker RPC method and does not authorize
+the generic `config.apply_operations` method, which continues to require
+`config.write`.
 
 ### Supported Worker RPC Methods
 

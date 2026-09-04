@@ -112,8 +112,10 @@ impl PluginStore {
 
     pub(crate) fn ensure_bundled_plugins(&self) -> Result<Vec<PluginSummary>, String> {
         let mut installed = Vec::new();
-        if let Some(plugin) = self.ensure_bundled_plugin(&bundled::CREATE_AGENT_PLUGIN)? {
-            installed.push(plugin);
+        for bundle in [&bundled::CREATE_AGENT_PLUGIN, &bundled::TINYBOT_MCP_PLUGIN] {
+            if let Some(plugin) = self.ensure_bundled_plugin(bundle)? {
+                installed.push(plugin);
+            }
         }
         Ok(installed)
     }

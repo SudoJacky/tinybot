@@ -357,6 +357,8 @@ fn workspace_internal_and_mcp_tools_are_owned_by_named_contributors() {
     let registry = WorkerToolRegistryRpc::new(CapabilityPolicy::new([
         WorkerCapability::FsWorkspaceWrite,
         WorkerCapability::McpCall,
+        WorkerCapability::ConfigRead,
+        WorkerCapability::McpConfigWrite,
     ]));
     assert_eq!(
         registry.contributor_id_for_tool("workspace.write_file"),
@@ -367,6 +369,12 @@ fn workspace_internal_and_mcp_tools_are_owned_by_named_contributors() {
         registry.contributor_id_for_tool("mcp.call_tool"),
         Some("builtin.mcp".to_string())
     );
+    for method in ["mcp.config.list", "mcp.config.upsert", "mcp.config.status"] {
+        assert_eq!(
+            registry.contributor_id_for_tool(method),
+            Some("builtin.mcp".to_string())
+        );
+    }
 
     let registry = registry
         .with_contributor(std::sync::Arc::new(
@@ -392,6 +400,36 @@ fn workspace_internal_and_mcp_tools_are_owned_by_named_contributors() {
         .expect_err("duplicate tool methods must fail before activation");
     assert!(error.contains("workspace.write_file"));
     assert!(error.contains("test.duplicate_workspace"));
+}
+
+#[test]
+fn mcp_configuration_tools_expose_only_typed_domain_operations() {
+    let registry = WorkerToolRegistryRpc::new(default_desktop_capability_policy());
+    let list = registry.get_tool("mcp.config.list").unwrap();
+    let upsert = registry.get_tool("mcp.config.upsert").unwrap();
+    let status = registry.get_tool("mcp.config.status").unwrap();
+
+    assert_eq!(list.exposure, ToolExposure::Model);
+    assert_eq!(upsert.exposure, ToolExposure::Model);
+    assert_eq!(status.exposure, ToolExposure::Model);
+    assert_eq!(
+        upsert.input_schema["required"],
+        json!(["name", "expectedRevision", "server"])
+    );
+    assert_eq!(
+        upsert.input_schema["properties"]["server"]["oneOf"][1]["properties"]["transport"]["const"],
+        "streamable-http"
+    );
+    assert!(upsert
+        .input_schema
+        .to_string()
+        .contains("bearerTokenEnvVar"));
+    assert!(!upsert.input_schema.to_string().contains("bearerToken\""));
+    assert!(!registry
+        .list_tools()
+        .tools
+        .iter()
+        .any(|tool| tool.method == "config.apply_operations"));
 }
 
 #[test]

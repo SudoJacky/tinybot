@@ -39,6 +39,8 @@ pub enum WorkerCapability {
     BackgroundWrite,
     #[serde(rename = "mcp.call")]
     McpCall,
+    #[serde(rename = "mcp.config.write")]
+    McpConfigWrite,
     #[serde(rename = "channel.connector")]
     ChannelConnector,
     #[serde(rename = "shell.execute")]
@@ -87,6 +89,7 @@ pub fn default_desktop_capability_policy() -> CapabilityPolicy {
         WorkerCapability::TaskRead,
         WorkerCapability::TaskWrite,
         WorkerCapability::McpCall,
+        WorkerCapability::McpConfigWrite,
         WorkerCapability::ChannelConnector,
         WorkerCapability::SessionMetadataRead,
         WorkerCapability::SessionWrite,

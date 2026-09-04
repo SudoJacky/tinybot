@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "tinybot-mcp",
+  "version": "1.0.0",
+  "description": "Configure and verify Tinybot MCP servers from installation instructions or a user-provided link.",
+  "license": "MIT",
+  "keywords": ["tinybot", "mcp", "configuration"]
+}

@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:c1b7b94a1182c6da3eeacea6fbd3eb394fcd11945399074c38ffee0b9d1f6b43 -->
+<!-- tinybot-module-fingerprint: sha256:79edcdcc4fa7c7527ef34c0fdb3b892c0d9077a4ba946e55fc210496a3d4802b -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -145,9 +145,12 @@ The main layers are:
 5. **Domain services**
    - `workspace/`, `workspace_registry.rs`, `workspace_extensions.rs`, `tools/`,
      `automation/`, `collaboration/`, `config/`, `agent_graphs.rs`,
-     `graph_runs.rs`, `project_groups.rs`, `plugins/`,
+     `graph_runs.rs`, `mcp_configuration.rs`, `project_groups.rs`, `plugins/`,
      `skills/`, and `memory/` own their business rules and do not depend on RPC
      or Tauri.
+   - `mcp_configuration.rs` owns the credential-redacted global MCP projection
+     and revision-guarded, typed stdio or Streamable HTTP upsert used by Agent
+     tools.
    - `workspace_extensions.rs` discovers project-local `.agents/skills`,
      `.codex/skills`, and supported MCP configuration files from the effective working-directory
      hierarchy, normalizing them for one Turn without mutating saved global

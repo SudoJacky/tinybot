@@ -46,25 +46,137 @@ impl ToolContributor for BuiltinMcpToolContributor {
     }
 
     fn contribute(&self) -> Vec<ToolRegistryEntry> {
-        vec![tool(
-            "mcp.call_tool",
-            "mcp",
-            "Call MCP tool",
-            "Call a tool exposed by a configured MCP server.",
-            ToolExposure::Deferred,
-            true,
-            runtime_policy(false, ToolCancellationMode::DetachForbidden, true, true),
-            vec![WorkerCapability::McpCall],
-            json!({
-                "type": "object",
-                "required": ["server", "tool"],
-                "properties": {
-                    "server": { "type": "string" },
-                    "tool": { "type": "string" },
-                    "arguments": { "type": "object" }
-                }
-            }),
-        )]
+        vec![
+            tool(
+                "mcp.call_tool",
+                "mcp",
+                "Call MCP tool",
+                "Call a tool exposed by a configured MCP server.",
+                ToolExposure::Deferred,
+                true,
+                runtime_policy(false, ToolCancellationMode::DetachForbidden, true, true),
+                vec![WorkerCapability::McpCall],
+                json!({
+                    "type": "object",
+                    "required": ["server", "tool"],
+                    "properties": {
+                        "server": { "type": "string" },
+                        "tool": { "type": "string" },
+                        "arguments": { "type": "object" }
+                    }
+                }),
+            ),
+            tool(
+                "mcp.config.list",
+                "mcp",
+                "List MCP configuration",
+                "List globally configured MCP servers using a credential-redacted view and return the configuration revision.",
+                ToolExposure::Model,
+                false,
+                runtime_policy(false, ToolCancellationMode::Cooperative, false, false),
+                vec![WorkerCapability::ConfigRead],
+                json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {}
+                }),
+            ),
+            tool(
+                "mcp.config.upsert",
+                "mcp",
+                "Configure MCP server",
+                "Add or update one global stdio or Streamable HTTP MCP server. Credentials must be passed by environment-variable reference, never as literal values.",
+                ToolExposure::Model,
+                false,
+                runtime_policy(false, ToolCancellationMode::DetachForbidden, false, false),
+                vec![
+                    WorkerCapability::ConfigRead,
+                    WorkerCapability::McpConfigWrite,
+                    WorkerCapability::McpCall,
+                ],
+                json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["name", "expectedRevision", "server"],
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[A-Za-z0-9_.-]+$"
+                        },
+                        "expectedRevision": { "type": "string", "minLength": 1 },
+                        "server": {
+                            "oneOf": [
+                                {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": ["transport", "command"],
+                                    "properties": {
+                                        "transport": { "const": "stdio" },
+                                        "command": { "type": "string", "minLength": 1 },
+                                        "args": {
+                                            "type": "array",
+                                            "items": { "type": "string" }
+                                        },
+                                        "env": {
+                                            "type": "object",
+                                            "additionalProperties": { "type": "string" }
+                                        },
+                                        "envVarRefs": {
+                                            "type": "object",
+                                            "additionalProperties": { "type": "string" }
+                                        },
+                                        "cwd": { "type": "string" }
+                                    }
+                                },
+                                {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                    "required": ["transport", "url"],
+                                    "properties": {
+                                        "transport": { "const": "streamable-http" },
+                                        "url": { "type": "string", "minLength": 1 },
+                                        "bearerTokenEnvVar": { "type": "string", "minLength": 1 },
+                                        "httpHeaders": {
+                                            "type": "object",
+                                            "additionalProperties": { "type": "string" }
+                                        },
+                                        "envHttpHeaders": {
+                                            "type": "object",
+                                            "additionalProperties": { "type": "string" }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }),
+            ),
+            tool(
+                "mcp.config.status",
+                "mcp",
+                "Check MCP server status",
+                "Start or refresh one globally configured MCP server and report its connection status and discovered tool names.",
+                ToolExposure::Model,
+                false,
+                runtime_policy(false, ToolCancellationMode::DetachForbidden, false, false),
+                vec![WorkerCapability::ConfigRead, WorkerCapability::McpCall],
+                json!({
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["name"],
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[A-Za-z0-9_.-]+$"
+                        }
+                    }
+                }),
+            ),
+        ]
     }
 }
 
