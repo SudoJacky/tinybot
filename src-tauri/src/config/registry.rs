@@ -802,6 +802,17 @@ fn mcp_servers_group(config: &Value) -> SettingsGroup {
                     .or_else(|| server.get("bearerTokenEnvVar"))
                     .cloned(),
             ));
+            fields.push(secret_field(
+                &format!("mcp-{server_id}-bearer-token"),
+                "Bearer token",
+                &format!("{prefix}.bearerToken"),
+                SettingScope::Workspace,
+                sensitive_value_configured(
+                    server
+                        .get("bearerToken")
+                        .or_else(|| server.get("bearer_token")),
+                ),
+            ));
             fields.push(config_field(
                 &format!("mcp-{server_id}-command"),
                 "Command",

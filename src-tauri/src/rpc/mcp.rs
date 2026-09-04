@@ -52,54 +52,48 @@ impl WorkerMcpRpc {
 
     pub(super) fn list_tools(&self) -> Result<Value, WorkerProtocolError> {
         self.require(WorkerCapability::McpCall)?;
-        let configured_servers = configured_mcp_servers(&self.config_snapshot);
-        let Some(configured_servers) = configured_servers else {
-            return Ok(serde_json::json!({ "servers": [] }));
-        };
-        let mut servers = Vec::new();
-        for (server_name, server) in configured_servers {
-            validate_mcp_name("server", server_name)?;
-            if server.get("enabled").and_then(Value::as_bool) == Some(false) {
-                continue;
-            }
-            let tools = tauri::async_runtime::block_on(self.runtime.list_tools(
-                &self.workspace_root,
-                server_name,
-                server,
-                None,
-            ))
-            .map_err(|error| mcp_runtime_error("mcp.list_tools", error))?
-            .into_iter()
-            .filter(|tool| {
-                tool.get("name")
-                    .and_then(Value::as_str)
-                    .is_some_and(|tool_name| mcp_tool_is_enabled(server_name, tool_name, server))
+        let snapshot = tauri::async_runtime::block_on(self.runtime.registry_snapshot(
+            &self.workspace_root,
+            &self.config_snapshot,
+            None,
+        ))
+        .map_err(|error| mcp_runtime_error("mcp.list_tools", error))?;
+        let servers = snapshot
+            .servers
+            .iter()
+            .filter(|server| server.enabled)
+            .map(|server| {
+                let tools = server
+                    .tools
+                    .iter()
+                    .filter(|tool| tool.allowed)
+                    .map(|tool| tool.definition.clone())
+                    .collect::<Vec<_>>();
+                serde_json::json!({
+                    "name": server.server_id,
+                    "available": server.available,
+                    "stale": server.stale,
+                    "status": server.status,
+                    "error": server.error,
+                    "tools": tools,
+                })
             })
             .collect::<Vec<_>>();
-            let status = tauri::async_runtime::block_on(
-                self.runtime
-                    .server_status(&self.workspace_root, server_name),
-            );
-            servers.push(serde_json::json!({
-                "name": server_name,
-                "status": status,
-                "tools": tools,
-            }));
-        }
-        Ok(serde_json::json!({ "servers": servers }))
+        Ok(serde_json::json!({ "revision": snapshot.revision, "servers": servers }))
     }
 
     pub(super) fn capability_catalog(&self) -> Result<Value, WorkerProtocolError> {
         let allowed = self.policy.allows(&WorkerCapability::McpCall);
-        serde_json::to_value(tauri::async_runtime::block_on(
+        let catalog = tauri::async_runtime::block_on(
             crate::mcp_capability_catalog::build_mcp_capability_catalog(
                 &self.runtime,
                 &self.workspace_root,
                 &self.config_snapshot,
                 allowed,
             ),
-        ))
-        .map_err(|error| {
+        )
+        .map_err(|error| mcp_runtime_error("mcp.capability_catalog", error))?;
+        serde_json::to_value(catalog).map_err(|error| {
             WorkerProtocolError::new(
                 WorkerProtocolErrorCode::WorkerError,
                 format!("failed to serialize MCP capability catalog: {error}"),

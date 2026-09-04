@@ -13,6 +13,7 @@ pub mod desktop_commands;
 mod desktop_terminal;
 mod graph_runs;
 mod mcp_capability_catalog;
+mod mcp_configuration;
 mod memory;
 mod native_browser;
 mod plugins;

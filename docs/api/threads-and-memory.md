@@ -281,6 +281,12 @@ Successful generated titles set `metadata.extra.titleSource` to `model`; manual 
 it to `manual` and always win. This update changes Thread metadata only and does not create a
 turnless Item.
 
+The title request uses the initiating Turn's effective API mode, streaming choice, temperature,
+output-token budget, reasoning settings, service tier, and Provider request adaptation. It replaces
+the conversation prompt with the bounded title system/user prompt and exposes no tools or prior
+history. Tinybot does not impose a separate title output-token limit or timeout: an omitted user
+budget uses the Provider default, and the Provider Profile owns request and stream-idle timeouts.
+
 Turn writes follow Codex-style ordering: one start batch contains `turn_started`, `turn_context`,
 the materialized system/developer prompt when it changed, and the user message. Later batches append
 typed message/tool/reasoning records, a per-provider-call `token_count` when the provider reports

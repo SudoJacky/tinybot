@@ -133,7 +133,7 @@ function createDesktopSettingsFullPatch(
         active_profile: profileId,
         workspace: state.agent.workspace,
         temperature: state.agent.temperature,
-        max_tokens: state.agent.maxTokens,
+        max_tokens: optionalConfigValue(state.agent.maxTokens),
         context_window_tokens: state.agent.contextWindowTokens,
         context_window_strategy: state.agent.contextWindowStrategy,
         maxIterations: state.agent.maxToolIterations,
@@ -276,7 +276,13 @@ function setDesktopSettingsPatchPath(patch: UnknownRecord, path: string, value: 
     }
     cursor = cursor[part] as UnknownRecord;
   }
-  cursor[parts[parts.length - 1]] = value;
+  cursor[parts[parts.length - 1]] = path === "agents.defaults.max_tokens"
+    ? optionalConfigValue(value)
+    : value;
+}
+
+function optionalConfigValue(value: unknown): unknown {
+  return value === null ? { __desktopConfigOperation: "remove" } : value;
 }
 
 function getDesktopSettingsExistingConfigPathValue(existingConfig: unknown, path: string): unknown {

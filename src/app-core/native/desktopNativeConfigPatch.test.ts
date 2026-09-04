@@ -1,5 +1,9 @@
 import { describe, expect, test, vi } from "vitest";
-import { applyNativeConfigPatch } from "./desktopNativeConfigPatch";
+import {
+  applyNativeConfigPatch,
+  removeDesktopConfigValue,
+  replaceDesktopConfigValue,
+} from "./desktopNativeConfigPatch";
 
 describe("desktop native config patch host action", () => {
   test("sends canonical operations instead of a full config candidate", async () => {
@@ -170,6 +174,82 @@ describe("desktop native config patch host action", () => {
             value: "responses",
           },
         ],
+      },
+    });
+  });
+
+  test("replaces an object atomically and escapes its config path as JSON Pointer", async () => {
+    const invoke = vi.fn().mockResolvedValue({
+      ok: true,
+      config: {},
+      updatedFields: ["tools.mcpServers.docs.search"],
+      sideEffects: { applied: ["mcpConfigChanged"], restartRequired: [], warnings: [] },
+      error: null,
+    });
+    const server = {
+      enabled: true,
+      transport: "streamable-http",
+      url: "https://example.com/mcp",
+      httpHeaders: { "X-Route.Version": "v1" },
+      enabledTools: ["*"],
+    };
+
+    await applyNativeConfigPatch(
+      { revision: "hash:old" },
+      {
+        tools: {
+          mcp_servers: {
+            "docs.search": replaceDesktopConfigValue(server),
+          },
+        },
+      },
+      { invoke },
+    );
+
+    expect(invoke).toHaveBeenCalledWith("apply_config_operations", {
+      request: {
+        expectedRevision: "hash:old",
+        operations: [{
+          op: "replace",
+          path: "/tools/mcpServers/docs.search",
+          value: server,
+        }],
+      },
+    });
+  });
+
+  test("removes a dynamic MCP field through an unambiguous JSON Pointer", async () => {
+    const invoke = vi.fn().mockResolvedValue({
+      ok: true,
+      config: {},
+      updatedFields: ["tools.mcpServers.docs.search.httpHeaders.X-Route.Version"],
+      sideEffects: { applied: ["mcpConfigChanged"], restartRequired: [], warnings: [] },
+      error: null,
+    });
+
+    await applyNativeConfigPatch(
+      { revision: "hash:old" },
+      {
+        tools: {
+          mcpServers: {
+            "docs.search": {
+              httpHeaders: {
+                "X-Route.Version": removeDesktopConfigValue(),
+              },
+            },
+          },
+        },
+      },
+      { invoke },
+    );
+
+    expect(invoke).toHaveBeenCalledWith("apply_config_operations", {
+      request: {
+        expectedRevision: "hash:old",
+        operations: [{
+          op: "remove",
+          path: "/tools/mcpServers/docs.search/httpHeaders/X-Route.Version",
+        }],
       },
     });
   });

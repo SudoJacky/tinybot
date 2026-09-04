@@ -1216,16 +1216,9 @@ describe("DesktopShell", () => {
         },
       },
     };
-    const savedConfig = {
-      revision: "hash:2",
-      agents: {
-        defaults: {
-          ...initialConfig.agents.defaults,
-          temperature: 0.6,
-          maxTokens: 2048,
-        },
-      },
-    };
+    const savedConfig = structuredClone(initialConfig);
+    savedConfig.revision = "hash:2";
+    delete (savedConfig.agents.defaults as Partial<typeof initialConfig.agents.defaults>).maxTokens;
     const services = createServices();
     const saveAgentDefaultsSettings = vi.fn(async (_currentConfig: unknown, _patch: unknown) => buildAgentDefaultsSettings(savedConfig));
     services.settingsStore.loadProviderSettings = vi.fn(async () => buildProviderModelsSettings(initialConfig));
@@ -1249,7 +1242,6 @@ describe("DesktopShell", () => {
     await user.click(within(screen.getByRole("menu", { name: "Timezone options" }))
       .getByRole("menuitemradio", { name: "Europe/Paris" }));
     await user.clear(await screen.findByLabelText("Max output tokens"));
-    await user.type(screen.getByLabelText("Max output tokens"), "2048");
     await user.click(screen.getByRole("button", { name: "Context window strategy: Discard old messages" }));
     const strategyMenu = screen.getByRole("menu", { name: "Context window strategy options" });
     expect(strategyMenu.classList.contains("react-settings-choice-popover")).toBe(true);
@@ -1262,12 +1254,13 @@ describe("DesktopShell", () => {
       agents: {
         defaults: {
           timezone: "Europe/Paris",
-          maxTokens: 2048,
+          maxTokens: { __desktopConfigOperation: "remove" },
           contextWindowStrategy: "compact",
           maxIterations: 12,
         },
       },
     });
+    expect((screen.getByLabelText("Max output tokens") as HTMLInputElement).value).toBe("");
   });
 
   it("does not reserve Ctrl+K for a command palette", async () => {

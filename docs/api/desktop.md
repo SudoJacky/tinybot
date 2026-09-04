@@ -191,7 +191,7 @@ Turn instruction fields may appear at the turn specification root or under
 `metadata`; snake_case aliases are also accepted. `selectedSkills` is an
 ordered array containing either unqualified project-local skill names such as
 `review-work` or qualified Agent Plugin skill names such as
-`create-agent-plugin:migrate-agent-plugin`. The composer injects catalogs from
+`create-agent-plugin:migrate-agent-plugin` and `tinybot-mcp:configure-mcp`. The composer injects catalogs from
 the effective working directory's `.agents/skills` and `.codex/skills`
 hierarchies and enabled global plugins, then injects the full content of explicitly selected skills in array
 order. Missing, disabled, invalid, or duplicate selections fail before provider dispatch. Workspace profile files

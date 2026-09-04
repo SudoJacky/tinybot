@@ -36,7 +36,7 @@ describe("agent defaults settings", () => {
     });
   });
 
-  test("fills runtime default values when backend config omits them", () => {
+  test("leaves optional max output tokens empty when backend config omits it", () => {
     const settings = buildAgentDefaultsSettings({
       agents: {
         defaults: {
@@ -48,7 +48,7 @@ describe("agent defaults settings", () => {
 
     expect(settings.values).toMatchObject({
       timezone: "Asia/Shanghai",
-      maxTokens: "8192",
+      maxTokens: "",
       contextWindowStrategy: "compact",
       maxToolIterations: "200",
     });
@@ -66,6 +66,24 @@ describe("agent defaults settings", () => {
         defaults: {
           timezone: "UTC",
           maxTokens: 2048,
+          contextWindowStrategy: "compact",
+          maxIterations: 8,
+        },
+      },
+    });
+  });
+
+  test("removes max output tokens when the optional value is cleared", () => {
+    expect(buildAgentDefaultsPatch({
+      timezone: "UTC",
+      maxTokens: "",
+      contextWindowStrategy: "compact",
+      maxToolIterations: "8",
+    })).toEqual({
+      agents: {
+        defaults: {
+          timezone: "UTC",
+          maxTokens: { __desktopConfigOperation: "remove" },
           contextWindowStrategy: "compact",
           maxIterations: 8,
         },

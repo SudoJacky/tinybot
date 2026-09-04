@@ -31,19 +31,36 @@ fn validates_http_endpoint_and_resolves_secret_headers_from_environment() {
 }
 
 #[test]
-fn rejects_inline_bearer_token_and_names_environment_field() {
+fn accepts_inline_bearer_token_without_exposing_it_as_a_header() {
+    let config = parse_http_server_config(
+        "docs",
+        &json!({
+            "transport": "http",
+            "url": "https://example.com/mcp",
+            "bearer_token": "private-token"
+        }),
+    )
+    .expect("inline bearer token should parse");
+
+    assert_eq!(config.bearer_token.as_deref(), Some("private-token"));
+    assert!(config.headers.is_empty());
+}
+
+#[test]
+fn rejects_conflicting_bearer_token_sources_without_echoing_the_token() {
     let error = parse_http_server_config(
         "docs",
         &json!({
             "transport": "http",
             "url": "https://example.com/mcp",
-            "bearer_token": "must-not-be-used"
+            "bearer_token": "must-not-leak",
+            "bearer_token_env_var": "DOCS_MCP_TOKEN"
         }),
     )
-    .expect_err("inline bearer tokens should be rejected");
+    .expect_err("conflicting bearer token sources should be rejected");
 
-    assert!(error.message.contains("bearer_token_env_var"));
-    assert!(!error.message.contains("must-not-be-used"));
+    assert!(error.message.contains("not both"));
+    assert!(!error.message.contains("must-not-leak"));
 }
 
 #[test]

@@ -73,15 +73,22 @@ function toolsQuery(options?: { skillScope?: "allWorkspaces"; workingDirectory?:
 }
 
 function normalizeToolCatalog(payload: unknown): ToolCatalogSummary {
+  const record = isRecord(payload) ? payload : {};
+  const mcpRevision = numberValue(record.mcpRevision);
   return {
     tools: payloadItems(payload, ["tools", "items"]).map(normalizeToolSummary),
     mcpServers: payloadItems(payload, ["mcpServers", "servers"]).map(normalizeMcpServerSummary),
     skills: payloadItems(payload, ["skills"]).map(normalizeSkillSummary),
+    ...(mcpRevision === undefined ? {} : { mcpRevision }),
   };
 }
 
 function normalizeToolSummary(item: Record<string, unknown>): ToolSummary {
   const name = stringValue(item.name ?? item.id);
+  const available = item.available !== false;
+  const allowed = typeof item.allowed === "boolean" ? item.allowed : item.enabled !== false;
+  const defaultSelected = typeof item.defaultSelected === "boolean" ? item.defaultSelected : allowed;
+  const selected = typeof item.selected === "boolean" ? item.selected : defaultSelected;
   return {
     id: stringValue(item.id) || name,
     name,
@@ -89,8 +96,10 @@ function normalizeToolSummary(item: Record<string, unknown>): ToolSummary {
     description: stringValue(item.description),
     source: stringValue(item.source) || "builtin",
     serverId: stringValue(item.serverId) || undefined,
-    enabled: item.enabled !== false,
-    available: item.available !== false,
+    available,
+    allowed,
+    defaultSelected,
+    selected,
     reason: stringValue(item.reason) || undefined,
   };
 }
@@ -100,6 +109,8 @@ function normalizeMcpServerSummary(item: Record<string, unknown>): McpServerSumm
   return {
     id: stringValue(item.id),
     enabled: item.enabled !== false,
+    ...(typeof item.available === "boolean" ? { available: item.available } : {}),
+    ...(typeof item.stale === "boolean" ? { stale: item.stale } : {}),
     transport: stringValue(item.transport) || "stdio",
     state: stringValue(status.state) || (item.enabled === false ? "disabled" : "unknown"),
     toolCount: numberValue(item.toolCount ?? status.toolCount) ?? 0,

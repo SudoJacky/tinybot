@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:96147d1fa42f4ddd05ec5e1066eff4e12681c5d4bdfe184ec78bc35a5855e55e -->
+<!-- tinybot-doc-fingerprint: sha256:1d5a7ff41c95ad15034a34a49dc78a40f4d96151b6135296c784edfc40b77d9c -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -84,6 +84,13 @@ Desktop Commands / Desktop Host
   Config store is the migration boundary and retains one pre-migration
   `config.json.v1.bak`; Provider routing requires an explicit Provider or
   active Profile and is never inferred from a model name.
+- Global MCP definitions share that configuration authority. The renderer
+  reads secret-safe editable projections and sends field-level settings patches;
+  native configuration and runtime services retain secret, process, and
+  transport ownership. Saving a definition marks the Tools & Plugins catalog
+  for an explicit restart, while enabled-state changes apply immediately and
+  then refresh discovery. A refresh keeps the last catalog visible until the
+  native runtime reports the replacement snapshot or a visible failure.
 - Managed chat image bytes: content-addressed files under
   `~/.tinybot/chat-attachments/images/`; Rollouts remain authoritative for the
   typed reference and never persist the Base64 request payload.
@@ -121,8 +128,9 @@ Desktop Commands / Desktop Host
   send replaces the draft with a canonical Thread before dispatching its Turn.
   After that Turn is durable, an independent tool-free request may refine the
   optimistic first-prompt title without delaying the Turn or overriding a later
-  manual rename. Its response boundary accepts only final assistant title text,
-  never Provider reasoning content.
+  manual rename. It reuses that Turn's effective Provider request settings and
+  response decoder while replacing the prompt and omitting tools and history;
+  only final assistant text can become the title.
   Chat reports its active persisted session or local draft working directory to
   the shell as transient cross-route context; workspace-scoped resource routes
   consume that projection without deriving a current workspace from recency.

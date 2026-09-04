@@ -67,6 +67,9 @@ pub use self::items::{
     AgentInstructionRole, AgentItem, AgentItemHistory, AgentMessageContent, AgentPlanProgressItem,
     AgentPlanStep, AgentReasoningItem, AgentToolCallItem, AgentToolResultItem, AgentUsageItem,
 };
+pub(crate) use self::provider::complete_tool_free_text_for_agent;
+#[cfg(test)]
+pub(crate) use self::provider::tool_free_text_request_for_agent;
 #[cfg(test)]
 use self::provider::{agent_chat_completion_request, agent_responses_request};
 use self::provider::{agent_provider_config, chat_completion_content, RustNativeAgentProvider};

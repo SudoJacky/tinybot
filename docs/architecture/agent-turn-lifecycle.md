@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:a80a7307c2a0e8a098fd580bc11a2932cbe5b74b8d4d4103269509666c26b5e8 -->
+<!-- tinybot-doc-fingerprint: sha256:1311d33dbcec3b94551fd6f2d262e75c309076514e4c8e4fc35cc2ff772412ca -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -79,8 +79,12 @@ ownership; successful persistence emits a metadata-only frontend refresh event.
 
 Project-local MCP configuration is discovered after instruction composition
 establishes the effective working directory and before runtime services are
-installed. The merged snapshot is Turn-local: persistence, discovery, and tool
-dispatch share it, while the saved global configuration remains unchanged.
+installed. The merged configuration is Turn-local, while MCP discovery publishes
+a revisioned immutable registry snapshot shared with the WebUI catalog. Turn
+preparation captures one snapshot and builds all concrete MCP schemas from it;
+an individual server discovery or schema failure disables only that server and
+does not abort the Turn or remove healthy servers. The saved global configuration
+remains unchanged.
 
 Saved Agent Graphs are discovered only when the Thread or Turn explicitly
 declares a working directory; the backend default is not treated as Graph
@@ -112,6 +116,12 @@ For each provider iteration, the runtime:
    dispatching partial side effects.
 7. Emits correlated runtime events through the injected trace sink.
 8. Stops at a terminal result or creates a resumable checkpoint.
+
+Several calls in one provider response form an ordered batch, not a requirement
+to execute them simultaneously. Registry policy marks concurrency-safe calls;
+the runtime groups those calls into parallel waves and treats every exclusive
+call as an ordering barrier. `update_plan` is such a barrier, so a plan update
+may precede ordinary calls in the same response without rejecting the batch.
 
 The bridge loads additive global and effective-working-directory command hooks
 for each Turn. `UserPromptSubmit` runs after the durable Turn start, so a denied
@@ -173,7 +183,9 @@ reconstruct the updated log before recovery decisions are made.
 - Persist Turn start before provider work and flush trace before terminal
   success; persist a failed terminal before returning a runtime or trace error.
 - Keep first-Turn title generation independent from the main Turn and never let
-  a late model title replace a manual rename.
+  a late model title replace a manual rename. Reuse the initiating Turn's
+  effective Provider request settings while replacing its prompt and omitting
+  tools and prior history; do not apply a separate title token budget.
 - Do not append the same user, assistant, or tool item again during terminal
   persistence.
 - Keep provider failures, tool failures, trace failures, cancellation, and

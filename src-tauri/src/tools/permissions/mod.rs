@@ -201,6 +201,7 @@ fn capability_scope(capability: &WorkerCapability) -> &'static str {
             "background://registry"
         }
         WorkerCapability::McpCall => "mcp://configured",
+        WorkerCapability::McpConfigWrite => "mcp://configuration",
         WorkerCapability::ShellExecute => "process://current-user",
         WorkerCapability::ConfigRead | WorkerCapability::ConfigWrite => "config://workspace",
         WorkerCapability::SessionMetadataRead | WorkerCapability::SessionWrite => {

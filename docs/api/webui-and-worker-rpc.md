@@ -6,7 +6,7 @@ src-tauri/src/protocol/params.rs
 src-tauri/src/rpc/method.rs
 src-tauri/src/rpc/runtime.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:a98666536e7b26b27dd280084e16e03ca74bad46c425665ac89bd2e9f8f907a5 -->
+<!-- tinybot-doc-fingerprint: sha256:ff3ebe3a48c5b821adb2119d353d4d484bb7ea06e55e1781d5a6a4f73875a178 -->
 
 This document covers the Rust-owned WebUI route wrapper and Worker RPC protocol.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -87,6 +87,11 @@ The lower-level worker RPC router uses this request shape:
 It is primarily used internally by Rust command handlers through `call_rust_state_service`.
 External callers should usually prefer the Tauri commands above.
 
+The `mcp.config.write` capability belongs to the native Agent's restricted
+`mcp.config.*` tools. It does not add a Worker RPC method and does not authorize
+the generic `config.apply_operations` method, which continues to require
+`config.write`.
+
 ### Supported Worker RPC Methods
 
 | Namespace | Methods |
@@ -144,11 +149,15 @@ use a `mcpServers` or `servers` object. Inner scopes override same-named outer o
 relative stdio working directories resolve from the declaring scope, and the merge remains
 turn-local. `.codex` is not scanned.
 
-`mcp.capability_catalog` and `GET /api/tools` expose one effective snapshot containing configured
-servers, runtime status, discovered tools, allowlist state, callable state, denial reasons, input
-schemas, and a separate Skill catalog. Skill entries include enabled Agent Plugin skills and
+`mcp.capability_catalog`, `mcp.list_tools`, `GET /api/tools`, and native agent Turns consume the
+same revisioned MCP registry snapshot for a workspace and effective MCP configuration. Tool IDs in
+the catalog are opaque and callers must return them unchanged. Each catalog tool reports
+`available`, `allowed`, `defaultSelected`, and `selected` independently, while `callable` is true
+only when the tool is both available and allowed. Skill entries include enabled Agent Plugin skills and
 `.agents/skills/*/SKILL.md` and `.codex/skills/*/SKILL.md` files for the catalog workspace. One failed or disabled server remains
-visible without hiding tools from healthy servers. The list contains Skill metadata and paths, not
+visible without hiding tools from healthy servers. A failed server retains same-configuration
+last-known-good definitions as stale, unavailable metadata and is retried after a short delay;
+healthy servers are not rediscovered with it. The list contains Skill metadata and paths, not
 full documents; `GET /api/tools/skills/{id}` reads the selected `SKILL.md` on demand and returns
 `404` when the ID is no longer cataloged. Renderer callers can add a URL-encoded
 `workingDirectory` query to either Tools route so workspace entries resolve against the active
@@ -161,6 +170,10 @@ workspaces. Aggregate workspace Skill IDs include the file path so each detail r
 unambiguous. The `workingDirectory` still scopes MCP, callable Tool, and Agent Graph discovery.
 Chat omits `skillScope`, so its slash menu continues to receive only global plugin Skills plus the
 active conversation's effective workspace Skills.
+
+Allowlisted concrete MCP tools keep their exact discovered schemas and are selected by default.
+The deferred generic `mcp.call_tool` fallback is not selected by default and is removed if a Turn
+selection contains any concrete MCP tool, so both call surfaces are never injected together.
 
 When `/api/tools` receives an explicit `workingDirectory`, it also includes one
 deferred `agent_graph` tool for each saved Graph whose definition belongs to
@@ -207,7 +220,7 @@ Streamable HTTP configuration example:
         "enabled": true,
         "transport": "http",
         "url": "https://example.com/mcp",
-        "bearerTokenEnvVar": "DOCS_MCP_TOKEN",
+        "bearerToken": "<token>",
         "httpHeaders": { "X-Tenant": "tinybot" },
         "envHttpHeaders": { "X-Trace-Token": "DOCS_TRACE_TOKEN" },
         "startupTimeoutSeconds": 10,
@@ -219,10 +232,13 @@ Streamable HTTP configuration example:
 }
 ```
 
-`bearerTokenEnvVar` and `envHttpHeaders` contain environment-variable names, not secret values.
-Missing, empty, or non-Unicode values fail startup explicitly. Inline `bearerToken` / `bearer_token`
-is rejected; use the environment-backed field. URL credentials and fragments are also rejected.
-Snake-case aliases are accepted for these fields.
+`bearerToken` stores a bearer token directly in Tinybot's local configuration;
+`bearerTokenEnvVar` stores an environment-variable name instead. Configure at most one of them.
+`envHttpHeaders` also contains environment-variable names rather than secret values. Missing,
+empty, or non-Unicode environment values fail startup explicitly. Direct bearer tokens and
+sensitive header values are omitted from public settings and diagnostic projections. URL
+credentials and fragments are rejected. Snake-case aliases are accepted for these fields. Plugin
+packages should continue to use environment-backed secret fields rather than embedding credentials.
 
 `mcp.list_tools` takes no params and returns enabled servers, normalized real tool schemas, and live
 status:

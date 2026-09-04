@@ -3,16 +3,18 @@
 src-tauri/src/desktop_commands/retry.rs
 src-tauri/src/native_browser/commands.rs
 src-tauri/src/native_browser/model.rs
+src-tauri/src/rpc/mod.rs
 src-tauri/src/rpc/background_dispatch.rs
 src-tauri/src/rpc/subagent_dispatch.rs
 src-tauri/src/rpc/tool_dispatch.rs
+src-tauri/src/rpc/tests/workspace_and_shell.rs
 src-tauri/src/tools/shell/mod.rs
 src-tauri/src/tools/shell/process_manager.rs
 src-tauri/src/rpc/tests/threads_and_tools.rs
 src-tauri/tests/crate/retry.rs
 src/app-core/native/desktopNativeThreads.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:fa087837137c95b43dd6534670701ac5bdf5e2beea22c76c7235ec9168c8e97d -->
+<!-- tinybot-doc-fingerprint: sha256:277515971e385ff6afcbda5054f2bdc5462f750eb55ad1826b8fe6a5085f6744 -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -32,6 +34,10 @@ The worker tool registry also receives the current config snapshot. An explicit
 starts. `tools.exec.timeout` supplies the default one-shot timeout. Process-management tools remain
 available so a previously started process can be polled or terminated safely.
 
+The WebUI tool catalog does not collapse tool state into one `enabled` flag. It
+reports runtime availability, policy allowance, default selection, and current
+selection separately; clients submit the catalog's opaque IDs unchanged.
+
 Model-visible deferred tools map to the richer RPC surface:
 
 | Tool | Worker RPC target | Cancellation policy |
@@ -39,10 +45,12 @@ Model-visible deferred tools map to the richer RPC surface:
 | `exec_command` | `shell.start` | `terminate_process` |
 | `write_stdin` | `shell.write_stdin` | `detach_forbidden` |
 
-The tool executor overwrites tool-supplied identity fields with the active `sessionId`, `turnId`,
-and `toolCallId` when these tools dispatch. `shell.start` uses `turnId` as the retained process
-`ownerId`. An owned process cannot be polled, written, resized, interrupted, or terminated without
-that matching `ownerId`.
+For `exec_command`, the tool executor overwrites tool-supplied identity fields with the active
+`sessionId`, `turnId`, and `toolCallId`; `shell.start` uses `turnId` as the retained process
+`ownerId`. For `write_stdin` and other retained-process operations, the executor removes Agent
+session fields and maps the active `turnId` directly to `ownerId`. This avoids colliding with the
+legacy Shell `sessionId` alias for `processId` while ensuring an owned process cannot be polled,
+written, resized, interrupted, or terminated without its matching Turn owner.
 
 ### Shell RPC methods
 

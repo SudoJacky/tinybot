@@ -4,6 +4,13 @@ use crate::agent::runtime::{
     NativeToolRetry, PreparedToolCall,
 };
 use crate::collaboration::subagents::SubagentThreadManager;
+use crate::config::application::{
+    default_tinybot_config_path, native_config_snapshot, native_runtime_config_snapshot,
+};
+use crate::mcp_configuration::{
+    list_global_mcp_config_at_path, upsert_global_mcp_config_at_path, validate_mcp_server_name,
+    McpConfigUpsertInput,
+};
 use crate::protocol::{WorkerRequest, WorkerRequestCancellation};
 use crate::rpc::call_rust_state_service_with_mcp_runtime;
 use crate::runtime::mcp::{
@@ -48,6 +55,12 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
         if web::is_web_tool(&tool_call.name) {
             return Err(format!(
                 "native tool `{}` requires asynchronous shared-browser dispatch",
+                tool_call.name
+            ));
+        }
+        if tool_call.name.starts_with("mcp.config.") {
+            return Err(format!(
+                "native tool `{}` requires asynchronous MCP configuration dispatch",
                 tool_call.name
             ));
         }
@@ -166,6 +179,12 @@ impl NativeAgentToolDispatcher for NativeAgentToolExecutorDispatcher {
             if let Some(result) = self.dispatch_web_if_needed(&context, &tool_call).await {
                 return result;
             }
+            if let Some(result) = self
+                .dispatch_mcp_config_if_needed(&context, &tool_call)
+                .await
+            {
+                return result;
+            }
             if let Some(result) = self.dispatch_mcp_if_needed(&context, &tool_call).await {
                 return result;
             }
@@ -212,6 +231,143 @@ fn apply_turn_working_directory(
 mod tests;
 
 impl NativeAgentToolExecutorDispatcher {
+    async fn dispatch_mcp_config_if_needed(
+        &self,
+        context: &AgentTurnContext,
+        tool_call: &PreparedToolCall,
+    ) -> Option<Result<NativeAgentToolResult, String>> {
+        let arguments = tool_call.arguments_value();
+        let result = match tool_call.name.as_str() {
+            "mcp.config.list" => list_global_mcp_config_at_path(&default_tinybot_config_path())
+                .map(|raw| NativeAgentToolResult::generic_success(tool_call, raw)),
+            "mcp.config.upsert" => {
+                let input = match serde_json::from_value::<McpConfigUpsertInput>(arguments) {
+                    Ok(input) => input,
+                    Err(error) => {
+                        return Some(Ok(NativeAgentToolResult::generic_error(
+                            tool_call,
+                            format!("invalid MCP configuration: {error}"),
+                        )));
+                    }
+                };
+                let mut configured =
+                    match upsert_global_mcp_config_at_path(&default_tinybot_config_path(), input) {
+                        Ok(configured) => configured,
+                        Err(error) => {
+                            return Some(Ok(NativeAgentToolResult::generic_error(
+                                tool_call, error,
+                            )));
+                        }
+                    };
+                let name = configured
+                    .get("name")
+                    .and_then(serde_json::Value::as_str)
+                    .expect("successful MCP upsert should include its server name")
+                    .to_string();
+                let config_snapshot = native_runtime_config_snapshot();
+                let workspace_root = context
+                    .settings
+                    .working_directory
+                    .as_deref()
+                    .unwrap_or(&self.workspace_root);
+                if let Err(error) = self
+                    .mcp_runtime
+                    .reconcile(workspace_root, &config_snapshot)
+                    .await
+                {
+                    return Some(Ok(NativeAgentToolResult::generic_error(
+                        tool_call,
+                        format!(
+                            "MCP server `{name}` was saved, but runtime reconciliation failed: {}",
+                            error.message
+                        ),
+                    )));
+                }
+                let Some(server_config) =
+                    configured_mcp_servers(&config_snapshot).and_then(|servers| servers.get(&name))
+                else {
+                    return Some(Ok(NativeAgentToolResult::generic_error(
+                        tool_call,
+                        format!(
+                            "MCP server `{name}` was saved, but the refreshed runtime configuration could not find it"
+                        ),
+                    )));
+                };
+                let status = refresh_mcp_server_status(
+                    &self.mcp_runtime,
+                    workspace_root,
+                    &name,
+                    server_config,
+                    context.cancellation.clone().map(|cancellation| {
+                        Arc::new(cancellation) as Arc<dyn WorkerRequestCancellation>
+                    }),
+                )
+                .await;
+                configured["status"] = status;
+                configured["availableInCurrentTurn"] = serde_json::Value::Bool(false);
+                Ok(NativeAgentToolResult::generic_success(
+                    tool_call, configured,
+                ))
+            }
+            "mcp.config.status" => {
+                let name = arguments
+                    .get("name")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty());
+                let Some(name) = name else {
+                    return Some(Ok(NativeAgentToolResult::generic_error(
+                        tool_call,
+                        "mcp.config.status requires a non-empty name".to_string(),
+                    )));
+                };
+                let name = match validate_mcp_server_name(name) {
+                    Ok(name) => name,
+                    Err(error) => {
+                        return Some(Ok(NativeAgentToolResult::generic_error(tool_call, error)));
+                    }
+                };
+                let global_snapshot = native_config_snapshot();
+                if configured_mcp_servers(&global_snapshot)
+                    .and_then(|servers| servers.get(&name))
+                    .is_none()
+                {
+                    return Some(Ok(NativeAgentToolResult::generic_error(
+                        tool_call,
+                        format!("global MCP server is not configured: {name}"),
+                    )));
+                }
+                let config_snapshot = native_runtime_config_snapshot();
+                let Some(server_config) =
+                    configured_mcp_servers(&config_snapshot).and_then(|servers| servers.get(&name))
+                else {
+                    return Some(Ok(NativeAgentToolResult::generic_error(
+                        tool_call,
+                        format!("global MCP server is not available at runtime: {name}"),
+                    )));
+                };
+                let workspace_root = context
+                    .settings
+                    .working_directory
+                    .as_deref()
+                    .unwrap_or(&self.workspace_root);
+                let status = refresh_mcp_server_status(
+                    &self.mcp_runtime,
+                    workspace_root,
+                    &name,
+                    server_config,
+                    context.cancellation.clone().map(|cancellation| {
+                        Arc::new(cancellation) as Arc<dyn WorkerRequestCancellation>
+                    }),
+                )
+                .await;
+                Ok(NativeAgentToolResult::generic_success(tool_call, status))
+            }
+            _ => return None,
+        };
+        Some(result)
+    }
+
     async fn dispatch_agent_graph_if_needed(
         &self,
         context: &AgentTurnContext,
@@ -448,6 +604,57 @@ impl NativeAgentToolExecutorDispatcher {
             },
         ))
     }
+}
+
+async fn refresh_mcp_server_status(
+    runtime: &McpRuntime,
+    workspace_root: &std::path::Path,
+    server_name: &str,
+    server_config: &serde_json::Value,
+    cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
+) -> serde_json::Value {
+    let disabled = server_config
+        .get("enabled")
+        .and_then(serde_json::Value::as_bool)
+        == Some(false);
+    let refresh = if disabled {
+        None
+    } else {
+        Some(
+            runtime
+                .list_tools(workspace_root, server_name, server_config, cancellation)
+                .await,
+        )
+    };
+    let mut status = runtime.server_status(workspace_root, server_name).await;
+    status["name"] = serde_json::Value::String(server_name.to_string());
+    match refresh {
+        Some(Ok(tools)) => {
+            let mut names = tools
+                .iter()
+                .filter_map(|tool| tool.get("name").and_then(serde_json::Value::as_str))
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            names.sort();
+            status["tools"] = serde_json::json!(names);
+            status["connectionAttempted"] = serde_json::Value::Bool(true);
+        }
+        Some(Err(error)) => {
+            status["tools"] = serde_json::json!([]);
+            status["connectionAttempted"] = serde_json::Value::Bool(true);
+            status["runtimeError"] = serde_json::json!({
+                "reasonCode": error.kind.reason_code(),
+                "message": error.message,
+                "retryable": error.retryable,
+                "cancelled": error.cancelled,
+            });
+        }
+        None => {
+            status["tools"] = serde_json::json!([]);
+            status["connectionAttempted"] = serde_json::Value::Bool(false);
+        }
+    }
+    status
 }
 
 fn native_agent_graph_tool_result(

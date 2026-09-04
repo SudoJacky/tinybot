@@ -526,6 +526,54 @@ fn apply_operations_remove_deletes_target_without_empty_object_merge() {
 }
 
 #[test]
+fn apply_operations_json_pointer_preserves_dotted_mcp_server_names() {
+    let fixture = ConfigStoreFixture::new();
+    let path = fixture.path("config.json");
+    let mut store =
+        ConfigStore::load(path.clone(), default_snapshot()).expect("default config should load");
+
+    let result = store
+        .apply_operations(ConfigOperationRequest {
+            expected_revision: Some(store.revision()),
+            operations: vec![ConfigOperation::Replace {
+                path: "/tools/mcpServers/docs.search".to_string(),
+                value: json!({
+                    "enabled": true,
+                    "transport": "streamable-http",
+                    "url": "https://example.com/mcp",
+                    "bearerToken": "private-token",
+                    "httpHeaders": { "X-Route.Version": "v1" },
+                    "enabledTools": ["*"]
+                }),
+            }],
+        })
+        .expect("MCP server operation should save");
+
+    assert!(result.ok);
+    assert_eq!(result.updated_fields, vec!["tools.mcpServers.docs.search"]);
+    assert_eq!(
+        result.side_effects.applied,
+        vec!["mcpConfigChanged".to_string()]
+    );
+    let saved = serde_json::from_str::<serde_json::Value>(
+        &fs::read_to_string(path).expect("patched config should save"),
+    )
+    .expect("patched config should be JSON");
+    assert_eq!(
+        saved["tools"]["mcpServers"]["docs.search"]["httpHeaders"]["X-Route.Version"],
+        "v1"
+    );
+    assert_eq!(
+        saved["tools"]["mcpServers"]["docs.search"]["bearerToken"],
+        "private-token"
+    );
+    assert!(result.config["tools"]["mcpServers"]["docs.search"]
+        .get("bearerToken")
+        .is_none());
+    assert!(saved["tools"]["mcpServers"].get("docs").is_none());
+}
+
+#[test]
 fn apply_operations_clear_memory_model_override_and_refresh_provider_runtime() {
     let fixture = ConfigStoreFixture::new();
     let path = fixture.write(

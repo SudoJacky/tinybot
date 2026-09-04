@@ -2,10 +2,35 @@ use super::{
     apply_turn_working_directory, native_agent_graph_tool_result,
     native_agent_tool_executor_should_fallback, native_mcp_failure_result,
     native_mcp_runtime_error_result, native_mcp_tool_result, native_tool_executor_model_content,
-    native_tool_result_from_executor_response, native_web_tool_result,
+    native_tool_result_from_executor_response, native_web_tool_result, refresh_mcp_server_status,
 };
 use crate::agent::runtime::{NativeAgentToolCall, NativeToolRetry, PreparedToolCall};
 use crate::runtime::mcp::{McpRuntimeError, McpRuntimeErrorKind};
+
+#[tokio::test]
+async fn mcp_status_keeps_configuration_failure_distinct_from_tool_success() {
+    let runtime = crate::runtime::mcp::McpRuntime::new();
+    let status = refresh_mcp_server_status(
+        &runtime,
+        std::path::Path::new("."),
+        "broken",
+        &serde_json::json!({
+            "transport": "streamable-http",
+            "url": "not-a-url",
+            "enabled": true
+        }),
+        None,
+    )
+    .await;
+
+    assert_eq!(status["name"], "broken");
+    assert_eq!(status["state"], "failed");
+    assert_eq!(status["connectionAttempted"], true);
+    assert_eq!(
+        status["runtimeError"]["reasonCode"],
+        "mcp_configuration_invalid"
+    );
+}
 
 #[test]
 fn retired_subagent_aliases_do_not_bypass_the_tool_executor() {

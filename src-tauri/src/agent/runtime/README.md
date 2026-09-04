@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:142c6c849077ac4f5d23ea48328b001e3bdddd2d8872cfb828586a62e9d301b8 -->
+<!-- tinybot-module-fingerprint: sha256:2e7d5fcd788e5dc14e97be5276527ad192bd700e6e8e92c2e2c4c428f42a9591 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -56,7 +56,10 @@ decide which durable conversation store a caller uses.
    bounded request context and record provenance/diagnostics.
 4. `provider.rs` selects one adapter through `provider_protocol.rs`.
    `chat_completions_adapter.rs` and `responses_adapter.rs` independently encode
-   the request and decode provider output into runtime concepts.
+   the request and decode provider output into runtime concepts. Independent
+   title generation uses the same typed settings, protocol adapter, Provider
+   adaptation, streaming path, and response decoder with a replacement prompt
+   and an empty tool registry.
 5. Assistant items are appended. Tool calls are routed through
    `tool_router.rs`, `tool_dispatcher.rs`, and `tool_runtime.rs`.
 6. Tools dispatch directly after validation. Provider-authored argument JSON
@@ -333,12 +336,15 @@ cancellation.
 Each tool call runs under an owned task and child cancellation token. Calls
 marked parallel-safe by registry policy share a wave; exclusive calls split the
 batch into sequential waves. Every wave is awaited and results are projected in
-model order before the next provider call. Rejected batches also project one
-terminal result per provider call ID. If any call has malformed or non-object
-argument JSON, the whole batch is rejected without side effects: the malformed
-call keeps its parser error and every otherwise-valid call receives a batch
-rejection result so protocol call/result pairing remains complete. Tool cleanup
-comes from the registry policy:
+model order before the next provider call. `update_plan` participates in this
+scheduler as an exclusive runtime-control call, so it may share a provider
+response with ordinary tools: it updates the plan as a barrier, then later waves
+continue. Rejected batches also project one terminal result per provider call
+ID. If any call has malformed or non-object argument JSON, the whole batch is
+rejected without side effects: the malformed call keeps its parser error and
+every otherwise-valid call receives a batch rejection result so protocol
+call/result pairing remains complete. Tool cleanup comes from the registry
+policy:
 
 - `cooperative`: notify and wait through the cleanup bound;
 - `terminate_process`: terminate the owned process after cancellation;

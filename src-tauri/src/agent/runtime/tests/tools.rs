@@ -405,7 +405,7 @@ fn rejected_tool_batch_records_a_result_for_every_provider_call() {
 }
 
 #[test]
-fn exclusive_runtime_control_rejects_every_call_in_a_mixed_batch() {
+fn exclusive_runtime_control_runs_as_a_barrier_in_a_mixed_batch() {
     struct MixedControlProvider {
         calls: AtomicUsize,
     }
@@ -413,7 +413,7 @@ fn exclusive_runtime_control_rejects_every_call_in_a_mixed_batch() {
     impl NativeAgentProvider for MixedControlProvider {
         fn complete(
             &self,
-            _context: &AgentTurnContext,
+            context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             if self.calls.fetch_add(1, Ordering::SeqCst) == 0 {
                 return Ok(NativeAgentProviderResponse {
@@ -440,8 +440,17 @@ fn exclusive_runtime_control_rejects_every_call_in_a_mixed_batch() {
                     ],
                 });
             }
+            let tool_messages = context
+                .messages
+                .iter()
+                .filter(|message| message["role"] == "tool")
+                .collect::<Vec<_>>();
+            assert_eq!(tool_messages.len(), 2);
+            assert_eq!(tool_messages[0]["tool_call_id"], "call-plan");
+            assert_eq!(tool_messages[0]["content"], "Plan updated");
+            assert_eq!(tool_messages[1]["tool_call_id"], "call-sibling");
             Ok(NativeAgentProviderResponse {
-                final_content: "replanned after mixed control batch".to_string(),
+                final_content: "continued after mixed control batch".to_string(),
                 reasoning_delta: None,
                 usage: None,
                 response_items: Vec::new(),
@@ -468,14 +477,31 @@ fn exclusive_runtime_control_rejects_every_call_in_a_mixed_batch() {
             "messages": [{ "role": "user", "content": "update and inspect" }]
         }),
     )
-    .expect("a mixed control batch should return every result before replanning");
+    .expect("a mixed control batch should execute every call before replanning");
 
     assert_eq!(result["stopReason"], "final_response");
     let completed = result["completedToolResults"].as_array().unwrap();
     assert_eq!(completed.len(), 2);
     assert_eq!(completed[0]["toolCallId"], "call-plan");
     assert_eq!(completed[1]["toolCallId"], "call-sibling");
-    assert!(completed.iter().all(|result| result["status"] == "error"));
+    assert!(completed.iter().all(|result| result["status"] == "ok"));
+
+    let events = result["runtimeEvents"]
+        .as_array()
+        .expect("runtime events should be returned");
+    let plan_progress = events
+        .iter()
+        .position(|event| event["eventName"] == "agent.plan.progress")
+        .expect("the plan update should emit progress");
+    let sibling_started = events
+        .iter()
+        .position(|event| {
+            event["eventName"] == "agent.tool.start"
+                && event["payload"]["toolCallId"] == "call-sibling"
+                && event["payload"]["status"] == "running"
+        })
+        .expect("the sibling tool should run");
+    assert!(plan_progress < sibling_started);
 }
 
 #[test]

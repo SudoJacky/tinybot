@@ -498,6 +498,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             ));
         }
         if let Some(workspace_root) = workspace_root {
+            let capability_policy = context.settings.capability_policy()?;
             let mcp_workspace_root = context
                 .settings
                 .working_directory
@@ -506,44 +507,48 @@ impl<'a> NativeAgentTurnExecution<'a> {
             let cancellation = context.cancellation.clone().map(|cancellation| {
                 Arc::new(cancellation) as Arc<dyn crate::protocol::WorkerRequestCancellation>
             });
-            let discovered = match dependencies
-                .mcp_runtime
-                .discover_configured_tools(mcp_workspace_root, &config_snapshot, cancellation)
-                .await
+            let mcp_snapshot = if capability_policy
+                .allows(&crate::protocol::capability::WorkerCapability::McpCall)
             {
-                Ok(discovered) => discovered,
-                Err(error) if error.cancelled => {
-                    let checkpoint = save_phase_checkpoint(
-                        dependencies,
-                        &context,
-                        "cancelled",
-                        serde_json::json!({
-                            "cancelled": true,
-                            "phase": "mcp_discovery",
-                            "server": error.server,
-                            "transport": error.transport,
-                        }),
-                    );
-                    return Ok(PreparedNativeAgentTurnExecution::Finished(
-                        cancelled_result(
+                match dependencies
+                    .mcp_runtime
+                    .registry_snapshot(mcp_workspace_root, &config_snapshot, cancellation)
+                    .await
+                {
+                    Ok(snapshot) => Some(snapshot),
+                    Err(error) if error.cancelled => {
+                        let checkpoint = save_phase_checkpoint(
                             dependencies,
-                            &context.turn_id,
-                            &context.session_id,
-                            checkpoint,
-                        ),
-                    ));
+                            &context,
+                            "cancelled",
+                            serde_json::json!({
+                                "cancelled": true,
+                                "phase": "mcp_discovery",
+                                "server": error.server,
+                                "transport": error.transport,
+                            }),
+                        );
+                        return Ok(PreparedNativeAgentTurnExecution::Finished(
+                            cancelled_result(
+                                dependencies,
+                                &context.turn_id,
+                                &context.session_id,
+                                checkpoint,
+                            ),
+                        ));
+                    }
+                    Err(error) => {
+                        return Err(format!(
+                            "MCP registry snapshot failed for server `{}` over {}: {}",
+                            error.server, error.transport, error.message
+                        ));
+                    }
                 }
-                Err(error) => {
-                    return Err(format!(
-                        "MCP discovery failed for server `{}` over {}: {}",
-                        error.server, error.transport, error.message
-                    ));
-                }
+            } else {
+                None
             };
-            let mut tool_registry = WorkerToolRegistryRpc::new_with_config(
-                context.settings.capability_policy()?,
-                config_snapshot,
-            );
+            let mut tool_registry =
+                WorkerToolRegistryRpc::new_with_config(capability_policy, config_snapshot);
             let graph_node_turn = ["graphRunId", "graph_run_id"]
                 .iter()
                 .any(|key| context.metadata.get(*key).is_some());
@@ -571,14 +576,33 @@ impl<'a> NativeAgentTurnExecution<'a> {
             {
                 tool_registry = tool_registry.with_contributor(Arc::new(contributor))?;
             }
-            for server in discovered {
-                tool_registry = tool_registry.with_contributor(Arc::new(
-                    McpToolContributor::from_discovery(
-                        &server.server_id,
-                        &server.server_config,
-                        &server.tools,
-                    )?,
-                ))?;
+            for server in mcp_snapshot
+                .as_deref()
+                .into_iter()
+                .flat_map(|snapshot| snapshot.servers.iter())
+                .filter(|server| server.available && server.tools.iter().any(|tool| tool.allowed))
+            {
+                tool_registry = tool_registry
+                    .with_contributor(Arc::new(McpToolContributor::from_registry(server)?))?;
+            }
+            if let (Some(snapshot), Some(selected_tools)) = (
+                mcp_snapshot.as_deref(),
+                context.settings.selected_tools.as_mut(),
+            ) {
+                let unavailable_mcp_tools = snapshot
+                    .servers
+                    .iter()
+                    .filter(|server| !server.available)
+                    .flat_map(|server| server.tools.iter().map(|tool| tool.id.as_str()))
+                    .collect::<std::collections::BTreeSet<_>>();
+                let dropped_concrete_mcp = selected_tools
+                    .iter()
+                    .any(|tool_id| unavailable_mcp_tools.contains(tool_id.as_str()));
+                selected_tools.retain(|tool_id| {
+                    !unavailable_mcp_tools.contains(tool_id.as_str())
+                        && (!dropped_concrete_mcp
+                            || tool_id != crate::tools::registry::MCP_CALL_TOOL_METHOD)
+                });
             }
             context.tool_router =
                 super::tool_router::NativeToolRouter::new(tool_registry.list_tools().tools);

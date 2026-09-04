@@ -240,14 +240,20 @@ export type ToolSummary = {
   description?: string;
   source: string;
   serverId?: string;
-  enabled: boolean;
   available: boolean;
+  allowed?: boolean;
+  defaultSelected?: boolean;
+  selected?: boolean;
+  /** Legacy catalog field accepted while older native builds are upgraded. */
+  enabled?: boolean;
   reason?: string;
 };
 
 export type McpServerSummary = {
   id: string;
   enabled: boolean;
+  available?: boolean;
+  stale?: boolean;
   transport: string;
   state: string;
   toolCount: number;
@@ -271,6 +277,7 @@ export type ToolCatalogSummary = {
   tools: ToolSummary[];
   mcpServers: McpServerSummary[];
   skills: SkillSummary[];
+  mcpRevision?: number;
 };
 
 export type ToolsStore = {
@@ -283,6 +290,34 @@ export type ToolsStore = {
   setPluginEnabled(name: string, enabled: boolean): Promise<PluginSummary>;
   uninstallPlugin(name: string): Promise<void>;
 };
+
+export type StreamableHttpMcpServerInput = {
+  name: string;
+  url: string;
+  bearerToken?: string;
+  httpHeaders: Record<string, string>;
+  envHttpHeaders: Record<string, string>;
+};
+
+export type StdioMcpServerInput = {
+  name: string;
+  command: string;
+  args: string[];
+  env: Record<string, string>;
+  envVarRefs: Record<string, string>;
+  cwd?: string;
+};
+
+export type McpServerConfiguration =
+  | (StdioMcpServerInput & {
+      enabled: boolean;
+      transport: "stdio";
+    })
+  | (Omit<StreamableHttpMcpServerInput, "bearerToken"> & {
+      bearerTokenConfigured: boolean;
+      enabled: boolean;
+      transport: "streamable-http";
+    });
 
 export type SettingsStore = {
   load(): Promise<Array<{ label: string; value: string }>>;
@@ -298,6 +333,12 @@ export type SettingsStore = {
   saveDefaultChatModel?(input: { modelId: string; providerId: string }): Promise<void>;
   fetchProviderModels?(input: ProviderModelFetchInput): Promise<ProviderModelFetchResult>;
   saveProviderSettings?(currentConfig: unknown, patch: unknown): Promise<ProviderModelsSettingsData>;
+  createStreamableHttpMcpServer?(input: StreamableHttpMcpServerInput): Promise<void>;
+  createStdioMcpServer?(input: StdioMcpServerInput): Promise<void>;
+  loadMcpServerConfiguration?(name: string): Promise<McpServerConfiguration>;
+  setMcpServerEnabled?(name: string, enabled: boolean): Promise<void>;
+  updateStreamableHttpMcpServer?(input: StreamableHttpMcpServerInput): Promise<void>;
+  updateStdioMcpServer?(input: StdioMcpServerInput): Promise<void>;
 };
 
 export type PersonalizationInstructionsData = {

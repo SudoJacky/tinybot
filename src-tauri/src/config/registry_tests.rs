@@ -235,6 +235,33 @@ fn mcp_http_settings_expose_endpoint_and_environment_references_without_secret_v
 }
 
 #[test]
+fn mcp_http_settings_expose_direct_bearer_token_as_a_secret_field() {
+    let snapshot = build_settings_snapshot(SettingsSnapshotInput {
+        config: json!({
+            "tools": { "mcpServers": { "docs": {
+                "enabled": true,
+                "transport": "streamable-http",
+                "url": "https://example.com/mcp",
+                "bearerToken": "direct-secret"
+            }}}
+        }),
+        config_path: PathBuf::from("C:/Users/example/.tinybot/config.json"),
+        revision: "rev-1".to_string(),
+        diagnostics: Vec::new(),
+    });
+
+    let bearer_token = snapshot
+        .field("tools.mcpServers.docs.bearerToken")
+        .expect("direct bearer token should exist as a secret field");
+    assert_eq!(bearer_token.value, Value::Null);
+    assert_eq!(bearer_token.source, SettingSource::Secret);
+    assert!(bearer_token
+        .secret
+        .as_ref()
+        .is_some_and(|secret| secret.configured));
+}
+
+#[test]
 fn mcp_stdio_settings_expose_environment_reference_names() {
     let snapshot = build_settings_snapshot(SettingsSnapshotInput {
         config: json!({

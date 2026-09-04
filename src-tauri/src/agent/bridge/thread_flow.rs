@@ -258,6 +258,7 @@ pub(crate) async fn execute_thread_turn_with_services(
                     input: content.to_string(),
                     model: native_agent_model(&spec, &config_snapshot),
                     provider: native_agent_provider(&spec, &config_snapshot),
+                    turn_spec: spec.clone(),
                 })
         });
     let thread_hook_services = base_services.clone();

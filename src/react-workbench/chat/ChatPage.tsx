@@ -291,13 +291,20 @@ function buildComposerSkillOptions(
 }
 
 function buildComposerToolOptions(tools: readonly ToolSummary[]): ComposerToolOption[] {
-  return tools.map((tool) => ({
-    description: tool.description,
-    disabled: !tool.available,
-    enabled: tool.enabled && tool.available,
-    id: tool.id,
-    name: tool.displayName || tool.name,
-  }));
+  return tools.map((tool) => {
+    const allowed = tool.allowed ?? tool.enabled ?? true;
+    const defaultSelected = tool.defaultSelected ?? allowed;
+    return {
+      available: tool.available,
+      allowed,
+      defaultSelected,
+      description: tool.description,
+      disabled: !tool.available || !allowed,
+      id: tool.id,
+      name: tool.displayName || tool.name,
+      selected: tool.selected ?? defaultSelected,
+    };
+  });
 }
 
 const SESSION_DELETE_DISSOLVE_MS = 180;

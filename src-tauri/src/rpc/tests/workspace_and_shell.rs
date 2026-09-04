@@ -271,7 +271,7 @@ fn dispatches_owned_shell_process_lifecycle() {
 }
 
 #[test]
-fn tool_executor_injects_turn_ownership_into_exec_command() {
+fn tool_executor_injects_turn_ownership_into_retained_shell_calls() {
     let fixture = WorkspaceFixture::new();
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
@@ -311,6 +311,31 @@ fn tool_executor_injects_turn_ownership_into_exec_command() {
         .as_str()
         .expect("retained process id should be present")
         .to_string();
+
+    let written = router.dispatch(&WorkerRequest::new(
+        "req-tool-write-stdin",
+        "trace-tool-exec-command",
+        "tool_executor.execute",
+        json!({
+            "toolId": "write_stdin",
+            "arguments": {
+                "processId": process_id,
+                "input": "",
+                "yieldTimeMs": 0
+            },
+            "sessionId": "session-exec-command",
+            "turnId": "turn-exec-command",
+            "toolCallId": "tool-write-stdin"
+        }),
+    ));
+    assert!(
+        written.error.is_none(),
+        "write_stdin should dispatch through tool executor: {:?}",
+        written.error
+    );
+    let written = written.result.expect("write_stdin should return a result");
+    assert_eq!(written["result"]["processId"], process_id, "{written:?}");
+    assert_eq!(written["result"]["running"], true, "{written:?}");
 
     let terminated = router.dispatch(&WorkerRequest::new(
         "req-tool-exec-command-terminate",

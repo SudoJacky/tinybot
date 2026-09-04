@@ -19,7 +19,7 @@ src-tauri/src/skills/definition.rs
 src-tauri/src/workspace/types.rs
 src-tauri/src/rpc/tests/workspace_and_shell.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:d4c72819fd8d8967715b76d006101463aa0cc1a3ef824b05f00f578fe5bfc85d -->
+<!-- tinybot-doc-fingerprint: sha256:0c54d72def8cee7de14b1c4c0add7d5980c483601976541bf5f48b24dec50adc -->
 
 This document covers workspace operations and the extension catalogs available
 to Agents. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -79,7 +79,7 @@ Native turns also merge project-local MCP definitions from `mcp.json`, `.mcp.jso
 | `worker_plugin_set_enabled` | `{ input: { name, enabled } }` | updated `PluginSummary` |
 | `worker_plugin_uninstall` | `{ input: { name } }` | `null` |
 
-Plugin installs use the Agent Plugins 1.0.0 layout and are global under `~/.tinybot/plugins`. New plugins are enabled by default. `PluginSummary.builtIn` identifies packages bundled with Tinybot. The built-in `create-agent-plugin` is installed during desktop startup, can be disabled, and cannot be uninstalled. Enabling, disabling, replacing, or uninstalling a plugin reconciles the shared MCP runtime. Every replacement receives a new install revision, so reinstalling changed plugin code restarts an existing MCP client even when `mcp.json` is unchanged. Skill names exposed to turn-level selection are qualified as `<plugin-name>:<skill-name>`; plugin MCP server IDs are qualified as `plugin:<plugin-name>:<server-name>`.
+Plugin installs use the Agent Plugins 1.0.0 layout and are global under `~/.tinybot/plugins`. New plugins are enabled by default. `PluginSummary.builtIn` identifies packages bundled with Tinybot. The built-in `create-agent-plugin` and `tinybot-mcp` packages are installed during desktop startup, can be disabled, and cannot be uninstalled. The latter contributes `tinybot-mcp:configure-mcp`, which teaches an Agent to extract an MCP definition from setup instructions or a link and use Tinybot's restricted `mcp.config.*` tools. Enabling, disabling, replacing, or uninstalling a plugin reconciles the shared MCP runtime. Every replacement receives a new install revision, so reinstalling changed plugin code restarts an existing MCP client even when `mcp.json` is unchanged. Skill names exposed to turn-level selection are qualified as `<plugin-name>:<skill-name>`; plugin MCP server IDs are qualified as `plugin:<plugin-name>:<server-name>`.
 
 Migration preparation accepts a recognized standalone Skill, MCP configuration, or client-plugin directory but does not install it. It rejects already valid Agent Plugins and unrecognized directories, copies the source without following links or reparse points into `~/.tinybot/plugins/migrations/<job-id>/source`, and creates an empty sibling `output` directory for an Agent-assisted conversion turn.
 

@@ -62,7 +62,7 @@ fn imports_enabled_globally_by_default() {
 }
 
 #[test]
-fn installs_and_protects_the_bundled_create_agent_plugin() {
+fn installs_and_protects_bundled_plugins() {
     let fixture = Fixture::new("bundled-create-agent-plugin");
     let store = PluginStore::new(fixture.root.join("global-plugins"));
 
@@ -70,13 +70,20 @@ fn installs_and_protects_the_bundled_create_agent_plugin() {
         .ensure_bundled_plugins()
         .expect("bundled plugins should install");
 
-    assert_eq!(changed.len(), 1);
+    assert_eq!(changed.len(), 2);
     assert_eq!(changed[0].name, "create-agent-plugin");
+    assert_eq!(changed[1].name, "tinybot-mcp");
     assert!(changed[0].built_in);
+    assert!(changed[1].built_in);
     assert!(changed[0].enabled);
+    assert!(changed[1].enabled);
     assert_eq!(
         changed[0].skills[0].qualified_name,
         "create-agent-plugin:migrate-agent-plugin"
+    );
+    assert_eq!(
+        changed[1].skills[0].qualified_name,
+        "tinybot-mcp:configure-mcp"
     );
     assert!(store
         .ensure_bundled_plugins()
@@ -93,8 +100,12 @@ fn installs_and_protects_the_bundled_create_agent_plugin() {
     let installed = store
         .list()
         .expect("bundled plugin should remain installed");
-    assert_eq!(installed.len(), 1);
-    assert!(!installed[0].enabled);
+    assert_eq!(installed.len(), 2);
+    let create_agent = installed
+        .iter()
+        .find(|plugin| plugin.name == "create-agent-plugin")
+        .unwrap();
+    assert!(!create_agent.enabled);
 }
 
 #[test]
@@ -112,13 +123,18 @@ fn does_not_replace_a_user_managed_plugin_with_the_bundled_copy() {
         .expect("user plugin should install");
     assert!(!installed.built_in);
 
-    assert!(store
+    let changed = store
         .ensure_bundled_plugins()
-        .expect("bundled initialization should preserve a user plugin")
-        .is_empty());
+        .expect("bundled initialization should preserve a user plugin");
+    assert_eq!(changed.len(), 1);
+    assert_eq!(changed[0].name, "tinybot-mcp");
     let installed = store.list().expect("user plugin should remain installed");
-    assert_eq!(installed[0].version.as_deref(), Some("9.0.0"));
-    assert!(!installed[0].built_in);
+    let create_agent = installed
+        .iter()
+        .find(|plugin| plugin.name == "create-agent-plugin")
+        .unwrap();
+    assert_eq!(create_agent.version.as_deref(), Some("9.0.0"));
+    assert!(!create_agent.built_in);
 }
 
 #[test]

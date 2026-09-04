@@ -2118,13 +2118,13 @@
   position: relative;
   display: grid;
   gap: 0;
-  padding: 4px 0 4px 28px;
+  padding: 8px 0 8px 28px;
 }
 
 .react-execution-timeline__content::before {
   position: absolute;
-  top: 4px;
-  bottom: 4px;
+  top: 8px;
+  bottom: 8px;
   left: 8px;
   width: 1px;
   background: color-mix(in srgb, var(--color-hairline) 76%, transparent);

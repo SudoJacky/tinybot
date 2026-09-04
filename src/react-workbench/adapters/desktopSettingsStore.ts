@@ -1,5 +1,9 @@
 import type { NativeConfigApi } from "../../app-core/native/desktopNativeConfig";
-import type { DesktopNativeConfigPatchResponse } from "../../app-core/native/desktopNativeConfigPatch";
+import {
+  removeDesktopConfigValue,
+  replaceDesktopConfigValue,
+  type DesktopNativeConfigPatchResponse,
+} from "../../app-core/native/desktopNativeConfigPatch";
 import type { NativeWebuiRouteRequest } from "../../app-core/native/desktopNativeWebui";
 import type { NativeWorkspaceApi } from "../../app-core/native/desktopNativeWorkspace";
 import type { NativeTokenUsageApi } from "../../app-core/native/desktopNativeTokenUsage";
@@ -22,6 +26,7 @@ import {
 import { saveDesktopSettingsConfig } from "../../app-core/settings/desktopSettingsSave";
 import type {
   ChatModelOption,
+  McpServerConfiguration,
   PersonalizationInstructionsData,
   SettingsStore,
 } from "../services";
@@ -228,6 +233,113 @@ export function createDesktopSettingsStore({
         saveDetails,
       };
     },
+    async createStreamableHttpMcpServer(input) {
+      await initialize();
+      const currentConfig = await loadSettingsSnapshot();
+      const name = input.name.trim();
+      if (configuredMcpServerExists(currentConfig, name)) {
+        throw new Error(`MCP server '${name}' already exists.`);
+      }
+      const bearerToken = input.bearerToken?.trim();
+      const headerNames = [...Object.keys(input.httpHeaders), ...Object.keys(input.envHttpHeaders)];
+      if (bearerToken && headerNames.some((header) => header.toLocaleLowerCase() === "authorization")) {
+        throw new Error("Configure either the bearer token or the Authorization header, not both.");
+      }
+      await persistSettingsConfig(currentConfig, {
+        tools: {
+          mcpServers: {
+            [name]: replaceDesktopConfigValue({
+              enabled: true,
+              transport: "streamable-http",
+              url: input.url.trim(),
+              ...(bearerToken ? { bearerToken } : {}),
+              ...(Object.keys(input.httpHeaders).length ? { httpHeaders: input.httpHeaders } : {}),
+              ...(Object.keys(input.envHttpHeaders).length ? { envHttpHeaders: input.envHttpHeaders } : {}),
+              enabledTools: ["*"],
+            }),
+          },
+        },
+      });
+    },
+    async createStdioMcpServer(input) {
+      await initialize();
+      const currentConfig = await loadSettingsSnapshot();
+      const name = input.name.trim();
+      if (configuredMcpServerExists(currentConfig, name)) {
+        throw new Error(`MCP server '${name}' already exists.`);
+      }
+      await persistSettingsConfig(currentConfig, {
+        tools: {
+          mcpServers: {
+            [name]: replaceDesktopConfigValue({
+              enabled: true,
+              transport: "stdio",
+              command: input.command.trim(),
+              ...(input.args.length ? { args: input.args } : {}),
+              ...(Object.keys(input.env).length ? { env: input.env } : {}),
+              ...(Object.keys(input.envVarRefs).length ? { envVarRefs: input.envVarRefs } : {}),
+              ...(input.cwd?.trim() ? { cwd: input.cwd.trim() } : {}),
+              enabledTools: ["*"],
+            }),
+          },
+        },
+      });
+    },
+    async loadMcpServerConfiguration(name) {
+      await initialize();
+      const currentConfig = await loadSettingsSnapshot();
+      return readMcpServerConfiguration(currentConfig, name);
+    },
+    async setMcpServerEnabled(name, enabled) {
+      await initialize();
+      const currentConfig = await loadSettingsSnapshot();
+      requireConfiguredMcpServer(currentConfig, name);
+      await persistSettingsConfig(currentConfig, {
+        tools: {
+          mcpServers: {
+            [name]: {
+              enabled: replaceDesktopConfigValue(enabled),
+            },
+          },
+        },
+      });
+    },
+    async updateStreamableHttpMcpServer(input) {
+      await initialize();
+      const currentConfig = await loadSettingsSnapshot();
+      const currentServer = requireConfiguredMcpServer(currentConfig, input.name);
+      const bearerToken = input.bearerToken?.trim();
+      const headerNames = [...Object.keys(input.httpHeaders), ...Object.keys(input.envHttpHeaders)];
+      const bearerTokenConfigured = bearerToken
+        || hasConfiguredSecret(currentConfig, input.name, "bearerToken")
+        || hasConfiguredSecret(currentConfig, input.name, "bearer_token");
+      if (bearerTokenConfigured && headerNames.some((header) => header.toLocaleLowerCase() === "authorization")) {
+        throw new Error("Configure either the bearer token or the Authorization header, not both.");
+      }
+      await persistSettingsConfig(currentConfig, mcpServerPatch(input.name, buildHttpMcpServerPatch(
+        currentServer,
+        {
+          name: input.name,
+          httpHeaders: input.httpHeaders,
+          envHttpHeaders: input.envHttpHeaders,
+          ...(bearerToken ? { bearerToken } : {}),
+          url: input.url.trim(),
+        },
+      )));
+    },
+    async updateStdioMcpServer(input) {
+      await initialize();
+      const currentConfig = await loadSettingsSnapshot();
+      const currentServer = requireConfiguredMcpServer(currentConfig, input.name);
+      await persistSettingsConfig(currentConfig, mcpServerPatch(input.name, buildStdioMcpServerPatch(
+        currentServer,
+        {
+          ...input,
+          command: input.command.trim(),
+          ...(input.cwd?.trim() ? { cwd: input.cwd.trim() } : {}),
+        },
+      )));
+    },
     async loadProviderSettings() {
       await initialize();
       return buildProviderModelsSettings(await loadSettingsSnapshot());
@@ -274,6 +386,181 @@ export function createDesktopSettingsStore({
       return buildProviderModelsSettings(savedConfig);
     },
   };
+}
+
+function configuredMcpServerExists(config: unknown, name: string): boolean {
+  if (!name || !isRecord(config)) return false;
+  const tools = isRecord(config.tools) ? config.tools : {};
+  const mcp = isRecord(config.mcp) ? config.mcp : {};
+  return [tools.mcpServers, tools.mcp_servers, mcp.servers]
+    .some((servers) => isRecord(servers) && Object.prototype.hasOwnProperty.call(servers, name));
+}
+
+function requireConfiguredMcpServer(config: unknown, name: string): Record<string, unknown> {
+  if (!name.trim()) throw new Error("MCP server name is required.");
+  if (!isRecord(config)) throw new Error("Tinybot configuration is unavailable.");
+  const tools = isRecord(config.tools) ? config.tools : {};
+  const mcp = isRecord(config.mcp) ? config.mcp : {};
+  for (const servers of [tools.mcpServers, tools.mcp_servers, mcp.servers]) {
+    if (!isRecord(servers) || !Object.prototype.hasOwnProperty.call(servers, name)) continue;
+    const server = servers[name];
+    if (!isRecord(server)) throw new Error(`MCP server '${name}' configuration must be an object.`);
+    return server;
+  }
+  throw new Error(`MCP server '${name}' is not configured globally.`);
+}
+
+function readMcpServerConfiguration(config: unknown, name: string): McpServerConfiguration {
+  const server = requireConfiguredMcpServer(config, name);
+  const transport = normalizeMcpTransport(server.transport);
+  const enabled = server.enabled !== false;
+  if (transport === "stdio") {
+    return {
+      name,
+      enabled,
+      transport,
+      command: stringValue(server.command),
+      args: stringArray(server.args),
+      env: stringRecord(server.env),
+      envVarRefs: stringRecord(server.envVarRefs ?? server.env_var_refs),
+      ...(stringValue(server.cwd) ? { cwd: stringValue(server.cwd) } : {}),
+    };
+  }
+  return {
+    name,
+    enabled,
+    transport,
+    url: stringValue(server.url ?? server.endpoint ?? server.uri),
+    bearerTokenConfigured: hasConfiguredSecret(config, name, "bearerToken")
+      || hasConfiguredSecret(config, name, "bearer_token"),
+    httpHeaders: stringRecord(server.httpHeaders ?? server.http_headers ?? server.headers),
+    envHttpHeaders: stringRecord(server.envHttpHeaders ?? server.env_http_headers),
+  };
+}
+
+function normalizeMcpTransport(value: unknown): "stdio" | "streamable-http" {
+  const transport = stringValue(value).trim().toLocaleLowerCase();
+  if (!transport || transport === "stdio") return "stdio";
+  if (["http", "streamable_http", "streamable-http"].includes(transport)) return "streamable-http";
+  throw new Error(`Unsupported MCP transport '${transport}'.`);
+}
+
+function mcpServerPatch(name: string, server: Record<string, unknown>): Record<string, unknown> {
+  return { tools: { mcpServers: { [name]: server } } };
+}
+
+function buildStdioMcpServerPatch(
+  current: Record<string, unknown>,
+  input: { command: string; args: string[]; env: Record<string, string>; envVarRefs: Record<string, string>; cwd?: string },
+): Record<string, unknown> {
+  const patch: Record<string, unknown> = {
+    transport: replaceDesktopConfigValue("stdio"),
+    command: replaceDesktopConfigValue(input.command),
+    args: replaceDesktopConfigValue(input.args),
+  };
+  assignMapPatch(patch, "env", stringRecord(current.env), input.env);
+  assignMapPatch(patch, "envVarRefs", stringRecord(current.envVarRefs ?? current.env_var_refs), input.envVarRefs);
+  assignOptionalStringPatch(patch, "cwd", stringValue(current.cwd), input.cwd);
+  if (normalizeMcpTransport(current.transport) === "streamable-http") {
+    removeServerFields(patch, ["url", "bearerToken", "bearerTokenEnvVar", "httpHeaders", "envHttpHeaders"]);
+  }
+  return patch;
+}
+
+function buildHttpMcpServerPatch(
+  current: Record<string, unknown>,
+  input: {
+    bearerToken?: string;
+    envHttpHeaders: Record<string, string>;
+    httpHeaders: Record<string, string>;
+    name: string;
+    url: string;
+  },
+): Record<string, unknown> {
+  const patch: Record<string, unknown> = {
+    transport: replaceDesktopConfigValue("streamable-http"),
+    url: replaceDesktopConfigValue(input.url),
+  };
+  if (input.bearerToken) patch.bearerToken = replaceDesktopConfigValue(input.bearerToken);
+  assignMapPatch(
+    patch,
+    "httpHeaders",
+    stringRecord(current.httpHeaders ?? current.http_headers ?? current.headers),
+    input.httpHeaders,
+  );
+  assignMapPatch(
+    patch,
+    "envHttpHeaders",
+    stringRecord(current.envHttpHeaders ?? current.env_http_headers),
+    input.envHttpHeaders,
+  );
+  if (normalizeMcpTransport(current.transport) === "stdio") {
+    removeServerFields(patch, ["command", "args", "env", "envVarRefs", "cwd"]);
+  }
+  return patch;
+}
+
+function assignMapPatch(
+  patch: Record<string, unknown>,
+  field: string,
+  current: Record<string, string>,
+  next: Record<string, string>,
+): void {
+  const childPatch: Record<string, unknown> = {};
+  for (const key of Object.keys(current)) {
+    if (!Object.prototype.hasOwnProperty.call(next, key)) childPatch[key] = removeDesktopConfigValue();
+  }
+  for (const [key, value] of Object.entries(next)) {
+    if (current[key] !== value) childPatch[key] = replaceDesktopConfigValue(value);
+  }
+  if (Object.keys(childPatch).length) patch[field] = childPatch;
+}
+
+function assignOptionalStringPatch(
+  patch: Record<string, unknown>,
+  field: string,
+  current: string,
+  next: string | undefined,
+): void {
+  const normalized = next?.trim() ?? "";
+  if (normalized) {
+    patch[field] = replaceDesktopConfigValue(normalized);
+  } else if (current) {
+    patch[field] = removeDesktopConfigValue();
+  }
+}
+
+function removeServerFields(
+  patch: Record<string, unknown>,
+  fields: string[],
+): void {
+  for (const field of fields) {
+    patch[field] = removeDesktopConfigValue();
+  }
+}
+
+function hasConfiguredSecret(config: unknown, serverName: string, field: string): boolean {
+  if (!isRecord(config)) return false;
+  const metadata = isRecord(config.configMetadata) ? config.configMetadata : {};
+  const presence = isRecord(metadata.secretPresence) ? metadata.secretPresence : {};
+  const fieldSuffix = `.${field}`;
+  return Object.entries(presence).some(([path, value]) => {
+    if (!isRecord(value) || value.configured !== true || !path.endsWith(fieldSuffix)) return false;
+    return !serverName || [
+      `tools.mcpServers.${serverName}.`,
+      `tools.mcp_servers.${serverName}.`,
+      `mcp.servers.${serverName}.`,
+    ].some((prefix) => path.startsWith(prefix));
+  });
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function stringRecord(value: unknown): Record<string, string> {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
 }
 
 function normalizePersonalizationInstructions(payload: unknown): PersonalizationInstructionsData {

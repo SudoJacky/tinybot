@@ -11,14 +11,15 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:a1483ec78029186e4a81fa82b87421649307593264b22ff9cb91a3ba7333346f -->
+<!-- tinybot-doc-fingerprint: sha256:624eceff368e85a0034103588efe76dfaf739b7c972b6edaa4d28b731f0dffe0 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
 and result projection remain separate concerns joined through narrow seams.
 
-The independent first-Turn title request does not enter the Agent Runtime and
-never receives this registry; it is always a single tool-free Provider call.
+The independent first-Turn title request reuses the Agent Runtime's Provider
+request and response adapters without entering the Agent Loop. It never receives
+the tool registry and remains a single tool-free Provider call.
 
 ## Tool flow
 
@@ -94,6 +95,12 @@ IDs, tool IDs, or methods fail registry construction.
 Provider-specific adapters encode the same tool definitions into their wire
 format. They do not own registry policy or permission decisions.
 
+The MCP capability catalog keeps four states separate: runtime `available`,
+policy/config `allowed`, initial `defaultSelected`, and current UI `selected`.
+Its length-prefixed IDs are opaque and are reused unchanged when a Turn creates
+concrete MCP registry entries. The generic deferred `mcp.call_tool` fallback is
+not selected by default; a concrete MCP selection suppresses it defensively.
+
 ## Permission enforcement
 
 The active permission profile supplies a `CapabilityPolicy`. The registry uses
@@ -115,9 +122,20 @@ alternative tool names are rejected instead of being normalized into that
 fallback path.
 
 MCP discovery and calls are keyed by the Turn's effective working directory,
-not Tinybot's backend state directory. The dispatcher also reads the current
-Turn configuration snapshot, which includes project-local MCP definitions,
-instead of retaining a potentially stale cross-workspace snapshot.
+not Tinybot's backend state directory. WebUI and Turn preparation use the same
+revisioned registry snapshot for that workspace and effective MCP configuration.
+Each Turn captures it atomically before provider dispatch. Discovery runs per
+server; a failure preserves same-configuration last-known-good definitions as
+unavailable metadata or disables only that server when no prior definitions
+exist.
+
+Global MCP configuration is a separate, narrow capability. `mcp.config.list`
+returns a redacted projection, while `mcp.config.upsert` accepts only typed
+stdio or Streamable HTTP fields and requires the revision from the latest
+list. Literal credentials are excluded from its schema. Successful writes are
+reconciled against the shared runtime and connection failures remain distinct
+from persistence success. No model-visible tool routes arbitrary
+`config.apply_operations` requests.
 
 Agent Graph execution uses a bound registry target containing the definition
 workspace, Graph ID, and revision. The provider can supply only a non-empty
@@ -143,7 +161,12 @@ effects at execution time.
 The runtime rejects an entire provider tool-call batch before execution when
 any call is not permitted. Prepared calls are then scheduled according to
 registry policy: compatible read-only calls may run in parallel, while
-workspace or session mutations form exclusive waves.
+workspace or session mutations form exclusive waves. A provider response that
+contains several calls does not require simultaneous dispatch: the runtime,
+not the provider, owns their concrete schedule. An exclusive classification is
+therefore an ordering barrier rather than a rejection. In particular,
+`update_plan` may share a batch with ordinary tools; it updates the Turn plan
+alone, then the scheduler continues with later waves in model order.
 
 Provider-authored argument preparation is also a recoverable batch boundary.
 If any call contains malformed JSON or a non-object argument, no call in that

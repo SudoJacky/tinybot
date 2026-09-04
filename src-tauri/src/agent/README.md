@@ -1,5 +1,5 @@
 # Agent
-<!-- tinybot-module-fingerprint: sha256:f770571dde5dac3d3edc57fd65e4e4bd0aff915081b568891d3798b7a56cbc93 -->
+<!-- tinybot-module-fingerprint: sha256:8ed87800209c3d2d9dde1777ba3af0aa443e07154d55ebe40d7ed775c50b1b6d -->
 
 `agent` contains the native agent stack. It connects provider configuration,
 the turn runtime, durable runtime events, and the desktop integration bridge.
@@ -21,7 +21,8 @@ dedicated, non-streaming, tool-free provider request, strictly maps the complete
 Agent Loop or create a Thread. Router requests preserve explicit node provider
 overrides and otherwise use the active application provider profile.
 `conversation_title.rs` owns the smaller first-Turn title path. It issues one
-bounded, non-streaming, tool-free request with the Turn's resolved Provider and
-model, normalizes the result, and commits it asynchronously without entering the
-Agent Loop or delaying that Turn. Responses-mode title parsing accepts only
-assistant `message` / `output_text` content and ignores Provider reasoning items.
+bounded, tool-free request through the same protocol adapter, effective Provider
+settings, streaming choice, and response decoder as the initiating Turn. Only
+the prompt is replaced; no separate output-token budget is added. The result is
+normalized and committed asynchronously without entering the Agent Loop or
+delaying that Turn.

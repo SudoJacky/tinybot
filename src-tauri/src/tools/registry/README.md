@@ -1,5 +1,5 @@
 # Tool Registry
-<!-- tinybot-module-fingerprint: sha256:568ac3badee5aa64a7a1b9abc0234be0d1e3c9e31cd619c9687d71c478725ba0 -->
+<!-- tinybot-module-fingerprint: sha256:8edb807bc6e3bc17a9d555fd67932810577ee9f6a736a51c951dc387b9d50848 -->
 
 `registry` is the catalog of tools available to the runtime. Each entry records
 its schema, exposure, execution target, required capabilities, cancellation
@@ -7,6 +7,9 @@ behavior, and mutation policy.
 
 Contributors add built-in, web, workspace, MCP, runtime-control, Agent Graph,
 and project-group workspace-Thread tools to a single searchable registry.
+The built-in MCP contributor exposes credential-redacted list and status
+operations plus a typed, revision-guarded upsert. It deliberately does not
+expose generic configuration mutation to the model.
 Agent Graph entries are deferred tools bound to a canonical definition
 workspace, Graph ID, and revision; their provider schema exposes only the
 transient Run input. Dynamic contributors must enforce their eligibility scope

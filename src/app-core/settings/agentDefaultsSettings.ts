@@ -24,7 +24,6 @@ export type AgentDefaultsValidationErrors = Partial<Record<keyof AgentDefaultsFo
 
 type JsonRecord = Record<string, unknown>;
 
-const DEFAULT_AGENT_MAX_TOKENS = 8192;
 const DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS = 128000;
 const DEFAULT_AGENT_CONTEXT_WINDOW_STRATEGY = "compact";
 const DEFAULT_AGENT_MAX_TOOL_ITERATIONS = 200;
@@ -44,7 +43,7 @@ export function buildAgentDefaultsSettings(
     ),
     values: {
       timezone: stringValue(defaults.timezone).trim() || normalizedTimeZone(systemTimeZone),
-      maxTokens: formNumber(pick(defaults, "maxTokens", "max_tokens"), DEFAULT_AGENT_MAX_TOKENS),
+      maxTokens: formNumber(pick(defaults, "maxTokens", "max_tokens")),
       contextWindowStrategy: contextWindowStrategyValue(
         pick(defaults, "contextWindowStrategy", "context_window_strategy"),
       ) || DEFAULT_AGENT_CONTEXT_WINDOW_STRATEGY,
@@ -113,13 +112,22 @@ export function buildAgentDefaultsPatch(values: AgentDefaultsFormValues): JsonRe
   if (timezone) {
     defaults.timezone = timezone;
   }
-  setOptionalInteger(defaults, "maxTokens", values.maxTokens);
+  setOptionalIntegerOrRemove(defaults, "maxTokens", values.maxTokens);
   const contextWindowStrategy = contextWindowStrategyValue(values.contextWindowStrategy);
   if (contextWindowStrategy) {
     defaults.contextWindowStrategy = contextWindowStrategy;
   }
   setOptionalInteger(defaults, "maxIterations", values.maxToolIterations);
   return { agents: { defaults } };
+}
+
+function setOptionalIntegerOrRemove(record: JsonRecord, key: string, value: string): void {
+  const text = value.trim();
+  if (text) {
+    record[key] = Number.parseInt(text, 10);
+  } else {
+    record[key] = { __desktopConfigOperation: "remove" };
+  }
 }
 
 function setOptionalInteger(record: JsonRecord, key: string, value: string): void {

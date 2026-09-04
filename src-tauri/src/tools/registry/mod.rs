@@ -14,6 +14,7 @@ use std::sync::Arc;
 pub const REQUEST_USER_INPUT_METHOD: &str = "request_user_input";
 pub const PUBLISH_DATA_VIEW_METHOD: &str = "publish_data_view";
 pub const UPDATE_PLAN_METHOD: &str = "update_plan";
+pub const MCP_CALL_TOOL_METHOD: &str = "mcp.call_tool";
 pub const SPAWN_WORKSPACE_THREAD_METHOD: &str = "spawn_workspace_thread";
 pub const SEND_THREAD_MESSAGE_METHOD: &str = "send_thread_message";
 

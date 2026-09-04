@@ -64,6 +64,7 @@ describe("desktop settings and provider helpers", () => {
     expect(state.agent.model).toBe("gpt-4.1");
     expect(state.agent.provider).toBe("openai");
     expect(state.agent.temperature).toBe(0);
+    expect(state.agent.maxTokens).toBeNull();
     expect(state.agent.contextWindowStrategy).toBe("compact");
     expect(state.embedding.modelName).toBe("text-embedding-v3");
     expect(state.providerEditor).toMatchObject({
@@ -164,6 +165,25 @@ describe("desktop settings and provider helpers", () => {
       { field: "mcpServers", errorKey: "jsonObjectError" },
       { field: "providerApiBase", errorKey: "urlError" },
     ]);
+  });
+
+  test("removes max output tokens when the optional desktop value is cleared", () => {
+    const existingConfig = {
+      agents: { defaults: { maxTokens: 8192 } },
+    };
+    const state = applyDesktopSettingsFieldEdit(
+      buildDesktopSettingsFormState(existingConfig),
+      "maxTokens",
+      "",
+    );
+
+    expect(createDesktopSettingsPatch(state, existingConfig)).toEqual({
+      agents: {
+        defaults: {
+          max_tokens: { __desktopConfigOperation: "remove" },
+        },
+      },
+    });
   });
 
   test("accepts UTC, GMT, offset aliases, and IANA timezone defaults while rejecting invalid timezone values", () => {

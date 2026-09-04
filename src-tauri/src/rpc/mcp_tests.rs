@@ -301,12 +301,19 @@ fn mcp_fixture_fields_never_create_a_fake_runtime() {
     let call_error = rpc
         .call_tool_from_request(&request)
         .expect_err("fixture fields must not synthesize MCP call success");
-    let list_error = rpc
+    let listed = rpc
         .list_tools()
-        .expect_err("fixture fields must not synthesize MCP tool definitions");
+        .expect("a broken server should be isolated in the registry snapshot");
 
     assert!(call_error.message.contains("requires a command"));
-    assert!(list_error.message.contains("requires a command"));
+    assert_eq!(listed["servers"][0]["available"], false);
+    assert!(listed["servers"][0]["tools"]
+        .as_array()
+        .is_some_and(Vec::is_empty));
+    assert!(listed["servers"][0]["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("requires a command"));
 }
 
 #[test]
@@ -470,8 +477,13 @@ fn mcp_capability_catalog_exposes_discovered_and_allowlisted_state() {
     assert_eq!(catalog["servers"][0]["toolCount"], 2);
     assert_eq!(catalog["tools"].as_array().map(Vec::len), Some(2));
     assert_eq!(catalog["tools"][0]["name"], "remote.echo");
+    assert_eq!(catalog["tools"][0]["id"], "mcp.6:remote.4:echo");
     assert_eq!(catalog["tools"][0]["callable"], true);
-    assert_eq!(catalog["tools"][1]["enabled"], false);
+    assert_eq!(catalog["tools"][0]["available"], true);
+    assert_eq!(catalog["tools"][0]["allowed"], true);
+    assert_eq!(catalog["tools"][0]["defaultSelected"], true);
+    assert_eq!(catalog["tools"][0]["selected"], true);
+    assert_eq!(catalog["tools"][1]["allowed"], false);
     assert_eq!(
         catalog["tools"][1]["reason"],
         "tool is not included in the server allowlist"
@@ -479,7 +491,85 @@ fn mcp_capability_catalog_exposes_discovered_and_allowlisted_state() {
 }
 
 #[test]
-fn mcp_legacy_sse_is_rejected_without_transport_fallback() {
+fn mcp_registry_isolates_a_broken_server_from_healthy_servers() {
+    let fixture = StdioMcpFixture::new();
+    let rpc = mcp_rpc(json!({
+        "tools": {
+            "mcp_servers": {
+                "broken": {
+                    "transport": "stdio",
+                    "enabled_tools": ["search"]
+                },
+                "docs": {
+                    "transport": "stdio",
+                    "command": "node",
+                    "args": [fixture.script.to_string_lossy()],
+                    "cwd": fixture.root.to_string_lossy(),
+                    "enabled_tools": ["echo"]
+                }
+            }
+        }
+    }));
+
+    let listed = rpc
+        .list_tools()
+        .expect("one broken server must not fail the complete registry");
+
+    assert_eq!(listed["servers"].as_array().map(Vec::len), Some(2));
+    assert_eq!(listed["servers"][0]["name"], "broken");
+    assert_eq!(listed["servers"][0]["available"], false);
+    assert_eq!(listed["servers"][1]["name"], "docs");
+    assert_eq!(listed["servers"][1]["available"], true);
+    assert_eq!(listed["servers"][1]["tools"][0]["name"], "echo");
+    rpc.shutdown().expect("healthy MCP server should shut down");
+}
+
+#[test]
+fn mcp_registry_isolates_invalid_discovered_schema() {
+    let fixture = StdioMcpFixture::from_source(
+        r#"
+const readline = require("readline");
+const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+function send(value) { process.stdout.write(`${JSON.stringify(value)}\n`); }
+lines.on("line", (line) => {
+  const message = JSON.parse(line);
+  if (message.method === "initialize") {
+    send({ jsonrpc: "2.0", id: message.id, result: {
+      protocolVersion: "2025-06-18",
+      capabilities: { tools: { listChanged: false } },
+      serverInfo: { name: "tinybot-invalid-schema-mcp", version: "1.0.0" }
+    }});
+  } else if (message.method === "tools/list") {
+    send({ jsonrpc: "2.0", id: message.id, result: { tools: [{
+      name: "broken", inputSchema: { type: "string" }
+    }] }});
+  }
+});
+"#,
+    );
+    let rpc = mcp_rpc(json!({
+        "tools": { "mcp_servers": { "invalid": {
+            "transport": "stdio",
+            "command": "node",
+            "args": [fixture.script.to_string_lossy()],
+            "cwd": fixture.root.to_string_lossy(),
+            "enabled_tools": ["broken"]
+        }}}
+    }));
+
+    let listed = rpc
+        .list_tools()
+        .expect("invalid schema should be isolated to its server");
+
+    assert_eq!(listed["servers"][0]["available"], false);
+    assert!(listed["servers"][0]["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("input schema type must be object"));
+}
+
+#[test]
+fn mcp_legacy_sse_is_isolated_without_transport_fallback() {
     let rpc = mcp_rpc(json!({
         "tools": {
             "mcp_servers": {
@@ -493,14 +583,18 @@ fn mcp_legacy_sse_is_rejected_without_transport_fallback() {
         }
     }));
 
-    let error = rpc
+    let listed = rpc
         .list_tools()
-        .expect_err("legacy SSE must fail validation explicitly");
+        .expect("an invalid server should not fail the complete registry");
+    let server = &listed["servers"][0];
 
-    assert_eq!(error.code, WorkerProtocolErrorCode::InvalidProtocol);
-    assert_eq!(error.details["server"], "legacy");
-    assert_eq!(error.details["transport"], "sse");
-    assert!(error.message.contains("unsupported transport"));
+    assert_eq!(server["name"], "legacy");
+    assert_eq!(server["available"], false);
+    assert_eq!(server["status"]["transport"], "sse");
+    assert!(server["error"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("unsupported transport"));
 }
 
 #[test]
@@ -864,16 +958,17 @@ fn mcp_startup_failure_does_not_echo_command_or_environment_secrets() {
         }}}
     }));
 
-    let error = rpc
+    let listed = rpc
         .list_tools()
-        .expect_err("missing configured command should fail startup");
+        .expect("startup failure should be isolated to the configured server");
+    let error = listed["servers"][0]["error"]
+        .as_str()
+        .expect("failed server should expose a sanitized error");
     let status = rpc
         .server_status("private")
         .expect("startup failure status should be available");
 
-    assert_eq!(error.details["server"], "private");
-    assert_eq!(error.details["transport"], "stdio");
-    assert!(!error.message.contains(secret));
+    assert!(!error.contains(secret));
     assert!(!status["lastError"]
         .as_str()
         .unwrap_or_default()

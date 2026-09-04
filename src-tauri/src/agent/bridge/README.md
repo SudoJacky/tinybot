@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:c35119b39d9c612b351d4ba948cd3858cdca834e174204160a9d155d805de3d4 -->
+<!-- tinybot-module-fingerprint: sha256:eaad79f61a90d3c30d999aef602643d20c486e7fc4a7a43ce14bcb7690af28b6 -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -13,6 +13,8 @@ loop.
 - Merge project-local MCP definitions for the effective working directory.
 - Execute bound Agent Graph tools through the Graph Run service and project
   their final output into the parent Turn.
+- Dispatch restricted MCP configuration reads and writes, reconcile the shared
+  runtime, and report connection status without exposing stored credentials.
 - Reject invalid re-entry into an already terminal turn.
 - Build tool-dispatch and trace-sink services for the turn owner.
 - Persist turn start, runtime trace, checkpoints, and terminal turn state.
@@ -33,7 +35,9 @@ Thread data model. Those belong to `agent::runtime` and `threads::domain`.
    diagnostics to the persisted spec.
 3. Persist the turn start before history loading or provider work begins. A
    default-titled empty Thread may then start its independent title request;
-   failure is logged and never fails or delays the main Turn.
+   failure is logged and never fails or delays the main Turn. The request
+   carries the initiating Turn specification so the runtime can reuse its
+   effective Provider settings without a title-only token budget.
 4. Hydrate the runtime history from the canonical Thread projection.
 5. Build tool, context-checkpoint, trace, and workspace command-hook services,
    selecting the Thread-owned or direct-session trace path.
@@ -68,6 +72,8 @@ when it failed.
 - `persistence.rs`: turn/checkpoint persistence and cancellation/restore.
 - `trace_sink.rs`: live desktop and durable trace sinks.
 - `tool_dispatcher.rs`: construct runtime services backed by registered tools.
+  It also owns Agent-only `mcp.config.*` dispatch because configuration changes
+  require asynchronous runtime reconciliation rather than generic Worker RPC.
 - `result_projection.rs`: stable result, canonical token-usage, artifact, and
   status accessors.
 - `webui_continuation.rs`: form continuations for WebUI callers.

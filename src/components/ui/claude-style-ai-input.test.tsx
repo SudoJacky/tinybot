@@ -211,7 +211,7 @@ describe("ClaudeStyleAiInput slash commands", () => {
     expect(onRemoveSessionMention).toHaveBeenCalledWith("thread-2");
   });
 
-  it("enables asynchronously loaded tools and submits an explicit tool selection", async () => {
+  it("applies asynchronous default selection and submits current tool selection", async () => {
     const user = userEvent.setup();
     const onSendMessage = vi.fn();
     const view = render(<ClaudeStyleAiInput onSendMessage={onSendMessage} tools={[]} />);
@@ -219,10 +219,13 @@ describe("ClaudeStyleAiInput slash commands", () => {
     view.rerender(<ClaudeStyleAiInput
       onSendMessage={onSendMessage}
       tools={[{
+        allowed: true,
+        available: true,
+        defaultSelected: true,
         description: "Run a saved workflow.",
-        enabled: true,
         id: "agent_graph.run.review",
         name: "Review workflow",
+        selected: true,
       }]}
     />);
 
