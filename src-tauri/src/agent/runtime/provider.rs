@@ -1,5 +1,6 @@
 use super::chat_completions_adapter::ChatCompletionsAdapter;
 use super::provider_protocol::ProviderProtocolAdapter;
+use super::responses_adapter::ResponsesAdapter;
 use super::{
     string_field, AgentItemHistory, AgentMessageContent, AgentToolCallItem, AgentTurnContext,
     NativeAgentProvider, NativeAgentProviderFailure, NativeAgentProviderFailureKind,
@@ -105,6 +106,107 @@ impl NativeAgentProvider for RustNativeAgentProvider {
                 .map_err(NativeAgentProviderFailure::provider)
         })
     }
+}
+
+struct ToolFreeTextCompletionRequest {
+    context: AgentTurnContext,
+    adapter: ProviderProtocolAdapter,
+    provider_config: Value,
+    request: Value,
+}
+
+pub(crate) async fn complete_tool_free_text_for_agent(
+    turn_spec: &Value,
+    config_snapshot: &Value,
+    system_prompt: &str,
+    user_prompt: &str,
+) -> Result<String, String> {
+    let prepared =
+        prepare_tool_free_text_completion(turn_spec, config_snapshot, system_prompt, user_prompt)?;
+    let mut observer = |_event: crate::agent::provider::NativeProviderStreamEvent| {};
+    let completion = prepared
+        .adapter
+        .complete_async(
+            &prepared.provider_config,
+            &prepared.request,
+            &mut observer,
+            None,
+        )
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut decoded = prepared
+        .adapter
+        .decode_response(&prepared.context, &completion)?
+        .turn;
+    if !decoded.assistant.tool_calls.is_empty() {
+        return Err("tool-free text completion returned a tool call".to_string());
+    }
+    match decoded.assistant.content.take() {
+        Some(AgentMessageContent::Text(content)) => Ok(content),
+        Some(AgentMessageContent::Parts(_)) => {
+            Err("tool-free text completion returned non-text content".to_string())
+        }
+        None => Ok(String::new()),
+    }
+}
+
+fn prepare_tool_free_text_completion(
+    turn_spec: &Value,
+    config_snapshot: &Value,
+    system_prompt: &str,
+    user_prompt: &str,
+) -> Result<ToolFreeTextCompletionRequest, String> {
+    let mut title_spec = turn_spec.clone();
+    let title_spec = title_spec
+        .as_object_mut()
+        .ok_or_else(|| "agent turn spec must be an object".to_string())?;
+    title_spec.insert(
+        "messages".to_string(),
+        serde_json::json!([{ "role": "user", "content": user_prompt }]),
+    );
+    title_spec.remove("responseItems");
+    title_spec.remove("response_items");
+
+    let context =
+        AgentTurnContext::from_spec(Value::Object(title_spec.clone()), config_snapshot.clone());
+    let provider_config = agent_provider_config(&context);
+    let adapter = ProviderProtocolAdapter::resolve(&context, &provider_config)?;
+    let request = match adapter {
+        ProviderProtocolAdapter::ChatCompletions => ChatCompletionsAdapter::build_request(
+            &context.messages,
+            Some(system_prompt),
+            &[],
+            &context.settings,
+            &context.config_snapshot,
+            false,
+        )?,
+        ProviderProtocolAdapter::Responses => ResponsesAdapter::build_request(
+            &context.messages,
+            Some(system_prompt),
+            None,
+            &[],
+            &context.settings,
+            &context.config_snapshot,
+            false,
+        )?,
+    };
+    Ok(ToolFreeTextCompletionRequest {
+        context,
+        adapter,
+        provider_config,
+        request,
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn tool_free_text_request_for_agent(
+    turn_spec: &Value,
+    config_snapshot: &Value,
+    system_prompt: &str,
+    user_prompt: &str,
+) -> Result<Value, String> {
+    prepare_tool_free_text_completion(turn_spec, config_snapshot, system_prompt, user_prompt)
+        .map(|prepared| prepared.request)
 }
 
 fn parse_message_phase(phase: &str) -> crate::agent::runtime_protocol::AgentAssistantMessagePhase {

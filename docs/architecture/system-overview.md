@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:0b8beefd1aed226e053e1658406d9439da802c3c89557171d86ea9c15e9f7551 -->
+<!-- tinybot-doc-fingerprint: sha256:7dcf1803e6b305dd6827556283f597bbf02b84280677fbd0ddec2fce5b42f2f6 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -121,8 +121,9 @@ Desktop Commands / Desktop Host
   send replaces the draft with a canonical Thread before dispatching its Turn.
   After that Turn is durable, an independent tool-free request may refine the
   optimistic first-prompt title without delaying the Turn or overriding a later
-  manual rename. Its response boundary accepts only final assistant title text,
-  never Provider reasoning content.
+  manual rename. It reuses that Turn's effective Provider request settings and
+  response decoder while replacing the prompt and omitting tools and history;
+  only final assistant text can become the title.
   Chat reports its active persisted session or local draft working directory to
   the shell as transient cross-route context; workspace-scoped resource routes
   consume that projection without deriving a current workspace from recency.

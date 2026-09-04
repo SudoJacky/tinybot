@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:0c1b2531fb7ea481ab5f4683c0caf7543efdcdaf69b687891a07391606da1152 -->
+<!-- tinybot-doc-fingerprint: sha256:906d5f979d6db3e358703f47ad036ad9da89079b24267b0d94fbc2f547132b1f -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -173,7 +173,9 @@ reconstruct the updated log before recovery decisions are made.
 - Persist Turn start before provider work and flush trace before terminal
   success; persist a failed terminal before returning a runtime or trace error.
 - Keep first-Turn title generation independent from the main Turn and never let
-  a late model title replace a manual rename.
+  a late model title replace a manual rename. Reuse the initiating Turn's
+  effective Provider request settings while replacing its prompt and omitting
+  tools and prior history; do not apply a separate title token budget.
 - Do not append the same user, assistant, or tool item again during terminal
   persistence.
 - Keep provider failures, tool failures, trace failures, cancellation, and

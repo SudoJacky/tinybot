@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:142c6c849077ac4f5d23ea48328b001e3bdddd2d8872cfb828586a62e9d301b8 -->
+<!-- tinybot-module-fingerprint: sha256:50655ae7a803593948c432bcacc6187e216ec785e8d395b97092569e628199b3 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -56,7 +56,10 @@ decide which durable conversation store a caller uses.
    bounded request context and record provenance/diagnostics.
 4. `provider.rs` selects one adapter through `provider_protocol.rs`.
    `chat_completions_adapter.rs` and `responses_adapter.rs` independently encode
-   the request and decode provider output into runtime concepts.
+   the request and decode provider output into runtime concepts. Independent
+   title generation uses the same typed settings, protocol adapter, Provider
+   adaptation, streaming path, and response decoder with a replacement prompt
+   and an empty tool registry.
 5. Assistant items are appended. Tool calls are routed through
    `tool_router.rs`, `tool_dispatcher.rs`, and `tool_runtime.rs`.
 6. Tools dispatch directly after validation. Provider-authored argument JSON

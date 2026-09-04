@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:788886fa2e549db975a09bb70b88a381fd1b340803d719a380b4c33ca554b548 -->
+<!-- tinybot-module-fingerprint: sha256:eaad79f61a90d3c30d999aef602643d20c486e7fc4a7a43ce14bcb7690af28b6 -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -35,7 +35,9 @@ Thread data model. Those belong to `agent::runtime` and `threads::domain`.
    diagnostics to the persisted spec.
 3. Persist the turn start before history loading or provider work begins. A
    default-titled empty Thread may then start its independent title request;
-   failure is logged and never fails or delays the main Turn.
+   failure is logged and never fails or delays the main Turn. The request
+   carries the initiating Turn specification so the runtime can reuse its
+   effective Provider settings without a title-only token budget.
 4. Hydrate the runtime history from the canonical Thread projection.
 5. Build tool, context-checkpoint, trace, and workspace command-hook services,
    selecting the Thread-owned or direct-session trace path.
