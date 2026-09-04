@@ -1,5 +1,5 @@
 # Tool Registry
-<!-- tinybot-module-fingerprint: sha256:4615c37eb0fc845bed4a81ef0bc07d83548365dc296ad36b3c241c85cc88a51d -->
+<!-- tinybot-module-fingerprint: sha256:8edb807bc6e3bc17a9d555fd67932810577ee9f6a736a51c951dc387b9d50848 -->
 
 `registry` is the catalog of tools available to the runtime. Each entry records
 its schema, exposure, execution target, required capabilities, cancellation

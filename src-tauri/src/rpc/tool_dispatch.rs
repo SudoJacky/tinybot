@@ -57,6 +57,9 @@ impl WorkerRpcRouter {
             .into_iter()
             .filter(|tool| tool.exposure != ToolExposure::Hidden)
             .map(|tool| {
+                let allowed = tool.available;
+                let default_selected = allowed
+                    && tool.method != crate::tools::registry::MCP_CALL_TOOL_METHOD;
                 serde_json::json!({
                     "id": tool.tool_id,
                     "name": tool.method,
@@ -64,9 +67,16 @@ impl WorkerRpcRouter {
                     "description": tool.description,
                     "namespace": tool.namespace,
                     "source": "builtin",
-                    "enabled": tool.available,
-                    "available": tool.available,
-                    "callable": tool.available,
+                    "available": true,
+                    "allowed": allowed,
+                    "defaultSelected": default_selected,
+                    "selected": default_selected,
+                    "callable": allowed,
+                    "reason": if allowed {
+                        Value::Null
+                    } else {
+                        serde_json::json!("tool is denied by the active permission profile or configuration")
+                    },
                     "parameters": tool.input_schema,
                     "outputSchema": tool.output_schema,
                     "exposure": tool.exposure,
@@ -86,6 +96,7 @@ impl WorkerRpcRouter {
         Ok(serde_json::json!({
             "tools": tools,
             "total": total,
+            "mcpRevision": mcp.get("revision").cloned().unwrap_or(Value::Null),
             "mcpServers": mcp.get("servers").cloned().unwrap_or_else(|| serde_json::json!([])),
         }))
     }

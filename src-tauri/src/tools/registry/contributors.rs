@@ -1,4 +1,7 @@
 use super::*;
+#[cfg(test)]
+use crate::runtime::mcp::mcp_tool_id;
+use crate::runtime::mcp::McpServerTools;
 use crate::tools::web::WebToolContributor;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -48,7 +51,7 @@ impl ToolContributor for BuiltinMcpToolContributor {
     fn contribute(&self) -> Vec<ToolRegistryEntry> {
         vec![
             tool(
-                "mcp.call_tool",
+                MCP_CALL_TOOL_METHOD,
                 "mcp",
                 "Call MCP tool",
                 "Call a tool exposed by a configured MCP server.",
@@ -402,16 +405,52 @@ impl ToolContributor for WorkspaceThreadToolContributor {
 }
 
 impl McpToolContributor {
+    #[cfg(test)]
     pub fn from_discovery(
         server_name: &str,
         server_config: &Value,
         discovered_tools: &[Value],
     ) -> Result<Self, String> {
         let server_name = server_name.trim();
-        let entries =
-            build_discovered_mcp_tool_entries(server_name, server_config, discovered_tools)?;
+        let identified = discovered_tools
+            .iter()
+            .map(|definition| {
+                let tool_name = definition
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                    .ok_or_else(|| {
+                        format!("MCP server `{server_name}` returned a tool without a name")
+                    })?;
+                Ok((mcp_tool_id(server_name, tool_name), definition))
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        let entries = build_discovered_mcp_tool_entries(
+            server_name,
+            server_config,
+            identified
+                .iter()
+                .map(|(tool_id, definition)| (tool_id.as_str(), *definition)),
+        )?;
         Ok(Self {
             id: format!("mcp.{server_name}"),
+            entries,
+        })
+    }
+
+    pub(crate) fn from_registry(server: &McpServerTools) -> Result<Self, String> {
+        let entries = build_discovered_mcp_tool_entries(
+            &server.server_id,
+            &server.server_config,
+            server
+                .tools
+                .iter()
+                .filter(|tool| tool.allowed)
+                .map(|tool| (tool.id.as_str(), &tool.definition)),
+        )?;
+        Ok(Self {
+            id: format!("mcp.{}", server.server_id),
             entries,
         })
     }
@@ -548,10 +587,10 @@ pub(super) fn workspace_tool_entries() -> Vec<ToolRegistryEntry> {
     ]
 }
 
-pub(super) fn build_discovered_mcp_tool_entries(
+fn build_discovered_mcp_tool_entries<'a>(
     server_name: &str,
     server_config: &Value,
-    discovered_tools: &[Value],
+    discovered_tools: impl IntoIterator<Item = (&'a str, &'a Value)>,
 ) -> Result<Vec<ToolRegistryEntry>, String> {
     if server_name.is_empty() {
         return Err("MCP server name must not be empty".to_string());
@@ -561,8 +600,8 @@ pub(super) fn build_discovered_mcp_tool_entries(
         .or_else(|| server_config.get("supports_parallel_tool_calls"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    let mut entries = Vec::with_capacity(discovered_tools.len());
-    for definition in discovered_tools {
+    let mut entries = Vec::new();
+    for (tool_id, definition) in discovered_tools {
         let tool_name = definition
             .get("name")
             .and_then(Value::as_str)
@@ -606,7 +645,6 @@ pub(super) fn build_discovered_mcp_tool_entries(
             })
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        let tool_id = mcp_tool_id(server_name, tool_name);
         let title = definition
             .get("title")
             .and_then(Value::as_str)
@@ -628,8 +666,8 @@ pub(super) fn build_discovered_mcp_tool_entries(
             false,
         );
         entries.push(ToolRegistryEntry {
-            tool_id: tool_id.clone(),
-            method: tool_id,
+            tool_id: tool_id.to_string(),
+            method: tool_id.to_string(),
             namespace: "mcp".to_string(),
             title,
             description,
@@ -648,12 +686,4 @@ pub(super) fn build_discovered_mcp_tool_entries(
         });
     }
     Ok(entries)
-}
-
-fn mcp_tool_id(server_name: &str, tool_name: &str) -> String {
-    format!(
-        "mcp.{}:{server_name}.{}:{tool_name}",
-        server_name.len(),
-        tool_name.len()
-    )
 }

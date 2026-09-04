@@ -1,4 +1,4 @@
-use crate::runtime::mcp::{configured_mcp_servers, mcp_tool_is_enabled, McpRuntime};
+use crate::runtime::mcp::{McpRuntime, McpRuntimeError};
 use serde::Serialize;
 use serde_json::Value;
 use std::path::Path;
@@ -6,6 +6,7 @@ use std::path::Path;
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct McpCapabilityCatalog {
+    pub(crate) revision: u64,
     pub(crate) servers: Vec<McpServerCapability>,
     pub(crate) tools: Vec<McpToolCapability>,
 }
@@ -15,6 +16,8 @@ pub(crate) struct McpCapabilityCatalog {
 pub(crate) struct McpServerCapability {
     pub(crate) id: String,
     pub(crate) enabled: bool,
+    pub(crate) available: bool,
+    pub(crate) stale: bool,
     pub(crate) transport: String,
     pub(crate) status: Value,
     pub(crate) tool_count: usize,
@@ -26,6 +29,7 @@ pub(crate) struct McpServerCapability {
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct McpToolCapability {
+    // IDs are opaque. Consumers must return this exact value rather than rebuilding it.
     pub(crate) id: String,
     pub(crate) name: String,
     pub(crate) display_name: String,
@@ -33,8 +37,10 @@ pub(crate) struct McpToolCapability {
     pub(crate) namespace: &'static str,
     pub(crate) source: &'static str,
     pub(crate) server_id: String,
-    pub(crate) enabled: bool,
     pub(crate) available: bool,
+    pub(crate) allowed: bool,
+    pub(crate) default_selected: bool,
+    pub(crate) selected: bool,
     pub(crate) callable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) reason: Option<String>,
@@ -47,122 +53,101 @@ pub(crate) async fn build_mcp_capability_catalog(
     workspace_root: &Path,
     config_snapshot: &Value,
     mcp_capability_allowed: bool,
-) -> McpCapabilityCatalog {
-    let Some(configured_servers) = configured_mcp_servers(config_snapshot) else {
-        return McpCapabilityCatalog {
-            servers: Vec::new(),
-            tools: Vec::new(),
-        };
-    };
-    let mut servers = Vec::with_capacity(configured_servers.len());
+) -> Result<McpCapabilityCatalog, McpRuntimeError> {
+    let snapshot = runtime
+        .registry_snapshot(workspace_root, config_snapshot, None)
+        .await?;
+    let mut servers = Vec::with_capacity(snapshot.servers.len());
     let mut tools = Vec::new();
 
-    for (server_id, server_config) in configured_servers {
-        let enabled = server_config.get("enabled").and_then(Value::as_bool) != Some(false);
-        let transport = server_config
+    for server in &snapshot.servers {
+        let transport = server
+            .server_config
             .get("transport")
             .and_then(Value::as_str)
             .unwrap_or("stdio")
             .to_ascii_lowercase();
-        let source = server_config
+        let source = server
+            .server_config
             .get("workspace_source")
             .and_then(Value::as_str)
             .map(str::to_string)
             .or_else(|| {
-                server_config
+                server
+                    .server_config
                     .get("agent_plugin")
                     .and_then(Value::as_bool)
                     .filter(|enabled| *enabled)
                     .map(|_| "plugin".to_string())
             })
             .unwrap_or_else(|| "configuration".to_string());
-        if !enabled || !mcp_capability_allowed {
-            let reason = if enabled {
-                "MCP capability is denied by the active permission profile"
-            } else {
-                "MCP server is disabled"
-            };
-            servers.push(McpServerCapability {
-                id: server_id.clone(),
-                enabled,
-                transport: transport.clone(),
-                status: serde_json::json!({
-                    "state": if enabled { "blocked" } else { "disabled" },
-                    "transport": transport,
-                    "toolCount": 0,
-                    "elapsedMs": 0,
-                    "lastError": Value::Null,
-                    "reason": reason,
-                }),
-                tool_count: 0,
-                source,
-                error: None,
-            });
-            continue;
-        }
 
-        let discovered = runtime
-            .list_tools(workspace_root, server_id, server_config, None)
-            .await;
-        let status = runtime.server_status(workspace_root, server_id).await;
-        let mut server_error = None;
-        let definitions = match discovered {
-            Ok(definitions) => definitions,
-            Err(error) => {
-                server_error = Some(error.message);
-                Vec::new()
-            }
-        };
-        for definition in &definitions {
-            let Some(tool_name) = definition.get("name").and_then(Value::as_str) else {
-                continue;
-            };
-            let allowlisted = mcp_tool_is_enabled(server_id, tool_name, server_config);
-            let callable =
-                allowlisted && status.get("state").and_then(Value::as_str) == Some("ready");
-            let reason = if !allowlisted {
+        for tool in &server.tools {
+            let available = server.available;
+            let allowed = mcp_capability_allowed && tool.allowed;
+            let callable = available && allowed;
+            let default_selected = allowed && tool.default_selected;
+            let selected = available && default_selected;
+            let reason = if !mcp_capability_allowed {
+                Some("MCP capability is denied by the active permission profile".to_string())
+            } else if !tool.allowed {
                 Some("tool is not included in the server allowlist".to_string())
-            } else if !callable {
-                Some("MCP server is not ready".to_string())
+            } else if !available {
+                Some(
+                    server
+                        .error
+                        .clone()
+                        .unwrap_or_else(|| "MCP server is not ready".to_string()),
+                )
             } else {
                 None
             };
             tools.push(McpToolCapability {
-                id: format!("mcp.{server_id}.{tool_name}"),
-                name: format!("{server_id}.{tool_name}"),
-                display_name: tool_name.to_string(),
-                description: definition
+                id: tool.id.clone(),
+                name: format!("{}.{}", server.server_id, tool.name),
+                display_name: tool.name.clone(),
+                description: tool
+                    .definition
                     .get("description")
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_string(),
                 namespace: "mcp",
                 source: "mcp",
-                server_id: server_id.clone(),
-                enabled: allowlisted,
-                available: callable,
+                server_id: server.server_id.clone(),
+                available,
+                allowed,
+                default_selected,
+                selected,
                 callable,
                 reason,
-                parameters: definition
+                parameters: tool
+                    .definition
                     .get("inputSchema")
-                    .or_else(|| definition.get("input_schema"))
+                    .or_else(|| tool.definition.get("input_schema"))
                     .cloned()
                     .unwrap_or_else(|| serde_json::json!({ "type": "object" })),
-                raw: definition.clone(),
+                raw: tool.definition.clone(),
             });
         }
         servers.push(McpServerCapability {
-            id: server_id.clone(),
-            enabled: true,
+            id: server.server_id.clone(),
+            enabled: server.enabled,
+            available: server.available,
+            stale: server.stale,
             transport,
-            status,
-            tool_count: definitions.len(),
+            status: server.status.clone(),
+            tool_count: server.tools.len(),
             source,
-            error: server_error,
+            error: server.error.clone(),
         });
     }
 
-    McpCapabilityCatalog { servers, tools }
+    Ok(McpCapabilityCatalog {
+        revision: snapshot.revision,
+        servers,
+        tools,
+    })
 }
 
 #[cfg(test)]

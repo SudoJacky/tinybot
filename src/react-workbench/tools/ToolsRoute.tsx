@@ -1268,7 +1268,7 @@ function pluginMigrationPrompt(job: PluginMigrationJob): string {
 
 function toolStatus(tool: ToolCatalogSummary["tools"][number]): "available" | "disabled" | "unavailable" {
   if (!tool.available) return "unavailable";
-  if (!tool.enabled) return "disabled";
+  if (!(tool.allowed ?? tool.enabled ?? true)) return "disabled";
   return "available";
 }
 

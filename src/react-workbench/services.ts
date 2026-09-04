@@ -240,14 +240,20 @@ export type ToolSummary = {
   description?: string;
   source: string;
   serverId?: string;
-  enabled: boolean;
   available: boolean;
+  allowed?: boolean;
+  defaultSelected?: boolean;
+  selected?: boolean;
+  /** Legacy catalog field accepted while older native builds are upgraded. */
+  enabled?: boolean;
   reason?: string;
 };
 
 export type McpServerSummary = {
   id: string;
   enabled: boolean;
+  available?: boolean;
+  stale?: boolean;
   transport: string;
   state: string;
   toolCount: number;
@@ -271,6 +277,7 @@ export type ToolCatalogSummary = {
   tools: ToolSummary[];
   mcpServers: McpServerSummary[];
   skills: SkillSummary[];
+  mcpRevision?: number;
 };
 
 export type ToolsStore = {

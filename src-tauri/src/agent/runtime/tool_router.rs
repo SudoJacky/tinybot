@@ -1,7 +1,7 @@
-use crate::tools::registry::UPDATE_PLAN_METHOD;
 use crate::tools::registry::{
     ToolCancellationMode, ToolExecutionTarget, ToolExposure, ToolRegistryEntry, ToolRuntimePolicy,
 };
+use crate::tools::registry::{MCP_CALL_TOOL_METHOD, UPDATE_PLAN_METHOD};
 use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -65,6 +65,13 @@ impl NativeToolRouter {
                         entry.tool_id
                     ));
                 }
+            }
+            let has_concrete_mcp_tool = self.entries.iter().any(|entry| {
+                selected_tool_ids.contains(&entry.tool_id)
+                    && matches!(&entry.execution_target, ToolExecutionTarget::Mcp { .. })
+            });
+            if has_concrete_mcp_tool {
+                selected_tool_ids.remove(MCP_CALL_TOOL_METHOD);
             }
             self.entries.retain(|entry| {
                 selected_tool_ids.contains(&entry.tool_id) || entry.method == UPDATE_PLAN_METHOD
@@ -407,5 +414,40 @@ mod tests {
             .map(|tool| tool.name)
             .collect::<Vec<_>>();
         assert_eq!(empty_names, vec![UPDATE_PLAN_METHOD.to_string()]);
+    }
+
+    #[test]
+    fn concrete_mcp_selection_suppresses_the_generic_mcp_tool() {
+        use crate::tools::registry::{McpToolContributor, WorkerToolRegistryRpc};
+        use std::sync::Arc;
+
+        let registry = WorkerToolRegistryRpc::new(
+            crate::protocol::capability::default_desktop_capability_policy(),
+        )
+        .with_contributor(Arc::new(
+            McpToolContributor::from_discovery(
+                "docs",
+                &json!({}),
+                &[json!({ "name": "search", "inputSchema": { "type": "object" } })],
+            )
+            .unwrap(),
+        ))
+        .unwrap();
+        let mut router = NativeToolRouter::new(registry.list_tools().tools);
+        router
+            .configure_for_turn(Some(&[
+                MCP_CALL_TOOL_METHOD.to_string(),
+                "mcp.4:docs.6:search".to_string(),
+            ]))
+            .unwrap();
+
+        let names = router
+            .tool_definitions()
+            .unwrap()
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"mcp_4_docs_6_search".to_string()));
+        assert!(!names.contains(&"mcp_call_tool".to_string()));
     }
 }

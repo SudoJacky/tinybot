@@ -3,6 +3,7 @@ use crate::adapters::mcp_http::{
 };
 use crate::adapters::mcp_stdio::{parse_stdio_server_config, stdio_command, StdioServerConfig};
 use crate::protocol::WorkerRequestCancellation;
+use futures_util::future::join_all;
 use rmcp::model::{
     CallToolRequestParams, ClientCapabilities, ClientInfo, Implementation, PaginatedRequestParams,
     ProtocolVersion,
@@ -15,17 +16,22 @@ use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 type ClientService = RunningService<RoleClient, ClientInfo>;
 type SharedClientService = Arc<Mutex<ClientService>>;
+const MCP_REGISTRY_FAILURE_RETRY_DELAY: Duration = Duration::from_secs(5);
 
 #[derive(Clone)]
 pub(crate) struct McpRuntime {
     servers: Arc<Mutex<BTreeMap<McpServerKey, ManagedServer>>>,
     diagnostics: Arc<Mutex<VecDeque<Value>>>,
+    registry_snapshots: Arc<Mutex<BTreeMap<PathBuf, Arc<McpRegistrySnapshot>>>>,
+    registry_refresh: Arc<Mutex<()>>,
+    registry_revision: Arc<AtomicU64>,
 }
 
 #[derive(Clone, Debug)]
@@ -67,7 +73,29 @@ impl McpRuntimeErrorKind {
 pub(crate) struct McpServerTools {
     pub(crate) server_id: String,
     pub(crate) server_config: Value,
-    pub(crate) tools: Vec<Value>,
+    pub(crate) enabled: bool,
+    pub(crate) available: bool,
+    pub(crate) stale: bool,
+    pub(crate) status: Value,
+    pub(crate) error: Option<String>,
+    pub(crate) tools: Vec<McpRegistryTool>,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct McpRegistryTool {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) definition: Value,
+    pub(crate) allowed: bool,
+    pub(crate) default_selected: bool,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct McpRegistrySnapshot {
+    pub(crate) revision: u64,
+    pub(crate) servers: Vec<McpServerTools>,
+    config_fingerprint: String,
+    refreshed_at: Instant,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -130,6 +158,9 @@ impl McpRuntime {
         Self {
             servers: Arc::new(Mutex::new(BTreeMap::new())),
             diagnostics: Arc::new(Mutex::new(VecDeque::with_capacity(200))),
+            registry_snapshots: Arc::new(Mutex::new(BTreeMap::new())),
+            registry_refresh: Arc::new(Mutex::new(())),
+            registry_revision: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -407,69 +438,246 @@ impl McpRuntime {
         self.diagnostics.lock().await.iter().cloned().collect()
     }
 
-    pub(crate) async fn discover_configured_tools(
+    pub(crate) async fn registry_snapshot(
         &self,
         workspace_root: &Path,
         config_snapshot: &Value,
         cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
-    ) -> Result<Vec<McpServerTools>, McpRuntimeError> {
-        let Some(servers) = configured_mcp_servers(config_snapshot) else {
-            return Ok(Vec::new());
-        };
-        let mut discovered = Vec::new();
-        for (server_id, server_config) in servers {
-            if cancellation
-                .as_ref()
-                .is_some_and(|cancellation| cancellation.is_cancelled())
-            {
-                return Err(self.cancelled_error(server_id, &configured_transport(server_config)));
+    ) -> Result<Arc<McpRegistrySnapshot>, McpRuntimeError> {
+        let config_fingerprint = registry_config_fingerprint(config_snapshot);
+        if cancellation
+            .as_ref()
+            .is_some_and(|cancellation| cancellation.is_cancelled())
+        {
+            return Err(self.cancelled_error("registry", "mixed"));
+        }
+        if let Some(snapshot) = self
+            .cached_registry_snapshot(workspace_root, &config_fingerprint)
+            .await
+        {
+            return Ok(snapshot);
+        }
+
+        // Serialize refreshes so UI catalog loads and Turns cannot race while starting
+        // the same MCP server. Both callers receive the same published snapshot.
+        let _refresh = self.registry_refresh.lock().await;
+        if cancellation
+            .as_ref()
+            .is_some_and(|cancellation| cancellation.is_cancelled())
+        {
+            return Err(self.cancelled_error("registry", "mixed"));
+        }
+        if let Some(snapshot) = self
+            .cached_registry_snapshot(workspace_root, &config_fingerprint)
+            .await
+        {
+            return Ok(snapshot);
+        }
+        let previous = self
+            .registry_snapshots
+            .lock()
+            .await
+            .get(workspace_root)
+            .cloned();
+        let configured = configured_mcp_servers(config_snapshot)
+            .into_iter()
+            .flat_map(|servers| servers.iter())
+            .map(|(server_id, server_config)| (server_id.clone(), server_config.clone()))
+            .collect::<Vec<_>>();
+        let runtime = self.clone();
+        let workspace_root = workspace_root.to_path_buf();
+        let results = join_all(configured.into_iter().map(|(server_id, server_config)| {
+            let runtime = runtime.clone();
+            let workspace_root = workspace_root.clone();
+            let cancellation = cancellation.clone();
+            let previous = previous.clone();
+            async move {
+                runtime
+                    .discover_registry_server(
+                        &workspace_root,
+                        server_id,
+                        server_config,
+                        previous.as_deref(),
+                        cancellation,
+                    )
+                    .await
             }
-            if server_config.get("enabled").and_then(Value::as_bool) == Some(false) {
-                continue;
+        }))
+        .await;
+        let mut servers = Vec::with_capacity(results.len());
+        for result in results {
+            match result {
+                Ok(server) => servers.push(server),
+                Err(error) => return Err(error),
             }
-            if !server_config
-                .get("enabled_tools")
-                .or_else(|| server_config.get("enabledTools"))
-                .and_then(Value::as_array)
-                .is_some_and(|tools| !tools.is_empty())
-            {
-                continue;
+        }
+        servers.sort_by(|left, right| left.server_id.cmp(&right.server_id));
+        let snapshot = Arc::new(McpRegistrySnapshot {
+            revision: self.registry_revision.fetch_add(1, Ordering::Relaxed) + 1,
+            servers,
+            config_fingerprint,
+            refreshed_at: Instant::now(),
+        });
+        self.registry_snapshots
+            .lock()
+            .await
+            .insert(workspace_root, snapshot.clone());
+        Ok(snapshot)
+    }
+
+    async fn cached_registry_snapshot(
+        &self,
+        workspace_root: &Path,
+        config_fingerprint: &str,
+    ) -> Option<Arc<McpRegistrySnapshot>> {
+        self.registry_snapshots
+            .lock()
+            .await
+            .get(workspace_root)
+            .filter(|snapshot| {
+                snapshot.config_fingerprint == config_fingerprint
+                    && (snapshot
+                        .servers
+                        .iter()
+                        .all(|server| !server.enabled || server.available)
+                        || snapshot.refreshed_at.elapsed() < MCP_REGISTRY_FAILURE_RETRY_DELAY)
+            })
+            .cloned()
+    }
+
+    async fn discover_registry_server(
+        &self,
+        workspace_root: &Path,
+        server_id: String,
+        server_config: Value,
+        previous: Option<&McpRegistrySnapshot>,
+        cancellation: Option<Arc<dyn WorkerRequestCancellation>>,
+    ) -> Result<McpServerTools, McpRuntimeError> {
+        let enabled = server_config.get("enabled").and_then(Value::as_bool) != Some(false);
+        if !enabled {
+            let transport = configured_transport(&server_config);
+            return Ok(McpServerTools {
+                server_id,
+                server_config,
+                enabled: false,
+                available: false,
+                stale: false,
+                status: json!({
+                    "state": "disabled",
+                    "transport": transport,
+                    "toolCount": 0,
+                    "elapsedMs": 0,
+                    "lastError": Value::Null,
+                }),
+                error: None,
+                tools: Vec::new(),
+            });
+        }
+        if let Some(server) = previous.and_then(|snapshot| {
+            snapshot.servers.iter().find(|server| {
+                server.server_id == server_id
+                    && server.server_config == server_config
+                    && server.available
+            })
+        }) {
+            return Ok(server.clone());
+        }
+        if cancellation
+            .as_ref()
+            .is_some_and(|cancellation| cancellation.is_cancelled())
+        {
+            return Err(self.cancelled_error(&server_id, &configured_transport(&server_config)));
+        }
+
+        match self
+            .list_tools(workspace_root, &server_id, &server_config, cancellation)
+            .await
+        {
+            Ok(definitions) => {
+                let tools = definitions
+                    .into_iter()
+                    .map(|definition| {
+                        normalize_registry_tool(&server_id, &server_config, definition)
+                    })
+                    .collect::<Result<Vec<_>, _>>();
+                let mut tools = match tools {
+                    Ok(tools) => tools,
+                    Err(message) => {
+                        let error = self.operation_error(
+                            &server_id,
+                            &configured_transport(&server_config),
+                            "tools/list schema validation",
+                            message,
+                        );
+                        self.fail_server(
+                            &McpServerKey::new(workspace_root, &server_id),
+                            &error.message,
+                        )
+                        .await?;
+                        return Ok(self
+                            .unavailable_registry_server(
+                                workspace_root,
+                                server_id,
+                                server_config,
+                                previous,
+                                error.message,
+                            )
+                            .await);
+                    }
+                };
+                tools.sort_by(|left, right| left.name.cmp(&right.name));
+                let status = self.server_status(workspace_root, &server_id).await;
+                Ok(McpServerTools {
+                    server_id,
+                    server_config,
+                    enabled: true,
+                    available: true,
+                    stale: false,
+                    status,
+                    error: None,
+                    tools,
+                })
             }
-            let mut tools = self
-                .list_tools(
+            Err(error) if error.cancelled => Err(error),
+            Err(error) => Ok(self
+                .unavailable_registry_server(
                     workspace_root,
                     server_id,
                     server_config,
-                    cancellation.clone(),
+                    previous,
+                    error.message,
                 )
-                .await?
-                .into_iter()
-                .filter(|tool| {
-                    tool.get("name")
-                        .and_then(Value::as_str)
-                        .is_some_and(|tool_name| {
-                            mcp_tool_is_enabled(server_id, tool_name, server_config)
-                        })
-                })
-                .collect::<Vec<_>>();
-            tools.sort_by(|left, right| {
-                left.get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .cmp(
-                        right
-                            .get("name")
-                            .and_then(Value::as_str)
-                            .unwrap_or_default(),
-                    )
-            });
-            discovered.push(McpServerTools {
-                server_id: server_id.clone(),
-                server_config: server_config.clone(),
-                tools,
-            });
+                .await),
         }
-        Ok(discovered)
+    }
+
+    async fn unavailable_registry_server(
+        &self,
+        workspace_root: &Path,
+        server_id: String,
+        server_config: Value,
+        previous: Option<&McpRegistrySnapshot>,
+        error: String,
+    ) -> McpServerTools {
+        let tools = previous
+            .and_then(|snapshot| {
+                snapshot.servers.iter().find(|server| {
+                    server.server_id == server_id && server.server_config == server_config
+                })
+            })
+            .map(|server| server.tools.clone())
+            .unwrap_or_default();
+        let status = self.server_status(workspace_root, &server_id).await;
+        McpServerTools {
+            server_id,
+            server_config,
+            enabled: true,
+            available: false,
+            stale: !tools.is_empty(),
+            status,
+            error: Some(error),
+            tools,
+        }
     }
 
     pub(crate) async fn reconcile(
@@ -588,6 +796,8 @@ impl McpRuntime {
             Some(&error.message),
         )
         .await;
+        self.mark_registry_server_unavailable(key, McpServerState::Failed, Some(&error.message))
+            .await;
     }
 
     async fn ensure_client(
@@ -875,6 +1085,12 @@ impl McpRuntime {
                 .await;
                 metrics.record_duration("mcp.server.stop.durationMs", shutdown_started.elapsed());
                 metrics.increment("mcp.server.stop.failed");
+                self.mark_registry_server_unavailable(
+                    key,
+                    McpServerState::Failed,
+                    Some(&error.message),
+                )
+                .await;
                 return Err(error);
             }
         }
@@ -899,7 +1115,39 @@ impl McpRuntime {
         .await;
         metrics.record_duration("mcp.server.stop.durationMs", shutdown_started.elapsed());
         metrics.increment("mcp.server.stop.completed");
+        self.mark_registry_server_unavailable(key, final_state, last_error.as_deref())
+            .await;
         Ok(())
+    }
+
+    async fn mark_registry_server_unavailable(
+        &self,
+        key: &McpServerKey,
+        state: McpServerState,
+        error: Option<&str>,
+    ) {
+        let mut snapshots = self.registry_snapshots.lock().await;
+        let Some(current) = snapshots.get(&key.workspace_root) else {
+            return;
+        };
+        let mut next = (**current).clone();
+        let Some(server) = next
+            .servers
+            .iter_mut()
+            .find(|server| server.server_id == key.server_name)
+        else {
+            return;
+        };
+        server.available = false;
+        server.stale = !server.tools.is_empty();
+        server.error = error.map(sanitize_error);
+        if let Some(status) = server.status.as_object_mut() {
+            status.insert("state".to_string(), json!(state.as_str()));
+            status.insert("lastError".to_string(), json!(server.error));
+        }
+        next.revision = self.registry_revision.fetch_add(1, Ordering::Relaxed) + 1;
+        next.refreshed_at = Instant::now();
+        snapshots.insert(key.workspace_root.clone(), Arc::new(next));
     }
 
     async fn record_transition(
@@ -1155,4 +1403,70 @@ pub(crate) fn mcp_tool_is_enabled(server_name: &str, tool_name: &str, server: &V
             enabled == "*" || enabled == tool_name || enabled == wrapped_name
         })
     })
+}
+
+fn normalize_registry_tool(
+    server_name: &str,
+    server: &Value,
+    mut definition: Value,
+) -> Result<McpRegistryTool, String> {
+    let tool_name = definition
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| format!("MCP server `{server_name}` returned a tool without a name"))?
+        .to_string();
+    let mut input_schema = definition
+        .get("inputSchema")
+        .or_else(|| definition.get("input_schema"))
+        .cloned()
+        .unwrap_or_else(|| json!({ "type": "object" }));
+    let input = input_schema.as_object_mut().ok_or_else(|| {
+        format!("MCP tool `{server_name}.{tool_name}` input schema must be a JSON object")
+    })?;
+    if let Some(schema_type) = input.get("type") {
+        if schema_type.as_str() != Some("object") {
+            return Err(format!(
+                "MCP tool `{server_name}.{tool_name}` input schema type must be object"
+            ));
+        }
+    } else {
+        input.insert("type".to_string(), Value::String("object".to_string()));
+    }
+    let output_schema = definition
+        .get("outputSchema")
+        .or_else(|| definition.get("output_schema"))
+        .cloned()
+        .unwrap_or_else(|| json!({ "type": "object" }));
+    if !output_schema.is_object() {
+        return Err(format!(
+            "MCP tool `{server_name}.{tool_name}` output schema must be a JSON object"
+        ));
+    }
+    let definition_object = definition.as_object_mut().ok_or_else(|| {
+        format!("MCP server `{server_name}` returned a non-object tool definition")
+    })?;
+    definition_object.insert("inputSchema".to_string(), input_schema);
+    definition_object.insert("outputSchema".to_string(), output_schema);
+    let allowed = mcp_tool_is_enabled(server_name, &tool_name, server);
+    Ok(McpRegistryTool {
+        id: mcp_tool_id(server_name, &tool_name),
+        name: tool_name,
+        definition,
+        allowed,
+        default_selected: allowed,
+    })
+}
+
+pub(crate) fn mcp_tool_id(server_name: &str, tool_name: &str) -> String {
+    format!(
+        "mcp.{}:{server_name}.{}:{tool_name}",
+        server_name.len(),
+        tool_name.len()
+    )
+}
+
+fn registry_config_fingerprint(config_snapshot: &Value) -> String {
+    serde_json::to_string(&configured_mcp_servers(config_snapshot)).unwrap_or_default()
 }

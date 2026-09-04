@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:f2888d03e9aff09cfd27bab26e6275ad906abe3e2ea9f2885d0047100d06eeb2 -->
+<!-- tinybot-doc-fingerprint: sha256:1311d33dbcec3b94551fd6f2d262e75c309076514e4c8e4fc35cc2ff772412ca -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -79,8 +79,12 @@ ownership; successful persistence emits a metadata-only frontend refresh event.
 
 Project-local MCP configuration is discovered after instruction composition
 establishes the effective working directory and before runtime services are
-installed. The merged snapshot is Turn-local: persistence, discovery, and tool
-dispatch share it, while the saved global configuration remains unchanged.
+installed. The merged configuration is Turn-local, while MCP discovery publishes
+a revisioned immutable registry snapshot shared with the WebUI catalog. Turn
+preparation captures one snapshot and builds all concrete MCP schemas from it;
+an individual server discovery or schema failure disables only that server and
+does not abort the Turn or remove healthy servers. The saved global configuration
+remains unchanged.
 
 Saved Agent Graphs are discovered only when the Thread or Turn explicitly
 declares a working directory; the backend default is not treated as Graph

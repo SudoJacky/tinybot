@@ -12,7 +12,7 @@ src-tauri/src/rpc/tests/threads_and_tools.rs
 src-tauri/tests/crate/retry.rs
 src/app-core/native/desktopNativeThreads.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:fa087837137c95b43dd6534670701ac5bdf5e2beea22c76c7235ec9168c8e97d -->
+<!-- tinybot-doc-fingerprint: sha256:b1a78b3c1b02f23146ccba40cced9c58934475a208513486361d133badc4579c -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -31,6 +31,10 @@ The worker tool registry also receives the current config snapshot. An explicit
 `tools.exec.enable: false` marks `shell.execute` and `exec_command` unavailable and rejects direct
 starts. `tools.exec.timeout` supplies the default one-shot timeout. Process-management tools remain
 available so a previously started process can be polled or terminated safely.
+
+The WebUI tool catalog does not collapse tool state into one `enabled` flag. It
+reports runtime availability, policy allowance, default selection, and current
+selection separately; clients submit the catalog's opaque IDs unchanged.
 
 Model-visible deferred tools map to the richer RPC surface:
 

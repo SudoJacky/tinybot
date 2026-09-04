@@ -11,7 +11,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:a68b6d5a66520333da05e50a47eeecea8038dd5e2bba8374ff0e3b56de813d5f -->
+<!-- tinybot-doc-fingerprint: sha256:624eceff368e85a0034103588efe76dfaf739b7c972b6edaa4d28b731f0dffe0 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -95,6 +95,12 @@ IDs, tool IDs, or methods fail registry construction.
 Provider-specific adapters encode the same tool definitions into their wire
 format. They do not own registry policy or permission decisions.
 
+The MCP capability catalog keeps four states separate: runtime `available`,
+policy/config `allowed`, initial `defaultSelected`, and current UI `selected`.
+Its length-prefixed IDs are opaque and are reused unchanged when a Turn creates
+concrete MCP registry entries. The generic deferred `mcp.call_tool` fallback is
+not selected by default; a concrete MCP selection suppresses it defensively.
+
 ## Permission enforcement
 
 The active permission profile supplies a `CapabilityPolicy`. The registry uses
@@ -116,9 +122,12 @@ alternative tool names are rejected instead of being normalized into that
 fallback path.
 
 MCP discovery and calls are keyed by the Turn's effective working directory,
-not Tinybot's backend state directory. The dispatcher also reads the current
-Turn configuration snapshot, which includes project-local MCP definitions,
-instead of retaining a potentially stale cross-workspace snapshot.
+not Tinybot's backend state directory. WebUI and Turn preparation use the same
+revisioned registry snapshot for that workspace and effective MCP configuration.
+Each Turn captures it atomically before provider dispatch. Discovery runs per
+server; a failure preserves same-configuration last-known-good definitions as
+unavailable metadata or disables only that server when no prior definitions
+exist.
 
 Global MCP configuration is a separate, narrow capability. `mcp.config.list`
 returns a redacted projection, while `mcp.config.upsert` accepts only typed

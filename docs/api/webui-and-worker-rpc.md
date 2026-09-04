@@ -6,7 +6,7 @@ src-tauri/src/protocol/params.rs
 src-tauri/src/rpc/method.rs
 src-tauri/src/rpc/runtime.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:f7ba40c0c3ab5d698667ad5f0d9cc3c73bb0537d938cb08431be43b3dfe2c148 -->
+<!-- tinybot-doc-fingerprint: sha256:ff3ebe3a48c5b821adb2119d353d4d484bb7ea06e55e1781d5a6a4f73875a178 -->
 
 This document covers the Rust-owned WebUI route wrapper and Worker RPC protocol.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -149,11 +149,15 @@ use a `mcpServers` or `servers` object. Inner scopes override same-named outer o
 relative stdio working directories resolve from the declaring scope, and the merge remains
 turn-local. `.codex` is not scanned.
 
-`mcp.capability_catalog` and `GET /api/tools` expose one effective snapshot containing configured
-servers, runtime status, discovered tools, allowlist state, callable state, denial reasons, input
-schemas, and a separate Skill catalog. Skill entries include enabled Agent Plugin skills and
+`mcp.capability_catalog`, `mcp.list_tools`, `GET /api/tools`, and native agent Turns consume the
+same revisioned MCP registry snapshot for a workspace and effective MCP configuration. Tool IDs in
+the catalog are opaque and callers must return them unchanged. Each catalog tool reports
+`available`, `allowed`, `defaultSelected`, and `selected` independently, while `callable` is true
+only when the tool is both available and allowed. Skill entries include enabled Agent Plugin skills and
 `.agents/skills/*/SKILL.md` and `.codex/skills/*/SKILL.md` files for the catalog workspace. One failed or disabled server remains
-visible without hiding tools from healthy servers. The list contains Skill metadata and paths, not
+visible without hiding tools from healthy servers. A failed server retains same-configuration
+last-known-good definitions as stale, unavailable metadata and is retried after a short delay;
+healthy servers are not rediscovered with it. The list contains Skill metadata and paths, not
 full documents; `GET /api/tools/skills/{id}` reads the selected `SKILL.md` on demand and returns
 `404` when the ID is no longer cataloged. Renderer callers can add a URL-encoded
 `workingDirectory` query to either Tools route so workspace entries resolve against the active
@@ -166,6 +170,10 @@ workspaces. Aggregate workspace Skill IDs include the file path so each detail r
 unambiguous. The `workingDirectory` still scopes MCP, callable Tool, and Agent Graph discovery.
 Chat omits `skillScope`, so its slash menu continues to receive only global plugin Skills plus the
 active conversation's effective workspace Skills.
+
+Allowlisted concrete MCP tools keep their exact discovered schemas and are selected by default.
+The deferred generic `mcp.call_tool` fallback is not selected by default and is removed if a Turn
+selection contains any concrete MCP tool, so both call surfaces are never injected together.
 
 When `/api/tools` receives an explicit `workingDirectory`, it also includes one
 deferred `agent_graph` tool for each saved Graph whose definition belongs to

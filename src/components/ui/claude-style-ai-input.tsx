@@ -62,6 +62,11 @@ export interface ComposerToolOption {
   id: string;
   name: string;
   description?: string;
+  available?: boolean;
+  allowed?: boolean;
+  defaultSelected?: boolean;
+  selected?: boolean;
+  /** Legacy option accepted by reusable composer callers. */
   enabled?: boolean;
   disabled?: boolean;
 }
@@ -252,7 +257,9 @@ export function ClaudeStyleAiInput({
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelMenuView, setModelMenuView] = useState<ModelMenuView>("advanced");
   const [toolMenuOpen, setToolMenuOpen] = useState(false);
-  const [enabledToolIds, setEnabledToolIds] = useState<string[]>(() => tools.filter((tool) => tool.enabled).map((tool) => tool.id));
+  const [selectedToolIds, setSelectedToolIds] = useState<string[]>(() => tools
+    .filter((tool) => tool.selected ?? tool.defaultSelected ?? tool.enabled)
+    .map((tool) => tool.id));
   const knownToolIdsRef = useRef(new Set(tools.map((tool) => tool.id)));
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
@@ -289,7 +296,7 @@ export function ClaudeStyleAiInput({
   const selectedReasoningEffortLabel = reasoningEffortLabel(selectedReasoningEffort, effortOptions);
   const contextUsageView = useMemo(() => buildContextUsageView(contextUsage, t), [contextUsage, t]);
   const resolvedPlaceholder = placeholder ?? t("composer.placeholder");
-  const enabledToolIdSet = useMemo(() => new Set(enabledToolIds), [enabledToolIds]);
+  const selectedToolIdSet = useMemo(() => new Set(selectedToolIds), [selectedToolIds]);
   const selectedSessionMentionIdSet = useMemo(
     () => new Set(selectedSessionMentionIds),
     [selectedSessionMentionIds],
@@ -302,10 +309,11 @@ export function ClaudeStyleAiInput({
   useEffect(() => {
     const selectableToolIds = new Set(tools.filter((tool) => !tool.disabled).map((tool) => tool.id));
     const previousToolIds = knownToolIdsRef.current;
-    setEnabledToolIds((current) => {
+    setSelectedToolIds((current) => {
       const next = current.filter((id) => selectableToolIds.has(id));
       for (const tool of tools) {
-        if (tool.enabled && !tool.disabled && !previousToolIds.has(tool.id) && !next.includes(tool.id)) {
+        const initiallySelected = tool.selected ?? tool.defaultSelected ?? tool.enabled;
+        if (initiallySelected && !tool.disabled && !previousToolIds.has(tool.id) && !next.includes(tool.id)) {
           next.push(tool.id);
         }
       }
@@ -416,10 +424,6 @@ export function ClaudeStyleAiInput({
   }, [defaultReasoningEffort]);
 
   useEffect(() => {
-    setEnabledToolIds(tools.filter((tool) => tool.enabled).map((tool) => tool.id));
-  }, [tools]);
-
-  useEffect(() => {
     setInlineSkillPlacements((current) => {
       const next = current.filter((placement) => selectedSkillIdSet.has(placement.id));
       return next.length === current.length ? current : next;
@@ -527,7 +531,7 @@ export function ClaudeStyleAiInput({
         reasoningEffort: selectedReasoningEffort,
         ...(tools.length ? {
           selectedTools: tools
-            .filter((tool) => !tool.disabled && enabledToolIdSet.has(tool.id))
+            .filter((tool) => !tool.disabled && selectedToolIdSet.has(tool.id))
             .map((tool) => tool.id),
         } : {}),
       });
@@ -829,7 +833,7 @@ export function ClaudeStyleAiInput({
     if (tool.disabled) {
       return;
     }
-    setEnabledToolIds((current) => {
+    setSelectedToolIds((current) => {
       if (current.includes(tool.id)) {
         return current.filter((id) => id !== tool.id);
       }
@@ -1140,7 +1144,7 @@ export function ClaudeStyleAiInput({
               {toolMenuOpen ? (
                 <div className="react-popover-surface claude-ai-input__tool-menu" role="menu" aria-label={t("composer.tools")}>
                   {tools.map((tool) => {
-                    const checked = enabledToolIdSet.has(tool.id);
+                    const checked = selectedToolIdSet.has(tool.id);
                     return (
                       <button
                         aria-checked={checked}

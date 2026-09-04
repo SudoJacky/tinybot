@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:43ad4d1a80c650074fa213c917e319a7e10ad2852c89ca13a99114a2d5192738 -->
+<!-- tinybot-module-fingerprint: sha256:0167e95b11d0f83953b149f6983e082ff8f2b5bda86c0a02fc54712d74969f7a -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -95,6 +95,9 @@ Chat also maps the active workspace's callable catalog into composer tool
 controls. Saved Agent Graphs appear only when the conversation has that exact
 working directory. The submitted `selectedTools` list preserves every toggle,
 including the explicit empty selection needed to disable optional tools.
+Catalog availability, policy allowance, default selection, and current
+composer selection remain separate states; opaque tool IDs are submitted
+unchanged.
 The composer context indicator derives its cache hit rate from the latest
 projected Provider-call usage rather than cumulative Thread totals.
 Before a Turn reports its effective per-model window, Chat uses the legacy
