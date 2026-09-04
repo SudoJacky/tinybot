@@ -1,5 +1,5 @@
 # Agent Runtime Tests
-<!-- tinybot-module-fingerprint: sha256:c8ccedbfa0295c8a2771e602c48bbe32593548e3ae5dbf913866b153980cdf8b -->
+<!-- tinybot-module-fingerprint: sha256:9c65de20074029453407d5e036685f58349b8fb49dd35a135832704f21ee8354 -->
 
 This directory groups the larger agent runtime test suites by concern:
 configuration, context, interactions, lifecycle, and tools.
@@ -29,9 +29,12 @@ precedes the resumed provider request.
 
 Tool coverage verifies provider call/result pairing, multi-call batches, and
 native tool errors that remain model-visible so the next provider iteration can
-respond. Data-view cases cover successful artifact publication and parseable
-arguments rejected by the native schema. Malformed argument JSON covers both a
-single call and a partially invalid batch, asserting that dispatch is blocked,
-every call ID receives a non-empty error result, and the provider loop
-continues. Dispatcher coverage also verifies that retired alternative
-subagent tool names are rejected as unknown instead of reaching execution.
+respond. Mixed-batch coverage verifies that the exclusive `update_plan`
+runtime control forms an ordering barrier and does not reject its ordinary
+tool siblings. Data-view cases cover successful artifact publication and
+parseable arguments rejected by the native schema. Malformed argument JSON
+covers both a single call and a partially invalid batch, asserting that
+dispatch is blocked, every call ID receives a non-empty error result, and the
+provider loop continues. Dispatcher coverage also verifies that retired
+alternative subagent tool names are rejected as unknown instead of reaching
+execution.

@@ -283,29 +283,6 @@ pub(super) async fn execute_tool_calls_for_iteration(
 
     if tool_calls
         .iter()
-        .any(|tool_call| tool_call.name == UPDATE_PLAN_METHOD)
-    {
-        if tool_calls.len() != 1 {
-            let error =
-                "update_plan must be the only tool call in its provider response; no tool calls in this batch were executed"
-                    .to_string();
-            let failures = tool_calls
-                .iter()
-                .map(|tool_call| (&**tool_call, error.clone()))
-                .collect();
-            let outcome = tool_batch_error_result(services, context, state, iteration, failures)?;
-            state.apply_pending_tool_hook_context(context)?;
-            return Ok(outcome);
-        }
-        let tool_call = tool_calls
-            .into_iter()
-            .next()
-            .expect("single update_plan call should exist");
-        return execute_update_plan(services, context, state, iteration, tool_call).await;
-    }
-
-    if tool_calls
-        .iter()
         .any(|tool_call| tool_call.name == REQUEST_USER_INPUT_METHOD)
     {
         if tool_calls.len() != 1 {
@@ -570,13 +547,14 @@ fn publish_data_view_result(
     result
 }
 
-async fn execute_update_plan(
-    services: &NativeAgentRuntimeServices,
-    context: &mut AgentTurnContext,
+fn execute_update_plan_call(
+    context: &AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
-    tool_call: PreparedToolCall,
-) -> Result<NativeAgentToolExecutionOutcome, String> {
+    planned: PlannedToolCall,
+) -> Result<IndexedToolDispatchOutcome, String> {
+    let index = planned.index;
+    let tool_call = planned.tool_call;
     context.metrics().increment("tool.started");
     let tool_started_at = std::time::Instant::now();
     let mut plan = match parse_update_plan_args(tool_call.arguments()) {
@@ -586,11 +564,14 @@ async fn execute_update_plan(
                 .metrics()
                 .record_duration("tool.durationMs", tool_started_at.elapsed());
             context.metrics().increment("tool.failed");
-            let outcome = recoverable_update_plan_error(
-                services, context, state, iteration, tool_call, error,
-            )?;
-            state.apply_pending_tool_hook_context(context)?;
-            return Ok(outcome);
+            let result = super::NativeAgentToolResult::generic_error(&tool_call, error);
+            return Ok(IndexedToolDispatchOutcome {
+                index,
+                outcome: ToolDispatchOutcome::Completed(ToolDispatchCompleted {
+                    tool_call,
+                    result,
+                }),
+            });
         }
     };
     let derived = super::validate_and_normalize_plan_steps(&mut plan.plan)
@@ -605,12 +586,6 @@ async fn execute_update_plan(
         .unwrap_or_else(|| "Plan completed".to_string());
     let plan_id = format!("{}:plan", context.turn_id);
 
-    state.tools_used.push(tool_call.name.clone());
-    state.transition_phase(
-        AgentRuntimePhase::ToolRunning,
-        iteration,
-        AgentEventKind::PlanProgress.wire_name(),
-    )?;
     state.emit(PendingAgentEvent::new(
         AgentEventKind::PlanProgress,
         serde_json::json!({
@@ -634,47 +609,10 @@ async fn execute_update_plan(
         .record_duration("tool.durationMs", tool_started_at.elapsed());
     context.metrics().increment("tool.completed");
 
-    commit_executed_tool_observation(context, state, iteration, tool_call, result).await?;
-    state.apply_pending_tool_hook_context(context)?;
-    state.clear_pending_tool_calls();
-    state.transition_phase(
-        AgentRuntimePhase::Planning,
-        iteration,
-        AgentEventKind::ToolResult.wire_name(),
-    )?;
-    save_phase_checkpoint(
-        services,
-        context,
-        state.phase.as_str(),
-        state.active_checkpoint_payload("plan_updated"),
-    );
-    Ok(NativeAgentToolExecutionOutcome::Continue)
-}
-
-fn recoverable_update_plan_error(
-    services: &NativeAgentRuntimeServices,
-    context: &AgentTurnContext,
-    state: &mut AgentTurnState,
-    iteration: i64,
-    tool_call: PreparedToolCall,
-    error: String,
-) -> Result<NativeAgentToolExecutionOutcome, String> {
-    state.tools_used.push(tool_call.name.clone());
-    let result = super::NativeAgentToolResult::generic_error(&tool_call, error);
-    commit_tool_observation(context, state, iteration, tool_call.into_original(), result)?;
-    state.clear_pending_tool_calls();
-    state.transition_phase(
-        AgentRuntimePhase::Planning,
-        iteration,
-        AgentEventKind::ToolResult.wire_name(),
-    )?;
-    save_phase_checkpoint(
-        services,
-        context,
-        state.phase.as_str(),
-        state.active_checkpoint_payload("plan_rejected"),
-    );
-    Ok(NativeAgentToolExecutionOutcome::Continue)
+    Ok(IndexedToolDispatchOutcome {
+        index,
+        outcome: ToolDispatchOutcome::Completed(ToolDispatchCompleted { tool_call, result }),
+    })
 }
 
 fn parse_update_plan_args(
@@ -860,20 +798,25 @@ async fn execute_planned_tool_call(
 async fn execute_tool_wave(
     services: &NativeAgentRuntimeServices,
     context: &AgentTurnContext,
+    state: &mut AgentTurnState,
+    iteration: i64,
     wave: ToolWave,
-) -> Vec<IndexedToolDispatchOutcome> {
+) -> Result<Vec<IndexedToolDispatchOutcome>, String> {
     match wave {
-        ToolWave::Exclusive(call) => {
-            vec![execute_planned_tool_call(services.clone(), context.clone(), call).await]
+        ToolWave::Exclusive(call) if call.tool_call.name == UPDATE_PLAN_METHOD => {
+            Ok(vec![execute_update_plan_call(
+                context, state, iteration, call,
+            )?])
         }
-        ToolWave::Parallel(calls) => {
-            join_all(
-                calls
-                    .into_iter()
-                    .map(|call| execute_planned_tool_call(services.clone(), context.clone(), call)),
-            )
-            .await
-        }
+        ToolWave::Exclusive(call) => Ok(vec![
+            execute_planned_tool_call(services.clone(), context.clone(), call).await,
+        ]),
+        ToolWave::Parallel(calls) => Ok(join_all(
+            calls
+                .into_iter()
+                .map(|call| execute_planned_tool_call(services.clone(), context.clone(), call)),
+        )
+        .await),
     }
 }
 
@@ -936,7 +879,9 @@ async fn execute_tool_batch(
             mark_tool_wave_running(services, context, state, iteration, wave_index, &wave)?;
         }
 
-        let decision = reduce_wave_outcomes(execute_tool_wave(services, context, wave).await);
+        let decision = reduce_wave_outcomes(
+            execute_tool_wave(services, context, state, iteration, wave).await?,
+        );
         for completed in decision.completed {
             commit_executed_tool_observation(
                 context,

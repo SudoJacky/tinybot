@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:906d5f979d6db3e358703f47ad036ad9da89079b24267b0d94fbc2f547132b1f -->
+<!-- tinybot-doc-fingerprint: sha256:f2888d03e9aff09cfd27bab26e6275ad906abe3e2ea9f2885d0047100d06eeb2 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -112,6 +112,12 @@ For each provider iteration, the runtime:
    dispatching partial side effects.
 7. Emits correlated runtime events through the injected trace sink.
 8. Stops at a terminal result or creates a resumable checkpoint.
+
+Several calls in one provider response form an ordered batch, not a requirement
+to execute them simultaneously. Registry policy marks concurrency-safe calls;
+the runtime groups those calls into parallel waves and treats every exclusive
+call as an ordering barrier. `update_plan` is such a barrier, so a plan update
+may precede ordinary calls in the same response without rejecting the batch.
 
 The bridge loads additive global and effective-working-directory command hooks
 for each Turn. `UserPromptSubmit` runs after the durable Turn start, so a denied

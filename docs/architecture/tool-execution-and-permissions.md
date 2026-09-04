@@ -11,7 +11,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:d00d278d55b906b2c7fbda1cacb2eaa6e19cb71e6ffbd6eaeb8167e48481164f -->
+<!-- tinybot-doc-fingerprint: sha256:a68b6d5a66520333da05e50a47eeecea8038dd5e2bba8374ff0e3b56de813d5f -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -152,7 +152,12 @@ effects at execution time.
 The runtime rejects an entire provider tool-call batch before execution when
 any call is not permitted. Prepared calls are then scheduled according to
 registry policy: compatible read-only calls may run in parallel, while
-workspace or session mutations form exclusive waves.
+workspace or session mutations form exclusive waves. A provider response that
+contains several calls does not require simultaneous dispatch: the runtime,
+not the provider, owns their concrete schedule. An exclusive classification is
+therefore an ordering barrier rather than a rejection. In particular,
+`update_plan` may share a batch with ordinary tools; it updates the Turn plan
+alone, then the scheduler continues with later waves in model order.
 
 Provider-authored argument preparation is also a recoverable batch boundary.
 If any call contains malformed JSON or a non-object argument, no call in that

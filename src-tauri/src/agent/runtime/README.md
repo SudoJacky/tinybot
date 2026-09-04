@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:50655ae7a803593948c432bcacc6187e216ec785e8d395b97092569e628199b3 -->
+<!-- tinybot-module-fingerprint: sha256:a79b5e05d3d33e3c96ab609c71cbd04c5b204e9d86cad8a93773e730d66fe787 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -336,12 +336,15 @@ cancellation.
 Each tool call runs under an owned task and child cancellation token. Calls
 marked parallel-safe by registry policy share a wave; exclusive calls split the
 batch into sequential waves. Every wave is awaited and results are projected in
-model order before the next provider call. Rejected batches also project one
-terminal result per provider call ID. If any call has malformed or non-object
-argument JSON, the whole batch is rejected without side effects: the malformed
-call keeps its parser error and every otherwise-valid call receives a batch
-rejection result so protocol call/result pairing remains complete. Tool cleanup
-comes from the registry policy:
+model order before the next provider call. `update_plan` participates in this
+scheduler as an exclusive runtime-control call, so it may share a provider
+response with ordinary tools: it updates the plan as a barrier, then later waves
+continue. Rejected batches also project one terminal result per provider call
+ID. If any call has malformed or non-object argument JSON, the whole batch is
+rejected without side effects: the malformed call keeps its parser error and
+every otherwise-valid call receives a batch rejection result so protocol
+call/result pairing remains complete. Tool cleanup comes from the registry
+policy:
 
 - `cooperative`: notify and wait through the cleanup bound;
 - `terminate_process`: terminate the owned process after cancellation;
