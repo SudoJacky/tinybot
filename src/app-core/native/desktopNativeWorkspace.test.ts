@@ -10,10 +10,6 @@ describe("desktop native workspace API", () => {
     }));
     const api = createDesktopNativeWorkspaceApi({ invoke });
 
-    await expect(api.files()).resolves.toEqual({
-      command: "worker_workspace_files",
-      args: undefined,
-    });
     await expect(api.file("docs/readme.md")).resolves.toEqual({
       command: "worker_workspace_file",
       args: { input: { path: "docs/readme.md" } },

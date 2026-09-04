@@ -42,7 +42,6 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
     load: ReturnType<typeof vi.fn>;
   };
   workspaceStore: {
-    listFiles: ReturnType<typeof vi.fn>;
     listDirectory: ReturnType<typeof vi.fn>;
     readFile: ReturnType<typeof vi.fn>;
     readThreadFile: ReturnType<typeof vi.fn>;
@@ -129,10 +128,6 @@ function createServices(options: { messages?: ReactChatMessage[]; sessions?: Ses
       forget: vi.fn(async () => undefined),
     },
     workspaceStore: {
-      listFiles: vi.fn(async () => [
-        { path: "src/main.ts", size: 512 },
-        { path: "docs/notes.md", size: 2048 },
-      ]),
       listDirectory: vi.fn(async () => ({
         entries: [],
         listingRevision: "test",
@@ -491,7 +486,7 @@ describe("DesktopShell", () => {
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     const resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
-    for (const item of ["Chat", "Agent Graphs", "Workspace Files", "Memory", "Tools & Plugins"]) {
+    for (const item of ["Chat", "Agent Graphs", "Memory", "Tools & Plugins"]) {
       expect(within(resourcesMenu).getByRole("menuitem", { name: item })).toBeTruthy();
     }
     expect(within(resourcesMenu).queryByRole("menuitem", { name: "GitHub" })).toBeNull();
@@ -738,8 +733,8 @@ describe("DesktopShell", () => {
     expect(forwardButton.hasAttribute("disabled")).toBe(true);
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
-    await user.click(within(screen.getByRole("menu", { name: "Resources menu" })).getByRole("menuitem", { name: "Workspace Files" }));
-    expect(await screen.findByRole("heading", { name: "Workspace Files" })).toBeTruthy();
+    await user.click(within(screen.getByRole("menu", { name: "Resources menu" })).getByRole("menuitem", { name: "Memory" }));
+    expect(await screen.findByRole("heading", { name: "Memory" })).toBeTruthy();
     expect(backButton.hasAttribute("disabled")).toBe(false);
     expect(forwardButton.hasAttribute("disabled")).toBe(true);
 
@@ -749,7 +744,7 @@ describe("DesktopShell", () => {
     expect(forwardButton.hasAttribute("disabled")).toBe(false);
 
     await user.click(forwardButton);
-    expect(await screen.findByRole("heading", { name: "Workspace Files" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { name: "Memory" })).toBeTruthy();
 
     await user.click(backButton);
     await user.click(screen.getByRole("button", { name: "System" }));
@@ -773,13 +768,6 @@ describe("DesktopShell", () => {
     await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Agent Graphs" }));
     expect(await screen.findByRole("heading", { name: "Agent Graphs" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Start with your first workflow" })).toBeTruthy();
-
-    await user.click(screen.getByRole("button", { name: "Resources" }));
-    resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });
-    await user.click(within(resourcesMenu).getByRole("menuitem", { name: "Workspace Files" }));
-    expect(await screen.findByRole("heading", { name: "Workspace Files" })).toBeTruthy();
-    expect(screen.getByText("src/main.ts")).toBeTruthy();
-    expect(services.workspaceStore.listFiles).toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Resources" }));
     resourcesMenu = screen.getByRole("menu", { name: "Resources menu" });

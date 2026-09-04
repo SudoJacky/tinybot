@@ -147,14 +147,7 @@ export type ChatStore = {
   subscribe(sessionId: string, listener: (event: ChatEvent) => void): () => void;
 };
 
-export type WorkspaceFileSummary = {
-  path: string;
-  size?: number;
-  updatedAtMs?: number;
-};
-
 export type WorkspaceStore = {
-  listFiles(): Promise<WorkspaceFileSummary[]>;
   listDirectory(request: WorkspaceDirectoryRequest): Promise<WorkspaceDirectoryPage>;
   readFile(request: { cursor?: string; path: string }): Promise<WorkspaceFileChunk>;
   readThreadFile(request: { cursor?: string; path: string; threadId: string }): Promise<WorkspaceFileChunk>;

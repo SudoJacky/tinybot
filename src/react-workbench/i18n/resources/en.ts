@@ -3,7 +3,6 @@ export const en = {
     routes: {
       chat: "Chat",
       graphs: "Agent Graphs",
-      files: "Workspace Files",
       memory: "Memory",
       tools: "Tools & Plugins",
       settings: "Settings",
@@ -77,10 +76,6 @@ export const en = {
         angry: "Tinybot is frustrated",
         pleased: "Tinybot finished the task",
       },
-    },
-    files: {
-      empty: "No workspace files found.",
-      sizeUnavailable: "Size unavailable",
     },
     graphs: {
       title: "Agent Graphs",

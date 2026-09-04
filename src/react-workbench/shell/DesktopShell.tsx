@@ -79,7 +79,6 @@ type TopMenuCommandId =
   | "stop-generation"
   | "search-sessions"
   | "open-chat"
-  | "open-files"
   | "open-graphs"
   | "open-memory"
   | "open-tools"
@@ -122,7 +121,6 @@ function createRouteLabels(t: TFunction<"common">): Record<AppRoute, string> {
   return {
     chat: t("routes.chat"),
     graphs: t("routes.graphs"),
-    files: t("routes.files"),
     memory: t("routes.memory"),
     tools: t("routes.tools"),
     settings: t("routes.settings"),
@@ -159,7 +157,6 @@ function createTopMenuItems(
     entries: [
       menuCommand({ id: "open-chat", label: routeLabels.chat, route: "chat" }),
       menuCommand({ id: "open-graphs", label: routeLabels.graphs, route: "graphs" }),
-      menuCommand({ id: "open-files", label: routeLabels.files, route: "files" }),
       menuCommand({ id: "open-memory", label: routeLabels.memory, route: "memory" }),
       menuCommand({ id: "open-tools", label: routeLabels.tools, route: "tools" }),
     ],

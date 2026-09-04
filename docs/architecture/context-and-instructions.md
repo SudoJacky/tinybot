@@ -12,7 +12,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:13cf4a138e1697814e837efbee5516f3f3a8061e79eb783a7c1fa27bdb80390c -->
+<!-- tinybot-doc-fingerprint: sha256:73e8575b3bc6dffa70dd7d1a48a577b4b5c82a7ac9ce2eeb06358600dc9328bc -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -20,7 +20,9 @@ composition and context-window management are separate stages.
 
 The optional first-Turn title request is a separate tool-free request, not part
 of this composed Agent context. Its fixed system prompt treats the bounded user
-input as untrusted data and asks only for a short same-language title.
+input as untrusted data and requires only a short same-language title. For the
+Responses transport, title decoding accepts only assistant `message` /
+`output_text` content and ignores reasoning items.
 
 ## Workspace concepts
 
