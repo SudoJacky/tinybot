@@ -355,7 +355,7 @@ impl WorkerRpcRouter {
         let (target_method, tool_arguments) = match &tool.execution_target {
             ToolExecutionTarget::WorkerRpc { method } => (
                 method.clone(),
-                tool_executor_arguments_with_context(&params),
+                tool_executor_arguments_with_context(&params, method),
             ),
             ToolExecutionTarget::Mcp { server, tool } => (
                 "mcp.call_tool".to_string(),
@@ -456,28 +456,54 @@ impl WorkerRpcRouter {
     }
 }
 
-fn tool_executor_arguments_with_context(params: &ToolExecutorExecuteRequest) -> Value {
+fn tool_executor_arguments_with_context(
+    params: &ToolExecutorExecuteRequest,
+    target_method: &str,
+) -> Value {
     let mut arguments = params.arguments.clone();
     if let Value::Object(object) = &mut arguments {
-        if let Some(session_id) = params
-            .session_id
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-        {
+        let owned_shell_process = matches!(
+            target_method,
+            "shell.poll"
+                | "shell.write_stdin"
+                | "shell.resize"
+                | "shell.interrupt"
+                | "shell.terminate"
+        );
+        if owned_shell_process {
             object.remove("session_id");
-            object.insert(
-                "sessionId".to_string(),
-                Value::String(session_id.to_string()),
-            );
-        }
-        if !object.contains_key("parentTurnId") {
+            object.remove("sessionId");
+            object.remove("turn_id");
+            object.remove("turnId");
             if let Some(turn_id) = params
                 .turn_id
                 .as_deref()
                 .filter(|value| !value.trim().is_empty())
             {
-                object.remove("turn_id");
-                object.insert("turnId".to_string(), Value::String(turn_id.to_string()));
+                object.remove("owner_id");
+                object.insert("ownerId".to_string(), Value::String(turn_id.to_string()));
+            }
+        } else {
+            if let Some(session_id) = params
+                .session_id
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                object.remove("session_id");
+                object.insert(
+                    "sessionId".to_string(),
+                    Value::String(session_id.to_string()),
+                );
+            }
+            if !object.contains_key("parentTurnId") {
+                if let Some(turn_id) = params
+                    .turn_id
+                    .as_deref()
+                    .filter(|value| !value.trim().is_empty())
+                {
+                    object.remove("turn_id");
+                    object.insert("turnId".to_string(), Value::String(turn_id.to_string()));
+                }
             }
         }
         if let Some(tool_call_id) = params

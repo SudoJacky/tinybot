@@ -3,16 +3,18 @@
 src-tauri/src/desktop_commands/retry.rs
 src-tauri/src/native_browser/commands.rs
 src-tauri/src/native_browser/model.rs
+src-tauri/src/rpc/mod.rs
 src-tauri/src/rpc/background_dispatch.rs
 src-tauri/src/rpc/subagent_dispatch.rs
 src-tauri/src/rpc/tool_dispatch.rs
+src-tauri/src/rpc/tests/workspace_and_shell.rs
 src-tauri/src/tools/shell/mod.rs
 src-tauri/src/tools/shell/process_manager.rs
 src-tauri/src/rpc/tests/threads_and_tools.rs
 src-tauri/tests/crate/retry.rs
 src/app-core/native/desktopNativeThreads.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:b1a78b3c1b02f23146ccba40cced9c58934475a208513486361d133badc4579c -->
+<!-- tinybot-doc-fingerprint: sha256:277515971e385ff6afcbda5054f2bdc5462f750eb55ad1826b8fe6a5085f6744 -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -43,10 +45,12 @@ Model-visible deferred tools map to the richer RPC surface:
 | `exec_command` | `shell.start` | `terminate_process` |
 | `write_stdin` | `shell.write_stdin` | `detach_forbidden` |
 
-The tool executor overwrites tool-supplied identity fields with the active `sessionId`, `turnId`,
-and `toolCallId` when these tools dispatch. `shell.start` uses `turnId` as the retained process
-`ownerId`. An owned process cannot be polled, written, resized, interrupted, or terminated without
-that matching `ownerId`.
+For `exec_command`, the tool executor overwrites tool-supplied identity fields with the active
+`sessionId`, `turnId`, and `toolCallId`; `shell.start` uses `turnId` as the retained process
+`ownerId`. For `write_stdin` and other retained-process operations, the executor removes Agent
+session fields and maps the active `turnId` directly to `ownerId`. This avoids colliding with the
+legacy Shell `sessionId` alias for `processId` while ensuring an owned process cannot be polled,
+written, resized, interrupted, or terminated without its matching Turn owner.
 
 ### Shell RPC methods
 

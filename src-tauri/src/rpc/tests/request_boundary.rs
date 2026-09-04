@@ -2,18 +2,21 @@ use super::*;
 
 #[test]
 fn tool_executor_preserves_explicit_parent_turn_context() {
-    let arguments = tool_executor_arguments_with_context(&ToolExecutorExecuteRequest {
-        tool_id: "subagent.spawn".to_string(),
-        arguments: json!({
-            "sessionKey": "session-parent",
-            "parentTurnId": "turn-parent",
-            "task": "Inspect one bounded boundary"
-        }),
-        thread_id: None,
-        session_id: Some("session-parent".to_string()),
-        turn_id: None,
-        tool_call_id: Some("call-subagent-spawn".to_string()),
-    });
+    let arguments = tool_executor_arguments_with_context(
+        &ToolExecutorExecuteRequest {
+            tool_id: "subagent.spawn".to_string(),
+            arguments: json!({
+                "sessionKey": "session-parent",
+                "parentTurnId": "turn-parent",
+                "task": "Inspect one bounded boundary"
+            }),
+            thread_id: None,
+            session_id: Some("session-parent".to_string()),
+            turn_id: None,
+            tool_call_id: Some("call-subagent-spawn".to_string()),
+        },
+        "subagent.spawn",
+    );
 
     assert_eq!(arguments["parentTurnId"], "turn-parent");
     assert!(arguments.get("turnId").is_none());
