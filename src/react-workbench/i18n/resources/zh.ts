@@ -2,7 +2,7 @@ import type { en, TranslationResourceShape } from "./en";
 
 export const zh = {
   common: {
-    routes: { chat: "聊天", graphs: "Agent Graph", files: "工作区文件", memory: "记忆", tools: "工具与插件", settings: "设置", performanceTrace: "性能追踪" },
+    routes: { chat: "聊天", graphs: "Agent Graph", memory: "记忆", tools: "工具与插件", settings: "设置", performanceTrace: "性能追踪" },
     menu: {
       app: "应用", resources: "资源", system: "系统", help: "帮助", applicationLabel: "应用菜单", resourcesLabel: "资源菜单", openExternal: "在外部浏览器中打开 {{label}}",
       systemLabel: "系统菜单", helpLabel: "帮助菜单", newChat: "新建会话", searchSessions: "搜索会话", stopGeneration: "停止生成",
@@ -25,7 +25,6 @@ export const zh = {
       sizes: { small: "小", medium: "中", large: "大" },
       status: { calm: "Tinybot 很平静", curious: "Tinybot 正疑惑地等你", working: "Tinybot 正在努力", angry: "Tinybot 有点生气", pleased: "Tinybot 满意地完成了任务" },
     },
-    files: { empty: "没有找到工作区文件。", sizeUnavailable: "大小不可用" },
     graphs: {
       title: "Agent Graph", eyebrow: "自动化", description: "独立于聊天设计可复用的 Agent 工作流。", new: "新建 Graph", createFirst: "创建第一个 Graph",
       emptyTitle: "从第一个流程开始", emptyDescription: "在所选工作区中创建一个 Graph，开始你的自动化之旅。", loading: "正在加载已保存的 Graph…",

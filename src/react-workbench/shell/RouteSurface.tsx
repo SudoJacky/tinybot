@@ -1,13 +1,12 @@
-import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { DesktopPetPreferences } from "../../app-core/desktop-pet/desktopPetState";
 import { ChatPage } from "../chat/ChatPage";
 import type { TinybotMascotMood } from "../chat/TinybotMascot";
-import type { AppServices, WorkspaceFileSummary } from "../services";
+import type { AppServices } from "../services";
 import type { SettingsModuleId } from "../settings/SettingsRoute";
 import { DeferredSurface } from "./DeferredSurface";
 
-export type AppRoute = "chat" | "graphs" | "files" | "memory" | "tools" | "settings" | "performanceTrace";
+export type AppRoute = "chat" | "graphs" | "memory" | "tools" | "settings" | "performanceTrace";
 
 export type SettingsNavigationRequest = {
   moduleId: SettingsModuleId;
@@ -32,11 +31,6 @@ type DesktopPetRouteProps = {
   onPreferencesChange: (preferences: DesktopPetPreferences) => void;
   onResetPosition: () => void;
 };
-
-type FilesState =
-  | { status: "loading" }
-  | { status: "ready"; files: WorkspaceFileSummary[] }
-  | { status: "failed"; error: Error };
 
 const loadMemoryRoute = () => import("../memory/MemoryRoute");
 const loadAgentGraphsRoute = () => import("../agent-graph/AgentGraphsRoute");
@@ -89,8 +83,6 @@ export function RouteSurface({
       );
     case "graphs":
       return <DeferredSurface load={loadAgentGraphsRoute} name={routeName} surfaceProps={{ services }} />;
-    case "files":
-      return <FilesPage services={services} title={routeName} />;
     case "memory":
       return <DeferredSurface load={loadMemoryRoute} name={routeName} surfaceProps={{ services }} />;
     case "tools":
@@ -118,93 +110,4 @@ export function RouteSurface({
     case "performanceTrace":
       return <DeferredSurface load={loadPerformanceTraceRoute} name={routeName} surfaceProps={{ services }} />;
   }
-}
-
-function FilesPage({ services, title }: { services: AppServices; title: string }) {
-  const { t } = useTranslation("common");
-  const [attempt, setAttempt] = useState(0);
-  const [state, setState] = useState<FilesState>({ status: "loading" });
-  const workspaceStore = services.workspaceStore;
-
-  useEffect(() => {
-    let cancelled = false;
-    setState({ status: "loading" });
-    void workspaceStore.listFiles()
-      .then((files) => {
-        if (!cancelled) {
-          setState({ status: "ready", files });
-        }
-      })
-      .catch((cause: unknown) => {
-        if (cancelled) return;
-        const error = cause instanceof Error ? cause : new Error(String(cause));
-        console.error("[tinybot-files-route]", { attempt: attempt + 1, error });
-        setState({ status: "failed", error });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [attempt, workspaceStore]);
-
-  return (
-    <WorkbenchPage title={title}>
-      {state.status === "loading" ? (
-        <p aria-live="polite" className="react-empty-state" role="status">
-          {t("deferredSurface.loading", { name: title })}
-        </p>
-      ) : null}
-      {state.status === "failed" ? (
-        <div className="react-empty-state" role="alert">
-          <p>{t("deferredSurface.loadFailed", { message: state.error.message, name: title })}</p>
-          <button type="button" onClick={() => setAttempt((value) => value + 1)}>
-            {t("deferredSurface.retry", { name: title })}
-          </button>
-        </div>
-      ) : null}
-      {state.status === "ready" ? (
-        <DataList
-          empty={t("files.empty")}
-          items={state.files}
-          renderItem={(file) => (
-            <div className="react-data-row" key={file.path}>
-              <strong>{file.path}</strong>
-              <small>{formatFileSize(file.size, t("files.sizeUnavailable"))}</small>
-            </div>
-          )}
-        />
-      ) : null}
-    </WorkbenchPage>
-  );
-}
-
-function WorkbenchPage({ children, title }: { children: ReactNode; title: string }) {
-  return (
-    <div className="react-workbench-page">
-      <header>
-        <h1>{title}</h1>
-      </header>
-      {children}
-    </div>
-  );
-}
-
-function DataList<T>({ empty, items, renderItem }: {
-  empty: string;
-  items: T[];
-  renderItem: (item: T) => ReactNode;
-}) {
-  if (!items.length) {
-    return <p className="react-empty-state">{empty}</p>;
-  }
-  return <div className="react-data-list">{items.map(renderItem)}</div>;
-}
-
-function formatFileSize(size: WorkspaceFileSummary["size"], unavailable: string): string {
-  if (typeof size !== "number" || !Number.isFinite(size)) {
-    return unavailable;
-  }
-  if (size < 1024) {
-    return `${size} B`;
-  }
-  return `${(size / 1024).toFixed(1)} KB`;
 }

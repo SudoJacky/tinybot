@@ -2,13 +2,12 @@ import type { NativeWorkspaceApi } from "../../app-core/native/desktopNativeWork
 import type {
   WorkspaceDirectoryPage,
   WorkspaceFileChunk,
-  WorkspaceFileSummary,
   WorkspaceQueryError,
   WorkspaceQueryErrorCode,
   WorkspaceStore,
 } from "../services";
 
-type NativeWorkspaceQueryApi = Pick<NativeWorkspaceApi, "directory" | "fileChunk" | "files" | "threadFileBytes" | "threadFileChunk">;
+type NativeWorkspaceQueryApi = Pick<NativeWorkspaceApi, "directory" | "fileChunk" | "threadFileBytes" | "threadFileChunk">;
 
 export function createDesktopWorkspaceStore({
   initialize,
@@ -18,10 +17,6 @@ export function createDesktopWorkspaceStore({
   nativeWorkspace?: NativeWorkspaceQueryApi;
 }): WorkspaceStore {
   return {
-    async listFiles() {
-      await initialize();
-      return normalizeWorkspaceFiles(await requireNativeWorkspace(nativeWorkspace).files());
-    },
     async listDirectory(request) {
       await initialize();
       return normalizeWorkspaceDirectoryPage(await requireNativeWorkspace(nativeWorkspace).directory(request));
@@ -48,17 +43,6 @@ export function normalizeWorkspaceFileBytes(payload: unknown): Uint8Array {
     return Uint8Array.from(payload);
   }
   throw new Error("Workspace file byte response is invalid");
-}
-
-function normalizeWorkspaceFiles(payload: unknown): WorkspaceFileSummary[] {
-  return payloadItems(payload, ["files", "items"]).map((item) => {
-    const path = stringValue(item.path ?? item.name ?? item.file ?? item.relative_path);
-    return {
-      path: path || "Untitled file",
-      size: numberValue(item.size ?? item.bytes),
-      updatedAtMs: timestampMs(stringValue(item.updated_at ?? item.updatedAt ?? item.modified_at)) ?? undefined,
-    };
-  });
 }
 
 function normalizeWorkspaceDirectoryPage(payload: unknown): WorkspaceDirectoryPage {
@@ -157,32 +141,6 @@ function isWorkspaceQueryErrorCode(value: string): value is WorkspaceQueryErrorC
 function requireNativeWorkspace(value: NativeWorkspaceQueryApi | undefined): NativeWorkspaceQueryApi {
   if (!value) throw new Error("Workspace Native API is unavailable outside the Tauri runtime");
   return value;
-}
-
-function payloadItems(payload: unknown, keys: string[]): Record<string, unknown>[] {
-  if (Array.isArray(payload)) {
-    return payload.filter(isRecord);
-  }
-  if (!isRecord(payload)) {
-    return [];
-  }
-  for (const key of keys) {
-    const value = payload[key];
-    if (Array.isArray(value)) {
-      return value.filter(isRecord);
-    }
-  }
-  return [];
-}
-
-function timestampMs(value: string): number | null {
-  if (!value) return null;
-  if (value.startsWith("unix-ms:")) {
-    const parsed = Number(value.slice("unix-ms:".length));
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  const parsed = Date.parse(value);
-  return Number.isNaN(parsed) ? null : parsed;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

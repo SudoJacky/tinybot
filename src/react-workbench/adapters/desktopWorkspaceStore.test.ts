@@ -4,7 +4,6 @@ import { createDesktopWorkspaceStore } from "./desktopWorkspaceStore";
 
 function createNativeWorkspace() {
   return {
-    files: vi.fn<NativeWorkspaceApi["files"]>(async () => ({ files: [] })),
     directory: vi.fn<NativeWorkspaceApi["directory"]>(async () => ({ result: { entries: [], listing_revision: "revision-1", path: "." } })),
     fileChunk: vi.fn<NativeWorkspaceApi["fileChunk"]>(async () => ({ result: { content_type: "text", path: "README.md", revision: "revision-1", size_bytes: 0 } })),
     threadFileChunk: vi.fn<NativeWorkspaceApi["threadFileChunk"]>(async () => ({ result: { content_type: "text", path: "README.md", revision: "revision-1", size_bytes: 0 } })),
@@ -13,25 +12,6 @@ function createNativeWorkspace() {
 }
 
 describe("desktop workspace store", () => {
-  it("normalizes workspace file summaries through the WorkspaceStore interface", async () => {
-    const initialize = vi.fn(async () => undefined);
-    const nativeWorkspace = createNativeWorkspace();
-    nativeWorkspace.files.mockResolvedValue({
-      files: [
-        { relative_path: "src/main.ts", bytes: "512", updated_at: "unix-ms:100" },
-        { name: "README.md", size: 2048, modified_at: "2026-08-15T00:00:00.000Z" },
-      ],
-    });
-    const store = createDesktopWorkspaceStore({ initialize, nativeWorkspace });
-
-    await expect(store.listFiles()).resolves.toEqual([
-      { path: "src/main.ts", size: 512, updatedAtMs: 100 },
-      { path: "README.md", size: 2048, updatedAtMs: Date.parse("2026-08-15T00:00:00.000Z") },
-    ]);
-    expect(initialize).toHaveBeenCalledTimes(1);
-    expect(nativeWorkspace.files).toHaveBeenCalledTimes(1);
-  });
-
   it("normalizes directory and file query results", async () => {
     const nativeWorkspace = createNativeWorkspace();
     nativeWorkspace.directory.mockResolvedValue({

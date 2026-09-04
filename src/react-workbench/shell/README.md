@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:6e36fc4bdcfdfec13f497aa1dc935edb0661bafc8dc6d32f2799e33193a421c0 -->
+<!-- tinybot-module-fingerprint: sha256:efedecee5d19387062a8851bdc60d44a398d0e0964b577bd2464e5aa9ed37248 -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
@@ -35,6 +35,8 @@ Resources > Agent Graphs opens a dedicated lazy route. The shell knows only the
 route label, loader, and shared renderer stores passed to it; workspace catalog
 derivation, Graph draft state, and Run presentation remain under `agent-graph/`
 and do not become a Chat mode.
+The Resources menu has no standalone Workspace Files route; contextual file
+previews remain owned by Chat's Artifact sidecar.
 
 The shell owns the Tinybot desktop pet's three-step size preference, classic or
 dimensional appearance, visibility, desktop position persistence, and current
