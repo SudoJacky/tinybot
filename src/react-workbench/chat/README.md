@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:a87ee7b2823ee97d63300239f20adfc6a49405eaff96b53f32ddb77906773c3e -->
+<!-- tinybot-module-fingerprint: sha256:2c3430872150b45b64733e22894f45c6b2f5059bd92b0ea8a203b793114718ce -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -20,6 +20,12 @@ uses an ellipsis when the line does not fit. The user can expand the row for the
 complete naturally wrapped text. Individual Tool and Diff rows also start
 collapsed, so the ordered activity stays scannable until a user opens one row's
 details.
+`ChatDisclosureIcon.tsx` shares the leading icon and disclosure arrow across
+Reasoning, Tool, Diff, Plan, compaction, and execution-summary headers. Their
+triggers crossfade the icon to a down arrow on hover and keep an up arrow while
+expanded, using `aria-expanded` or native `details[open]` as the state source.
+Keyboard focus and reduced-motion mode switch immediately; non-hover devices
+keep the arrow visible. Each row retains its own expansion lifecycle and content.
 `FloatingPlanStatus.tsx` mirrors the most recent canonical plan across Turns in
 a fixed top-right note without introducing another plan store. A newer Turn
 without a plan keeps the previous plan visible; the next plan replaces it. New

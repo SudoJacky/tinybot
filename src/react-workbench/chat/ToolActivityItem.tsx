@@ -4,7 +4,6 @@ import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   Bot,
-  ChevronRight,
   Circle,
   FileText,
   Globe2,
@@ -15,6 +14,7 @@ import {
   XCircle,
 } from "lucide-react";
 import type { ChatStepStatus, ToolCallState } from "../../app-core/chat/chatTurnContracts";
+import { ChatDisclosureIcon } from "./ChatDisclosureIcon";
 
 type ToolActivityKind = "file" | "generic" | "plan" | "subagent" | "terminal" | "web";
 
@@ -87,13 +87,14 @@ export function ToolActivityFrame({
   const meta = [category, durationMs === undefined ? "" : formatToolDuration(durationMs)].filter(Boolean).join(" · ");
   const headerContent = (
     <>
-      <span aria-hidden="true" className="react-tool-activity__icon">{icon}</span>
+      <span aria-hidden="true" className="react-tool-activity__icon">
+        {hasContent ? <ChatDisclosureIcon icon={icon} /> : icon}
+      </span>
       <span className="react-tool-activity__copy">
         <strong>{title}</strong>
         {meta ? <small>{meta}</small> : null}
       </span>
       <ToolActivityStatus status={status} />
-      {hasContent ? <ChevronRight aria-hidden="true" className="react-tool-activity__chevron" size={15} /> : null}
     </>
   );
 
@@ -104,7 +105,7 @@ export function ToolActivityFrame({
           aria-controls={contentId}
           aria-expanded={open}
           aria-label={t("toolActivity.toggleDetails", { title })}
-          className="react-tool-activity__header"
+          className="react-tool-activity__header react-chat-disclosure-trigger"
           type="button"
           onClick={() => setOpen((current) => !current)}
         >

@@ -5,8 +5,6 @@ import {
   Activity,
   AlertTriangle,
   Check,
-  ChevronDown,
-  ChevronRight,
   Circle,
   Copy,
   FileText,
@@ -42,6 +40,7 @@ import { AssistantMarkdown } from "./AssistantMarkdown";
 import type { AssistantFileLink } from "./assistantFileLinks";
 import { isApplyPatchToolCall, PatchDiffCard, patchChangeSetFromToolResult } from "./PatchDiffCard";
 import { ToolActivityItem } from "./ToolActivityItem";
+import { ChatDisclosureIcon } from "./ChatDisclosureIcon";
 import { DataViewCard } from "./DataViewCard";
 
 export type ChatTimelineActions = {
@@ -323,16 +322,15 @@ function ExecutionTimeline({
         aria-controls={contentId}
         aria-expanded={open}
         aria-label={`${t("turn.workPerformed")}: ${summary}`}
-        className="react-execution-timeline__trigger"
+        className="react-execution-timeline__trigger react-chat-disclosure-trigger"
         title={summary}
         type="button"
         onClick={() => setOpen((currentOpen) => !currentOpen)}
       >
-        <span className="react-execution-timeline__status"><Activity aria-hidden="true" size={17} /></span>
+        <span className="react-execution-timeline__status"><ChatDisclosureIcon icon={<Activity size={16} />} /></span>
         <span className="react-execution-timeline__heading">
           <span aria-live="polite" className="react-execution-timeline__summary">{summary}</span>
         </span>
-        <ChevronRight aria-hidden="true" className="react-execution-timeline__chevron" size={16} />
       </button>
       <div className="react-execution-timeline__content" hidden={!open} id={contentId}>
         {visibleExecutionItems.map((step) => (
@@ -520,13 +518,13 @@ function ExecutionReasoningActivity({ step }: { step: ChatStep }) {
         aria-controls={contentId}
         aria-expanded={expanded}
         aria-label={label}
-        className="react-execution-reasoning__trigger"
+        className="react-execution-reasoning__trigger react-chat-disclosure-trigger"
         id={triggerId}
         type="button"
         onClick={() => setExpanded((open) => !open)}
       >
         <span className="react-execution-reasoning__label">
-          <Lightbulb aria-hidden="true" size={16} />
+          <ChatDisclosureIcon icon={<Lightbulb size={16} />} />
           <span>{label}</span>
         </span>
         <span
@@ -538,7 +536,6 @@ function ExecutionReasoningActivity({ step }: { step: ChatStep }) {
         >
           {expanded ? null : step.summary}
         </span>
-        {expanded ? <ChevronDown aria-hidden="true" size={14} /> : <ChevronRight aria-hidden="true" size={14} />}
       </button>
       {expanded ? (
         <div
@@ -755,10 +752,9 @@ function CanonicalChatStep({
     const compaction = step.compaction;
     return (
       <details className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
-        <summary>
-          <span className="react-canonical-step__icon"><ListCollapse aria-hidden="true" size={16} /></span>
+        <summary className="react-chat-disclosure-trigger">
+          <ChatDisclosureIcon icon={<ListCollapse size={16} />} />
           <span>{t("turn.contextCompacted")}</span>
-          <ChevronRight aria-hidden="true" className="react-context-compaction-chevron" size={15} />
         </summary>
         {step.summary ? <p>{step.summary}</p> : null}
         {compaction ? (
@@ -838,18 +834,17 @@ function CanonicalPlanCard({ step }: { step: ChatStep }) {
 
   return (
     <section aria-label={t("plan.label")} aria-live="polite" className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
-      <span className="react-canonical-step__icon"><AgentStepIcon status={canonicalStepIconStatus(step)} /></span>
       <div className="react-canonical-plan">
         <button
           aria-controls={contentId}
           aria-expanded={expanded}
-          className="react-canonical-plan__heading"
+          className="react-canonical-plan__heading react-chat-disclosure-trigger"
           type="button"
           onClick={() => setExpanded((open) => !open)}
         >
+          <ChatDisclosureIcon icon={<AgentStepIcon status={canonicalStepIconStatus(step)} />} />
           <strong>{t("plan.label")}</strong>
           <span>{t("plan.completed", { completed, total: plan.total })}</span>
-          {expanded ? <ChevronDown aria-hidden="true" size={15} /> : <ChevronRight aria-hidden="true" size={15} />}
         </button>
         <progress
           aria-label={step.title}
@@ -1094,12 +1089,12 @@ function MessageReasoning({ durationMs, streaming, text }: { durationMs?: number
       <button
         aria-controls={contentId}
         aria-expanded={expanded}
-        className="react-message-reasoning__trigger"
+        className="react-message-reasoning__trigger react-chat-disclosure-trigger"
         type="button"
         onClick={() => setExpanded((open) => !open)}
       >
+        <ChatDisclosureIcon icon={<Lightbulb size={16} />} />
         <span>{streaming ? t("reasoning.thinking") : formatThinkingLabel(durationMs, t)}</span>
-        {expanded ? <ChevronDown aria-hidden="true" size={14} /> : <ChevronRight aria-hidden="true" size={14} />}
       </button>
       {expanded ? (
         <div className="react-message-reasoning__content" id={contentId}>
@@ -1230,16 +1225,15 @@ function AgentSteps({
           aria-controls={listId}
           aria-expanded={expanded}
           aria-label={`${t("steps.label")}, ${countLabel}`}
-          className="react-agent-steps__header"
+          className="react-agent-steps__header react-chat-disclosure-trigger"
           type="button"
           onClick={() => setExpanded((open) => !open)}
         >
           <span className="react-agent-steps__header-icon" data-status={overallStatus}>
-            <AgentStepIcon status={overallStatus} />
+            <ChatDisclosureIcon icon={<AgentStepIcon status={overallStatus} />} />
           </span>
           <span className="react-agent-steps__title">{t("steps.title")}</span>
           <small>{countLabel}</small>
-          {expanded ? <ChevronDown aria-hidden="true" size={15} /> : <ChevronRight aria-hidden="true" size={15} />}
         </button>
       ) : null}
 
