@@ -46,7 +46,6 @@ fn disabled_exec_config_rejects_direct_shell_execution() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({ "tools": { "exec": { "enable": false } } }),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     );
@@ -76,7 +75,6 @@ fn dispatches_workspace_read_file_request() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
     );
@@ -110,7 +108,6 @@ fn dispatches_workspace_write_file_version_conflict() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]),
     );
@@ -151,7 +148,6 @@ fn dispatches_workspace_apply_patch_request_with_structured_change_summary() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::FsWorkspaceRead,
@@ -206,7 +202,6 @@ fn dispatches_workspace_create_dir_request() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]),
     );
@@ -249,7 +244,6 @@ fn dispatches_skills_list_request_with_workspace_precedence() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
     );
@@ -287,7 +281,6 @@ fn dispatch_returns_capability_error_response() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::default(),
     );
@@ -315,7 +308,6 @@ fn dispatch_rejects_unknown_method() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
     );
@@ -337,7 +329,6 @@ fn dispatch_rejects_removed_approval_method_as_unknown() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([]),
     );
@@ -366,7 +357,6 @@ fn dispatch_rejects_invalid_params() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
     );
@@ -393,7 +383,6 @@ fn dispatches_config_get_request() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({ "agents": { "defaults": { "model": "gpt-5" } } }),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::ConfigRead]),
     );
@@ -426,7 +415,6 @@ fn dispatches_config_snapshot_public_request() {
                 }
             }
         }),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::ConfigRead]),
     );
@@ -450,7 +438,6 @@ fn dispatches_config_apply_patch_result_request() {
             "agents": { "defaults": { "model": "gpt-5" } },
             "providers": { "openai": { "apiKey": "sk-old-secret" } }
         }),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::ConfigRead,
@@ -537,7 +524,6 @@ fn dispatches_config_apply_patch_result_to_config_store() {
     let mut router = WorkerRpcRouter::with_config_store(
         fixture.root.clone(),
         store,
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::ConfigRead, WorkerCapability::ConfigWrite]),
     );
@@ -614,7 +600,6 @@ fn dispatches_config_apply_operations_to_config_store() {
     let mut router = WorkerRpcRouter::with_config_store(
         fixture.root.clone(),
         store,
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::ConfigRead, WorkerCapability::ConfigWrite]),
     );
@@ -668,7 +653,6 @@ fn config_store_patch_result_requires_write_capability_before_save() {
     let mut router = WorkerRpcRouter::with_config_store(
         fixture.root.clone(),
         store,
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::ConfigRead]),
     );
@@ -719,7 +703,6 @@ fn dispatches_provider_resolve_secret_request() {
                 }
             }
         }),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::ProviderSecretRead]),
     );

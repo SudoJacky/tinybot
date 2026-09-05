@@ -52,7 +52,6 @@ fn channel_connector_dispatch_routes_to_channel_module() {
     let mut router = WorkerRpcRouter::new(
         root,
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::ChannelConnector]),
     );

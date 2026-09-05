@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:2e7d5fcd788e5dc14e97be5276527ad192bd700e6e8e92c2e2c4c428f42a9591 -->
+<!-- tinybot-module-fingerprint: sha256:88953d2eeb109d244654b4d05e08b8f16b6f4af37fd5f14ed858a472ccb1ef51 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -52,8 +52,8 @@ decide which durable conversation store a caller uses.
    A standalone manual-compaction turn summarizes older history through the
    same context path, installs its checkpoint, and finishes without a normal
    assistant message.
-3. `context.rs`, `context_contributors.rs`, and `instructions.rs` build the
-   bounded request context and record provenance/diagnostics.
+3. `context.rs` and `instructions.rs` build the request context and record
+   instruction provenance and diagnostics.
 4. `provider.rs` selects one adapter through `provider_protocol.rs`.
    `chat_completions_adapter.rs` and `responses_adapter.rs` independently encode
    the request and decode provider output into runtime concepts. Independent
@@ -111,7 +111,6 @@ The main injected boundaries are:
 - `NativeAgentCancellation`: external cancellation state.
 - `NativeAgentTraceSink`: durable or live runtime-event destination, including
   the metadata-only notification used after an independent title update.
-- `AgentContextContributor`: bounded additions to model-visible context.
 - `AgentHook`: typed policy or observation around runtime stages.
 
 Prefer extending these boundaries over adding transport or persistence
@@ -184,8 +183,7 @@ conditionals throughout those shared runtime modules.
   types.
 - `items.rs`, `item_event_projection.rs`, `subagent_projection.rs`: canonical
   items and compatibility projections.
-- `context.rs`, `context_manager.rs`, `context_contributors.rs`,
-  `context_window_config.rs`,
+- `context.rs`, `context_manager.rs`, `context_window_config.rs`,
   `instructions.rs`, `usage.rs`: model-visible context, compaction, usage, and
   instruction composition.
 - `tool_router.rs`, `tool_dispatcher.rs`, `tool_runtime.rs`: discovery,
@@ -233,12 +231,8 @@ Built-in workspace tools and generic MCP dispatch have named contributors, and
 each discovered MCP server contributes its validated dynamic tools. Duplicate
 contributor IDs, tool IDs, or methods fail registry construction.
 
-`AgentContextContributor` values run after continuation restoration and before
-the first provider request. Their JSON evidence is appended after composed
-instructions and never receives instruction precedence. Contributor diagnostics
-contain hashes, counts, truncation state, and allowlisted identifiers rather
-than prompt text, contribution content, document names, or filesystem paths.
-Long-term memory is an instruction source and does not use this extension point.
+Model-visible context comes from composed instructions, restored conversation
+history, and active hooks. Long-term memory is an instruction source.
 
 Typed in-process hooks run at provider, turn, thread, tool, and
 context-compaction boundaries. A typed hook error, malformed diagnostic, or

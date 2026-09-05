@@ -69,7 +69,7 @@ impl std::fmt::Debug for ThreadRecorder {
 }
 
 impl ThreadRecorder {
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn new(workspace_root: PathBuf) -> Self {
         Self::from_data_root(workspace_root.join(".tinybot"))
     }

@@ -630,39 +630,6 @@ fn composed_workspace_instructions_reach_provider_and_reload_user_edits() {
 }
 
 #[test]
-fn context_contributor_ids_must_be_unique() {
-    #[derive(Debug)]
-    struct DuplicateContributor;
-
-    impl AgentContextContributor for DuplicateContributor {
-        fn id(&self) -> &str {
-            "test.duplicate"
-        }
-
-        fn contribute(
-            &self,
-            _request: &AgentContextRequest,
-        ) -> Result<Option<AgentContextContribution>, String> {
-            Ok(None)
-        }
-    }
-
-    let error = NativeAgentRuntimeServices::new(
-        Arc::new(RustNativeAgentProvider),
-        Arc::new(FakeNativeAgentToolDispatcher),
-        Arc::new(InMemoryNativeAgentCheckpointStore::default()),
-        Arc::new(InMemoryNativeAgentCancellation::default()),
-    )
-    .try_with_context_contributor(Arc::new(DuplicateContributor))
-    .expect("first contributor should register")
-    .try_with_context_contributor(Arc::new(DuplicateContributor))
-    .err()
-    .expect("duplicate context contributor IDs must fail before activation");
-
-    assert!(error.contains("test.duplicate"));
-}
-
-#[test]
 fn chat_completion_request_exposes_foundational_and_subagent_model_tools() {
     let mut context = AgentTurnContext::from_spec(
         json!({

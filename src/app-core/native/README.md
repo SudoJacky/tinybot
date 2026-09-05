@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:e56f7171ab89b62eb88987102a76da48bd97ef4a3a452c6507815ee9e75f7c14 -->
+<!-- tinybot-module-fingerprint: sha256:66917d651aa35c1dd5f9df9b92de727e58b0c99cb115f5c5c3007dafb3e76195 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canBranchFromMessage, canCopyMessage, visibleMessageActions, type ReactChatMessage } from "./messageActions";
+import { canBranchFromMessage, canCopyMessage, type ReactChatMessage } from "./messageActions";
 
 const baseMessage: ReactChatMessage = {
   id: "m1",
@@ -14,12 +14,11 @@ describe("message action visibility", () => {
     const message = { ...baseMessage, role: "user" as const };
     expect(canBranchFromMessage(message, { sessionRunning: false })).toBe(false);
     expect(canCopyMessage(message, { sessionRunning: true })).toBe(true);
-    expect(visibleMessageActions(message, { sessionRunning: false })).toEqual(["copy"]);
   });
 
   it("shows branch for completed assistant messages while idle", () => {
     expect(canBranchFromMessage(baseMessage, { sessionRunning: false })).toBe(true);
-    expect(visibleMessageActions(baseMessage, { sessionRunning: false })).toEqual(["copy", "branch"]);
+    expect(canCopyMessage(baseMessage, { sessionRunning: false })).toBe(true);
   });
 
   it("hides branch while the session is running but keeps it for completed tool-backed messages", () => {
@@ -29,15 +28,17 @@ describe("message action visibility", () => {
 
   it("hides assistant copy and branch actions while the turn is still running", () => {
     expect(canCopyMessage(baseMessage, { sessionRunning: true })).toBe(false);
-    expect(visibleMessageActions(baseMessage, { sessionRunning: true })).toEqual([]);
+    expect(canBranchFromMessage(baseMessage, { sessionRunning: true })).toBe(false);
   });
 
   it("uses turn status instead of session status when the message has turn metadata", () => {
     const completedTurnMessage = { ...baseMessage, turnId: "turn-1", turnStatus: "completed" };
     const runningTurnMessage = { ...baseMessage, turnId: "turn-2", turnStatus: "running" };
 
-    expect(visibleMessageActions(completedTurnMessage, { sessionRunning: true })).toEqual(["copy", "branch"]);
-    expect(visibleMessageActions(runningTurnMessage, { sessionRunning: false })).toEqual([]);
+    expect(canCopyMessage(completedTurnMessage, { sessionRunning: true })).toBe(true);
+    expect(canBranchFromMessage(completedTurnMessage, { sessionRunning: true })).toBe(true);
+    expect(canCopyMessage(runningTurnMessage, { sessionRunning: false })).toBe(false);
+    expect(canBranchFromMessage(runningTurnMessage, { sessionRunning: false })).toBe(false);
   });
 
   it("hides copy and branch actions when a message has thinking but no body text", () => {
@@ -49,6 +50,5 @@ describe("message action visibility", () => {
 
     expect(canCopyMessage(reasoningOnlyMessage, { sessionRunning: false })).toBe(false);
     expect(canBranchFromMessage(reasoningOnlyMessage, { sessionRunning: false })).toBe(false);
-    expect(visibleMessageActions(reasoningOnlyMessage, { sessionRunning: false })).toEqual([]);
   });
 });

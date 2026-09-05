@@ -1,11 +1,11 @@
 # Settings Application Core
-<!-- tinybot-module-fingerprint: sha256:d2230c590b302ae605701ab63e8a2261fb9b57f5acf4c783160f0110047f3520 -->
+<!-- tinybot-module-fingerprint: sha256:ddb52df5d393ece1afacf1022f2a94861379a6247fd568308b406775ee57b3a5 -->
 
 `settings` owns framework-independent settings contracts, metadata, value
 semantics, validation, pane models, and persistence patch construction.
 
 It is the source of truth for secret handling, defaults, commit behavior, and
-dirty/reconcile semantics. React pages present these models, while the desktop
+dirty-state semantics. React pages present these models, while the desktop
 Settings adapter performs native reads and writes.
 
 Agent context-window defaults must remain aligned with the Rust runtime.

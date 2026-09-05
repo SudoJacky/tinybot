@@ -1,5 +1,5 @@
 # Worker Thread Log
-<!-- tinybot-module-fingerprint: sha256:0ab0172bd574374238767e7ab45fe64ec61dcfda40c6a7b47d0592b9f9ec7ee0 -->
+<!-- tinybot-module-fingerprint: sha256:c9a6daae8a23681accd8b6b7e641371d8d27a60a7b5eb2696e95a1b96c4dbad0 -->
 
 `threads::rollout::store` owns Tinybot's canonical append-only Rollout. It validates
 paths, records typed lines, reconstructs Thread and runtime projections,
@@ -10,6 +10,9 @@ introduce a durable journal, database, fallback read, or completed-turn double
 write.
 
 ## Storage model
+
+Production constructors receive the application data root explicitly. The
+workspace-relative `.tinybot` convenience constructors are test-only.
 
 | Path | Role |
 | --- | --- |

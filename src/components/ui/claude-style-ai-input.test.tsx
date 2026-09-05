@@ -42,6 +42,21 @@ const skillOptions = [
 
 afterEach(cleanup);
 
+it("moves the panel glow with the pointer and clears it on leave", () => {
+  render(<ClaudeStyleAiInput onSendMessage={vi.fn()} />);
+  const panel = screen.getByRole("textbox", { name: "Message" })
+    .closest<HTMLElement>(".claude-ai-input__panel")!;
+  vi.spyOn(panel, "getBoundingClientRect").mockReturnValue(new DOMRect(100, 50, 400, 200));
+
+  fireEvent.pointerMove(panel, { clientX: 100, clientY: 70 });
+  expect(panel.style.getPropertyValue("--claude-ai-panel-glow-x")).toBe("0px");
+  expect(panel.style.getPropertyValue("--claude-ai-panel-glow-y")).toBe("20px");
+  expect(Number(panel.style.getPropertyValue("--claude-ai-panel-glow-opacity"))).toBeGreaterThan(0);
+
+  fireEvent.pointerLeave(panel);
+  expect(panel.style.getPropertyValue("--claude-ai-panel-glow-opacity")).toBe("0");
+});
+
 describe("ClaudeStyleAiInput slash commands", () => {
   it("keeps the draft editable while sending is temporarily unavailable", async () => {
     const user = userEvent.setup();

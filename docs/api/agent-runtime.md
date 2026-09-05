@@ -27,19 +27,12 @@ Workspace-backed agent results include:
 - `traceContext`: stable `requestId`, `traceId`, `turnId`, optional `threadId`, and optional
   `parentTurnId` values shared by runtime events and durable turn records.
 - `turnMetrics`: the turn duration and terminal outcome for the completed invocation.
-- `contextContributions`: ordered, content-free diagnostics for enabled context contributors. Each
-  record includes `contributorId`, `kind`, `status`, `contentChars`, `contentSha256`,
-  `referenceCount`, safe reference identifiers, and `truncated`.
-
-The contributor request surface is reserved for future production contributors. The current desktop
-runtime does not register a production contributor, so normal turns emit no `contextContributions`
-records unless that integration is added explicitly.
 
 The instruction provenance and instruction diagnostics are stored on the durable agent-turn record, so
 `thread_list_turns` and `thread_get_turn_runtime_state` can explain the instruction inputs of
 a historical turn without persisting a second write authority.
 
-Contributor assembly, hooks, task ownership, cleanup, and metric internals are documented in
+Instruction assembly, hooks, task ownership, cleanup, and metric internals are documented in
 `src-tauri/src/agent/runtime/README.md`. `runtime.metrics` remains available through Worker RPC and
 returns process-local `counters`, `durations`, and `gauges` without prompt, tool-output, or secret
 content.

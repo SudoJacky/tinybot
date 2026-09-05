@@ -12,7 +12,7 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:8c3156000c39bd8c6a9690876de31eeec4195893cfc80b1369ee327c0fec5840 -->
+<!-- tinybot-doc-fingerprint: sha256:4dc4901d7194a67dc5cbed2897ca5e13998b1a9488acfb56c05f8a650afe51dd -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
@@ -111,12 +111,7 @@ After instruction composition, the runtime combines:
 - composed system instruction items;
 - restored Thread or continuation history;
 - the fixed long-term-memory snapshot already represented in instructions;
-- bounded evidence from registered context contributors;
 - the current user input and tool continuation state.
-
-Context contributors add evidence after composed instructions. They do not
-receive instruction precedence and must emit bounded provenance rather than
-unbounded prompt text in diagnostics.
 
 Managed image attachments remain typed references on the originating user
 message. Rollouts retain only the managed path, MIME type, byte size, and

@@ -37,7 +37,7 @@ pub(crate) struct WorkspaceThreadOperation<'a> {
 }
 
 impl WorkspaceThreadStore {
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub(crate) fn new(workspace_root: PathBuf, policy: CapabilityPolicy) -> Self {
         let data_root = workspace_root.join(".tinybot");
         Self::new_with_data_root(workspace_root, data_root, policy)

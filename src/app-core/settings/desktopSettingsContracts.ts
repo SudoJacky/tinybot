@@ -84,30 +84,6 @@ export interface DesktopSettingsValidationError {
   errorKey: "modelEmpty" | "timezoneError" | "jsonObjectError" | "urlError";
 }
 
-export type DesktopSettingsSavePatchResult =
-  | { ok: true; patch: Record<string, unknown> }
-  | { ok: false; validationErrors: DesktopSettingsValidationError[] };
-
-export type DesktopSettingsSaveReconcileResult =
-  | { ok: true; state: DesktopSettingsFormState }
-  | { ok: false; state: DesktopSettingsFormState; mismatchedPaths: string[] };
-
-export interface DesktopProviderModelRequest {
-  provider: string;
-  profile: string;
-  api_key: string;
-  api_base: string;
-  refresh: boolean;
-}
-
-export interface DesktopProviderModelApplyResult {
-  state: DesktopSettingsFormState;
-  models: string[];
-  selectedModel: string | null;
-  status: "loaded" | "empty" | "failed";
-  message: string;
-}
-
 export interface DesktopSecretField {
   value: string;
   displayValue: string;

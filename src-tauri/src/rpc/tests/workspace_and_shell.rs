@@ -6,7 +6,6 @@ fn workspace_write_executes() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]),
     );
@@ -44,7 +43,6 @@ fn workspace_write_does_not_need_an_internal_trust_marker() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]),
     );
@@ -69,7 +67,6 @@ fn shell_execute_runs() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     );
@@ -101,7 +98,6 @@ fn dispatches_workspace_list_dir_and_delete_file_requests() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::FsWorkspaceRead,
@@ -144,7 +140,6 @@ fn dispatches_shell_execute_request() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     );
@@ -174,7 +169,6 @@ fn removed_shell_sandbox_fields_do_not_restrict_execution() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     );
@@ -203,7 +197,6 @@ fn dispatches_owned_shell_process_lifecycle() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     );
@@ -276,7 +269,6 @@ fn tool_executor_injects_turn_ownership_into_retained_shell_calls() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     );
@@ -356,7 +348,7 @@ fn shared_shell_runtime_survives_router_reconstruction() {
     let shell_runtime = WorkerShellRuntime::default();
     let policy = CapabilityPolicy::new([WorkerCapability::ShellExecute]);
     let mut first_router =
-        WorkerRpcRouter::new(fixture.root.clone(), json!({}), vec![], 20, policy.clone())
+        WorkerRpcRouter::new(fixture.root.clone(), json!({}), 20, policy.clone())
             .with_shell_runtime(shell_runtime.clone());
     let command = blocking_shell_command_with_marker();
     let started = first_router.dispatch(&WorkerRequest::new(
@@ -378,9 +370,8 @@ fn shared_shell_runtime_survives_router_reconstruction() {
         .to_string();
     drop(first_router);
 
-    let mut second_router =
-        WorkerRpcRouter::new(fixture.root.clone(), json!({}), vec![], 20, policy)
-            .with_shell_runtime(shell_runtime);
+    let mut second_router = WorkerRpcRouter::new(fixture.root.clone(), json!({}), 20, policy)
+        .with_shell_runtime(shell_runtime);
     let polled = second_router.dispatch(&WorkerRequest::new(
         "req-shared-shell-poll",
         "trace-shared-shell",
@@ -413,7 +404,6 @@ fn tool_executor_forwards_request_cancellation_to_shell_execute() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     );

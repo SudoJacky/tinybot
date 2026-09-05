@@ -16,137 +16,38 @@ fn fixture_root(name: &str) -> std::path::PathBuf {
 }
 
 #[test]
-fn runtime_restart_dispatches_request_to_handler() {
-    let restart_requests = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let captured = restart_requests.clone();
-    let rpc = WorkerRuntimeRpc::with_restart_handler(move |request| {
-        captured
-            .lock()
-            .expect("restart request log should lock")
-            .push(request);
-    });
+fn runtime_restart_is_rejected_without_claiming_success() {
+    let root = fixture_root("restart");
+    let policy = CapabilityPolicy::default();
+    let threads = crate::threads::workspace_store::WorkspaceThreadStore::new_with_data_root(
+        root.clone(),
+        root.join("data"),
+        policy.clone(),
+    );
+    let mut router = WorkerRpcRouter::with_workspace_thread_store(threads, json!({}), 20, policy);
     let request = WorkerRequest::new(
         "req-restart",
         "trace-restart",
         "runtime.restart",
-        json!({
-            "turn_id": "turn-1",
-            "session_id": "session-1"
-        }),
-    );
-
-    let result = rpc
-        .restart_from_request(&request)
-        .expect("runtime restart should return result");
-
-    assert_eq!(
-        result,
-        json!({
-            "restart_requested": true,
-            "turn_id": "turn-1",
-            "session_id": "session-1"
-        })
-    );
-    assert_eq!(
-        restart_requests
-            .lock()
-            .expect("restart request log should lock")
-            .as_slice(),
-        [RuntimeRestartRequest {
-            turn_id: Some("turn-1".to_string()),
-            session_id: Some("session-1".to_string())
-        }]
-    );
-}
-
-#[test]
-fn runtime_restart_dispatch_routes_to_runtime_module() {
-    let restart_requests = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let captured = restart_requests.clone();
-    let mut router = WorkerRpcRouter::new(
-        fixture_root("dispatch"),
-        json!({}),
-        vec![],
-        20,
-        CapabilityPolicy::default(),
-    )
-    .with_runtime_restart_handler(move |request| {
-        captured
-            .lock()
-            .expect("restart request log should lock")
-            .push(request);
-    });
-    let request = WorkerRequest::new(
-        "req-restart",
-        "trace-restart",
-        "runtime.restart",
-        json!({
-            "turn_id": "turn-1",
-            "session_id": "session-1"
-        }),
+        json!({ "turnId": "turn-1", "sessionId": "session-1" }),
     );
 
     let response = router.dispatch(&request);
 
-    assert!(response.error.is_none());
+    assert!(response.result.is_none());
+    let error = response
+        .error
+        .expect("unsupported restart must return an error");
     assert_eq!(
-        response.result.expect("restart result should be present"),
-        json!({
-            "restart_requested": true,
-            "turn_id": "turn-1",
-            "session_id": "session-1"
-        })
+        error.code,
+        crate::protocol::WorkerProtocolErrorCode::InvalidProtocol
     );
-    assert_eq!(
-        restart_requests
-            .lock()
-            .expect("restart request log should lock")
-            .as_slice(),
-        [RuntimeRestartRequest {
-            turn_id: Some("turn-1".to_string()),
-            session_id: Some("session-1".to_string())
-        }]
-    );
-}
-
-#[test]
-fn runtime_restart_accepts_camel_case_aliases() {
-    let restart_requests = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let captured = restart_requests.clone();
-    let rpc = WorkerRuntimeRpc::with_restart_handler(move |request| {
-        captured
-            .lock()
-            .expect("restart request log should lock")
-            .push(request);
-    });
-    let request = WorkerRequest::new(
-        "req-restart",
-        "trace-restart",
-        "runtime.restart",
-        json!({
-            "turnId": "turn-1",
-            "sessionId": "session-1"
-        }),
-    );
-
-    rpc.restart_from_request(&request)
-        .expect("runtime restart should parse aliases");
-
-    assert_eq!(
-        restart_requests
-            .lock()
-            .expect("restart request log should lock")
-            .as_slice(),
-        [RuntimeRestartRequest {
-            turn_id: Some("turn-1".to_string()),
-            session_id: Some("session-1".to_string())
-        }]
-    );
+    assert_eq!(error.message, "unknown worker RPC method");
+    assert_eq!(error.details["method"], "runtime.restart");
 }
 
 #[test]
 fn runtime_now_returns_current_time_with_timezone() {
-    let rpc = WorkerRuntimeRpc::new();
     let request = WorkerRequest::new(
         "req-now",
         "trace-now",
@@ -158,9 +59,7 @@ fn runtime_now_returns_current_time_with_timezone() {
         .duration_since(UNIX_EPOCH)
         .expect("test clock should be after the Unix epoch")
         .as_millis();
-    let result = rpc
-        .now_from_request(&request)
-        .expect("runtime now should return result");
+    let result = now_from_request(&request).expect("runtime now should return result");
     let after = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("test clock should be after the Unix epoch")
@@ -178,14 +77,13 @@ fn runtime_now_returns_current_time_with_timezone() {
         .expect("current_time should contain Unix milliseconds");
     assert!((before..=after).contains(&millis));
 
-    let default_result = rpc
-        .now_from_request(&WorkerRequest::new(
-            "req-now-default",
-            "trace-now-default",
-            "runtime.now",
-            json!({}),
-        ))
-        .expect("runtime now should default its timezone");
+    let default_result = now_from_request(&WorkerRequest::new(
+        "req-now-default",
+        "trace-now-default",
+        "runtime.now",
+        json!({}),
+    ))
+    .expect("runtime now should default its timezone");
     assert_eq!(default_result["timezone"], "local");
     assert!(default_result["current_time"]
         .as_str()
@@ -199,7 +97,6 @@ fn runtime_metrics_returns_process_observability_snapshot() {
     let mut router = WorkerRpcRouter::new(
         fixture_root("metrics"),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::default(),
     );

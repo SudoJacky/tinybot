@@ -6,7 +6,7 @@ src-tauri/src/protocol/params.rs
 src-tauri/src/rpc/method.rs
 src-tauri/src/rpc/runtime.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:ff3ebe3a48c5b821adb2119d353d4d484bb7ea06e55e1781d5a6a4f73875a178 -->
+<!-- tinybot-doc-fingerprint: sha256:b884629f154e474ea7063a89410f665b07a01add008b307c314f914b23b9a5c5 -->
 
 This document covers the Rust-owned WebUI route wrapper and Worker RPC protocol.
 It is part of the [Rust backend API reference](rust-backend-api.md), which
@@ -107,7 +107,7 @@ the generic `config.apply_operations` method, which continues to require
 | `mcp` | `call_tool`, `capability_catalog`, `diagnostics`, `list_tools`, `server_status`, `shutdown` |
 | `permission_profile` | `current`, `evaluate_tool` |
 | `provider` | `resolve_secret` |
-| `runtime` | `metrics`, `now`, `restart` |
+| `runtime` | `metrics`, `now` |
 | `shell` | `execute`, `start`, `poll`, `write_stdin`, `resize`, `interrupt`, `terminate`, `terminate_owner`, `list`, `shutdown` |
 | `skills` | `list`, `webui_create`, `webui_delete`, `webui_detail`, `webui_list`, `webui_update`, `webui_validate` |
 | `subagent` | `cancel`, `close`, `list`, `query`, `resume`, `send_input`, `spawn`, `wait` |

@@ -1,5 +1,5 @@
 # Chat Application Core
-<!-- tinybot-module-fingerprint: sha256:0e69220e26caa28a25baee0e519a0e0046b2f43b7466d3909aedfbe18ef14f6d -->
+<!-- tinybot-module-fingerprint: sha256:857f97491a5bc7451cf9c51ae267c8694fcfe543c9ff64f43ade013e910b3ec3 -->
 
 `chat` contains framework-independent chat and Thread contracts, command
 construction, canonical timeline validation, UI projection, input state, and

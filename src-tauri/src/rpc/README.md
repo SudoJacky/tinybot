@@ -1,5 +1,5 @@
 # Worker RPC Router
-<!-- tinybot-module-fingerprint: sha256:7e7789c34b19fc5481a6196a25d7617a991f16734ae95717ea7dadb8b9a867a9 -->
+<!-- tinybot-module-fingerprint: sha256:f24bf42c0255a315dfe680b68c3cb97fc45c9024c64b5668b21ef87de36ad435 -->
 
 `rpc` is the versioned method-routing boundary for native backend services.
 The module root is `mod.rs`; protocol envelopes and parameter validation live
@@ -52,7 +52,10 @@ tools/MCP/permissions, and runtime operations.
   collaboration services.
 - `tool_dispatch.rs`, `mcp.rs`: tool registry/execution, permission profiles,
   and shared MCP state.
-- `runtime_dispatch.rs`, `runtime.rs`: runtime metrics and restart operations.
+- `runtime_dispatch.rs`, `runtime.rs`: runtime metrics and current time.
+
+`runtime.restart` is unsupported and returns the standard unknown-method error.
+Runtime lifecycle changes belong to the application lifecycle owner.
 
 ## Adding a method
 

@@ -1,7 +1,5 @@
 import type {
   DesktopProviderCatalogItem,
-  DesktopProviderModelApplyResult,
-  DesktopProviderModelRequest,
   DesktopSettingsFormState,
   DesktopSettingsProviderSummary,
   DesktopSettingsValidationError,
@@ -210,52 +208,6 @@ export function validateDesktopSettingsForm(state: DesktopSettingsFormState): De
     errors.push({ field: "embeddingApiBase", errorKey: "urlError" });
   }
   return errors;
-}
-
-export function buildDesktopProviderModelRequest(
-  state: DesktopSettingsFormState,
-  { refresh = true }: { refresh?: boolean } = {},
-): DesktopProviderModelRequest {
-  return {
-    provider: state.providerEditor.selectedProvider || "deepseek",
-    profile: state.providerEditor.profileId || state.agent.activeProfile || "",
-    api_key: state.providerEditor.apiKey || "",
-    api_base: state.providerEditor.apiBase || "",
-    refresh,
-  };
-}
-
-export function applyDesktopProviderModels(
-  state: DesktopSettingsFormState,
-  result: unknown,
-): DesktopProviderModelApplyResult {
-  const payload = asRecord(result);
-  const models = parseDesktopProviderModelList(payload.models);
-  const nextState = cloneSettingsState(state);
-  if (!models.length) {
-    return {
-      state: nextState,
-      models,
-      selectedModel: nextState.agent.model,
-      status: payload.ok === false ? "failed" : "empty",
-      message: stringValue(payload.error || payload.warning),
-    };
-  }
-  nextState.providerEditor.modelsText = models.join("\n");
-  nextState.providerEditorDirty = true;
-  syncDesktopProviderSummaryFromEditor(nextState);
-  markDesktopProviderEditorTouched(nextState, "models");
-  if (!nextState.agent.model && models[0]) {
-    nextState.agent.model = models[0];
-    markDesktopSettingsTouched(nextState, "agents.defaults.model");
-  }
-  return {
-    state: nextState,
-    models,
-    selectedModel: nextState.agent.model,
-    status: "loaded",
-    message: stringValue(payload.warning) || `Loaded models ${models.length}`,
-  };
 }
 
 export function applyDesktopSettingsFieldEdit(

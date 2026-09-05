@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { ChatEvent } from "../services";
@@ -428,11 +428,14 @@ describe("ChatPage", () => {
 
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
-    await screen.findByRole("button", { name: "Planning notes" });
+    await screen.findByTestId("message-u1");
     expect(stores.chatStore.load).toHaveBeenCalledTimes(1);
+    expect(subscribed).toBeTypeOf("function");
 
-    subscribed?.({ type: "socket-error" });
-    subscribed?.({ type: "error" });
+    await act(async () => {
+      subscribed!({ type: "socket-error" });
+      subscribed!({ type: "error" });
+    });
 
     expect(stores.chatStore.load).toHaveBeenCalledTimes(1);
   });

@@ -1,5 +1,5 @@
 # Provider Plugins
-<!-- tinybot-module-fingerprint: sha256:e874bff5eddfd47f50d82dca4593eb379869900970625a0e7d5523a11492c1f8 -->
+<!-- tinybot-module-fingerprint: sha256:afd4cfc7847574db00e37fab1e5da5afd6ee7a7018529e88f070399d2d6a53d9 -->
 
 This module contains the statically registered adapters for built-in
 Providers. A Provider plugin owns vendor-specific catalog metadata, reasoning
@@ -15,7 +15,7 @@ its differences are limited to matters such as:
 
 - supported Chat Completions or Responses modes;
 - model discovery and curated model metadata;
-- supported or renamed reasoning effort values;
+- supported reasoning effort values;
 - ignored, renamed, rejected, or vendor-specific request fields.
 
 Do not copy protocol-wide history, tool, streaming, or response decoding into a
@@ -93,9 +93,7 @@ registry.
 
 - `PassThrough`: send the frontend value unchanged;
 - `Omit`: remove effort from the request;
-- `AllowList`: accept only the listed values and fail visibly otherwise;
-- `Map`: translate Tinybot values to Provider-native values and fail when a
-  mapping is missing.
+- `AllowList`: accept only the listed values and fail visibly otherwise.
 
 The method receives the model ID, so one Provider can select different policies
 for different model families. A configured profile with
@@ -143,7 +141,7 @@ continue to use the default pass-through request policy.
 
 At minimum, cover every non-default policy or request transformation:
 
-- accepted, rejected, omitted, or mapped effort values;
+- accepted, rejected, or omitted effort values;
 - Chat Completions and Responses request shapes when both are supported;
 - invalid field combinations and their error messages;
 - manifest lookup through the Provider ID and aliases.

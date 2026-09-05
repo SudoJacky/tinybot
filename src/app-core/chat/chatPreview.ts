@@ -20,10 +20,6 @@ const UNSAFE_KEYS = new Set([
   "onSubmit",
 ]);
 
-export function redactedPreview(value: unknown): string {
-  return serialize(redactSensitive(value));
-}
-
 export function safeArtifactPreview(value: unknown): string {
   return serialize(omitUnsafe(redactSensitive(value)));
 }

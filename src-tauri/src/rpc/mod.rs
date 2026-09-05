@@ -74,9 +74,6 @@ use self::errors::unknown_method_error;
 use self::form::WorkerFormRpc;
 use self::mcp::WorkerMcpRpc;
 use self::method::classify_method;
-#[cfg(test)]
-pub use self::runtime::RuntimeRestartRequest;
-use self::runtime::WorkerRuntimeRpc;
 use crate::protocol::params::parse_params;
 
 #[derive(Clone, Debug)]
@@ -92,7 +89,6 @@ pub struct WorkerRpcRouter {
     background: WorkerBackgroundRpc,
     mcp: WorkerMcpRpc,
     channel_connector: WorkerChannelConnectorRpc,
-    runtime: WorkerRuntimeRpc,
     threads: WorkspaceThreadStore,
     tool_registry: WorkerToolRegistryRpc,
     permission_profile: WorkerPermissionProfileRpc,
@@ -105,7 +101,6 @@ impl WorkerRpcRouter {
     pub fn new(
         workspace_root: PathBuf,
         config_snapshot: Value,
-        _sessions: Vec<crate::threads::domain::ThreadRecord>,
         diagnostic_capacity: usize,
         policy: CapabilityPolicy,
     ) -> Self {
@@ -147,33 +142,11 @@ impl WorkerRpcRouter {
                 policy.clone(),
                 McpRuntime::new(),
             ),
-            runtime: WorkerRuntimeRpc::new(),
             threads,
             permission_profile: WorkerPermissionProfileRpc::new(policy),
             subagents: None,
             config_store: None,
         }
-    }
-
-    #[cfg(test)]
-    pub fn new_persistent_sessions(
-        workspace_root: PathBuf,
-        config_snapshot: Value,
-        _sessions: Vec<crate::threads::domain::ThreadRecord>,
-        diagnostic_capacity: usize,
-        policy: CapabilityPolicy,
-    ) -> Result<Self, crate::protocol::WorkerProtocolError> {
-        let threads = WorkspaceThreadStore::new(workspace_root.clone(), policy.clone());
-        {
-            let _operation = threads.begin_operation()?;
-        }
-        Ok(Self::from_workspace_thread_store(
-            threads,
-            workspace_root,
-            config_snapshot,
-            diagnostic_capacity,
-            policy,
-        ))
     }
 
     pub(crate) fn with_workspace_thread_store(
@@ -212,29 +185,13 @@ impl WorkerRpcRouter {
     pub fn with_config_store(
         workspace_root: PathBuf,
         config_store: ConfigStore,
-        sessions: Vec<crate::threads::domain::ThreadRecord>,
         diagnostic_capacity: usize,
         policy: CapabilityPolicy,
     ) -> Self {
         let config_snapshot = config_store.snapshot().clone();
-        let mut router = Self::new(
-            workspace_root,
-            config_snapshot,
-            sessions,
-            diagnostic_capacity,
-            policy,
-        );
+        let mut router = Self::new(workspace_root, config_snapshot, diagnostic_capacity, policy);
         router.config_store = Some(config_store);
         router
-    }
-
-    #[cfg(test)]
-    pub fn with_runtime_restart_handler(
-        mut self,
-        handler: impl Fn(RuntimeRestartRequest) + Send + Sync + 'static,
-    ) -> Self {
-        self.runtime = WorkerRuntimeRpc::with_restart_handler(handler);
-        self
     }
 
     pub(crate) fn with_mcp_runtime(mut self, runtime: McpRuntime) -> Self {

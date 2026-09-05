@@ -6,7 +6,6 @@ fn dispatches_diagnostics_append_request() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::DiagnosticsWrite]),
     );
@@ -32,7 +31,6 @@ fn dispatches_task_store_load_missing_as_empty_store() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::TaskRead]),
     );
@@ -54,7 +52,6 @@ fn dispatches_task_plan_store_round_trip_requests() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::TaskRead, WorkerCapability::TaskWrite]),
     );
@@ -145,7 +142,6 @@ fn dispatches_task_plan_list_filters_completed_by_default() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::TaskRead]),
     );
@@ -182,7 +178,6 @@ fn denies_task_plan_save_without_write_capability() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::TaskRead]),
     );
@@ -211,7 +206,6 @@ fn dispatches_cron_job_store_round_trip_requests() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::CronRead, WorkerCapability::CronWrite]),
     );
@@ -308,7 +302,6 @@ fn dispatches_cron_job_remove_protects_system_events() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::CronRead, WorkerCapability::CronWrite]),
     );
@@ -331,7 +324,6 @@ fn denies_cron_job_add_without_write_capability() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::CronRead]),
     );
@@ -417,7 +409,6 @@ fn dispatches_cron_due_and_record_run_updates_store() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::CronRead, WorkerCapability::CronRun]),
     );
@@ -497,7 +488,6 @@ fn dispatches_thread_task_progress_upsert_request() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -573,7 +563,6 @@ fn dispatches_background_run_registry_round_trip_requests() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::BackgroundRead,
@@ -760,7 +749,6 @@ fn background_subagent_enqueue_input_writes_user_message_trace_event() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::BackgroundRead,
@@ -809,7 +797,6 @@ fn subagent_persistence_failure_is_observable_and_projection_recovers_on_retry()
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::BackgroundRead,
@@ -907,7 +894,6 @@ fn dispatches_subagent_control_requests() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::BackgroundRead,
@@ -1219,7 +1205,6 @@ fn subagent_history_modes_copy_only_public_parent_messages() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::BackgroundRead,
@@ -1384,7 +1369,6 @@ fn nested_subagents_persist_their_direct_parent_thread_edge() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::BackgroundRead,
@@ -1470,7 +1454,6 @@ fn background_subagent_enqueue_input_live_delivers_when_manager_has_child() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::BackgroundRead,
@@ -1508,7 +1491,6 @@ fn subagent_list_restores_interrupted_children_from_background_trace() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::BackgroundRead,
@@ -1566,7 +1548,7 @@ fn subagent_restart_restores_canonical_edges_and_resumes_only_selected_children(
     ]);
     let first_manager = SubagentThreadManager::with_limits(4, 8, 3);
     let mut first_router =
-        WorkerRpcRouter::new(fixture.root.clone(), json!({}), vec![], 20, policy.clone())
+        WorkerRpcRouter::new(fixture.root.clone(), json!({}), 20, policy.clone())
             .with_subagent_manager(first_manager);
 
     for subagent_id in ["delegate-1", "delegate-2"] {
@@ -1602,7 +1584,7 @@ fn subagent_restart_restores_canonical_edges_and_resumes_only_selected_children(
 
     let second_manager = SubagentThreadManager::with_limits(4, 8, 3);
     let mut second_router =
-        WorkerRpcRouter::new(fixture.root.clone(), json!({}), vec![], 20, policy.clone())
+        WorkerRpcRouter::new(fixture.root.clone(), json!({}), 20, policy.clone())
             .with_subagent_manager(second_manager);
     let restored = second_router.dispatch(&WorkerRequest::new(
         "req-list-restored",
@@ -1705,9 +1687,8 @@ fn subagent_restart_restores_canonical_edges_and_resumes_only_selected_children(
     drop(second_router);
 
     let third_manager = SubagentThreadManager::with_limits(4, 8, 3);
-    let mut third_router =
-        WorkerRpcRouter::new(fixture.root.clone(), json!({}), vec![], 20, policy)
-            .with_subagent_manager(third_manager);
+    let mut third_router = WorkerRpcRouter::new(fixture.root.clone(), json!({}), 20, policy)
+        .with_subagent_manager(third_manager);
     let closed_resume = third_router.dispatch(&WorkerRequest::new(
         "req-resume-explicitly-closed",
         "trace-subagent-restart",
@@ -1731,7 +1712,6 @@ fn denies_background_run_write_without_write_capability() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::BackgroundRead]),
     );

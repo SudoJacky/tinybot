@@ -127,36 +127,6 @@ export function validateAgentUiFormValues(form: AgentUiForm, values: Record<stri
   return values;
 }
 
-export function isAgentUiFormSubmittable(form: AgentUiForm | undefined): form is AgentUiForm {
-  if (!form || form.submitting === true) {
-    return false;
-  }
-  return (
-    form.status !== AGENT_UI_FORM_STATUSES.submitted &&
-    form.status !== AGENT_UI_FORM_STATUSES.cancelled &&
-    form.status !== AGENT_UI_FORM_STATUSES.expired
-  );
-}
-
-export function buildAgentUiFormSubmitRequest(form: AgentUiForm, values: Record<string, unknown> = {}) {
-  if (!isAgentUiFormSubmittable(form)) {
-    return null;
-  }
-  return {
-    values: { ...values },
-    correlation: { ...form.correlation },
-  };
-}
-
-export function buildAgentUiFormCancelRequest(form: AgentUiForm) {
-  if (!isAgentUiFormSubmittable(form)) {
-    return null;
-  }
-  return {
-    correlation: { ...form.correlation },
-  };
-}
-
 function normalizeNativeAgentUiFrame(
   frame: Record<string, unknown>,
   source: Record<string, unknown>,
