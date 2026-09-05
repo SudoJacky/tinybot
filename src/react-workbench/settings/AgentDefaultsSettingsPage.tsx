@@ -134,6 +134,7 @@ export function AgentDefaultsSettingsPage({ settingsStore }: AgentDefaultsSettin
             <SettingsChoiceList
               error={validationMessage(t, errors.contextWindowStrategy)}
               label={t("agent.contextStrategy")}
+              showMenuDescriptions={false}
               options={[
                 { value: "discard", label: t("agent.discard"), description: t("agent.discardDescription") },
                 { value: "compact", label: t("agent.compact"), description: t("agent.compactDescription") },
@@ -150,7 +151,6 @@ export function AgentDefaultsSettingsPage({ settingsStore }: AgentDefaultsSettin
           </div>
         </section>
         <footer>
-          {data.revision ? <small>{t("agent.revision", { revision: data.revision })}</small> : <span />}
           <button type="submit" aria-label={t("agent.saveLabel")} data-press-feedback="true" disabled={saving}>
             {saving
               ? <Loader2 aria-hidden="true" className="react-settings-spinner" size={15} />

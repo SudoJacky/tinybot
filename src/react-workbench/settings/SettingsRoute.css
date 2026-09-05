@@ -2659,13 +2659,8 @@
 .react-agent-defaults-form footer {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
-}
-
-.react-agent-defaults-form footer small {
-  color: var(--color-muted);
-  font-size: 12px;
 }
 
 .react-agent-defaults-form footer > button {

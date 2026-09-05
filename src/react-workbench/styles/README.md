@@ -1,5 +1,5 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:e87004cb50263baff9b358f7c530b6ee0ea481c7fd8b2c28cfed51debe537791 -->
+<!-- tinybot-module-fingerprint: sha256:a16db2b5d9add8a22c2cdd0a553ba70ae010c81226221fd076cdad90d95b004f -->
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
@@ -45,6 +45,18 @@ use the same visible focus treatment as other sidebar controls. The workspace
 row, rather than the native `details` content box, anchors a fixed right-aligned
 two-button area so its create and manage actions cannot drop below the workspace
 label.
+Workspace and project headers show their icon and label without a separate
+disclosure arrow. Native summary activation still toggles each group, and
+workspace folder icons reflect the open or closed state.
+Workspace, project, and session rows share a 36px minimum height, 8px corners,
+and a 16px icon column. Session rows reserve that column with an aria-hidden
+placeholder so their titles align with the workspace title. Project contents
+keep one nesting inset. Session hover and selection use the same surface color.
+Workspace and project headers highlight only on hover or keyboard focus, not
+because they contain the active session.
+Workspace paths appear only in header tooltips; nested workspace actions share
+one trailing flex container to keep both buttons on the title line.
+The session list keeps a 2px right inset beside its scrollbar and an 8px left inset.
 
 The desktop document root is fixed to the WebView viewport and never owns page
 scrolling. `html`, `body`, and `#root` contain the `100%` shell while route,

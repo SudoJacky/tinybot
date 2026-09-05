@@ -2,6 +2,15 @@ import { describe, expect, it } from "vitest";
 import { projectSessionGroups } from "./projectSessionGroups";
 
 describe("projectSessionGroups", () => {
+  it("keeps project order independent of conversation recency", () => {
+    const projects = ["first", "second"].map((projectGroupId) => ({ projectGroupId, name: projectGroupId, workspaceIds: [] }));
+    const result = projectSessionGroups(projects, [
+      { id: "newer", title: "Newer", projectGroupId: "second", projectCoordinator: true, updatedAtMs: 20 },
+      { id: "older", title: "Older", projectGroupId: "first", projectCoordinator: true, updatedAtMs: 10 },
+    ]);
+    expect(result.groups.map((group) => group.project.projectGroupId)).toEqual(["first", "second"]);
+  });
+
   it("groups only project-scoped sessions and leaves unrelated workspace sessions standalone", () => {
     const result = projectSessionGroups([{
       projectGroupId: "commerce",

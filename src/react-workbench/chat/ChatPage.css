@@ -116,7 +116,7 @@
   justify-items: center;
   overflow: visible;
   padding-top: 32px;
-  padding-bottom: 32px;
+  padding-bottom: clamp(48px, 10vh, 112px);
 }
 
 .react-empty-chat-start {
@@ -165,7 +165,7 @@
   font: inherit;
   font-size: 20px;
   font-weight: 650;
-  line-height: 1;
+  line-height: 1.4;
   cursor: pointer;
   transition: border-color var(--motion-duration-fast), background var(--motion-duration-fast);
 }
@@ -4423,7 +4423,7 @@
   }
 
   .react-chat-surface[data-empty-session="true"] .react-conversation-view {
-    padding: 24px 18px;
+    padding: 24px 18px clamp(32px, 6vh, 56px);
   }
 
   .react-empty-chat-start {

@@ -13,7 +13,6 @@ import {
 import {
   CirclePlus,
   ChevronLeft,
-  ChevronRight,
   Folder,
   FolderOpen,
   FolderPlus,
@@ -263,7 +262,15 @@ export function ChatSessionWorkspace({
           workingDirectory: workspace.path,
         }];
       });
-      return [...groups, ...emptyRegisteredGroups];
+      const registryOrder = new Map(workspaces.map((workspace, index) => [
+        `session-workspace:${normalizedWorkspacePathKey(workspace.path)}`,
+        index,
+      ]));
+      const workspaceRank = (workspace: (typeof groups)[number]) => registryOrder.get(workspace.key)
+        ?? (workspace.workingDirectory ? workspaces.length : workspaces.length + 1);
+      return [...groups, ...emptyRegisteredGroups].sort((left, right) => (
+        workspaceRank(left) - workspaceRank(right) || left.key.localeCompare(right.key)
+      ));
     },
     [normalizedSearchQuery, projectGroups, projectProjection.ungroupedSessions, t, workspaceByKey, workspaces],
   );
@@ -515,6 +522,7 @@ export function ChatSessionWorkspace({
           }}
           onKeyDown={(event) => moveSidebarItemWithKeyboard(event, reorderItem, currentItems)}
         >
+          <span aria-hidden="true" className="react-session-row__icon-placeholder" />
           <span className="react-session-row__title">{sessionLabel}</span>
           <small>{formatRelativeUpdatedTime(session.updatedAtMs, now())}</small>
         </button>
@@ -826,14 +834,12 @@ export function ChatSessionWorkspace({
                       onDrop={(event) => dropSidebarItem(event, reorderItem, rootOrderItems)}
                       onKeyDown={(event) => moveSidebarItemWithKeyboard(event, reorderItem, rootOrderItems)}
                     >
-                      <ChevronRight aria-hidden="true" className="react-session-workspace__chevron" size={14} />
                       <span aria-hidden="true" className="react-session-workspace__folder">
                         <Folder className="react-session-workspace__folder-icon--collapsed" size={15} />
                         <FolderOpen className="react-session-workspace__folder-icon--expanded" size={15} />
                       </span>
                       <span className="react-session-workspace__copy">
                         <strong>{workspace.label}</strong>
-                        {workspace.workingDirectory ? <small>{workspace.workingDirectory}</small> : null}
                       </span>
                     </summary>
                     <div className="react-session-workspace__sessions">
@@ -911,7 +917,6 @@ export function ChatSessionWorkspace({
                   onDrop={(event) => dropSidebarItem(event, reorderItem, rootOrderItems)}
                   onKeyDown={(event) => moveSidebarItemWithKeyboard(event, reorderItem, rootOrderItems)}
                 >
-                  <ChevronRight aria-hidden="true" className="react-project-group__chevron" size={14} />
                   <GitBranch aria-hidden="true" className="react-project-group__icon" size={15} />
                   <strong>{projectGroup.project.name}</strong>
                 </summary>
@@ -993,31 +998,32 @@ export function ChatSessionWorkspace({
                         <Folder aria-hidden="true" size={13} />
                         <span>
                           <strong>{workspace.label}</strong>
-                          <small>{workspace.workspaceId}</small>
                         </span>
-                        <button
-                          aria-label={t("projectGroups.newWorkspaceSession", { name: workspace.label })}
-                          disabled={createPending || registeredWorkspace?.exists === false}
-                          draggable={false}
-                          onClick={() => void actions.onCreateSession(workspace.workspaceId, {
-                            projectGroupId: projectGroup.project.projectGroupId,
-                          })}
-                          title={t("projectGroups.newWorkspaceSession", { name: workspace.label })}
-                          type="button"
-                        >
-                          <Plus aria-hidden="true" size={13} />
-                        </button>
-                        {registeredWorkspace ? (
+                        <div className="react-project-group__member-actions">
                           <button
-                            aria-label={t("workspaces.manage", { name: workspace.label })}
+                            aria-label={t("projectGroups.newWorkspaceSession", { name: workspace.label })}
+                            disabled={createPending || registeredWorkspace?.exists === false}
                             draggable={false}
-                            onClick={() => setWorkspaceDialogPath(registeredWorkspace.path)}
-                            title={t("workspaces.manage", { name: workspace.label })}
+                            onClick={() => void actions.onCreateSession(workspace.workspaceId, {
+                              projectGroupId: projectGroup.project.projectGroupId,
+                            })}
+                            title={t("projectGroups.newWorkspaceSession", { name: workspace.label })}
                             type="button"
                           >
-                            <MoreHorizontal aria-hidden="true" size={13} />
+                            <Plus aria-hidden="true" size={13} />
                           </button>
-                        ) : null}
+                          {registeredWorkspace ? (
+                            <button
+                              aria-label={t("workspaces.manage", { name: workspace.label })}
+                              draggable={false}
+                              onClick={() => setWorkspaceDialogPath(registeredWorkspace.path)}
+                              title={t("workspaces.manage", { name: workspace.label })}
+                              type="button"
+                            >
+                              <MoreHorizontal aria-hidden="true" size={13} />
+                            </button>
+                          ) : null}
+                        </div>
                       </div>
                       <div className="react-project-workspace__sessions">
                         {renderSidebarSessionRows(

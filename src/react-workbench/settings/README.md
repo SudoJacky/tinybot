@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:1489ce295e40329d050cd827c307bfc1b87e60a04c1107cade316a4d2cd1ec20 -->
+<!-- tinybot-module-fingerprint: sha256:78cea5ab0520b89c807ce2932e826b10648ca36d224cc7abcb6900aa2a8854e8 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
@@ -24,7 +24,8 @@ second configuration surface.
 
 Settings contracts, metadata, validation, value semantics, and persistence
 patches live in `app-core/settings`. Native reads and writes are exposed through
-the Settings store adapter.
+the Settings store adapter. Config revisions remain internal to persistence
+and are not displayed in settings footers.
 
 The Profile module loads `tinybot.token_usage.v2` from the native Settings-store
 adapter and shows filterable Provider/model totals, a 30-day daily trend, a
@@ -80,6 +81,8 @@ Each choice menu owns the input source for its opening event, independently of
 shell-menu history. Pointer openings use the shared 160 ms anchored transition;
 keyboard openings are immediate. Reduced motion keeps only a 140 ms pointer
 fade, with keyboard behavior still immediate.
+The context-window strategy menu shows option names only via
+`showMenuDescriptions={false}`; its trigger retains the selected explanation.
 The Agent Defaults time-zone choice lists runtime-supported IANA zones and
 starts from the Windows/system zone reported through `Intl`; Provider fallback
 and temperature remain owned by Provider/model configuration rather than being

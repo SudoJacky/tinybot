@@ -20,6 +20,28 @@ afterEach(() => {
 });
 
 describe("ChatSessionWorkspace", () => {
+  test("keeps workspace order when session recency changes, including after remount", async () => {
+    const first = { ...planningSession(), title: "First workspace chat", updatedAtMs: 30 };
+    const older = { ...first, id: "older", title: "Older chat", updatedAtMs: 10 };
+    const second = { ...first, id: "second", title: "Second workspace chat", workingDirectory: "D:\\Code\\another", updatedAtMs: 20 };
+    const workspaceRegistryStore = createWorkspaceRegistryStore([first, second]);
+    const view = renderWorkspace({ sessions: [first, second, older], workspaceRegistryStore });
+    await act(async () => undefined);
+    const rows = screen.getByLabelText("Session list rows");
+    const originalOrder = sidebarGroupLabels(rows);
+    const updated = [{ ...second, updatedAtMs: 60 }, { ...older, updatedAtMs: 50 }, first];
+
+    view.rerenderSessions(updated);
+    expect(sidebarGroupLabels(rows)).toEqual(originalOrder);
+    expect(sessionTitles(screen.getByRole("group", { name: "Workspace tinybot" })))
+      .toEqual(["Older chat", "First workspace chat"]);
+
+    view.unmount();
+    renderWorkspace({ sessions: updated, workspaceRegistryStore });
+    await act(async () => undefined);
+    expect(sidebarGroupLabels(screen.getByLabelText("Session list rows"))).toEqual(originalOrder);
+  });
+
   test("bounds first content entrance to three rows across groups and consumes each animation", () => {
     renderWorkspace({ sessions: manySessions() });
     const rows = screen.getByLabelText("Session list rows");
@@ -29,7 +51,7 @@ describe("ChatSessionWorkspace", () => {
     expect(entering.map((row) => row.style.getPropertyValue("--react-session-row-index")))
       .toEqual(["0", "1", "2"]);
     expect(entering.map((row) => row.closest("[role='group']")?.getAttribute("aria-label")))
-      .toEqual(["Workspace group-0", "Workspace group-1", "Workspace group-2"]);
+      .toEqual(["Workspace group-0", "Workspace group-1", "Workspace group-10"]);
 
     fireEvent.animationEnd(entering[0], { animationName: "unrelated-animation" });
     fireEvent.animationEnd(entering[0].querySelector("button")!, { animationName: "react-list-enter" });
@@ -175,7 +197,7 @@ describe("ChatSessionWorkspace", () => {
     expect(manageButton.closest(".react-session-workspace__actions")?.parentElement).toBe(workspace);
   });
 
-  test("drags workspace groups into a persisted user order", () => {
+  test("drags workspace groups into a persisted user order", async () => {
     const sessions = [
       planningSession(),
       {
@@ -187,6 +209,7 @@ describe("ChatSessionWorkspace", () => {
       },
     ];
     const rendered = renderWorkspace({ sessions });
+    await act(async () => undefined);
     const rows = screen.getByLabelText("Session list rows");
     expect(sidebarGroupLabels(rows)).toEqual(["Workspace tinybot", "Workspace release"]);
 
@@ -202,6 +225,7 @@ describe("ChatSessionWorkspace", () => {
 
     rendered.unmount();
     renderWorkspace({ sessions });
+    await act(async () => undefined);
     expect(sidebarGroupLabels(screen.getByLabelText("Session list rows")))
       .toEqual(["Workspace release", "Workspace tinybot"]);
   });

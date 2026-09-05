@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:b934f412d4581224c76f8e6695afb4f0abfdda745cb08de2a700383b2eeab62d -->
+<!-- tinybot-module-fingerprint: sha256:7657e9924d99274304e420938cc21e07ee90d66460d04d5df887b79058302cb7 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -237,7 +237,10 @@ grip control. Their existing focus targets also support `Alt+ArrowUp` and
 discovered blocks and sessions appear ahead of a saved manual order; stale saved
 IDs are ignored. Invalid persisted state is reported through the
 `session-sidebar-order` diagnostic boundary before the sidebar returns to its
-natural recency order.
+default grouping order. Session recency affects only the rows within a group.
+Workspace groups follow registry order, with unregistered historical paths in
+path order and General chats last; project groups and their member workspaces
+follow their stored order. Manual ordering overrides these defaults.
 
 The sidebar reads imported folders and their display names from the shared
 `WorkspaceRegistryStore`. Choosing a folder registers it before creating a
@@ -245,11 +248,17 @@ workspace draft, so every new Thread receives the portable canonical path
 returned by Rust rather than the file picker's raw Windows path. Rename changes
 only the registry display name. An older in-flight registry snapshot cannot
 replace a successful register, rename, or forget, so discarding a pristine
-workspace draft does not remove its already registered folder. Forget removes
+workspace draft does not remove its already registered folder. Empty registered
+folders retain the same registry position as folders with sessions, so discarding
+a draft cannot move its workspace to the bottom of the list. Forget removes
 only the registry entry, leaves historical sessions and disk content intact,
 disables new sessions from that historical group, and surfaces the backend error
 when a project still references the workspace. Project-folder selection uses the
 same register operation.
+Sidebar workspace paths are available through header tooltips rather than a
+second text line. Workspace and session titles share the same icon-column
+alignment; session rows use an empty decorative slot and retain their trailing
+timestamp/delete interaction.
 
 The editable new-session empty state consumes that same registry through the
 sidebar owner. Its heading defaults to General chats and exposes a keyboard
@@ -257,6 +266,10 @@ accessible workspace menu for choosing or registering a folder. Selection
 updates only the local draft creation input, preserves any composer text already
 entered, and reaches `SessionStore.create` on the first send. Persisted Threads
 do not expose this picker because their creation-time workspace is immutable.
+The empty-state heading reserves a viewport-scaled gap above the raised composer
+to sit higher in the available space; narrow windows use a smaller bounded gap.
+The workspace trigger uses a 1.4 line height so its ellipsis clipping preserves
+letter descenders while keeping long names on one line.
 
 Session creation follows the entry point's target. Workspace and project
 actions capture their workspace and project context on the local draft. With the

@@ -20,6 +20,7 @@ export function SettingsChoiceList({
   onChange,
   options,
   optionsAriaLabel,
+  showMenuDescriptions = true,
   value,
 }: {
   ariaLabel?: string;
@@ -31,6 +32,7 @@ export function SettingsChoiceList({
   onChange: (value: string) => void;
   options: SettingsChoiceOption[];
   optionsAriaLabel?: string;
+  showMenuDescriptions?: boolean;
   value: string;
 }) {
   const { t } = useTranslation("settings");
@@ -180,7 +182,7 @@ export function SettingsChoiceList({
             >
               <span className="react-top-menu__menu-label">
                 <strong>{option.label}</strong>
-                {option.description ? <small>{option.description}</small> : null}
+                {showMenuDescriptions && option.description ? <small>{option.description}</small> : null}
               </span>
               {selected ? <Check aria-hidden="true" size={15} /> : <span />}
             </button>

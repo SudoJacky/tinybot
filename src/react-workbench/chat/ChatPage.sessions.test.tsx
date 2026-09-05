@@ -17,6 +17,42 @@ import {
 } from "./test/ChatPageTestHarness";
 
 describe("ChatPage", () => {
+  it("keeps an imported workspace in place after leaving its untouched draft", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    const workingDirectory = "D:\\Code\\VirtualHome";
+    nativeWorkspacePickerMocks.pickDesktopWorkspaceDirectory.mockResolvedValueOnce(workingDirectory);
+    const props = { chatStore: stores.chatStore, sessionStore: stores.sessionStore };
+    const view = render(<ChatPage {...props} />);
+
+    const sidebar = await screen.findByLabelText("Sessions");
+    await user.click(within(sidebar).getByRole("button", { name: "Workspace and project actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Add workspace folder" }));
+    expect(await within(sidebar).findByRole("group", { name: "Workspace VirtualHome" })).toBeTruthy();
+    expect(stores.sessionStore.create).not.toHaveBeenCalled();
+    const workspaceOrder = () => within(sidebar).getAllByRole("group", { name: /^Workspace / })
+      .map((group) => group.getAttribute("aria-label"));
+    const importedOrder = workspaceOrder();
+
+    await user.click(within(sidebar).getByRole("button", { name: "Planning notes" }));
+    expect(screen.queryByRole("tab", { name: "New chat" })).toBeNull();
+    expect(within(sidebar).queryByRole("group", { name: "Workspace VirtualHome" })).not.toBeNull();
+    expect(workspaceOrder()).toEqual(importedOrder);
+    expect(stores.sessionStore.create).not.toHaveBeenCalled();
+
+    view.unmount();
+    render(<ChatPage {...props} />);
+    const restoredSidebar = await screen.findByLabelText("Sessions");
+    const restoredWorkspace = await within(restoredSidebar).findByRole("group", { name: "Workspace VirtualHome" });
+    expect(within(restoredSidebar).getAllByRole("group", { name: /^Workspace / })
+      .map((group) => group.getAttribute("aria-label"))).toEqual(importedOrder);
+    await user.click(within(restoredWorkspace).getByRole("button", { name: "New session in VirtualHome" }));
+    expect(stores.sessionStore.create).not.toHaveBeenCalled();
+    await user.type(screen.getByRole("textbox", { name: /message/i }), "Inspect this workspace");
+    await user.click(screen.getByRole("button", { name: /send message/i }));
+    await waitFor(() => expect(stores.sessionStore.create).toHaveBeenCalledWith({ workingDirectory }));
+  });
+
   it("starts in an uncreated conversation instead of restoring saved session tabs", async () => {
     const stores = createStores();
     window.localStorage.setItem(CHAT_SESSION_TABS_STORAGE_KEY, JSON.stringify({
