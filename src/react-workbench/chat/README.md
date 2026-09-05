@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:ff71eb94c9e8b25c70df2ac5356a0b0e97acd3aa079b563ff3777093a544b738 -->
+<!-- tinybot-module-fingerprint: sha256:20f44dff7755b534a33a173f5f70609f079237e13e26609f65ee9613c859173d -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -38,7 +38,13 @@ and the details region. Its CSS and the disclosure icon CSS are imported by
 their owning modules. Ordinary tools use local expansion state; Reasoning and
 Plan supply controlled `open` and `onOpenChange` values to preserve their own
 streaming and completion rules. The `summary` slot stays visible when details
-are collapsed, so plan progress remains readable. Details unmount by default;
+are collapsed, so plan progress remains readable. Details expand and collapse
+with a reversible 200 ms grid-height and opacity transition. The grid follows
+nested and streaming content without fixed-height measurement. Closing details
+become inert and leave the accessibility tree immediately, then unmount once
+their transitions finish; reopening cancels that pending unmount. Initially
+open content does not animate on mount, and reduced motion switches immediately.
+Details unmount by default;
 tools and compaction opt into `keepMounted` to preserve their existing preview
 lifecycle. Execution summaries also keep their children mounted so folding the
 whole trace preserves individually expanded rows. Flat legacy tool groups use

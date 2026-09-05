@@ -1,4 +1,4 @@
-import { Children, useId, useState, type ReactNode } from "react";
+import { Children, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ChatDisclosureIcon } from "./ChatDisclosureIcon";
 import "./TimelineActivity.css";
 
@@ -29,6 +29,33 @@ export function TimelineActivity({
   const [localOpen, setLocalOpen] = useState(defaultOpen);
   const hasContent = Children.toArray(children).length > 0;
   const expanded = hasContent && (open ?? localOpen);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [present, setPresent] = useState(expanded);
+
+  useLayoutEffect(() => {
+    if (expanded) {
+      setPresent(true);
+      return;
+    }
+    const content = contentRef.current;
+    if (!content || !present) return;
+    // Reading the transitions flushes the new grid target. CSS handles reversal
+    // and changing content height; React only owns the closing content's lifetime.
+    const animations = content.getAnimations?.() ?? [];
+    if (!animations.length) {
+      setPresent(false);
+      return;
+    }
+    let disposed = false;
+    void Promise.all(animations.map((animation) => animation.finished.catch((error: unknown) => {
+      // A reversed transition or a switch to reduced motion cancels its animation.
+      if (!(error instanceof DOMException && error.name === "AbortError")) throw error;
+    }))).then(() => {
+      if (!disposed) setPresent(false);
+    });
+    return () => { disposed = true; };
+  }, [expanded, present]);
+
   const heading = (
     <>
       <span aria-hidden="true" className="react-timeline-activity__icon">
@@ -61,8 +88,18 @@ export function TimelineActivity({
       ) : <div className="react-timeline-activity__header">{heading}</div>}
       {summary}
       {hasContent ? (
-        <div aria-labelledby={triggerId} className="react-timeline-activity__content" hidden={!expanded} id={contentId} role="region">
-          {expanded || keepMounted ? children : null}
+        <div
+          aria-hidden={!expanded}
+          aria-labelledby={triggerId}
+          className="react-timeline-activity__content"
+          id={contentId}
+          inert={!expanded}
+          ref={contentRef}
+          role="region"
+        >
+          <div className="react-timeline-activity__content-inner" hidden={!expanded && !present}>
+            {expanded || present || keepMounted ? children : null}
+          </div>
         </div>
       ) : null}
     </div>

@@ -83,10 +83,31 @@ button.react-timeline-activity__header:focus-visible {
 }
 
 .react-timeline-activity__content {
+  display: grid;
+  grid-template-rows: 0fr;
   min-width: 0;
+  opacity: 0;
+  transition: grid-template-rows 200ms cubic-bezier(0.2, 0, 0, 1), opacity 200ms ease-out;
 }
 
-.react-timeline-activity__content[hidden],
-.react-timeline-activity__preview[hidden] {
+.react-timeline-activity[data-open="true"] > .react-timeline-activity__content {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.react-timeline-activity__content-inner {
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.react-timeline-activity__preview[hidden],
+.react-timeline-activity__content-inner[hidden] {
   display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-timeline-activity__content {
+    transition: none;
+  }
 }
