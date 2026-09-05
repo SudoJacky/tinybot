@@ -42,7 +42,7 @@ export function projectSessionGroups(
     const updatedAtMs = [...coordinatorSessions, ...workspaces.flatMap((workspace) => workspace.sessions)]
       .reduce((latest, session) => Math.max(latest, session.updatedAtMs), 0);
     return { coordinatorSessions, project, updatedAtMs, workspaces };
-  }).sort((left, right) => right.updatedAtMs - left.updatedAtMs);
+  });
   return {
     groups,
     ungroupedSessions: sessions.filter((session) => !groupedSessionIds.has(session.id)),

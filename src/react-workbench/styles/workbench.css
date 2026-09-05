@@ -1057,7 +1057,7 @@ button:disabled {
 .react-session-list__rows {
   min-height: 0;
   overflow: auto;
-  padding: 0 8px 12px;
+  padding: 0 2px 12px 8px;
 }
 
 .react-session-list__error {
@@ -1081,44 +1081,54 @@ button:disabled {
   margin-top: 5px;
 }
 
-.react-session-workspace__details > summary {
+.react-session-workspace__details > summary,
+.react-project-group > summary,
+.react-project-group__member-title,
+.react-session-row__select {
   display: grid;
-  grid-template-columns: 14px 16px minmax(0, 1fr);
+  grid-template-columns: 16px minmax(0, 1fr);
   align-items: center;
   gap: 6px;
-  min-height: 44px;
-  padding: 5px 68px 5px 5px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 6px;
+  border: 0;
   border-radius: 8px;
-  color: var(--color-muted);
-  cursor: pointer;
-  list-style: none;
+  color: var(--color-ink);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: left;
   transition:
     background-color var(--motion-duration-fast) ease,
     color var(--motion-duration-fast) ease;
 }
 
-.react-session-workspace__details > summary::-webkit-details-marker {
+.react-session-workspace__details > summary,
+.react-project-group > summary {
+  padding-right: 70px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.react-session-workspace__details > summary::-webkit-details-marker,
+.react-project-group > summary::-webkit-details-marker {
   display: none;
 }
 
 .react-session-workspace__details > summary:hover,
 .react-session-workspace__details > summary:focus-visible,
-.react-session-workspace[data-active="true"] > .react-session-workspace__details > summary {
-  background: color-mix(in srgb, var(--color-cream-strong) 58%, transparent);
+.react-project-group > summary:hover,
+.react-project-group > summary:focus-visible,
+.react-project-group__member-title:hover,
+.react-project-group__member-title:focus-within {
+  background: var(--color-cream-strong);
   color: var(--color-ink);
 }
 
-.react-session-workspace__details > summary:focus-visible {
+.react-session-workspace__details > summary:focus-visible,
+.react-project-group > summary:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--color-primary) 74%, transparent);
   outline-offset: -2px;
-}
-
-.react-session-workspace__chevron {
-  transition: transform var(--motion-duration-fast) ease;
-}
-
-.react-session-workspace__details[open] > summary .react-session-workspace__chevron {
-  transform: rotate(90deg);
 }
 
 .react-session-workspace__folder {
@@ -1146,8 +1156,7 @@ button:disabled {
   gap: 1px;
 }
 
-.react-session-workspace__copy strong,
-.react-session-workspace__copy small {
+.react-session-workspace__copy strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1159,24 +1168,25 @@ button:disabled {
   font-weight: 650;
 }
 
-.react-session-workspace__copy small {
-  color: var(--color-muted-soft);
-  font-size: 9px;
-  font-weight: 450;
-}
-
-.react-session-workspace__actions {
+.react-session-workspace__actions,
+.react-project-group__actions {
   position: absolute;
   z-index: 1;
-  top: 6px;
-  right: 1px;
+  top: 2px;
+  right: 6px;
   display: flex;
   width: 64px;
   justify-content: flex-end;
   flex-wrap: nowrap;
 }
 
-.react-session-workspace__actions > button {
+.react-project-group__member-actions {
+  display: flex;
+}
+
+.react-session-workspace__actions > button,
+.react-project-group__actions > button,
+.react-project-group__member-actions > button {
   display: inline-grid;
   place-items: center;
   width: 32px;
@@ -1190,7 +1200,11 @@ button:disabled {
 }
 
 .react-session-workspace__actions > button:hover,
-.react-session-workspace__actions > button:focus-visible {
+.react-session-workspace__actions > button:focus-visible,
+.react-project-group__actions > button:hover,
+.react-project-group__actions > button:focus-visible,
+.react-project-group__member-actions > button:hover,
+.react-project-group__member-actions > button:focus-visible {
   background: color-mix(in srgb, var(--color-panel) 72%, transparent);
   color: var(--color-ink);
   opacity: 1;
@@ -1198,10 +1212,6 @@ button:disabled {
 
 .react-session-workspace__details:not([open]) > .react-session-workspace__sessions {
   display: none;
-}
-
-.react-session-workspace__sessions {
-  padding-left: 13px;
 }
 
 .react-project-group {
@@ -1212,35 +1222,6 @@ button:disabled {
   background: color-mix(in srgb, var(--color-panel) 86%, transparent);
 }
 
-.react-project-group > summary {
-  display: grid;
-  grid-template-columns: 14px 16px minmax(0, 1fr);
-  align-items: center;
-  gap: 6px;
-  min-height: 44px;
-  padding: 5px 68px 5px 6px;
-  border-radius: 8px;
-  color: var(--color-muted);
-  cursor: pointer;
-  list-style: none;
-}
-
-.react-project-group > summary::-webkit-details-marker {
-  display: none;
-}
-
-.react-project-group > summary:hover,
-.react-project-group > summary:focus-visible,
-.react-project-group[data-active="true"] > summary {
-  background: color-mix(in srgb, var(--color-primary) 7%, var(--color-panel));
-  color: var(--color-ink);
-}
-
-.react-project-group > summary:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--color-primary) 74%, transparent);
-  outline-offset: -2px;
-}
-
 .react-project-group > summary strong {
   overflow: hidden;
   font-size: 12px;
@@ -1249,44 +1230,8 @@ button:disabled {
   white-space: nowrap;
 }
 
-.react-project-group__chevron {
-  transition: transform var(--motion-duration-fast) ease;
-}
-
-.react-project-group[open] > summary .react-project-group__chevron {
-  transform: rotate(90deg);
-}
-
 .react-project-group__icon {
   color: var(--color-primary);
-}
-
-.react-project-group__actions {
-  position: absolute;
-  z-index: 1;
-  top: 6px;
-  right: 3px;
-  display: flex;
-}
-
-.react-project-group__actions button,
-.react-project-group__member-title > button {
-  display: inline-grid;
-  place-items: center;
-  width: 30px;
-  min-width: 30px;
-  height: 30px;
-  min-height: 30px;
-  padding: 0;
-  color: var(--color-muted);
-}
-
-.react-project-group__actions button:hover,
-.react-project-group__actions button:focus-visible,
-.react-project-group__member-title > button:hover,
-.react-project-group__member-title > button:focus-visible {
-  background: var(--color-cream-strong);
-  color: var(--color-ink);
 }
 
 .react-project-group:not([open]) > .react-project-group__content {
@@ -1307,18 +1252,11 @@ button:disabled {
 }
 
 .react-project-group__member-title {
-  display: grid;
-  grid-template-columns: 14px minmax(0, 1fr) 30px;
-  align-items: center;
-  gap: 5px;
-  min-height: 34px;
-  color: var(--color-muted);
-  font-size: 11px;
+  grid-template-columns: 16px minmax(0, 1fr) max-content;
 }
 
-.react-project-group__coordinators .react-project-group__member-title {
-  grid-template-columns: 14px minmax(0, 1fr);
-  padding-right: 5px;
+.react-project-group__member-title > svg {
+  color: var(--color-primary);
 }
 
 .react-project-group__member-title > span {
@@ -1326,8 +1264,7 @@ button:disabled {
   min-width: 0;
 }
 
-.react-project-group__member-title strong,
-.react-project-group__member-title small {
+.react-project-group__member-title strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1335,17 +1272,7 @@ button:disabled {
 
 .react-project-group__member-title strong {
   color: var(--color-ink);
-  font-size: 11px;
-}
-
-.react-project-group__member-title small {
-  color: var(--color-muted-soft);
-  font-size: 10px;
-}
-
-.react-project-group__coordinators > .react-session-row,
-.react-project-workspace__sessions > .react-session-row {
-  margin-left: 9px;
+  font-size: inherit;
 }
 
 .react-project-dialog-backdrop {
@@ -1635,18 +1562,11 @@ button:disabled {
 }
 
 .react-session-row__select {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) max-content;
-  align-items: center;
-  column-gap: 8px;
+  grid-template-columns: 16px minmax(0, 1fr) max-content;
   width: 100%;
-  min-width: 0;
-  height: 34px;
   overflow: hidden;
   border-radius: inherit;
-  padding: 0 10px;
   cursor: inherit;
-  text-align: left;
 }
 
 .react-session-row__select:hover,
@@ -1662,7 +1582,6 @@ button:disabled {
 }
 
 .react-session-row__title {
-  max-width: 180px;
   color: var(--color-ink);
   font-size: 12px;
 }

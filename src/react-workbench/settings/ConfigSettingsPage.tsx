@@ -198,7 +198,6 @@ export function ConfigSettingsPage({ groupId, settingsStore }: ConfigSettingsPag
 
         <footer>
           <div>
-            <span>{revisionFromConfig(data.currentConfig, t)}</span>
             {dirty ? <small>{t("config.unsaved")}</small> : <small>{t("config.upToDate")}</small>}
           </div>
           <div>
@@ -413,17 +412,6 @@ function formatSaveStatus(saved: DesktopConfigSettingsSaveResult, t: TFunction<"
     return t("config.savedReload");
   }
   return t("config.saved");
-}
-
-function revisionFromConfig(config: unknown, t: TFunction<"settings">): string {
-  if (!config || typeof config !== "object" || Array.isArray(config)) {
-    return t("config.revisionUnavailable");
-  }
-  const record = config as Record<string, unknown>;
-  const revision = record.revision;
-  return typeof revision === "string" && revision
-    ? t("config.revision", { revision })
-    : t("config.revisionUnavailable");
 }
 
 function friendlyOptionLabel(value: string): string {
