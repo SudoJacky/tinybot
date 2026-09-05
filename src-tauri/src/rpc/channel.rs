@@ -21,80 +21,70 @@ impl WorkerChannelConnectorRpc {
         &self,
         request: &WorkerRequest,
     ) -> Result<Value, WorkerProtocolError> {
-        self.start(parse_params(request)?)
+        self.unavailable(
+            parse_params::<ChannelConnectorParams>(request)?.channel,
+            "start",
+        )
     }
 
     pub(super) fn stop_from_request(
         &self,
         request: &WorkerRequest,
     ) -> Result<Value, WorkerProtocolError> {
-        self.stop(parse_params(request)?)
+        self.unavailable(
+            parse_params::<ChannelConnectorParams>(request)?.channel,
+            "stop",
+        )
     }
 
     pub(super) fn login_from_request(
         &self,
         request: &WorkerRequest,
     ) -> Result<Value, WorkerProtocolError> {
-        self.login(parse_params(request)?)
+        self.unavailable(
+            parse_params::<ChannelConnectorParams>(request)?.channel,
+            "login",
+        )
     }
 
     pub(super) fn send_text_from_request(
         &self,
         request: &WorkerRequest,
     ) -> Result<Value, WorkerProtocolError> {
-        self.send_text(parse_params(request)?)
+        self.unavailable(
+            parse_params::<ChannelConnectorParams>(request)?.channel,
+            "send_text",
+        )
     }
 
     pub(super) fn send_delta_from_request(
         &self,
         request: &WorkerRequest,
     ) -> Result<Value, WorkerProtocolError> {
-        self.send_delta(parse_params(request)?)
+        self.unavailable(
+            parse_params::<ChannelConnectorParams>(request)?.channel,
+            "send_delta",
+        )
     }
 
     pub(super) fn send_usage_from_request(
         &self,
         request: &WorkerRequest,
     ) -> Result<Value, WorkerProtocolError> {
-        self.send_usage(parse_params(request)?)
+        self.unavailable(
+            parse_params::<ChannelConnectorParams>(request)?.channel,
+            "send_usage",
+        )
     }
 
     pub(super) fn transcribe_audio_from_request(
         &self,
         request: &WorkerRequest,
     ) -> Result<Value, WorkerProtocolError> {
-        self.transcribe_audio(parse_params(request)?)
-    }
-
-    fn start(&self, params: ChannelConnectorParams) -> Result<Value, WorkerProtocolError> {
-        self.unavailable(params.channel, "start")
-    }
-
-    fn stop(&self, params: ChannelConnectorParams) -> Result<Value, WorkerProtocolError> {
-        self.unavailable(params.channel, "stop")
-    }
-
-    fn login(&self, params: ChannelConnectorParams) -> Result<Value, WorkerProtocolError> {
-        self.unavailable(params.channel, "login")
-    }
-
-    fn send_text(&self, params: ChannelConnectorParams) -> Result<Value, WorkerProtocolError> {
-        self.unavailable(params.channel, "send_text")
-    }
-
-    fn send_delta(&self, params: ChannelConnectorParams) -> Result<Value, WorkerProtocolError> {
-        self.unavailable(params.channel, "send_delta")
-    }
-
-    fn send_usage(&self, params: ChannelConnectorParams) -> Result<Value, WorkerProtocolError> {
-        self.unavailable(params.channel, "send_usage")
-    }
-
-    fn transcribe_audio(
-        &self,
-        params: ChannelConnectorParams,
-    ) -> Result<Value, WorkerProtocolError> {
-        self.unavailable(params.channel, "transcribe_audio")
+        self.unavailable(
+            parse_params::<ChannelConnectorParams>(request)?.channel,
+            "transcribe_audio",
+        )
     }
 
     fn unavailable(&self, channel: String, operation: &str) -> Result<Value, WorkerProtocolError> {

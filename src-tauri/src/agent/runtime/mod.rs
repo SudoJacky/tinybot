@@ -17,7 +17,6 @@ pub(crate) const DEFAULT_NATIVE_AGENT_MAX_ITERATIONS: i64 = 200;
 mod chat_completions_adapter;
 mod checkpoint;
 mod context;
-mod context_contributors;
 mod context_manager;
 mod context_window_config;
 mod continuations;
@@ -53,9 +52,6 @@ pub(crate) use self::context::{agent_trace_context_from_value, ensure_agent_trac
 pub(crate) use self::events::standalone_runtime_event;
 pub(crate) use self::hooks::AgentHookEvaluation;
 
-#[cfg(test)]
-pub use self::context_contributors::AgentContextContribution;
-pub use self::context_contributors::{AgentContextContributor, AgentContextRequest};
 #[cfg(test)]
 pub use self::hooks::AgentHookDecision;
 pub use self::hooks::{AgentHook, AgentHookInvocation, AgentHookStage};
@@ -172,9 +168,7 @@ pub struct AgentTurnContext {
     pub responses_input_items: Option<Vec<Value>>,
     pub system_prompt: Option<String>,
     pub instructions: Option<ComposedInstructions>,
-    assembled_system_prompt: Option<String>,
     prepared_provider_request: Option<Value>,
-    context_contributions: Vec<Value>,
     pub stream: bool,
     pub max_iterations: i64,
     pub settings: AgentTurnSettings,
@@ -617,7 +611,6 @@ pub struct NativeAgentRuntimeServices {
     browser_runtime: Option<crate::native_browser::SharedBrowserRuntime>,
     task_runtime: TurnExecutionRuntime,
     hooks: hooks::AgentHookPipeline,
-    context_contributors: context_contributors::AgentContextContributorRegistry,
     metrics: AgentRuntimeMetrics,
     thread_store: Option<crate::threads::workspace_store::WorkspaceThreadStore>,
     #[cfg(test)]
@@ -648,7 +641,6 @@ impl NativeAgentRuntimeServices {
             browser_runtime: None,
             task_runtime: TurnExecutionRuntime::new(),
             hooks: hooks::AgentHookPipeline::default(),
-            context_contributors: context_contributors::AgentContextContributorRegistry::default(),
             metrics: crate::runtime::observability::global_agent_runtime_metrics().clone(),
             thread_store: None,
             #[cfg(test)]
@@ -725,15 +717,6 @@ impl NativeAgentRuntimeServices {
     pub fn with_hook(mut self, hook: Arc<dyn AgentHook>) -> Self {
         self.hooks = self.hooks.with_hook(hook);
         self
-    }
-
-    #[cfg(test)]
-    pub fn try_with_context_contributor(
-        mut self,
-        contributor: Arc<dyn AgentContextContributor>,
-    ) -> Result<Self, String> {
-        self.context_contributors = self.context_contributors.with_contributor(contributor)?;
-        Ok(self)
     }
 
     #[cfg(test)]

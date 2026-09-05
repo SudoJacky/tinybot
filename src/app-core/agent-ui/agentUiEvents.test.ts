@@ -2,8 +2,6 @@ import { describe, expect, test } from "vitest";
 import {
   AGENT_UI_EVENT_TYPES,
   AGENT_UI_FORM_STATUSES,
-  buildAgentUiFormCancelRequest,
-  buildAgentUiFormSubmitRequest,
   createAgentUiEventState,
   normalizeAgentUiEvents,
   reduceAgentUiEventState,
@@ -65,24 +63,6 @@ describe("desktop agent-ui events", () => {
     expect(() => validateAgentUiFormValues(form!, { destination: "Shanghai", nights: 3, style: "relaxed" })).not.toThrow();
     expect(() => validateAgentUiFormValues(form!, { destination: "", nights: 31 })).toThrow(/required|above the maximum/i);
 
-    expect(buildAgentUiFormSubmitRequest(form!, { destination: "Shanghai", nights: 3 })).toEqual({
-      values: { destination: "Shanghai", nights: 3 },
-      correlation: {
-        form_id: "travel-preferences-1",
-        chat_id: "chat-1",
-        turn_id: "turn-1",
-        message_id: "msg-form-1",
-      },
-    });
-    expect(buildAgentUiFormCancelRequest(form!)).toEqual({
-      correlation: {
-        form_id: "travel-preferences-1",
-        chat_id: "chat-1",
-        turn_id: "turn-1",
-        message_id: "msg-form-1",
-      },
-    });
-
     for (const event of normalizeAgentUiEvents({
       event: "agent_ui_event",
       chat_id: "chat-1",
@@ -100,7 +80,6 @@ describe("desktop agent-ui events", () => {
     }
 
     expect(state.forms.get("travel-preferences-1")?.status).toBe(AGENT_UI_FORM_STATUSES.submitted);
-    expect(buildAgentUiFormSubmitRequest(state.forms.get("travel-preferences-1")!, {})).toBeNull();
   });
 
   test("turns unsafe form schemas into error events", () => {

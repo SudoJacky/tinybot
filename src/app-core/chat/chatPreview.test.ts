@@ -1,9 +1,9 @@
 import { describe, expect, test } from "vitest";
-import { redactedPreview, safeArtifactPreview } from "./chatPreview";
+import { safeArtifactPreview } from "./chatPreview";
 
 describe("chat preview", () => {
   test("redacts sensitive fields and renders unsafe artifact payloads inertly", () => {
-    expect(redactedPreview({
+    expect(safeArtifactPreview({
       authorization: "Bearer token",
       nested: { password: "hunter2", safe: "value" },
     })).toBe('{"authorization":"[redacted]","nested":{"password":"[redacted]","safe":"value"}}');

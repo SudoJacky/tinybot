@@ -1,5 +1,5 @@
 # Worker RPC Router
-<!-- tinybot-module-fingerprint: sha256:7e7789c34b19fc5481a6196a25d7617a991f16734ae95717ea7dadb8b9a867a9 -->
+<!-- tinybot-module-fingerprint: sha256:aabb76b177c95ddb0181c12705dd23342c40f5605b140b1d7ae421389925fdd3 -->
 
 `rpc` is the versioned method-routing boundary for native backend services.
 The module root is `mod.rs`; protocol envelopes and parameter validation live

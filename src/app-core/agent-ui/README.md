@@ -1,5 +1,5 @@
 # Agent UI Events
-<!-- tinybot-module-fingerprint: sha256:2cbd95d1c369f96bff8d634ed32b1875b8621f21906fffc25b3736411140c3de -->
+<!-- tinybot-module-fingerprint: sha256:f58697567751fe5547c7b9cf9153ec6faba39e30c6575de651b13e88a2d2db32 -->
 
 `agent-ui` defines and validates framework-independent Agent UI form events and
 their projected state.

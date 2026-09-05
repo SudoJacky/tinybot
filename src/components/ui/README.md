@@ -1,5 +1,5 @@
 # Shared UI
-<!-- tinybot-module-fingerprint: sha256:b9fb0b720d04aebfce323841b37b4ea2fab0d1c751899f6a51dec908519f7267 -->
+<!-- tinybot-module-fingerprint: sha256:8fd16e7f2266fa9bd187583d9a912cb01dd070d589a8bf409e0d93e83215687e -->
 
 `components/ui` contains reusable renderer UI whose interface is not owned by
 a single route. It includes the shared chat composer, file metadata formatting,

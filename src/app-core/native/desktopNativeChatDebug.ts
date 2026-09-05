@@ -1,11 +1,8 @@
 import { logRendererEvent, type RendererDebugEntry } from "./rendererLogger";
 
 export type DesktopNativeDebugStage = string;
-export type DesktopNativeChatDebugStage = DesktopNativeDebugStage;
 
 export type DesktopNativeDebugEntry = RendererDebugEntry;
-
-export type DesktopNativeChatDebugEntry = DesktopNativeDebugEntry;
 
 export interface DesktopNativeStartupTrace {
   complete(phase: string, details?: Record<string, unknown>): void;
@@ -19,39 +16,6 @@ export function logDesktopNativeDebug(
   details: Record<string, unknown> = {},
 ): void {
   logRendererEvent("debug", stage, details);
-}
-
-export function logDesktopNativeChatDebug(
-  stage: DesktopNativeChatDebugStage,
-  details: Record<string, unknown> = {},
-): void {
-  logDesktopNativeDebug(stage, details);
-}
-
-export async function traceDesktopNativeDebugAsync<T>(
-  stage: DesktopNativeDebugStage,
-  run: () => Promise<T>,
-  details: Record<string, unknown> = {},
-  options: { now?: () => number } = {},
-): Promise<T> {
-  const now = options.now ?? readMonotonicNow;
-  const startedAt = now();
-  logDesktopNativeDebug(`${stage}.start`, details);
-  try {
-    const result = await run();
-    logDesktopNativeDebug(`${stage}.complete`, {
-      ...details,
-      durationMs: roundedDuration(now() - startedAt),
-    });
-    return result;
-  } catch (error) {
-    logDesktopNativeDebug(`${stage}.failed`, {
-      ...details,
-      durationMs: roundedDuration(now() - startedAt),
-      error: stringifyDebugError(error),
-    });
-    throw error;
-  }
 }
 
 export function createDesktopNativeStartupTrace(

@@ -2,14 +2,8 @@ import type {
   DesktopProviderCatalogItem,
   DesktopSettingsFormState,
   DesktopSettingsProviderEditorState,
-  DesktopSettingsSavePatchResult,
-  DesktopSettingsSaveReconcileResult,
 } from "./desktopSettingsContracts";
-import {
-  buildDesktopSettingsFormState,
-  getDesktopProviderProfiles,
-  validateDesktopSettingsForm,
-} from "./desktopSettingsProviders";
+import { getDesktopProviderProfiles } from "./desktopSettingsProviders";
 import { parseDesktopProviderModelList } from "./desktopSettingsValues";
 
 type UnknownRecord = Record<string, unknown>;
@@ -24,46 +18,6 @@ export function createDesktopSettingsPatch(
     return createDesktopSettingsTouchedPatch(state, comparisonConfig);
   }
   return createDesktopSettingsFullPatch(state, comparisonConfig, providerCatalog);
-}
-
-export function buildDesktopSettingsSavePatch(
-  state: DesktopSettingsFormState,
-  existingConfig?: unknown,
-  providerCatalog: DesktopProviderCatalogItem[] = [],
-): DesktopSettingsSavePatchResult {
-  const validationErrors = validateDesktopSettingsForm(state);
-  if (validationErrors.length) {
-    return { ok: false, validationErrors };
-  }
-  return {
-    ok: true,
-    patch: createDesktopSettingsPatch(state, existingConfig, providerCatalog),
-  };
-}
-
-export function reconcileDesktopSettingsSavedState(
-  draftState: DesktopSettingsFormState,
-  effectiveConfig: unknown,
-  providerCatalog: DesktopProviderCatalogItem[] = [],
-): DesktopSettingsSaveReconcileResult {
-  const savedState = buildDesktopSettingsFormState(effectiveConfig, providerCatalog);
-  const mismatchedPaths = (draftState.touchedPaths ?? []).filter((path) => (
-    !desktopSettingsValuesEqual(
-      getDesktopSettingsPatchPathValue(draftState, path),
-      getDesktopSettingsPatchPathValue(savedState, path),
-    )
-  ));
-  if (mismatchedPaths.length) {
-    return {
-      ok: false,
-      state: draftState,
-      mismatchedPaths,
-    };
-  }
-  return {
-    ok: true,
-    state: savedState,
-  };
 }
 
 function createDesktopSettingsFullPatch(

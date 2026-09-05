@@ -14,10 +14,10 @@ use super::user_input::{
     prepare_user_input_continuation, UserInputContinuationOutcome, UserInputResume,
 };
 use super::{
-    AgentContextRequest, AgentHookInvocation, AgentHookStage, AgentTurnContext,
-    ComposedInstructions, InstructionComposer, NativeAgentContextCheckpointCommit,
-    NativeAgentProviderFailure, NativeAgentProviderFailureKind, NativeAgentProviderResponse,
-    NativeAgentProviderStreamEvent, NativeAgentRuntimeServices,
+    AgentHookInvocation, AgentHookStage, AgentTurnContext, ComposedInstructions,
+    InstructionComposer, NativeAgentContextCheckpointCommit, NativeAgentProviderFailure,
+    NativeAgentProviderFailureKind, NativeAgentProviderResponse, NativeAgentProviderStreamEvent,
+    NativeAgentRuntimeServices,
 };
 use crate::agent::runtime_protocol::{
     AgentAssistantMessagePhase, AgentEventKind, AgentRuntimeEventEnvelope, AgentRuntimePhase,
@@ -198,7 +198,6 @@ async fn run_owned_native_agent_turn_async(
             }
         }
     }
-    attach_context_contributions_to_result(&mut result)?;
     let stop_reason = result
         .get("stopReason")
         .and_then(Value::as_str)
@@ -634,15 +633,6 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 "Rust agent runtime requires at least one user input or chat message.",
             )));
         }
-        if let Some(workspace_root) = workspace_root {
-            let request =
-                AgentContextRequest::from_turn_context(workspace_root.to_path_buf(), &context);
-            let hydration = dependencies
-                .context_contributors
-                .hydrate(&request, context.system_instruction_prompt())?;
-            context.apply_context_hydration(hydration);
-        }
-
         let mut state = if continuation_resume.is_some() {
             AgentTurnState::new_for_continuation(&context, dependencies.trace_sink.clone())?
         } else {
@@ -653,14 +643,6 @@ impl<'a> NativeAgentTurnExecution<'a> {
             0,
             AgentEventKind::ContextHydrated.wire_name(),
         )?;
-        if !context.context_contribution_diagnostics().is_empty() {
-            state.emit(PendingAgentEvent::new(
-                AgentEventKind::ContextHydrated,
-                serde_json::json!({
-                    "contributors": context.context_contribution_diagnostics(),
-                }),
-            ))?;
-        }
         state.transition_phase(
             AgentRuntimePhase::Planning,
             0,
@@ -1630,32 +1612,6 @@ fn append_hook_evaluation_to_result(
             .collect::<Result<Vec<_>, _>>()
             .map_err(|error| format!("failed to serialize lifecycle hook event: {error}"))?,
     );
-    Ok(())
-}
-
-fn attach_context_contributions_to_result(result: &mut Value) -> Result<(), String> {
-    let contributions = result
-        .get("runtimeEvents")
-        .and_then(Value::as_array)
-        .and_then(|events| {
-            events.iter().rev().find(|event| {
-                event.get("eventName").and_then(Value::as_str)
-                    == Some(AgentEventKind::ContextHydrated.wire_name())
-            })
-        })
-        .and_then(|event| event.get("payload"))
-        .and_then(|payload| payload.get("contributors"))
-        .cloned();
-    let Some(contributions) = contributions else {
-        return Ok(());
-    };
-    if !contributions.is_array() {
-        return Err("agent context contribution diagnostics must be an array".to_string());
-    }
-    result
-        .as_object_mut()
-        .ok_or_else(|| "agent result must be a JSON object".to_string())?
-        .insert("contextContributions".to_string(), contributions);
     Ok(())
 }
 

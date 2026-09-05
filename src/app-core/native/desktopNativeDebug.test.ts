@@ -4,7 +4,6 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   createDesktopNativeStartupTrace,
   logDesktopNativeDebug,
-  traceDesktopNativeDebugAsync,
 } from "./desktopNativeChatDebug";
 
 describe("desktop native debug logger", () => {
@@ -87,28 +86,4 @@ describe("desktop native debug logger", () => {
       error: "slow chat",
     });
   });
-
-  test("records async debug phase durations", async () => {
-    vi.spyOn(console, "info").mockImplementation(() => undefined);
-    window.localStorage.setItem("tinybot.desktop.nativeDebug", "on");
-    const times = [10, 52.24];
-
-    const result = await traceDesktopNativeDebugAsync(
-      "toolsSkills.load.tools.list",
-      async () => ({ count: 24 }),
-      { source: "startup" },
-      { now: () => times.shift() ?? 52.24 },
-    );
-
-    expect(result).toEqual({ count: 24 });
-    expect(window.__tinybotNativeDebug?.map((entry) => entry.stage)).toEqual([
-      "toolsSkills.load.tools.list.start",
-      "toolsSkills.load.tools.list.complete",
-    ]);
-    expect(window.__tinybotNativeDebug?.[1].details).toMatchObject({
-      durationMs: 42.2,
-      source: "startup",
-    });
-  });
-
 });

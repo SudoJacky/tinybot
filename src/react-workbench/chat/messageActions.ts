@@ -48,8 +48,6 @@ export type MessageActionContext = {
   sessionRunning: boolean;
 };
 
-export type MessageAction = "copy" | "branch";
-
 export function canCopyMessage(message: ReactChatMessage, context: MessageActionContext): boolean {
   if (!message.text.trim()) {
     return false;
@@ -71,11 +69,4 @@ export function canBranchFromMessage(message: ReactChatMessage, context: Message
     return message.turnStatus === "completed";
   }
   return !context.sessionRunning;
-}
-
-export function visibleMessageActions(message: ReactChatMessage, context: MessageActionContext): MessageAction[] {
-  if (!canCopyMessage(message, context)) {
-    return [];
-  }
-  return canBranchFromMessage(message, context) ? ["copy", "branch"] : ["copy"];
 }
