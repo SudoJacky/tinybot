@@ -176,7 +176,7 @@ pub struct ThreadLogIndexRepairReport {
 }
 
 impl WorkerThreadLogRpc {
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn new(workspace_root: PathBuf, policy: CapabilityPolicy) -> Self {
         let data_root = workspace_root.join(".tinybot");
         Self::new_with_data_root(workspace_root, data_root, policy)

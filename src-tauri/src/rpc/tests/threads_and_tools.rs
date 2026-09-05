@@ -6,7 +6,6 @@ fn dispatches_thread_store_round_trip_requests() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -105,54 +104,6 @@ fn dispatches_thread_store_round_trip_requests() {
 }
 
 #[test]
-fn thread_list_does_not_merge_constructor_fixtures_at_request_time() {
-    let fixture = WorkspaceFixture::new();
-    let mut constructor_thread = thread_fixture();
-    constructor_thread.thread_id = "session:websocket-1".to_string();
-    constructor_thread.session_key = Some("session:websocket-1".to_string());
-    constructor_thread.title = "Legacy Websocket Session".to_string();
-    constructor_thread.updated_at = "2026-06-09T11:00:00Z".to_string();
-    constructor_thread.metadata.extra = json!({
-        "mode": "desktop",
-        "metadata": {
-            "topic": "reactbits"
-        },
-        "messages": [
-            {
-                "role": "user",
-                "content": "查看 reactbits 内容",
-                "timestamp": "2026-06-09T10:58:00Z"
-            },
-            {
-                "role": "assistant",
-                "content": "整理 chat layout 文档",
-                "timestamp": "2026-06-09T10:59:00Z"
-            }
-        ]
-    });
-    let mut router = WorkerRpcRouter::new(
-        fixture.root.clone(),
-        json!({}),
-        vec![constructor_thread],
-        20,
-        CapabilityPolicy::new([
-            WorkerCapability::SessionMetadataRead,
-            WorkerCapability::SessionWrite,
-        ]),
-    );
-
-    let list = router.dispatch(&WorkerRequest::new(
-        "req-thread-list-legacy-session",
-        "trace-thread-legacy-session",
-        "thread.list",
-        json!({}),
-    ));
-    assert_eq!(list.error, None);
-    assert_eq!(list.result.as_ref().unwrap()["threads"], json!([]));
-    assert!(first_thread_log_file_under(&fixture.root, "threads").is_none());
-}
-
-#[test]
 fn thread_api_survives_restart_from_rollout_without_legacy_stores() {
     let fixture = WorkspaceFixture::new();
     let policy = CapabilityPolicy::new([
@@ -160,8 +111,7 @@ fn thread_api_survives_restart_from_rollout_without_legacy_stores() {
         WorkerCapability::SessionWrite,
     ]);
     {
-        let mut router =
-            WorkerRpcRouter::new(fixture.root.clone(), json!({}), vec![], 20, policy.clone());
+        let mut router = WorkerRpcRouter::new(fixture.root.clone(), json!({}), 20, policy.clone());
         let create = router.dispatch(&WorkerRequest::new(
             "req-rollout-thread-create",
             "trace-rollout-thread",
@@ -195,7 +145,7 @@ fn thread_api_survives_restart_from_rollout_without_legacy_stores() {
         assert_eq!(append.error, None);
     }
 
-    let mut restarted = WorkerRpcRouter::new(fixture.root.clone(), json!({}), vec![], 20, policy);
+    let mut restarted = WorkerRpcRouter::new(fixture.root.clone(), json!({}), 20, policy);
     let read = restarted.dispatch(&WorkerRequest::new(
         "req-rollout-thread-read-after-restart",
         "trace-rollout-thread",
@@ -227,7 +177,6 @@ fn dispatches_thread_lifecycle_requests() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -325,7 +274,6 @@ fn thread_create_persistence_failure_restores_projection_and_allows_retry() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -400,7 +348,6 @@ fn dispatches_thread_resume_from_checkpoint_id() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -500,7 +447,6 @@ fn dispatches_thread_archive_children_policy() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -608,7 +554,6 @@ fn dispatches_thread_fork_include_children_policy() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -710,7 +655,6 @@ fn dispatches_thread_fork_idempotently_by_client_event_id() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -777,17 +721,15 @@ fn dispatches_thread_fork_idempotently_by_client_event_id() {
 #[test]
 fn thread_fork_inherits_effective_history_from_canonical_rollout() {
     let fixture = WorkspaceFixture::new();
-    let mut router = WorkerRpcRouter::new_persistent_sessions(
+    let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
             WorkerCapability::SessionWrite,
         ]),
-    )
-    .unwrap();
+    );
     let create = router.dispatch(&WorkerRequest::new(
         "req-rollout-fork-create",
         "trace-rollout-fork",
@@ -916,17 +858,15 @@ fn thread_fork_inherits_effective_history_from_canonical_rollout() {
         "thread persistence must not create a SQLite state index"
     );
 
-    let mut router = WorkerRpcRouter::new_persistent_sessions(
+    let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
             WorkerCapability::SessionWrite,
         ]),
-    )
-    .unwrap();
+    );
     let reloaded = router.dispatch(&WorkerRequest::new(
         "req-rollout-fork-reloaded",
         "trace-rollout-fork",
@@ -946,7 +886,6 @@ fn dispatches_thread_runtime_turn_requests() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -1085,7 +1024,6 @@ fn dispatches_thread_runtime_turn_requests_idempotently() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -1226,7 +1164,6 @@ fn dispatches_thread_events_after_cursor() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -1418,7 +1355,6 @@ fn dispatches_tool_registry_list_with_capability_metadata() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::McpCall]),
     );
@@ -1472,7 +1408,6 @@ fn dispatches_tool_registry_search_with_filters() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::ShellExecute,
@@ -1545,7 +1480,6 @@ fn dispatches_permission_profile_current_with_tool_decisions() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::FsWorkspaceRead,
@@ -1601,7 +1535,6 @@ fn dispatches_permission_profile_evaluate_tool() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     );
@@ -1631,7 +1564,6 @@ fn dispatches_permission_profile_evaluate_tool_denies_missing_capability() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
     );
@@ -1659,7 +1591,6 @@ fn shell_runs_directly() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     );
@@ -1691,7 +1622,6 @@ fn tool_executor_forwards_top_level_context() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     );
@@ -1726,7 +1656,6 @@ fn dispatches_thread_restore_checkpoint_from_thread_history() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -1827,7 +1756,6 @@ fn dispatches_thread_restore_checkpoint_defaults_to_latest_checkpoint() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -1899,7 +1827,6 @@ fn dispatches_thread_agent_registry_for_parent_and_child_threads() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -2020,7 +1947,6 @@ fn dispatches_thread_activity_for_activity_rail_summary() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -2156,7 +2082,6 @@ fn dispatches_thread_activity_excludes_completed_tool_calls() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -2251,7 +2176,6 @@ fn dispatches_tool_executor_execute_for_registered_workspace_tool() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::FsWorkspaceWrite]),
     );
@@ -2286,7 +2210,6 @@ fn dispatches_tool_executor_records_thread_tool_lifecycle() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::FsWorkspaceWrite,
@@ -2382,7 +2305,6 @@ fn dispatches_tool_executor_rejects_unavailable_registered_tool() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::FsWorkspaceRead]),
     );
@@ -2423,7 +2345,6 @@ fn dispatches_tool_executor_shell() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::ShellExecute]),
     );
@@ -2458,7 +2379,6 @@ fn mcp_tool_calls_reach_mcp_validation() {
                 }
             }
         }),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::McpCall]),
     );
@@ -2505,7 +2425,6 @@ fn dispatches_thread_read_before_sequence_page() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -2629,7 +2548,6 @@ fn dispatches_thread_append_items_idempotently_by_client_event_id() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -2709,7 +2627,6 @@ fn dispatches_thread_apply_op_for_turn_lifecycle() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -3200,7 +3117,6 @@ fn dispatches_thread_apply_op_records_terminal_error() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -3290,7 +3206,6 @@ fn dispatches_thread_apply_op_for_subagent_events() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -3442,7 +3357,6 @@ fn dispatches_thread_apply_op_for_agent_step_events() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -3533,7 +3447,6 @@ fn dispatches_thread_apply_op_for_runtime_events() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -3658,7 +3571,6 @@ fn dispatches_thread_apply_op_updates_settings_and_records_item() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -3764,7 +3676,6 @@ fn dispatches_thread_apply_op_for_lifecycle_actions() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -3938,7 +3849,6 @@ fn dispatches_agent_turn_store_round_trip_requests() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -4215,7 +4125,6 @@ fn reloads_persisted_compaction_and_context_usage_events() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -4325,7 +4234,6 @@ fn agent_turn_requests_ignore_thread_only_items() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -4455,7 +4363,6 @@ fn agent_turn_list_reads_canonical_rollout_turns() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -4514,7 +4421,6 @@ fn dispatches_thread_status_includes_active_child_activity() {
     let mut router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([
             WorkerCapability::SessionMetadataRead,
@@ -4661,7 +4567,6 @@ fn agent_turn_rpc_enforces_capabilities_and_unknown_turn_errors() {
     let mut denied_router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::default(),
     );
@@ -4679,7 +4584,6 @@ fn agent_turn_rpc_enforces_capabilities_and_unknown_turn_errors() {
     let mut read_router = WorkerRpcRouter::new(
         fixture.root.clone(),
         json!({}),
-        vec![],
         20,
         CapabilityPolicy::new([WorkerCapability::SessionMetadataRead]),
     );

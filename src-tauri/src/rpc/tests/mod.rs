@@ -70,27 +70,6 @@ impl WorkerRequestCancellation for TestCancellation {
     }
 }
 
-fn thread_fixture() -> crate::threads::domain::ThreadRecord {
-    crate::threads::domain::ThreadRecord {
-        thread_id: "session-1".to_string(),
-        title: "Native Core Migration".to_string(),
-        status: crate::threads::domain::ThreadStatus::Idle,
-        session_key: Some("session-1".to_string()),
-        root_turn_id: None,
-        active_turn_id: None,
-        parent_thread_id: None,
-        source: "desktop".to_string(),
-        created_at: "2026-06-09T09:00:00Z".to_string(),
-        updated_at: "2026-06-09T09:30:00Z".to_string(),
-        archived_at: None,
-        metadata: crate::threads::domain::ThreadMetadata {
-            working_directory: Some("D:/code/tinybot/tinybot".to_string()),
-            extra: json!({ "mode": "desktop" }),
-            ..crate::threads::domain::ThreadMetadata::default()
-        },
-    }
-}
-
 fn first_thread_log_file(root: &Path) -> PathBuf {
     first_thread_log_file_under(root, "threads").expect("thread log file should exist")
 }

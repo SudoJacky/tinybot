@@ -39,7 +39,6 @@ pub(super) enum ReasoningEffortPolicy {
     PassThrough,
     Omit,
     AllowList(&'static [&'static str]),
-    Map(&'static [(&'static str, &'static str)]),
 }
 
 impl ReasoningEffortPolicy {
@@ -52,15 +51,6 @@ impl ReasoningEffortPolicy {
                 "provider `{provider_id}` does not support reasoning effort `{effort}`; supported efforts: {}",
                 allowed.join(", ")
             )),
-            Self::Map(mappings) => mappings
-                .iter()
-                .find_map(|(source, target)| (*source == effort).then_some((*target).to_string()))
-                .map(Some)
-                .ok_or_else(|| {
-                    format!(
-                        "provider `{provider_id}` does not define a reasoning effort mapping for `{effort}`"
-                    )
-                }),
         }
     }
 }
@@ -193,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn effort_policies_support_allow_lists_and_explicit_mappings() {
+    fn effort_allow_list_accepts_supported_values_and_rejects_others() {
         assert_eq!(
             ReasoningEffortPolicy::AllowList(&["low", "high"])
                 .normalize("fixture", "high")
@@ -205,13 +195,6 @@ mod tests {
             .normalize("fixture", "medium")
             .unwrap_err()
             .contains("supported efforts"));
-        assert_eq!(
-            ReasoningEffortPolicy::Map(&[("xhigh", "high")])
-                .normalize("fixture", "xhigh")
-                .unwrap()
-                .as_deref(),
-            Some("high")
-        );
     }
 
     #[test]
