@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:daf95a0fd4de78ef31129807c46ae5b601392f50acccef6a4f778fd72b310de1 -->
+<!-- tinybot-doc-fingerprint: sha256:77f115bb05d68c8bdd903e0278a82913f78b127b5e2d5a0516b5c416fe2add27 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -200,6 +200,11 @@ instead of choosing desktop persistence or transport internally.
 
 The renderer entry point has three surfaces. The main window follows
 `main.tsx -> App -> DesktopShell` and composes the application services. The
+initial HTML owns a white, centered-logo startup surface; the main window
+dismisses it after its first React frame, with reduced-motion support. The
+small `src/main.ts` bootstrap loads the workbench asynchronously and displays
+renderer diagnostics if that import fails. Startup presentation does not gate
+native session restoration and is hidden for both pet surfaces. The
 Windows-only `?surface=desktop-pet` path mounts `DesktopPetWindow` directly
 under the shared language, appearance, error, and diagnostic providers. It
 receives snapshots from `DesktopShell` through `app-core/native`, so showing a

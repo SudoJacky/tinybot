@@ -10,6 +10,7 @@ import {
 import { createDesktopAppServices } from "./defaultServices";
 import type { DesktopNativeStartupTrace } from "../app-core/native/desktopNativeChatDebug";
 import { DesktopShell } from "./shell/DesktopShell";
+import { dismissStartupSplash, removeStartupSplash } from "./startupSplash";
 
 export function App({ startupTrace }: { startupTrace?: DesktopNativeStartupTrace } = {}) {
   const services = useMemo(() => createDesktopAppServices({ startupTrace }), [startupTrace]);
@@ -20,6 +21,7 @@ export function App({ startupTrace }: { startupTrace?: DesktopNativeStartupTrace
     const frame = window.requestAnimationFrame(() => {
       startupTrace?.complete("react.firstFrame");
       startupTrace?.mark("ui.interactive");
+      void dismissStartupSplash().then(() => startupTrace?.mark("splash.dismissed"));
     });
     return () => window.cancelAnimationFrame(frame);
   }, [startupTrace]);
@@ -48,6 +50,7 @@ export class TinybotErrorBoundary extends Component<TinybotErrorBoundaryProps, T
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
+    removeStartupSplash();
     console.error("[tinybot-renderer-error]", error, info.componentStack);
     const diagnostic = buildRendererDiagnostic("react.render", error, {
       componentStack: info.componentStack ?? undefined,

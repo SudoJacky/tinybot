@@ -9,9 +9,43 @@
       content="Tinybot desktop React workbench backed by the local gateway."
     />
     <link rel="icon" type="image/svg+xml" href="/assets/logo-mark.svg" />
+    <script>
+      document.documentElement.dataset.surface = new URLSearchParams(window.location.search).get("surface") || "main";
+    </script>
+    <style>
+      #tinybot-startup {
+        position: fixed;
+        inset: 0;
+        z-index: 10000;
+        display: grid;
+        place-items: center;
+        background: #fff;
+        pointer-events: none;
+      }
+      #tinybot-startup img {
+        display: block;
+        width: 80px;
+        height: 80px;
+        animation: tinybot-startup-logo 240ms cubic-bezier(0.2, 0, 0, 1) both;
+      }
+      :root[data-surface="desktop-pet"] #tinybot-startup,
+      :root[data-surface="desktop-pet-chat"] #tinybot-startup {
+        display: none;
+      }
+      @keyframes tinybot-startup-logo {
+        from { opacity: 0; transform: scale(0.94); }
+        to { opacity: 1; transform: scale(1); }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #tinybot-startup img { animation: none; }
+      }
+    </style>
     <script type="module" src="/src/main.ts" defer></script>
   </head>
   <body>
+    <div id="tinybot-startup" aria-hidden="true">
+      <img src="/assets/logo-mark.svg" width="80" height="80" alt="" />
+    </div>
     <div id="root"></div>
   </body>
 </html>

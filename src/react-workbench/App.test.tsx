@@ -15,6 +15,9 @@ describe("TinybotErrorBoundary", () => {
   test("renders a visible fallback and records diagnostics after a render crash", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const recordDiagnostic = vi.fn(async () => undefined);
+    const splash = document.createElement("div");
+    splash.id = "tinybot-startup";
+    document.body.append(splash);
 
     render(
       <TinybotErrorBoundary recordDiagnostic={recordDiagnostic}>
@@ -27,6 +30,7 @@ describe("TinybotErrorBoundary", () => {
     expect(alerts.map((alert) => alert.textContent).join("\n")).toContain("render exploded");
     expect(alerts.map((alert) => alert.textContent).join("\n")).toContain("Crash ID");
     expect(screen.getAllByRole("button", { name: "Reload" }).length).toBeGreaterThan(0);
+    expect(splash.isConnected).toBe(false);
     expect(recordDiagnostic).toHaveBeenCalledWith(expect.objectContaining({
       type: "react.render",
       message: "render exploded",
