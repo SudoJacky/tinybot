@@ -33,6 +33,9 @@ impl NativeAgentProvider for RustNativeAgentProvider {
             .unwrap_or_else(|| adapter.build_request(context))?;
         let mut provider_observer =
             |event: crate::agent::provider::NativeProviderStreamEvent| match event {
+                crate::agent::provider::NativeProviderStreamEvent::ToolCallDelta => {
+                    observer(NativeAgentProviderStreamEvent::ToolCallDelta)
+                }
                 crate::agent::provider::NativeProviderStreamEvent::MessagePhase(phase) => {
                     observer(NativeAgentProviderStreamEvent::MessagePhase(
                         parse_message_phase(&phase),
@@ -75,6 +78,9 @@ impl NativeAgentProvider for RustNativeAgentProvider {
             });
             let mut provider_observer =
                 |event: crate::agent::provider::NativeProviderStreamEvent| match event {
+                    crate::agent::provider::NativeProviderStreamEvent::ToolCallDelta => {
+                        observer(NativeAgentProviderStreamEvent::ToolCallDelta)
+                    }
                     crate::agent::provider::NativeProviderStreamEvent::MessagePhase(phase) => {
                         observer(NativeAgentProviderStreamEvent::MessagePhase(
                             parse_message_phase(&phase),

@@ -9,7 +9,7 @@ src/app-core/native/desktopNativeTauriEvents.ts
 src/app-core/native/desktopNativeTauriEvents.test.ts
 src/react-workbench/adapters/desktopNativeEventBridge.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:1b0741d5125eaaed11a022bdd55537860ee8cdaea44e092e9ace61a7a5827e6c -->
+<!-- tinybot-doc-fingerprint: sha256:069c222200059e006f323c9877ac5d34c096c0e7a7f91be6285826d86f4cd099 -->
 
 This document lists frontend-visible events emitted by the native runtime. It
 is part of the [Rust backend API reference](rust-backend-api.md), which defines
@@ -96,6 +96,13 @@ context-window budget fields to the typed `payload.agentItem`, while
 Rollouts omit redundant outer enriched copies. Replay of earlier compact usage Items restores
 missing context-window fields from the adjacent `agent.token_count` record; that record also
 remains authoritative for normalized cache and reasoning counters.
+
+New usage Items also carry optional `modelTiming`: `modelCallId`,
+`timeToFirstTokenMs`, and `decodeDurationMs`. Durations use a backend monotonic
+clock for one provider invocation; absent stream timing is represented by null.
+The same typed Item reaches live patches and durable Rollout replay. This is an
+additive field in `tinybot.turn_item.v2`; it requires no SQLite or Rollout migration.
+Older Items omit it and cannot supply historical TTFT or TPS.
 
 - `context_window_tokens` / `contextWindowTokens`: effective per-model context window from the
   turn, provider profile, known-model catalog, legacy unknown-model fallback, or backend default.

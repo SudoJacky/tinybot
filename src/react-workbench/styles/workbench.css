@@ -9,6 +9,9 @@
   --color-body: #3d3d3a;
   --color-muted: #6c6a64;
   --color-muted-soft: #8e8b82;
+  --color-scrollbar-thumb: color-mix(in srgb, var(--color-ink) 16%, transparent);
+  --color-scrollbar-thumb-hover: color-mix(in srgb, var(--color-ink) 42%, transparent);
+  --color-scrollbar-thumb-active: color-mix(in srgb, var(--color-ink) 56%, transparent);
   --color-primary: #cc785c;
   --color-primary-active: #a9583e;
   --color-on-primary: #fff;
@@ -48,6 +51,56 @@
 
 * {
   box-sizing: border-box;
+}
+
+/* Keep hover local to the thumb in the desktop WebView. A non-auto standard
+   scrollbar-color/width would override these pseudo-elements in Chromium. */
+@media (forced-colors: none) {
+  @supports selector(::-webkit-scrollbar) {
+    ::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    ::-webkit-scrollbar-track,
+    ::-webkit-scrollbar-corner {
+      background: transparent;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      min-height: 28px;
+      min-width: 28px;
+      border: 2px solid transparent;
+      border-radius: 999px;
+      background: var(--color-scrollbar-thumb);
+      background-clip: padding-box;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background-color: var(--color-scrollbar-thumb-hover);
+    }
+
+    ::-webkit-scrollbar-thumb:active {
+      background-color: var(--color-scrollbar-thumb-active);
+    }
+
+    ::-webkit-scrollbar-button {
+      display: none;
+      width: 0;
+      height: 0;
+    }
+  }
+
+  @supports not selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: var(--color-scrollbar-thumb) transparent;
+    }
+
+    *:hover {
+      scrollbar-color: var(--color-scrollbar-thumb-hover) transparent;
+    }
+  }
 }
 
 html,
@@ -1570,9 +1623,9 @@ button:disabled {
   bottom: -3px;
 }
 
-.react-session-list__rows[data-motion="animated-list"] .react-session-row {
+.react-session-row[data-entering="true"] {
   animation: react-list-enter var(--motion-duration-medium) var(--motion-ease-standard) both;
-  animation-delay: calc(var(--react-session-row-index, 0) * 22ms);
+  animation-delay: calc(var(--react-session-row-index, 0) * 30ms);
 }
 
 .react-session-row[data-active="true"],
@@ -1669,7 +1722,6 @@ button:disabled {
   color: var(--color-error);
 }
 
-.react-session-list__rows[data-motion="animated-list"] .react-session-row[data-dissolving="true"],
 .react-session-row[data-dissolving="true"] {
   pointer-events: none;
   opacity: 0;
@@ -2048,7 +2100,7 @@ button:disabled {
     scroll-behavior: auto !important;
   }
 
-  .react-session-list__rows[data-motion="animated-list"] .react-session-row {
+  .react-session-row[data-entering="true"] {
     opacity: 1;
     transform: none;
     animation: none !important;

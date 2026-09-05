@@ -1,0 +1,56 @@
+.react-message__actions .react-turn-metrics__trigger,
+.react-turn-metrics__trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+.react-turn-metrics__trigger[aria-expanded="true"],
+.react-turn-metrics__trigger:hover {
+  color: var(--color-body);
+  background: var(--color-hairline);
+}
+
+.react-turn-metrics__trigger:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+.react-turn-metrics__trigger:active { transform: scale(0.97); }
+
+.react-turn-metrics__panel {
+  position: fixed;
+  z-index: 1000;
+  width: min(350px, calc(100vw - 24px));
+  box-sizing: border-box;
+  padding: 18px 20px;
+  border: 1px solid var(--color-hairline);
+  border-radius: 16px;
+  background: var(--color-panel);
+  color: var(--color-body);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 12%);
+  outline: none;
+  font-size: 13px;
+}
+
+.react-turn-metrics__title { display: flex; align-items: center; gap: 8px; padding-bottom: 12px; border-bottom: 1px solid var(--color-hairline); }
+.react-turn-metrics__panel dl { display: grid; grid-template-columns: 1fr auto; gap: 10px 20px; margin: 14px 0 0; }
+.react-turn-metrics__panel dt { color: var(--color-muted); }
+.react-turn-metrics__panel dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.react-turn-metrics__panel p { margin: 14px 0 0; color: var(--color-muted); font-size: 11px; line-height: 1.6; }
+
+@media (prefers-reduced-motion: reduce) {
+  .react-turn-metrics__trigger:active { transform: none; }
+}

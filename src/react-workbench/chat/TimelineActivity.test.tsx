@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -53,6 +53,44 @@ describe("TimelineActivity", () => {
     expect(screen.getByText("No details")).toBeVisible();
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.queryByRole("region", { hidden: true })).toBeNull();
+  });
+
+  it("keeps closing content mounted but inaccessible until its transition finishes", async () => {
+    const user = userEvent.setup();
+    render(<TimelineActivity defaultOpen icon={null} title="Animated"><input aria-label="Detail" /></TimelineActivity>);
+    const region = screen.getByRole("region", { name: "Animated" });
+    const input = screen.getByRole("textbox", { name: "Detail" });
+    let finish!: () => void;
+    const finished = new Promise<void>((resolve) => { finish = resolve; });
+    Object.defineProperty(region, "getAnimations", { value: () => [{ finished }] });
+
+    await user.click(screen.getByRole("button", { name: "Animated" }));
+    expect(region).toContainElement(input);
+    expect(region).toHaveAttribute("inert");
+    expect(screen.queryByRole("textbox", { name: "Detail" })).toBeNull();
+    await act(async () => { finish(); });
+    expect(region).not.toContainElement(input);
+  });
+
+  it("ignores a stale closing transition when reopened, and settles cancelled motion", async () => {
+    const user = userEvent.setup();
+    render(<TimelineActivity defaultOpen icon={null} title="Animated">Detail</TimelineActivity>);
+    const region = screen.getByRole("region", { name: "Animated" });
+    const trigger = screen.getByRole("button", { name: "Animated" });
+    let finish!: () => void;
+    let cancel!: (reason: DOMException) => void;
+    let finished = new Promise<void>((resolve) => { finish = resolve; });
+    Object.defineProperty(region, "getAnimations", { value: () => [{ finished }] });
+
+    await user.click(trigger);
+    await user.click(trigger);
+    await act(async () => { finish(); });
+    expect(region).toHaveTextContent("Detail");
+    expect(region).not.toHaveAttribute("inert");
+    finished = new Promise<void>((_, reject) => { cancel = reject; });
+    await user.click(trigger);
+    await act(async () => { cancel(new DOMException("Reduced motion enabled", "AbortError")); });
+    expect(screen.queryByText("Detail")).toBeNull();
   });
 
   it("preserves mounted detail state while keeping it inaccessible when collapsed", async () => {

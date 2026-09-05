@@ -564,6 +564,12 @@ export const zh = {
       delete: "删除排队输入", interrupt: "中断", interruptHelp: "中断当前回复并立即发送这条消息", sending: "正在发送为新一轮", interruptFailed: "插入失败", interrupting: "正在中断当前回复",
       paused: "已暂停", sent: "已发送", failed: "失败", waiting: "等待中", limit: "已有 {{count}} 条排队消息。请等待处理完成，或删除一条后再发送。",
     },
+    metrics: {
+      title: "本轮用时和速度", elapsed: "用时 {{duration}}", duration: "本轮总用时",
+      speed: "输出速度（TPS）", ttft: "首 token 用时（TTFT）",
+      seconds: "{{value}}秒", minutesSeconds: "{{minutes}}分{{seconds}}秒", tokensPerSecond: "{{value}} tok/s",
+      description: "首 token 包含思考和工具调用输出。速度按已记录的模型生成时间计算，不含工具执行和调用之间的等待。",
+    },
     turn: {
       label: "会话轮次", workPerformed: "已执行的工作",
       agentResponding: "Agent 正在回复", copyMessage: "复制消息", branchHere: "从此处分支", formErrors: "表单错误", agentForms: "Agent 表单",

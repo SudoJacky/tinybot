@@ -24,6 +24,7 @@ import type {
   ToolCallState,
 } from "./chatTurnContracts";
 import { safeArtifactPreview, sanitizeTextPreview } from "./chatPreview";
+import { deriveTurnMetrics } from "./turnMetrics";
 import { parseDataViewDocument, type DataViewDocument } from "./dataView";
 
 export function projectLoadedArtifactDetail(
@@ -111,6 +112,7 @@ function runtimeStateToTurn(
     .sort(compareRuntimeTimestamps);
   const lastUpdatedAt = updatedAt[updatedAt.length - 1] || startedAt;
   const turn: ChatTurn = {
+    metrics: deriveTurnMetrics(runtimeState.timeline.items),
     canonicalItems: [...runtimeState.timeline.items],
     id: runtimeState.timeline.turnId,
     sessionKey,

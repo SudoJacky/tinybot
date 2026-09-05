@@ -1,8 +1,18 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:b88dd4ca403559cc105f63dc980ab8e00fc0f543b1d9458fbb0053b05d704f46 -->
+<!-- tinybot-module-fingerprint: sha256:e87004cb50263baff9b358f7c530b6ee0ea481c7fd8b2c28cfed51debe537791 -->
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
+
+Shared scrollbar tokens keep native overflow thumbs quiet against the current
+theme, with stronger hover and drag states and transparent tracks. Desktop
+WebViews use thumb-local pseudo-element styling; browsers without that support
+use standard scrollbar colors on container hover. Route CSS must not set
+`scrollbar-color` or a non-auto `scrollbar-width` for visible desktop scrollbars,
+because those properties override the shared pseudo-element styling. Hidden tab
+scrollers retain their existing rules, and forced-colors mode uses system styling.
+The Sidecar terminal configures the equivalent states through xterm's slider
+theme because its scrollbar is rendered by xterm rather than the browser.
 
 Menu-like floating surfaces use `react-popover-surface` and
 `react-popover-item` as the single visual authority for shell, selection,
@@ -21,6 +31,9 @@ The desktop session sidebar uses workspace headers and complete session rows as
 drag sources, with a grab cursor and high-contrast insertion line but no
 separate grip control. Dragging lowers the source opacity while keeping its
 footprint stable; reduced-motion mode retains these static state cues.
+Session-row entrance styles apply only to the workspace's explicitly eligible
+initial rows, with a bounded 30 ms stagger. Ordinary search/navigation never
+inherits an entrance animation from the list container.
 Its search action expands from the compact icon into a full-width inline input;
 focus-within styling keeps the active boundary visible and reduced-motion mode
 shortens the reveal through the shared global motion rule.

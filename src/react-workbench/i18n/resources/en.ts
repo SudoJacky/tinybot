@@ -1116,6 +1116,12 @@ export const en = {
       delete: "Delete queued input", interrupt: "Interrupt", interruptHelp: "Interrupt the current response and send this message now", sending: "Sending as a new turn", interruptFailed: "Interrupt failed", interrupting: "Interrupting the current response",
       paused: "Paused", sent: "Sent", failed: "Failed", waiting: "Waiting", limit: "Already have {{count}} queued messages. Wait for processing or delete one before sending more.",
     },
+    metrics: {
+      title: "Turn time and speed", elapsed: "Took {{duration}}", duration: "Total turn time",
+      speed: "Output speed (TPS)", ttft: "Time to first token (TTFT)",
+      seconds: "{{value}}s", minutesSeconds: "{{minutes}}m {{seconds}}s", tokensPerSecond: "{{value}} tok/s",
+      description: "First token includes reasoning and tool calls. Speed uses recorded model generation time and excludes tool execution and waits between calls.",
+    },
     turn: {
       label: "Chat turn", workPerformed: "Work performed",
       agentResponding: "Agent is responding", copyMessage: "Copy message", branchHere: "Branch from here", formErrors: "Form errors", agentForms: "Agent forms",

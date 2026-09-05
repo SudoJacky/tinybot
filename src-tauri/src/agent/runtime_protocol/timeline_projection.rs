@@ -859,6 +859,7 @@ fn legacy_item_data(
         AgentTurnItemKind::Usage => {
             let usage = payload.get("usage").unwrap_or(payload);
             AgentTurnItemData::Usage {
+                model_timing: None,
                 id: event
                     .item_id
                     .clone()

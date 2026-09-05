@@ -35,6 +35,10 @@
   grid-template-columns: minmax(280px, 0.58fr) minmax(560px, 1fr);
 }
 
+.react-chat-workspace[data-sidecar-layout-motion="instant"] {
+  transition-duration: 0ms;
+}
+
 .react-chat-header h1,
 .react-right-drawer h2 {
   margin: 0;
@@ -1881,18 +1885,22 @@
 }
 
 .react-right-drawer[data-motion="fade-content"] {
-  animation: react-drawer-enter var(--motion-duration-medium) var(--motion-ease-standard) both;
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    opacity var(--motion-duration-medium) var(--motion-ease-standard),
+    transform var(--motion-duration-medium) var(--motion-ease-standard);
 }
 
-@keyframes react-drawer-enter {
-  from {
+.react-right-drawer[data-state="closing"] {
+  opacity: 0;
+  transform: translateX(18px);
+}
+
+@starting-style {
+  .react-right-drawer[data-motion="fade-content"] {
     opacity: 0;
     transform: translateX(18px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateX(0);
   }
 }
 
@@ -3716,7 +3724,6 @@
   border-radius: 12px;
   background: transparent;
   transform: translateX(-8px);
-  scrollbar-width: thin;
   transition:
     width 180ms var(--motion-ease-standard),
     transform 180ms var(--motion-ease-standard),
@@ -4032,7 +4039,6 @@
   max-height: min(320px, 42vh);
   overflow-y: auto;
   padding: 2px;
-  scrollbar-width: thin;
 }
 
 .react-agent-ui-form-field__choice {
@@ -4511,6 +4517,17 @@
 
   .react-chat-workspace {
     transition-duration: 0ms;
+  }
+
+  .react-right-drawer[data-motion="fade-content"] {
+    transition: none;
+  }
+
+  @starting-style {
+    .react-right-drawer[data-motion="fade-content"] {
+      opacity: 1;
+      transform: none;
+    }
   }
 
   .react-floating-plan {

@@ -13,6 +13,34 @@ import {
 } from "./test/ChatPageTestHarness";
 
 describe("ChatPage", () => {
+  it("keeps the native browser obscured until the details drawer exits", async () => {
+    const user = userEvent.setup();
+    const browserRuntime = sidecarBrowserRuntime();
+    const stores = createStores({ browserRuntime });
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+    await user.click(await screen.findByRole("button", { name: "Show Sidecar" }));
+    await user.click(within(screen.getByLabelText("Sidecar")).getAllByRole("button", { name: "New Sidecar tab" })[0]);
+    await user.click(screen.getByRole("menuitem", { name: /Browser/ }));
+    await waitFor(() => expect(document.querySelector(".react-sidecar-browser-surface")?.getAttribute("data-live")).toBe("true"));
+    await user.click(await screen.findByRole("button", { name: /Agent steps, 1 step/i }));
+    await user.click(await screen.findByRole("button", { name: "Open details for shell" }));
+    const drawer = screen.getByLabelText("Details drawer");
+    let finish!: () => void;
+    const animation = {
+      transitionProperty: "opacity",
+      playState: "running",
+      finished: new Promise<void>((resolve) => { finish = resolve; }),
+    };
+    Object.defineProperty(drawer, "getAnimations", { value: () => [animation] });
+    await user.click(within(drawer).getByRole("button", { name: "Close details drawer" }));
+    expect(drawer.dataset.state).toBe("closing");
+    expect(document.querySelector(".react-sidecar-browser-surface")?.getAttribute("data-live")).toBeNull();
+    await waitFor(() => expect(browserRuntime.updateSurface).toHaveBeenLastCalledWith(expect.objectContaining({ visible: false })));
+    await act(async () => { animation.playState = "finished"; finish(); });
+    expect(document.querySelector(".react-sidecar-browser-surface")?.getAttribute("data-live")).toBe("true");
+    expect(browserRuntime.closeSession).not.toHaveBeenCalled();
+  });
+
   it("creates only Browser or Terminal resource tabs and restores hidden Sidecar resources", async () => {
     const user = userEvent.setup();
     const stores = createStores({ sessions: [{
@@ -28,6 +56,10 @@ describe("ChatPage", () => {
 
     await user.click(await screen.findByRole("button", { name: "Show Sidecar" }));
     const sidecar = screen.getByLabelText("Sidecar");
+    const workspace = document.querySelector<HTMLElement>(".react-chat-workspace");
+    within(sidecar).getByRole("separator").focus();
+    await user.keyboard("{ArrowLeft}");
+    expect(workspace?.dataset.sidecarLayoutMotion).toBe("instant");
     await user.click(within(sidecar).getAllByRole("button", { name: "New Sidecar tab" })[0]);
     const menu = within(sidecar).getByRole("menu", { name: "Choose a resource" });
     expect(within(menu).getAllByRole("menuitem")).toHaveLength(2);
@@ -44,6 +76,7 @@ describe("ChatPage", () => {
     expect(document.querySelector<HTMLElement>(".react-sidecar")?.dataset.hidden).toBe("true");
 
     await user.click(screen.getByRole("button", { name: "Show Sidecar" }));
+    expect(workspace?.dataset.sidecarLayoutMotion).toBe("animated");
     expect(within(screen.getByLabelText("Sidecar")).getByRole("tab", { name: "PowerShell" })).toBeTruthy();
   });
 

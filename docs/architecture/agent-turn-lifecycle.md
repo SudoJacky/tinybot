@@ -11,7 +11,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:e03536e6c396166620cde8ddd56712484b181acf493ddb2364cdfa58c97ee692 -->
+<!-- tinybot-doc-fingerprint: sha256:1fb27d59c87ae4ad3dd243fa83567535b356fa884b8674b0735f40e34d6ac39e -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -139,6 +139,17 @@ different wire formats but share the same provider/tool loop, permission
 checks, cancellation, trace, and result construction.
 
 ## Continuation and cancellation
+
+Completed provider invocations persist usage before executing tools, including
+tools that suspend the Turn for user input. Each usage Item carries optional
+`modelTiming` measured with `Instant`: invocation start to first non-empty text,
+reasoning, or tool-call output, and first output to provider completion. Each
+invocation owns its timing; non-streaming calls have no first-token reading.
+The settled Turn footer takes TTFT from its first usage Item and divides summed
+provider output tokens by summed positive decode durations from matching samples.
+Tools and waits between calls do not enter TPS. Total elapsed time spans the
+Turn's start and terminal boundary, including time spent waiting. The frontend
+derives these figures from canonical Items on live updates and history reload.
 
 - A Turn awaiting typed form input is waiting, not terminal.
 - Entering `awaiting_form` checkpoints the resumable runtime and ends the active

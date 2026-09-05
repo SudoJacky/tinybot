@@ -145,6 +145,18 @@ function normalizeCanonicalTurnItem(
   if (kind === "reasoning") {
     requiredCanonicalString(data, "modelCallId");
   }
+  if (kind === "usage" && data.modelTiming !== undefined) {
+    const timing = payloadRecord(data.modelTiming);
+    requiredCanonicalString(timing, "modelCallId");
+    for (const key of ["timeToFirstTokenMs", "decodeDurationMs"] as const) {
+      if (timing[key] !== null && (typeof timing[key] !== "number" || !Number.isSafeInteger(timing[key]) || timing[key] < 0)) {
+        throw new Error(`Canonical model timing ${key} must be a non-negative integer or null`);
+      }
+    }
+    if (data.outputTokens != null && (typeof data.outputTokens !== "number" || !Number.isSafeInteger(data.outputTokens) || data.outputTokens < 0)) {
+      throw new Error("Canonical model outputTokens must be a non-negative integer or null");
+    }
+  }
   return {
     schemaVersion: "tinybot.turn_item.v2",
     itemId,

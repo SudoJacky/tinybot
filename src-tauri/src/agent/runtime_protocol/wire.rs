@@ -257,6 +257,8 @@ pub enum AgentTurnItemData {
         estimated_tokens_after: Option<u64>,
     },
     Usage {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model_timing: Option<AgentModelTiming>,
         id: Option<String>,
         input_tokens: Option<i64>,
         output_tokens: Option<i64>,
@@ -293,6 +295,15 @@ pub enum AgentTurnItemData {
         message: String,
         detail: Value,
     },
+}
+
+/// Monotonic timings for one provider invocation, excluding tool execution.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentModelTiming {
+    pub model_call_id: String,
+    pub time_to_first_token_ms: Option<u64>,
+    pub decode_duration_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]

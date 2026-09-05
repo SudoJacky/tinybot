@@ -41,6 +41,7 @@ export function SettingsChoiceList({
   const errorId = error ? `${id}-error` : undefined;
   const menuId = `${id}-menu`;
   const [open, setOpen] = useState(false);
+  const [inputSource, setInputSource] = useState<"pointer" | "keyboard">("pointer");
   const selectedOption = options.find((option) => option.value === value) ?? options[0];
   const selectedIndex = options.findIndex((option) => option.value === selectedOption?.value);
   const defaultFocusIndex = selectedIndex >= 0 && !options[selectedIndex]?.disabled
@@ -129,10 +130,14 @@ export function SettingsChoiceList({
         disabled={disabled}
         ref={triggerRef}
         type="button"
-        onClick={() => setOpen((current) => !current)}
+        onClick={(event) => {
+          setInputSource(event.detail === 0 ? "keyboard" : "pointer");
+          setOpen((current) => !current);
+        }}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown" || event.key === "ArrowUp") {
             event.preventDefault();
+            setInputSource("keyboard");
             setOpen(true);
           }
         }}
@@ -146,7 +151,8 @@ export function SettingsChoiceList({
       {open ? (
         <div
           aria-label={optionsAriaLabel ?? t("choice.options", { label })}
-          className="react-popover-surface react-top-menu__popover react-settings-choice-popover"
+          className="react-popover-surface react-settings-choice-popover"
+          data-input-source={inputSource}
           id={menuId}
           role="menu"
           onKeyDown={onMenuKeyDown}

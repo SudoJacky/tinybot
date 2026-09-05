@@ -273,6 +273,7 @@ impl ProviderStreamState {
             return;
         }
         match event {
+            NativeAgentProviderStreamEvent::ToolCallDelta => {}
             NativeAgentProviderStreamEvent::MessagePhase(phase) => {
                 self.message_phase = phase;
                 if let Err(error) = state.emit(ModelOutputEvent::MessagePhase(serde_json::json!({
@@ -427,6 +428,7 @@ struct PreparedProviderIteration {
 struct CompletedProviderIteration {
     response: NativeAgentProviderResponse,
     attempt: ProviderAttempt,
+    timing: crate::agent::runtime_protocol::AgentModelTiming,
 }
 
 impl<'a> NativeAgentTurnExecution<'a> {
@@ -956,8 +958,18 @@ impl<'a> NativeAgentTurnExecution<'a> {
             mut attempt,
         } = prepared;
         let provider_started_at = Instant::now();
+        let mut first_token_at = None;
         let provider_response = {
             let mut stream_observer = |event: NativeAgentProviderStreamEvent| {
+                let has_output = match &event {
+                    NativeAgentProviderStreamEvent::ContentDelta(delta)
+                    | NativeAgentProviderStreamEvent::ReasoningDelta(delta) => !delta.is_empty(),
+                    NativeAgentProviderStreamEvent::ToolCallDelta => true,
+                    NativeAgentProviderStreamEvent::MessagePhase(_) => false,
+                };
+                if has_output && first_token_at.is_none() && provider_context.stream {
+                    first_token_at = Some(Instant::now());
+                }
                 attempt.stream.observe(
                     &self.context,
                     &mut self.state,
@@ -991,6 +1003,16 @@ impl<'a> NativeAgentTurnExecution<'a> {
             return Err(error);
         }
         let provider_duration = provider_started_at.elapsed();
+        let timing = crate::agent::runtime_protocol::AgentModelTiming {
+            model_call_id: attempt.id.clone(),
+            time_to_first_token_ms: first_token_at
+                .map(|first| first.duration_since(provider_started_at).as_millis() as u64),
+            decode_duration_ms: first_token_at.map(|first| {
+                provider_duration
+                    .saturating_sub(first.duration_since(provider_started_at))
+                    .as_millis() as u64
+            }),
+        };
         self.context
             .metrics()
             .record_duration("provider.durationMs", provider_duration);
@@ -1056,6 +1078,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         Ok(ExecutionStage::Ready(CompletedProviderIteration {
             response,
             attempt,
+            timing,
         }))
     }
 
@@ -1172,7 +1195,20 @@ impl<'a> NativeAgentTurnExecution<'a> {
         &mut self,
         completed: CompletedProviderIteration,
     ) -> Result<IterationOutcome, String> {
-        let CompletedProviderIteration { response, attempt } = completed;
+        let CompletedProviderIteration {
+            response,
+            attempt,
+            timing,
+        } = completed;
+        // Persist completed model work before tools can pause, fail, or cancel the turn.
+        self.state.record_usage(
+            &self.context,
+            attempt.iteration,
+            &attempt.id,
+            response.usage,
+            attempt.estimated_context_tokens,
+            timing,
+        )?;
         if attempt.stream.streamed_content
             || !response.final_content.is_empty()
             || !response.response_items.is_empty()
@@ -1222,13 +1258,6 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 }),
             ))?;
         }
-        self.state.record_usage(
-            &self.context,
-            attempt.iteration,
-            &attempt.id,
-            response.usage,
-            attempt.estimated_context_tokens,
-        )?;
         Ok(IterationOutcome::Continue)
     }
 
@@ -1236,7 +1265,11 @@ impl<'a> NativeAgentTurnExecution<'a> {
         &mut self,
         completed: CompletedProviderIteration,
     ) -> Result<Value, String> {
-        let CompletedProviderIteration { response, attempt } = completed;
+        let CompletedProviderIteration {
+            response,
+            attempt,
+            timing,
+        } = completed;
         let final_content = response.final_content;
         self.state.record_usage(
             &self.context,
@@ -1244,6 +1277,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             &attempt.id,
             response.usage,
             attempt.estimated_context_tokens,
+            timing,
         )?;
         self.state.transition_phase(
             AgentRuntimePhase::Finalizing,

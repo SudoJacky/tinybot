@@ -1,5 +1,5 @@
 # Chat Application Core
-<!-- tinybot-module-fingerprint: sha256:857f97491a5bc7451cf9c51ae267c8694fcfe543c9ff64f43ade013e910b3ec3 -->
+<!-- tinybot-module-fingerprint: sha256:e0db572676bbea1d701ae6bc3421cdfd0b275456a86824f4cdf1e8e2a710f751 -->
 
 `chat` contains framework-independent chat and Thread contracts, command
 construction, canonical timeline validation, UI projection, input state, and
@@ -27,6 +27,12 @@ normalized top-level fields and persisted Provider `prompt_tokens_details` or
 `input_tokens_details` payloads, so historical and new Threads share one
 cache-hit-rate contract. Typed top-level context-window metrics are merged with
 that untouched Provider payload before the composer derives its usage indicator.
+
+`turnMetrics.ts` derives first-call TTFT and weighted output speed from optional
+`modelTiming` on canonical usage Items. Speed includes only samples with both
+provider output counts and a positive decode duration. Old or non-streaming
+Items supply no invented timings; a later call never replaces missing first-call
+latency. Completed Turn duration uses the existing start and end timestamps.
 
 `desktopChatSessionController` requires every submission to name its target
 Thread explicitly. The controller validates that target and never derives a

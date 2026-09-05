@@ -1066,7 +1066,7 @@ describe("ChatPage", () => {
     expect(screen.queryByText("No sessions yet.")).toBeNull();
   });
 
-  it("adds Animated List hooks to session rows", async () => {
+  it("keeps session rows available without a blanket entrance animation", async () => {
     const stores = createStores();
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
@@ -1074,9 +1074,8 @@ describe("ChatPage", () => {
     const sessionButton = screen.getByRole("button", { name: "Planning notes" });
     const row = sessionButton.closest(".react-session-row") as HTMLElement | null;
 
-    expect(rows.getAttribute("data-motion")).toBe("animated-list");
+    expect(rows.hasAttribute("data-motion")).toBe(false);
     expect(row?.getAttribute("data-motion-role")).toBe("item");
-    expect(row?.style.getPropertyValue("--react-session-row-index")).toBe("0");
     expect(row?.querySelector(".react-session-row__avatar")).toBeNull();
   });
 

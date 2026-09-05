@@ -211,6 +211,14 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
     .expect("user input request should create a waiting checkpoint");
 
     assert_eq!(waiting["stopReason"], "awaiting_form");
+    let usage = waiting["runtimeEvents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| event["eventName"] == "agent.usage")
+        .expect("completed model usage must be durable before waiting for input");
+    assert!(usage["payload"]["agentItem"]["modelTiming"]["modelCallId"].is_string());
+    assert!(usage["payload"]["agentItem"]["modelTiming"]["timeToFirstTokenMs"].is_null());
     assert_eq!(waiting["form"]["form_id"], "user-input:clarify-1");
     assert_eq!(waiting["form"]["title"], "Choose a target");
     assert_eq!(waiting["checkpoint"]["payload"]["kind"], "user_input");

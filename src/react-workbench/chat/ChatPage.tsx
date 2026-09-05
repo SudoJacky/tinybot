@@ -1,4 +1,5 @@
-import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useMemo, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useReducer, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { elementTransitions, useExitPresence } from "../lib/useExitPresence";
 import type { TFunction } from "i18next";
 import {
   Check,
@@ -370,6 +371,10 @@ export function ChatPage({
   const [sessionCreatePending, setSessionCreatePending] = useState(false);
   const [localSessionSidebarCollapsed, setLocalSessionSidebarCollapsed] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
+  const [drawerSessionId, setDrawerSessionId] = useState("");
+  const drawerElementRef = useRef<HTMLElement>(null);
+  const drawerTriggerRef = useRef<HTMLElement | null>(null);
+  const sidecarToggleRef = useRef<HTMLButtonElement>(null);
   const [sidecar, dispatchSidecar] = useReducer(
     reduceSidecarState,
     undefined,
@@ -423,6 +428,10 @@ export function ChatPage({
   sessionTabsRef.current = sessionTabs;
   sessionsLoadedRef.current = sessionsLoaded;
   const activeSessionId = sessionTabs.activeSessionId;
+  const currentDrawer = drawerSessionId === activeSessionId ? drawer : null;
+  const readDrawerTransitions = useCallback(() => elementTransitions(drawerElementRef.current, ["opacity", "transform"]), []);
+  const presentDrawer = useExitPresence(currentDrawer, activeSessionId, readDrawerTransitions);
+  useLayoutEffect(() => { setDrawer(null); }, [activeSessionId]);
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId),
     [activeSessionId, sessions],
@@ -1871,7 +1880,7 @@ export function ChatPage({
     if (!activeSession) {
       return;
     }
-    setDrawer({ kind: "subagent", title: delegate.title, delegate, loading: Boolean(chatStore.loadDelegateTrace) });
+    openDrawer({ kind: "subagent", title: delegate.title, delegate, loading: Boolean(chatStore.loadDelegateTrace) });
     if (!chatStore.loadDelegateTrace) {
       return;
     }
@@ -2149,7 +2158,7 @@ export function ChatPage({
         browserRuntime={chatStore.browserRuntime}
         externalError={browserProvisionErrors[tab.id] || browserError}
         snapshot={browserSnapshot?.data.sessionId === tab.threadId ? browserSnapshot : undefined}
-        surfaceVisible={surfaceVisible && !drawer}
+        surfaceVisible={surfaceVisible && !presentDrawer}
         tab={tab}
         onHandoffComplete={() => handleBrowserHandoffComplete(tab)}
         onRetryProvision={() => {
@@ -2286,6 +2295,27 @@ export function ChatPage({
     }
   }
 
+  function openDrawer(next: NonNullable<DrawerState>) {
+    if (!drawerElementRef.current?.contains(document.activeElement)) {
+      drawerTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    }
+    setDrawerSessionId(activeSessionId);
+    setDrawer(next);
+  }
+
+  function closeDrawer() {
+    if (drawerElementRef.current?.contains(document.activeElement)) {
+      if (drawerTriggerRef.current?.isConnected) drawerTriggerRef.current.focus();
+      else setComposerFocusRequestId((current) => current + 1);
+    }
+    setDrawer(null);
+  }
+
+  function hideSidecar() {
+    sidecarToggleRef.current?.focus();
+    dispatchSidecar({ type: "presentation.hide" });
+  }
+
   function handleComposerDraftChange(value: string) {
     dispatchSessionTabs({ type: "draft.changed", sessionId: activeSessionId, value });
   }
@@ -2367,6 +2397,7 @@ export function ChatPage({
       <div
         className="react-chat-workspace"
         data-sidecar-presentation={sidecar.presentation}
+        data-sidecar-layout-motion={sidecar.layoutMotion}
         style={{ "--react-sidecar-width": `${sidecar.width}px` } as CSSProperties}
       >
       <main className="react-chat-surface" data-empty-session={emptyActiveSession ? "true" : undefined}>
@@ -2382,6 +2413,7 @@ export function ChatPage({
             <button
               aria-label={sidecar.presentation === "closed" ? t("sidecar.show") : t("sidecar.hide")}
               aria-pressed={sidecar.presentation !== "closed"}
+              ref={sidecarToggleRef}
               title={sidecar.presentation === "closed" ? t("sidecar.show") : t("sidecar.hide")}
               type="button"
               onClick={() => dispatchSidecar({
@@ -2440,7 +2472,7 @@ export function ChatPage({
               onOpenArtifact: (artifact) => void handleOpenArtifact(artifact),
               onOpenFileLink: (link) => void handleOpenAssistantFileLink(link),
               onOpenSubagent: (delegate) => void handleOpenSubagent(delegate),
-              onOpenTool: (toolCall) => setDrawer({ kind: "tool", title: toolCall.name, toolCall }),
+              onOpenTool: (toolCall) => openDrawer({ kind: "tool", title: toolCall.name, toolCall }),
             }}
             error={timelineError}
             hookResults={hookResults}
@@ -2641,6 +2673,7 @@ export function ChatPage({
       </main>
 
       <Sidecar
+        scopeKey={JSON.stringify([activeSessionId, activeWorkspaceId])}
         activeTabId={sidecarActiveTab?.id ?? ""}
         canCreateBrowser={Boolean(activeSession)}
         canCreateTerminal={Boolean(activeWorkspaceId)}
@@ -2654,24 +2687,32 @@ export function ChatPage({
         onCloseTab={handleCloseSidecarTab}
         onCreateBrowser={() => dispatchSidecar({ type: "tab.newBrowser" })}
         onCreateTerminal={(shell) => dispatchSidecar({ shell, type: "tab.newTerminal" })}
-        onHide={() => dispatchSidecar({ type: "presentation.hide" })}
+        onHide={hideSidecar}
         onResize={(width, maxWidth) => dispatchSidecar({ maxWidth, type: "presentation.resize", width })}
         onToggleExpanded={() => dispatchSidecar({ type: "presentation.toggleExpanded" })}
       />
 
-      {drawer ? (
-        <aside className="react-right-drawer" aria-label={t("shell.detailsDrawer")} data-motion="fade-content" data-state="open">
+      {presentDrawer ? (
+        <aside
+          ref={drawerElementRef}
+          className="react-right-drawer"
+          aria-label={t("shell.detailsDrawer")}
+          aria-hidden={!currentDrawer || undefined}
+          inert={!currentDrawer || undefined}
+          data-motion="fade-content"
+          data-state={currentDrawer ? "open" : "closing"}
+        >
           <div className="react-right-drawer__header">
-            <h2>{drawer.title}</h2>
-            <button aria-label={t("shell.closeDetails")} type="button" onClick={() => setDrawer(null)}>
+            <h2>{presentDrawer.title}</h2>
+            <button aria-label={t("shell.closeDetails")} type="button" onClick={closeDrawer}>
               <X aria-hidden="true" size={16} />
             </button>
           </div>
           <div className="react-right-drawer__content">
-            {drawer.kind === "tool" ? (
-              <ToolCallDetails toolCall={drawer.toolCall} />
+            {presentDrawer.kind === "tool" ? (
+              <ToolCallDetails toolCall={presentDrawer.toolCall} />
             ) : (
-              <SubagentDetails delegate={drawer.delegate} error={drawer.error} loading={drawer.loading} />
+              <SubagentDetails delegate={presentDrawer.delegate} error={presentDrawer.error} loading={presentDrawer.loading} />
             )}
           </div>
         </aside>

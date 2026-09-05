@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -288,6 +289,52 @@ export function ChatSessionWorkspace({
     itemId: group.itemId,
     label: group.label,
   })), [rootGroups]);
+  const sessionRowsRef = useRef<HTMLDivElement>(null);
+  const [entrance, setEntrance] = useState<"waiting" | "settled" | {
+    groups: typeof rootGroups;
+    activeSessionId: string;
+    searchQuery: string;
+    indices: ReadonlyMap<string, number>;
+  }>("waiting");
+  const entranceCurrent = typeof entrance === "object"
+    && entrance.groups === rootGroups
+    && entrance.activeSessionId === activeSessionId
+    && entrance.searchQuery === searchQuery
+    && !collapsed;
+  const entranceSettled = entrance === "settled";
+
+  useLayoutEffect(() => {
+    if (entrance === "settled") return;
+    if (entrance !== "waiting") {
+      if (!entranceCurrent) setEntrance("settled");
+      return;
+    }
+    if (collapsed || searchQuery || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setEntrance("settled");
+      return;
+    }
+    // Read the committed order so nested groups share one bounded entrance batch.
+    const rows = sessionRowsRef.current?.querySelectorAll<HTMLElement>(".react-session-row");
+    if (!rows?.length) return;
+    setEntrance({
+      groups: rootGroups,
+      activeSessionId,
+      searchQuery,
+      indices: new Map(Array.from(rows).slice(0, 3).map((row, index) => [row.dataset.sessionId!, index])),
+    });
+  }, [activeSessionId, collapsed, entrance, entranceCurrent, rootGroups, searchQuery]);
+
+  useEffect(() => {
+    if (entranceSettled) return;
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const settleWhenReduced = () => {
+      if (preference.matches) setEntrance("settled");
+    };
+    preference.addEventListener("change", settleWhenReduced);
+    settleWhenReduced();
+    return () => preference.removeEventListener("change", settleWhenReduced);
+  }, [entranceSettled]);
+
   const projectDialogGroup = projectDialogGroupId && projectDialogGroupId !== "new"
     ? projectGroups.find((group) => group.projectGroupId === projectDialogGroupId)
     : undefined;
@@ -403,9 +450,8 @@ export function ChatSessionWorkspace({
       itemId: session.id,
       label: displaySessionTitle(session.title, t),
     }));
-    return orderedSessions.map((session, index) => renderSidebarSessionRow(
+    return orderedSessions.map((session) => renderSidebarSessionRow(
       session,
-      index,
       containerId,
       currentItems,
     ));
@@ -413,7 +459,6 @@ export function ChatSessionWorkspace({
 
   function renderSidebarSessionRow(
     session: SessionSummary,
-    index: number,
     containerId: string,
     currentItems: readonly SidebarOrderItem[],
   ) {
@@ -421,6 +466,9 @@ export function ChatSessionWorkspace({
     const dissolving = dissolvingSessionIds.has(session.id);
     const sessionLabel = displaySessionTitle(session.title, t);
     const reorderItem = { containerId, itemId: session.id, label: sessionLabel };
+    const entranceIndex = entranceCurrent && typeof entrance === "object"
+      ? entrance.indices.get(session.id)
+      : undefined;
     return (
       <div
         className="react-session-row"
@@ -432,14 +480,27 @@ export function ChatSessionWorkspace({
         data-drop-position={sidebarDropPosition(containerId, session.id)}
         data-dissolving={dissolving ? "true" : undefined}
         data-motion-role="item"
+        data-session-id={session.id}
+        data-entering={entranceIndex !== undefined ? "true" : undefined}
         draggable={!dissolving}
         key={session.id}
+        onAnimationEnd={(event) => {
+          if (event.target !== event.currentTarget || event.animationName !== "react-list-enter") return;
+          setEntrance((current) => {
+            if (typeof current !== "object" || !current.indices.has(session.id)) return current;
+            const indices = new Map(current.indices);
+            indices.delete(session.id);
+            return indices.size ? { ...current, indices } : "settled";
+          });
+        }}
         onDragEnd={finishSidebarDrag}
         onDragOver={(event) => updateSidebarDropTarget(event, reorderItem)}
         onDragStart={(event) => beginSidebarDrag(event, reorderItem)}
         onDrop={(event) => dropSidebarItem(event, reorderItem, currentItems)}
         onMouseLeave={() => actions.onCancelDeleteConfirmation(session.id)}
-        style={{ "--react-session-row-index": String(index) } as CSSProperties}
+        style={entranceIndex !== undefined
+          ? { "--react-session-row-index": String(entranceIndex) } as CSSProperties
+          : undefined}
       >
         <button
           aria-description={t("shell.reorderSession", { name: sessionLabel })}
@@ -448,7 +509,10 @@ export function ChatSessionWorkspace({
           className="react-session-row__select"
           type="button"
           disabled={dissolving}
-          onClick={() => actions.onSelectSession(session)}
+          onClick={() => {
+            setEntrance("settled");
+            actions.onSelectSession(session);
+          }}
           onKeyDown={(event) => moveSidebarItemWithKeyboard(event, reorderItem, currentItems)}
         >
           <span className="react-session-row__title">{sessionLabel}</span>
@@ -725,7 +789,12 @@ export function ChatSessionWorkspace({
             ) : null}
           </div>
         )}
-        <div className="react-session-list__rows" aria-label={t("shell.sessionRows")} data-motion="animated-list">
+        <div
+          className="react-session-list__rows"
+          aria-label={t("shell.sessionRows")}
+          ref={sessionRowsRef}
+          onFocusCapture={() => setEntrance("settled")}
+        >
           {rootGroups.map((rootGroup) => {
             if (rootGroup.kind === "workspace") {
               const { workspace } = rootGroup;

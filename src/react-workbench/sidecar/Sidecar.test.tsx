@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Sidecar } from "./Sidecar";
@@ -20,6 +20,7 @@ const tabs: SidecarTab[] = [
 
 function renderSidecar(overrides: Partial<Parameters<typeof Sidecar>[0]> = {}) {
   const props: Parameters<typeof Sidecar>[0] = {
+    scopeKey: "thread-1",
     activeTabId: "terminal-1",
     canCreateBrowser: true,
     canCreateTerminal: true,
@@ -59,6 +60,47 @@ function mockWorkspaceWidth(readWidth: () => number) {
 }
 
 describe("Sidecar", () => {
+  it("retains closing browser chrome while hiding its native surface and cancels stale exits", async () => {
+    const { props, rerender } = renderSidecar({ activeTabId: "browser-1" });
+    const aside = screen.getByLabelText("Sidecar");
+    let finish!: () => void;
+    const animation = {
+      transitionProperty: "transform",
+      playState: "running",
+      finished: new Promise<void>((resolve) => { finish = resolve; }),
+    };
+    Object.defineProperty(aside, "getAnimations", { value: () => [animation], configurable: true });
+    rerender(<Sidecar {...props} presentation="closed" />);
+    expect(aside.hasAttribute("inert")).toBe(true);
+    expect(screen.getByText("Browser surface hidden")).toBeTruthy();
+    rerender(<Sidecar {...props} />);
+    await act(async () => { animation.playState = "finished"; finish(); });
+    expect(screen.getByText("Browser surface visible")).toBeTruthy();
+    rerender(<Sidecar {...props} presentation="closed" />);
+    expect(screen.queryByText(/Browser surface/)).toBeNull();
+    expect(props.onCloseTab).not.toHaveBeenCalled();
+  });
+
+  it("waits for the desktop grid exit, but removes incompatible content on scope changes", async () => {
+    const { props, rerender } = renderSidecar({ presentation: "expanded" });
+    const aside = screen.getByLabelText("Sidecar");
+    let finish!: () => void;
+    const animation = {
+      transitionProperty: "grid-template-columns",
+      playState: "running",
+      finished: new Promise<void>((resolve) => { finish = resolve; }),
+    };
+    Object.defineProperty(aside.parentElement, "getAnimations", { value: () => [animation], configurable: true });
+    rerender(<Sidecar {...props} presentation="closed" />);
+    expect(aside.dataset.presentation).toBe("expanded");
+    expect(screen.getByText("Terminal surface")).toBeTruthy();
+    rerender(<Sidecar {...props} presentation="closed" scopeKey="different-thread" />);
+    expect(aside.dataset.presentation).toBe("closed");
+    expect(screen.queryByText("Terminal surface")).toBeNull();
+    await act(async () => { animation.playState = "finished"; finish(); });
+    expect(props.onCloseTab).not.toHaveBeenCalled();
+  });
+
   it("keeps a non-interactive shell mounted while closed", () => {
     const renderTerminal = vi.fn(() => <p>Terminal surface</p>);
     const { container } = renderSidecar({ presentation: "closed", renderTerminal });

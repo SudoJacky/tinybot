@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:88953d2eeb109d244654b4d05e08b8f16b6f4af37fd5f14ed858a472ccb1ef51 -->
+<!-- tinybot-module-fingerprint: sha256:5c6e82f0a82475b6c30c8cf77bc6d370b94af8733920bfe7f1cec61d95673311 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -9,6 +9,12 @@ terminal result.
 The module is independent of the Tauri command surface. Desktop integration,
 history selection, attachment lifetime, and durable turn orchestration belong
 to [`agent::bridge`](../bridge/README.md).
+
+Provider timing uses a per-invocation monotonic clock. Text, reasoning, or tool
+output marks the first token; provider completion ends the decode interval.
+Usage and its optional `modelTiming` are persisted before executing tools so
+waiting for input or tool failure cannot discard completed model work. Calls
+without streaming output carry null timings and do not fabricate throughput.
 
 ## Responsibilities
 

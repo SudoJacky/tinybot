@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { TFunction } from "i18next";
 import {
@@ -42,6 +42,8 @@ import { isApplyPatchToolCall, PatchDiffCard, patchChangeSetFromToolResult } fro
 import { ToolActivityItem } from "./ToolActivityItem";
 import { TimelineActivity } from "./TimelineActivity";
 import { DataViewCard } from "./DataViewCard";
+import { TurnMetrics } from "./TurnMetrics";
+import { turnDurationMs } from "../../app-core/chat/turnMetrics";
 
 export type ChatTimelineActions = {
   onBranch?: (messageId: string) => void;
@@ -130,6 +132,8 @@ function CanonicalChatTurn({
   const { t } = useTranslation("chat");
   const executionItems = turn.executionItems ?? turn.steps;
   const finalAnswer = turn.finalAnswer ?? turn.finalMessage;
+  const metricsFooter = (turn.status === "completed" || turn.status === "failed" || turn.status === "interrupted")
+    && turnDurationMs(turn) !== undefined ? <TurnMetrics turn={turn} /> : undefined;
   const reasoningSteps = turn.steps.filter((step) => step.kind === "reasoning");
   const planSteps = turn.steps.filter((step) => step.kind === "plan");
   const errorSteps = turn.status === "interrupted"
@@ -192,6 +196,7 @@ function CanonicalChatTurn({
         <CanonicalMessage
           allowActions={turn.status === "completed"}
           messageId={finalAnswer.id}
+          footer={metricsFooter}
           reasoning={turn.executionItems ? [] : reasoningSteps}
           references={finalAnswer.references}
           role="assistant"
@@ -211,6 +216,7 @@ function CanonicalChatTurn({
           onOpenFileLink={onOpenFileLink}
         />
       ) : null}
+      {!finalAnswer && metricsFooter ? <div className="react-message__actions">{metricsFooter}</div> : null}
     </section>
   );
 }
@@ -554,6 +560,7 @@ function formatExecutionDuration(durationMs: number): string {
 
 function CanonicalMessage({
   allowActions = true,
+  footer,
   messageId,
   onBranch,
   onOpenFileLink,
@@ -564,6 +571,7 @@ function CanonicalMessage({
   text,
 }: {
   allowActions?: boolean;
+  footer?: ReactNode;
   messageId: string;
   onBranch?: () => void;
   onOpenFileLink?: (link: AssistantFileLink) => void;
@@ -592,16 +600,17 @@ function CanonicalMessage({
         {inlineReferences.length ? <MessageContext references={inlineReferences} /> : null}
         {streaming ? <span aria-label={t("turn.agentResponding")} className="react-message__streaming" /> : null}
       </div>
-      {allowActions && text.trim() ? (
+      {(allowActions && text.trim()) || footer ? (
         <div className="react-message__actions" data-align={role === "user" ? "right" : "left"}>
-          <button aria-label={t("turn.copyMessage")} type="button" onClick={() => void writeClipboardText(text)}>
+          {allowActions && text.trim() ? <button aria-label={t("turn.copyMessage")} type="button" onClick={() => void writeClipboardText(text)}>
             <Copy aria-hidden="true" size={14} />
-          </button>
-          {onBranch ? (
+          </button> : null}
+          {allowActions && onBranch ? (
             <button aria-label={t("turn.branchHere")} type="button" onClick={onBranch}>
               <GitBranch aria-hidden="true" size={14} />
             </button>
           ) : null}
+          {footer}
         </div>
       ) : null}
     </article>

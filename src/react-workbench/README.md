@@ -1,11 +1,18 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:0ad67d3b14a87e9b3df4315821c3a05a3c38cbed8454df2c73f538c9984aa800 -->
+<!-- tinybot-module-fingerprint: sha256:ff4a0c1879d1880b5cab7ad0b6337aad1f07a16e50f97c55febbb98345fe0f4d -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `main.tsx` mounts `App` for the main window and selects lightweight
 `DesktopPetWindow` and `DesktopPetQuickChatWindow` surfaces for the Windows-only
 pet webviews. The quick-chat surface owns an independent renderer service graph
 so it remains usable while the main window is minimized.
+The initial HTML displays a white startup surface with the centered Tinybot mark
+before the renderer bundle loads. `startupSplash.ts` finishes its short logo
+entrance and fades the surface out after `App` renders its first frame; it does
+not wait for session restoration. Reduced motion removes it immediately. The
+pet webviews hide it before their first paint and remove it when mounted.
+The small `src/main.ts` bootstrap reports workbench import failures through the
+renderer diagnostic overlay; render errors also remove the startup surface.
 `DesktopShell` owns the desktop chrome, and `defaultServices.ts` composes the
 renderer-facing stores including the native `WorkspaceRegistry` Adapter and
 the optional native pet and quick-chat hosts.

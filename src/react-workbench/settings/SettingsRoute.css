@@ -1912,17 +1912,34 @@
   opacity: 0;
 }
 
-.react-profile-chart-card[data-reveal-state="revealed"] .react-profile-chart__line {
+.react-profile-charts[hidden] {
+  display: none;
+}
+
+.react-profile-chart-card[data-reveal-state="revealing"] .react-profile-chart__line {
   animation: react-profile-chart-draw 1200ms cubic-bezier(0.165, 0.84, 0.44, 1) both;
 }
 
-.react-profile-chart-card[data-reveal-state="revealed"] .react-profile-chart__dot {
+.react-profile-chart-card[data-reveal-state="revealing"] .react-profile-chart__dot {
   animation: react-profile-chart-reveal 500ms cubic-bezier(0.165, 0.84, 0.44, 1) both;
 }
 
-.react-profile-chart-card[data-reveal-state="revealed"] .react-profile-chart__fade,
-.react-profile-chart-card[data-reveal-state="revealed"] .react-profile-chart__model-tick {
+.react-profile-chart-card[data-reveal-state="revealing"] .react-profile-chart__fade,
+.react-profile-chart-card[data-reveal-state="revealing"] .react-profile-chart__model-tick {
   animation: react-profile-chart-fade 900ms cubic-bezier(0.165, 0.84, 0.44, 1) both;
+}
+
+.react-profile-chart-card[data-reveal-state="settled"] .react-profile-chart__line {
+  animation: none;
+  stroke-dashoffset: 0;
+}
+
+.react-profile-chart-card[data-reveal-state="settled"] .react-profile-chart__dot,
+.react-profile-chart-card[data-reveal-state="settled"] .react-profile-chart__fade,
+.react-profile-chart-card[data-reveal-state="settled"] .react-profile-chart__model-tick {
+  animation: none;
+  opacity: 1;
+  transform: none;
 }
 
 .react-profile-chart__peak {
@@ -2389,8 +2406,6 @@
   min-height: 0;
   max-height: 220px;
   overflow-y: auto;
-  scrollbar-color: color-mix(in srgb, var(--color-muted) 42%, transparent) transparent;
-  scrollbar-width: thin;
 }
 
 .react-default-model-picker__models-list > button {

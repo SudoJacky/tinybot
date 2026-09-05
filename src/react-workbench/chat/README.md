@@ -1,14 +1,24 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:d766d68e753ffad3b25b1032f94f4854f458ef856844049742191f4e8898a1f1 -->
+<!-- tinybot-module-fingerprint: sha256:b934f412d4581224c76f8e6695afb4f0abfdda745cb08de2a700383b2eeab62d -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
 `ChatPage.tsx` is the route-level composition module.
+Its details drawer retains closing content through a reversible 220 ms
+opacity/transform transition using `lib/useExitPresence`. Closing immediately
+makes the drawer inert and restores trigger focus; reopening cancels pending
+removal. Thread changes clear incompatible details. Native Sidecar browser
+visibility remains suppressed until the details drawer has fully left.
 `ChatTimeline.tsx` owns the reusable canonical message and execution rendering;
 its action callbacks are optional so read-only consumers can omit unavailable
 branch, recovery, artifact, delegate, and tool-detail controls.
 Assistant message actions belong only to a Turn's final answer; commentary in
 the ordered execution trace remains readable but does not expose copy actions.
+`TurnMetrics.tsx` places one elapsed-time pill beside final-answer actions, or
+at the end of a failed/interrupted Turn without a final answer. It appears only
+after the Turn ends. Clicking opens a viewport-clamped dialog with total time
+and available TPS/TTFT readings; Escape restores trigger focus, and outside
+pointer or Tab dismisses it. Old Turns show duration alone.
 A running canonical execution trace starts expanded, then folds once when its
 final answer first appears; completed traces therefore mount folded. A user can
 still reopen the trace, and later streaming revisions preserve that explicit
@@ -33,7 +43,13 @@ and the details region. Its CSS and the disclosure icon CSS are imported by
 their owning modules. Ordinary tools use local expansion state; Reasoning and
 Plan supply controlled `open` and `onOpenChange` values to preserve their own
 streaming and completion rules. The `summary` slot stays visible when details
-are collapsed, so plan progress remains readable. Details unmount by default;
+are collapsed, so plan progress remains readable. Details expand and collapse
+with a reversible 200 ms grid-height and opacity transition. The grid follows
+nested and streaming content without fixed-height measurement. Closing details
+become inert and leave the accessibility tree immediately, then unmount once
+their transitions finish; reopening cancels that pending unmount. Initially
+open content does not animate on mount, and reduced motion switches immediately.
+Details unmount by default;
 tools and compaction opt into `keepMounted` to preserve their existing preview
 lifecycle. Execution summaries also keep their children mounted so folding the
 whole trace preserves individually expanded rows. Flat legacy tool groups use
@@ -205,6 +221,11 @@ filters session title, ID, and working-directory fields while preserving
 matching workspace and project context. Closing with its button or Escape
 clears the query, restores the full hierarchy, and returns focus to the search
 trigger.
+
+The first nonempty sidebar render may reveal at most three session rows with
+0/30/60 ms delays and the shared 220 ms entrance. Search, row focus, selection,
+reorder and refreshed grouping settle that one-shot entrance immediately;
+clearing a search never replays it. Reduced motion keeps rows fully visible.
 
 The expanded session sidebar keeps a renderer-local, versioned user order for
 its top-level workspace/project blocks, each project's member workspaces, and
