@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:a87ee7b2823ee97d63300239f20adfc6a49405eaff96b53f32ddb77906773c3e -->
+<!-- tinybot-module-fingerprint: sha256:d766d68e753ffad3b25b1032f94f4854f458ef856844049742191f4e8898a1f1 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -20,6 +20,25 @@ uses an ellipsis when the line does not fit. The user can expand the row for the
 complete naturally wrapped text. Individual Tool and Diff rows also start
 collapsed, so the ordered activity stays scannable until a user opens one row's
 details.
+`ChatDisclosureIcon.tsx` shares the leading icon and disclosure arrow across
+Reasoning, Tool, Diff, Plan, compaction, and execution-summary headers. Their
+triggers crossfade the icon to a down arrow on hover and keep an up arrow while
+expanded, using the shared trigger's `aria-expanded` as the state source.
+Keyboard focus and reduced-motion mode switch immediately; non-hover devices
+keep the arrow visible.
+`TimelineActivity.tsx` owns the shared Tool, Diff, Reasoning, Plan, compaction,
+execution-summary, and legacy tool-group shell:
+header layout, disclosure controls, stable accessible IDs, collapsed previews,
+and the details region. Its CSS and the disclosure icon CSS are imported by
+their owning modules. Ordinary tools use local expansion state; Reasoning and
+Plan supply controlled `open` and `onOpenChange` values to preserve their own
+streaming and completion rules. The `summary` slot stays visible when details
+are collapsed, so plan progress remains readable. Details unmount by default;
+tools and compaction opt into `keepMounted` to preserve their existing preview
+lifecycle. Execution summaries also keep their children mounted so folding the
+whole trace preserves individually expanded rows. Flat legacy tool groups use
+the same list renderer without a disclosure shell. Business-specific renderers
+own content and lifecycle decisions; they do not create disclosure buttons or IDs.
 `FloatingPlanStatus.tsx` mirrors the most recent canonical plan across Turns in
 a fixed top-right note without introducing another plan store. A newer Turn
 without a plan keeps the previous plan visible; the next plan replaces it. New

@@ -1,0 +1,74 @@
+.react-chat-disclosure-icon {
+  display: inline-grid;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  pointer-events: none;
+}
+
+.react-chat-disclosure-icon__symbol,
+.react-chat-disclosure-icon__chevron {
+  grid-area: 1 / 1;
+  width: 16px;
+  height: 16px;
+  transition: opacity var(--motion-duration-fast) var(--motion-ease-standard), transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+.react-chat-disclosure-icon__symbol {
+  display: inline-grid;
+  place-items: center;
+}
+
+.react-chat-disclosure-icon__symbol > svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.react-chat-disclosure-icon__chevron {
+  opacity: 0;
+  transform: rotate(0deg);
+}
+
+.react-chat-disclosure-trigger:is(:focus-visible, [aria-expanded="true"]) .react-chat-disclosure-icon__symbol {
+  opacity: 0;
+}
+
+.react-chat-disclosure-trigger:is(:focus-visible, [aria-expanded="true"]) .react-chat-disclosure-icon__chevron {
+  opacity: 1;
+}
+
+.react-chat-disclosure-trigger[aria-expanded="true"] .react-chat-disclosure-icon__chevron {
+  transform: rotate(180deg);
+}
+
+.react-chat-disclosure-trigger:focus-visible .react-chat-disclosure-icon > * {
+  transition: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .react-chat-disclosure-trigger:hover .react-chat-disclosure-icon__symbol {
+    opacity: 0;
+  }
+
+  .react-chat-disclosure-trigger:hover .react-chat-disclosure-icon__chevron {
+    opacity: 1;
+  }
+}
+
+@media (hover: none) {
+  .react-chat-disclosure-icon__symbol {
+    opacity: 0;
+  }
+
+  .react-chat-disclosure-icon__chevron {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-chat-disclosure-icon > * {
+    transition: none;
+  }
+}

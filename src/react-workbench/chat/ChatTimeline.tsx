@@ -1,12 +1,10 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import type { TFunction } from "i18next";
 import {
   Activity,
   AlertTriangle,
   Check,
-  ChevronDown,
-  ChevronRight,
   Circle,
   Copy,
   FileText,
@@ -42,6 +40,7 @@ import { AssistantMarkdown } from "./AssistantMarkdown";
 import type { AssistantFileLink } from "./assistantFileLinks";
 import { isApplyPatchToolCall, PatchDiffCard, patchChangeSetFromToolResult } from "./PatchDiffCard";
 import { ToolActivityItem } from "./ToolActivityItem";
+import { TimelineActivity } from "./TimelineActivity";
 import { DataViewCard } from "./DataViewCard";
 
 export type ChatTimelineActions = {
@@ -297,7 +296,6 @@ function ExecutionTimeline({
   turn: ChatTurn;
 }) {
   const { t } = useTranslation("chat");
-  const contentId = useId();
   const abnormal = executionItems.some((step) => step.status === "failed" || step.status === "cancelled" || step.status === "blocked")
     || turn.status === "failed"
     || turn.status === "interrupted"
@@ -319,42 +317,37 @@ function ExecutionTimeline({
   const summary = executionTimelineSummary(turn, executionItems, abnormal, t);
   return (
     <section className="react-execution-timeline" data-abnormal={abnormal ? "true" : undefined} data-status={turn.status}>
-      <button
-        aria-controls={contentId}
-        aria-expanded={open}
-        aria-label={`${t("turn.workPerformed")}: ${summary}`}
-        className="react-execution-timeline__trigger"
-        title={summary}
-        type="button"
-        onClick={() => setOpen((currentOpen) => !currentOpen)}
+      <TimelineActivity
+        className="react-execution-timeline__activity"
+        icon={<Activity size={16} />}
+        keepMounted
+        onOpenChange={setOpen}
+        open={open}
+        title={<span aria-live="polite" className="react-execution-timeline__summary" title={summary}>{summary}</span>}
+        triggerLabel={`${t("turn.workPerformed")}: ${summary}`}
       >
-        <span className="react-execution-timeline__status"><Activity aria-hidden="true" size={17} /></span>
-        <span className="react-execution-timeline__heading">
-          <span aria-live="polite" className="react-execution-timeline__summary">{summary}</span>
-        </span>
-        <ChevronRight aria-hidden="true" className="react-execution-timeline__chevron" size={16} />
-      </button>
-      <div className="react-execution-timeline__content" hidden={!open} id={contentId}>
-        {visibleExecutionItems.map((step) => (
-          <div className="react-execution-timeline__item" data-kind={step.kind} data-status={step.status} key={step.id}>
-            {step.kind === "reasoning" ? (
-              <ExecutionReasoningActivity step={step} />
-            ) : step.kind === "error" ? (
-              <InlineExecutionError
-                focusOnMount={focusError && step.id === errorItems[errorItems.length - 1]?.id}
-                step={step}
-                turn={turn}
-              />
-            ) : (
-              <CanonicalChatStep
-                onOpenArtifact={onOpenArtifact}
-                onOpenSubagent={onOpenSubagent}
-                step={step}
-              />
-            )}
-          </div>
-        ))}
-      </div>
+        <div className="react-execution-timeline__content">
+          {visibleExecutionItems.map((step) => (
+            <div className="react-execution-timeline__item" data-kind={step.kind} data-status={step.status} key={step.id}>
+              {step.kind === "reasoning" ? (
+                <ExecutionReasoningActivity step={step} />
+              ) : step.kind === "error" ? (
+                <InlineExecutionError
+                  focusOnMount={focusError && step.id === errorItems[errorItems.length - 1]?.id}
+                  step={step}
+                  turn={turn}
+                />
+              ) : (
+                <CanonicalChatStep
+                  onOpenArtifact={onOpenArtifact}
+                  onOpenSubagent={onOpenSubagent}
+                  step={step}
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      </TimelineActivity>
     </section>
   );
 }
@@ -478,8 +471,6 @@ function executionDurationMs(turn: ChatTurn): number | undefined {
 function ExecutionReasoningActivity({ step }: { step: ChatStep }) {
   const { t } = useTranslation("chat");
   const streaming = step.status === "running";
-  const contentId = useId();
-  const triggerId = useId();
   const previewRef = useRef<HTMLSpanElement | null>(null);
   const wasStreaming = useRef(streaming);
   const [expanded, setExpanded] = useState(false);
@@ -516,41 +507,25 @@ function ExecutionReasoningActivity({ step }: { step: ChatStep }) {
       data-expanded={expanded ? "true" : undefined}
       data-streaming={streaming ? "true" : undefined}
     >
-      <button
-        aria-controls={contentId}
-        aria-expanded={expanded}
-        aria-label={label}
-        className="react-execution-reasoning__trigger"
-        id={triggerId}
-        type="button"
-        onClick={() => setExpanded((open) => !open)}
+      <TimelineActivity
+        icon={<Lightbulb size={16} />}
+        onOpenChange={setExpanded}
+        open={expanded}
+        preview={(
+          <span
+            ref={previewRef}
+            className="react-execution-reasoning__preview"
+            data-streaming={streaming ? "true" : undefined}
+            data-testid="execution-reasoning-preview"
+          >{step.summary}</span>
+        )}
+        title={label}
+        triggerLabel={label}
       >
-        <span className="react-execution-reasoning__label">
-          <Lightbulb aria-hidden="true" size={16} />
-          <span>{label}</span>
-        </span>
-        <span
-          ref={previewRef}
-          aria-hidden="true"
-          className="react-execution-reasoning__preview"
-          data-streaming={streaming && !expanded ? "true" : undefined}
-          data-testid="execution-reasoning-preview"
-        >
-          {expanded ? null : step.summary}
-        </span>
-        {expanded ? <ChevronDown aria-hidden="true" size={14} /> : <ChevronRight aria-hidden="true" size={14} />}
-      </button>
-      {expanded ? (
-        <div
-          aria-labelledby={triggerId}
-          className="react-execution-reasoning__content"
-          data-testid="execution-reasoning-content"
-          id={contentId}
-          role="region"
-        >
+        <div className="react-execution-reasoning__content" data-testid="execution-reasoning-content">
           <PlainMessageText text={step.summary ?? ""} />
         </div>
-      ) : null}
+      </TimelineActivity>
     </section>
   );
 }
@@ -754,21 +729,18 @@ function CanonicalChatStep({
   if (step.kind === "compaction") {
     const compaction = step.compaction;
     return (
-      <details className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
-        <summary>
-          <span className="react-canonical-step__icon"><ListCollapse aria-hidden="true" size={16} /></span>
-          <span>{t("turn.contextCompacted")}</span>
-          <ChevronRight aria-hidden="true" className="react-context-compaction-chevron" size={15} />
-        </summary>
-        {step.summary ? <p>{step.summary}</p> : null}
-        {compaction ? (
-          <ul aria-label={t("turn.compactionDetails")}>
-            {compaction.estimatedTokensBefore !== undefined ? <li>{t("compaction.before", { value: compaction.estimatedTokensBefore.toLocaleString(i18n.resolvedLanguage) })}</li> : null}
-            {compaction.estimatedTokensAfter !== undefined ? <li>{t("compaction.after", { value: compaction.estimatedTokensAfter.toLocaleString(i18n.resolvedLanguage) })}</li> : null}
-            <li>{t("compaction.dropped", { value: compaction.droppedItemCount.toLocaleString(i18n.resolvedLanguage) })}</li>
-          </ul>
-        ) : null}
-      </details>
+      <section className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
+        <TimelineActivity icon={<ListCollapse size={16} />} keepMounted title={t("turn.contextCompacted")}>
+          {step.summary ? <p>{step.summary}</p> : null}
+          {compaction ? (
+            <ul aria-label={t("turn.compactionDetails")}>
+              {compaction.estimatedTokensBefore !== undefined ? <li>{t("compaction.before", { value: compaction.estimatedTokensBefore.toLocaleString(i18n.resolvedLanguage) })}</li> : null}
+              {compaction.estimatedTokensAfter !== undefined ? <li>{t("compaction.after", { value: compaction.estimatedTokensAfter.toLocaleString(i18n.resolvedLanguage) })}</li> : null}
+              <li>{t("compaction.dropped", { value: compaction.droppedItemCount.toLocaleString(i18n.resolvedLanguage) })}</li>
+            </ul>
+          ) : null}
+        </TimelineActivity>
+      </section>
     );
   }
   return (
@@ -819,7 +791,6 @@ function InlineExecutionError({ focusOnMount, step, turn }: { focusOnMount: bool
 
 function CanonicalPlanCard({ step }: { step: ChatStep }) {
   const { t } = useTranslation("chat");
-  const contentId = useId();
   const [expanded, setExpanded] = useState(step.status !== "completed");
   const plan = step.plan;
   const completed = plan?.steps.filter((item) => item.status === "completed").length ?? 0;
@@ -838,42 +809,37 @@ function CanonicalPlanCard({ step }: { step: ChatStep }) {
 
   return (
     <section aria-label={t("plan.label")} aria-live="polite" className="react-canonical-step" data-kind={step.kind} data-status={step.status}>
-      <span className="react-canonical-step__icon"><AgentStepIcon status={canonicalStepIconStatus(step)} /></span>
-      <div className="react-canonical-plan">
-        <button
-          aria-controls={contentId}
-          aria-expanded={expanded}
-          className="react-canonical-plan__heading"
-          type="button"
-          onClick={() => setExpanded((open) => !open)}
-        >
-          <strong>{t("plan.label")}</strong>
-          <span>{t("plan.completed", { completed, total: plan.total })}</span>
-          {expanded ? <ChevronDown aria-hidden="true" size={15} /> : <ChevronRight aria-hidden="true" size={15} />}
-        </button>
-        <progress
-          aria-label={step.title}
-          aria-valuemax={plan.total}
-          aria-valuemin={0}
-          aria-valuenow={completed}
-          max={Math.max(plan.total, 1)}
-          value={completed}
-        />
-        {expanded ? (
-          <div className="react-canonical-plan__content" id={contentId}>
-            {plan.explanation ? <p className="react-canonical-plan__explanation">{plan.explanation}</p> : null}
-            <ol className="react-canonical-plan__steps">
-              {plan.steps.map((planStep, index) => (
-                <li data-status={planStep.status} key={`${index}:${planStep.step}`}>
-                  <span className="react-canonical-plan__step-icon"><PlanStepIcon status={planStep.status} /></span>
-                  <PlanStepLabel text={planStep.step} />
-                  <small>{formatPlanStepStatus(planStep.status, t)}</small>
-                </li>
-              ))}
-            </ol>
-          </div>
-        ) : null}
-      </div>
+      <TimelineActivity
+        className="react-canonical-plan"
+        icon={<AgentStepIcon status={canonicalStepIconStatus(step)} />}
+        meta={t("plan.completed", { completed, total: plan.total })}
+        onOpenChange={setExpanded}
+        open={expanded}
+        summary={(
+          <progress
+            aria-label={step.title}
+            aria-valuemax={plan.total}
+            aria-valuemin={0}
+            aria-valuenow={completed}
+            max={Math.max(plan.total, 1)}
+            value={completed}
+          />
+        )}
+        title={<strong>{t("plan.label")}</strong>}
+      >
+        <div className="react-canonical-plan__content">
+          {plan.explanation ? <p className="react-canonical-plan__explanation">{plan.explanation}</p> : null}
+          <ol className="react-canonical-plan__steps">
+            {plan.steps.map((planStep, index) => (
+              <li data-status={planStep.status} key={`${index}:${planStep.step}`}>
+                <span className="react-canonical-plan__step-icon"><PlanStepIcon status={planStep.status} /></span>
+                <PlanStepLabel text={planStep.step} />
+                <small>{formatPlanStepStatus(planStep.status, t)}</small>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </TimelineActivity>
     </section>
   );
 }
@@ -1080,7 +1046,6 @@ function MessageReasoning({ durationMs, streaming, text }: { durationMs?: number
   const { t } = useTranslation("chat");
   const [expanded, setExpanded] = useState(streaming);
   const wasStreaming = useRef(streaming);
-  const contentId = useId();
 
   useEffect(() => {
     if (wasStreaming.current !== streaming) {
@@ -1091,21 +1056,16 @@ function MessageReasoning({ durationMs, streaming, text }: { durationMs?: number
 
   return (
     <section className="react-message-reasoning" aria-label={t("reasoning.label")}>
-      <button
-        aria-controls={contentId}
-        aria-expanded={expanded}
-        className="react-message-reasoning__trigger"
-        type="button"
-        onClick={() => setExpanded((open) => !open)}
+      <TimelineActivity
+        icon={<Lightbulb size={16} />}
+        onOpenChange={setExpanded}
+        open={expanded}
+        title={streaming ? t("reasoning.thinking") : formatThinkingLabel(durationMs, t)}
       >
-        <span>{streaming ? t("reasoning.thinking") : formatThinkingLabel(durationMs, t)}</span>
-        {expanded ? <ChevronDown aria-hidden="true" size={14} /> : <ChevronRight aria-hidden="true" size={14} />}
-      </button>
-      {expanded ? (
-        <div className="react-message-reasoning__content" id={contentId}>
+        <div className="react-message-reasoning__content">
           <PlainMessageText text={text} />
         </div>
-      ) : null}
+      </TimelineActivity>
     </section>
   );
 }
@@ -1218,77 +1178,66 @@ function AgentSteps({
   toolCalls: ToolCallSummary[];
 }) {
   const { t } = useTranslation("chat");
-  const [expanded, setExpanded] = useState(false);
-  const listId = useId();
   const overallStatus = resolveAgentStepsStatus(toolCalls);
   const countLabel = t("steps.count", { count: toolCalls.length });
   const currentStepIndex = resolveCurrentAgentStepIndex(toolCalls);
+  const list = (
+    <ol aria-label={t("steps.label")} className="react-agent-steps__list">
+      {toolCalls.map((toolCall, index) => {
+        const status = normalizeAgentStepStatus(toolCall.status);
+        const isLast = index === toolCalls.length - 1;
+        const isCurrent = index === currentStepIndex;
+        return (
+          <li
+            aria-current={isCurrent ? "step" : undefined}
+            className="react-agent-step-item"
+            data-motion-role="step"
+            data-status={status}
+            data-step-count={toolCalls.length}
+            data-step-index={index}
+            key={toolCall.id}
+          >
+            {!isLast ? <span aria-hidden="true" className="react-agent-step-item__line" /> : null}
+            <span className="react-agent-step-item__marker" data-status={status}>
+              <AgentStepIcon status={status} />
+            </span>
+            {onOpenTool ? <button
+              aria-label={t("steps.openDetails", { name: toolCall.name })}
+              className="react-agent-step"
+              type="button"
+              onClick={() => onOpenTool(toolCall)}
+            >
+              <span className="react-agent-step__content">
+                <span>{toolCall.name}</span>
+                {toolCall.summary ? <small>{toolCall.summary}</small> : null}
+              </span>
+              <small className="react-agent-step__status">{formatAgentStepStatus(toolCall.status, t)}</small>
+              <PanelRightOpen aria-hidden="true" size={15} />
+            </button> : (
+              <div className="react-agent-step">
+                <span className="react-agent-step__content">
+                  <span>{toolCall.name}</span>
+                  {toolCall.summary ? <small>{toolCall.summary}</small> : null}
+                </span>
+                <small className="react-agent-step__status">{formatAgentStepStatus(toolCall.status, t)}</small>
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
   return (
     <section className="react-agent-steps" data-flat={flat ? "true" : undefined} data-status={overallStatus} data-stepper="true">
-      {!flat ? (
-        <button
-          aria-controls={listId}
-          aria-expanded={expanded}
-          aria-label={`${t("steps.label")}, ${countLabel}`}
-          className="react-agent-steps__header"
-          type="button"
-          onClick={() => setExpanded((open) => !open)}
-        >
-          <span className="react-agent-steps__header-icon" data-status={overallStatus}>
-            <AgentStepIcon status={overallStatus} />
-          </span>
-          <span className="react-agent-steps__title">{t("steps.title")}</span>
-          <small>{countLabel}</small>
-          {expanded ? <ChevronDown aria-hidden="true" size={15} /> : <ChevronRight aria-hidden="true" size={15} />}
-        </button>
-      ) : null}
-
-      {flat || expanded ? (
-        <ol aria-label={t("steps.label")} className="react-agent-steps__list" id={listId}>
-          {toolCalls.map((toolCall, index) => {
-            const status = normalizeAgentStepStatus(toolCall.status);
-            const isLast = index === toolCalls.length - 1;
-            const isCurrent = index === currentStepIndex;
-            return (
-              <li
-                aria-current={isCurrent ? "step" : undefined}
-                className="react-agent-step-item"
-                data-motion-role="step"
-                data-status={status}
-                data-step-count={toolCalls.length}
-                data-step-index={index}
-                key={toolCall.id}
-              >
-                {!isLast ? <span aria-hidden="true" className="react-agent-step-item__line" /> : null}
-                <span className="react-agent-step-item__marker" data-status={status}>
-                  <AgentStepIcon status={status} />
-                </span>
-                {onOpenTool ? <button
-                  aria-label={t("steps.openDetails", { name: toolCall.name })}
-                  className="react-agent-step"
-                  type="button"
-                  onClick={() => onOpenTool(toolCall)}
-                >
-                  <span className="react-agent-step__content">
-                    <span>{toolCall.name}</span>
-                    {toolCall.summary ? <small>{toolCall.summary}</small> : null}
-                  </span>
-                  <small className="react-agent-step__status">{formatAgentStepStatus(toolCall.status, t)}</small>
-                  <PanelRightOpen aria-hidden="true" size={15} />
-                </button> : (
-                  <div className="react-agent-step">
-                    <span className="react-agent-step__content">
-                      <span>{toolCall.name}</span>
-                      {toolCall.summary ? <small>{toolCall.summary}</small> : null}
-                    </span>
-                    <small className="react-agent-step__status">{formatAgentStepStatus(toolCall.status, t)}</small>
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ol>
-      ) : null}
+      {flat ? list : (
+        <TimelineActivity
+          className="react-agent-steps__activity"
+          icon={<AgentStepIcon status={overallStatus} />}
+          meta={countLabel}
+          title={t("steps.title")}
+          triggerLabel={`${t("steps.label")}, ${countLabel}`}
+        >{list}</TimelineActivity>
+      )}
     </section>
   );
 }

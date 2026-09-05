@@ -1,10 +1,9 @@
-import { Children, useId, useMemo, useState, type ReactNode } from "react";
+import { Children, useMemo, type ReactNode } from "react";
 import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   Bot,
-  ChevronRight,
   Circle,
   FileText,
   Globe2,
@@ -15,6 +14,7 @@ import {
   XCircle,
 } from "lucide-react";
 import type { ChatStepStatus, ToolCallState } from "../../app-core/chat/chatTurnContracts";
+import { TimelineActivity } from "./TimelineActivity";
 
 type ToolActivityKind = "file" | "generic" | "plan" | "subagent" | "terminal" | "web";
 
@@ -81,41 +81,21 @@ export function ToolActivityFrame({
   title: string;
 }) {
   const { t } = useTranslation("chat");
-  const contentId = useId();
-  const hasContent = Children.count(children) > 0;
-  const [open, setOpen] = useState(defaultOpen && hasContent);
+  const hasContent = Children.toArray(children).length > 0;
   const meta = [category, durationMs === undefined ? "" : formatToolDuration(durationMs)].filter(Boolean).join(" · ");
-  const headerContent = (
-    <>
-      <span aria-hidden="true" className="react-tool-activity__icon">{icon}</span>
-      <span className="react-tool-activity__copy">
-        <strong>{title}</strong>
-        {meta ? <small>{meta}</small> : null}
-      </span>
-      <ToolActivityStatus status={status} />
-      {hasContent ? <ChevronRight aria-hidden="true" className="react-tool-activity__chevron" size={15} /> : null}
-    </>
-  );
-
   return (
-    <section className="react-tool-activity" data-open={open ? "true" : undefined} data-status={status}>
-      {hasContent ? (
-        <button
-          aria-controls={contentId}
-          aria-expanded={open}
-          aria-label={t("toolActivity.toggleDetails", { title })}
-          className="react-tool-activity__header"
-          type="button"
-          onClick={() => setOpen((current) => !current)}
-        >
-          {headerContent}
-        </button>
-      ) : <div className="react-tool-activity__header">{headerContent}</div>}
-      {hasContent ? (
-        <div className="react-tool-activity__details" data-testid="tool-activity-details" hidden={!open} id={contentId}>
-          {children}
-        </div>
-      ) : null}
+    <section className="react-tool-activity" data-status={status}>
+      <TimelineActivity
+        defaultOpen={defaultOpen}
+        icon={icon}
+        keepMounted
+        meta={meta ? <small>{meta}</small> : undefined}
+        status={<ToolActivityStatus status={status} />}
+        title={<strong>{title}</strong>}
+        triggerLabel={t("toolActivity.toggleDetails", { title })}
+      >
+        {hasContent ? <div className="react-tool-activity__details" data-testid="tool-activity-details">{children}</div> : null}
+      </TimelineActivity>
     </section>
   );
 }
