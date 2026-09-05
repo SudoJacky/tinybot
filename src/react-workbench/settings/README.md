@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:35a9f16f2afc7e2bf7fd126b105f80231f2029145f330e6174238b0c919a46dd -->
+<!-- tinybot-module-fingerprint: sha256:fe1677e95ba478dc61569783060a19f375fc9d9d8d8b9c44bcbf6079caa30e12 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as

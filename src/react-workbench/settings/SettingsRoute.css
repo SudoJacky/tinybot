@@ -2389,8 +2389,6 @@
   min-height: 0;
   max-height: 220px;
   overflow-y: auto;
-  scrollbar-color: color-mix(in srgb, var(--color-muted) 42%, transparent) transparent;
-  scrollbar-width: thin;
 }
 
 .react-default-model-picker__models-list > button {

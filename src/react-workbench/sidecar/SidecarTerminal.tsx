@@ -59,6 +59,9 @@ export function SidecarTerminal({
         cursor: "#f3eee5",
         foreground: "#f3eee5",
         selectionBackground: "#766d5f80",
+        scrollbarSliderBackground: "#f3eee52e",
+        scrollbarSliderHoverBackground: "#f3eee566",
+        scrollbarSliderActiveBackground: "#f3eee580",
       },
     });
     const fitAddon = new FitAddon();

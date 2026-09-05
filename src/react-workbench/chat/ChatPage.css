@@ -3716,7 +3716,6 @@
   border-radius: 12px;
   background: transparent;
   transform: translateX(-8px);
-  scrollbar-width: thin;
   transition:
     width 180ms var(--motion-ease-standard),
     transform 180ms var(--motion-ease-standard),
@@ -4032,7 +4031,6 @@
   max-height: min(320px, 42vh);
   overflow-y: auto;
   padding: 2px;
-  scrollbar-width: thin;
 }
 
 .react-agent-ui-form-field__choice {

@@ -1,8 +1,18 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:b88dd4ca403559cc105f63dc980ab8e00fc0f543b1d9458fbb0053b05d704f46 -->
+<!-- tinybot-module-fingerprint: sha256:c9f8cb6375b0777d081b74559b3fdf921dff5f68730d4e630c98448528e3d41e -->
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
+
+Shared scrollbar tokens keep native overflow thumbs quiet against the current
+theme, with stronger hover and drag states and transparent tracks. Desktop
+WebViews use thumb-local pseudo-element styling; browsers without that support
+use standard scrollbar colors on container hover. Route CSS must not set
+`scrollbar-color` or a non-auto `scrollbar-width` for visible desktop scrollbars,
+because those properties override the shared pseudo-element styling. Hidden tab
+scrollers retain their existing rules, and forced-colors mode uses system styling.
+The Sidecar terminal configures the equivalent states through xterm's slider
+theme because its scrollbar is rendered by xterm rather than the browser.
 
 Menu-like floating surfaces use `react-popover-surface` and
 `react-popover-item` as the single visual authority for shell, selection,

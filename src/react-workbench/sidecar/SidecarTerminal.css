@@ -16,11 +16,6 @@
   height: 100%;
 }
 
-.react-sidecar-terminal__surface .xterm-viewport {
-  scrollbar-color: #68635b transparent;
-  scrollbar-width: thin;
-}
-
 .react-sidecar-terminal__unavailable {
   display: grid;
   height: 100%;
