@@ -305,24 +305,23 @@ impl RuntimeLifecycle {
             let mut operation = metrics.measure("recovery.beginOperation.durationMs", || {
                 thread_store.begin_operation()
             })?;
+            let (index, migration) = metrics.measure("recovery.prepareIndex.durationMs", || {
+                operation.thread_log().prepare_state_index_for_startup()
+            })?;
+            // begin_operation already materialized the canonical projection. Only a
+            // repaired index can make that projection stale before recovery starts.
+            if migration.is_some() {
+                metrics.measure("recovery.repairProjection.durationMs", || {
+                    operation.reload_projection()
+                })?;
+            }
             let thread = operation.thread();
             let thread_log = operation.thread_log();
-            let mut report = RuntimeStartupRecoveryReport::default();
-
-            report.session_log_index_migration = metrics
-                .measure("recovery.prepareIndex.durationMs", || {
-                    thread_log.prepare_state_index_for_startup()
-                })?;
-            report.session_log_index =
-                Some(metrics.measure("recovery.checkIndex.durationMs", || {
-                    thread_log.check_state_index()
-                })?);
-            let (threads, items) = metrics.measure("recovery.readProjection.durationMs", || {
-                thread_log.thread_projection()
-            })?;
-            metrics.measure("recovery.replaceProjection.durationMs", || {
-                thread.replace_projection(threads, items)
-            })?;
+            let mut report = RuntimeStartupRecoveryReport {
+                session_log_index: Some(index),
+                session_log_index_migration: migration,
+                ..Default::default()
+            };
 
             metrics.measure(
                 "recovery.scanThreads.durationMs",
@@ -434,9 +433,13 @@ impl RuntimeLifecycle {
                 "recovery.scannedTurnRecords",
                 report.scanned_turn_records as i64,
             );
-            metrics.measure("recovery.reloadProjection.durationMs", || {
-                operation.reload_projection()
-            })?;
+            if report.interrupted_turns.is_empty() {
+                metrics.increment("recovery.projection.reload.skipped");
+            } else {
+                metrics.measure("recovery.reloadProjection.durationMs", || {
+                    operation.reload_projection()
+                })?;
+            }
             metrics.increment("recovery.orphaned_turns.completed");
             Ok(report)
         })

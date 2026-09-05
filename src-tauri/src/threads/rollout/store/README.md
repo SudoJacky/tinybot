@@ -1,5 +1,5 @@
 # Worker Thread Log
-<!-- tinybot-module-fingerprint: sha256:c9a6daae8a23681accd8b6b7e641371d8d27a60a7b5eb2696e95a1b96c4dbad0 -->
+<!-- tinybot-module-fingerprint: sha256:8a51f88937274d90c7c60d62b4fdbf226cac7084067c422bac1067cf2470c964 -->
 
 `threads::rollout::store` owns Tinybot's canonical append-only Rollout. It validates
 paths, records typed lines, reconstructs Thread and runtime projections,
@@ -75,6 +75,8 @@ successful append.
 - Reuse Rollout lines and canonical reconstruction across startup index,
   projection, and turn-recovery consumers while the Rollout head is unchanged.
 - Detect and repair divergence between the live index and canonical Rollouts.
+- Return the verified consistency report together with any startup repair, so
+  consumers do not repeat the same full canonical scan for reporting.
 - Reconcile persisted agent turns during runtime startup.
 
 ## Internal layout

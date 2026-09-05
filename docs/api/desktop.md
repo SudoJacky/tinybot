@@ -245,9 +245,13 @@ start/end Unix milliseconds and optional completed/failed outcome), and
 The `desktop.process.startedAtUnixMs` gauge identifies native startup; renderer
 startup events carry a page instance ID, surface and `timeOriginUnixMs` so a
 page reload is not mistaken for the same native cold start. Recovery subphase
-metrics separate index preparation/checking, projection reads/replacements,
-thread/turn scans and final projection reload. Recovery total timing includes
-that final reload, which older exports did not measure.
+metrics separate initial loading, index preparation/validation and thread/turn
+scans. Preparation returns its verified consistency report; clean recovery
+reuses the initial projection. `recovery.repairProjection.durationMs` appears
+when index repair requires refreshing it, and `recovery.reloadProjection.durationMs`
+appears after interrupted-turn writes. No-write recovery increments
+`recovery.projection.reload.skipped`. Recovery total timing includes any required
+final reload, which older exports did not measure.
 
 The frontend attaches `rendererPerformance` (`tinybot.renderer_performance.v1`):
 page identity, navigation milestones, optional browser heap estimates, support

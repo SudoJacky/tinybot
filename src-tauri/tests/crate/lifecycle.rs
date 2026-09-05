@@ -279,6 +279,16 @@ fn startup_reconciles_orphaned_turn_and_preserves_waiting_checkpoint() {
     );
 
     let lifecycle = lock_runtime(&shared).lifecycle_status.clone();
+    let live_store = lock_runtime(&shared).thread_store.clone();
+    let live_operation = live_store.begin_operation().unwrap();
+    let live_status = live_operation
+        .thread()
+        .get_thread_status(crate::threads::domain::ThreadIdParams {
+            thread_id: "thread-recovery".to_string(),
+        })
+        .unwrap();
+    assert_eq!(live_status.active_turn.unwrap().turn_id, "turn-waiting");
+    drop(live_operation);
     let recovery = lifecycle
         .last_startup_recovery
         .as_ref()
@@ -337,6 +347,85 @@ fn startup_reconciles_orphaned_turn_and_preserves_waiting_checkpoint() {
         .resumable_turns
         .iter()
         .any(|turn| turn.turn_id == "turn-waiting"));
+}
+
+#[test]
+fn clean_startup_avoids_redundant_canonical_scans_and_projection_rebuilds() {
+    let fixture = WorkspaceFixture::new();
+    let policy = default_desktop_capability_policy();
+    let writer = crate::threads::rollout::store::WorkerThreadLogRpc::new(
+        fixture.root.clone(),
+        policy.clone(),
+    );
+    let thread = crate::threads::domain::WorkerThreadRpc::new(fixture.root.clone(), policy);
+    for index in 0..24 {
+        let created = thread
+            .create_thread(crate::threads::domain::CreateThreadRequest {
+                thread_id: Some(format!("startup-budget-{index}")),
+                session_key: Some(format!("startup-budget-session-{index}")),
+                ..Default::default()
+            })
+            .unwrap();
+        writer.create_from_thread_record(&created).unwrap();
+    }
+    writer.flush_all().unwrap();
+    let started = std::time::Instant::now();
+    let report =
+        crate::runtime::lifecycle::RuntimeLifecycle::reconcile_startup(&fixture.thread_store)
+            .unwrap();
+    let elapsed = started.elapsed();
+    assert_eq!(report.scanned_threads, 24);
+    assert!(report.interrupted_turns.is_empty());
+    assert_eq!(
+        report.session_log_index.unwrap().status,
+        crate::threads::rollout::store::ThreadLogIndexConsistencyStatus::Clean
+    );
+    let operation = fixture.thread_store.begin_operation().unwrap();
+    let (scans, projections) = operation.thread_log().startup_work_counts();
+    eprintln!("startup_work_budget threads=24 canonical_scans={scans} projections={projections} elapsed_us={}", elapsed.as_micros());
+    assert_eq!(
+        scans, 2,
+        "one index build and one independent consistency validation"
+    );
+    assert_eq!(
+        projections, 1,
+        "clean recovery should reuse the initialized projection"
+    );
+}
+
+#[test]
+fn startup_refreshes_a_previously_loaded_projection_after_index_repair() {
+    let fixture = WorkspaceFixture::new();
+    // Simulate a stale in-memory projection before a canonical writer adds a Thread.
+    drop(fixture.thread_store.begin_operation().unwrap());
+    let policy = default_desktop_capability_policy();
+    let writer = crate::threads::rollout::store::WorkerThreadLogRpc::new(
+        fixture.root.clone(),
+        policy.clone(),
+    );
+    let thread = crate::threads::domain::WorkerThreadRpc::new(fixture.root.clone(), policy);
+    let created = thread
+        .create_thread(crate::threads::domain::CreateThreadRequest {
+            thread_id: Some("new-canonical-thread".to_string()),
+            ..Default::default()
+        })
+        .unwrap();
+    writer.create_from_thread_record(&created).unwrap();
+    writer.flush_all().unwrap();
+
+    let report =
+        crate::runtime::lifecycle::RuntimeLifecycle::reconcile_startup(&fixture.thread_store)
+            .unwrap();
+    assert!(report.session_log_index_migration.is_some());
+    assert_eq!(report.scanned_threads, 1);
+    let operation = fixture.thread_store.begin_operation().unwrap();
+    let status = operation
+        .thread()
+        .get_thread_status(crate::threads::domain::ThreadIdParams {
+            thread_id: created.thread_id,
+        })
+        .unwrap();
+    assert_eq!(status.thread.thread_id, "new-canonical-thread");
 }
 
 #[test]

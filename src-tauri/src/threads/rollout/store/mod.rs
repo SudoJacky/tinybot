@@ -66,6 +66,10 @@ pub struct WorkerThreadLogRpc {
     state_index_ready: Arc<AtomicBool>,
     #[cfg(test)]
     rollout_read_count: Arc<AtomicUsize>,
+    #[cfg(test)]
+    canonical_scan_count: Arc<AtomicUsize>,
+    #[cfg(test)]
+    projection_read_count: Arc<AtomicUsize>,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -200,6 +204,10 @@ impl WorkerThreadLogRpc {
             state_index_ready: Arc::new(AtomicBool::new(false)),
             #[cfg(test)]
             rollout_read_count: Arc::new(AtomicUsize::new(0)),
+            #[cfg(test)]
+            canonical_scan_count: Arc::new(AtomicUsize::new(0)),
+            #[cfg(test)]
+            projection_read_count: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -217,6 +225,14 @@ impl WorkerThreadLogRpc {
     #[cfg(test)]
     fn rollout_read_count(&self) -> usize {
         self.rollout_read_count.load(Ordering::Relaxed)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn startup_work_counts(&self) -> (usize, usize) {
+        (
+            self.canonical_scan_count.load(Ordering::Relaxed),
+            self.projection_read_count.load(Ordering::Relaxed),
+        )
     }
 
     pub(super) fn new_thread_memory_snapshot(
@@ -267,6 +283,8 @@ impl WorkerThreadLogRpc {
     pub fn thread_projection(
         &self,
     ) -> Result<(Vec<ThreadRecord>, BTreeMap<String, Vec<ThreadItem>>), WorkerProtocolError> {
+        #[cfg(test)]
+        self.projection_read_count.fetch_add(1, Ordering::Relaxed);
         self.ensure_state_index()?;
         let mut threads = Vec::new();
         let mut items = BTreeMap::new();
@@ -1251,10 +1269,16 @@ impl WorkerThreadLogRpc {
 
     pub fn prepare_state_index_for_startup(
         &self,
-    ) -> Result<Option<ThreadLogIndexRepairReport>, WorkerProtocolError> {
+    ) -> Result<
+        (
+            ThreadLogIndexConsistencyReport,
+            Option<ThreadLogIndexRepairReport>,
+        ),
+        WorkerProtocolError,
+    > {
         let report = self.state_index_consistency()?;
         match report.status {
-            ThreadLogIndexConsistencyStatus::Clean => Ok(None),
+            ThreadLogIndexConsistencyStatus::Clean => Ok((report, None)),
             ThreadLogIndexConsistencyStatus::MissingIndex
             | ThreadLogIndexConsistencyStatus::Diverged
             | ThreadLogIndexConsistencyStatus::Unreadable => {
@@ -1266,12 +1290,15 @@ impl WorkerThreadLogRpc {
                         serde_json::to_value(&after).unwrap_or_default(),
                     ));
                 }
-                Ok(Some(ThreadLogIndexRepairReport {
-                    mode: ThreadLogIndexRepairMode::RebuildIndex,
-                    before: report,
-                    after,
-                    rebuilt_thread_count,
-                }))
+                Ok((
+                    after.clone(),
+                    Some(ThreadLogIndexRepairReport {
+                        mode: ThreadLogIndexRepairMode::RebuildIndex,
+                        before: report,
+                        after,
+                        rebuilt_thread_count,
+                    }),
+                ))
             }
         }
     }
@@ -1362,6 +1389,8 @@ impl WorkerThreadLogRpc {
     }
 
     fn canonical_thread_states(&self) -> Result<Vec<CanonicalThreadState>, WorkerProtocolError> {
+        #[cfg(test)]
+        self.canonical_scan_count.fetch_add(1, Ordering::Relaxed);
         let mut paths = Vec::new();
         collect_thread_log_paths(&self.thread_root, &self.thread_root, &mut paths)?;
         collect_thread_log_paths(&self.archive_root, &self.archive_root, &mut paths)?;
