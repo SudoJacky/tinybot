@@ -82,7 +82,7 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const message = await screen.findByTestId("message-a-thinking");
-    const reasoning = within(message).getByLabelText("Reasoning");
+    const reasoning = within(message).getByRole("region", { name: "Reasoning" });
     const reasoningToggle = within(reasoning).getByRole("button", { name: "Reasoning" });
     expect(reasoningToggle.getAttribute("aria-expanded")).toBe("false");
     expect(within(reasoning).queryByText("Checking the current workspace before answering.")).toBeNull();
@@ -121,7 +121,7 @@ describe("ChatPage", () => {
     render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
 
     const message = await screen.findByTestId("message-a-live-thinking");
-    const reasoning = within(message).getByLabelText("Reasoning");
+    const reasoning = within(message).getByRole("region", { name: "Reasoning" });
     const reasoningToggle = within(reasoning).getByRole("button", { name: "Thinking" });
     expect(reasoningToggle.getAttribute("aria-expanded")).toBe("true");
     expect(within(reasoning).getByText("Inspecting the workspace.")).toBeTruthy();
@@ -586,9 +586,10 @@ describe("ChatPage", () => {
     expect(within(floatingPlan).getByText("Implementation order updated")).toBeTruthy();
     expect(within(floatingPlan).getByText("Render progress")).toBeTruthy();
     await user.click(screen.getByText("Context compacted"));
-    const compaction = screen.getByText("Before: 12,000 tokens").closest("details");
-    expect(compaction?.textContent).toContain("After: 4,200 tokens");
-    expect(compaction?.textContent).toContain("Dropped items: 12");
+    const compaction = screen.getByRole("region", { name: "Context compacted" });
+    expect(compaction.textContent).toContain("Before: 12,000 tokens");
+    expect(compaction.textContent).toContain("After: 4,200 tokens");
+    expect(compaction.textContent).toContain("Dropped items: 12");
   });
 
   it("restores floating plan progress after switching away and back", async () => {
@@ -859,7 +860,7 @@ describe("ChatPage", () => {
       "message",
     ]);
     const toolItem = [...orderedItems].find((item) => item.getAttribute("data-kind") === "tool_call")!;
-    expect(toolItem.querySelector(".react-agent-steps__header")).toBeNull();
+    expect(toolItem.querySelector(".react-agent-steps > .react-timeline-activity")).toBeNull();
     expect(toolItem.querySelector(".react-tool-activity")).not.toBeNull();
     expect(screen.getByText("I found the first file.")).toBeTruthy();
     expect(screen.getByText("Now I will verify it.")).toBeTruthy();

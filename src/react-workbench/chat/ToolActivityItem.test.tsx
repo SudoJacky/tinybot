@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import { cleanup, render, screen } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 import { ToolActivityItem } from "./ToolActivityItem";
@@ -27,7 +28,7 @@ describe("ToolActivityItem", () => {
     const toggle = screen.getByRole("button", { name: "Toggle details for Ran npm test" });
     expect(screen.getByText("Ran npm test").closest("button")).toBe(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.getByTestId("tool-activity-details").hasAttribute("hidden")).toBe(true);
+    expect(screen.getByTestId("tool-activity-details")).not.toBeVisible();
     await user.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("$", { selector: ".react-tool-activity__prompt" })).toBeTruthy();
@@ -74,7 +75,7 @@ describe("ToolActivityItem", () => {
     expect(screen.getByText("Inspected ChatPage.tsx")).toBeTruthy();
     const toggle = screen.getByRole("button", { name: "Toggle details for Inspected ChatPage.tsx" });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.getByTestId("tool-activity-details").hasAttribute("hidden")).toBe(true);
+    expect(screen.getByTestId("tool-activity-details")).not.toBeVisible();
     await user.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("src/react-workbench/chat/ChatPage.tsx")).toBeTruthy();
@@ -100,7 +101,7 @@ describe("ToolActivityItem", () => {
     expect(screen.getByText("Opened WebView2 APIs")).toBeTruthy();
     const toggle = screen.getByRole("button", { name: "Toggle details for Opened WebView2 APIs" });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.getByTestId("tool-activity-details").hasAttribute("hidden")).toBe(true);
+    expect(screen.getByTestId("tool-activity-details")).not.toBeVisible();
     await user.click(toggle);
     expect(screen.getByText("Reviewed the composition controller APIs.")).toBeTruthy();
   });

@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:2c3430872150b45b64733e22894f45c6b2f5059bd92b0ea8a203b793114718ce -->
+<!-- tinybot-module-fingerprint: sha256:d766d68e753ffad3b25b1032f94f4854f458ef856844049742191f4e8898a1f1 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -23,9 +23,22 @@ details.
 `ChatDisclosureIcon.tsx` shares the leading icon and disclosure arrow across
 Reasoning, Tool, Diff, Plan, compaction, and execution-summary headers. Their
 triggers crossfade the icon to a down arrow on hover and keep an up arrow while
-expanded, using `aria-expanded` or native `details[open]` as the state source.
+expanded, using the shared trigger's `aria-expanded` as the state source.
 Keyboard focus and reduced-motion mode switch immediately; non-hover devices
-keep the arrow visible. Each row retains its own expansion lifecycle and content.
+keep the arrow visible.
+`TimelineActivity.tsx` owns the shared Tool, Diff, Reasoning, Plan, compaction,
+execution-summary, and legacy tool-group shell:
+header layout, disclosure controls, stable accessible IDs, collapsed previews,
+and the details region. Its CSS and the disclosure icon CSS are imported by
+their owning modules. Ordinary tools use local expansion state; Reasoning and
+Plan supply controlled `open` and `onOpenChange` values to preserve their own
+streaming and completion rules. The `summary` slot stays visible when details
+are collapsed, so plan progress remains readable. Details unmount by default;
+tools and compaction opt into `keepMounted` to preserve their existing preview
+lifecycle. Execution summaries also keep their children mounted so folding the
+whole trace preserves individually expanded rows. Flat legacy tool groups use
+the same list renderer without a disclosure shell. Business-specific renderers
+own content and lifecycle decisions; they do not create disclosure buttons or IDs.
 `FloatingPlanStatus.tsx` mirrors the most recent canonical plan across Turns in
 a fixed top-right note without introducing another plan store. A newer Turn
 without a plan keeps the previous plan visible; the next plan replaces it. New

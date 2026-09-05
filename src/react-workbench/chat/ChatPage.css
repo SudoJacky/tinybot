@@ -653,34 +653,20 @@
   font-size: 12px;
 }
 
-.react-message-reasoning__trigger {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
+.react-message-reasoning .react-timeline-activity__header {
   gap: 5px;
-  width: 100%;
   min-height: 36px;
-  border: 0;
   border-bottom: 1px solid var(--color-hairline);
   border-radius: 0;
   padding: 0;
-  color: var(--color-muted);
-  font-size: 12px;
-  font-weight: 500;
-  text-align: left;
   transition: color var(--motion-duration-fast) var(--motion-ease-standard);
 }
 
-.react-message-reasoning__trigger:hover,
-.react-message-reasoning__trigger:focus-visible {
+.react-message-reasoning .react-timeline-activity__header:hover,
+.react-message-reasoning .react-timeline-activity__header:focus-visible {
   border-bottom-color: color-mix(in srgb, var(--color-body) 24%, var(--color-hairline));
   background: transparent;
   color: var(--color-body);
-}
-
-.react-message-reasoning__trigger:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--color-primary) 42%, transparent);
-  outline-offset: 2px;
 }
 
 .react-message-reasoning__content {
@@ -896,45 +882,41 @@
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 64%);
 }
 
-.react-agent-steps__header {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
-  align-items: center;
+.react-agent-steps__activity > .react-timeline-activity__header {
   gap: 8px;
-  width: 100%;
   padding: 9px 10px;
   color: var(--color-body);
-  text-align: left;
 }
 
-.react-agent-steps__header:hover,
-.react-agent-steps__header:focus-visible {
+.react-agent-steps__activity > .react-timeline-activity__header:hover,
+.react-agent-steps__activity > .react-timeline-activity__header:focus-visible {
   background: var(--color-panel);
 }
 
-.react-agent-steps__header-icon,
+.react-agent-steps__activity > .react-timeline-activity__header > .react-timeline-activity__icon,
 .react-agent-step-item__marker {
   display: inline-grid;
   place-items: center;
   border-radius: 999px;
 }
 
-.react-agent-steps__header-icon {
+.react-agent-steps__activity > .react-timeline-activity__header > .react-timeline-activity__icon {
   width: 22px;
   height: 22px;
 }
 
-.react-agent-steps__title {
-  min-width: 0;
-  overflow: hidden;
+.react-agent-steps__activity > .react-timeline-activity__header > .react-timeline-activity__heading,
+.react-agent-steps__activity > .react-timeline-activity__header .react-timeline-activity__title {
+  flex: 1;
+}
+
+.react-agent-steps__activity > .react-timeline-activity__header .react-timeline-activity__title {
   color: var(--color-ink);
   font-size: 13px;
   font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.react-agent-steps__header small {
+.react-agent-steps__activity > .react-timeline-activity__header .react-timeline-activity__meta {
   color: var(--color-muted);
   font-size: 12px;
 }
@@ -1036,30 +1018,30 @@
   white-space: nowrap;
 }
 
-.react-agent-steps__header-icon[data-status="success"],
+.react-agent-steps[data-status="success"] > .react-agent-steps__activity > .react-timeline-activity__header > .react-timeline-activity__icon,
 .react-agent-step-item__marker[data-status="success"] {
   background: color-mix(in srgb, var(--color-success) 14%, var(--color-panel));
   color: var(--color-success);
 }
 
-.react-agent-steps__header-icon[data-status="active"],
+.react-agent-steps[data-status="active"] > .react-agent-steps__activity > .react-timeline-activity__header > .react-timeline-activity__icon,
 .react-agent-step-item__marker[data-status="active"] {
   background: color-mix(in srgb, #4c8bf5 13%, var(--color-panel));
   color: #3b75d9;
 }
 
-.react-agent-steps__header-icon[data-status="active"] .react-chat-disclosure-icon__symbol svg,
+.react-agent-steps[data-status="active"] > .react-agent-steps__activity > .react-timeline-activity__header .react-chat-disclosure-icon__symbol svg,
 .react-agent-step-item__marker[data-status="active"] svg {
   animation: react-spin 1s linear infinite;
 }
 
-.react-agent-steps__header-icon[data-status="waiting"],
+.react-agent-steps[data-status="waiting"] > .react-agent-steps__activity > .react-timeline-activity__header > .react-timeline-activity__icon,
 .react-agent-step-item__marker[data-status="waiting"] {
   background: color-mix(in srgb, var(--color-warning) 16%, var(--color-panel));
   color: var(--color-warning);
 }
 
-.react-agent-steps__header-icon[data-status="error"],
+.react-agent-steps[data-status="error"] > .react-agent-steps__activity > .react-timeline-activity__header > .react-timeline-activity__icon,
 .react-agent-step-item__marker[data-status="error"] {
   background: color-mix(in srgb, var(--color-error) 14%, var(--color-panel));
   color: var(--color-error);
@@ -2041,44 +2023,29 @@
   color: var(--color-error);
 }
 
-.react-execution-timeline__trigger {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
+.react-execution-timeline__activity > .react-timeline-activity__header {
   gap: 6px;
-  width: 100%;
   min-height: 40px;
   border-bottom: 1px solid color-mix(in srgb, var(--color-hairline) 65%, transparent);
   border-radius: 0;
   padding: 0 0 4px;
   color: inherit;
-  text-align: left;
-  cursor: pointer;
   transition: color 180ms ease, border-color 180ms ease;
 }
 
-.react-execution-timeline__trigger:hover {
+.react-execution-timeline__activity > .react-timeline-activity__header:hover {
   border-bottom-color: var(--color-hairline);
   background: transparent;
   color: var(--color-body);
 }
 
-.react-execution-timeline__trigger:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+.react-execution-timeline__activity > .react-timeline-activity__header > .react-timeline-activity__icon {
+  color: inherit;
 }
 
-.react-execution-timeline__status {
-  display: inline-grid;
-  place-items: center;
-  color: var(--color-muted-soft);
-}
-
-.react-execution-timeline__heading {
-  display: flex;
+.react-execution-timeline__activity > .react-timeline-activity__header > .react-timeline-activity__heading,
+.react-execution-timeline__activity > .react-timeline-activity__header .react-timeline-activity__title {
   flex: 1 1 auto;
-  align-items: center;
-  min-width: 0;
 }
 
 .react-execution-timeline__summary {
@@ -2091,12 +2058,12 @@
   white-space: nowrap;
 }
 
-.react-execution-timeline[data-abnormal="true"] .react-execution-timeline__status,
+.react-execution-timeline[data-abnormal="true"] > .react-execution-timeline__activity > .react-timeline-activity__header,
 .react-execution-timeline[data-abnormal="true"] .react-execution-timeline__summary {
   color: var(--color-error);
 }
 
-.react-execution-timeline[data-status="awaiting_user"] .react-execution-timeline__status,
+.react-execution-timeline[data-status="awaiting_user"] > .react-execution-timeline__activity > .react-timeline-activity__header,
 .react-execution-timeline[data-status="awaiting_user"] .react-execution-timeline__summary {
   color: var(--color-warning);
 }
@@ -2116,10 +2083,6 @@
   width: 1px;
   background: color-mix(in srgb, var(--color-hairline) 76%, transparent);
   content: "";
-}
-
-.react-execution-timeline__content[hidden] {
-  display: none;
 }
 
 .react-execution-timeline__item {
@@ -2212,113 +2175,8 @@
   font-weight: 500;
 }
 
-.react-execution-reasoning__trigger {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  width: 100%;
-  min-width: 0;
-  min-height: 34px;
-  align-items: center;
-  gap: 8px;
-  border: 0;
-  padding: 2px 0;
-  color: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-
-.react-execution-reasoning__trigger:hover {
+.react-execution-reasoning .react-timeline-activity__header:hover {
   color: var(--color-ink);
-}
-
-.react-execution-reasoning__trigger:focus-visible {
-  border-radius: 4px;
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-}
-
-.react-execution-reasoning__label {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-}
-
-.react-chat-disclosure-icon {
-  display: inline-grid;
-  flex: none;
-  width: 16px;
-  height: 16px;
-  place-items: center;
-  pointer-events: none;
-}
-
-.react-chat-disclosure-icon__symbol,
-.react-chat-disclosure-icon__chevron {
-  grid-area: 1 / 1;
-  width: 16px;
-  height: 16px;
-  transition: opacity var(--motion-duration-fast) var(--motion-ease-standard), transform var(--motion-duration-fast) var(--motion-ease-standard);
-}
-
-.react-chat-disclosure-icon__symbol {
-  display: inline-grid;
-  place-items: center;
-}
-
-.react-chat-disclosure-icon__symbol > svg {
-  display: block;
-  width: 16px;
-  height: 16px;
-}
-
-.react-chat-disclosure-icon__chevron {
-  opacity: 0;
-  transform: rotate(0deg);
-}
-
-.react-chat-disclosure-trigger:is(:focus-visible, [aria-expanded="true"]) .react-chat-disclosure-icon__symbol,
-details[open] > .react-chat-disclosure-trigger .react-chat-disclosure-icon__symbol {
-  opacity: 0;
-}
-
-.react-chat-disclosure-trigger:is(:focus-visible, [aria-expanded="true"]) .react-chat-disclosure-icon__chevron,
-details[open] > .react-chat-disclosure-trigger .react-chat-disclosure-icon__chevron {
-  opacity: 1;
-}
-
-.react-chat-disclosure-trigger[aria-expanded="true"] .react-chat-disclosure-icon__chevron,
-details[open] > .react-chat-disclosure-trigger .react-chat-disclosure-icon__chevron {
-  transform: rotate(180deg);
-}
-
-.react-chat-disclosure-trigger:focus-visible .react-chat-disclosure-icon > * {
-  transition: none;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .react-chat-disclosure-trigger:hover .react-chat-disclosure-icon__symbol {
-    opacity: 0;
-  }
-
-  .react-chat-disclosure-trigger:hover .react-chat-disclosure-icon__chevron {
-    opacity: 1;
-  }
-}
-
-@media (hover: none) {
-  .react-chat-disclosure-icon__symbol {
-    opacity: 0;
-  }
-
-  .react-chat-disclosure-icon__chevron {
-    opacity: 1;
-  }
-}
-
-.react-execution-reasoning__label .react-chat-disclosure-icon {
-  color: var(--color-muted-soft);
 }
 
 .react-execution-reasoning__preview {
@@ -2343,10 +2201,6 @@ details[open] > .react-chat-disclosure-trigger .react-chat-disclosure-icon__chev
   font-size: 12px;
   font-weight: 400;
   line-height: 1.6;
-}
-
-.react-execution-timeline__item > .react-agent-steps > .react-agent-steps__header {
-  display: none;
 }
 
 .react-execution-timeline__item > .react-agent-steps > .react-agent-steps__list {
@@ -2381,74 +2235,6 @@ details[open] > .react-chat-disclosure-trigger .react-chat-disclosure-icon__chev
   display: grid;
   min-width: 0;
   color: var(--color-ink);
-}
-
-.react-tool-activity__header {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 4px;
-  width: 100%;
-  min-width: 0;
-  min-height: 34px;
-  border: 0;
-  background: transparent;
-  padding: 2px 0;
-  color: var(--color-muted);
-  font: inherit;
-  text-align: left;
-  transition: background-color var(--motion-duration-fast) ease;
-}
-
-.react-tool-activity__header:is(button) {
-  cursor: pointer;
-}
-
-.react-tool-activity__header:is(button):hover {
-  background: color-mix(in srgb, var(--color-surface-soft) 42%, transparent);
-}
-
-.react-tool-activity__header:is(button):focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 1px;
-}
-
-.react-tool-activity__icon {
-  display: inline-grid;
-  place-items: center;
-  color: var(--color-muted-soft);
-}
-
-.react-tool-activity__icon svg {
-  width: 16px;
-  height: 16px;
-}
-
-.react-tool-activity__copy {
-  display: flex;
-  flex: 0 1 auto;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-}
-
-.react-tool-activity__copy strong,
-.react-tool-activity__copy small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.react-tool-activity__copy strong {
-  color: inherit;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.react-tool-activity__copy small {
-  color: var(--color-muted-soft);
-  font-size: 10px;
 }
 
 .react-tool-activity__status {
@@ -2507,10 +2293,6 @@ details[open] > .react-chat-disclosure-trigger .react-chat-disclosure-icon__chev
   display: grid;
   gap: 4px;
   padding: 0 0 6px 22px;
-}
-
-.react-tool-activity__details[hidden] {
-  display: none;
 }
 
 .react-tool-activity__preview,
@@ -2874,20 +2656,27 @@ details[open] > .react-chat-disclosure-trigger .react-chat-disclosure-icon__chev
   accent-color: var(--color-accent);
 }
 
-.react-canonical-plan__heading {
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) auto;
-  align-items: center;
+.react-canonical-plan > .react-timeline-activity__header {
   gap: 10px;
-  width: 100%;
-  border: 0;
+  min-height: 0;
   padding: 0;
   color: inherit;
-  text-align: left;
-  cursor: pointer;
 }
 
-.react-canonical-plan__heading span,
+.react-canonical-plan .react-timeline-activity__heading,
+.react-canonical-plan .react-timeline-activity__title {
+  flex: 1;
+}
+
+.react-canonical-plan .react-timeline-activity__title {
+  font-size: inherit;
+}
+
+.react-canonical-plan .react-timeline-activity__title strong {
+  font-weight: bold;
+}
+
+.react-canonical-plan .react-timeline-activity__meta,
 .react-canonical-plan__explanation {
   color: var(--color-muted);
   font-size: 12px;
@@ -4115,20 +3904,15 @@ details[open] > .react-chat-disclosure-trigger .react-chat-disclosure-icon__chev
   padding-block: 4px;
 }
 
-.react-canonical-step[data-kind="compaction"] summary {
-  display: flex;
+.react-canonical-step[data-kind="compaction"] .react-timeline-activity__header {
   min-height: 32px;
-  align-items: center;
   gap: 8px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
+  padding: 0;
   line-height: 1.45;
-  list-style: none;
 }
 
-.react-canonical-step[data-kind="compaction"] summary::-webkit-details-marker {
-  display: none;
+.react-canonical-step[data-kind="compaction"] .react-timeline-activity__title {
+  font-size: 14px;
 }
 
 .react-canonical-step p,
@@ -4711,10 +4495,6 @@ details[open] > .react-chat-disclosure-trigger .react-chat-disclosure-icon__chev
 }
 
 @media (prefers-reduced-motion: reduce) {
-
-  .react-chat-disclosure-icon > * {
-    transition: none;
-  }
 
   .react-agent-step-item[aria-current="step"] .react-agent-step-item__marker,
 .react-message-markdown [data-sd-animate],

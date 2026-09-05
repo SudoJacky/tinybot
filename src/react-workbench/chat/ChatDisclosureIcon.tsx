@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
+import "./ChatDisclosureIcon.css";
 
 export function ChatDisclosureIcon({ icon }: { icon: ReactNode }) {
   return (

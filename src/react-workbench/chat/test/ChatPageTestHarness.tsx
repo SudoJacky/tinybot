@@ -123,6 +123,8 @@ export function mountWorkbenchCss(): void {
 export function readWorkbenchCss(): string {
   return [
     "src/react-workbench/styles/workbench.css",
+    "src/react-workbench/chat/ChatDisclosureIcon.css",
+    "src/react-workbench/chat/TimelineActivity.css",
     "src/react-workbench/chat/ChatPage.css",
   ].map((path) => readFileSync(path, "utf8")).join("\n");
 }

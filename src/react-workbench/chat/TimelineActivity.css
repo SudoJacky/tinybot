@@ -1,0 +1,92 @@
+.react-timeline-activity {
+  display: grid;
+  min-width: 0;
+}
+
+.react-timeline-activity__header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  border: 0;
+  background: transparent;
+  padding: 2px 0;
+  color: var(--color-muted);
+  font: inherit;
+  text-align: left;
+  transition: background-color var(--motion-duration-fast) ease;
+}
+
+button.react-timeline-activity__header:hover {
+  background: color-mix(in srgb, var(--color-surface-soft) 42%, transparent);
+}
+
+button.react-timeline-activity__header:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.react-timeline-activity__icon {
+  display: inline-grid;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  color: var(--color-muted-soft);
+}
+
+.react-timeline-activity__icon > svg {
+  width: 16px;
+  height: 16px;
+}
+
+.react-timeline-activity__heading {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.react-timeline-activity__title,
+.react-timeline-activity__meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-timeline-activity__title {
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.react-timeline-activity__title strong {
+  font-weight: 600;
+}
+
+.react-timeline-activity__meta {
+  color: var(--color-muted-soft);
+  font-size: 12px;
+}
+
+.react-timeline-activity__meta small {
+  font-size: 10px;
+}
+
+.react-timeline-activity__preview {
+  flex: 1;
+  min-width: 0;
+  margin-left: 4px;
+  overflow: hidden;
+}
+
+.react-timeline-activity__content {
+  min-width: 0;
+}
+
+.react-timeline-activity__content[hidden],
+.react-timeline-activity__preview[hidden] {
+  display: none;
+}
