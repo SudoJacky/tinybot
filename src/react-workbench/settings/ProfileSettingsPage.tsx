@@ -1,5 +1,5 @@
 import { RefreshCw } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   DailyModelTokenUsage,
@@ -202,21 +202,19 @@ function TokenUsageContent({ locale, snapshot }: { locale: string; snapshot: Tok
         </dl>
       </section>
 
-      {filteredDays.length ? (
-        <section className="react-profile-charts" aria-label={t("profile.chartsLabel")}>
-          <DailyUsageChart
-            days={filteredDays}
-            endDate={snapshot.days[0]?.date}
-            formatCompactTokens={formatCompactTokens}
-            locale={locale}
-          />
-          <ModelUsageChart
-            formatCompactTokens={formatCompactTokens}
-            modelTotals={modelTotals}
-            unknownLabel={t("profile.unknown")}
-          />
-        </section>
-      ) : null}
+      <section className="react-profile-charts" aria-label={t("profile.chartsLabel")} hidden={!filteredDays.length}>
+        <DailyUsageChart
+          days={filteredDays}
+          endDate={snapshot.days[0]?.date}
+          formatCompactTokens={formatCompactTokens}
+          locale={locale}
+        />
+        <ModelUsageChart
+          formatCompactTokens={formatCompactTokens}
+          modelTotals={modelTotals}
+          unknownLabel={t("profile.unknown")}
+        />
+      </section>
 
       <section className="react-profile-models" aria-labelledby="profile-models-title">
         <header>
@@ -307,8 +305,10 @@ function DailyUsageChart({
   locale: string;
 }) {
   const { t } = useTranslation("settings");
-  const { figureRef, isRevealed, replay, replayKey } = useChartReveal();
   const series = fillRecentDays(days, endDate, 30);
+  const seriesKey = series.map((day) => `${day.date}:${day.totalTokens}`).join("|");
+  const { figureRef, revealState, replay, replayKey } = useChartReveal(seriesKey, days.length > 0);
+  if (!days.length) return null;
   const width = 640;
   const height = 250;
   const left = 24;
@@ -328,13 +328,12 @@ function DailyUsageChart({
     date: formatUsageDate(peak.date, locale),
     tokens: formatCompactTokens(peak.totalTokens),
   });
-  const seriesKey = series.map((day) => `${day.date}:${day.totalTokens}`).join("|");
 
   return (
     <figure
       aria-label={t("profile.replayChartLabel", { chart: chartLabel })}
       className="react-profile-chart-card"
-      data-reveal-state={isRevealed ? "revealed" : "pending"}
+      data-reveal-state={revealState}
       onClick={replay}
       onKeyDown={(event) => handleChartReplayKeyDown(event, replay)}
       ref={figureRef}
@@ -344,7 +343,7 @@ function DailyUsageChart({
       <figcaption>
         <h3>{t("profile.trendTitle", { date: formatUsageDate(peak.date, locale) })}</h3>
       </figcaption>
-      <svg aria-label={chartLabel} key={`${seriesKey}:${replayKey}`} role="img" viewBox={`0 0 ${width} ${height}`}>
+      <svg aria-label={chartLabel} key={replayKey} role="img" viewBox={`0 0 ${width} ${height}`}>
         <title>{chartLabel}</title>
         <desc>{t("profile.trendDescription")}</desc>
         {[0, 0.5, 1].map((ratio, gridIndex) => {
@@ -439,8 +438,11 @@ function ModelUsageChart({
   unknownLabel: string;
 }) {
   const { t } = useTranslation("settings");
-  const { figureRef, isRevealed, replay, replayKey } = useChartReveal();
   const rows = modelTotals.slice(0, 6);
+  const rowsKey = rows
+    .map((row) => `${modelUsageKey(row.providerId, row.modelId)}:${row.totalTokens}`)
+    .join("|");
+  const { figureRef, revealState, replay, replayKey } = useChartReveal(rowsKey, rows.length > 0);
   if (!rows.length) return null;
   const width = 640;
   const height = 64 + rows.length * 52;
@@ -455,15 +457,12 @@ function ModelUsageChart({
     model: topLabel,
     tokens: formatCompactTokens(top.totalTokens),
   });
-  const rowsKey = rows
-    .map((row) => `${modelUsageKey(row.providerId, row.modelId)}:${row.totalTokens}`)
-    .join("|");
 
   return (
     <figure
       aria-label={t("profile.replayChartLabel", { chart: chartLabel })}
       className="react-profile-chart-card"
-      data-reveal-state={isRevealed ? "revealed" : "pending"}
+      data-reveal-state={revealState}
       onClick={replay}
       onKeyDown={(event) => handleChartReplayKeyDown(event, replay)}
       ref={figureRef}
@@ -473,7 +472,7 @@ function ModelUsageChart({
       <figcaption>
         <h3>{t("profile.modelChartTitle", { model: topLabel })}</h3>
       </figcaption>
-      <svg aria-label={chartLabel} key={`${rowsKey}:${replayKey}`} role="img" viewBox={`0 0 ${width} ${height}`}>
+      <svg aria-label={chartLabel} key={replayKey} role="img" viewBox={`0 0 ${width} ${height}`}>
         <title>{chartLabel}</title>
         <desc>{t("profile.modelChartDescription", { unit: formatCompactTokens(unit) })}</desc>
         {rows.map((row, rowIndex) => {
@@ -554,33 +553,81 @@ function profileModelTone(rowIndex: number): string {
   return tones[Math.min(rowIndex, tones.length - 1)];
 }
 
-function useChartReveal() {
+type ChartReveal = {
+  signature: string | null;
+  phase: "pending" | "revealing" | "settled";
+  epoch: number;
+};
+
+function useChartReveal(signature: string, renderable: boolean) {
   const figureRef = useRef<HTMLElement | null>(null);
-  const [isRevealed, setIsRevealed] = useState(false);
-  const [replayKey, setReplayKey] = useState(0);
+  const currentSignature = renderable ? signature : null;
+  const [reveal, setReveal] = useState<ChartReveal>({ signature: currentSignature, phase: "pending", epoch: 0 });
+
+  // Adjust before committing new marks: a filter must never inherit an old reveal.
+  if (reveal.signature !== currentSignature) {
+    setReveal({
+      ...reveal,
+      signature: currentSignature,
+      phase: reveal.signature === null && reveal.phase === "pending" ? "pending" : "settled",
+    });
+  }
+
+  useLayoutEffect(() => {
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const settle = () => {
+      if (preference.matches) setReveal((current) => ({ ...current, phase: "settled" }));
+    };
+    settle();
+    preference.addEventListener("change", settle);
+    return () => preference.removeEventListener("change", settle);
+  }, []);
 
   useEffect(() => {
+    if (reveal.phase !== "pending" || !renderable) return;
     const figure = figureRef.current;
     if (!figure) return;
+    const startReveal = () => setReveal((current) => current === reveal
+      ? { ...current, phase: "revealing" }
+      : current);
     if (typeof IntersectionObserver === "undefined") {
-      setIsRevealed(true);
+      startReveal();
       return;
     }
 
     const observer = new IntersectionObserver(([entry]) => {
       if (!entry?.isIntersecting) return;
-      setIsRevealed(true);
+      startReveal();
       observer.disconnect();
     }, { threshold: 0.3 });
     observer.observe(figure);
     return () => observer.disconnect();
-  }, []);
+  }, [renderable, reveal]);
+
+  useLayoutEffect(() => {
+    if (reveal.phase !== "revealing") return;
+    const animations = figureRef.current?.getAnimations?.({ subtree: true }) ?? [];
+    let disposed = false;
+    const settle = () => {
+      if (!disposed) setReveal((current) => current === reveal ? { ...current, phase: "settled" } : current);
+    };
+    if (!animations.length) settle();
+    else void Promise.all(animations.map((animation) => animation.finished.catch((cause: unknown) => {
+      if (!(cause instanceof DOMException && cause.name === "AbortError")) throw cause;
+    }))).then(settle);
+    return () => { disposed = true; };
+  }, [reveal]);
 
   const replay = () => {
-    if (isRevealed) setReplayKey((value) => value + 1);
+    if (reveal.phase === "pending") return;
+    setReveal((current) => ({
+      ...current,
+      epoch: current.epoch + 1,
+      phase: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "settled" : "revealing",
+    }));
   };
 
-  return { figureRef, isRevealed, replay, replayKey };
+  return { figureRef, revealState: reveal.phase, replay, replayKey: reveal.epoch };
 }
 
 function handleChartReplayKeyDown(event: ReactKeyboardEvent<HTMLElement>, replay: () => void): void {

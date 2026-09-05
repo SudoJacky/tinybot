@@ -1,9 +1,14 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:fc05cfe397300c0cce07ffce81049a29f9319dd01b94f6ffa84f1749a9c49f5b -->
+<!-- tinybot-module-fingerprint: sha256:b934f412d4581224c76f8e6695afb4f0abfdda745cb08de2a700383b2eeab62d -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
 `ChatPage.tsx` is the route-level composition module.
+Its details drawer retains closing content through a reversible 220 ms
+opacity/transform transition using `lib/useExitPresence`. Closing immediately
+makes the drawer inert and restores trigger focus; reopening cancels pending
+removal. Thread changes clear incompatible details. Native Sidecar browser
+visibility remains suppressed until the details drawer has fully left.
 `ChatTimeline.tsx` owns the reusable canonical message and execution rendering;
 its action callbacks are optional so read-only consumers can omit unavailable
 branch, recovery, artifact, delegate, and tool-detail controls.
@@ -216,6 +221,11 @@ filters session title, ID, and working-directory fields while preserving
 matching workspace and project context. Closing with its button or Escape
 clears the query, restores the full hierarchy, and returns focus to the search
 trigger.
+
+The first nonempty sidebar render may reveal at most three session rows with
+0/30/60 ms delays and the shared 220 ms entrance. Search, row focus, selection,
+reorder and refreshed grouping settle that one-shot entrance immediately;
+clearing a search never replays it. Reduced motion keeps rows fully visible.
 
 The expanded session sidebar keeps a renderer-local, versioned user order for
 its top-level workspace/project blocks, each project's member workspaces, and

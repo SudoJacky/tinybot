@@ -1,5 +1,5 @@
 # Workbench Styles
-<!-- tinybot-module-fingerprint: sha256:c9f8cb6375b0777d081b74559b3fdf921dff5f68730d4e630c98448528e3d41e -->
+<!-- tinybot-module-fingerprint: sha256:e87004cb50263baff9b358f7c530b6ee0ea481c7fd8b2c28cfed51debe537791 -->
 
 `styles` contains the always-loaded design tokens, reset rules, accessibility
 defaults, shared primitives, and desktop-shell styles.
@@ -31,6 +31,9 @@ The desktop session sidebar uses workspace headers and complete session rows as
 drag sources, with a grab cursor and high-contrast insertion line but no
 separate grip control. Dragging lowers the source opacity while keeping its
 footprint stable; reduced-motion mode retains these static state cues.
+Session-row entrance styles apply only to the workspace's explicitly eligible
+initial rows, with a bounded 30 ms stagger. Ordinary search/navigation never
+inherits an entrance animation from the list container.
 Its search action expands from the compact icon into a full-width inline input;
 focus-within styling keeps the active boundary visible and reduced-motion mode
 shortens the reveal through the shared global motion rule.

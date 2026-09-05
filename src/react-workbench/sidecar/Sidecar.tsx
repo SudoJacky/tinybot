@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -21,6 +22,7 @@ import {
   type ReactNode,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { elementTransitions, useExitPresence } from "../lib/useExitPresence";
 import {
   maxSidecarWidthForWorkspace,
   MIN_SIDECAR_WIDTH,
@@ -34,6 +36,7 @@ import {
 import "./Sidecar.css";
 
 export type SidecarProps = {
+  scopeKey: string;
   activeTabId: string;
   canCreateBrowser: boolean;
   canCreateTerminal: boolean;
@@ -53,6 +56,7 @@ export type SidecarProps = {
 };
 
 export function Sidecar({
+  scopeKey,
   activeTabId,
   canCreateBrowser,
   canCreateTerminal,
@@ -85,6 +89,18 @@ export function Sidecar({
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
   const hidden = presentation === "closed";
   const expanded = presentation === "expanded";
+  const [visiblePresentation, setVisiblePresentation] = useState(presentation);
+  if (!hidden && visiblePresentation !== presentation) setVisiblePresentation(presentation);
+  const readExitTransitions = useCallback(() => [
+    ...elementTransitions(sidecarRef.current, ["transform"]),
+    ...elementTransitions(sidecarRef.current?.parentElement ?? null, ["grid-template-columns"]),
+  ], []);
+  const presentTabId = useExitPresence(
+    hidden ? null : activeTabId,
+    JSON.stringify([scopeKey, activeTabId]),
+    readExitTransitions,
+  );
+  const contentPresent = presentTabId !== null;
 
   useEffect(() => {
     setNewTabMenuOpen(false);
@@ -244,7 +260,7 @@ export function Sidecar({
       aria-label={hidden ? undefined : t("sidecar.label")}
       className="react-sidecar"
       data-hidden={hidden}
-      data-presentation={presentation}
+      data-presentation={hidden && contentPresent ? visiblePresentation : presentation}
       inert={hidden || undefined}
       ref={sidecarRef}
       style={{ "--react-sidecar-width": `${width}px` } as CSSProperties}
@@ -381,12 +397,12 @@ export function Sidecar({
         id="tinybot-sidecar-panel"
         role="tabpanel"
       >
-        {!hidden && activeTab?.kind === "browser" ? renderBrowser(activeTab, !newTabMenuOpen) : null}
-        {!hidden && activeTab?.kind === "terminal" ? renderTerminal(activeTab) : null}
-        {!hidden && activeTab?.kind === "artifact" ? (
+        {contentPresent && activeTab?.kind === "browser" ? renderBrowser(activeTab, !hidden && !newTabMenuOpen) : null}
+        {contentPresent && activeTab?.kind === "terminal" ? renderTerminal(activeTab) : null}
+        {contentPresent && activeTab?.kind === "artifact" ? (
           <div className="react-sidecar__artifact">{renderArtifact(activeTab)}</div>
         ) : null}
-        {!hidden && !activeTab ? (
+        {contentPresent && !activeTab ? (
           <SidecarEmptyState
             canCreateBrowser={canCreateBrowser}
             canCreateTerminal={canCreateTerminal}

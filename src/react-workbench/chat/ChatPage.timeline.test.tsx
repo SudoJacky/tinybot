@@ -317,6 +317,34 @@ describe("ChatPage", () => {
     expect(drawer.textContent).toContain("file contents");
   });
 
+  it("keeps closing details until exit finishes and restores focus without stale removal", async () => {
+    const user = userEvent.setup();
+    const stores = createStores();
+    render(<ChatPage chatStore={stores.chatStore} now={() => Date.UTC(2026, 6, 4, 12, 0, 0)} sessionStore={stores.sessionStore} />);
+    await user.click(await screen.findByRole("button", { name: /Agent steps, 1 step/i }));
+    const trigger = await screen.findByRole("button", { name: "Open details for shell" });
+    await user.click(trigger);
+    const drawer = screen.getByLabelText("Details drawer");
+    let finish!: () => void;
+    const animation = {
+      transitionProperty: "opacity",
+      playState: "running",
+      finished: new Promise<void>((resolve) => { finish = resolve; }),
+    };
+    Object.defineProperty(drawer, "getAnimations", { value: () => [animation] });
+    await user.click(within(drawer).getByRole("button", { name: "Close details drawer" }));
+    expect(drawer.dataset.state).toBe("closing");
+    expect(drawer.hasAttribute("inert")).toBe(true);
+    expect(drawer.textContent).toContain("Done");
+    expect(document.activeElement).toBe(trigger);
+    await user.click(trigger);
+    await act(async () => { animation.playState = "finished"; finish(); });
+    expect(screen.getByLabelText("Details drawer")).toBe(drawer);
+    expect(drawer.dataset.state).toBe("open");
+    await user.click(within(drawer).getByRole("button", { name: "Close details drawer" }));
+    expect(screen.queryByLabelText("Details drawer")).toBeNull();
+  });
+
   it("submits active agent-ui forms from the chat page", async () => {
     const user = userEvent.setup();
     const stores = createStores();

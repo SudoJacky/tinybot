@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:a1b042ca7225c1f2789c1138b4be3d9f786fa026425d357880f3ddd317b74f9e -->
+<!-- tinybot-module-fingerprint: sha256:394bd3547d2de50a20c7c74deac1afa2d1d72f95b1523acc1ce12e5c74ee82c3 -->
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
 thread-scoped Browser and Artifact resources, workspace-scoped Terminal
@@ -38,9 +38,17 @@ resize handle. Width is persisted separately from resource state. The live and
 restored width is clamped against the measured Chat workspace: docked mode
 preserves the minimum Chat column, while narrow overlay mode preserves a
 viewport gutter.
+Direct pointer, keyboard and viewport-clamp width updates are immediate; the
+ephemeral reducer `layoutMotion` policy restores the 220 ms grid transition
+when presentation changes. Only numeric width is persisted.
 The shell stays mounted but inert while hidden so its layout can transition in
-either direction; active resource surfaces still unmount immediately and keep
-their existing native lifecycle boundaries.
+either direction. React content remains until its grid/overlay exit finishes;
+the shell also keeps its last visible presentation during that exit so an
+expanded panel does not snap back to docked width on close.
+Reopening invalidates pending removal, and changing owner scope or active tab
+discards incompatible retained content. Browser native visibility becomes false
+immediately on logical close, independently of retained React chrome. Hiding
+does not terminate browser or terminal resources.
 The resource menu reuses the global popover surface and item interaction states;
 Sidecar CSS retains only its anchored placement and two-line resource layout.
 

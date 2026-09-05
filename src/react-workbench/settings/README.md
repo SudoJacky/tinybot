@@ -1,5 +1,5 @@
 # Settings Workbench
-<!-- tinybot-module-fingerprint: sha256:fe1677e95ba478dc61569783060a19f375fc9d9d8d8b9c44bcbf6079caa30e12 -->
+<!-- tinybot-module-fingerprint: sha256:1489ce295e40329d050cd827c307bfc1b87e60a04c1107cade316a4d2cd1ec20 -->
 
 `settings` owns the Settings route, its navigation, pages, sheets, appearance
 and language contexts, and form presentation. `SettingsRoute.tsx` is loaded as
@@ -37,6 +37,10 @@ views: the daily trend separates ordinary and peak values, while model rank
 moves through one blue luminance scale without relying on color alone. Charts
 reveal when they enter the viewport and replay when clicked or activated from
 the keyboard, while reduced-motion preferences render them without animation.
+Filtering or updating chart data settles geometry and labels immediately;
+SVG identity is tied only to explicit replay, so added model rows cannot replay
+an old entrance. Empty results preserve the chart's reveal history. Animation
+completion is scoped to the active run and cannot settle a later replay.
 
 `HooksSettingsPage` is backed by the separate optional Hooks store because its
 catalog and trust file are not ordinary config patches. It can inspect another
@@ -72,6 +76,10 @@ reuse its trigger, popover, selected state, keyboard navigation, and co-located
 stylesheet instead of rendering platform-native select menus. App-language
 choices keep their names and descriptions in each target language so they remain
 discoverable regardless of the currently selected interface language.
+Each choice menu owns the input source for its opening event, independently of
+shell-menu history. Pointer openings use the shared 160 ms anchored transition;
+keyboard openings are immediate. Reduced motion keeps only a 140 ms pointer
+fade, with keyboard behavior still immediate.
 The Agent Defaults time-zone choice lists runtime-supported IANA zones and
 starts from the Windows/system zone reported through `Intl`; Provider fallback
 and temperature remain owned by Provider/model configuration rather than being

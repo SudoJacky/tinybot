@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import { cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { pickDesktopWorkspaceDirectory } from "../../app-core/native/desktopNativeWorkspacePicker";
 import type { ProjectGroupStore, SessionSummary, WorkspaceRegistryStore } from "../services";
@@ -20,6 +20,94 @@ afterEach(() => {
 });
 
 describe("ChatSessionWorkspace", () => {
+  test("bounds first content entrance to three rows across groups and consumes each animation", () => {
+    renderWorkspace({ sessions: manySessions() });
+    const rows = screen.getByLabelText("Session list rows");
+    const entering = Array.from(rows.querySelectorAll<HTMLElement>("[data-entering='true']"));
+    expect(rows.querySelectorAll(".react-session-row")).toHaveLength(60);
+    expect(entering).toHaveLength(3);
+    expect(entering.map((row) => row.style.getPropertyValue("--react-session-row-index")))
+      .toEqual(["0", "1", "2"]);
+    expect(entering.map((row) => row.closest("[role='group']")?.getAttribute("aria-label")))
+      .toEqual(["Workspace group-0", "Workspace group-1", "Workspace group-2"]);
+
+    fireEvent.animationEnd(entering[0], { animationName: "unrelated-animation" });
+    fireEvent.animationEnd(entering[0].querySelector("button")!, { animationName: "react-list-enter" });
+    expect(rows.querySelectorAll("[data-entering='true']")).toHaveLength(3);
+    for (const row of entering) {
+      fireEvent.animationEnd(row, { animationName: "react-list-enter" });
+    }
+    expect(rows.querySelectorAll("[data-entering='true']")).toHaveLength(0);
+  });
+
+  test("settles an unfinished entrance when searching and never replays on clearing search", () => {
+    renderWorkspace({ sessions: manySessions() });
+    const rows = screen.getByLabelText("Session list rows");
+    expect(rows.querySelectorAll("[data-entering='true']")).toHaveLength(3);
+    fireEvent.click(screen.getByRole("button", { name: /search chats/i }));
+    const input = screen.getByRole("textbox", { name: "Search chats" });
+    fireEvent.change(input, { target: { value: "Session 59" } });
+    expect(screen.getByRole("button", { name: "Session 59" })).toBeTruthy();
+    expect(rows.querySelectorAll(".react-session-row")).toHaveLength(1);
+    expect(rows.querySelectorAll("[data-entering='true']")).toHaveLength(0);
+    fireEvent.change(input, { target: { value: "" } });
+    expect(rows.querySelectorAll(".react-session-row")).toHaveLength(60);
+    expect(rows.querySelectorAll("[data-entering='true']")).toHaveLength(0);
+  });
+
+  test("waits for the first nonempty session batch without rearming on later refreshes", async () => {
+    const view = renderWorkspace({ sessions: [] });
+    await act(async () => undefined);
+    expect(document.querySelectorAll("[data-entering='true']")).toHaveLength(0);
+    view.rerenderSessions(manySessions());
+    expect(document.querySelectorAll("[data-entering='true']")).toHaveLength(3);
+    view.rerenderSessions(manySessions());
+    expect(document.querySelectorAll("[data-entering='true']")).toHaveLength(0);
+  });
+
+  test("selection settles the batch even if the parent keeps the same active session", () => {
+    const actions = createActions();
+    const sessions = manySessions();
+    renderWorkspace({ actions, sessions });
+    fireEvent.click(screen.getByRole("button", { name: "Session 0" }));
+    expect(actions.onSelectSession).toHaveBeenCalledWith(sessions[0]);
+    expect(document.querySelectorAll("[data-entering='true']")).toHaveLength(0);
+  });
+
+  test("data refresh and workspace reorder keep all rows immediately available", () => {
+    const sessions = manySessions();
+    const view = renderWorkspace({ sessions });
+    expect(document.querySelectorAll("[data-entering='true']")).toHaveLength(3);
+    view.rerenderSessions([...sessions]);
+    expect(document.querySelectorAll("[data-entering='true']")).toHaveLength(0);
+    const firstGroup = screen.getByRole("group", { name: "Workspace group-0" });
+    fireEvent.keyDown(firstGroup.querySelector("summary")!, { altKey: true, key: "ArrowDown" });
+    expect(sidebarGroupLabels(screen.getByLabelText("Session list rows")).slice(0, 2))
+      .toEqual(["Workspace group-1", "Workspace group-0"]);
+    expect(document.querySelectorAll(".react-session-row")).toHaveLength(60);
+    expect(document.querySelectorAll("[data-entering='true']")).toHaveLength(0);
+  });
+
+  test.each([true, false])("reduced motion consumes entrance eligibility (initially %s)", (initiallyReduced) => {
+    const preference = Object.assign(new EventTarget(), { matches: initiallyReduced });
+    const originalMatchMedia = window.matchMedia.bind(window);
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => query === "(prefers-reduced-motion: reduce)"
+      ? preference as unknown as MediaQueryList
+      : originalMatchMedia(query));
+    renderWorkspace({ sessions: manySessions() });
+    expect(document.querySelectorAll("[data-entering='true']")).toHaveLength(initiallyReduced ? 0 : 3);
+    act(() => {
+      preference.matches = true;
+      preference.dispatchEvent(new Event("change"));
+    });
+    expect(document.querySelectorAll("[data-entering='true']")).toHaveLength(0);
+    act(() => {
+      preference.matches = false;
+      preference.dispatchEvent(new Event("change"));
+    });
+    expect(document.querySelectorAll("[data-entering='true']")).toHaveLength(0);
+  });
+
   test("owns sidebar selection and inline search lifecycle behind one actions interface", () => {
     const actions = createActions();
     const session = planningSession();
@@ -220,11 +308,13 @@ describe("ChatSessionWorkspace", () => {
     });
     const workspace = screen.getByRole("group", { name: "Workspace tinybot" });
     const row = within(workspace).getByRole("button", { name: "Planning notes" });
+    expect(document.querySelectorAll("[data-entering='true']")).toHaveLength(2);
 
     fireEvent.keyDown(row, { altKey: true, key: "ArrowDown" });
 
     expect(sessionTitles(workspace)).toEqual(["Knowledge review", "Planning notes"]);
     expect(screen.getByText("Moved Planning notes after Knowledge review.")).toBeTruthy();
+    expect(document.querySelectorAll("[data-entering='true']")).toHaveLength(0);
   });
 
   test("registers a picked workspace before creating its first session", async () => {
@@ -330,7 +420,7 @@ function renderWorkspace({
   sessions?: SessionSummary[];
   workspaceRegistryStore?: WorkspaceRegistryStore;
 } = {}) {
-  return render(
+  const workspace = (nextSessions: SessionSummary[]) => (
     <ChatSessionWorkspace
       actions={actions}
       activeSessionId="session-1"
@@ -341,12 +431,24 @@ function renderWorkspace({
       error=""
       now={() => Date.UTC(2026, 7, 15)}
       projectGroupStore={projectGroupStore}
-      sessions={sessions}
+      sessions={nextSessions}
       workspaceRegistryStore={workspaceRegistryStore}
     >
       <main>Conversation surface</main>
-    </ChatSessionWorkspace>,
+    </ChatSessionWorkspace>
   );
+  const view = render(workspace(sessions));
+  return { ...view, rerenderSessions: (nextSessions: SessionSummary[]) => view.rerender(workspace(nextSessions)) };
+}
+
+function manySessions(): SessionSummary[] {
+  return Array.from({ length: 60 }, (_, index) => ({
+    ...planningSession(),
+    id: `session-${index}`,
+    title: `Session ${index}`,
+    workingDirectory: `D:\\Code\\group-${index}`,
+    updatedAtMs: 60 - index,
+  }));
 }
 
 function createWorkspaceRegistryStore(sessions: SessionSummary[]): WorkspaceRegistryStore {

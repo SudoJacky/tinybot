@@ -46,6 +46,7 @@ export type SidecarState = {
   currentWorkspaceId: string;
   nextResourceSequence: number;
   presentation: SidecarPresentation;
+  layoutMotion: "animated" | "instant";
   tabs: SidecarTab[];
   width: number;
 };
@@ -75,12 +76,21 @@ export function createInitialSidecarState(width = DEFAULT_SIDECAR_WIDTH): Sideca
     currentWorkspaceId: "",
     nextResourceSequence: 1,
     presentation: "closed",
+    layoutMotion: "animated",
     tabs: [],
     width: clampSidecarWidth(width, Number.POSITIVE_INFINITY),
   };
 }
 
 export function reduceSidecarState(state: SidecarState, event: SidecarEvent): SidecarState {
+  const next = reduceSidecarEvent(state, event);
+  const layoutMotion = next.presentation !== state.presentation
+    ? "animated"
+    : event.type === "presentation.resize" ? "instant" : state.layoutMotion;
+  return next.layoutMotion === layoutMotion ? next : { ...next, layoutMotion };
+}
+
+function reduceSidecarEvent(state: SidecarState, event: SidecarEvent): SidecarState {
   switch (event.type) {
     case "scope.changed": {
       const scoped = {

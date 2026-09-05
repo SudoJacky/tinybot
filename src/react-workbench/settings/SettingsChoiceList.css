@@ -122,6 +122,7 @@
 }
 
 .react-settings-choice-popover {
+  position: absolute;
   top: calc(100% + 8px);
   right: 0;
   left: 0;
@@ -129,6 +130,37 @@
   width: auto;
   max-height: 260px;
   overflow: auto;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transform-origin: top left;
+  transition:
+    opacity var(--motion-duration-fast) var(--motion-ease-standard),
+    transform var(--motion-duration-fast) var(--motion-ease-standard);
+}
+
+@starting-style {
+  .react-settings-choice-popover[data-input-source="pointer"] {
+    opacity: 0;
+    transform: translateY(-4px) scale(.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-settings-choice-popover {
+    transform: none;
+    transition: opacity 140ms var(--motion-ease-standard);
+  }
+
+  @starting-style {
+    .react-settings-choice-popover[data-input-source="pointer"] {
+      transform: none;
+    }
+  }
+}
+
+.react-settings-choice-popover[data-input-source="keyboard"] {
+  transform: none;
+  transition: none;
 }
 
 .react-settings-choice-item {

@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:77f115bb05d68c8bdd903e0278a82913f78b127b5e2d5a0516b5c416fe2add27 -->
+<!-- tinybot-doc-fingerprint: sha256:8426ee6d08b416f7c062432a571d449ad1b47e361a94af8d1e13d0fcfac90dc2 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -164,6 +164,10 @@ Desktop Commands / Desktop Host
 - Sidecar Terminal process ownership: the dedicated desktop terminal runtime;
   Agent shell processes remain owned by the Agent runtime's independent shell
   registry.
+- Panel exit animation is renderer-only presentation. Closing disables input
+  and hides native browser surfaces immediately; retained React content may
+  finish its CSS transition without extending native resource ownership or
+  adding persistent animation state.
 - Desktop process residency: the Rust desktop host owns the system tray and
   main-window lifecycle. Closing `main` hides that window while the Native
   Runtime and auxiliary pet windows remain active; only the explicit tray exit

@@ -22,6 +22,27 @@ function scopedState(threadId = "thread-1", workspaceId = "D:/code/tinybot") {
 }
 
 describe("sidecar resource tabs", () => {
+  it("applies direct resize immediately and restores motion only for presentation changes", () => {
+    let state = reduceSidecarState(scopedState(), { type: "tab.newTerminal" });
+    for (const width of [504, 700, 999, 999]) {
+      state = reduceSidecarState(state, { type: "presentation.resize", width, maxWidth: 720 });
+      expect(state.layoutMotion).toBe("instant");
+      expect(state.width).toBe(Math.min(width, 720));
+    }
+    state = reduceSidecarState(state, { type: "tab.activate", tabId: state.activeTabId });
+    expect(state.layoutMotion).toBe("instant");
+    for (const type of ["presentation.hide", "presentation.show", "presentation.toggleExpanded"] as const) {
+      state = reduceSidecarState(state, { type });
+      expect(state.layoutMotion).toBe("animated");
+      state = reduceSidecarState(state, { type: "presentation.resize", width: 480, maxWidth: 720 });
+    }
+    state = reduceSidecarState(state, { type: "presentation.hide" });
+    state = reduceSidecarState(state, { type: "presentation.resize", width: 480, maxWidth: 720 });
+    state = reduceSidecarState(state, { type: "tab.newBrowser" });
+    expect(state.layoutMotion).toBe("animated");
+    expect(state.presentation).toBe("docked");
+  });
+
   it("creates browser and terminal resources in the current scope", () => {
     let state = scopedState();
     state = reduceSidecarState(state, { type: "tab.newBrowser" });

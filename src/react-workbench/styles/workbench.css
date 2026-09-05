@@ -1623,9 +1623,9 @@ button:disabled {
   bottom: -3px;
 }
 
-.react-session-list__rows[data-motion="animated-list"] .react-session-row {
+.react-session-row[data-entering="true"] {
   animation: react-list-enter var(--motion-duration-medium) var(--motion-ease-standard) both;
-  animation-delay: calc(var(--react-session-row-index, 0) * 22ms);
+  animation-delay: calc(var(--react-session-row-index, 0) * 30ms);
 }
 
 .react-session-row[data-active="true"],
@@ -1722,7 +1722,6 @@ button:disabled {
   color: var(--color-error);
 }
 
-.react-session-list__rows[data-motion="animated-list"] .react-session-row[data-dissolving="true"],
 .react-session-row[data-dissolving="true"] {
   pointer-events: none;
   opacity: 0;
@@ -2101,7 +2100,7 @@ button:disabled {
     scroll-behavior: auto !important;
   }
 
-  .react-session-list__rows[data-motion="animated-list"] .react-session-row {
+  .react-session-row[data-entering="true"] {
     opacity: 1;
     transform: none;
     animation: none !important;
