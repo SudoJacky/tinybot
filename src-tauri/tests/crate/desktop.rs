@@ -270,6 +270,20 @@ fn diagnostic_bundle_contains_bounded_sanitized_issue_evidence() {
             "diagnosticModeEnabled": true,
             "locale": "zh-CN",
             "timeZone": "Asia/Singapore",
+            "rendererPerformance": {
+                "schemaVersion": "tinybot.renderer_performance.v1",
+                "instanceId": "main:1000",
+                "surface": "main",
+                "timeOriginUnixMs": 1000,
+                "sampledAtUnixMs": 2000,
+                "observationStartedAtMs": 10,
+                "visibility": "visible",
+                "support": {"longtask": "available"},
+                "errors": [],
+                "streams": {},
+                "navigation": null,
+                "jsHeap": null
+            },
             "rendererLogs": [{
                 "schemaVersion": "tinybot.renderer_log.v1",
                 "at": "2026-08-16T01:02:03.000Z",
@@ -341,6 +355,18 @@ fn diagnostic_bundle_contains_bounded_sanitized_issue_evidence() {
     assert!(!renderer_logs.to_string().contains("renderer-must-not-leak"));
 
     let performance = read_zip_json(&mut archive, "performance-trace.json");
+    assert_eq!(
+        performance["rendererPerformance"]["instanceId"],
+        "main:1000"
+    );
+    assert_eq!(
+        performance["memorySamples"][0]["totalPrivateBytes"],
+        201326592
+    );
+    assert_eq!(
+        performance["environment"]["appVersion"],
+        env!("CARGO_PKG_VERSION")
+    );
     assert_eq!(performance["metrics"]["counters"]["tool.calls"], 2);
     assert_eq!(
         performance["memory"]["schemaVersion"],

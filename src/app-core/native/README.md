@@ -1,10 +1,19 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:66917d651aa35c1dd5f9df9b92de727e58b0c99cb115f5c5c3007dafb3e76195 -->
+<!-- tinybot-module-fingerprint: sha256:10632720babd9ab05bdd551e70cd845a6098ceadf134ed93b97094fc4a442aac -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
 Workspace, Browser, Terminal, Settings, Plugins, Memory, or Performance Trace
 snapshots.
+
+`rendererPerformance` installs one bounded observer set at the entry module for
+resources, long tasks, paint and slow interaction events. Each stream retains
+120 samples plus lifetime aggregates and eviction counts. Export includes page
+identity, time origin, navigation milestones, capability/error status and an
+optional browser heap estimate. Resource URLs are reduced to bundled asset
+names or origin categories, without query strings or workspace paths. Slow
+event samples use a 40 ms threshold and are not an INP calculation. Observations
+belong to the exporting page and are included in JSON snapshots and local ZIPs.
 
 `desktopNativeFilePicker` preserves the optional content hash returned for a
 managed image. The native backend owns content detection and storage; the

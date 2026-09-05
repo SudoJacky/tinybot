@@ -1,5 +1,5 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:bfa2d484a7739e5e3d7a3bfb2a133c2fe577c320db43c0008e6e6c9ca02e8f99 -->
+<!-- tinybot-module-fingerprint: sha256:934b3f7bf22d8ab1a6d27c8cc7720e6b494b6fb4ae27e567d127ae59f4a736e1 -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
@@ -69,6 +69,14 @@ mark the snapshot partial; unavailable totals are not replaced with zero. The
 memory-only command supports explicit frontend sampling without repeatedly
 loading the full metrics and event snapshot. Other platforms return an
 explicit unsupported snapshot.
+
+Each memory sample includes window visibility/focus and collection duration.
+Window labels on process entries identify shared environment queries; they do
+not assign exclusive renderer ownership. Performance snapshots include app
+version, build mode, OS/architecture and native PID. The native startup clock is
+recorded before desktop state initialization. Local diagnostic ZIPs embed the
+exporting page's bounded renderer observations and memory series alongside the
+native snapshot, so their separate capture timestamps remain inspectable.
 
 `bootstrap` records process-local duration aggregates for browser runtime
 creation, menu installation, auxiliary windows, default files, bundled

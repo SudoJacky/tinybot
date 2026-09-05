@@ -106,7 +106,7 @@ export default function PerformanceTraceRoute({ services }: { services: AppServi
   const startMemoryRecording = () => {
     if (state.status !== "ready") return;
     setMemoryError(null);
-    setMemorySamples([state.snapshot.memory]);
+    setMemorySamples([]);
     setMemoryRecording(true);
   };
 
@@ -117,13 +117,13 @@ export default function PerformanceTraceRoute({ services }: { services: AppServi
     setBundleResult(null);
     setSnapshotExporting(true);
     try {
+      const currentSnapshot = await performanceStore.load();
       const result = await performanceStore.exportSnapshot(memorySamples.length
         ? {
-            ...state.snapshot,
-            memory: memorySamples[memorySamples.length - 1],
+            ...currentSnapshot,
             memorySamples,
           }
-        : state.snapshot);
+        : currentSnapshot);
       if (result) {
         setSnapshotResult(result);
         logRendererEvent("info", "performance_trace.snapshot.exported");
@@ -309,6 +309,27 @@ function TraceSnapshot({
           <SummaryCard label={t("performanceTrace.recentEvents")} value={events.length} />
         </div>
       </section>
+
+      {(snapshot.rendererPerformance || snapshot.metrics.recentDurations) && (
+        <section aria-labelledby="performance-details-title" className="react-performance-trace-section">
+          <SectionHeading
+            id="performance-details-title"
+            title={t("performanceTrace.detailedRecords")}
+            description={t("performanceTrace.detailedRecordsDescription")}
+          />
+          <details>
+            <summary>{t("performanceTrace.inspectDetailedRecords")}</summary>
+            <pre>{JSON.stringify({
+              environment: snapshot.environment,
+              nativeStartedAtUnixMs: snapshot.metrics.gauges["desktop.process.startedAtUnixMs"],
+              recentDurations: snapshot.metrics.recentDurations,
+              droppedDurationSamples: snapshot.metrics.droppedDurationSamples,
+              rendererPerformance: snapshot.rendererPerformance,
+              windows: snapshot.memory.windows,
+            }, null, 2)}</pre>
+          </details>
+        </section>
+      )}
 
       <MemorySnapshotSection
         error={memoryError}

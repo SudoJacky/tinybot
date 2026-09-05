@@ -93,6 +93,9 @@ struct RendererLogInput {
 }
 
 pub(crate) fn run() {
+    let process_started_at = chrono::Utc::now().timestamp_millis();
+    crate::runtime::observability::global_agent_runtime_metrics()
+        .set_gauge("desktop.process.startedAtUnixMs", process_started_at);
     let runtime_state = Arc::new(Mutex::new(NativeRuntimeState::default()));
     let update_state = super::update::new_shared_desktop_update_state(env!("CARGO_PKG_VERSION"));
     let exit_state = runtime_state.clone();

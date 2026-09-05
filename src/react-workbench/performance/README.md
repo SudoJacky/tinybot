@@ -1,5 +1,5 @@
 # Performance Trace Route
-<!-- tinybot-module-fingerprint: sha256:3eae7f56bb6686257323a1164e84fb487b0e2a0c799b5b8fcdc0c25b0e5c1733 -->
+<!-- tinybot-module-fingerprint: sha256:84e2bf0714b22f6b55fd6c689228a3aaaaecaa800368e759e0041069eb23fc24 -->
 
 `performance` owns the System > Performance Trace surface. It loads one
 versioned, process-local snapshot through `AppServices.performanceStore` and
@@ -14,12 +14,19 @@ registration, and session restoration can be compared on the same page.
 Refresh remains user-driven. Memory recording is a separate explicit control;
 while enabled it calls the memory-only command every two seconds, retains at
 most 300 samples, and stops visibly on the first collection failure. This keeps
-the default page observer-free while still allowing a bounded trend capture.
-The JSON action saves exactly the currently displayed snapshot through the
+memory sampling opt-in while entry-level browser timing observers remain bounded.
+The JSON action refreshes the native/renderer snapshot at export time through the
 native desktop file dialog and reports the selected path after the write
 completes. A separate diagnostic-bundle action delegates to the native exporter
 through the route-facing store method, while the default service supplies the
 optional memory samples, renderer ring, and device locale metadata.
+
+The detailed-records disclosure exposes native timing samples and eviction
+counts, build/process metadata, page identity/time origin, renderer collection
+support and window visibility/focus. Resource and slow-event observers retain
+bounded samples for the exporting page. Shared WebView2 environment labels are
+explicitly distinguished from exclusive process ownership. Memory recording
+starts with a fresh sample instead of seeding a potentially stale page snapshot.
 
 The route also owns the explicit diagnostic-mode toggle. Enabling it persists
 renderer debug and info events in addition to the default warning and error

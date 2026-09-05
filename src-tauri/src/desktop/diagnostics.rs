@@ -110,6 +110,13 @@ fn desktop_performance_snapshot_value(
     serde_json::json!({
         "schemaVersion": "tinybot.performance_trace.v1",
         "generatedAtUnixMs": now_unix_ms(),
+        "environment": {
+            "appVersion": env!("CARGO_PKG_VERSION"),
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+            "pid": std::process::id(),
+            "buildMode": if cfg!(debug_assertions) { "debug" } else { "release" },
+        },
         "metrics": metrics.snapshot(),
         "memory": memory,
         "recentEvents": recent_events,
@@ -141,11 +148,35 @@ fn export_diagnostic_bundle(
     };
     let renderer_logs = normalize_renderer_logs(input.renderer_logs)?;
     let memory_samples = normalize_memory_samples(input.memory_samples)?;
+    let mut performance_snapshot = desktop_performance_snapshot_value(shared, metrics, memory);
+    if let Some(renderer_performance) = input.renderer_performance {
+        if renderer_performance.schema_version != "tinybot.renderer_performance.v1" {
+            return Err("unsupported renderer performance schema".to_string());
+        }
+        if renderer_performance.streams.len() > 4
+            || renderer_performance
+                .streams
+                .values()
+                .any(|stream| stream.samples.len() > 120)
+        {
+            return Err("renderer performance exceeds stream/sample limits".to_string());
+        }
+        if serde_json::to_vec(&renderer_performance)
+            .map_err(|error| error.to_string())?
+            .len()
+            > 256 * 1024
+        {
+            return Err("renderer performance snapshot exceeds 256 KiB".to_string());
+        }
+        performance_snapshot["rendererPerformance"] =
+            serde_json::to_value(renderer_performance).map_err(|error| error.to_string())?;
+    }
+    if !memory_samples.is_empty() {
+        performance_snapshot["memorySamples"] =
+            serde_json::to_value(&memory_samples).map_err(|error| error.to_string())?;
+    }
     let mut entries = vec![
-        BundleEntry::json(
-            "performance-trace.json",
-            &desktop_performance_snapshot_value(shared, metrics, memory),
-        )?,
+        BundleEntry::json("performance-trace.json", &performance_snapshot)?,
         BundleEntry::json("renderer-logs.json", &renderer_logs)?,
         BundleEntry::json(
             "system-info.json",
@@ -232,6 +263,58 @@ struct DiagnosticBundleInput {
     renderer_logs: Vec<RendererBundleLog>,
     #[serde(default)]
     memory_samples: Vec<DesktopMemorySnapshot>,
+    renderer_performance: Option<RendererPerformanceExport>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RendererPerformanceExport {
+    schema_version: String,
+    instance_id: String,
+    surface: String,
+    time_origin_unix_ms: f64,
+    sampled_at_unix_ms: u64,
+    observation_started_at_ms: f64,
+    visibility: String,
+    support: std::collections::BTreeMap<String, String>,
+    errors: Vec<String>,
+    streams: std::collections::BTreeMap<String, RendererPerformanceStream>,
+    navigation: Option<std::collections::BTreeMap<String, f64>>,
+    js_heap: Option<RendererHeapSnapshot>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RendererPerformanceStream {
+    count: u64,
+    total_duration_ms: f64,
+    max_duration_ms: f64,
+    dropped_samples: u64,
+    samples: Vec<RendererPerformanceSample>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RendererPerformanceSample {
+    start_time: f64,
+    duration: f64,
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transfer_size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    decoded_body_size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    interaction_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    input_delay_ms: Option<f64>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RendererHeapSnapshot {
+    used_bytes: u64,
+    total_bytes: u64,
+    limit_bytes: u64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

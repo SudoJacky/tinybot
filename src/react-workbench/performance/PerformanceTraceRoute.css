@@ -364,7 +364,8 @@
   width: max-content;
 }
 
-.react-performance-trace-events pre {
+.react-performance-trace-events pre,
+.react-performance-trace-section > details > pre {
   max-height: 240px;
   margin: 8px 0 0;
   overflow: auto;

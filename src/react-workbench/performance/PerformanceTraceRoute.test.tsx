@@ -78,12 +78,14 @@ describe("PerformanceTraceRoute", () => {
     expect(load).toHaveBeenCalledTimes(2);
   });
 
-  it("exports the loaded snapshot through the native save flow and reports the saved path", async () => {
+  it("refreshes the snapshot at export time and reports the saved path", async () => {
     const snapshot = fixtureSnapshot();
+    const refreshed = { ...snapshot, generatedAtUnixMs: snapshot.generatedAtUnixMs + 10000 };
+    const load = vi.fn().mockResolvedValueOnce(snapshot).mockResolvedValueOnce(refreshed);
     const exportSnapshot = vi.fn(async () => ({ path: "C:\\Temp\\tinybot-performance-trace.json" }));
     render(<PerformanceTraceRoute services={{
       performanceStore: {
-        load: vi.fn(async () => snapshot),
+        load,
         exportSnapshot,
         exportDiagnosticBundle: vi.fn(async () => null),
       },
@@ -92,7 +94,8 @@ describe("PerformanceTraceRoute", () => {
     await screen.findByText("tool.duration");
     await userEvent.setup().click(screen.getByRole("button", { name: "Export JSON" }));
 
-    await waitFor(() => expect(exportSnapshot).toHaveBeenCalledWith(snapshot));
+    await waitFor(() => expect(exportSnapshot).toHaveBeenCalledWith(refreshed));
+    expect(load).toHaveBeenCalledTimes(2);
     expect((await screen.findByRole("status")).textContent).toContain("C:\\Temp\\tinybot-performance-trace.json");
   });
 

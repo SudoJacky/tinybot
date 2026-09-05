@@ -17,7 +17,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:639c0133eefceb1dab9175e0fd6ea7f829aa2f59ce50cab2a38ed6b09c112f05 -->
+<!-- tinybot-doc-fingerprint: sha256:7622e0abba0f85d24651f58964589de8f18320d3cb9a79e66092b8e845cb2fdd -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -238,6 +238,25 @@ bounded startup phases for React commit, first frame, event registration, and
 session restoration into the returned snapshot. Loading or exporting this
 diagnostic state does not wait for Chat initialization.
 
+Additive v1 fields include `environment` (app version, build mode, OS,
+architecture and PID), `metrics.recentDurations` (up to 300 timed samples with
+start/end Unix milliseconds and optional completed/failed outcome), and
+`metrics.droppedDurationSamples`. Duration aggregates remain lifetime totals.
+The `desktop.process.startedAtUnixMs` gauge identifies native startup; renderer
+startup events carry a page instance ID, surface and `timeOriginUnixMs` so a
+page reload is not mistaken for the same native cold start. Recovery subphase
+metrics separate index preparation/checking, projection reads/replacements,
+thread/turn scans and final projection reload. Recovery total timing includes
+that final reload, which older exports did not measure.
+
+The frontend attaches `rendererPerformance` (`tinybot.renderer_performance.v1`):
+page identity, navigation milestones, optional browser heap estimates, support
+and errors, and at most 120 retained samples per resource/longtask/event/paint
+stream. Each stream includes lifetime count/duration and dropped-sample counts.
+Slow interaction events use a 40 ms threshold; they are not an INP calculation.
+Resource names expose bundled asset filenames or generic origin categories,
+never URL query strings. Observations belong to the exporting page.
+
 `DesktopMemorySnapshot` uses schema `tinybot.memory_snapshot.v1`. On Windows it
 reports private bytes, current working set, and peak working set for the Rust
 host and for each WebView2 browser, renderer, GPU, and utility process shared by
@@ -246,6 +265,12 @@ the labels of every webview that reported them. A partial result includes
 structured collection errors; unsupported platforms return `unsupported`
 without inventing process values.
 
+Memory samples additionally contain `windows` (label, visibility and focus) and
+`collectionDurationMs`. Process labels identify shared environment queries,
+not exclusive renderer/window ownership. Window-state failures remain explicit
+collection errors. JSON export refreshes the current snapshot and retains each
+memory sample's original timestamp.
+
 `DiagnosticBundleInput` uses schema `tinybot.diagnostic_bundle_input.v1` and
 contains the current diagnostic-mode flag, optional locale and time zone, and
 at most 300 renderer log entries (4 MiB serialized) plus at most 300 memory
@@ -253,6 +278,10 @@ samples (4 MiB serialized). The command opens a native save dialog and returns
 `null` when the user cancels. A successful result uses
 schema `tinybot.diagnostic_bundle.v1` and returns the local path, ZIP size, and
 included entry names.
+
+The optional typed `rendererPerformance` input is bounded to 256 KiB and at
+most four streams with 120 samples each. The ZIP embeds it and the memory
+series directly in `performance-trace.json` for standalone analysis.
 
 The ZIP contains `manifest.json`, `performance-trace.json`,
 `renderer-logs.json`, `system-info.json`, optional `memory-samples.json`, and

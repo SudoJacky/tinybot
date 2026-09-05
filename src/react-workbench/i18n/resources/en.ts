@@ -420,6 +420,9 @@ export const en = {
       close: "Close",
     },
     performanceTrace: {
+      detailedRecords: "Detailed performance records",
+      detailedRecordsDescription: "Page identity and clocks, recovery phases, resources, long tasks and slow interaction events. Samples are bounded and unsupported collectors are explicit. Window labels describe shared WebView2 environments, not exclusive memory ownership.",
+      inspectDetailedRecords: "Inspect records and collection status",
       description: "Inspect runtime timings, process memory, counters, gauges, and recent structured events.",
       processLocal: "This bounded trace and any memory recording are kept in the current app process and reset when Tinybot restarts.",
       unavailable: "Native performance trace service is unavailable in this runtime.",

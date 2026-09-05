@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 const MEMORY_SNAPSHOT_SCHEMA: &str = "tinybot.memory_snapshot.v1";
 
@@ -15,6 +15,18 @@ pub(crate) struct DesktopMemorySnapshot {
     pub(crate) total_private_bytes: Option<u64>,
     pub(crate) total_working_set_bytes: Option<u64>,
     pub(crate) collection_errors: Vec<MemoryCollectionError>,
+    #[serde(default)]
+    pub(crate) windows: Vec<WindowMemoryContext>,
+    #[serde(default)]
+    pub(crate) collection_duration_ms: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct WindowMemoryContext {
+    label: String,
+    visible: bool,
+    focused: bool,
 }
 
 #[cfg(any(test, not(windows)))]
@@ -29,6 +41,8 @@ impl DesktopMemorySnapshot {
             total_private_bytes: None,
             total_working_set_bytes: None,
             collection_errors: Vec::new(),
+            windows: Vec::new(),
+            collection_duration_ms: 0,
         }
     }
 }
@@ -89,7 +103,36 @@ pub(crate) enum MemoryCollectionScope {
 }
 
 pub(crate) async fn collect_desktop_memory(app: &AppHandle) -> DesktopMemorySnapshot {
-    collect_platform_memory(app).await
+    let started = std::time::Instant::now();
+    let mut snapshot = collect_platform_memory(app).await;
+    for (label, window) in app.webview_windows() {
+        match window
+            .is_visible()
+            .and_then(|visible| window.is_focused().map(|focused| (visible, focused)))
+        {
+            Ok((visible, focused)) => snapshot.windows.push(WindowMemoryContext {
+                label,
+                visible,
+                focused,
+            }),
+            Err(error) => snapshot.collection_errors.push(MemoryCollectionError {
+                scope: MemoryCollectionScope::Webview2,
+                code: "window_state_query_failed".to_string(),
+                message: error.to_string(),
+                pid: None,
+                webview_label: Some(label),
+            }),
+        }
+    }
+    snapshot
+        .windows
+        .sort_by(|left, right| left.label.cmp(&right.label));
+    if !snapshot.collection_errors.is_empty() && snapshot.status == DesktopMemoryStatus::Available {
+        snapshot.status = DesktopMemoryStatus::Partial;
+    }
+    snapshot.collection_duration_ms =
+        started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    snapshot
 }
 
 #[cfg(not(windows))]
@@ -323,6 +366,8 @@ fn build_snapshot(
         total_private_bytes,
         total_working_set_bytes,
         collection_errors,
+        windows: Vec::new(),
+        collection_duration_ms: 0,
     }
 }
 

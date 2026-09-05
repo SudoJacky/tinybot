@@ -1,5 +1,5 @@
 # Native Runtime Services
-<!-- tinybot-module-fingerprint: sha256:854457e0ea8e31b8ee9dcabcc4df983f16bb0cdcb7737e2b365dc3043644e740 -->
+<!-- tinybot-module-fingerprint: sha256:6092a76733afbf9f1adde2fd9d79d59b4f7f2dcdd48685b72216407d6e8fe1e4 -->
 
 `runtime` owns process-local services that must outlive an individual backend
 request: turn execution ownership, shared MCP connections, startup/shutdown
@@ -16,6 +16,11 @@ desktop or Worker RPC boundaries.
   reconciliation.
 - `lifecycle.rs`: startup consistency checks/recovery and coordinated shutdown.
 - `observability.rs`: process-local, secret-safe runtime counters and snapshots.
+  Duration aggregates retain a separate 300-entry timing ring with wall-clock
+  boundaries and eviction counts. `measure` preserves the operation's error and
+  records completed/failed outcomes. Startup recovery times index preparation,
+  consistency checks, projection reads/replacements, thread/turn scans and final
+  reload independently; the total includes the final reload before completion.
 - `working_directory.rs`: validation and canonicalization of requested working
   directories.
 

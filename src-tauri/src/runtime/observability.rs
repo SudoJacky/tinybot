@@ -1,7 +1,9 @@
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+const MAX_RECENT_DURATIONS: usize = 300;
 
 #[derive(Clone, Debug, Default)]
 pub struct AgentRuntimeMetrics {
@@ -13,6 +15,8 @@ struct AgentRuntimeMetricsState {
     counters: BTreeMap<String, u64>,
     durations: BTreeMap<String, DurationAggregate>,
     gauges: BTreeMap<String, i64>,
+    recent_durations: VecDeque<Value>,
+    dropped_duration_samples: u64,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -46,6 +50,30 @@ impl AgentRuntimeMetrics {
     }
 
     pub fn record_duration_ms(&self, name: &str, duration_ms: u64) {
+        self.record_duration_sample(name, duration_ms, None);
+    }
+
+    /// Preserve the original result, including failures, and time the whole operation.
+    pub fn measure<T, E>(
+        &self,
+        name: &str,
+        operation: impl FnOnce() -> Result<T, E>,
+    ) -> Result<T, E> {
+        let started = Instant::now();
+        let result = operation();
+        self.record_duration_sample(
+            name,
+            started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+            Some(if result.is_ok() {
+                "completed"
+            } else {
+                "failed"
+            }),
+        );
+        result
+    }
+
+    fn record_duration_sample(&self, name: &str, duration_ms: u64, outcome: Option<&str>) {
         let mut state = self
             .state
             .lock()
@@ -54,6 +82,18 @@ impl AgentRuntimeMetrics {
         aggregate.count = aggregate.count.saturating_add(1);
         aggregate.total_ms = aggregate.total_ms.saturating_add(duration_ms);
         aggregate.max_ms = aggregate.max_ms.max(duration_ms);
+        let ended_at = now_unix_ms();
+        if state.recent_durations.len() == MAX_RECENT_DURATIONS {
+            state.recent_durations.pop_front();
+            state.dropped_duration_samples += 1;
+        }
+        state.recent_durations.push_back(serde_json::json!({
+            "name": name,
+            "startedAtUnixMs": ended_at.saturating_sub(duration_ms),
+            "endedAtUnixMs": ended_at,
+            "durationMs": duration_ms,
+            "outcome": outcome,
+        }));
     }
 
     pub fn set_gauge(&self, name: &str, value: i64) {
@@ -105,6 +145,8 @@ impl AgentRuntimeMetrics {
             "counters": counters,
             "durations": durations,
             "gauges": gauges,
+            "recentDurations": state.recent_durations,
+            "droppedDurationSamples": state.dropped_duration_samples,
         })
     }
 }

@@ -171,6 +171,9 @@ export const zh = {
     fatal: { title: "Tinybot 界面崩溃", unexpected: "渲染器发生意外错误。", crashId: "崩溃 ID：{{id}}", reload: "重新加载" },
     generic: { later: "稍后", cancel: "取消", retry: "重试", refresh: "刷新", save: "保存", saving: "正在保存", close: "关闭" },
     performanceTrace: {
+      detailedRecords: "详细性能记录",
+      detailedRecordsDescription: "包含页面实例与时间起点、恢复子阶段、资源加载、长任务及慢交互事件。样本有容量上限；不支持的采集项会明确标注。窗口标签仅表示共享 WebView2 环境，不能用于独占内存归因。",
+      inspectDetailedRecords: "展开记录与采集状态",
       description: "查看运行耗时、进程内存、计数器、仪表值和最近结构化事件。",
       processLocal: "这份有界追踪及内存记录只保存在当前应用进程中，Tinybot 重启后会清空。",
       unavailable: "当前运行环境无法使用原生性能追踪服务。",
