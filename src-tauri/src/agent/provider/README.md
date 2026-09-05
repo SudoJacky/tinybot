@@ -1,5 +1,5 @@
 # Agent Providers
-<!-- tinybot-module-fingerprint: sha256:175cc974eab79215e1cf98c53a73a9825df676ff58913266a051aff41695f27e -->
+<!-- tinybot-module-fingerprint: sha256:9d09486427d6989f83354120f92589b3853e19cf77fbeda7e844ae4ebc916bf4 -->
 
 This module resolves provider and model configuration and performs streaming
 Chat Completions or Responses API requests.
@@ -38,3 +38,5 @@ Chat Completions or Responses API requests.
   response.
 - `streaming.rs` normalizes streamed provider events. Responses reasoning
   accepts both summary deltas and provider-compatible textual reasoning deltas.
+  Non-empty tool names and argument deltas also notify the runtime's timing
+  observer in both protocols; empty chunks and metadata do not mark first output.

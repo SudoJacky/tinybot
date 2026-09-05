@@ -516,6 +516,7 @@ impl AgentTurnState {
         model_call_id: &str,
         provider_usage: Option<Value>,
         estimated_context_tokens: i64,
+        model_timing: crate::agent::runtime_protocol::AgentModelTiming,
     ) -> Result<(), String> {
         let normalized_provider_usage = crate::token_usage::normalize_provider_token_usage(
             provider_usage.as_ref().unwrap_or(&Value::Null),
@@ -565,6 +566,7 @@ impl AgentTurnState {
             "modelCallId": model_call_id,
             "usage": usage,
             "providerUsage": provider_usage,
+            "modelTiming": model_timing,
         })))
     }
 }

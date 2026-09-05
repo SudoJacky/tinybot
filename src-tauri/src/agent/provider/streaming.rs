@@ -4,6 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NativeProviderStreamEvent {
+    ToolCallDelta,
     MessagePhase(String),
     ContentDelta(String),
     ReasoningDelta(String),
@@ -49,6 +50,29 @@ impl StreamingResponsesCompletion {
             .and_then(Value::as_str)
             .ok_or_else(|| "Responses API stream event requires type".to_string())?;
         match event_type {
+            "response.function_call_arguments.delta" => {
+                if event
+                    .get("delta")
+                    .and_then(Value::as_str)
+                    .is_some_and(|delta| !delta.is_empty())
+                {
+                    if let Some(observer) = observer.as_deref_mut() {
+                        observer(NativeProviderStreamEvent::ToolCallDelta);
+                    }
+                }
+            }
+            "response.output_item.added" => {
+                if event.pointer("/item/type").and_then(Value::as_str) == Some("function_call")
+                    && event
+                        .pointer("/item/name")
+                        .and_then(Value::as_str)
+                        .is_some_and(|name| !name.is_empty())
+                {
+                    if let Some(observer) = observer.as_deref_mut() {
+                        observer(NativeProviderStreamEvent::ToolCallDelta);
+                    }
+                }
+            }
             "response.output_text.delta" => {
                 if let Some(delta) = event.get("delta").and_then(Value::as_str) {
                     if !delta.is_empty() {
@@ -179,6 +203,20 @@ fn observe_parsed_stream_chunk(
     chunk: &ParsedStreamChunk<'_>,
     observer: &mut (dyn FnMut(NativeProviderStreamEvent) + Send),
 ) {
+    if chunk.tool_call_deltas.is_some_and(|deltas| {
+        deltas.iter().any(|delta| {
+            ["/function/name", "/function/arguments"]
+                .iter()
+                .any(|path| {
+                    delta
+                        .pointer(path)
+                        .and_then(Value::as_str)
+                        .is_some_and(|value| !value.is_empty())
+                })
+        })
+    }) {
+        observer(NativeProviderStreamEvent::ToolCallDelta);
+    }
     if let Some(phase) = chunk.phase {
         observer(NativeProviderStreamEvent::MessagePhase(phase.to_string()));
     }

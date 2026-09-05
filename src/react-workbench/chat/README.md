@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:d766d68e753ffad3b25b1032f94f4854f458ef856844049742191f4e8898a1f1 -->
+<!-- tinybot-module-fingerprint: sha256:ff71eb94c9e8b25c70df2ac5356a0b0e97acd3aa079b563ff3777093a544b738 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -9,6 +9,11 @@ its action callbacks are optional so read-only consumers can omit unavailable
 branch, recovery, artifact, delegate, and tool-detail controls.
 Assistant message actions belong only to a Turn's final answer; commentary in
 the ordered execution trace remains readable but does not expose copy actions.
+`TurnMetrics.tsx` places one elapsed-time pill beside final-answer actions, or
+at the end of a failed/interrupted Turn without a final answer. It appears only
+after the Turn ends. Clicking opens a viewport-clamped dialog with total time
+and available TPS/TTFT readings; Escape restores trigger focus, and outside
+pointer or Tab dismisses it. Old Turns show duration alone.
 A running canonical execution trace starts expanded, then folds once when its
 final answer first appears; completed traces therefore mount folded. A user can
 still reopen the trace, and later streaming revisions preserve that explicit

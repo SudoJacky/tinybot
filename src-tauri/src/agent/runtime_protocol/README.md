@@ -1,5 +1,5 @@
 # Agent Runtime Protocol
-<!-- tinybot-module-fingerprint: sha256:1488a4021fe9e8da1283e4ba55b065f92c7844e616bf991b7876ec49f25d52c8 -->
+<!-- tinybot-module-fingerprint: sha256:e7b4c8e2fac2a7d390b61b22ca5435f9deb487af19df5b1d63943cd004427a1e -->
 
 `runtime_protocol` defines the durable events exchanged by the agent runtime
 and the projections built from them.
@@ -22,3 +22,8 @@ Usage timeline items treat the typed `agentItem` as canonical. Their projected
 payload omits the redundant enriched `usage` and raw `providerUsage` event
 fields once the typed item contains explicit normalized context metrics and the
 original provider usage payload.
+
+Usage Items optionally carry `modelTiming` with a model-call identity, TTFT,
+and decode duration in milliseconds. Typed live projection and durable replay
+retain the same values. Older v2 Items omit the field; no schema migration is
+needed and absent timing remains unavailable.

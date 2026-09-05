@@ -105,6 +105,25 @@ fn runs_fixture_tool_event_sequence() {
                 "iteration": 0,
             }),
             json!({
+                "event": "agent.model_call.completed",
+                "phase": "planning",
+                "iteration": 0,
+                "modelCall": "turn-tool:provider:1",
+            }),
+            json!({
+                "event": "agent.token_count",
+                "phase": "planning",
+                "iteration": 0,
+                "modelCall": "turn-tool:provider:1",
+            }),
+            json!({
+                "event": "agent.usage",
+                "phase": "calling_model",
+                "iteration": 0,
+                "item": "turn-tool:usage:0",
+                "modelCall": "turn-tool:provider:1",
+            }),
+            json!({
                 "event": "agent.phase.changed",
                 "phase": "tool_calling",
                 "iteration": 0,
@@ -153,25 +172,6 @@ fn runs_fixture_tool_event_sequence() {
                 "phase": "planning",
                 "iteration": 0,
                 "transition": ["tool_running", "planning"],
-            }),
-            json!({
-                "event": "agent.model_call.completed",
-                "phase": "planning",
-                "iteration": 0,
-                "modelCall": "turn-tool:provider:1",
-            }),
-            json!({
-                "event": "agent.token_count",
-                "phase": "planning",
-                "iteration": 0,
-                "modelCall": "turn-tool:provider:1",
-            }),
-            json!({
-                "event": "agent.usage",
-                "phase": "calling_model",
-                "iteration": 0,
-                "item": "turn-tool:usage:0",
-                "modelCall": "turn-tool:provider:1",
             }),
             json!({
                 "event": "agent.phase.changed",
@@ -2081,11 +2081,11 @@ fn provider_error_after_tool_result_preserves_accumulated_tool_state() {
     assert_eq!(
         relevant_events,
         vec![
+            "agent.model_call.completed",
+            "agent.usage",
             "agent.tool_call.delta",
             "agent.tool.start",
             "agent.tool.result",
-            "agent.model_call.completed",
-            "agent.usage",
             "agent.error"
         ]
     );

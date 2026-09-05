@@ -643,3 +643,30 @@ fn unrelated_domain_events_are_not_projected_as_agent_context_state() {
     assert!(runtime_events_from_thread_items(&items, "thread-1", "turn-1").is_empty());
     assert!(turn_items_from_thread_items(&items, "thread-1", "turn-1").is_empty());
 }
+
+#[test]
+fn persisted_typed_usage_retains_model_timing_on_reload() {
+    let timing =
+        json!({ "modelCallId": "call-1", "timeToFirstTokenMs": 600, "decodeDurationMs": 2000 });
+    let item = ThreadItem {
+        item_id: "usage-1".to_string(),
+        thread_id: "thread-1".to_string(),
+        turn_id: "turn-1".to_string(),
+        parent_item_id: None,
+        sequence: 2,
+        created_at: "1786673534920".to_string(),
+        kind: ThreadItemKind::Event(json!({
+            "eventName": "agent.usage", "sequence": 2, "timestamp": "1786673534920",
+            "source": "provider", "visibility": "debug", "turnId": "turn-1", "itemId": "usage-1",
+            "payload": {"agentItem": {"type": "usage", "id": "usage-1", "inputTokens": 100,
+                "outputTokens": 216, "totalTokens": 316, "providerPayload": {}, "modelTiming": timing }}
+        })),
+    };
+    let restored: ThreadItem =
+        serde_json::from_value(serde_json::to_value(&item).unwrap()).unwrap();
+    let projected = turn_items_from_thread_items(&[restored], "thread-1", "turn-1");
+    assert_eq!(projected.len(), 1);
+    let data = serde_json::to_value(&projected[0].data).unwrap();
+    assert_eq!(data["modelTiming"], timing);
+    assert_eq!(data["outputTokens"], 216);
+}

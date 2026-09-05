@@ -194,6 +194,7 @@ pub struct NativeAgentProviderResponse {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum NativeAgentProviderStreamEvent {
+    ToolCallDelta,
     MessagePhase(crate::agent::runtime_protocol::AgentAssistantMessagePhase),
     ContentDelta(String),
     ReasoningDelta(String),

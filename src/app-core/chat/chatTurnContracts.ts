@@ -200,6 +200,7 @@ export type ChatStep = {
 };
 
 export type ChatTurn = {
+  metrics?: TurnMetrics;
   canonicalItems?: BackendAgentTurnItem[];
   completedAt?: string;
   executionItems?: ChatStep[];
@@ -214,6 +215,17 @@ export type ChatTurn = {
   usage?: TokenUsage;
   userMessage: ChatMessage;
   userMessageId: string;
+};
+
+export type TurnMetrics = {
+  timeToFirstTokenMs?: number;
+  tokensPerSecond?: number;
+};
+
+export type ModelCallTiming = {
+  modelCallId: string;
+  timeToFirstTokenMs: number | null;
+  decodeDurationMs: number | null;
 };
 
 export type CanonicalTurnItemKind =
@@ -241,7 +253,7 @@ export type CanonicalTurnItemData = Record<string, unknown> & (
   | { type: "subagent_message"; agentId: string; messageId: string; content: string; visibility: string }
   | { type: "plan_progress"; id: string; explanation?: string | null; steps: Array<{ step: string; status: "pending" | "in_progress" | "completed" }>; summary: string; completed: number; total: number; currentStep?: string | null }
   | { type: "context_compaction"; id: string; summary: string; droppedItemCount: number; contextWindowTokens?: number | null; strategy?: string | null; estimatedTokensBefore?: number | null; estimatedTokensAfter?: number | null }
-  | { type: "usage"; id?: string | null; inputTokens?: number | null; outputTokens?: number | null; totalTokens?: number | null; providerPayload: unknown }
+  | { type: "usage"; id?: string | null; inputTokens?: number | null; outputTokens?: number | null; totalTokens?: number | null; providerPayload: unknown; modelTiming?: ModelCallTiming }
   | { type: "file_reference"; id: string; path: string; mimeType?: string | null; referenceKind: string }
   | { type: "error"; id?: string | null; code: string; message: string; commandId?: string | null; cancelled: boolean }
   | { type: "system_notice"; message: string; detail: unknown }

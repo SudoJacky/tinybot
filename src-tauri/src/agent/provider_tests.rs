@@ -1003,6 +1003,37 @@ fn streaming_observer_does_not_change_completion_reduction() {
 }
 
 #[test]
+fn tool_stream_timing_ignores_empty_chunks_and_observes_names_and_arguments() {
+    let mut chat = StreamingChatCompletion::default();
+    let mut observed = Vec::new();
+    for delta in [
+        json!({"index": 0, "id": "call-1", "function": {"arguments": ""}}),
+        json!({"index": 0, "function": {"name": "read_file"}}),
+        json!({"index": 0, "function": {"arguments": "{}"}}),
+    ] {
+        chat.push_chunk(
+            &json!({"choices": [{"delta": {"tool_calls": [delta]}}]}),
+            Some(&mut |event| observed.push(event)),
+        )
+        .unwrap();
+    }
+    assert_eq!(observed, vec![NativeProviderStreamEvent::ToolCallDelta; 2]);
+    observed.clear();
+    let mut responses = StreamingResponsesCompletion::default();
+    for event in [
+        json!({"type": "response.output_item.added", "item": {"type": "message"}}),
+        json!({"type": "response.function_call_arguments.delta", "delta": ""}),
+        json!({"type": "response.output_item.added", "item": {"type": "function_call", "name": "read_file"}}),
+        json!({"type": "response.function_call_arguments.delta", "delta": "{}"}),
+    ] {
+        responses
+            .push_event(&event, Some(&mut |event| observed.push(event)))
+            .unwrap();
+    }
+    assert_eq!(observed, vec![NativeProviderStreamEvent::ToolCallDelta; 2]);
+}
+
+#[test]
 fn aggregates_streaming_reasoning_and_usage_for_agent_completion() {
     let completion = aggregate_stream_chunks(&[
         json!({"id":"chatcmpl-test","object":"chat.completion.chunk","created":1,"model":"gpt-test","choices":[{"index":0,"delta":{"reasoning_content":"think "},"finish_reason":null}]}),

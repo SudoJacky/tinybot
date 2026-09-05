@@ -948,26 +948,38 @@ fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
             })
         }
 
-        fn complete_streaming(
-            &self,
-            _context: &AgentTurnContext,
-            observer: &mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
-        ) -> Result<NativeAgentProviderResponse, String> {
-            observer(NativeAgentProviderStreamEvent::ReasoningDelta(
-                "thinking".to_string(),
-            ));
-            observer(NativeAgentProviderStreamEvent::ContentDelta(
-                "Hel".to_string(),
-            ));
-            observer(NativeAgentProviderStreamEvent::ContentDelta(
-                "lo".to_string(),
-            ));
-            Ok(NativeAgentProviderResponse {
-                final_content: "Hello".to_string(),
-                reasoning_delta: Some("thinking".to_string()),
-                usage: None,
-                response_items: Vec::new(),
-                tool_calls: Vec::new(),
+        fn complete_streaming_async<'a>(
+            self: Arc<Self>,
+            _context: &'a AgentTurnContext,
+            observer: &'a mut (dyn FnMut(NativeAgentProviderStreamEvent) + Send),
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<NativeAgentProviderResponse, NativeAgentProviderFailure>,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            Box::pin(async move {
+                observer(NativeAgentProviderStreamEvent::ContentDelta(String::new()));
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                observer(NativeAgentProviderStreamEvent::ReasoningDelta(
+                    "thinking".to_string(),
+                ));
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                observer(NativeAgentProviderStreamEvent::ContentDelta(
+                    "Hel".to_string(),
+                ));
+                observer(NativeAgentProviderStreamEvent::ContentDelta(
+                    "lo".to_string(),
+                ));
+                Ok(NativeAgentProviderResponse {
+                    final_content: "Hello".to_string(),
+                    reasoning_delta: Some("thinking".to_string()),
+                    usage: None,
+                    response_items: Vec::new(),
+                    tool_calls: Vec::new(),
+                })
             })
         }
     }
@@ -1017,6 +1029,28 @@ fn provider_stream_observer_emits_live_deltas_without_duplicate_final_delta() {
     assert_eq!(reasoning_completed.len(), 1);
     assert_eq!(reasoning_completed[0]["payload"]["summary"], "thinking");
     assert_eq!(result["finalContent"], "Hello");
+    let usage = result["runtimeEvents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| event["eventName"] == "agent.usage")
+        .unwrap();
+    let timing = &usage["payload"]["agentItem"]["modelTiming"];
+    assert_eq!(timing["modelCallId"], "turn-streaming-provider:provider:1");
+    assert!(timing["timeToFirstTokenMs"].as_u64().unwrap() >= 5);
+    assert!(timing["decodeDurationMs"].as_u64().unwrap() >= 5);
+    // Durable event serialization and history projection retain exactly the live reading.
+    let events: Vec<crate::agent::runtime_protocol::AgentRuntimeEventEnvelope> =
+        serde_json::from_value(result["runtimeEvents"].clone()).unwrap();
+    let items = crate::agent::runtime_protocol::project_turn_items_from_trace_events(&events);
+    let persisted = items
+        .iter()
+        .find(|item| item.kind == crate::agent::runtime_protocol::AgentTurnItemKind::Usage)
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(&persisted.data).unwrap()["modelTiming"],
+        *timing
+    );
 }
 
 #[test]

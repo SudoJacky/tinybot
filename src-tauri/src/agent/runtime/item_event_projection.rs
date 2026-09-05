@@ -165,6 +165,10 @@ fn agent_item_for_runtime_event(kind: AgentEventKind, payload: &Value) -> Option
                 .unwrap_or_else(|| provider_usage.clone());
             let mut usage = AgentUsageItem::from_runtime_usage(provider_usage, normalized_usage)
                 .expect("runtime usage payload must be an object");
+            usage.model_timing = payload.get("modelTiming").map(|timing| {
+                serde_json::from_value(timing.clone())
+                    .expect("runtime model timing must match AgentModelTiming")
+            });
             usage.id = Some(format!(
                 "{turn_id}:usage:{}",
                 payload

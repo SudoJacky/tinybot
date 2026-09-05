@@ -239,6 +239,8 @@ pub struct AgentErrorItem {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentUsageItem {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_timing: Option<crate::agent::runtime_protocol::AgentModelTiming>,
     pub id: Option<String>,
     pub input_tokens: Option<i64>,
     pub output_tokens: Option<i64>,
@@ -640,6 +642,7 @@ impl AgentUsageItem {
             .or(provider_token_usage);
         let mut item = Self {
             id: None,
+            model_timing: None,
             input_tokens: token_usage.as_ref().map(|usage| usage.input_tokens),
             output_tokens: token_usage.as_ref().map(|usage| usage.output_tokens),
             total_tokens: token_usage.as_ref().map(|usage| usage.total_tokens),
