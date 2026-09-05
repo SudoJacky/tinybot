@@ -174,20 +174,40 @@ describe("ProfileSettingsPage", () => {
   });
 
   test("settles an active reveal when reduced motion is enabled", async () => {
+    const callbacks: IntersectionObserverCallback[] = [];
     const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
     vi.spyOn(window, "matchMedia").mockReturnValue(preference);
-    vi.stubGlobal("IntersectionObserver", undefined);
+    vi.stubGlobal("IntersectionObserver", class {
+      constructor(callback: IntersectionObserverCallback) { callbacks.push(callback); }
+      observe() {}
+      disconnect() {}
+    });
     const { container } = render(<ProfileSettingsPage settingsStore={createSettingsStore()} />);
     await screen.findByRole("region", { name: "Total tokens" });
     const card = container.querySelector<HTMLElement>(".react-profile-chart-card")!;
     const runs = mockChartAnimations(card);
-    fireEvent.click(card);
+    await waitFor(() => expect(callbacks).toHaveLength(2));
+    expect(card.dataset.revealState).toBe("pending");
+    act(() => callbacks[0](
+      [{ isIntersecting: true } as IntersectionObserverEntry], {} as IntersectionObserver,
+    ));
     expect(card.dataset.revealState).toBe("revealing");
     Object.defineProperty(preference, "matches", { configurable: true, value: true });
     act(() => preference.dispatchEvent(new Event("change")));
     expect(card.dataset.revealState).toBe("settled");
     await act(async () => runs[0]());
     expect(card.dataset.revealState).toBe("settled");
+  });
+
+  test("settles charts without viewport observation or browser animations", async () => {
+    vi.stubGlobal("IntersectionObserver", undefined);
+    const { container } = render(<ProfileSettingsPage settingsStore={createSettingsStore()} />);
+    await screen.findByRole("region", { name: "Total tokens" });
+    await waitFor(() => {
+      const cards = [...container.querySelectorAll<HTMLElement>(".react-profile-chart-card")];
+      expect(cards).toHaveLength(2);
+      expect(cards.every((card) => card.dataset.revealState === "settled")).toBe(true);
+    });
   });
 });
 
