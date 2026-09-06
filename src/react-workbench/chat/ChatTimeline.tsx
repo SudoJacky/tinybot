@@ -147,7 +147,7 @@ function CanonicalChatTurn({
   ));
   const hasUserMessage = Boolean(turn.userMessage.text.trim() || turn.userMessage.references?.length);
   return (
-    <section aria-label={t("turn.label")} className="react-canonical-turn" data-status={turn.status}>
+    <section aria-label={t("turn.label")} className="react-canonical-turn" data-status={turn.status} data-scroll-anchor={`turn:${turn.id}`}>
       {hasUserMessage ? (
         <CanonicalMessage
           messageId={turn.userMessage.id}
@@ -590,7 +590,7 @@ function CanonicalMessage({
     ? referenceSummaries.filter((reference) => !isAttachmentReference(reference))
     : referenceSummaries;
   return (
-    <article className="react-message" data-actions-placement="bottom" data-role={role} data-testid={`message-${messageId}`}>
+    <article className="react-message" data-actions-placement="bottom" data-role={role} data-testid={`message-${messageId}`} data-scroll-anchor={`message:${messageId}`}>
       {attachmentReferences.length ? <MessageAttachments references={attachmentReferences} /> : null}
       <div className="react-message__body">
         {reasoning.map((step) => (
@@ -1018,6 +1018,7 @@ function MessageBubble({
       data-actions-placement="bottom"
       data-role={message.role}
       data-testid={`message-${message.id}`}
+      data-scroll-anchor={`message:${message.id}`}
     >
       {attachmentReferences.length ? <MessageAttachments references={attachmentReferences} /> : null}
       <div className="react-message__body">

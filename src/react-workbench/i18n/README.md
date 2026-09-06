@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:27eb0d6904f8ddd0b53db03ba9acb4c09223b68447ff3e3dde53aba639349a72 -->
+<!-- tinybot-module-fingerprint: sha256:855a33ff17cfdf2deb30603aa49e2859ac961e082d4aa183cc8c0594f092c6e2 -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
@@ -84,3 +84,6 @@ labels, while session titles, IDs, and workspace paths remain user data.
 Workspace register, display-name rename, forget confirmation, missing-folder,
 and project-reference failure copy is localized here; canonical paths remain
 native-owned untranslated identifiers.
+
+Performance recording copy explains cross-page collection and the 300-sample
+automatic stop in both languages.

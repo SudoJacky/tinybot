@@ -93,6 +93,9 @@ struct RendererLogInput {
 }
 
 pub(crate) fn run() {
+    let process_started_at = chrono::Utc::now().timestamp_millis();
+    crate::runtime::observability::global_agent_runtime_metrics()
+        .set_gauge("desktop.process.startedAtUnixMs", process_started_at);
     let runtime_state = Arc::new(Mutex::new(NativeRuntimeState::default()));
     let update_state = super::update::new_shared_desktop_update_state(env!("CARGO_PKG_VERSION"));
     let exit_state = runtime_state.clone();
@@ -139,8 +142,6 @@ pub(crate) fn run() {
             let auxiliary_windows_started = Instant::now();
             #[cfg(windows)]
             super::pet::create_desktop_pet_window(app)?;
-            #[cfg(windows)]
-            super::pet::create_desktop_pet_quick_chat_window(app)?;
             startup_metrics.record_duration(
                 "desktop.startup.auxiliaryWindows.durationMs",
                 auxiliary_windows_started.elapsed(),
@@ -248,6 +249,7 @@ pub(crate) fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            super::pet::desktop_ensure_pet_quick_chat_window,
             record_renderer_diagnostic,
             record_renderer_log,
             crate::desktop::diagnostics::desktop_performance_snapshot,

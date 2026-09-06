@@ -1,10 +1,12 @@
 use super::compression::open_rollout_reader;
 use super::ThreadLogLine;
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
+use crate::runtime::observability::global_agent_runtime_metrics;
 #[cfg(test)]
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(super) struct ThreadDiscoveryScan {
@@ -13,29 +15,56 @@ pub(super) struct ThreadDiscoveryScan {
 }
 
 pub fn read_thread_lines(path: &Path) -> Result<Vec<ThreadLogLine>, WorkerProtocolError> {
-    let reader = open_rollout_reader(path)?;
-    let mut lines = Vec::new();
-    for (index, raw_line) in BufReader::new(reader).lines().enumerate() {
-        let raw_line = raw_line.map_err(thread_log_read_error)?;
-        let trimmed = raw_line.trim();
-        if trimmed.is_empty() {
-            return Err(invalid_thread_log_line_error(
-                path,
-                index,
-                "blank thread log line",
-            ));
-        }
-        let line = serde_json::from_str::<ThreadLogLine>(trimmed).map_err(|error| {
-            invalid_thread_log_line_error(
-                path,
-                index,
-                &format!("invalid thread log JSON at line {}: {error}", index + 1),
-            )
+    let metrics = global_agent_runtime_metrics();
+    metrics.measure("storage.rollout.readAndParse.durationMs", || {
+        let reader = metrics.measure("storage.rollout.open.durationMs", || {
+            open_rollout_reader(path)
         })?;
-        lines.push(line);
-    }
-    validate_rollout_ordinals(path, &lines)?;
-    Ok(lines)
+        let mut read_duration = Duration::ZERO;
+        let mut parse_duration = Duration::ZERO;
+        let mut source_bytes = 0u64;
+        let mut lines = Vec::new();
+        let mut raw_lines = BufReader::new(reader).lines().enumerate();
+        loop {
+            let started = Instant::now();
+            let next = raw_lines.next();
+            read_duration += started.elapsed();
+            let Some((index, raw_line)) = next else {
+                break;
+            };
+            let raw_line = raw_line.map_err(thread_log_read_error)?;
+            source_bytes += raw_line.len() as u64;
+            let started = Instant::now();
+            let trimmed = raw_line.trim();
+            if trimmed.is_empty() {
+                return Err(invalid_thread_log_line_error(
+                    path,
+                    index,
+                    "blank thread log line",
+                ));
+            }
+            let line = serde_json::from_str::<ThreadLogLine>(trimmed).map_err(|error| {
+                invalid_thread_log_line_error(
+                    path,
+                    index,
+                    &format!("invalid thread log JSON at line {}: {error}", index + 1),
+                )
+            })?;
+            parse_duration += started.elapsed();
+            lines.push(line);
+        }
+        metrics.record_duration(
+            "storage.rollout.readAndDecompress.durationMs",
+            read_duration,
+        );
+        metrics.record_duration("storage.rollout.parseJson.durationMs", parse_duration);
+        metrics.increment_by("storage.rollout.decodedLineBytes", source_bytes);
+        metrics.increment_by("storage.rollout.lines", lines.len() as u64);
+        metrics.measure("storage.rollout.validateOrdinals.durationMs", || {
+            validate_rollout_ordinals(path, &lines)
+        })?;
+        Ok(lines)
+    })
 }
 
 pub(super) fn read_thread_lines_for_discovery(

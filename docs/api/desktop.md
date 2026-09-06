@@ -17,7 +17,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:639c0133eefceb1dab9175e0fd6ea7f829aa2f59ce50cab2a38ed6b09c112f05 -->
+<!-- tinybot-doc-fingerprint: sha256:4f395f3ea5d020e22fb8bffda48e91e03532ea7d63a65656485d06270fa0d4f2 -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -46,9 +46,9 @@ error leaves the task runtime non-accepting, sets `last_error`, and appends a
 
 ## Windows Desktop Pet Windows
 
-On Windows, desktop setup creates two hidden, transparent webviews in addition
-to `main`: the `desktop-pet` mascot and the `desktop-pet-chat` quick-chat
-panel. Both are undecorated, always on top, omitted from the taskbar, and own
+On Windows, desktop setup creates the hidden, transparent `desktop-pet`
+mascot beside `main`. The `desktop-pet-chat` quick-chat panel is created by
+`desktop_ensure_pet_quick_chat_window` on its first request. Both are undecorated, always on top, omitted from the taskbar, and own
 isolated hidden menus so application-menu text cannot leak into their compact
 surfaces. The pet deliberately has no owner or parent window, so minimizing
 the main window does not remove it from the desktop.
@@ -238,6 +238,36 @@ bounded startup phases for React commit, first frame, event registration, and
 session restoration into the returned snapshot. Loading or exporting this
 diagnostic state does not wait for Chat initialization.
 
+Additive v1 fields include `environment` (app version, build mode, OS,
+architecture and PID), `metrics.recentDurations` (up to 300 timed samples with
+start/end Unix milliseconds and optional completed/failed outcome), and
+`metrics.droppedDurationSamples`. Duration aggregates remain lifetime totals.
+The `desktop.process.startedAtUnixMs` gauge identifies native startup; renderer
+startup events carry a page instance ID, surface and `timeOriginUnixMs` so a
+page reload is not mistaken for the same native cold start. Recovery subphase
+metrics separate initial loading, index preparation/validation and thread/turn
+scans. Preparation returns its verified consistency report; clean recovery
+reuses the initial projection. `recovery.repairProjection.durationMs` appears
+when index repair requires refreshing it, and `recovery.reloadProjection.durationMs`
+appears after interrupted-turn writes. No-write recovery increments
+`recovery.projection.reload.skipped`. Recovery total timing includes any required
+final reload, which older exports did not measure. `storage.*` timings further
+separate lock wait, canonical discovery, index population, Rollout head hashing,
+read/decompression, JSON parse, reconstruction and projection construction.
+Cache hit/miss/eviction and decoded line/byte counts expose repeated work.
+Read/decompression and JSON parse durations sum per-file operations; they are
+not contiguous spans and must not be added to their enclosing totals.
+
+The frontend attaches `rendererPerformance` (`tinybot.renderer_performance.v1`):
+page identity, navigation milestones, optional browser heap estimates, support
+and errors, and at most 120 recent plus 20 slowest lifetime samples per
+resource/longtask/event/paint stream. Each stream includes lifetime count/duration and dropped-sample counts.
+Slow interaction events use a 40 ms threshold; they are not an INP calculation.
+Resource names expose bundled asset filenames, allowlisted `/src/` module
+paths and `/node_modules/.vite/deps/` filenames, or generic origin categories.
+Query strings, external URLs and absolute workspace paths are excluded.
+Resources also include initiator type and request/response timing offsets. Observations belong to the exporting page.
+
 `DesktopMemorySnapshot` uses schema `tinybot.memory_snapshot.v1`. On Windows it
 reports private bytes, current working set, and peak working set for the Rust
 host and for each WebView2 browser, renderer, GPU, and utility process shared by
@@ -246,6 +276,13 @@ the labels of every webview that reported them. A partial result includes
 structured collection errors; unsupported platforms return `unsupported`
 without inventing process values.
 
+Memory samples additionally contain `windows` (label, visibility and focus) and
+`collectionDurationMs`. Process labels identify shared environment queries,
+not exclusive renderer/window ownership. Window-state failures remain explicit
+collection errors. JSON export refreshes the current snapshot and retains each
+memory sample's original timestamp. Manually started recording continues across
+routes and stops at 300 samples or on collection failure.
+
 `DiagnosticBundleInput` uses schema `tinybot.diagnostic_bundle_input.v1` and
 contains the current diagnostic-mode flag, optional locale and time zone, and
 at most 300 renderer log entries (4 MiB serialized) plus at most 300 memory
@@ -253,6 +290,10 @@ samples (4 MiB serialized). The command opens a native save dialog and returns
 `null` when the user cancels. A successful result uses
 schema `tinybot.diagnostic_bundle.v1` and returns the local path, ZIP size, and
 included entry names.
+
+The optional typed `rendererPerformance` input is bounded to 256 KiB and at
+most four streams with 120 recent and 20 slowest lifetime samples each. The ZIP embeds it and the memory
+series directly in `performance-trace.json` for standalone analysis.
 
 The ZIP contains `manifest.json`, `performance-trace.json`,
 `renderer-logs.json`, `system-info.json`, optional `memory-samples.json`, and
@@ -701,3 +742,14 @@ UI should prefer `SettingsSnapshot` once the frontend is migrated to the Rust-ow
   "error": null
 }
 ```
+
+### Lazy quick-chat creation
+
+`desktop_ensure_pet_quick_chat_window` accepts no input and returns unit on
+success. Only the main window is granted this command. It creates the Windows
+quick-chat window on demand, reuses an existing window, and surfaces native
+creation failures. The main host queues the latest request until the renderer
+installs its listeners and announces ready; a 15-second readiness timeout is
+logged. Closing the panel hides it for reuse. `desktop.quickChat.createWindow.durationMs`
+records creation cost; `desktop_pet_quick_chat.presented` records request-to-show
+duration in renderer logs.

@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AppServices } from "../services";
 import PerformanceTraceRoute from "./PerformanceTraceRoute";
+import { memoryRecordingFor } from "../../app-core/native/performanceMemoryRecording";
 
 afterEach(() => {
   cleanup();
@@ -16,6 +17,23 @@ afterEach(() => {
 });
 
 describe("PerformanceTraceRoute", () => {
+  it("retains a running recording after navigating away and back", async () => {
+    const store = {
+      load: vi.fn(async () => fixtureSnapshot()),
+      sampleMemory: vi.fn(async () => fixtureSnapshot().memory),
+    };
+    const services = { performanceStore: store } as unknown as AppServices;
+    const first = render(<PerformanceTraceRoute services={services} />);
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Start memory recording" }));
+    await waitFor(() => expect(store.sampleMemory).toHaveBeenCalledOnce());
+    first.unmount();
+    expect(memoryRecordingFor(store).getSnapshot().recording).toBe(true);
+    render(<PerformanceTraceRoute services={services} />);
+    await screen.findByRole("button", { name: "Stop memory recording" });
+    expect(memoryRecordingFor(store).getSnapshot().samples).toHaveLength(1);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Stop memory recording" }));
+    expect(memoryRecordingFor(store).getSnapshot().recording).toBe(false);
+  });
   it("renders native metrics and refreshes the bounded snapshot on demand", async () => {
     const load = vi.fn(async () => fixtureSnapshot());
     render(<PerformanceTraceRoute services={{ performanceStore: { load } } as unknown as AppServices} />);
@@ -78,12 +96,14 @@ describe("PerformanceTraceRoute", () => {
     expect(load).toHaveBeenCalledTimes(2);
   });
 
-  it("exports the loaded snapshot through the native save flow and reports the saved path", async () => {
+  it("refreshes the snapshot at export time and reports the saved path", async () => {
     const snapshot = fixtureSnapshot();
+    const refreshed = { ...snapshot, generatedAtUnixMs: snapshot.generatedAtUnixMs + 10000 };
+    const load = vi.fn().mockResolvedValueOnce(snapshot).mockResolvedValueOnce(refreshed);
     const exportSnapshot = vi.fn(async () => ({ path: "C:\\Temp\\tinybot-performance-trace.json" }));
     render(<PerformanceTraceRoute services={{
       performanceStore: {
-        load: vi.fn(async () => snapshot),
+        load,
         exportSnapshot,
         exportDiagnosticBundle: vi.fn(async () => null),
       },
@@ -92,7 +112,8 @@ describe("PerformanceTraceRoute", () => {
     await screen.findByText("tool.duration");
     await userEvent.setup().click(screen.getByRole("button", { name: "Export JSON" }));
 
-    await waitFor(() => expect(exportSnapshot).toHaveBeenCalledWith(snapshot));
+    await waitFor(() => expect(exportSnapshot).toHaveBeenCalledWith(refreshed));
+    expect(load).toHaveBeenCalledTimes(2);
     expect((await screen.findByRole("status")).textContent).toContain("C:\\Temp\\tinybot-performance-trace.json");
   });
 

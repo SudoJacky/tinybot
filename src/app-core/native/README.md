@@ -1,10 +1,23 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:66917d651aa35c1dd5f9df9b92de727e58b0c99cb115f5c5c3007dafb3e76195 -->
+<!-- tinybot-module-fingerprint: sha256:7bcef3dfc721145a10e8eb3e86e2287562eed23e5c692a67d4d733bb02ae2d77 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
 Workspace, Browser, Terminal, Settings, Plugins, Memory, or Performance Trace
 snapshots.
+
+`rendererPerformance` installs one bounded observer set at the entry module for
+resources, long tasks, paint and slow interaction events. Each stream retains
+120 recent samples and the 20 slowest lifetime samples, plus aggregates and eviction counts. Export includes page
+identity, time origin, navigation milestones, capability/error status and an
+optional browser heap estimate. Resource URLs retain bundled asset names, allowlisted source-module paths or
+Vite dependency names; other paths use origin categories. Queries, remote URLs
+and absolute workspace paths are excluded. Resources include initiator type
+and request/response timing offsets (zero means unavailable). Slow
+event samples use a 40 ms threshold and are not an INP calculation. Observations
+belong to the exporting page and are included in JSON snapshots and local ZIPs.
+Memory normalization also preserves optional window dimensions and child WebView
+labels, including windows with multiple WebViews; older snapshots remain readable.
 
 `desktopNativeFilePicker` preserves the optional content hash returned for a
 managed image. The native backend owns content detection and storage; the
@@ -113,3 +126,8 @@ fail at the native boundary instead of being partially rendered.
 time, Release Notes, and custom display notes in renderer storage. The update
 dialog uses this validated record for System > What's New after an installer
 restart has cleared the process-local native update snapshot.
+
+`performanceMemoryRecording` retains an opt-in recording per performance store,
+independent of route subscribers. It samples serially, two seconds after each
+completed collection, and stops at 300 samples or on failure. Stopping or
+restarting discards late results; page navigation preserves the baseline.

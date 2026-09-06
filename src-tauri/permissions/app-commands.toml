@@ -2,6 +2,7 @@
 identifier = "main-app-commands"
 description = "Allows the main Tinybot webview to invoke the complete desktop application command surface."
 commands.allow = [
+  "desktop_ensure_pet_quick_chat_window",
   "record_renderer_diagnostic",
   "record_renderer_log",
   "desktop_performance_snapshot",

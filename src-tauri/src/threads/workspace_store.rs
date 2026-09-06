@@ -91,7 +91,10 @@ impl WorkspaceThreadStore {
     pub(crate) fn begin_operation(
         &self,
     ) -> Result<WorkspaceThreadOperation<'_>, WorkerProtocolError> {
-        let mut lifecycle = self.lock_lifecycle()?;
+        let metrics = crate::runtime::observability::global_agent_runtime_metrics();
+        let mut lifecycle = metrics.measure("storage.operation.lockWait.durationMs", || {
+            self.lock_lifecycle()
+        })?;
         if !lifecycle.accepting {
             return Err(thread_store_lifecycle_error(
                 "workspace thread store is shut down",
@@ -100,7 +103,9 @@ impl WorkspaceThreadStore {
         }
         if !lifecycle.projection_loaded {
             let (threads, items) = self.inner.thread_log.thread_projection()?;
-            self.inner.thread.replace_projection(threads, items)?;
+            metrics.measure("storage.projection.install.durationMs", || {
+                self.inner.thread.replace_projection(threads, items)
+            })?;
             lifecycle.projection_loaded = true;
         }
         Ok(WorkspaceThreadOperation {

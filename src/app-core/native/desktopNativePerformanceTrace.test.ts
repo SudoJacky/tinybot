@@ -10,6 +10,7 @@ describe("desktopNativePerformanceTrace", () => {
     const invoke = vi.fn(async () => ({
       schemaVersion: "tinybot.performance_trace.v1",
       generatedAtUnixMs: 1_723_772_923_000,
+      environment: { appVersion: "0.4.13", os: "windows", arch: "x86_64", pid: 101, buildMode: "release" },
       metrics: {
         schemaVersion: 1,
         generatedAtUnixMs: 1_723_772_922_000,
@@ -18,6 +19,8 @@ describe("desktopNativePerformanceTrace", () => {
           "tool.duration": { count: 2, totalMs: 200, maxMs: 120, averageMs: 100 },
         },
         gauges: { "runtime.active": 2 },
+        recentDurations: [{ name: "recovery.reload", startedAtUnixMs: 1000, endedAtUnixMs: 1020, durationMs: 20, outcome: "failed" }],
+        droppedDurationSamples: 7,
       },
       memory: fixtureMemorySnapshot(),
       recentEvents: [{
@@ -35,6 +38,9 @@ describe("desktopNativePerformanceTrace", () => {
 
     expect(invoke).toHaveBeenCalledWith("desktop_performance_snapshot");
     expect(snapshot.metrics.durations["tool.duration"].averageMs).toBe(100);
+    expect(snapshot.environment?.buildMode).toBe("release");
+    expect(snapshot.metrics.recentDurations?.[0].outcome).toBe("failed");
+    expect(snapshot.metrics.droppedDurationSamples).toBe(7);
     expect(snapshot.memory.totalPrivateBytes).toBe(201_326_592);
     expect(snapshot.memory.webview2.processes[0]).toMatchObject({
       kind: "renderer",
@@ -55,6 +61,14 @@ describe("desktopNativePerformanceTrace", () => {
 
     expect(invoke).toHaveBeenCalledWith("desktop_memory_snapshot");
     expect(sample.native?.privateBytes).toBe(67_108_864);
+  });
+
+  it("retains window dimensions and child WebView labels for memory attribution", async () => {
+    const windows = [{ label: "main", visible: true, focused: true, width: 1120, height: 760, webviewLabels: ["main", "native-browser-browser-tab-2"] }];
+    const api = createDesktopNativePerformanceTraceApi({
+      invoke: vi.fn(async () => ({ ...fixtureMemorySnapshot(), windows })),
+    });
+    expect((await api.memorySnapshot()).windows).toEqual(windows);
   });
 
   it("fails fast when a memory counter is negative", async () => {

@@ -14,6 +14,7 @@ import {
 } from "streamdown";
 import "streamdown/styles.css";
 import { isAssistantFileHref, type AssistantFileLink } from "./assistantFileLinks";
+import { ViewportContent } from "./ViewportContent";
 
 const ASSISTANT_MARKDOWN_CONTROLS = {
   code: { copy: true, download: false },
@@ -192,6 +193,8 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
     return null;
   }
   return (
+    <ViewportContent pinned={streaming} placeholder={text}
+      estimatedHeight={Math.max(48, Math.ceil(text.length / 80) * 24)}>
     <Streamdown
       animated={false}
       className="react-message-markdown"
@@ -211,5 +214,6 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
     >
       {text}
     </Streamdown>
+    </ViewportContent>
   );
 });

@@ -145,8 +145,11 @@ pub(super) struct WorkspaceFixture {
 
 impl WorkspaceFixture {
     pub(super) fn new() -> Self {
+        // Windows clock resolution can give concurrent fixtures the same timestamp.
+        static NEXT_FIXTURE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let fixture_id = NEXT_FIXTURE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let root = std::env::temp_dir().join(format!(
-            "tinybot-worker-echo-command-{}-{}",
+            "tinybot-worker-echo-command-{}-{}-{fixture_id}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

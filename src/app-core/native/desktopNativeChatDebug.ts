@@ -1,4 +1,5 @@
 import { logRendererEvent, type RendererDebugEntry } from "./rendererLogger";
+import { rendererPerformanceIdentity } from "./rendererPerformance";
 
 export type DesktopNativeDebugStage = string;
 
@@ -27,6 +28,7 @@ export function createDesktopNativeStartupTrace(
 
   const elapsedDetails = (at: number, details: Record<string, unknown> = {}) => ({
     ...details,
+    ...rendererPerformanceIdentity(),
     sinceStartMs: roundedDuration(at - startedAt),
   });
 

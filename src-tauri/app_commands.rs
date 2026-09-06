@@ -1,4 +1,5 @@
 pub const APP_COMMANDS: &[&str] = &[
+    "desktop_ensure_pet_quick_chat_window",
     "record_renderer_diagnostic",
     "record_renderer_log",
     "desktop_performance_snapshot",

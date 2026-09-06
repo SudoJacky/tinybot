@@ -44,6 +44,44 @@ The local `reports/` directory is ignored by this toolkit's own `.gitignore`. `b
 
 ## Runtime traces
 
+Tinybot's in-app Performance Trace JSON uses a different schema from Chrome traces.
+Analyze an exported application snapshot (including older v1 snapshots) with:
+
+```powershell
+npm run analyze:performance -- "C:\path\to\tinybot-performance-trace.json"
+```
+
+The command writes `analysis.md` and `analysis.json` under
+`output/frontend-analysis/performance/`. Pass a second directory argument to
+preserve separate runs for comparison. It reports memory ranges, per-process
+changes, duration rankings, retained native timing samples, renderer resource
+and slow-event summaries, and explicit interpretation limits.
+
+Current snapshots include app version, build mode and native PID, a native
+startup timestamp, page identity/time origin, window visibility/focus and
+memory collection cost. Native duration samples retain the latest 300 entries
+with timestamps; recovery subphases record completed/failed outcomes and the
+total includes final projection reload. Lifetime aggregates survive eviction.
+Renderer tracking starts in the entry module and retains 120 samples per stream
+(resources, long tasks, slow interaction events and paint), with lifetime totals,
+eviction counts and capability/error status. Interaction events use a 40 ms
+threshold and are not an INP measurement. Resource names retain bundled asset
+filenames only; other URLs become origin-category labels and query strings are
+never recorded. Heap values are optional browser estimates, not process totals.
+Renderer records belong to the exporting page; auxiliary pages are not merged
+into its observer data. Observers use buffered entries where supported, but a
+late start or browser buffer limits can still omit earlier entries.
+
+Use a fresh app launch for cold-start comparison. For memory, start recording
+before repeating one scenario for several minutes, then stop and export. JSON
+export refreshes metrics and renderer data; samples retain their own timestamps.
+The diagnostic ZIP embeds renderer data and the sample series in
+`performance-trace.json` too. Private-byte deltas over a short series do not prove
+a leak, nested durations must not be summed, and WebView2 window labels describe
+shared environment queries rather than exclusive PID ownership. New recovery
+totals include a previously unmeasured final reload, so old and new totals have
+different measurement boundaries.
+
 Static and bundle reports cannot identify main-thread stalls. Capture the exact slow product scenario in the Tauri/WebView2 or Chrome Performance panel, export it as JSON, then run:
 
 ```powershell
@@ -68,3 +106,22 @@ Large files, branch counts, heavy imports, and unreachable modules are advisory 
 `npm run analyze:frontend:ci` runs the full pipeline and additionally fails when `baseline.json` is missing. CI uploads `tools/frontend-analysis/reports/latest/` so failures retain their logs and reports.
 
 The toolkit requires Node.js 22 or newer, matching the repository CI runtime.
+
+## Window entry comparison
+
+Build with a manifest and count each window's static JavaScript dependencies:
+
+```powershell
+npx vite build --manifest --outDir output/frontend-analysis/window-entries
+node tools/frontend-analysis/window-entry-analysis.mjs output/frontend-analysis/window-entries
+```
+
+Counts include the HTML bootstrap once per window and exclude deferred imports,
+CSS and assets. They measure code loading scope, not elapsed startup or memory.
+The old combined window entry can have a dependency-derived chunk name.
+
+Snapshot analysis prefers lifetime slow samples when available, reports the
+selection scope for older recent-only buffers, and displays request/response
+resource timing. Memory output includes window-state history, largest sample
+gap, and collection cost. Use release builds and identical operations for
+comparisons; a sampled increase alone does not establish a leak.

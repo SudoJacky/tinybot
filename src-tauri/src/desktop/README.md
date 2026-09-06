@@ -1,5 +1,5 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:bfa2d484a7739e5e3d7a3bfb2a133c2fe577c320db43c0008e6e6c9ca02e8f99 -->
+<!-- tinybot-module-fingerprint: sha256:a0f18f03dc53e4d3e8673cbcf989526403dec114d4e3bc026e6fee35d6c573de -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
@@ -10,8 +10,13 @@ into content-addressed application storage, and returns their hash with the
 managed path. Other files retain their original path, and no file bytes cross
 the Tauri command boundary.
 
-`bootstrap` also creates the Windows-only `desktop-pet` and
-`desktop-pet-chat` transparent webview windows through `pet`. Both remain
+`bootstrap` creates the Windows-only `desktop-pet` transparent webview through
+`pet`. The main renderer invokes `desktop_ensure_pet_quick_chat_window` only
+when a quick-chat request arrives; the async native command creates the hidden
+`desktop-pet-chat` window. The host retains the latest request until renderer
+readiness, then positions, presents and focuses it. Creation failures and a
+15-second readiness timeout are observable. Native window creation and host
+request-to-presentation durations are recorded. Both windows remain
 independent from the main window and stay available while it is minimized or
 hidden in the system tray. Closing the main window hides it without stopping
 the browser, terminal, Agent runtime, or desktop pet. The tray restores and
@@ -31,6 +36,10 @@ Explicit tray exit shuts down the Sidecar browser, terminal, and native Agent
 runtimes before requesting process exit.
 
 Frontend-facing command handlers live separately in `desktop_commands/`.
+Memory snapshots enumerate native windows independently of their child WebViews,
+so attaching a Sidecar does not remove `main` from the report. Each window records
+visibility, focus, physical client dimensions and its child WebView labels.
+Process labels still describe shared environments, not exclusive renderer ownership.
 Bootstrap registers the Agent Graph definition store and linear Graph Run
 runtime alongside the hook catalog, managed save/test/archive, constrained
 managed-script editing, and
@@ -69,6 +78,14 @@ mark the snapshot partial; unavailable totals are not replaced with zero. The
 memory-only command supports explicit frontend sampling without repeatedly
 loading the full metrics and event snapshot. Other platforms return an
 explicit unsupported snapshot.
+
+Each memory sample includes window visibility/focus and collection duration.
+Window labels on process entries identify shared environment queries; they do
+not assign exclusive renderer ownership. Performance snapshots include app
+version, build mode, OS/architecture and native PID. The native startup clock is
+recorded before desktop state initialization. Local diagnostic ZIPs embed the
+exporting page's bounded renderer observations and memory series alongside the
+native snapshot, so their separate capture timestamps remain inspectable.
 
 `bootstrap` records process-local duration aggregates for browser runtime
 creation, menu installation, auxiliary windows, default files, bundled

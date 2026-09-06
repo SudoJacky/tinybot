@@ -161,6 +161,7 @@ export function DesktopPetWindow({
         onPointerDown={handlePointerDown}
       >
         <TinybotMascot
+          active={snapshot.preferences.visible}
           appearance={snapshot.preferences.appearance}
           label={snapshot.label}
           mood={snapshot.mood}

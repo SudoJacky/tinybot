@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { rendererPerformanceSnapshot } from "../app-core/native/rendererPerformance";
 import { listen } from "@tauri-apps/api/event";
 import { createDesktopChatSessionController } from "../app-core/chat/desktopChatSessionController";
 import {
@@ -687,7 +688,7 @@ export function createDesktopAppServices(
     performanceStore: {
       async load() {
         const snapshot = await requireNative(nativePerformanceTrace, "Performance trace").snapshot();
-        return mergeRendererStartupTrace(snapshot, rendererLogSnapshot());
+        return { ...mergeRendererStartupTrace(snapshot, rendererLogSnapshot()), rendererPerformance: rendererPerformanceSnapshot() };
       },
       async sampleMemory() {
         return requireNative(nativePerformanceTrace, "Performance trace").memorySnapshot();
@@ -701,6 +702,7 @@ export function createDesktopAppServices(
           locale: navigator.language || undefined,
           timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
           rendererLogs: rendererLogSnapshot(),
+          rendererPerformance: rendererPerformanceSnapshot(),
           memorySamples,
         });
       },

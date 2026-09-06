@@ -1,5 +1,5 @@
 # Desktop Shell
-<!-- tinybot-module-fingerprint: sha256:83b57a9687fbe4fc9b6e58e87f4b2db1e767b32d93ec4b11ccd5ec75813abc15 -->
+<!-- tinybot-module-fingerprint: sha256:d799cfbd6c1c80a5d3bf24d2ec045f29f3caab512e1f0b636c83f2b5c7e6b57f -->
 
 `shell` owns Tinybot's desktop chrome: the window frame, menus, route
 selection, deferred route loading, and update dialogs.
@@ -48,7 +48,9 @@ independent `desktop-pet` Tauri window; browser-only development retains the
 bounded inline adapter. `DesktopPetWindow.tsx` owns only rendering and direct
 window interaction, while Chat only reports the current mascot mood. The pet
 can be hidden from its own controls without duplicating Agent lifecycle state
-or booting a second `App` service graph. The always-accessible Appearance page
+or booting a second `App` service graph. It pauses ambient mascot motion while
+hidden; the inline host does not reserve a permanent compositor layer via
+`will-change`. The always-accessible Appearance page
 owns visibility, size, style, and the command that resets an off-screen pet to
 the current safe default without changing its other preferences; native and
 browser-fallback hosts both apply that reset immediately.

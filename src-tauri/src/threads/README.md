@@ -1,5 +1,5 @@
 # Threads
-<!-- tinybot-module-fingerprint: sha256:70e4724e128341604e5f5aa90709b0a12de99b7dc50827b58b51bbe1c0998c01 -->
+<!-- tinybot-module-fingerprint: sha256:0a12b7a1e73e011a33c6e52d31b0b3c224647a0575e7d476c8fc38c82b0c2322 -->
 
 `threads` owns conversation state and its durable rollout representation.
 
@@ -18,3 +18,10 @@ lifecycle lock as manual metadata changes.
 Production stores require an explicit application data root. The constructor
 that derives `<workspace>/.tinybot` is available only to tests, including legacy
 storage migration fixtures.
+
+Storage metrics separate lifecycle-lock wait, canonical path discovery, index
+rebuild/population, Rollout head hashing, file read/decompression, JSON parsing,
+ordinal validation, reconstruction and projection build/install. Cache hit,
+miss and eviction counts plus decoded line bytes and line counts explain work
+volume. Timings can be nested; per-file I/O/parse sums are not wall-clock spans.
+The read/parse total retains failure outcomes without changing storage results.

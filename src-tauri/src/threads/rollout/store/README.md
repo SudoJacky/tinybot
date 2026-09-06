@@ -1,5 +1,5 @@
 # Worker Thread Log
-<!-- tinybot-module-fingerprint: sha256:c9a6daae8a23681accd8b6b7e641371d8d27a60a7b5eb2696e95a1b96c4dbad0 -->
+<!-- tinybot-module-fingerprint: sha256:d045339106b244179687b64419690af029a5265f1280cbd3de1b7f72d44ae202 -->
 
 `threads::rollout::store` owns Tinybot's canonical append-only Rollout. It validates
 paths, records typed lines, reconstructs Thread and runtime projections,
@@ -75,6 +75,8 @@ successful append.
 - Reuse Rollout lines and canonical reconstruction across startup index,
   projection, and turn-recovery consumers while the Rollout head is unchanged.
 - Detect and repair divergence between the live index and canonical Rollouts.
+- Return the verified consistency report together with any startup repair, so
+  consumers do not repeat the same full canonical scan for reporting.
 - Reconcile persisted agent turns during runtime startup.
 
 ## Internal layout
@@ -185,3 +187,10 @@ checkpoints are keyed by projector version and event index; incompatible data is
 discarded and rebuilt from the canonical Rollout.
 
 See [`threads::domain`](../../domain/README.md) for the typed Thread domain.
+
+Storage metrics separate lifecycle-lock wait, canonical path discovery, index
+rebuild/population, Rollout head hashing, file read/decompression, JSON parsing,
+ordinal validation, reconstruction and projection build/install. Cache hit,
+miss and eviction counts plus decoded line bytes and line counts explain work
+volume. Timings can be nested; per-file I/O/parse sums are not wall-clock spans.
+The read/parse total retains failure outcomes without changing storage results.

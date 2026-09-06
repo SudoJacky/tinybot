@@ -299,50 +299,62 @@ impl RuntimeLifecycle {
     pub(crate) fn reconcile_startup(
         thread_store: &WorkspaceThreadStore,
     ) -> Result<RuntimeStartupRecoveryReport, WorkerProtocolError> {
-        let recovery_started = Instant::now();
         let metrics = crate::runtime::observability::global_agent_runtime_metrics();
         metrics.increment("recovery.orphaned_turns.requested");
-        let mut operation = thread_store.begin_operation()?;
-        let thread = operation.thread();
-        let thread_log = operation.thread_log();
-        let mut report = RuntimeStartupRecoveryReport::default();
-
-        report.session_log_index_migration = thread_log.prepare_state_index_for_startup()?;
-        report.session_log_index = Some(thread_log.check_state_index()?);
-        let (threads, items) = thread_log.thread_projection()?;
-        thread.replace_projection(threads, items)?;
-
-        for thread_record in list_all_threads(&thread)? {
-            report.scanned_threads = report.scanned_threads.saturating_add(1);
-            let status = thread.get_thread_status(ThreadIdParams {
-                thread_id: thread_record.thread_id.clone(),
+        metrics.measure("recovery.orphaned_turns.durationMs", || {
+            let mut operation = metrics.measure("recovery.beginOperation.durationMs", || {
+                thread_store.begin_operation()
             })?;
-            let Some(active_turn) = status.active_turn else {
-                continue;
+            let (index, migration) = metrics.measure("recovery.prepareIndex.durationMs", || {
+                operation.thread_log().prepare_state_index_for_startup()
+            })?;
+            // begin_operation already materialized the canonical projection. Only a
+            // repaired index can make that projection stale before recovery starts.
+            if migration.is_some() {
+                metrics.measure("recovery.repairProjection.durationMs", || {
+                    operation.reload_projection()
+                })?;
+            }
+            let thread = operation.thread();
+            let thread_log = operation.thread_log();
+            let mut report = RuntimeStartupRecoveryReport {
+                session_log_index: Some(index),
+                session_log_index_migration: migration,
+                ..Default::default()
             };
-            let turn_ref = LifecycleTurnRef {
-                session_id: status
-                    .thread
-                    .session_key
-                    .clone()
-                    .unwrap_or_else(|| status.thread.thread_id.clone()),
-                turn_id: active_turn.turn_id.clone(),
-                thread_id: Some(status.thread.thread_id.clone()),
-            };
-            match active_turn.status {
-                crate::threads::domain::ThreadStatus::WaitingForInput => {
-                    if status
-                        .latest_checkpoint
-                        .as_ref()
-                        .is_some_and(|checkpoint| checkpoint.turn_id == active_turn.turn_id)
-                    {
-                        report.resumable_turns.push(turn_ref);
-                    } else {
-                        report.awaiting_interaction_turns.push(turn_ref);
-                    }
-                }
-                _ if active_turn.active => {
-                    let interrupted = thread.interrupt(InterruptThreadRequest {
+
+            metrics.measure(
+                "recovery.scanThreads.durationMs",
+                || -> Result<(), WorkerProtocolError> {
+                    for thread_record in list_all_threads(&thread)? {
+                        report.scanned_threads = report.scanned_threads.saturating_add(1);
+                        let status = thread.get_thread_status(ThreadIdParams {
+                            thread_id: thread_record.thread_id.clone(),
+                        })?;
+                        let Some(active_turn) = status.active_turn else {
+                            continue;
+                        };
+                        let turn_ref = LifecycleTurnRef {
+                            session_id: status
+                                .thread
+                                .session_key
+                                .clone()
+                                .unwrap_or_else(|| status.thread.thread_id.clone()),
+                            turn_id: active_turn.turn_id.clone(),
+                            thread_id: Some(status.thread.thread_id.clone()),
+                        };
+                        match active_turn.status {
+                            crate::threads::domain::ThreadStatus::WaitingForInput => {
+                                if status.latest_checkpoint.as_ref().is_some_and(|checkpoint| {
+                                    checkpoint.turn_id == active_turn.turn_id
+                                }) {
+                                    report.resumable_turns.push(turn_ref);
+                                } else {
+                                    report.awaiting_interaction_turns.push(turn_ref);
+                                }
+                            }
+                            _ if active_turn.active => {
+                                let interrupted = thread.interrupt(InterruptThreadRequest {
                         thread_id: status.thread.thread_id,
                         client_event_id: Some(format!(
                             "startup-recovery:{}:{}",
@@ -355,68 +367,82 @@ impl RuntimeLifecycle {
                                 .to_string(),
                         ),
                     })?;
-                    thread_log.create_from_thread_record(&interrupted.snapshot.thread)?;
-                    thread_log.append_thread_items(
-                        &interrupted.snapshot.thread.thread_id,
-                        &interrupted.appended_items,
-                    )?;
-                    report.interrupted_turns.push(turn_ref);
-                }
-                _ => {}
-            }
-        }
+                                thread_log
+                                    .create_from_thread_record(&interrupted.snapshot.thread)?;
+                                thread_log.append_thread_items(
+                                    &interrupted.snapshot.thread.thread_id,
+                                    &interrupted.appended_items,
+                                )?;
+                                report.interrupted_turns.push(turn_ref);
+                            }
+                            _ => {}
+                        }
+                    }
+                    Ok(())
+                },
+            )?;
 
-        let turn_report = thread_log.reconcile_orphaned_turns()?;
-        report.scanned_turn_records = turn_report.scanned_turns;
-        report.interrupted_turns.extend(
-            turn_report
-                .interrupted_turns
-                .into_iter()
-                .map(LifecycleTurnRef::from),
-        );
-        report.awaiting_interaction_turns.extend(
-            turn_report
-                .awaiting_interaction_turns
-                .into_iter()
-                .map(LifecycleTurnRef::from),
-        );
-        report.resumable_turns.extend(
-            turn_report
-                .resumable_turns
-                .into_iter()
-                .map(LifecycleTurnRef::from),
-        );
-        normalize_turn_refs(&mut report.interrupted_turns);
-        normalize_turn_refs(&mut report.awaiting_interaction_turns);
-        normalize_turn_refs(&mut report.resumable_turns);
-        let interrupted_keys = turn_keys(&report.interrupted_turns);
-        report.resumable_turns.retain(|turn| {
-            !interrupted_keys.contains(&(turn.session_id.clone(), turn.turn_id.clone()))
-        });
-        let resumable_keys = turn_keys(&report.resumable_turns);
-        report.awaiting_interaction_turns.retain(|turn| {
-            let key = (turn.session_id.clone(), turn.turn_id.clone());
-            !interrupted_keys.contains(&key) && !resumable_keys.contains(&key)
-        });
-        metrics.increment_by(
-            "recovery.orphaned_turns.interrupted",
-            report.interrupted_turns.len() as u64,
-        );
-        metrics.increment_by(
-            "recovery.orphaned_turns.resumable",
-            report.resumable_turns.len() as u64,
-        );
-        metrics.increment_by(
-            "recovery.orphaned_turns.awaiting_interaction",
-            report.awaiting_interaction_turns.len() as u64,
-        );
-        metrics.record_duration(
-            "recovery.orphaned_turns.durationMs",
-            recovery_started.elapsed(),
-        );
-        metrics.increment("recovery.orphaned_turns.completed");
-        operation.reload_projection()?;
-        Ok(report)
+            let turn_report = metrics.measure("recovery.scanTurns.durationMs", || {
+                thread_log.reconcile_orphaned_turns()
+            })?;
+            report.scanned_turn_records = turn_report.scanned_turns;
+            report.interrupted_turns.extend(
+                turn_report
+                    .interrupted_turns
+                    .into_iter()
+                    .map(LifecycleTurnRef::from),
+            );
+            report.awaiting_interaction_turns.extend(
+                turn_report
+                    .awaiting_interaction_turns
+                    .into_iter()
+                    .map(LifecycleTurnRef::from),
+            );
+            report.resumable_turns.extend(
+                turn_report
+                    .resumable_turns
+                    .into_iter()
+                    .map(LifecycleTurnRef::from),
+            );
+            normalize_turn_refs(&mut report.interrupted_turns);
+            normalize_turn_refs(&mut report.awaiting_interaction_turns);
+            normalize_turn_refs(&mut report.resumable_turns);
+            let interrupted_keys = turn_keys(&report.interrupted_turns);
+            report.resumable_turns.retain(|turn| {
+                !interrupted_keys.contains(&(turn.session_id.clone(), turn.turn_id.clone()))
+            });
+            let resumable_keys = turn_keys(&report.resumable_turns);
+            report.awaiting_interaction_turns.retain(|turn| {
+                let key = (turn.session_id.clone(), turn.turn_id.clone());
+                !interrupted_keys.contains(&key) && !resumable_keys.contains(&key)
+            });
+            metrics.increment_by(
+                "recovery.orphaned_turns.interrupted",
+                report.interrupted_turns.len() as u64,
+            );
+            metrics.increment_by(
+                "recovery.orphaned_turns.resumable",
+                report.resumable_turns.len() as u64,
+            );
+            metrics.increment_by(
+                "recovery.orphaned_turns.awaiting_interaction",
+                report.awaiting_interaction_turns.len() as u64,
+            );
+            metrics.set_gauge("recovery.scannedThreads", report.scanned_threads as i64);
+            metrics.set_gauge(
+                "recovery.scannedTurnRecords",
+                report.scanned_turn_records as i64,
+            );
+            if report.interrupted_turns.is_empty() {
+                metrics.increment("recovery.projection.reload.skipped");
+            } else {
+                metrics.measure("recovery.reloadProjection.durationMs", || {
+                    operation.reload_projection()
+                })?;
+            }
+            metrics.increment("recovery.orphaned_turns.completed");
+            Ok(report)
+        })
     }
 }
 

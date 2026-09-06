@@ -1,4 +1,13 @@
 import type { RendererLogEntry } from "./rendererLogger";
+import type { RendererPerformanceSnapshot } from "./rendererPerformance";
+
+export type PerformanceDurationSample = {
+  name: string;
+  startedAtUnixMs: number;
+  endedAtUnixMs: number;
+  durationMs: number;
+  outcome: "completed" | "failed" | null;
+};
 
 export type PerformanceTraceDuration = {
   count: number;
@@ -13,6 +22,8 @@ export type PerformanceTraceMetrics = {
   counters: Record<string, number>;
   durations: Record<string, PerformanceTraceDuration>;
   gauges: Record<string, number>;
+  recentDurations?: PerformanceDurationSample[];
+  droppedDurationSamples?: number;
 };
 
 export type PerformanceMemoryStatus = "available" | "partial" | "unsupported";
@@ -50,6 +61,8 @@ export type PerformanceMemorySnapshot = {
   totalPrivateBytes: number | null;
   totalWorkingSetBytes: number | null;
   collectionErrors: PerformanceMemoryCollectionError[];
+  windows?: { label: string; visible: boolean; focused: boolean; width?: number | null; height?: number | null; webviewLabels?: string[] }[];
+  collectionDurationMs?: number;
 };
 
 export type PerformanceTraceEvent = {
@@ -68,6 +81,8 @@ export type PerformanceTraceSnapshot = {
   memory: PerformanceMemorySnapshot;
   memorySamples?: PerformanceMemorySnapshot[];
   recentEvents: PerformanceTraceEvent[];
+  environment?: { appVersion: string; os: string; arch: string; pid: number; buildMode: string };
+  rendererPerformance?: RendererPerformanceSnapshot;
 };
 
 export type DiagnosticBundleExportInput = {
@@ -76,6 +91,7 @@ export type DiagnosticBundleExportInput = {
   timeZone?: string;
   rendererLogs: RendererLogEntry[];
   memorySamples?: readonly PerformanceMemorySnapshot[];
+  rendererPerformance?: RendererPerformanceSnapshot;
 };
 
 export type DiagnosticBundleExportResult = {
@@ -124,6 +140,7 @@ export function createDesktopNativePerformanceTraceApi({ invoke }: { invoke: Inv
           locale: input.locale,
           timeZone: input.timeZone,
           rendererLogs: input.rendererLogs,
+          ...(input.rendererPerformance ? { rendererPerformance: input.rendererPerformance } : {}),
           ...(input.memorySamples ? { memorySamples: input.memorySamples } : {}),
         },
       });
@@ -171,7 +188,14 @@ export function normalizePerformanceTraceSnapshot(value: unknown): PerformanceTr
       counters: normalizeNumericRecord(metrics.counters, "metrics counters"),
       durations: normalizeDurationRecord(metrics.durations),
       gauges: normalizeNumericRecord(metrics.gauges, "metrics gauges"),
+      ...(metrics.recentDurations === undefined ? {} : {
+        recentDurations: requireArray(metrics.recentDurations, "metrics recentDurations").map(normalizeDurationSample),
+      }),
+      ...(metrics.droppedDurationSamples === undefined ? {} : {
+        droppedDurationSamples: requireNonNegativeSafeInteger(metrics.droppedDurationSamples, "metrics droppedDurationSamples"),
+      }),
     },
+    ...(snapshot.environment === undefined ? {} : { environment: normalizeEnvironment(snapshot.environment) }),
     memory: normalizePerformanceMemorySnapshot(snapshot.memory),
     ...(memorySamples ? { memorySamples } : {}),
     recentEvents: recentEvents.map(normalizePerformanceTraceEvent),
@@ -205,6 +229,50 @@ export function normalizePerformanceMemorySnapshot(value: unknown): PerformanceM
     totalWorkingSetBytes: normalizeNullableBytes(snapshot.totalWorkingSetBytes, "performance memory totalWorkingSetBytes"),
     collectionErrors: requireArray(snapshot.collectionErrors, "performance memory collectionErrors")
       .map(normalizeMemoryCollectionError),
+    ...(snapshot.collectionDurationMs === undefined ? {} : {
+      collectionDurationMs: requireNonNegativeSafeInteger(snapshot.collectionDurationMs, "memory collectionDurationMs"),
+    }),
+    ...(snapshot.windows === undefined ? {} : {
+      windows: requireArray(snapshot.windows, "memory windows").map((item) => {
+        const window = requireRecord(item, "memory window");
+        if (typeof window.visible !== "boolean" || typeof window.focused !== "boolean") {
+          throw new Error("Memory window visibility and focus must be booleans");
+        }
+        return {
+          label: requireString(window.label, "window label"), visible: window.visible, focused: window.focused,
+          ...(window.width === undefined ? {} : { width: normalizeNullableBytes(window.width, "window width") }),
+          ...(window.height === undefined ? {} : { height: normalizeNullableBytes(window.height, "window height") }),
+          ...(window.webviewLabels === undefined ? {} : {
+            webviewLabels: requireArray(window.webviewLabels, "window webviews").map((label) => requireString(label, "webview label")),
+          }),
+        };
+      }),
+    }),
+  };
+}
+
+function normalizeEnvironment(value: unknown): NonNullable<PerformanceTraceSnapshot["environment"]> {
+  const environment = requireRecord(value, "performance environment");
+  return {
+    appVersion: requireString(environment.appVersion, "environment appVersion"),
+    os: requireString(environment.os, "environment os"),
+    arch: requireString(environment.arch, "environment arch"),
+    pid: requirePositiveSafeInteger(environment.pid, "environment pid"),
+    buildMode: requireString(environment.buildMode, "environment buildMode"),
+  };
+}
+
+function normalizeDurationSample(value: unknown): PerformanceDurationSample {
+  const sample = requireRecord(value, "duration sample");
+  if (sample.outcome !== null && sample.outcome !== "completed" && sample.outcome !== "failed") {
+    throw new Error("Unsupported duration sample outcome");
+  }
+  return {
+    name: requireString(sample.name, "duration sample name"),
+    startedAtUnixMs: requireNonNegativeSafeInteger(sample.startedAtUnixMs, "duration sample start"),
+    endedAtUnixMs: requireNonNegativeSafeInteger(sample.endedAtUnixMs, "duration sample end"),
+    durationMs: requireNonNegativeSafeInteger(sample.durationMs, "duration sample duration"),
+    outcome: sample.outcome,
   };
 }
 

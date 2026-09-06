@@ -277,7 +277,6 @@
     opacity 220ms var(--motion-ease-standard),
     transform 280ms var(--motion-ease-standard),
     visibility 0ms linear 280ms;
-  will-change: opacity, transform;
 }
 
 .react-floating-plan__note {

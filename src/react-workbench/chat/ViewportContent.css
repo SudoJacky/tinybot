@@ -1,0 +1,14 @@
+.react-viewport-content {
+  display: flow-root;
+  min-width: 0;
+}
+
+.react-viewport-content[data-mounted="false"] {
+  overflow: hidden;
+}
+
+.react-viewport-content__placeholder {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

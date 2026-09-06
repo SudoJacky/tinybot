@@ -1,4 +1,4 @@
-import { useId, type CSSProperties } from "react";
+import { useId, useSyncExternalStore, type CSSProperties } from "react";
 import type { ChatTurn } from "../../app-core/chat/chatTurnContracts";
 import type {
   DesktopPetAppearance,
@@ -28,14 +28,17 @@ export function projectTinybotMascotMood({
 }
 
 export function TinybotMascot({
+  active = true,
   appearance = "dimensional",
   label,
   mood,
 }: {
   appearance?: DesktopPetAppearance;
+  active?: boolean;
   label: string;
   mood: TinybotMascotMood;
 }) {
+  const pageVisible = useSyncExternalStore(subscribeVisibility, readVisibility);
   const paintId = `tinybot-${useId().replace(/:/g, "")}`;
   const dimensional = appearance === "dimensional";
   const gradientFill = (name: string): CSSProperties | undefined => (
@@ -50,6 +53,7 @@ export function TinybotMascot({
       className="react-tinybot-mascot"
       data-appearance={appearance}
       data-mood={mood}
+      data-motion={active && pageVisible ? "active" : "paused"}
       role="img"
       title={label}
     >
@@ -94,3 +98,10 @@ export function TinybotMascot({
     </div>
   );
 }
+
+function subscribeVisibility(callback: () => void) {
+  document.addEventListener("visibilitychange", callback);
+  return () => document.removeEventListener("visibilitychange", callback);
+}
+
+function readVisibility() { return document.visibilityState !== "hidden"; }

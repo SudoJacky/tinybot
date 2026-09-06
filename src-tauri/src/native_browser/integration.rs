@@ -30,6 +30,14 @@ fn native_browser_integration_probe() -> bool {
 pub(crate) fn run() -> Result<(), String> {
     let profile_root = integration_profile_root();
     let cleanup_root = profile_root.clone();
+    let mut context = tauri::generate_context!();
+    context.config_mut().app.windows[0].url = tauri::WebviewUrl::External(
+        "about:blank"
+            .parse()
+            .map_err(|error| format!("Invalid integration host URL: {error}"))?,
+    );
+    context.config_mut().app.windows[0].data_directory = Some(profile_root.join("host"));
+    context.config_mut().app.windows[0].visible = false;
     let (result_tx, result_rx) = mpsc::sync_channel(1);
     let app = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![native_browser_integration_probe])
@@ -37,11 +45,12 @@ pub(crate) fn run() -> Result<(), String> {
             let adapter = WindowsBrowserRuntime::new(app.handle().clone(), profile_root.clone())
                 .map_err(std::io::Error::other)?;
             let runtime = BrowserSessionManager::new(
-                adapter,
+                adapter.clone(),
                 profile_root,
                 Arc::new(|_| {}),
                 Arc::new(|_| {}),
             );
+            app.manage(adapter);
             if !app.manage(runtime) {
                 return Err(std::io::Error::other(
                     "Native browser integration runtime was already managed",
@@ -57,7 +66,7 @@ pub(crate) fn run() -> Result<(), String> {
             });
             Ok(())
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .map_err(|error| format!("Failed to build native browser integration app: {error}"))?;
 
     let exit_code = app.run_return(|_, _| {});
@@ -423,6 +432,10 @@ async fn exercise_open_session(
         ));
     }
 
+    app.state::<Arc<WindowsBrowserRuntime>>()
+        .verify_idle_suspend_cycle(tab_id)
+        .await?;
+    eprintln!("Native browser idle suspension, Agent wake-up and page-state preservation passed");
     Ok(semantic.nodes.len())
 }
 

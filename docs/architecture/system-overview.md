@@ -16,12 +16,20 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:8426ee6d08b416f7c062432a571d449ad1b47e361a94af8d1e13d0fcfac90dc2 -->
+<!-- tinybot-doc-fingerprint: sha256:719c6e0d939f20b08beaf5fab017020c06cf37d110bb255d7451e5dc1480caa6 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
 and the Rust backend owns native capabilities, Agent execution, durable
 conversation state, and process lifecycle.
+
+Chat can release offscreen Markdown and chart renderers while retaining message
+interaction owners and semantic scroll anchors. The native browser owns idle
+suspension and resumes a page before Agent operations; hiding a surface does not
+discard its page or profile. Memory diagnostics keep native window identity,
+child WebView membership and process-environment membership separate, including
+when a Sidecar shares the main window. Hidden desktop-pet motion is paused by the
+renderer without changing the pet's persisted mood or preferences.
 
 ## System map
 
@@ -206,14 +214,17 @@ The renderer entry point has three surfaces. The main window follows
 `main.tsx -> App -> DesktopShell` and composes the application services. The
 initial HTML owns a white, centered-logo startup surface; the main window
 dismisses it after its first React frame, with reduced-motion support. The
-small `src/main.ts` bootstrap loads the workbench asynchronously and displays
+small `src/main.ts` bootstrap selects `main.tsx`, `petMain.tsx`, or
+`quickChatMain.tsx` before loading that surface asynchronously and displays
 renderer diagnostics if that import fails. Startup presentation does not gate
 native session restoration and is hidden for both pet surfaces. The
 Windows-only `?surface=desktop-pet` path mounts `DesktopPetWindow` directly
 under the shared language, appearance, error, and diagnostic providers. It
 receives snapshots from `DesktopShell` through `app-core/native`, so showing a
 global desktop pet does not duplicate routes, stores, or native runtimes. The
-`?surface=desktop-pet-chat` path mounts `DesktopPetQuickChatWindow` with a
+`?surface=desktop-pet-chat` window is created on its first request, and its
+host retains that request until the renderer announces readiness. It mounts
+`DesktopPetQuickChatWindow` with a
 bounded service composition and a least-privilege Tauri command permission so
 it can pick attachments and create and continue canonical Threads; the scoped
 native event seam positions it next to the pet and hands an explicit Thread ID

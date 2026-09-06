@@ -1,4 +1,5 @@
 import { emitTo, listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   PhysicalPosition,
@@ -17,6 +18,7 @@ import {
   parseNativePickedFiles,
 } from "./desktopNativePetFileDrop";
 import type { NativePickedFile } from "./desktopNativeFilePicker";
+import { logRendererEvent } from "./rendererLogger";
 
 export const DESKTOP_PET_QUICK_CHAT_WINDOW_LABEL = "desktop-pet-chat";
 
@@ -87,6 +89,8 @@ class TauriDesktopPetQuickChatHost implements DesktopPetQuickChatHost {
   private latestRequest: DesktopPetQuickChatRequest | null = null;
   private ready = false;
   private listening = false;
+  private requestedAt = 0;
+  private readyTimer: ReturnType<typeof setTimeout> | undefined;
 
   async listen(listener: (event: DesktopPetQuickChatHostEvent) => void): Promise<() => void> {
     if (this.listening) throw new Error("The desktop pet quick chat host is already listening.");
@@ -94,10 +98,13 @@ class TauriDesktopPetQuickChatHost implements DesktopPetQuickChatHost {
     try {
       const unlistenRequest = await listen<unknown>(QUICK_CHAT_OPEN_REQUEST_EVENT, ({ payload }) => {
         this.latestRequest = parseDesktopPetQuickChatRequest(payload);
+        this.requestedAt = performance.now();
         void this.schedulePresent().catch(reportQuickChatError);
       });
       const unlistenReady = await listen(QUICK_CHAT_READY_EVENT, () => {
         this.ready = true;
+        clearTimeout(this.readyTimer);
+        this.readyTimer = undefined;
         void this.schedulePresent().catch(reportQuickChatError);
       });
       const unlistenOpenMain = await listen<unknown>(QUICK_CHAT_OPEN_MAIN_EVENT, ({ payload }) => {
@@ -109,7 +116,9 @@ class TauriDesktopPetQuickChatHost implements DesktopPetQuickChatHost {
         })().catch(reportQuickChatError);
       });
 
-      await emitTo(DESKTOP_PET_QUICK_CHAT_WINDOW_LABEL, QUICK_CHAT_PROBE_EVENT);
+      if (await WebviewWindow.getByLabel(DESKTOP_PET_QUICK_CHAT_WINDOW_LABEL)) {
+        await emitTo(DESKTOP_PET_QUICK_CHAT_WINDOW_LABEL, QUICK_CHAT_PROBE_EVENT);
+      }
 
       return () => {
         unlistenOpenMain();
@@ -118,6 +127,8 @@ class TauriDesktopPetQuickChatHost implements DesktopPetQuickChatHost {
         this.latestRequest = null;
         this.ready = false;
         this.listening = false;
+        clearTimeout(this.readyTimer);
+        this.readyTimer = undefined;
       };
     } catch (error) {
       this.listening = false;
@@ -132,8 +143,29 @@ class TauriDesktopPetQuickChatHost implements DesktopPetQuickChatHost {
   }
 
   private async presentLatestRequest(): Promise<void> {
+    if (!this.listening || !this.latestRequest) return;
+    if (!this.ready) {
+      await invoke("desktop_ensure_pet_quick_chat_window");
+      if (!this.listening) return;
+      // A newly created renderer announces ready after installing its listeners.
+      // A reused window may have announced before this host mounted, so probe it.
+      await emitTo(DESKTOP_PET_QUICK_CHAT_WINDOW_LABEL, QUICK_CHAT_PROBE_EVENT);
+      if (!this.ready) {
+        if (this.readyTimer === undefined) {
+          this.readyTimer = setTimeout(() => {
+            this.readyTimer = undefined;
+            if (!this.ready && this.latestRequest) {
+              reportQuickChatError(new Error("Quick chat renderer did not become ready within 15 seconds."));
+            }
+          }, 15_000);
+        }
+        return;
+      }
+    }
+    if (!this.listening) return;
     const request = this.latestRequest;
-    if (!this.ready || !request) return;
+    if (!request) return;
+    const requestedAt = this.requestedAt;
     this.latestRequest = null;
     const [petWindow, quickChatWindow] = await Promise.all([
       requireWindow(DESKTOP_PET_WINDOW_LABEL),
@@ -155,9 +187,10 @@ class TauriDesktopPetQuickChatHost implements DesktopPetQuickChatHost {
     await emitTo(DESKTOP_PET_QUICK_CHAT_WINDOW_LABEL, QUICK_CHAT_PRESENT_EVENT, request);
     await quickChatWindow.show();
     await quickChatWindow.setFocus();
-    console.info("[desktop-pet-quick-chat] presented", {
+    logRendererEvent("info", "desktop_pet_quick_chat.presented", {
       requestId: request.requestId,
       textLength: request.draft.length,
+      durationMs: performance.now() - requestedAt,
     });
   }
 }
@@ -273,5 +306,5 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function reportQuickChatError(error: unknown): void {
-  console.error("[desktop-pet-quick-chat] Native window operation failed.", error);
+  logRendererEvent("error", "desktop_pet_quick_chat.failed", { error });
 }
