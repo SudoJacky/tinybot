@@ -1,5 +1,5 @@
 # Tool Registry
-<!-- tinybot-module-fingerprint: sha256:d7bbfbeabc29643892891b28fca062bfcc1fabb2a62282dcff5fcb60fd189b45 -->
+<!-- tinybot-module-fingerprint: sha256:c74093ca439bcb3ee863d9f8832179cba87bf0001f6eaa0794e986820f0c6840 -->
 
 `registry` is the catalog of tools available to the runtime. Each entry records
 its schema, exposure, execution target, required capabilities, cancellation
@@ -22,3 +22,7 @@ For `publish_data_view`, this includes supported view kinds and the table
 The `write_stdin` contract distinguishes empty-input completion waits from
 interactive writes. It exposes waits up to 300 seconds and explains output
 batching, the 5-second floor, and the default 30-second background wait.
+The `exec_command` description teaches the complete long-command workflow:
+start once, distinguish the initial wait from a process timeout, reuse the
+process ID and latest cursor, and prefer longer continuation waits over
+repeated short polls.

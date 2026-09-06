@@ -601,7 +601,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "shell.start",
             "shell",
             "Start shell command",
-            "Start a shell command with the current user's permissions. Set workingDir explicitly when needed and use yieldTimeMs for a short initial wait. If the process remains active, continue it with write_stdin using the returned processId. Check the exit status and output before reporting success.",
+            "Start a shell command with the current user's permissions. Set workingDir explicitly when needed. yieldTimeMs is the initial wait budget (default 10000; maximum 30000 ms), not an execution timeout. For downloads, dependency installs, tests, and builds, start once with the default wait. If running=true, the process continues: use write_stdin with the returned processId, latest cursor, empty input, and yieldTimeMs of 30000-300000 ms. Prefer longer waits when there is no actionable progress; do independent work between waits when useful. Progress logs are batched and process completion returns early. Avoid repeated short polls or restarting a running command. Check the exit status and output before reporting success.",
             ToolExposure::Model,
             false,
             runtime_policy(false, ToolCancellationMode::TerminateProcess, true, false),
