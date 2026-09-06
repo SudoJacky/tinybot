@@ -8,7 +8,7 @@
     "build": "tsc && vite build",
     "test": "vitest run",
     "test:hdd": "vitest run --maxWorkers=4",
-    "test:frontend-analysis": "node --test tools/frontend-analysis/analysis.test.mjs tools/frontend-analysis/performance-analysis.test.mjs",
+    "test:frontend-analysis": "node --test tools/frontend-analysis/analysis.test.mjs tools/frontend-analysis/performance-analysis.test.mjs tools/frontend-analysis/window-entry.test.mjs",
     "lint": "node tools/frontend-analysis/cli.mjs lint",
     "typecheck": "tsc --noEmit",
     "analyze:frontend": "node tools/frontend-analysis/cli.mjs full",

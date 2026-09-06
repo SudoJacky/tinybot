@@ -42,6 +42,11 @@ Generated files live under `tools/frontend-analysis/reports/latest/`:
 
 The local `reports/` directory is ignored by this toolkit's own `.gitignore`. `baseline.json` is intentionally versioned.
 
+`window-entry.test.mjs` builds the actual window bootstrap with lightweight
+renderer fixtures, then checks the emitted preload behavior for each surface.
+It verifies that the selected entry waits for its own CSS, and runs in the
+frontend analysis gate and Windows release checks.
+
 ## Runtime traces
 
 Tinybot's in-app Performance Trace JSON uses a different schema from Chrome traces.

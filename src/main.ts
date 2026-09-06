@@ -14,10 +14,19 @@ entryTrace.mark("entry.ready", { surface: surface ?? "main" });
 entryTrace.start("workbench.import");
 
 // Keep bootstrap failures visible even when the workbench chunk cannot load.
-const entry = surface === "desktop-pet" ? import("./react-workbench/petMain")
-  : surface === "desktop-pet-chat" ? import("./react-workbench/quickChatMain")
-    : import("./react-workbench/main");
-void entry.then(() => {
+// Separate branches keep Vite's CSS preload dependencies attached to the
+// matching import. A conditional expression can hoist the last branch's list.
+function importSurface() {
+  switch (surface) {
+    case "desktop-pet":
+      return import("./react-workbench/petMain");
+    case "desktop-pet-chat":
+      return import("./react-workbench/quickChatMain");
+    default:
+      return import("./react-workbench/main");
+  }
+}
+void importSurface().then(() => {
   entryTrace.complete("workbench.import");
 }).catch((error: unknown) => {
   entryTrace.fail("workbench.import", error);

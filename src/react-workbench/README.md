@@ -4,7 +4,9 @@
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `src/main.ts` selects a dynamic entry before importing React surfaces:
 `main.tsx` mounts `App`, `petMain.tsx` mounts the mascot, and `quickChatMain.tsx`
-mounts quick chat. `TinybotErrorBoundary.tsx` is shared without importing `App`
+mounts quick chat. The bootstrap uses separate switch branches so production
+CSS preloads stay attached to the selected window entry, including the pet's
+transparent layout. `TinybotErrorBoundary.tsx` is shared without importing `App`
 or `DesktopShell`. Quick chat owns its renderer service graph and is created
 only on first use, remaining available while the main window is minimized.
 The initial HTML displays a white startup surface with the centered Tinybot mark

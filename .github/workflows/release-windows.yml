@@ -71,6 +71,9 @@ jobs:
       - name: Run frontend tests
         run: npm test
 
+      - name: Test frontend build tooling
+        run: npm run test:frontend-analysis
+
       - name: Build frontend
         run: npm run build
 

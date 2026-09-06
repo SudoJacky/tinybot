@@ -54,7 +54,7 @@ async function execute(selectedCommand, args) {
   const runBundle = runTestsAndBuild || selectedCommand === "bundle";
 
   if (runQuality) {
-    stages.push(await runNodeStage("tooling-tests", ["--test", "tools/frontend-analysis/analysis.test.mjs", "tools/frontend-analysis/performance-analysis.test.mjs"], "tooling-tests.log"));
+    stages.push(await runNodeStage("tooling-tests", ["--test", "tools/frontend-analysis/analysis.test.mjs", "tools/frontend-analysis/performance-analysis.test.mjs", "tools/frontend-analysis/window-entry.test.mjs"], "tooling-tests.log"));
     stages.push(await runNodeStage("typecheck", [localBinary("typescript/bin/tsc"), "--noEmit"], "typecheck.log"));
   }
 
