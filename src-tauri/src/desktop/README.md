@@ -1,5 +1,5 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:e360a90f03dccd449e429be7add1813ccef74b0757ddcc4bd71d030006333e9f -->
+<!-- tinybot-module-fingerprint: sha256:a0f18f03dc53e4d3e8673cbcf989526403dec114d4e3bc026e6fee35d6c573de -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
@@ -36,6 +36,10 @@ Explicit tray exit shuts down the Sidecar browser, terminal, and native Agent
 runtimes before requesting process exit.
 
 Frontend-facing command handlers live separately in `desktop_commands/`.
+Memory snapshots enumerate native windows independently of their child WebViews,
+so attaching a Sidecar does not remove `main` from the report. Each window records
+visibility, focus, physical client dimensions and its child WebView labels.
+Process labels still describe shared environments, not exclusive renderer ownership.
 Bootstrap registers the Agent Graph definition store and linear Graph Run
 runtime alongside the hook catalog, managed save/test/archive, constrained
 managed-script editing, and

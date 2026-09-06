@@ -8,6 +8,7 @@ import {
   type DataViewRow,
 } from "../../app-core/chat/dataView";
 import type { ArtifactRef } from "../../app-core/chat/chatTurnContracts";
+import { ViewportContent } from "./ViewportContent";
 
 const DataViewChart = lazy(() => import("./DataViewChart"));
 
@@ -76,6 +77,7 @@ export function DataViewCard({
 
       <div className="react-data-view__body">
         {activeTab === "chart" && chartAvailable ? (
+          <ViewportContent pinned={expanded} placeholder={document.insight} estimatedHeight={280}>
           <Suspense
             fallback={(
               <div
@@ -88,6 +90,7 @@ export function DataViewCard({
           >
             <DataViewChart document={document} />
           </Suspense>
+          </ViewportContent>
         ) : document.view.kind === "metrics" ? (
           <DataViewMetrics document={document} locale={locale} />
         ) : (

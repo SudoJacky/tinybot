@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:7657e9924d99274304e420938cc21e07ee90d66460d04d5df887b79058302cb7 -->
+<!-- tinybot-module-fingerprint: sha256:5a9a778ca0bc106957e1f474eaf29399c89ec7eb677d514c28c4621410508da3 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -64,6 +64,16 @@ reduced-motion mode replaces the slide with a short opacity transition. Normal
 Turn completion keeps the last canonical plan state; failed or interrupted
 Turns still reconcile unfinished steps to their terminal outcome.
 `AssistantMarkdown.tsx` owns assistant prose and link presentation.
+`ViewportContent` mounts expensive Markdown and chart bodies within 800 pixels
+of the conversation viewport and releases them outside it. Lightweight message
+and disclosure owners stay mounted, preserving their interaction state. Last
+measured heights reserve space; plain text remains searchable while deferred.
+Streaming, focused and selected content stays mounted. Keyboard focus can reveal
+a placeholder. Scroll corrections preserve the visible anchor or bottom edge.
+`conversationViewport` records a stable message anchor and local offset for
+session switching, reveals that message before restoring the offset, and keeps
+pixel-position restoration for snapshots without an anchor. Expanded chart
+drawers stay mounted; inline chart tabs remain owned by `DataViewCard`.
 Allowed web and email links keep their existing safe opener path while adding
 an aria-hidden inline source icon: a GitHub mark for GitHub hosts, an envelope
 for email, and a globe for other websites. The anchor remains inline so long
@@ -92,6 +102,9 @@ transition between moods independently from the longer ambient loops. Classic
 appearance uses the original flat fills; dimensional appearance adds only SVG
 gradient lighting and restrained shadows. Reduced-motion mode preserves each
 mood's static pose without transitions or looping animation.
+Ambient mascot animation also pauses when the document or native pet preference
+is hidden. Floating plan controls let the browser manage temporary compositor
+layers instead of retaining a permanent `will-change` hint.
 
 Chat contracts, commands, and projections live in `app-core/chat`. This folder
 owns React state and presentation. Composer submission turns native managed
@@ -103,7 +116,11 @@ view contract separate from presentation. Chat selects a matching Lieflat
 Porcelain SVG template for supported line, area, bar, stacked, paired, and
 waterfall data shapes. One shared blue luminance scale distinguishes series,
 rank, and emphasis; mixed, dual-axis, and over-limit shapes retain an ECharts
-SVG fallback using the same palette. Both paths preserve the shared table, CSV,
+SVG fallback using the same palette. `DataViewChart` chooses the template before
+loading an engine: SVG templates render directly; `DataViewECharts` is imported
+only for `mono-fallback`. `DataViewCard` owns the shared Suspense placeholder,
+and import/render failures reach the existing application error boundary.
+Both paths preserve the shared table, CSV,
 expansion, and provenance controls, respect reduced motion, and never accept
 renderer code from the model. Inline data views remain attached to their owning
 tool step in the ordered execution trace instead of moving behind the final

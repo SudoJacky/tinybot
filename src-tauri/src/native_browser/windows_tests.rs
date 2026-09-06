@@ -1,6 +1,27 @@
 use super::*;
 
 #[test]
+fn idle_browser_excludes_visible_busy_closed_and_already_suspended_tabs() {
+    let activity = Arc::new(BrowserTabActivity::default());
+    let future = Instant::now() + BROWSER_IDLE_TIMEOUT + Duration::from_secs(1);
+    assert!(!activity.idle(false, Instant::now()));
+    assert!(!activity.idle(true, future));
+    assert!(activity.idle(false, future));
+    let first = activity.retain();
+    let nested = activity.retain();
+    assert!(!activity.idle(false, future));
+    drop(first);
+    assert!(!activity.idle(false, future));
+    drop(nested);
+    assert!(!activity.idle(false, Instant::now()));
+    activity.suspended.store(true, Ordering::Release);
+    assert!(!activity.idle(false, future));
+    activity.suspended.store(false, Ordering::Release);
+    activity.closed.store(true, Ordering::Release);
+    assert!(!activity.idle(false, future));
+}
+
+#[test]
 fn profile_paths_must_stay_under_root() {
     let root = PathBuf::from(r"C:\tinybot\browser-profiles");
     assert!(ensure_profile_path(&root, &root.join("profile-a")).is_ok());

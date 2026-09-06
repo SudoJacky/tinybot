@@ -28,8 +28,8 @@ use tauri::{
 use tokio::sync::{mpsc, oneshot};
 use webview2_com::{
     BrowserProcessExitedEventHandler, CallDevToolsProtocolMethodCompletedHandler,
-    Microsoft::Web::WebView2::Win32::{ICoreWebView2, ICoreWebView2Environment5},
-    ProcessFailedEventHandler, WebMessageReceivedEventHandler,
+    Microsoft::Web::WebView2::Win32::{ICoreWebView2, ICoreWebView2Environment5, ICoreWebView2_3},
+    ProcessFailedEventHandler, TrySuspendCompletedHandler, WebMessageReceivedEventHandler,
 };
 use windows::core::{Interface, HSTRING, PWSTR};
 use windows_sys::Win32::{
@@ -47,6 +47,7 @@ const NAVIGATION_TIMEOUT: Duration = Duration::from_secs(15);
 const BROWSER_PROCESS_EXIT_TIMEOUT: Duration = Duration::from_secs(30);
 const PROFILE_DELETE_RETRY_DELAY: Duration = Duration::from_millis(50);
 const PROFILE_DELETE_TIMEOUT: Duration = Duration::from_secs(5);
+const BROWSER_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 const DIRECT_INPUT_SCRIPT: &str = r#"
 (() => {
@@ -180,6 +181,90 @@ struct BrowserTabHandle {
     profile: BrowserPlatformProfile,
     navigation: Arc<NavigationCompletion>,
     presentation: Arc<BrowserTabPresentation>,
+    activity: Arc<BrowserTabActivity>,
+}
+
+struct BrowserTabActivity {
+    transition: tokio::sync::Mutex<()>,
+    operations: AtomicU32,
+    last_used: Mutex<Instant>,
+    suspended: AtomicBool,
+    closed: AtomicBool,
+}
+
+impl Default for BrowserTabActivity {
+    fn default() -> Self {
+        Self {
+            transition: tokio::sync::Mutex::new(()),
+            operations: AtomicU32::new(0),
+            last_used: Mutex::new(Instant::now()),
+            suspended: AtomicBool::new(false),
+            closed: AtomicBool::new(false),
+        }
+    }
+}
+
+impl BrowserTabActivity {
+    fn idle(&self, visible: bool, now: Instant) -> bool {
+        !visible
+            && !self.closed.load(Ordering::Acquire)
+            && !self.suspended.load(Ordering::Acquire)
+            && self.operations.load(Ordering::Acquire) == 0
+            && now.duration_since(*self.last_used.lock().expect("browser idle clock poisoned"))
+                >= BROWSER_IDLE_TIMEOUT
+    }
+
+    fn retain(self: &Arc<Self>) -> BrowserOperation {
+        self.operations.fetch_add(1, Ordering::AcqRel);
+        BrowserOperation(self.clone())
+    }
+}
+
+struct BrowserOperation(Arc<BrowserTabActivity>);
+
+impl Drop for BrowserOperation {
+    fn drop(&mut self) {
+        *self
+            .0
+            .last_used
+            .lock()
+            .expect("browser idle clock poisoned") = Instant::now();
+        self.0.operations.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+impl BrowserTabHandle {
+    async fn begin_operation(&self) -> Result<BrowserOperation, String> {
+        let _transition = self.activity.transition.lock().await;
+        if self.activity.closed.load(Ordering::Acquire) {
+            return Err("Browser tab was closed".to_string());
+        }
+        if self.activity.suspended.load(Ordering::Acquire) {
+            core_action(&self.webview, "resume", |core| unsafe {
+                core.cast::<ICoreWebView2_3>()?.Resume()
+            })
+            .await?;
+            // Background Agent operations need an active surface as well as resumed timers.
+            park_browser_surface(&self.webview)?;
+            self.activity.suspended.store(false, Ordering::Release);
+            record_browser_memory_event("resumed", self.webview.label(), None);
+        }
+        Ok(self.activity.retain())
+    }
+}
+
+fn record_browser_memory_event(event: &str, label: &str, error: Option<&str>) {
+    let name = format!("browser.memory.{event}");
+    crate::runtime::observability::global_agent_runtime_metrics().increment(&name);
+    super::report_native_browser_log(
+        if error.is_some() {
+            super::NativeLogLevel::Error
+        } else {
+            super::NativeLogLevel::Info
+        },
+        &name,
+        json!({ "webviewLabel": label, "error": error }),
+    );
 }
 
 #[derive(Default)]
@@ -299,6 +384,83 @@ pub(crate) struct WindowsBrowserRuntime {
 }
 
 impl WindowsBrowserRuntime {
+    #[cfg(feature = "native-browser-integration")]
+    pub(crate) async fn verify_idle_suspend_cycle(
+        &self,
+        tab_id: &BrowserTabId,
+    ) -> Result<(), String> {
+        let handle = self.tab(tab_id)?;
+        eval_unit(
+            &handle.webview,
+            "window.__tinybotIdleProbe = 'preserved'; true",
+        )
+        .await?;
+        let operation = handle.begin_operation().await?;
+        *handle
+            .activity
+            .last_used
+            .lock()
+            .expect("browser idle clock poisoned") = Instant::now() - BROWSER_IDLE_TIMEOUT;
+        suspend_idle_browser(&handle).await?;
+        if handle.activity.suspended.load(Ordering::Acquire) {
+            return Err("An active browser operation was suspended".to_string());
+        }
+        drop(operation);
+        let before = crate::desktop::memory_metrics::collect_desktop_memory(&self.app).await;
+        *handle
+            .activity
+            .last_used
+            .lock()
+            .expect("browser idle clock poisoned") = Instant::now() - BROWSER_IDLE_TIMEOUT;
+        suspend_idle_browser(&handle).await?;
+        let confirmed = Arc::new(AtomicBool::new(false));
+        let callback_confirmed = confirmed.clone();
+        core_action(&handle.webview, "verify suspension", move |core| unsafe {
+            let mut suspended = windows::core::BOOL::default();
+            core.cast::<ICoreWebView2_3>()?
+                .IsSuspended(&mut suspended)?;
+            callback_confirmed.store(suspended.as_bool(), Ordering::Release);
+            Ok(())
+        })
+        .await?;
+        if !confirmed.load(Ordering::Acquire) {
+            return Err("The idle WebView2 did not enter suspension".to_string());
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let suspended_memory =
+            crate::desktop::memory_metrics::collect_desktop_memory(&self.app).await;
+        let window_context =
+            serde_json::to_value(&suspended_memory).map_err(|error| error.to_string())?;
+        if !window_context["windows"].as_array().is_some_and(|windows| {
+            windows.iter().any(|window| {
+                window["label"] == "main"
+                    && window["webviewLabels"]
+                        .as_array()
+                        .is_some_and(|labels| labels.len() >= 2)
+            })
+        }) {
+            return Err("Memory snapshot lost the multi-WebView main window".to_string());
+        }
+        eprintln!(
+            "{}",
+            json!({"idleMemoryProbe": {
+                "beforePrivateBytes": before.total_private_bytes,
+                "suspendedPrivateBytes": suspended_memory.total_private_bytes,
+                "beforeWorkingSetBytes": before.total_working_set_bytes,
+                "suspendedWorkingSetBytes": suspended_memory.total_working_set_bytes,
+            }})
+        );
+        // Exercise the production Agent read path, which must resume before running JavaScript.
+        self.read_page_text(tab_id, 0, 100).await?;
+        if !eval_json::<bool>(&handle.webview, "window.__tinybotIdleProbe === 'preserved'").await? {
+            return Err("Browser page state was lost across suspension".to_string());
+        }
+        if handle.activity.suspended.load(Ordering::Acquire) {
+            return Err("Agent read did not resume the browser".to_string());
+        }
+        Ok(())
+    }
+
     pub(crate) fn new(app: AppHandle, profile_root: PathBuf) -> Result<Arc<Self>, String> {
         std::fs::create_dir_all(&profile_root).map_err(|error| {
             format!(
@@ -306,13 +468,39 @@ impl WindowsBrowserRuntime {
                 profile_root.display()
             )
         })?;
-        Ok(Arc::new(Self {
+        let runtime = Arc::new(Self {
             app,
             profile_root,
             tabs: RwLock::new(HashMap::new()),
             profile_exits: Mutex::new(HashMap::new()),
             event_sink: RwLock::new(None),
-        }))
+        });
+        let weak = Arc::downgrade(&runtime);
+        tauri::async_runtime::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(15)).await;
+                let Some(runtime) = weak.upgrade() else {
+                    break;
+                };
+                let handles = runtime
+                    .tabs
+                    .read()
+                    .expect("browser tabs lock poisoned")
+                    .values()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                for handle in handles {
+                    if let Err(error) = suspend_idle_browser(&handle).await {
+                        record_browser_memory_event(
+                            "suspend_failed",
+                            handle.webview.label(),
+                            Some(&error),
+                        );
+                    }
+                }
+            }
+        });
+        Ok(runtime)
     }
 
     fn tab(&self, tab_id: &BrowserTabId) -> Result<BrowserTabHandle, String> {
@@ -554,6 +742,7 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
                 profile: request.profile,
                 navigation: navigation_completion,
                 presentation: Arc::new(BrowserTabPresentation::default()),
+                activity: Arc::new(BrowserTabActivity::default()),
             },
         );
         Ok(BrowserPlatformTabState {
@@ -571,6 +760,10 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
         let Some(handle) = self.remove_tab(tab_id) else {
             return Ok(());
         };
+        {
+            let _transition = handle.activity.transition.lock().await;
+            handle.activity.closed.store(true, Ordering::Release);
+        }
         let tab_label = tab_id.to_string();
         let close_label = tab_label.clone();
         let (closed_tx, closed_rx) = oneshot::channel();
@@ -592,6 +785,7 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
 
     async fn set_surface(&self, surface: BrowserPlatformSurface) -> Result<(), String> {
         let handle = self.tab(&surface.tab_id)?;
+        let _operation = handle.begin_operation().await?;
         let _presentation_guard = handle.presentation.lock.lock().await;
         if surface.visible {
             handle
@@ -634,6 +828,7 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
         let url = safe_browser_url(url)?;
         let blank_navigation = url.as_str() == "about:blank";
         let handle = self.tab(tab_id)?;
+        let _operation = handle.begin_operation().await?;
         let revision = handle.navigation.revision();
         handle
             .webview
@@ -648,6 +843,7 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
 
     async fn back(&self, tab_id: &BrowserTabId) -> Result<(), String> {
         let handle = self.tab(tab_id)?;
+        let _operation = handle.begin_operation().await?;
         if !navigation_state(&handle.webview).await?.0 {
             return Err("Native browser tab has no back navigation entry".to_string());
         }
@@ -658,6 +854,7 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
 
     async fn forward(&self, tab_id: &BrowserTabId) -> Result<(), String> {
         let handle = self.tab(tab_id)?;
+        let _operation = handle.begin_operation().await?;
         if !navigation_state(&handle.webview).await?.1 {
             return Err("Native browser tab has no forward navigation entry".to_string());
         }
@@ -671,16 +868,16 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
 
     async fn reload(&self, tab_id: &BrowserTabId) -> Result<(), String> {
         let handle = self.tab(tab_id)?;
+        let _operation = handle.begin_operation().await?;
         let revision = handle.navigation.revision();
         core_action(&handle.webview, "reload", |core| unsafe { core.Reload() }).await?;
         handle.navigation.wait_after(revision).await
     }
 
     async fn stop(&self, tab_id: &BrowserTabId) -> Result<(), String> {
-        core_action(&self.tab(tab_id)?.webview, "stop", |core| unsafe {
-            core.Stop()
-        })
-        .await
+        let handle = self.tab(tab_id)?;
+        let _operation = handle.begin_operation().await?;
+        core_action(&handle.webview, "stop", |core| unsafe { core.Stop() }).await
     }
 
     async fn observe(
@@ -690,6 +887,7 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
         semantic: bool,
     ) -> Result<BrowserPlatformObservation, String> {
         let handle = self.tab(tab_id)?;
+        let _operation = handle.begin_operation().await?;
         let _presentation_guard = handle.presentation.lock.lock().await;
         let background_observation = !handle.presentation.surface_visible.load(Ordering::Acquire);
         if background_observation {
@@ -719,6 +917,7 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
         max_chars: usize,
     ) -> Result<BrowserPlatformPageText, String> {
         let handle = self.tab(tab_id)?;
+        let _operation = handle.begin_operation().await?;
         let _presentation_guard = handle.presentation.lock.lock().await;
         let background_read = !handle.presentation.surface_visible.load(Ordering::Acquire);
         if background_read {
@@ -747,6 +946,7 @@ impl BrowserRuntimeAdapter for WindowsBrowserRuntime {
         action: BrowserPlatformAction,
     ) -> Result<(), String> {
         let handle = self.tab(tab_id)?;
+        let _operation = handle.begin_operation().await?;
         match action {
             BrowserPlatformAction::ClickSelector { selector } => {
                 eval_unit(&handle.webview, &selector_action(&selector, "click", None)?).await
@@ -1227,6 +1427,79 @@ async fn call_cdp(webview: &Webview<Wry>, method: &str, params: Value) -> Result
         .ok_or_else(|| format!("WebView2 CDP method {method} result channel closed"))??;
     serde_json::from_str(&result)
         .map_err(|error| format!("Invalid WebView2 CDP response for {method}: {error}"))
+}
+
+async fn suspend_idle_browser(handle: &BrowserTabHandle) -> Result<(), String> {
+    let _transition = handle.activity.transition.lock().await;
+    if !handle.activity.idle(
+        handle.presentation.surface_visible.load(Ordering::Acquire),
+        Instant::now(),
+    ) {
+        return Ok(());
+    }
+    // A parked one-pixel WebView is still visible to WebView2. Hide it before TrySuspend.
+    handle
+        .webview
+        .hide()
+        .map_err(|error| format!("Failed to hide idle browser: {error}"))?;
+    handle.activity.suspended.store(true, Ordering::Release);
+    let result = try_suspend_webview(&handle.webview).await;
+    if matches!(result, Ok(true)) {
+        record_browser_memory_event("suspended", handle.webview.label(), None);
+        return Ok(());
+    }
+    // Declined suspension (e.g. media playback) is observable; keep the page usable.
+    core_action(&handle.webview, "restore after suspend", |core| unsafe {
+        core.cast::<ICoreWebView2_3>()?.Resume()
+    })
+    .await?;
+    park_browser_surface(&handle.webview)?;
+    handle.activity.suspended.store(false, Ordering::Release);
+    *handle
+        .activity
+        .last_used
+        .lock()
+        .expect("browser idle clock poisoned") = Instant::now();
+    match result {
+        Ok(false) => {
+            record_browser_memory_event("suspend_declined", handle.webview.label(), None);
+            Ok(())
+        }
+        Err(error) => Err(error),
+        Ok(true) => unreachable!(),
+    }
+}
+
+async fn try_suspend_webview(webview: &Webview<Wry>) -> Result<bool, String> {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    webview
+        .with_webview(move |platform| {
+            let callback_tx = tx.clone();
+            let result = unsafe {
+                platform
+                    .controller()
+                    .CoreWebView2()
+                    .and_then(|core| core.cast::<ICoreWebView2_3>())
+                    .and_then(|core| {
+                        let callback =
+                            TrySuspendCompletedHandler::create(Box::new(move |status, success| {
+                                let _ = callback_tx.send(
+                                    status.map(|_| success).map_err(|error| error.to_string()),
+                                );
+                                Ok(())
+                            }));
+                        core.TrySuspend(&callback)
+                    })
+            };
+            if let Err(error) = result {
+                let _ = tx.send(Err(error.to_string()));
+            }
+        })
+        .map_err(|error| format!("Failed to schedule browser suspension: {error}"))?;
+    // Keep the transition serialized until its callback; a late suspend must never race Resume.
+    rx.recv()
+        .await
+        .ok_or_else(|| "Browser suspension callback channel closed".to_string())?
 }
 
 async fn core_action<F>(webview: &Webview<Wry>, name: &str, action: F) -> Result<(), String>

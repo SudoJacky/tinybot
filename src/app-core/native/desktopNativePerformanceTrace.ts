@@ -61,7 +61,7 @@ export type PerformanceMemorySnapshot = {
   totalPrivateBytes: number | null;
   totalWorkingSetBytes: number | null;
   collectionErrors: PerformanceMemoryCollectionError[];
-  windows?: { label: string; visible: boolean; focused: boolean }[];
+  windows?: { label: string; visible: boolean; focused: boolean; width?: number | null; height?: number | null; webviewLabels?: string[] }[];
   collectionDurationMs?: number;
 };
 
@@ -238,7 +238,14 @@ export function normalizePerformanceMemorySnapshot(value: unknown): PerformanceM
         if (typeof window.visible !== "boolean" || typeof window.focused !== "boolean") {
           throw new Error("Memory window visibility and focus must be booleans");
         }
-        return { label: requireString(window.label, "window label"), visible: window.visible, focused: window.focused };
+        return {
+          label: requireString(window.label, "window label"), visible: window.visible, focused: window.focused,
+          ...(window.width === undefined ? {} : { width: normalizeNullableBytes(window.width, "window width") }),
+          ...(window.height === undefined ? {} : { height: normalizeNullableBytes(window.height, "window height") }),
+          ...(window.webviewLabels === undefined ? {} : {
+            webviewLabels: requireArray(window.webviewLabels, "window webviews").map((label) => requireString(label, "webview label")),
+          }),
+        };
       }),
     }),
   };

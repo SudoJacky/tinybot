@@ -63,6 +63,14 @@ describe("desktopNativePerformanceTrace", () => {
     expect(sample.native?.privateBytes).toBe(67_108_864);
   });
 
+  it("retains window dimensions and child WebView labels for memory attribution", async () => {
+    const windows = [{ label: "main", visible: true, focused: true, width: 1120, height: 760, webviewLabels: ["main", "native-browser-browser-tab-2"] }];
+    const api = createDesktopNativePerformanceTraceApi({
+      invoke: vi.fn(async () => ({ ...fixtureMemorySnapshot(), windows })),
+    });
+    expect((await api.memorySnapshot()).windows).toEqual(windows);
+  });
+
   it("fails fast when a memory counter is negative", async () => {
     const api = createDesktopNativePerformanceTraceApi({
       invoke: vi.fn(async () => ({

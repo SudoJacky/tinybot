@@ -234,6 +234,10 @@
   100% { transform: scale(1); }
 }
 
+.react-tinybot-mascot[data-motion="paused"] * {
+  animation-play-state: paused !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .react-tinybot-mascot,
   .react-tinybot-mascot__body-pose,

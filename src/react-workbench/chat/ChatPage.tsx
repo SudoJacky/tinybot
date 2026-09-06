@@ -121,6 +121,7 @@ import {
   type SpreadsheetComposerAnnotation,
 } from "./chatSubmission";
 import { ChatTimeline } from "./ChatTimeline";
+import { captureConversationView, restoreConversationView, type ConversationViewState } from "./conversationViewport";
 import { EmptyChatStart } from "./EmptyChatStart";
 import { FloatingPlanStatus } from "./FloatingPlanStatus";
 import { AssistantMarkdown } from "./AssistantMarkdown";
@@ -212,11 +213,6 @@ const LazySidecarTerminal = lazy(async () => {
   const module = await import("../sidecar/SidecarTerminal");
   return { default: module.SidecarTerminal };
 });
-
-type ConversationViewState = {
-  scrollTop: number;
-  stickToLatest: boolean;
-};
 
 function resolveComposerModel(
   models: readonly ModelOption[],
@@ -1093,12 +1089,9 @@ export function ChatPage({
       && timeline?.sessionId === activeSessionId,
     );
     if (element && view && !view.stickToLatest && shouldRestore) {
-      element.scrollTo?.({
-        behavior: "instant",
-        top: Math.min(view.scrollTop, Math.max(0, element.scrollHeight - element.clientHeight)),
+      return restoreConversationView(element, view, () => {
+        pendingConversationRestoreRef.current = "";
       });
-      pendingConversationRestoreRef.current = "";
-      return;
     }
     if (shouldRestore) {
       pendingConversationRestoreRef.current = "";
@@ -1500,13 +1493,11 @@ export function ChatPage({
     if (!element) {
       return;
     }
-    const nearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 96;
+    const view = captureConversationView(element);
+    const nearBottom = view.stickToLatest;
     pendingConversationRestoreRef.current = "";
     stickToLatestRef.current = nearBottom;
-    conversationViewBySessionRef.current.set(activeSessionId, {
-      scrollTop: element.scrollTop,
-      stickToLatest: nearBottom,
-    });
+    conversationViewBySessionRef.current.set(activeSessionId, view);
     setShowBackToLatest(!nearBottom);
   }
 

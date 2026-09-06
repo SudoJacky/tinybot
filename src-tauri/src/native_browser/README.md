@@ -1,5 +1,5 @@
 # Native Browser Runtime
-<!-- tinybot-module-fingerprint: sha256:d5c441d2349e0ae4a1edde690d47277c50277233d17a295edff2b91933a66d46 -->
+<!-- tinybot-module-fingerprint: sha256:fab2130ee8a19ef48ae21b0656238533c8ce739e1fdf5c7dbd37d8af7a4da27b -->
 
 `native_browser` owns the managed WebView2 session used by native Agent browser
 tools and attachable desktop browser surfaces. Direct user input and Agent
@@ -40,6 +40,19 @@ then parks it again; an attached desktop surface instead applies its real
 dimensions. Surface updates and background observations share the same
 presentation lock, so attaching or detaching a surface cannot race screenshot
 capture.
+
+Hidden tabs with no native operation for 60 seconds are eligible for WebView2
+`TrySuspend`, checked every 15 seconds. The host first makes the parked WebView
+invisible. All navigation, observation, reading, interaction and surface changes
+hold an activity lease; their completion or cancellation resets the idle clock.
+An operation resumes a suspended page before executing, preserving DOM and
+profile state. Concurrent and nested operations exclude suspension, and closing
+a tab removes it from consideration. A declined suspension restores the parked
+surface; errors propagate or enter native logs. `browser.memory.suspended`,
+`resumed`, `suspend_declined` and `suspend_failed` counters and events make the
+outcome observable. Suspension reduces background work and enables memory
+reclamation; it does not destroy the browser environment or guarantee a fixed
+private-memory reduction.
 
 See [`tools::web`](../tools/web/README.md) for the model-facing snapshot and
 action contract.
@@ -119,3 +132,9 @@ The harness exercises lazy Agent opening without an attached surface, detached
 and attached viewport dimensions, public Rust commands, real capture, semantic
 privacy, navigation history, action validation, stale-observation rejection,
 protected file-picker handoff, and cleanup.
+It also forces the idle deadline in the test harness, verifies real WebView2
+suspension, preserves page state across an Agent read wake-up, and checks that
+memory snapshots retain the multi-WebView host window. The host uses an empty
+page and a separate temporary data directory; no ordinary application profile
+is needed. The printed before/after memory samples are observations, not a
+guaranteed saving from suspension.

@@ -1,5 +1,5 @@
 # Native Renderer Adapters
-<!-- tinybot-module-fingerprint: sha256:758b91ef822da6e5ec1cec9d30ebe70c7c2936cdb4921d129984a5218bd9271e -->
+<!-- tinybot-module-fingerprint: sha256:7bcef3dfc721145a10e8eb3e86e2287562eed23e5c692a67d4d733bb02ae2d77 -->
 
 `native` contains typed adapters for Tauri commands and events used by the
 desktop renderer. Each file owns one native capability, such as Threads,
@@ -16,6 +16,8 @@ and absolute workspace paths are excluded. Resources include initiator type
 and request/response timing offsets (zero means unavailable). Slow
 event samples use a 40 ms threshold and are not an INP calculation. Observations
 belong to the exporting page and are included in JSON snapshots and local ZIPs.
+Memory normalization also preserves optional window dimensions and child WebView
+labels, including windows with multiple WebViews; older snapshots remain readable.
 
 `desktopNativeFilePicker` preserves the optional content hash returned for a
 managed image. The native backend owns content detection and storage; the

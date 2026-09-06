@@ -1,11 +1,27 @@
 // @vitest-environment happy-dom
 
 import { readFileSync } from "node:fs";
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { projectTinybotMascotMood, TinybotMascot } from "./TinybotMascot";
 
 describe("TinybotMascot", () => {
+  it("pauses ambient motion when hidden and resumes the same mood", () => {
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const view = render(<TinybotMascot label="Visibility probe" mood="working" />);
+    const mascot = screen.getByRole("img", { name: "Visibility probe" });
+    expect(mascot.dataset.motion).toBe("active");
+    visibility.mockReturnValue("hidden");
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(mascot.dataset.motion).toBe("paused");
+    visibility.mockReturnValue("visible");
+    act(() => document.dispatchEvent(new Event("visibilitychange")));
+    expect(mascot.dataset.motion).toBe("active");
+    view.rerender(<TinybotMascot active={false} label="Visibility probe" mood="working" />);
+    expect(mascot.dataset.motion).toBe("paused");
+    expect(mascot.dataset.mood).toBe("working");
+    visibility.mockRestore();
+  });
   it.each([
     [{ responding: false }, "calm"],
     [{ responding: false, turnStatus: "awaiting_user" as const }, "curious"],

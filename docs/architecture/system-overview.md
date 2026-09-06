@@ -16,12 +16,20 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:14e34d17b884a10396c8166a967fa885aeb701f8e1298afb757c7e7c69d6afa8 -->
+<!-- tinybot-doc-fingerprint: sha256:719c6e0d939f20b08beaf5fab017020c06cf37d110bb255d7451e5dc1480caa6 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
 and the Rust backend owns native capabilities, Agent execution, durable
 conversation state, and process lifecycle.
+
+Chat can release offscreen Markdown and chart renderers while retaining message
+interaction owners and semantic scroll anchors. The native browser owns idle
+suspension and resumes a page before Agent operations; hiding a surface does not
+discard its page or profile. Memory diagnostics keep native window identity,
+child WebView membership and process-environment membership separate, including
+when a Sidecar shares the main window. Hidden desktop-pet motion is paused by the
+renderer without changing the pet's persisted mood or preferences.
 
 ## System map
 

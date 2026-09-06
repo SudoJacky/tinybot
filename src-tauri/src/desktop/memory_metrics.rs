@@ -27,6 +27,12 @@ pub(crate) struct WindowMemoryContext {
     label: String,
     visible: bool,
     focused: bool,
+    #[serde(default)]
+    width: Option<u32>,
+    #[serde(default)]
+    height: Option<u32>,
+    #[serde(default)]
+    webview_labels: Vec<String>,
 }
 
 #[cfg(any(test, not(windows)))]
@@ -105,15 +111,27 @@ pub(crate) enum MemoryCollectionScope {
 pub(crate) async fn collect_desktop_memory(app: &AppHandle) -> DesktopMemorySnapshot {
     let started = std::time::Instant::now();
     let mut snapshot = collect_platform_memory(app).await;
-    for (label, window) in app.webview_windows() {
+    for (label, window) in app.windows() {
         match window
             .is_visible()
-            .and_then(|visible| window.is_focused().map(|focused| (visible, focused)))
+            .and_then(|visible| Ok((visible, window.is_focused()?, window.inner_size()?)))
         {
-            Ok((visible, focused)) => snapshot.windows.push(WindowMemoryContext {
+            Ok((visible, focused, size)) => snapshot.windows.push(WindowMemoryContext {
                 label,
                 visible,
                 focused,
+                width: Some(size.width),
+                height: Some(size.height),
+                webview_labels: {
+                    let mut labels = app
+                        .webviews()
+                        .into_iter()
+                        .filter(|(_, webview)| webview.window().label() == window.label())
+                        .map(|(label, _)| label)
+                        .collect::<Vec<_>>();
+                    labels.sort();
+                    labels
+                },
             }),
             Err(error) => snapshot.collection_errors.push(MemoryCollectionError {
                 scope: MemoryCollectionScope::Webview2,
