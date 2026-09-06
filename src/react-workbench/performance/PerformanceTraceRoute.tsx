@@ -1,5 +1,5 @@
 import { Archive, CircleStop, Download, Play, RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import type {
   DiagnosticBundleExportResult,
@@ -13,16 +13,18 @@ import {
   logRendererEvent,
   setRendererDiagnosticModeEnabled,
 } from "../../app-core/native/rendererLogger";
+import { memoryRecordingFor } from "../../app-core/native/performanceMemoryRecording";
 import type { AppServices } from "../services";
 import "./PerformanceTraceRoute.css";
+
+const idleMemoryState = { recording: false, samples: [] as PerformanceMemorySnapshot[], error: null };
+const idleSubscribe = () => () => {};
+const idleSnapshot = () => idleMemoryState;
 
 type TraceState =
   | { status: "loading" }
   | { status: "ready"; snapshot: PerformanceTraceSnapshot }
   | { status: "failed"; error: Error };
-
-const MEMORY_SAMPLE_INTERVAL_MS = 2_000;
-const MAX_MEMORY_SAMPLES = 300;
 
 export default function PerformanceTraceRoute({ services }: { services: AppServices }) {
   const { t } = useTranslation("common");
@@ -34,10 +36,11 @@ export default function PerformanceTraceRoute({ services }: { services: AppServi
   const [bundleExporting, setBundleExporting] = useState(false);
   const [bundleResult, setBundleResult] = useState<DiagnosticBundleExportResult | null>(null);
   const [diagnosticModeEnabled, setDiagnosticModeEnabled] = useState(isRendererDiagnosticModeEnabled);
-  const [memoryRecording, setMemoryRecording] = useState(false);
-  const [memorySamples, setMemorySamples] = useState<PerformanceMemorySnapshot[]>([]);
-  const [memoryError, setMemoryError] = useState<Error | null>(null);
   const performanceStore = services.performanceStore;
+  const recording = performanceStore?.sampleMemory ? memoryRecordingFor(performanceStore) : undefined;
+  const { recording: memoryRecording, samples: memorySamples, error: memoryError } = useSyncExternalStore(
+    recording?.subscribe ?? idleSubscribe, recording?.getSnapshot ?? idleSnapshot,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -63,51 +66,17 @@ export default function PerformanceTraceRoute({ services }: { services: AppServi
     };
   }, [attempt, performanceStore, t]);
 
-  useEffect(() => {
-    if (!memoryRecording) return;
-    if (!performanceStore?.sampleMemory) {
-      setMemoryError(new Error(t("performanceTrace.memorySamplingUnavailable")));
-      setMemoryRecording(false);
-      return;
-    }
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const sample = async () => {
-      try {
-        const next = await performanceStore.sampleMemory();
-        if (cancelled) return;
-        setMemorySamples((current) => [...current, next].slice(-MAX_MEMORY_SAMPLES));
-        timer = setTimeout(() => void sample(), MEMORY_SAMPLE_INTERVAL_MS);
-      } catch (cause: unknown) {
-        if (cancelled) return;
-        const error = cause instanceof Error ? cause : new Error(String(cause));
-        console.error("[tinybot-performance-trace-memory]", { error });
-        setMemoryError(error);
-        setMemoryRecording(false);
-      }
-    };
-    void sample();
-    return () => {
-      cancelled = true;
-      if (timer !== undefined) clearTimeout(timer);
-    };
-  }, [memoryRecording, performanceStore, t]);
-
   const refresh = () => {
     setExportError(null);
     setSnapshotResult(null);
     setBundleResult(null);
-    setMemoryRecording(false);
-    setMemorySamples([]);
-    setMemoryError(null);
+    recording?.reset();
     setAttempt((value) => value + 1);
   };
 
   const startMemoryRecording = () => {
     if (state.status !== "ready") return;
-    setMemoryError(null);
-    setMemorySamples([]);
-    setMemoryRecording(true);
+    recording?.start();
   };
 
   const exportSnapshot = async () => {
@@ -262,7 +231,7 @@ export default function PerformanceTraceRoute({ services }: { services: AppServi
           samplingAvailable={Boolean(performanceStore?.sampleMemory)}
           snapshot={state.snapshot}
           onStartMemoryRecording={startMemoryRecording}
-          onStopMemoryRecording={() => setMemoryRecording(false)}
+          onStopMemoryRecording={() => recording?.stop()}
         />
       ) : null}
     </div>

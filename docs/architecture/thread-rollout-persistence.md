@@ -9,7 +9,7 @@ src-tauri/src/threads/rollout/store/README.md
 src-tauri/src/threads/rollout/store/mod.rs
 src-tauri/src/threads/workspace_store.rs
 -->
-<!-- tinybot-doc-fingerprint: sha256:55db9bcfff04e5796072b0d9f840d875de989f852bd60a23e597d3a33f5ad90a -->
+<!-- tinybot-doc-fingerprint: sha256:19f10fbdd93870da3b9b928279e8d5ace26fd11d94aa0ad0aec4ccb08ebbd4d0 -->
 
 Tinybot separates typed conversation behavior from canonical storage. The
 Thread domain provides the in-process interface; the append-only Rollout is the
@@ -185,3 +185,9 @@ application/workspace configuration outside Rollouts.
 - [Rollout store](../../src-tauri/src/threads/rollout/store/README.md)
 - [Native runtime services](../../src-tauri/src/runtime/README.md)
 - [Threads and memory API](../api/threads-and-memory.md)
+
+Storage performance observations preserve the recovery semantics above.
+`storage.*` metrics split lock wait, canonical discovery, index population,
+head hashing, read/decompression, JSON parsing, reconstruction and projection
+build/install. Cache counts and decoded line/byte counts expose repeated work.
+Per-file read/parse sums are aggregate durations, not contiguous timeline spans.

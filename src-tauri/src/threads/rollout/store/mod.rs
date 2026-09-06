@@ -14,6 +14,7 @@ pub(crate) use self::protocol_projection::is_turn_semantic_event;
 use self::projection::{thread_agent_context_from_replay, thread_history_from_replay};
 use crate::protocol::capability::{CapabilityPolicy, WorkerCapability};
 use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtocolErrorSource};
+use crate::runtime::observability::global_agent_runtime_metrics;
 use crate::threads::domain::{
     turn_summaries_from_items, ThreadCheckpoint, ThreadItem, ThreadItemKind, ThreadMetadata,
     ThreadPagination, ThreadRecord, ThreadSnapshot, ThreadStatus, ThreadTurnSummary,
@@ -283,24 +284,29 @@ impl WorkerThreadLogRpc {
     pub fn thread_projection(
         &self,
     ) -> Result<(Vec<ThreadRecord>, BTreeMap<String, Vec<ThreadItem>>), WorkerProtocolError> {
-        #[cfg(test)]
-        self.projection_read_count.fetch_add(1, Ordering::Relaxed);
-        self.ensure_state_index()?;
-        let mut threads = Vec::new();
-        let mut items = BTreeMap::new();
-        for record in self.state.list_all_threads()? {
-            let path = PathBuf::from(&record.thread_path);
-            self.recorder.validate_thread_path(&path)?;
-            let cached = self.rollout_cached(&path)?;
-            let thread =
-                self.thread_record_from_rollout(&record, &cached.lines, &cached.reconstruction)?;
-            items.insert(
-                thread.thread_id.clone(),
-                cached.reconstruction.thread_items.clone(),
-            );
-            threads.push(thread);
-        }
-        Ok((threads, items))
+        global_agent_runtime_metrics().measure("storage.projection.build.durationMs", || {
+            #[cfg(test)]
+            self.projection_read_count.fetch_add(1, Ordering::Relaxed);
+            self.ensure_state_index()?;
+            let mut threads = Vec::new();
+            let mut items = BTreeMap::new();
+            for record in self.state.list_all_threads()? {
+                let path = PathBuf::from(&record.thread_path);
+                self.recorder.validate_thread_path(&path)?;
+                let cached = self.rollout_cached(&path)?;
+                let thread = self.thread_record_from_rollout(
+                    &record,
+                    &cached.lines,
+                    &cached.reconstruction,
+                )?;
+                items.insert(
+                    thread.thread_id.clone(),
+                    cached.reconstruction.thread_items.clone(),
+                );
+                threads.push(thread);
+            }
+            Ok((threads, items))
+        })
     }
 
     pub(crate) fn thread_projection_for(
@@ -622,7 +628,10 @@ impl WorkerThreadLogRpc {
         &self,
         path: &Path,
     ) -> Result<ThreadRecord, WorkerProtocolError> {
-        let head = self.recorder.thread_log_head(path)?;
+        let metrics = global_agent_runtime_metrics();
+        let head = metrics.measure("storage.rollout.headHash.durationMs", || {
+            self.recorder.thread_log_head(path)
+        })?;
         {
             let cache = thread_record_cache().lock().map_err(|_| {
                 thread_log_consistency_error(
@@ -1193,7 +1202,10 @@ impl WorkerThreadLogRpc {
         &self,
         path: &Path,
     ) -> Result<Arc<CachedRolloutReconstruction>, WorkerProtocolError> {
-        let head = self.recorder.thread_log_head(path)?;
+        let metrics = global_agent_runtime_metrics();
+        let head = metrics.measure("storage.rollout.headHash.durationMs", || {
+            self.recorder.thread_log_head(path)
+        })?;
         {
             let cache = self.reconstruction_cache.lock().map_err(|_| {
                 thread_log_consistency_error(
@@ -1203,12 +1215,16 @@ impl WorkerThreadLogRpc {
             })?;
             if let Some(cached) = cache.get(path) {
                 if cached.head == head {
+                    metrics.increment("storage.rollout.cache.hit");
                     return Ok(Arc::clone(cached));
                 }
             }
         }
+        metrics.increment("storage.rollout.cache.miss");
         let lines = self.read_rollout_lines(path)?;
-        let reconstruction = reconstruction::reconstruct_canonical_rollout(&lines)?;
+        let reconstruction = metrics.measure("storage.rollout.reconstruct.durationMs", || {
+            reconstruction::reconstruct_canonical_rollout(&lines)
+        })?;
         let mut cache = self.reconstruction_cache.lock().map_err(|_| {
             thread_log_consistency_error(
                 "thread Rollout reconstruction cache lock was poisoned",
@@ -1218,6 +1234,7 @@ impl WorkerThreadLogRpc {
         if cache.len() >= ROLLOUT_RECONSTRUCTION_CACHE_CAPACITY && !cache.contains_key(path) {
             if let Some(evicted) = cache.keys().next().cloned() {
                 cache.remove(&evicted);
+                metrics.increment("storage.rollout.cache.evicted");
             }
         }
         let cached = Arc::new(CachedRolloutReconstruction {
@@ -1319,19 +1336,27 @@ impl WorkerThreadLogRpc {
     }
 
     fn rebuild_state_index_from_rollouts(&self) -> Result<usize, WorkerProtocolError> {
-        let canonical = self.canonical_thread_states()?;
-        self.state.reset()?;
-        for state in &canonical {
-            self.state.replace_thread_projection(
-                &state.record,
-                state.latest_checkpoint.as_ref(),
-                &ThreadLogHead {
-                    byte_length: state.log_head.byte_length,
-                    tail_hash: state.log_head.tail_hash.clone(),
+        global_agent_runtime_metrics().measure("storage.index.rebuild.durationMs", || {
+            let canonical = self.canonical_thread_states()?;
+            global_agent_runtime_metrics().measure(
+                "storage.index.populate.durationMs",
+                || -> Result<(), WorkerProtocolError> {
+                    self.state.reset()?;
+                    for state in &canonical {
+                        self.state.replace_thread_projection(
+                            &state.record,
+                            state.latest_checkpoint.as_ref(),
+                            &ThreadLogHead {
+                                byte_length: state.log_head.byte_length,
+                                tail_hash: state.log_head.tail_hash.clone(),
+                            },
+                        )?;
+                    }
+                    Ok(())
                 },
             )?;
-        }
-        Ok(canonical.len())
+            Ok(canonical.len())
+        })
     }
 
     fn ensure_thread_log_head_current(
@@ -1389,50 +1414,59 @@ impl WorkerThreadLogRpc {
     }
 
     fn canonical_thread_states(&self) -> Result<Vec<CanonicalThreadState>, WorkerProtocolError> {
-        #[cfg(test)]
-        self.canonical_scan_count.fetch_add(1, Ordering::Relaxed);
-        let mut paths = Vec::new();
-        collect_thread_log_paths(&self.thread_root, &self.thread_root, &mut paths)?;
-        collect_thread_log_paths(&self.archive_root, &self.archive_root, &mut paths)?;
-        let mut states = Vec::with_capacity(paths.len());
-        let mut thread_ids = HashSet::with_capacity(paths.len());
-        for path in paths {
-            let state = match self.canonical_thread_state(&path) {
-                Ok(state) => state,
-                Err(strict_error) => match self.discovered_thread_state(&path) {
-                    Ok(state) => {
-                        eprintln!(
-                            "thread_rollout_discovery_degraded path={} strict_error={}",
-                            path.display(),
-                            strict_error.message
-                        );
-                        state
-                    }
-                    Err(discovery_error) => {
-                        eprintln!(
-                            "thread_rollout_discovery_skipped path={} strict_error={} \
-                             discovery_error={}",
-                            path.display(),
-                            strict_error.message,
-                            discovery_error.message
-                        );
-                        continue;
-                    }
+        global_agent_runtime_metrics().measure("storage.canonical.scan.durationMs", || {
+            #[cfg(test)]
+            self.canonical_scan_count.fetch_add(1, Ordering::Relaxed);
+            let mut paths = Vec::new();
+            global_agent_runtime_metrics().measure(
+                "storage.canonical.discoverPaths.durationMs",
+                || {
+                    collect_thread_log_paths(&self.thread_root, &self.thread_root, &mut paths)?;
+                    collect_thread_log_paths(&self.archive_root, &self.archive_root, &mut paths)
                 },
-            };
-            if !thread_ids.insert(state.record.id.clone()) {
-                return Err(thread_log_consistency_error(
-                    "duplicate canonical Rollouts exist for the same thread",
-                    serde_json::json!({
-                        "threadId": state.record.id,
-                        "threadPath": state.record.thread_path,
-                    }),
-                ));
+            )?;
+            global_agent_runtime_metrics()
+                .increment_by("storage.canonical.paths", paths.len() as u64);
+            let mut states = Vec::with_capacity(paths.len());
+            let mut thread_ids = HashSet::with_capacity(paths.len());
+            for path in paths {
+                let state = match self.canonical_thread_state(&path) {
+                    Ok(state) => state,
+                    Err(strict_error) => match self.discovered_thread_state(&path) {
+                        Ok(state) => {
+                            eprintln!(
+                                "thread_rollout_discovery_degraded path={} strict_error={}",
+                                path.display(),
+                                strict_error.message
+                            );
+                            state
+                        }
+                        Err(discovery_error) => {
+                            eprintln!(
+                                "thread_rollout_discovery_skipped path={} strict_error={} \
+                             discovery_error={}",
+                                path.display(),
+                                strict_error.message,
+                                discovery_error.message
+                            );
+                            continue;
+                        }
+                    },
+                };
+                if !thread_ids.insert(state.record.id.clone()) {
+                    return Err(thread_log_consistency_error(
+                        "duplicate canonical Rollouts exist for the same thread",
+                        serde_json::json!({
+                            "threadId": state.record.id,
+                            "threadPath": state.record.thread_path,
+                        }),
+                    ));
+                }
+                states.push(state);
             }
-            states.push(state);
-        }
-        states.sort_by(|left, right| left.record.id.cmp(&right.record.id));
-        Ok(states)
+            states.sort_by(|left, right| left.record.id.cmp(&right.record.id));
+            Ok(states)
+        })
     }
 
     fn discovered_thread_state(

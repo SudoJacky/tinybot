@@ -1,4 +1,5 @@
 const SAMPLE_LIMIT = 120;
+const SLOWEST_LIMIT = 20;
 
 export type RendererPerformanceSample = {
   startTime: number;
@@ -6,6 +7,10 @@ export type RendererPerformanceSample = {
   name: string;
   transferSize?: number;
   decodedBodySize?: number;
+  initiatorType?: string;
+  requestStartMs?: number;
+  responseStartMs?: number;
+  responseEndMs?: number;
   interactionId?: number;
   inputDelayMs?: number;
 };
@@ -26,6 +31,7 @@ export type RendererPerformanceSnapshot = {
     maxDurationMs: number;
     droppedSamples: number;
     samples: RendererPerformanceSample[];
+    slowestSamples?: RendererPerformanceSample[];
   }>;
   navigation: Record<string, number> | null;
   jsHeap: { usedBytes: number; totalBytes: number; limitBytes: number } | null;
@@ -35,7 +41,9 @@ export type RendererPerformanceSnapshot = {
 export function resourcePerformanceName(name: string, pageUrl: string): string {
   const url = new URL(name, pageUrl);
   const page = new URL(pageUrl);
-  return url.origin === page.origin && /^\/assets\/[a-zA-Z0-9_.-]+$/.test(url.pathname)
+  const safeModule = /^\/src\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_.-]+\.(?:[cm]?[jt]sx?|css)$/.test(url.pathname)
+    || /^\/node_modules\/\.vite\/deps\/[a-zA-Z0-9_.-]+\.js$/.test(url.pathname);
+  return url.origin === page.origin && (safeModule || /^\/assets\/[a-zA-Z0-9_.-]+$/.test(url.pathname))
     ? url.pathname
     : url.origin === page.origin ? "[same-origin resource]" : "[external resource]";
 }
@@ -47,7 +55,7 @@ export function createRendererPerformanceCollector(identity: {
   return {
     record(type: string, sample: RendererPerformanceSample) {
       const stream = streams[type] ??= {
-        count: 0, totalDurationMs: 0, maxDurationMs: 0, droppedSamples: 0, samples: [],
+        count: 0, totalDurationMs: 0, maxDurationMs: 0, droppedSamples: 0, samples: [], slowestSamples: [],
       };
       stream.count += 1;
       stream.totalDurationMs += sample.duration;
@@ -57,6 +65,12 @@ export function createRendererPerformanceCollector(identity: {
         stream.droppedSamples += 1;
       }
       stream.samples.push(sample);
+      const slowest = stream.slowestSamples!;
+      if (slowest.length < SLOWEST_LIMIT || sample.duration > slowest[slowest.length - 1].duration) {
+        slowest.push(sample);
+        slowest.sort((left, right) => right.duration - left.duration);
+        if (slowest.length > SLOWEST_LIMIT) slowest.pop();
+      }
     },
     snapshot(): Pick<RendererPerformanceSnapshot, keyof typeof identity | "streams" | "schemaVersion"> {
       return {
@@ -64,6 +78,7 @@ export function createRendererPerformanceCollector(identity: {
         ...identity,
         streams: Object.fromEntries(Object.entries(streams).map(([name, stream]) => [name, {
           ...stream, samples: stream.samples.map((sample) => ({ ...sample })),
+          slowestSamples: stream.slowestSamples?.map((sample) => ({ ...sample })),
         }])),
       };
     },
@@ -110,6 +125,8 @@ export function installRendererPerformanceTracking(): void {
           ? resourcePerformanceName(entry.name, window.location.href) : entry.name,
         ...(entry.entryType === "resource" ? {
           transferSize: resource.transferSize, decodedBodySize: resource.decodedBodySize,
+          initiatorType: resource.initiatorType,
+          requestStartMs: resource.requestStart, responseStartMs: resource.responseStart, responseEndMs: resource.responseEnd,
         } : {}),
         ...(entry.entryType === "event" ? {
           interactionId: event.interactionId,

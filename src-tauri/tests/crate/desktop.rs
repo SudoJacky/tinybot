@@ -280,7 +280,15 @@ fn diagnostic_bundle_contains_bounded_sanitized_issue_evidence() {
                 "visibility": "visible",
                 "support": {"longtask": "available"},
                 "errors": [],
-                "streams": {},
+                "streams": { "resource": {
+                    "count": 200, "totalDurationMs": 999, "maxDurationMs": 900,
+                    "droppedSamples": 80, "samples": [],
+                    "slowestSamples": [{
+                        "name": "/src/main.ts", "startTime": 10, "duration": 900,
+                        "initiatorType": "script", "requestStartMs": 11,
+                        "responseStartMs": 800, "responseEndMs": 910
+                    }]
+                } },
                 "navigation": null,
                 "jsHeap": null
             },
@@ -358,6 +366,11 @@ fn diagnostic_bundle_contains_bounded_sanitized_issue_evidence() {
     assert_eq!(
         performance["rendererPerformance"]["instanceId"],
         "main:1000"
+    );
+    assert_eq!(
+        performance["rendererPerformance"]["streams"]["resource"]["slowestSamples"][0]
+            ["responseStartMs"],
+        800.0
     );
     assert_eq!(
         performance["memorySamples"][0]["totalPrivateBytes"],

@@ -106,3 +106,22 @@ Large files, branch counts, heavy imports, and unreachable modules are advisory 
 `npm run analyze:frontend:ci` runs the full pipeline and additionally fails when `baseline.json` is missing. CI uploads `tools/frontend-analysis/reports/latest/` so failures retain their logs and reports.
 
 The toolkit requires Node.js 22 or newer, matching the repository CI runtime.
+
+## Window entry comparison
+
+Build with a manifest and count each window's static JavaScript dependencies:
+
+```powershell
+npx vite build --manifest --outDir output/frontend-analysis/window-entries
+node tools/frontend-analysis/window-entry-analysis.mjs output/frontend-analysis/window-entries
+```
+
+Counts include the HTML bootstrap once per window and exclude deferred imports,
+CSS and assets. They measure code loading scope, not elapsed startup or memory.
+The old combined window entry can have a dependency-derived chunk name.
+
+Snapshot analysis prefers lifetime slow samples when available, reports the
+selection scope for older recent-only buffers, and displays request/response
+resource timing. Memory output includes window-state history, largest sample
+gap, and collection cost. Use release builds and identical operations for
+comparisons; a sampled increase alone does not establish a leak.

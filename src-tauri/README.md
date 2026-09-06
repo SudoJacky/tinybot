@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:f7c7fab022fdbb4613e3e5b875ed07a6d988dd3a27e6e5fb314eaabe8a8276d5 -->
+<!-- tinybot-module-fingerprint: sha256:fb5ececbd1a6c2391b99fad25ce00554537e8370a5af341da5def852f59a53a0 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -19,7 +19,7 @@ For desktop setup and launch behavior, see [the desktop guide](../docs/desktop.m
   local diagnostic ZIP export; `src/desktop/memory_metrics.rs` separates the
   Rust/Tauri host from deduplicated WebView2 child-process memory;
   `src/desktop/pet.rs` creates the Windows-only
-  transparent desktop-pet window and its adjacent quick-chat panel without
+  transparent desktop-pet window and creates its adjacent quick-chat panel on demand without
   making either an owned child of `main`; `src/desktop/pet_file_drop.rs` owns
   the WebView2 local-file bridge used by the pet; `src/desktop/tray.rs` owns
   system-tray residency, main-window restoration, and explicit application

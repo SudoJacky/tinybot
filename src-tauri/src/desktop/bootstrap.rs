@@ -142,8 +142,6 @@ pub(crate) fn run() {
             let auxiliary_windows_started = Instant::now();
             #[cfg(windows)]
             super::pet::create_desktop_pet_window(app)?;
-            #[cfg(windows)]
-            super::pet::create_desktop_pet_quick_chat_window(app)?;
             startup_metrics.record_duration(
                 "desktop.startup.auxiliaryWindows.durationMs",
                 auxiliary_windows_started.elapsed(),
@@ -251,6 +249,7 @@ pub(crate) fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            super::pet::desktop_ensure_pet_quick_chat_window,
             record_renderer_diagnostic,
             record_renderer_log,
             crate::desktop::diagnostics::desktop_performance_snapshot,

@@ -1,5 +1,5 @@
 # Performance Trace Route
-<!-- tinybot-module-fingerprint: sha256:84e2bf0714b22f6b55fd6c689228a3aaaaecaa800368e759e0041069eb23fc24 -->
+<!-- tinybot-module-fingerprint: sha256:c2810eb6e8c31c7ae6e2d5fb6d3901310f57118a428cb3d38d366f70b5eb8af9 -->
 
 `performance` owns the System > Performance Trace surface. It loads one
 versioned, process-local snapshot through `AppServices.performanceStore` and
@@ -12,8 +12,9 @@ setup, React commit, first frame, native event
 registration, and session restoration can be compared on the same page.
 
 Refresh remains user-driven. Memory recording is a separate explicit control;
-while enabled it calls the memory-only command every two seconds, retains at
-most 300 samples, and stops visibly on the first collection failure. This keeps
+the service-owned recorder continues across route changes, calling the
+memory-only command two seconds after each completed sample. It stops at 300
+samples or on the first collection failure, preserving the original baseline. This keeps
 memory sampling opt-in while entry-level browser timing observers remain bounded.
 The JSON action refreshes the native/renderer snapshot at export time through the
 native desktop file dialog and reports the selected path after the write

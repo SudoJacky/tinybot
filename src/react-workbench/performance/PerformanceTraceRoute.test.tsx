@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AppServices } from "../services";
 import PerformanceTraceRoute from "./PerformanceTraceRoute";
+import { memoryRecordingFor } from "../../app-core/native/performanceMemoryRecording";
 
 afterEach(() => {
   cleanup();
@@ -16,6 +17,23 @@ afterEach(() => {
 });
 
 describe("PerformanceTraceRoute", () => {
+  it("retains a running recording after navigating away and back", async () => {
+    const store = {
+      load: vi.fn(async () => fixtureSnapshot()),
+      sampleMemory: vi.fn(async () => fixtureSnapshot().memory),
+    };
+    const services = { performanceStore: store } as unknown as AppServices;
+    const first = render(<PerformanceTraceRoute services={services} />);
+    await userEvent.setup().click(await screen.findByRole("button", { name: "Start memory recording" }));
+    await waitFor(() => expect(store.sampleMemory).toHaveBeenCalledOnce());
+    first.unmount();
+    expect(memoryRecordingFor(store).getSnapshot().recording).toBe(true);
+    render(<PerformanceTraceRoute services={services} />);
+    await screen.findByRole("button", { name: "Stop memory recording" });
+    expect(memoryRecordingFor(store).getSnapshot().samples).toHaveLength(1);
+    await userEvent.setup().click(screen.getByRole("button", { name: "Stop memory recording" }));
+    expect(memoryRecordingFor(store).getSnapshot().recording).toBe(false);
+  });
   it("renders native metrics and refreshes the bounded snapshot on demand", async () => {
     const load = vi.fn(async () => fixtureSnapshot());
     render(<PerformanceTraceRoute services={{ performanceStore: { load } } as unknown as AppServices} />);

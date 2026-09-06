@@ -44,3 +44,22 @@ test("invalid files and mixed process lifetimes fail visibly", () => {
   source.memory.sampledAtUnixMs += 1;
   assert.throws(() => analyzePerformanceTrace(source), /multiple native processes/);
 });
+
+test("analysis uses lifetime slow resources and preserves window state through a recording", () => {
+  const source = trace();
+  source.environment = { buildMode: "debug" };
+  source.memorySamples[0].windows = [{ label: "main", visible: true, focused: true }];
+  source.memory.windows = [...source.memorySamples[0].windows, { label: "desktop-pet-chat", visible: true, focused: false }];
+  source.rendererPerformance = { support: {}, errors: [], streams: { resource: {
+    count: 200, totalDurationMs: 1000, maxDurationMs: 900, droppedSamples: 80,
+    samples: [{ name: "fast.js", duration: 1 }],
+    slowestSamples: [{ name: "slow.js", duration: 900, requestStartMs: 1, responseStartMs: 801, responseEndMs: 901 }],
+  } } };
+  const report = analyzePerformanceTrace(source);
+  assert.equal(report.renderer.streams.resource.slowestRetainedSamples[0].name, "slow.js");
+  assert.equal(report.renderer.streams.resource.slowestSampleScope, "page-lifetime");
+  assert.equal(report.memory.maxSampleGapSeconds, 10);
+  assert.equal(report.memory.windowTimeline[0].windows.length, 1);
+  assert.match(performanceAnalysisMarkdown(report), /slow.js.*800.*100/);
+  assert.ok(report.warnings.some((warning) => warning.includes("debug build")));
+});

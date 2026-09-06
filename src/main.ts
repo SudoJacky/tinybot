@@ -9,11 +9,15 @@ import { createDesktopNativeStartupTrace } from "./app-core/native/desktopNative
 
 installRendererPerformanceTracking();
 const entryTrace = createDesktopNativeStartupTrace({ startedAt: 0 });
-entryTrace.mark("entry.ready");
+const surface = new URLSearchParams(window.location.search).get("surface");
+entryTrace.mark("entry.ready", { surface: surface ?? "main" });
 entryTrace.start("workbench.import");
 
 // Keep bootstrap failures visible even when the workbench chunk cannot load.
-void import("./react-workbench/main").then(() => {
+const entry = surface === "desktop-pet" ? import("./react-workbench/petMain")
+  : surface === "desktop-pet-chat" ? import("./react-workbench/quickChatMain")
+    : import("./react-workbench/main");
+void entry.then(() => {
   entryTrace.complete("workbench.import");
 }).catch((error: unknown) => {
   entryTrace.fail("workbench.import", error);

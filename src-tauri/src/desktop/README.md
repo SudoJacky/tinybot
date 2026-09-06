@@ -1,5 +1,5 @@
 # Desktop Runtime
-<!-- tinybot-module-fingerprint: sha256:934b3f7bf22d8ab1a6d27c8cc7720e6b494b6fb4ae27e567d127ae59f4a736e1 -->
+<!-- tinybot-module-fingerprint: sha256:e360a90f03dccd449e429be7add1813ccef74b0757ddcc4bd71d030006333e9f -->
 
 `desktop` wires the Rust backend into the Tauri application. It owns startup,
 shared desktop state, logging, file helpers, menus, and application updates.
@@ -10,8 +10,13 @@ into content-addressed application storage, and returns their hash with the
 managed path. Other files retain their original path, and no file bytes cross
 the Tauri command boundary.
 
-`bootstrap` also creates the Windows-only `desktop-pet` and
-`desktop-pet-chat` transparent webview windows through `pet`. Both remain
+`bootstrap` creates the Windows-only `desktop-pet` transparent webview through
+`pet`. The main renderer invokes `desktop_ensure_pet_quick_chat_window` only
+when a quick-chat request arrives; the async native command creates the hidden
+`desktop-pet-chat` window. The host retains the latest request until renderer
+readiness, then positions, presents and focuses it. Creation failures and a
+15-second readiness timeout are observable. Native window creation and host
+request-to-presentation durations are recorded. Both windows remain
 independent from the main window and stay available while it is minimized or
 hidden in the system tray. Closing the main window hides it without stopping
 the browser, terminal, Agent runtime, or desktop pet. The tray restores and

@@ -374,6 +374,24 @@ fn clean_startup_avoids_redundant_canonical_scans_and_projection_rebuilds() {
         crate::runtime::lifecycle::RuntimeLifecycle::reconcile_startup(&fixture.thread_store)
             .unwrap();
     let elapsed = started.elapsed();
+    let metrics = crate::runtime::observability::global_agent_runtime_metrics().snapshot();
+    for name in [
+        "storage.operation.lockWait.durationMs",
+        "storage.index.rebuild.durationMs",
+        "storage.index.populate.durationMs",
+        "storage.canonical.discoverPaths.durationMs",
+        "storage.rollout.headHash.durationMs",
+        "storage.rollout.readAndDecompress.durationMs",
+        "storage.rollout.parseJson.durationMs",
+        "storage.rollout.reconstruct.durationMs",
+        "storage.projection.build.durationMs",
+        "storage.projection.install.durationMs",
+    ] {
+        assert!(
+            metrics["durations"][name]["count"].as_u64().unwrap_or(0) > 0,
+            "missing phase {name}"
+        );
+    }
     assert_eq!(report.scanned_threads, 24);
     assert!(report.interrupted_turns.is_empty());
     assert_eq!(

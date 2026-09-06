@@ -157,7 +157,7 @@ fn export_diagnostic_bundle(
             || renderer_performance
                 .streams
                 .values()
-                .any(|stream| stream.samples.len() > 120)
+                .any(|stream| stream.samples.len() > 120 || stream.slowest_samples.len() > 20)
         {
             return Err("renderer performance exceeds stream/sample limits".to_string());
         }
@@ -291,6 +291,8 @@ struct RendererPerformanceStream {
     max_duration_ms: f64,
     dropped_samples: u64,
     samples: Vec<RendererPerformanceSample>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    slowest_samples: Vec<RendererPerformanceSample>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -305,6 +307,14 @@ struct RendererPerformanceSample {
     decoded_body_size: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     interaction_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    initiator_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_start_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_start_ms: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_end_ms: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     input_delay_ms: Option<f64>,
 }

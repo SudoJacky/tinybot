@@ -7,6 +7,22 @@ afterEach(() => {
 });
 
 describe("renderer performance collection", () => {
+  it("retains the slowest resources after the recent buffer rolls over", () => {
+    const collector = createRendererPerformanceCollector({
+      instanceId: "main:1000", surface: "main", timeOriginUnixMs: 1000, observationStartedAtMs: 0,
+    });
+    collector.record("resource", { name: "/src/main.ts", startTime: 0, duration: 900 });
+    for (let index = 1; index < 150; index += 1) {
+      collector.record("resource", { name: "/src/fast.ts", startTime: index, duration: index });
+    }
+    const stream = collector.snapshot().streams.resource;
+    expect(stream.samples.some((sample) => sample.duration === 900)).toBe(false);
+    expect(stream.slowestSamples).toHaveLength(20);
+    expect(stream.slowestSamples?.[0].duration).toBe(900);
+    stream.slowestSamples![0].duration = 0;
+    expect(collector.snapshot().streams.resource.slowestSamples?.[0].duration).toBe(900);
+  });
+
   it("bounds each stream, keeps lifetime totals and exports immutable samples", () => {
     const collector = createRendererPerformanceCollector({
       instanceId: "main:1000", surface: "main", timeOriginUnixMs: 1000, observationStartedAtMs: 3,
@@ -26,6 +42,9 @@ describe("renderer performance collection", () => {
     const page = "http://tauri.localhost/";
     expect(resourcePerformanceName(`${page}assets/main-abc.js?secret=123`, page)).toBe("/assets/main-abc.js");
     expect(resourcePerformanceName(`${page}workspace/private-project/notes.md`, page)).toBe("[same-origin resource]");
+    expect(resourcePerformanceName(`${page}src/react-workbench/App.tsx?t=secret`, page)).toBe("/src/react-workbench/App.tsx");
+    expect(resourcePerformanceName(`${page}node_modules/.vite/deps/react-dom_client.js?v=secret`, page)).toBe("/node_modules/.vite/deps/react-dom_client.js");
+    expect(resourcePerformanceName(`${page}@fs/D:/private/secret.ts`, page)).toBe("[same-origin resource]");
     expect(resourcePerformanceName("https://user:password@example.org/private?token=abc", page)).toBe("[external resource]");
   });
 

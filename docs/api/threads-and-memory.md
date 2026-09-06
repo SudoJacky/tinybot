@@ -15,7 +15,7 @@ src-tauri/src/threads/workspace_store.rs
 src-tauri/tests/crate/threads.rs
 src/app-core/chat/agentInputReference.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:3fa8f16234607442fca162ce9a2a3960c7c0b9eccb43607b0161229fdcc1ccd2 -->
+<!-- tinybot-doc-fingerprint: sha256:cddaf85bc9e8fbda635a43189da1f30bf4ff4ddeb4e598f5f65d0b20073cf465 -->
 
 This document covers Thread queries, memory, persistence, and project grouping.
 It is part of the [Rust backend API reference](rust-backend-api.md), which

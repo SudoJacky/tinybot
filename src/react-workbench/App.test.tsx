@@ -3,7 +3,7 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { TinybotErrorBoundary } from "./App";
+import { TinybotErrorBoundary } from "./TinybotErrorBoundary";
 
 afterEach(() => {
   cleanup();

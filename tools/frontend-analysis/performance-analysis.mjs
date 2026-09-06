@@ -52,6 +52,7 @@ export function analyzePerformanceTrace(trace) {
     "GPU process private bytes are not dedicated GPU memory; process working sets can include shared pages.",
   ];
   if (durationSeconds < 60) warnings.push("Memory observation is shorter than 60 seconds; it cannot establish a leak.");
+  if (trace.environment?.buildMode === "debug") warnings.push("This is a debug build; repeat the same scenario in a release build before estimating production gains.");
   if (samples.length !== available.length) warnings.push("Partial/unsupported memory samples are excluded from aggregate comparisons.");
   if (new Set(available.map((sample) => sample.native?.pid)).size > 1) {
     throw new Error("Memory samples span multiple native processes; analyze each run separately");
@@ -86,6 +87,14 @@ export function analyzePerformanceTrace(trace) {
       webviewSharePercent: last?.totalPrivateBytes ? round(last.webview2.privateBytes / last.totalPrivateBytes * 100) : null,
       processes: [...processes.values()].sort((left, right) => right.maxMiB - left.maxMiB),
       windows: trace.memory.windows ?? null,
+      windowTimeline: samples.filter((sample) => sample.windows).map((sample) => ({
+        sampledAtUnixMs: sample.sampledAtUnixMs, windows: sample.windows,
+        totalPrivateMiB: sample.totalPrivateBytes === null ? null : mib(sample.totalPrivateBytes),
+      })),
+      maxSampleGapSeconds: available.length > 1
+        ? Math.max(...available.slice(1).map((sample, index) => (sample.sampledAtUnixMs - available[index].sampledAtUnixMs) / 1000)) : null,
+      maxCollectionDurationMs: samples.some((sample) => Number.isFinite(sample.collectionDurationMs))
+        ? Math.max(...samples.map((sample) => sample.collectionDurationMs ?? 0)) : null,
       collectionErrors: samples.flatMap((sample) => sample.collectionErrors),
     },
     durations: Object.entries(trace.metrics.durations)
@@ -99,7 +108,8 @@ export function analyzePerformanceTrace(trace) {
       streams: Object.fromEntries(Object.entries(renderer.streams).map(([name, stream]) => [name, {
         count: stream.count, totalDurationMs: round(stream.totalDurationMs),
         maxDurationMs: round(stream.maxDurationMs), droppedSamples: stream.droppedSamples,
-        slowestRetainedSamples: [...stream.samples].sort((a, b) => b.duration - a.duration).slice(0, 15),
+        slowestSampleScope: stream.slowestSamples ? "page-lifetime" : "recent-buffer",
+        slowestRetainedSamples: [...(stream.slowestSamples ?? stream.samples)].sort((a, b) => b.duration - a.duration).slice(0, 15),
       }])),
     } : null,
     warnings,
@@ -114,6 +124,7 @@ export function performanceAnalysisMarkdown(report) {
     `Private memory: ${memory.minPrivateMiB ?? "unavailable"}–${memory.maxPrivateMiB ?? "unavailable"} MiB; delta ${memory.deltaPrivateMiB ?? "unavailable"} MiB.`,
     `Native startup clock: ${report.clocks.nativeStartedAtUnixMs ?? "unavailable"}; renderer clock: ${report.clocks.rendererStartedAtUnixMs ?? "unavailable"} (Unix ms).`,
     `Native timing samples retained: ${report.nativeTimeline.length}; evicted: ${report.droppedNativeSamples ?? "unavailable"}.`,
+    `Largest memory sampling gap: ${memory.maxSampleGapSeconds ?? "unavailable"}s; maximum collection cost: ${memory.maxCollectionDurationMs ?? "unavailable"} ms.`,
     "", "## Processes", "", "| PID | Kind | First MiB | Last MiB | Peak sampled MiB |", "| --- | --- | ---: | ---: | ---: |",
     ...memory.processes.map((row) => `| ${row.pid} | ${row.kind} | ${row.firstMiB} | ${row.lastMiB} | ${row.maxMiB} |`),
     "", "## Recorded durations (overlap possible)", "", "| Phase | Count | Average ms | Max ms |", "| --- | ---: | ---: | ---: |",
@@ -121,6 +132,16 @@ export function performanceAnalysisMarkdown(report) {
     "", "## Renderer observations", "",
     ...(report.renderer ? Object.entries(report.renderer.streams).map(([name, stream]) =>
       `- ${name}: ${stream.count} entries, max ${stream.maxDurationMs} ms, ${stream.droppedSamples} samples dropped.`) : ["Unavailable in this snapshot."]),
+    "", "## Slowest resources", "",
+    `Selection scope: ${report.renderer?.streams.resource?.slowestSampleScope ?? "unavailable"}.`, "",
+    "| Resource | Duration ms | Initiator | Request to first byte ms | Download ms |", "| --- | ---: | --- | ---: | ---: |",
+    ...(report.renderer?.streams.resource?.slowestRetainedSamples ?? []).map((sample) => {
+      const firstByte = sample.requestStartMs > 0 && sample.responseStartMs >= sample.requestStartMs
+        ? round(sample.responseStartMs - sample.requestStartMs) : "unavailable";
+      const download = sample.responseStartMs > 0 && sample.responseEndMs >= sample.responseStartMs
+        ? round(sample.responseEndMs - sample.responseStartMs) : "unavailable";
+      return `| ${String(sample.name).replace(/[|\r\n]/g, " ")} | ${round(sample.duration)} | ${sample.initiatorType ?? "unavailable"} | ${firstByte} | ${download} |`;
+    }),
     "", "## Interpretation limits", "", ...report.warnings.map((warning) => `- ${warning}`), "",
   ].join("\n");
 }

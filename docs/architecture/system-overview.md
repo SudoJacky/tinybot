@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:efb06e2d647e7ae257a2956f3d89bcb82fe38b7bc5159a41e5223e0f26957c41 -->
+<!-- tinybot-doc-fingerprint: sha256:14e34d17b884a10396c8166a967fa885aeb701f8e1298afb757c7e7c69d6afa8 -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -206,14 +206,17 @@ The renderer entry point has three surfaces. The main window follows
 `main.tsx -> App -> DesktopShell` and composes the application services. The
 initial HTML owns a white, centered-logo startup surface; the main window
 dismisses it after its first React frame, with reduced-motion support. The
-small `src/main.ts` bootstrap loads the workbench asynchronously and displays
+small `src/main.ts` bootstrap selects `main.tsx`, `petMain.tsx`, or
+`quickChatMain.tsx` before loading that surface asynchronously and displays
 renderer diagnostics if that import fails. Startup presentation does not gate
 native session restoration and is hidden for both pet surfaces. The
 Windows-only `?surface=desktop-pet` path mounts `DesktopPetWindow` directly
 under the shared language, appearance, error, and diagnostic providers. It
 receives snapshots from `DesktopShell` through `app-core/native`, so showing a
 global desktop pet does not duplicate routes, stores, or native runtimes. The
-`?surface=desktop-pet-chat` path mounts `DesktopPetQuickChatWindow` with a
+`?surface=desktop-pet-chat` window is created on its first request, and its
+host retains that request until the renderer announces readiness. It mounts
+`DesktopPetQuickChatWindow` with a
 bounded service composition and a least-privilege Tauri command permission so
 it can pick attachments and create and continue canonical Threads; the scoped
 native event seam positions it next to the pet and hands an explicit Thread ID

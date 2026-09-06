@@ -18,7 +18,7 @@ fn desktop_window_menu_scope(label: &str) -> DesktopWindowMenuScope {
 
 #[cfg(windows)]
 fn isolated_desktop_window_menu<R: tauri::Runtime>(
-    app: &tauri::App<R>,
+    app: &tauri::AppHandle<R>,
     label: &str,
 ) -> tauri::Result<tauri::menu::Menu<R>> {
     assert_eq!(
@@ -41,7 +41,10 @@ pub(crate) fn create_desktop_pet_window<R: tauri::Runtime>(
         DESKTOP_PET_WINDOW_LABEL,
         tauri::WebviewUrl::App("index.html?surface=desktop-pet".into()),
     )
-    .menu(isolated_desktop_window_menu(app, DESKTOP_PET_WINDOW_LABEL)?)
+    .menu(isolated_desktop_window_menu(
+        app.handle(),
+        DESKTOP_PET_WINDOW_LABEL,
+    )?)
     .title("Tinybot Desktop Pet")
     .inner_size(76.0, 76.0)
     .resizable(false)
@@ -64,7 +67,7 @@ pub(crate) fn create_desktop_pet_window<R: tauri::Runtime>(
 
 #[cfg(windows)]
 pub(crate) fn create_desktop_pet_quick_chat_window<R: tauri::Runtime>(
-    app: &mut tauri::App<R>,
+    app: &tauri::AppHandle<R>,
 ) -> tauri::Result<()> {
     let window = tauri::WebviewWindowBuilder::new(
         app,
@@ -96,6 +99,33 @@ pub(crate) fn create_desktop_pet_quick_chat_window<R: tauri::Runtime>(
 
 pub(crate) fn is_desktop_pet_window(label: &str) -> bool {
     label == DESKTOP_PET_WINDOW_LABEL
+}
+
+// Async commands build on the async runtime, avoiding a Windows WebView creation
+// deadlock on the IPC thread. The host serializes requests and waits for ready.
+#[tauri::command]
+pub(crate) async fn desktop_ensure_pet_quick_chat_window(
+    app: tauri::AppHandle,
+) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use tauri::Manager;
+        if app
+            .get_webview_window(DESKTOP_PET_QUICK_CHAT_WINDOW_LABEL)
+            .is_some()
+        {
+            return Ok(());
+        }
+        crate::runtime::observability::global_agent_runtime_metrics()
+            .measure("desktop.quickChat.createWindow.durationMs", || {
+                create_desktop_pet_quick_chat_window(&app).map_err(|error| error.to_string())
+            })
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        Err("Desktop pet quick chat requires Windows".to_string())
+    }
 }
 
 pub(crate) fn is_desktop_pet_quick_chat_window(label: &str) -> bool {
