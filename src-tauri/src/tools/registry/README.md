@@ -1,5 +1,5 @@
 # Tool Registry
-<!-- tinybot-module-fingerprint: sha256:8edb807bc6e3bc17a9d555fd67932810577ee9f6a736a51c951dc387b9d50848 -->
+<!-- tinybot-module-fingerprint: sha256:d7bbfbeabc29643892891b28fca062bfcc1fabb2a62282dcff5fcb60fd189b45 -->
 
 `registry` is the catalog of tools available to the runtime. Each entry records
 its schema, exposure, execution target, required capabilities, cancellation
@@ -19,3 +19,6 @@ Threads.
 Provider-visible schemas include nested contracts used by native validation.
 For `publish_data_view`, this includes supported view kinds and the table
 `defaultSort` object with required `field` and `direction` properties.
+The `write_stdin` contract distinguishes empty-input completion waits from
+interactive writes. It exposes waits up to 300 seconds and explains output
+batching, the 5-second floor, and the default 30-second background wait.

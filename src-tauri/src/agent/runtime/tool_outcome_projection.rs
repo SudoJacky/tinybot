@@ -10,7 +10,7 @@ pub(super) struct NativeToolOutcomeProjection {
 
 pub(super) fn project_tool_outcome(
     tool_call: &NativeAgentToolCall,
-    raw_content: &Value,
+    model_result: &Value,
     outcome: &NativeToolOutcome,
 ) -> NativeToolOutcomeProjection {
     let structured_outcome =
@@ -29,7 +29,7 @@ pub(super) fn project_tool_outcome(
         summary: summary.clone(),
         model_content: serde_json::json!({
             "toolOutcome": model_outcome,
-            "result": raw_content,
+            "result": model_result,
         })
         .to_string(),
         structured: serde_json::json!({

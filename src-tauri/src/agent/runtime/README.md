@@ -1,5 +1,5 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:5c6e82f0a82475b6c30c8cf77bc6d370b94af8733920bfe7f1cec61d95673311 -->
+<!-- tinybot-module-fingerprint: sha256:1a390eb303c74ef3bf3b2cc6fa38a5e2f7fadd43a6fcdda626528c868936343f -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
@@ -260,6 +260,11 @@ Every runtime event in one Turn shares the same trace context. Provider events
 add `providerAttemptId`, tool events retain `itemId` and `toolCallId`, and
 internal Worker RPC operations derive request IDs under the same root trace.
 Persisted tool envelopes use the configured secret-redaction path.
+
+Outcome results can supply a model result separately from raw evidence. This
+keeps outcome guidance and UI actions intact while letting the tool adapter
+remove redundant fields from the provider observation. The raw envelope remains
+available to diagnostics and UI consumers.
 
 Special tool results use the shared `tool_outcome` envelope projection instead
 of relying on tool-specific prose hidden in raw JSON. The outer envelope status

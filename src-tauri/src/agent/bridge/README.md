@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:eaad79f61a90d3c30d999aef602643d20c486e7fc4a7a43ce14bcb7690af28b6 -->
+<!-- tinybot-module-fingerprint: sha256:7119e833db73af20069ac842e795f642206933f21dbb6f20b5818f1bfb8b32ac -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -57,6 +57,14 @@ Registered subagent lifecycle tools execute through Worker RPC so their state
 is restored from and committed to the canonical Thread store. Only the
 runtime-only `subagent.query` and `subagent.cancel` controls use the direct
 subagent dispatcher fallback; unregistered alternative names fail normally.
+
+Running Shell results suggest an empty-input `write_stdin` with the latest
+cursor and the Shell module's default 30-second wait, so progress collection
+does not encourage repeated one-second model iterations.
+All retained Shell results, including running, failed, and truncated outcomes,
+share one compact model projection: one output string plus process status,
+cursor, exit code, and failure/truncation evidence. Raw stream chunks remain in
+the envelope for diagnostics and UI; they are not duplicated in model content.
 
 Changing this order requires care. In particular, a turn must be recoverable
 after its start is visible, and trace flushing must not be reported as success

@@ -174,10 +174,14 @@ fn running_shell_result_exposes_poll_action_and_retry_semantics() {
             "running": true,
             "exitCode": null,
             "output": "working",
+            "stdout": "working",
+            "stderr": "",
+            "chunks": [{ "sequence": 7, "stream": "stdout", "content": "working" }],
             "cursor": 7,
             "truncated": false
         }
     });
+    let raw = executor_response["result"].clone();
 
     let result = native_tool_result_from_executor_response(&tool_call, executor_response)
         .expect("running shell result should be projected");
@@ -195,6 +199,19 @@ fn running_shell_result_exposes_poll_action_and_retry_semantics() {
     assert_eq!(outcome["nextAction"]["tool"], "write_stdin");
     assert_eq!(outcome["nextAction"]["arguments"]["processId"], "process-1");
     assert_eq!(outcome["nextAction"]["arguments"]["cursor"], 7);
+    assert_eq!(outcome["nextAction"]["arguments"]["yieldTimeMs"], 30_000);
+    assert_eq!(
+        model_content["result"],
+        serde_json::json!({
+            "processId": "process-1",
+            "status": "running",
+            "running": true,
+            "output": "working",
+            "cursor": 7,
+            "truncated": false,
+        })
+    );
+    assert_eq!(result.envelope["raw"], raw);
     assert!(model_content["toolOutcome"]["guidance"]
         .as_str()
         .is_some_and(|guidance| guidance.contains("Follow nextAction")));
@@ -202,7 +219,7 @@ fn running_shell_result_exposes_poll_action_and_retry_semantics() {
 
 #[test]
 fn shell_terminal_special_states_use_structured_outcomes() {
-    for (name, raw, effect, reason_code, retry) in [
+    for (name, mut raw, effect, reason_code, retry) in [
         (
             "exec_command",
             serde_json::json!({
@@ -245,6 +262,14 @@ fn shell_terminal_special_states_use_structured_outcomes() {
             "do_not_retry",
         ),
     ] {
+        let expected_model_result = raw.clone();
+        if let Some(output) = raw.get("output").cloned() {
+            raw["stdout"] = output.clone();
+            raw["stderr"] = serde_json::json!("");
+            raw["chunks"] = serde_json::json!([
+                { "sequence": 1, "stream": "stdout", "content": output }
+            ]);
+        }
         let tool_call = PreparedToolCall::prepare(NativeAgentToolCall {
             id: format!("call-{reason_code}"),
             name: name.to_string(),
@@ -262,6 +287,14 @@ fn shell_terminal_special_states_use_structured_outcomes() {
         assert_eq!(outcome["effect"], effect, "reason {reason_code}");
         assert_eq!(outcome["reasonCode"], reason_code, "reason {reason_code}");
         assert_eq!(outcome["retry"], retry, "reason {reason_code}");
+        let model_content: serde_json::Value = serde_json::from_str(
+            result.envelope["modelContent"]
+                .as_str()
+                .expect("model content should be text"),
+        )
+        .expect("model content should be JSON");
+        assert_eq!(model_content["result"], expected_model_result);
+        assert_eq!(result.envelope["raw"], raw);
     }
 }
 

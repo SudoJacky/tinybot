@@ -624,7 +624,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "shell.write_stdin",
             "shell",
             "Write shell input",
-            "Write input to a retained shell process and return newly available output.",
+            "Continue a retained shell process using processId and the latest cursor. With empty input, wait for completion and collect output for up to yieldTimeMs (default 30000; clamped to 5000-300000 ms). Progress logs do not end this wait; process exit or cancellation returns early. For downloads, tests, and builds, use 30000-300000 ms to avoid frequent polling. Non-empty input writes immediately and waits briefly for output (default 1000; maximum 30000 ms).",
             ToolExposure::Model,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
@@ -636,7 +636,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
                     "processId": { "type": "string" },
                     "input": { "type": "string" },
                     "cursor": { "type": "integer", "minimum": 0 },
-                    "yieldTimeMs": { "type": "integer", "minimum": 0, "maximum": 30000 }
+                    "yieldTimeMs": { "type": "integer", "minimum": 0, "maximum": crate::tools::shell::MAX_PROCESS_WAIT_MS }
                 }
             }),
         ),
