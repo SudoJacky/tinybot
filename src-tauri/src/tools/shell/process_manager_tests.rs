@@ -1,8 +1,145 @@
-﻿use super::*;
+use super::*;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Barrier};
 use std::time::Duration;
+
+#[test]
+fn empty_stdin_collects_progress_until_process_exits() {
+    let fixture = ProcessFixture::new();
+    let rpc = shell_rpc(&fixture);
+    let command = if cfg!(target_os = "windows") {
+        "powershell -NoProfile -Command \"0..9 | ForEach-Object { [Console]::WriteLine('progress-' + $_); Start-Sleep -Milliseconds 100 }; [Console]::WriteLine('finished')\""
+    } else {
+        "i=0; while [ $i -lt 10 ]; do printf 'progress-%s\\n' \"$i\"; sleep 0.1; i=$((i+1)); done; printf 'finished\\n'"
+    };
+    let started = rpc
+        .start(ShellStartParams {
+            command: command.to_string(),
+            working_dir: Some(".".to_string()),
+            tty: Some(false),
+            yield_time_ms: Some(0),
+            rows: None,
+            cols: None,
+            owner_id: Some("turn-batched-progress".to_string()),
+            tool_call_id: Some("tool-batched-progress".to_string()),
+            cancellation: None,
+        })
+        .expect("progress command should start");
+    let first = rpc
+        .poll(ShellProcessPollParams {
+            process_id: started.process_id.clone(),
+            owner_id: Some("turn-batched-progress".to_string()),
+            cursor: Some(0),
+            yield_time_ms: Some(5_000),
+        })
+        .expect("first progress should be observable");
+    assert!(first.running, "fixture must still be running: {first:?}");
+    let wait_started = std::time::Instant::now();
+    let output = rpc
+        .write_stdin(ShellProcessInputParams {
+            process_id: started.process_id,
+            owner_id: Some("turn-batched-progress".to_string()),
+            input: String::new(),
+            cursor: Some(first.cursor),
+            yield_time_ms: None,
+        })
+        .expect("background wait should collect progress");
+    let elapsed = wait_started.elapsed();
+    let cleanup = rpc.shutdown();
+    assert!(cleanup.failures.is_empty(), "{cleanup:?}");
+    assert!(
+        !output.running,
+        "progress output must not force another model polling round: {output:?}"
+    );
+    assert_eq!(output.exit_code, Some(0));
+    assert!(
+        elapsed < Duration::from_secs(5),
+        "exit returned after {elapsed:?}"
+    );
+    assert!(output.output.contains("progress-9"), "{output:?}");
+    assert!(output.output.contains("finished"), "{output:?}");
+    assert!(!output.output.contains("progress-0"), "{output:?}");
+}
+
+#[test]
+fn empty_stdin_enforces_wait_floor_without_terminating_process() {
+    let fixture = ProcessFixture::new();
+    let rpc = shell_rpc(&fixture);
+    let started = start_blocking_process(&rpc, "turn-wait-floor", "tool-wait-floor");
+    let wait_started = std::time::Instant::now();
+    let output = rpc
+        .write_stdin(ShellProcessInputParams {
+            process_id: started.process_id.clone(),
+            owner_id: Some("turn-wait-floor".to_string()),
+            input: String::new(),
+            cursor: Some(started.cursor),
+            yield_time_ms: Some(0),
+        })
+        .expect("empty input should wait even when the model requests zero milliseconds");
+    let elapsed = wait_started.elapsed();
+    let cleanup = rpc.shutdown();
+    assert!(cleanup.failures.is_empty(), "{cleanup:?}");
+    assert!(
+        elapsed >= Duration::from_secs(5),
+        "returned after {elapsed:?}"
+    );
+    assert!(
+        output.running,
+        "wait deadline must retain the process: {output:?}"
+    );
+    assert_eq!(output.process_id, started.process_id);
+    assert_eq!(output.exit_code, None);
+    assert!(output.output.is_empty(), "{output:?}");
+}
+
+#[test]
+fn empty_stdin_long_wait_returns_promptly_when_cancelled() {
+    let fixture = ProcessFixture::new();
+    let rpc = shell_rpc(&fixture);
+    let cancellation = Arc::new(TestCancellation::default());
+    let started = rpc
+        .start(ShellStartParams {
+            command: blocking_command(),
+            working_dir: Some(".".to_string()),
+            tty: Some(false),
+            yield_time_ms: Some(0),
+            rows: None,
+            cols: None,
+            owner_id: Some("turn-cancel-wait".to_string()),
+            tool_call_id: Some("tool-cancel-wait".to_string()),
+            cancellation: Some(cancellation.clone()),
+        })
+        .expect("cancellable process should start");
+    let waiting_rpc = rpc.clone();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let waiter = std::thread::spawn(move || {
+        let result = waiting_rpc.write_stdin(ShellProcessInputParams {
+            process_id: started.process_id,
+            owner_id: Some("turn-cancel-wait".to_string()),
+            input: String::new(),
+            cursor: Some(started.cursor),
+            yield_time_ms: Some(300_000),
+        });
+        sender
+            .send(result)
+            .expect("wait result should be delivered");
+    });
+    assert!(matches!(
+        receiver.recv_timeout(Duration::from_millis(100)),
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+    ));
+    cancellation.cancel();
+    let received = receiver.recv_timeout(Duration::from_secs(2));
+    let cleanup = rpc.shutdown();
+    waiter.join().expect("waiter should finish");
+    assert!(cleanup.failures.is_empty(), "{cleanup:?}");
+    let output = received
+        .expect("cancellation should interrupt a five-minute wait promptly")
+        .expect("cancelled process should have a final snapshot");
+    assert!(!output.running, "{output:?}");
+    assert_eq!(output.status, "cancelled");
+}
 
 #[cfg(target_os = "windows")]
 #[test]

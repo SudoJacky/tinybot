@@ -941,9 +941,16 @@ fn native_tool_result_from_executor_response(
         ));
     }
     if let Some(outcome) = native_shell_tool_outcome(&tool_call.name, &raw_result) {
-        return Ok(NativeAgentToolResult::success_with_outcome(
-            tool_call, raw_result, outcome,
-        ));
+        let model_result =
+            compact_shell_process_model_result(&raw_result).unwrap_or_else(|| raw_result.clone());
+        return Ok(
+            NativeAgentToolResult::success_with_outcome_and_model_result(
+                tool_call,
+                raw_result,
+                model_result,
+                outcome,
+            ),
+        );
     }
     let model_content = native_tool_executor_model_content(&raw_result);
     let summary = native_tool_executor_summary(&raw_result, &model_content);
@@ -1021,7 +1028,7 @@ fn native_shell_tool_outcome(
             let mut arguments = serde_json::json!({
                 "processId": process_id,
                 "input": "",
-                "yieldTimeMs": 1000,
+                "yieldTimeMs": crate::tools::shell::DEFAULT_PROCESS_WAIT_MS,
             });
             if let Some(cursor) = integer_field(raw, "cursor", "cursor") {
                 arguments["cursor"] = serde_json::json!(cursor);
@@ -1296,13 +1303,13 @@ fn native_tool_executor_model_content(value: &serde_json::Value) -> String {
     if let Some(content) = value.get("content").and_then(serde_json::Value::as_str) {
         return content.to_string();
     }
-    if let Some(content) = compact_shell_process_model_content(value) {
-        return content;
+    if let Some(content) = compact_shell_process_model_result(value) {
+        return content.to_string();
     }
     value.to_string()
 }
 
-fn compact_shell_process_model_content(value: &serde_json::Value) -> Option<String> {
+fn compact_shell_process_model_result(value: &serde_json::Value) -> Option<serde_json::Value> {
     let source = value.as_object()?;
     if !source.contains_key("processId") || !source.contains_key("output") {
         return None;
@@ -1326,5 +1333,5 @@ fn compact_shell_process_model_content(value: &serde_json::Value) -> Option<Stri
             compact.insert(field.to_string(), field_value.clone());
         }
     }
-    Some(serde_json::Value::Object(compact).to_string())
+    Some(serde_json::Value::Object(compact))
 }

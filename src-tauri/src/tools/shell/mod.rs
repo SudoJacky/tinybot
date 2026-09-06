@@ -24,6 +24,8 @@ use self::process_manager::{ShellProcessManager, ValidatedShellStart};
 
 const MAX_TIMEOUT_SECONDS: u64 = 600;
 const MAX_OUTPUT_CHARS: usize = 10_000;
+pub(crate) const DEFAULT_PROCESS_WAIT_MS: u64 = 30_000;
+pub(crate) const MAX_PROCESS_WAIT_MS: u64 = 300_000;
 
 #[derive(Clone, Debug)]
 pub struct WorkerShellRpc {
@@ -137,12 +139,17 @@ impl WorkerShellRpc {
         params: ShellProcessInputParams,
     ) -> Result<ShellProcessOutput, WorkerProtocolError> {
         self.require(WorkerCapability::ShellExecute)?;
+        let default_yield_time_ms = if params.input.is_empty() {
+            DEFAULT_PROCESS_WAIT_MS
+        } else {
+            1_000
+        };
         self.processes.write_stdin(
             &params.process_id,
             params.owner_id.as_deref(),
             params.input.as_bytes(),
             params.cursor.unwrap_or(0),
-            params.yield_time_ms.unwrap_or(1_000),
+            params.yield_time_ms.unwrap_or(default_yield_time_ms),
         )
     }
 

@@ -42,9 +42,10 @@ impl NativeToolResultEnvelope {
     fn success_with_outcome(
         tool_call: &NativeAgentToolCall,
         raw_content: Value,
+        model_result: Value,
         outcome: NativeToolOutcome,
     ) -> Self {
-        let projection = project_tool_outcome(tool_call, &raw_content, &outcome);
+        let projection = project_tool_outcome(tool_call, &model_result, &outcome);
         Self::from_parts(
             "ok",
             projection.summary,
@@ -235,8 +236,27 @@ impl NativeAgentToolResult {
         raw_content: Value,
         outcome: NativeToolOutcome,
     ) -> Self {
-        let envelope =
-            NativeToolResultEnvelope::success_with_outcome(tool_call, raw_content, outcome);
+        Self::success_with_outcome_and_model_result(
+            tool_call,
+            raw_content.clone(),
+            raw_content,
+            outcome,
+        )
+    }
+
+    /// Keep full raw evidence while supplying a separate result to the model.
+    pub(crate) fn success_with_outcome_and_model_result(
+        tool_call: &NativeAgentToolCall,
+        raw_content: Value,
+        model_result: Value,
+        outcome: NativeToolOutcome,
+    ) -> Self {
+        let envelope = NativeToolResultEnvelope::success_with_outcome(
+            tool_call,
+            raw_content,
+            model_result,
+            outcome,
+        );
         let model_content = envelope
             .get("modelContent")
             .and_then(Value::as_str)

@@ -11,7 +11,7 @@ src-tauri/src/tools/registry/README.md
 src-tauri/src/tools/registry/mod.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:b5cdecb5a15bca338405547c20652ac6154de9fb95d7202732e4fdb9fbe60ee3 -->
+<!-- tinybot-doc-fingerprint: sha256:38da4a8a03331ad5d85e2479886168bcbc2ee971a842891dd6b0ef239e82f684 -->
 
 Tinybot exposes one protocol-neutral tool registry to the Agent Runtime. Tool
 metadata, per-Turn exposure, capability policy, execution routing, lifecycle,
@@ -190,6 +190,25 @@ the model-visible observation and cannot roll back workspace, process, network,
 or session side effects. Hook-added context is emitted after the complete tool
 result block so both Chat Completions and Responses preserve call/result
 pairing.
+
+## Retained Shell waits
+
+An active `exec_command` returns a process ID and a cursor. Its projected
+`nextAction` suggests empty-input `write_stdin` with a 30-second wait. The
+Shell process manager collects progress output until completion or the wait
+deadline, so individual log chunks do not trigger another provider iteration.
+Pure waits have a 5-second floor and a 300-second ceiling; cancellation and
+process exit return early. Interactive input and direct `shell.poll` keep
+their output-triggered response semantics. Wait deadlines do not terminate
+processes. See the [Shell RPC contract](../api/tools-and-processes.md) for
+defaults, cursor handling, and diagnostic metrics.
+
+Running, failed, and truncated retained Shell results use the same compact
+model fields as ordinary completed results. The outcome constructor accepts
+the model result separately from raw evidence, preserving `toolOutcome`
+guidance and `nextAction` while avoiding repeated transcripts in `stdout`,
+`output`, and `chunks`. Full stream chunks remain in the raw envelope for
+diagnostics and UI projection.
 
 ## Invariants
 

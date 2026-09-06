@@ -1,5 +1,5 @@
 # Shell Tools
-<!-- tinybot-module-fingerprint: sha256:a8fd144ee79393f641e5a6b9c57e9b1a7c66c0b3ef2b7942a269f54fd90346e0 -->
+<!-- tinybot-module-fingerprint: sha256:39843feebcc46fdc46d3d83bfbf62d9b5a0932b8fee4697a85d3154578554116 -->
 
 `shell` runs commands for agents and RPC clients in a validated working
 directory. Relative paths resolve from the configured workspace; an existing
@@ -12,6 +12,15 @@ that require a different next step. A retained process includes a structured
 `write_stdin` continuation, while cancellation, timeout, non-zero exit,
 process failure, and truncated output carry explicit retry guidance. Ordinary
 successful commands keep the generic result projection.
+
+Empty-input `write_stdin` waits for process completion, collecting progress in
+the bounded transcript instead of returning on each log chunk. Its default
+wait is 30 seconds, with a 5-second floor and a 300-second ceiling; completion
+and cancellation wake the wait early. The deadline retains a running process.
+Non-empty input and `shell.poll` retain their responsive output waits, including
+Sidecar terminal polling. Callers pass the latest cursor for incremental output.
+Runtime metrics record `process.wait.durationMs`, `process.wait.stillRunning`,
+`process.wait.finished`, and `process.wait.emptyOutput` to diagnose polling churn.
 
 Platform-specific process containment is implemented separately where needed.
 On Windows, the Job Object helper is also reused by trusted subprocess runners

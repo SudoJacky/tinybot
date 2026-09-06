@@ -601,7 +601,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "shell.start",
             "shell",
             "Start shell command",
-            "Start a shell command with the current user's permissions. Set workingDir explicitly when needed and use yieldTimeMs for a short initial wait. If the process remains active, continue it with write_stdin using the returned processId. Check the exit status and output before reporting success.",
+            "Start a shell command with the current user's permissions. Set workingDir explicitly when needed. yieldTimeMs is the initial wait budget (default 10000; maximum 30000 ms), not an execution timeout. For downloads, dependency installs, tests, and builds, start once with the default wait. If running=true, the process continues: use write_stdin with the returned processId, latest cursor, empty input, and yieldTimeMs of 30000-300000 ms. Prefer longer waits when there is no actionable progress; do independent work between waits when useful. Progress logs are batched and process completion returns early. Avoid repeated short polls or restarting a running command. Check the exit status and output before reporting success.",
             ToolExposure::Model,
             false,
             runtime_policy(false, ToolCancellationMode::TerminateProcess, true, false),
@@ -624,7 +624,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
             "shell.write_stdin",
             "shell",
             "Write shell input",
-            "Write input to a retained shell process and return newly available output.",
+            "Continue a retained shell process using processId and the latest cursor. With empty input, wait for completion and collect output for up to yieldTimeMs (default 30000; clamped to 5000-300000 ms). Progress logs do not end this wait; process exit or cancellation returns early. For downloads, tests, and builds, use 30000-300000 ms to avoid frequent polling. Non-empty input writes immediately and waits briefly for output (default 1000; maximum 30000 ms).",
             ToolExposure::Model,
             false,
             runtime_policy(false, ToolCancellationMode::DetachForbidden, true, false),
@@ -636,7 +636,7 @@ fn core_tool_entries() -> Vec<ToolRegistryEntry> {
                     "processId": { "type": "string" },
                     "input": { "type": "string" },
                     "cursor": { "type": "integer", "minimum": 0 },
-                    "yieldTimeMs": { "type": "integer", "minimum": 0, "maximum": 30000 }
+                    "yieldTimeMs": { "type": "integer", "minimum": 0, "maximum": crate::tools::shell::MAX_PROCESS_WAIT_MS }
                 }
             }),
         ),

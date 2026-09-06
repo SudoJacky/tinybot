@@ -14,7 +14,7 @@ src-tauri/src/rpc/tests/threads_and_tools.rs
 src-tauri/tests/crate/retry.rs
 src/app-core/native/desktopNativeThreads.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:3b822883eeb770f3ae5bea03e26b7d97849c7f0889d4014350fa3d72981d1384 -->
+<!-- tinybot-doc-fingerprint: sha256:0c8208a3cfed66e65c4dc7e79a3cf404dd75c047b41ef73401b4e917898db36a -->
 
 This document covers native tool processes, background execution, and browser
 sessions. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -58,13 +58,39 @@ written, resized, interrupted, or terminated without its matching Turn owner.
 | --- | --- |
 | `shell.start` | Start a pipe or PTY process and wait for a bounded initial yield. |
 | `shell.poll` | Return output after a sequence cursor, waiting up to `yieldTimeMs`. |
-| `shell.write_stdin` | Write `input` (or alias `chars`) and return newly available output. |
+| `shell.write_stdin` | Write `input` (or alias `chars`), or wait for completion with empty input. |
 | `shell.resize` | Resize an active PTY in rows and columns. |
 | `shell.interrupt` | Send SIGINT on Unix or Ctrl-C to a Windows PTY. |
 | `shell.terminate` | Terminate one owned process tree and verify its exit. |
 | `shell.terminate_owner` | Terminate all live processes owned by one owner. |
 | `shell.list` | List retained process snapshots, optionally filtered by `ownerId`. |
 | `shell.shutdown` | Terminate live processes, join terminal lifecycle threads, and release records. |
+
+`shell.start` defaults to a 10-second initial wait, capped at 30 seconds.
+For `shell.write_stdin`, empty input collects output until the process finishes
+or the wait deadline expires. Its default wait is 30 seconds; explicit waits
+are clamped to 5-300 seconds, including a request for zero. New progress logs
+do not end the wait. Process exit and cancellation return early, while reaching
+the deadline leaves the process running. Supply the previous result's `cursor`
+to retrieve only subsequent output. Running Agent results suggest this same
+30-second continuation through `nextAction`.
+
+Non-empty input is written immediately and waits for new output for up to
+`yieldTimeMs` (default 1 second, maximum 30 seconds; zero returns immediately).
+`shell.poll` also retains its output-triggered behavior for interactive clients,
+including the Sidecar terminal. `yieldTimeMs` is a per-call wait budget, separate
+from the process lifetime and the one-shot `shell.execute` timeout.
+
+The runtime diagnostic metrics include background wait durations
+(`process.wait.durationMs`) and counts of still-running, finished, and empty-output
+returns (`process.wait.stillRunning`, `process.wait.finished`, and
+`process.wait.emptyOutput`).
+
+Model observations retain `processId`, `status`, `running`, `exitCode`,
+`output`, `cursor`, `truncated`, `droppedBytes`, and `failure` when non-null.
+Results requiring a next action wrap those fields with `toolOutcome` guidance;
+they do not repeat the transcript through `stdout` and `chunks`. The raw RPC
+snapshot retains the full stream representation for diagnostics and UI use.
 
 `shell.start` accepts:
 

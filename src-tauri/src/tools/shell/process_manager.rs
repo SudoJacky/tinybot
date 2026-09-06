@@ -2,6 +2,7 @@
 use super::windows_job::WindowsProcessJob;
 use super::{
     shell_command, shell_error, ShellOutputChunk, ShellProcessCleanupReport, ShellProcessOutput,
+    MAX_PROCESS_WAIT_MS,
 };
 use crate::protocol::{WorkerProtocolError, WorkerRequestCancellation};
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
@@ -21,6 +22,7 @@ use windows_sys::Win32::Globalization::{
 
 const MAX_PROCESS_RECORDS: usize = 64;
 const MAX_YIELD_TIME_MS: u64 = 30_000;
+const MIN_PROCESS_WAIT_MS: u64 = 5_000;
 const TERMINATION_WAIT: Duration = Duration::from_secs(2);
 const OUTPUT_HEAD_BYTES: usize = 256 * 1024;
 const OUTPUT_TAIL_BYTES: usize = 768 * 1024;
@@ -166,9 +168,26 @@ impl ShellProcessManager {
         yield_time_ms: u64,
     ) -> Result<ShellProcessOutput, WorkerProtocolError> {
         let record = self.lookup(process_id, owner_id)?;
-        if !input.is_empty() {
-            record.write_stdin(input)?;
+        if input.is_empty() {
+            // Progress logs are collected in the bounded process buffer. Only
+            // completion or the wait deadline should resume the model.
+            let wait_ms = yield_time_ms.clamp(MIN_PROCESS_WAIT_MS, MAX_PROCESS_WAIT_MS);
+            let started_at = Instant::now();
+            record.wait_for_terminal(Duration::from_millis(wait_ms));
+            let output = record.snapshot(cursor);
+            let metrics = crate::runtime::observability::global_agent_runtime_metrics();
+            metrics.record_duration("process.wait.durationMs", started_at.elapsed());
+            metrics.increment(if output.running {
+                "process.wait.stillRunning"
+            } else {
+                "process.wait.finished"
+            });
+            if output.output.is_empty() {
+                metrics.increment("process.wait.emptyOutput");
+            }
+            return Ok(output);
         }
+        record.write_stdin(input)?;
         Ok(record.wait_for_output(
             cursor,
             Duration::from_millis(clamp_yield_time(yield_time_ms)),
