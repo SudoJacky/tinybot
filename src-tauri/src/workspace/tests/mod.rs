@@ -501,15 +501,21 @@ mod tests {
         fixture.write("report.md", "original");
         let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
         let first = rpc.read_file_chunk("report.md", None, None).unwrap();
-        let unchanged = rpc.read_file_chunk("report.md", None, Some(&first.revision)).unwrap();
+        let unchanged = rpc
+            .read_file_chunk("report.md", None, Some(&first.revision))
+            .unwrap();
         assert_eq!(unchanged.content_type, "unchanged");
         assert!(unchanged.content.is_none());
         assert_eq!(unchanged.revision, first.revision);
         fixture.write("report.md", "updated report");
-        let changed = rpc.read_file_chunk("report.md", None, Some(&first.revision)).unwrap();
+        let changed = rpc
+            .read_file_chunk("report.md", None, Some(&first.revision))
+            .unwrap();
         assert_eq!(changed.content.as_deref(), Some("updated report"));
         assert_ne!(changed.revision, first.revision);
-        assert!(rpc.read_file_chunk("../outside.md", None, Some(&first.revision)).is_err());
+        assert!(rpc
+            .read_file_chunk("../outside.md", None, Some(&first.revision))
+            .is_err());
     }
 
     #[test]

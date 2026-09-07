@@ -14,7 +14,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/SudoJacky/tinybot?include_prereleases&logo=github)](https://github.com/SudoJacky/tinybot/releases)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/SudoJacky/tinybot)
 
-> **Backend status:** Tinybot is currently implementing its Rust backend. It is unstable, and future releases are likely to include breaking changes. [0.0.18](https://github.com/SudoJacky/tinybot/releases/tag/0.0.18) is the relatively stable release based on the Python backend.
+> **Release status:** Tinybot v1.0.0 is the first stable release of the Rust-based desktop app, with core conversation, native tool, plugin, and workspace capabilities ready for everyday use.
 
 [中文](README_ZH.md)
 

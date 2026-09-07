@@ -14,7 +14,7 @@
 [![GitHub Release](https://img.shields.io/github/v/release/SudoJacky/tinybot?include_prereleases&logo=github)](https://github.com/SudoJacky/tinybot/releases)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/SudoJacky/tinybot)
 
-> **后端状态：** Tinybot 目前正在实现 Rust 后端，当前并不稳定，未来版本很可能包含破坏性更新。[0.0.18](https://github.com/SudoJacky/tinybot/releases/tag/0.0.18) 是基于 Python 后端的相对稳定版本。
+> **版本状态：** Tinybot v1.0.0 是基于 Rust 后端的首个正式版本。核心对话、原生工具、插件和工作区功能已基本稳定，可用于日常使用。
 
 [English](README.md)
 

@@ -1,5 +1,5 @@
 # Workspace Service
-<!-- tinybot-module-fingerprint: sha256:98bdadd50f94b216b30d5ff2455a6ca37e4dedbd8341212d66752048dc13f6d2 -->
+<!-- tinybot-module-fingerprint: sha256:c37e701305b5abdec75a1aa438f2113f0e0db750d25c41a98082506e4e0da2c4 -->
 
 `workspace` provides capability-checked operations within the active workspace.
 It handles safe path resolution, file reads and writes, directory inspection,

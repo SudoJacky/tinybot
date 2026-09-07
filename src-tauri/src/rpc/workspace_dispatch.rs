@@ -67,10 +67,11 @@ impl WorkerRpcRouter {
             }
             "workspace.read_file_chunk" => {
                 let params: ReadFileChunkParams = parse_params(request)?;
-                serde_json::to_value(
-                    self.workspace
-                        .read_file_chunk(&params.path, params.cursor.as_deref(), params.known_revision.as_deref())?,
-                )
+                serde_json::to_value(self.workspace.read_file_chunk(
+                    &params.path,
+                    params.cursor.as_deref(),
+                    params.known_revision.as_deref(),
+                )?)
                 .map_err(serialization_error)
             }
             "workspace.delete_file" => {

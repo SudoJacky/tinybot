@@ -24,8 +24,8 @@ pub struct WorkerWorkspaceRpc {
     policy: CapabilityPolicy,
 }
 
-mod patch;
 pub(crate) mod artifact_review;
+mod patch;
 mod path_guard;
 mod read;
 mod skills;
