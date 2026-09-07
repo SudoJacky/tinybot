@@ -1,5 +1,9 @@
 # Worker RPC Router
-<!-- tinybot-module-fingerprint: sha256:a23ddfc0d0822f0c301202b84b9b38aa6802f585a6b5c9a348736937737f5f54 -->
+
+Turn-persistence dispatch adapts wire parameters to the typed workspace store
+service. Internal Agent persistence calls that service directly, sharing its
+lifecycle lock, canonical writes, projection synchronization, and recovery.
+<!-- tinybot-module-fingerprint: sha256:a0bf869862f545caa13577c4efe5ff050db074abfdd5500643d1c1f071539775 -->
 
 `rpc` is the versioned method-routing boundary for native backend services.
 The module root is `mod.rs`; protocol envelopes and parameter validation live

@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:9a5c4ed6cc8fff31042e247dd35715631c18f8bc81842a26edfec4bf6ff5bf1c -->
+<!-- tinybot-module-fingerprint: sha256:22032842c902c8682217a8a1a2df508ff48758b6acc5bfc9e3278e37884f5f0b -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime

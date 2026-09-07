@@ -14,7 +14,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:568b011612cb7eb97be66fb034788a762cbcfb1644fcc4e14391e967a9c7fa7e -->
+<!-- tinybot-doc-fingerprint: sha256:2748b05fdf3b020e5c310544b7d7fe6987fb7618935a4b15dfd78ecf8fe9ffe7 -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -42,7 +42,9 @@ the execution context retains no raw spec. Invalid field types and malformed
 continuations fail explicitly, and the bridge persists validation failures.
 Configuration, legacy history, extension metadata, provider-native items, and
 checkpoint payloads still have dynamic fields. Infrastructure errors still use
-`String`, and same-process state-service RPC remains a separate migration.
+`String`. Turn records, runtime events, checkpoints, and history now use direct
+workspace store operations. The RPC adapter uses the same guarded Turn service;
+other tool and Thread-management RPC paths remain separate migration work.
 
 ## Execution flow
 

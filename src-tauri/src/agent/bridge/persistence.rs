@@ -7,8 +7,7 @@ use crate::agent::runtime::{
     AgentExecutionStatus, AgentResultError, AgentStopReason, AgentTurnResult,
 };
 use crate::agent::runtime_protocol::AgentTraceContext;
-use crate::protocol::WorkerRequest;
-use crate::rpc::call_rust_state_service;
+use crate::protocol::WorkerProtocolError;
 use crate::threads::workspace_store::WorkspaceThreadStore;
 use std::time::Instant;
 
@@ -22,7 +21,7 @@ fn now_unix_ms() -> u128 {
 pub(crate) fn reject_native_agent_terminal_turn_reentry(
     spec: &serde_json::Value,
     thread_store: &WorkspaceThreadStore,
-    config_snapshot: serde_json::Value,
+    _config_snapshot: serde_json::Value,
 ) -> Result<Option<AgentTurnResult>, String> {
     let Some(session_id) = native_agent_rollout_id(spec) else {
         return Ok(None);
@@ -31,42 +30,21 @@ pub(crate) fn reject_native_agent_terminal_turn_reentry(
         return Ok(None);
     };
     let trace_context = agent_trace_context_from_value(spec);
-    let existing = call_traced_state_service(
-        thread_store,
-        config_snapshot,
-        &trace_context,
-        "terminal-check",
-        WorkerRequest::new(
-            format!("{}:terminal-check", trace_context.request_id),
-            trace_context.trace_id.clone(),
-            "thread.turn.list",
-            serde_json::json!({ "threadId": session_id }),
-        ),
-        "native agent terminal turn check",
-        "read",
-    )?;
-    let Some(existing) = existing
-        .get("turns")
-        .and_then(serde_json::Value::as_array)
-        .and_then(|turns| {
-            turns.iter().find(|turn| {
-                turn.get("turnId").and_then(serde_json::Value::as_str) == Some(turn_id.as_str())
-            })
-        })
-    else {
+    let existing = traced_persistence(&trace_context, "terminal-check", "read", || {
+        thread_store.agent_turn(&session_id, &turn_id)
+    })?;
+    let Some(existing) = existing else {
         return Ok(None);
     };
-    let status = existing
-        .get("status")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default();
-    if !matches!(status, "completed" | "failed" | "cancelled" | "interrupted") {
-        return Ok(None);
-    }
-    let phase = existing
-        .get("phase")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or(status);
+    use crate::threads::turn::AgentTurnStatus;
+    let status = match existing.status {
+        AgentTurnStatus::Completed => "completed",
+        AgentTurnStatus::Failed => "failed",
+        AgentTurnStatus::Cancelled => "cancelled",
+        AgentTurnStatus::Interrupted => "interrupted",
+        AgentTurnStatus::Running | AgentTurnStatus::Waiting => return Ok(None),
+    };
+    let phase = existing.phase.as_str();
     Ok(Some(terminal_turn_rejection(
         &turn_id,
         &session_id,
@@ -106,23 +84,22 @@ pub(crate) fn persist_native_agent_turn_start(
     let turn_context = native_agent_turn_context(&spec, &config_snapshot, &turn_id);
     let messages = materialized_turn_messages(&spec, &turn_id);
     let trace_context = agent_trace_context_from_value(&spec);
-    call_traced_state_service(
-        thread_store,
-        config_snapshot,
+    let record =
+        serde_json::from_value(record).map_err(|error| format!("invalid turn record: {error}"))?;
+    let context = serde_json::from_value(turn_context)
+        .map_err(|error| format!("invalid turn context: {error}"))?;
+    let messages = messages
+        .into_iter()
+        .map(|message| {
+            serde_json::from_value(message)
+                .map_err(|error| format!("invalid turn message: {error}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    traced_persistence(
         &trace_context,
-        "turn-start",
-        WorkerRequest::new(
-            format!("{}:turn-start", trace_context.request_id),
-            trace_context.trace_id.clone(),
-            "thread.turn.start",
-            serde_json::json!({
-                "record": record,
-                "context": turn_context,
-                "messages": messages,
-            }),
-        ),
         "native agent turn start persistence",
         "write",
+        || thread_store.start_agent_turn(record, Some(context), messages),
     )?;
     Ok(())
 }
@@ -261,67 +238,66 @@ pub(crate) fn persist_native_agent_turn_terminal_if_present(
     spec: serde_json::Value,
     result: &mut AgentTurnResult,
     thread_store: &WorkspaceThreadStore,
-    config_snapshot: serde_json::Value,
+    _config_snapshot: serde_json::Value,
 ) -> Result<(), String> {
     let session_id = &result.session_id;
     let turn_id = &result.turn_id;
     let stop_reason = result.stop_reason;
-    let (method, params) = match stop_reason.status() {
-        AgentExecutionStatus::Completed => (
-            "thread.turn.mark_completed",
-            serde_json::json!({
-                "threadId": session_id,
-                "turnId": turn_id,
-                "stopReason": stop_reason,
-                "finalContent": result.final_content,
-                "contextCheckpoint": result.context_checkpoint,
-            }),
-        ),
-        AgentExecutionStatus::Failed => (
-            "thread.turn.mark_failed",
-            serde_json::json!({
-                "threadId": session_id,
-                "turnId": turn_id,
-                "stopReason": stop_reason,
-                "error": result.error.as_ref().ok_or_else(|| format!(
-                    "failed agent turn `{turn_id}` is missing its error ({})", stop_reason.as_str()
-                ))?,
-                "contextCheckpoint": result.context_checkpoint,
-            }),
-        ),
-        AgentExecutionStatus::Cancelled => (
-            "thread.turn.mark_cancelled",
-            serde_json::json!({ "threadId": session_id, "turnId": turn_id }),
-        ),
-        AgentExecutionStatus::Interrupted => (
-            "thread.turn.mark_interrupted",
-            serde_json::json!({
-                "threadId": session_id,
-                "turnId": turn_id,
-                "reason": result.error.as_ref().map(AgentResultError::message).unwrap_or(stop_reason.as_str()),
-            }),
-        ),
-        AgentExecutionStatus::Waiting => return Ok(()),
-    };
+    if stop_reason.status() == AgentExecutionStatus::Waiting {
+        return Ok(());
+    }
     let trace_context = result
         .trace_context
         .clone()
         .unwrap_or_else(|| agent_trace_context_from_value(&spec));
-    let persisted = call_traced_state_service(
-        thread_store,
-        config_snapshot,
+    let error_value = result
+        .error
+        .as_ref()
+        .map(serde_json::to_value)
+        .transpose()
+        .map_err(|error| error.to_string())?;
+    if stop_reason.status() == AgentExecutionStatus::Failed && error_value.is_none() {
+        return Err(format!(
+            "failed agent turn `{turn_id}` is missing its error ({})",
+            stop_reason.as_str()
+        ));
+    }
+    let persisted = traced_persistence(
         &trace_context,
         "turn-record",
-        WorkerRequest::new(
-            format!("{}:turn-terminal", trace_context.request_id),
-            trace_context.trace_id.clone(),
-            method,
-            params,
-        ),
-        "native agent turn terminal persistence",
         "write",
+        || match stop_reason.status() {
+            AgentExecutionStatus::Completed => thread_store.complete_agent_turn(
+                session_id,
+                turn_id,
+                stop_reason.as_str(),
+                Some(result.final_content.clone()),
+                result.context_checkpoint.clone(),
+            ),
+            AgentExecutionStatus::Failed => thread_store.fail_agent_turn(
+                session_id,
+                turn_id,
+                stop_reason.as_str(),
+                error_value.expect("failed result error was checked"),
+                result.context_checkpoint.clone(),
+            ),
+            AgentExecutionStatus::Cancelled => thread_store.cancel_agent_turn(session_id, turn_id),
+            AgentExecutionStatus::Interrupted => thread_store.interrupt_agent_turn(
+                session_id,
+                turn_id,
+                result
+                    .error
+                    .as_ref()
+                    .map(AgentResultError::message)
+                    .unwrap_or(stop_reason.as_str()),
+            ),
+            AgentExecutionStatus::Waiting => {
+                unreachable!("waiting results do not persist terminal state")
+            }
+        },
     )?;
-    result.turn_persistence = Some(persisted);
+    result.turn_persistence =
+        Some(serde_json::to_value(persisted).map_err(|error| error.to_string())?);
     Ok(())
 }
 
@@ -364,7 +340,7 @@ pub(crate) fn native_agent_turn_start_record(
 pub(crate) fn persist_native_agent_checkpoint_if_present(
     result: &AgentTurnResult,
     thread_store: &WorkspaceThreadStore,
-    config_snapshot: serde_json::Value,
+    _config_snapshot: serde_json::Value,
 ) -> Result<(), String> {
     let Some(checkpoint) = result.checkpoint.as_ref() else {
         return Ok(());
@@ -380,49 +356,22 @@ pub(crate) fn persist_native_agent_checkpoint_if_present(
         .trace_context
         .as_ref()
         .ok_or_else(|| "agent checkpoint result is missing trace context".to_string())?;
-    call_traced_state_service(
-        thread_store,
-        config_snapshot,
-        trace_context,
-        "checkpoint-write",
-        WorkerRequest::new(
-            format!("{}:checkpoint-write", trace_context.request_id),
-            trace_context.trace_id.clone(),
-            "thread.turn.set_checkpoint",
-            serde_json::json!({
-                "threadId": session_id,
-                "turnId": turn_id,
-                "checkpoint": checkpoint,
-            }),
-        ),
-        "native agent checkpoint persistence",
-        "write",
-    )?;
+    traced_persistence(trace_context, "checkpoint-write", "write", || {
+        thread_store.set_agent_turn_checkpoint(session_id, turn_id, checkpoint.clone())
+    })?;
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-fn call_traced_state_service(
-    thread_store: &WorkspaceThreadStore,
-    config_snapshot: serde_json::Value,
+fn traced_persistence<T>(
     trace_context: &AgentTraceContext,
     operation: &str,
-    request: WorkerRequest,
-    label: &str,
     metric_kind: &str,
-) -> Result<serde_json::Value, String> {
+    action: impl FnOnce() -> Result<T, WorkerProtocolError>,
+) -> Result<T, String> {
     let metrics = crate::runtime::observability::global_agent_runtime_metrics();
     metrics.increment(&format!("persistence.{metric_kind}.started"));
-    if request.trace_id != trace_context.trace_id
-        || !request.id.starts_with(&trace_context.request_id)
-    {
-        metrics.increment(&format!("persistence.{metric_kind}.failed"));
-        return Err(format!(
-            "persistence operation `{operation}` lost its root request/trace correlation"
-        ));
-    }
     let started_at = Instant::now();
-    let result = call_rust_state_service(thread_store, config_snapshot, request, label);
+    let result = action();
     metrics.record_duration(
         &format!("persistence.{metric_kind}.durationMs"),
         started_at.elapsed(),
@@ -435,7 +384,10 @@ fn call_traced_state_service(
             "failed"
         }
     ));
-    result
+    result.map_err(|error| {
+        eprintln!("agent_persistence_failed operation={} request_id={} trace_id={} turn_id={} error={} details={}", operation, trace_context.request_id, trace_context.trace_id, trace_context.turn_id, error.message, error.details);
+        format!("{operation} failed: {}; details={}", error.message, error.details)
+    })
 }
 
 #[cfg(test)]

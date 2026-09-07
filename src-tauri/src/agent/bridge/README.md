@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:bb2425ab7d7168cc1f2e41b77867f94cdc16c895c18ce6779d910990d6d48a6f -->
+<!-- tinybot-module-fingerprint: sha256:c1f26e994244fcd44fcd1f7e262a080b7d9ecb6f1ba30acb24f9677f96d305da -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -32,8 +32,10 @@ errors follow the same failed-turn persistence path as execution errors.
 Terminal persistence matches `AgentStopReason` through its exhaustive status
 mapping, preserving waiting outcomes and error messages/codes. Only the outer
 desktop, Thread-response, and WebUI adapters serialize the complete result.
-Persistence operations still use the state-service RPC boundary; their trace
-correlation, metrics, and commit behavior remain owned by that path.
+Turn persistence, semantic event batches, and history hydration call the typed
+workspace store service directly. They retain trace correlation and metrics;
+the shared service owns lifecycle locking and projection synchronization.
+Other tool and Thread-management RPC adapters remain separate migration work.
 
 ## Turn flow
 

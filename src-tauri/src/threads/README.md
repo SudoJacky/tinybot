@@ -1,7 +1,12 @@
 # Threads
-<!-- tinybot-module-fingerprint: sha256:0a12b7a1e73e011a33c6e52d31b0b3c224647a0575e7d476c8fc38c82b0c2322 -->
+<!-- tinybot-module-fingerprint: sha256:b4bf7023abb094807b5884d61815a2d62f235cc7002a44a5348354a44ecced3a -->
 
 `threads` owns conversation state and its durable rollout representation.
+
+`turn_service.rs` provides typed operations on `WorkspaceThreadStore` for turn
+records, history, runtime events, and checkpoints. Internal callers and the RPC
+adapter share lifecycle locking, canonical writes, projection synchronization,
+and failure recovery. RPC envelopes are only needed at transport boundaries.
 
 The domain layer exposes thread operations, while `rollout/` handles persisted
 event lines and reconstruction. This module also contains time helpers, turn

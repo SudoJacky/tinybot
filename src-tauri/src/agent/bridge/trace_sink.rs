@@ -3,9 +3,6 @@ use crate::agent::runtime_protocol::{
     resolve_event_name, AgentEventKind, AgentRuntimeEventEnvelope, AgentTimelinePatch,
     EventNameResolution,
 };
-use crate::protocol::request_id::next_worker_request_correlation;
-use crate::protocol::WorkerRequest;
-use crate::rpc::call_rust_state_service;
 use crate::threads::rollout::store::is_turn_semantic_event;
 use crate::threads::workspace_store::WorkspaceThreadStore;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -21,18 +18,11 @@ fn tauri_safe_event_name(event_name: &str) -> String {
 #[derive(Clone)]
 pub(crate) struct AgentTurnSemanticSink {
     thread_store: WorkspaceThreadStore,
-    config_snapshot: serde_json::Value,
 }
 
 impl AgentTurnSemanticSink {
-    pub(crate) fn new(
-        thread_store: WorkspaceThreadStore,
-        config_snapshot: serde_json::Value,
-    ) -> Self {
-        Self {
-            thread_store,
-            config_snapshot,
-        }
+    pub(crate) fn new(thread_store: WorkspaceThreadStore) -> Self {
+        Self { thread_store }
     }
 }
 
@@ -42,28 +32,15 @@ impl NativeAgentTraceSink for AgentTurnSemanticSink {
         session_id: &str,
         turn_id: &str,
     ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
-        let generated = next_worker_request_correlation();
-        let value = call_rust_state_service(
-            &self.thread_store,
-            self.config_snapshot.clone(),
-            WorkerRequest::new(
-                generated.id("agent-turn-runtime-state"),
-                generated.trace_id("agent-turn-runtime-state"),
-                "thread.turn.runtime_state",
-                serde_json::json!({
-                    "threadId": session_id,
-                    "turnId": turn_id,
-                }),
-            ),
-            "native agent turn runtime state",
-        )?;
-        serde_json::from_value(
-            value
-                .get("runtimeEvents")
-                .cloned()
-                .ok_or_else(|| "agent turn runtime state is missing runtimeEvents".to_string())?,
-        )
-        .map_err(|error| format!("invalid persisted runtime events: {error}"))
+        self.thread_store
+            .agent_turn_runtime_state(session_id, turn_id)
+            .map(|state| state.runtime_events)
+            .map_err(|error| {
+                format!(
+                    "native agent turn runtime state failed: {}; details={}",
+                    error.message, error.details
+                )
+            })
     }
 
     fn append_trace_event(
@@ -81,48 +58,23 @@ impl NativeAgentTraceSink for AgentTurnSemanticSink {
         turn_id: &str,
         events: &[AgentRuntimeEventEnvelope],
     ) -> Result<(), String> {
-        let first_event = events.first().ok_or_else(|| {
-            "native agent semantic batch must contain at least one event".to_string()
-        })?;
-        let generated = next_worker_request_correlation();
-        let request_id = first_event
-            .trace_context
-            .as_ref()
-            .map(|trace| {
-                format!(
-                    "{}:semantic-batch:{}",
-                    trace.request_id, first_event.event_id
-                )
-            })
-            .unwrap_or_else(|| generated.id("agent-turn-append-semantic-batch"));
-        let trace_id = first_event
-            .trace_context
-            .as_ref()
-            .map(|trace| trace.trace_id.clone())
-            .unwrap_or_else(|| generated.trace_id("agent-turn-append-semantic-batch"));
-        let events = serde_json::to_value(events).map_err(|error| {
-            format!("native agent semantic batch serialization failed: {error}")
-        })?;
+        if events.is_empty() {
+            return Err("native agent semantic batch must contain at least one event".to_string());
+        }
         let metrics = crate::runtime::observability::global_agent_runtime_metrics();
         metrics.increment("persistence.batch.started");
         let started_at = Instant::now();
-        let result = call_rust_state_service(
-            &self.thread_store,
-            self.config_snapshot.clone(),
-            WorkerRequest::new(
-                request_id,
-                trace_id,
-                "thread.turn.append_semantic_batch",
-                serde_json::json!({
-                    "threadId": session_id,
-                    "turnId": turn_id,
-                    "events": events,
-                }),
-            ),
-            "native agent semantic batch append",
-        );
+        let result = self
+            .thread_store
+            .append_agent_turn_events(session_id, turn_id, events)
+            .map_err(|error| {
+                format!(
+                    "native agent semantic batch append failed: {}; details={}",
+                    error.message, error.details
+                )
+            });
         metrics.record_duration("persistence.batch.durationMs", started_at.elapsed());
-        let event_count = events.as_array().map_or(0, Vec::len) as u64;
+        let event_count = events.len() as u64;
         if result.is_ok() {
             metrics.increment_by("persistence.events.written", event_count);
         } else {
@@ -760,11 +712,11 @@ pub(crate) fn desktop_agent_event_sink<R: Runtime + 'static>(
 
 pub(crate) fn native_agent_trace_sink(
     thread_store: WorkspaceThreadStore,
-    config_snapshot: serde_json::Value,
+    _config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Arc<dyn NativeAgentTraceSink> {
     let persisted_sink: Arc<dyn NativeAgentTraceSink> =
-        Arc::new(AgentTurnSemanticSink::new(thread_store, config_snapshot));
+        Arc::new(AgentTurnSemanticSink::new(thread_store));
     let live_trace_sink = live_trace_sink.unwrap_or_else(|| Arc::new(NoopNativeAgentTraceSink));
     Arc::new(BufferedNativeAgentTraceSink::new(
         persisted_sink,

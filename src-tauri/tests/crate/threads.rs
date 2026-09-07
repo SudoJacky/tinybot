@@ -1168,10 +1168,7 @@ fn native_agent_semantic_sink_updates_runtime_state_before_final_persistence() {
         Some("assistant-trace-sink".to_string()),
         "Semantic trace",
     );
-    let sink = crate::agent::bridge::AgentTurnSemanticSink::new(
-        fixture.thread_store.clone(),
-        config.clone(),
-    );
+    let sink = crate::agent::bridge::AgentTurnSemanticSink::new(fixture.thread_store.clone());
 
     sink.append_trace_event(session_id, turn_id, &event)
         .expect("trace sink should append event");

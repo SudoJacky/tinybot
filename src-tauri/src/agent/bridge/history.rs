@@ -1,7 +1,4 @@
 use crate::agent::bridge::{native_agent_session_id, native_agent_string_field};
-use crate::protocol::request_id::next_worker_request_correlation;
-use crate::protocol::WorkerRequest;
-use crate::rpc::call_rust_state_service;
 use crate::threads::workspace_store::WorkspaceThreadStore;
 
 pub(crate) fn native_agent_user_messages(spec: &serde_json::Value) -> Vec<serde_json::Value> {
@@ -95,34 +92,38 @@ pub(crate) fn hydrate_native_agent_memory_snapshot_for_runtime(
 pub(crate) fn hydrate_native_agent_history_for_runtime(
     mut spec: serde_json::Value,
     thread_store: &WorkspaceThreadStore,
-    config_snapshot: serde_json::Value,
+    _config_snapshot: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
     let Some(session_id) = native_agent_session_id(&spec) else {
         return Ok(spec);
     };
     let requested_messages = native_agent_runtime_messages(&spec);
-    let history = native_agent_session_history(&session_id, thread_store, config_snapshot)?;
-    let api_mode = history
-        .get("apiMode")
-        .or_else(|| history.get("api_mode"))
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("chat_completions")
-        .to_string();
-    let history_messages = history
-        .get("messages")
-        .and_then(serde_json::Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let response_items = history
-        .get("responseItems")
-        .or_else(|| history.get("response_items"))
-        .and_then(serde_json::Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let source_checkpoint = history
-        .get("contextCheckpoint")
-        .or_else(|| history.get("context_checkpoint"))
-        .and_then(crate::threads::rollout::checkpoint_lineage::checkpoint_lineage_metadata);
+    let history = thread_store
+        .agent_history(&session_id, 500)
+        .map_err(|error| {
+            format!(
+                "native agent context hydration failed: {}; details={}",
+                error.message, error.details
+            )
+        })?;
+    let (api_mode, history_messages, response_items, source_checkpoint) = match history {
+        Some(history) => (
+            match history.api_mode {
+                crate::threads::rollout::format::SessionApiMode::ChatCompletions => {
+                    "chat_completions"
+                }
+                crate::threads::rollout::format::SessionApiMode::Responses => "responses",
+            }
+            .to_string(),
+            history.messages,
+            history.response_items,
+            history
+                .context_checkpoint
+                .as_ref()
+                .and_then(crate::threads::rollout::checkpoint_lineage::checkpoint_lineage_metadata),
+        ),
+        None => ("chat_completions".to_string(), Vec::new(), Vec::new(), None),
+    };
     let manual_compaction = crate::agent::runtime::manual_context_compaction_requested(&spec);
 
     if let Some(object) = spec.as_object_mut() {
@@ -174,26 +175,6 @@ fn native_agent_runtime_messages(spec: &serde_json::Value) -> Vec<serde_json::Va
         }
     }
     native_agent_user_messages(spec)
-}
-
-fn native_agent_session_history(
-    session_id: &str,
-    thread_store: &WorkspaceThreadStore,
-    config_snapshot: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    let request_id = next_worker_request_correlation();
-    let history = call_rust_state_service(
-        thread_store,
-        config_snapshot,
-        WorkerRequest::new(
-            request_id.id("session-history-for-agent-turn"),
-            request_id.trace_id("session-history-for-agent-turn"),
-            "thread.context",
-            serde_json::json!({ "threadId": session_id, "limit": 500 }),
-        ),
-        "native agent context hydration",
-    )?;
-    Ok(history)
 }
 
 fn native_agent_merge_history_messages(
