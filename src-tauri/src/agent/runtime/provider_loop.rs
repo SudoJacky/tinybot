@@ -12,15 +12,16 @@ use super::usage::{
 use super::user_input::{
     prepare_user_input_continuation, UserInputContinuationOutcome, UserInputResume,
 };
+#[cfg(test)]
+use super::InstructionComposer;
 use super::{
     AgentExecutionStatus, AgentResultError, AgentStopReason, AgentTurnInput, AgentTurnMetrics,
     AgentTurnResult,
 };
 use super::{
     AgentHookInvocation, AgentHookStage, AgentTurnContext, ComposedInstructions,
-    InstructionComposer, NativeAgentContextCheckpointCommit, NativeAgentProviderFailure,
-    NativeAgentProviderFailureKind, NativeAgentProviderResponse, NativeAgentProviderStreamEvent,
-    NativeAgentRuntimeServices,
+    NativeAgentContextCheckpointCommit, NativeAgentProviderFailure, NativeAgentProviderFailureKind,
+    NativeAgentProviderResponse, NativeAgentProviderStreamEvent, NativeAgentRuntimeServices,
 };
 use crate::agent::runtime::AgentError;
 use crate::agent::runtime_protocol::{
@@ -84,6 +85,7 @@ pub fn run_native_agent_turn_with_workspace(
     .map_err(AgentError::from)
 }
 
+#[cfg(test)]
 pub async fn run_native_agent_turn_with_workspace_async(
     services: &NativeAgentRuntimeServices,
     spec: Value,

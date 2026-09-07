@@ -14,7 +14,7 @@ src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:29ffd8f44b86bfe9476679f5d2e70679bce6ef3aee2f96e44b402d7674afa5fb -->
+<!-- tinybot-doc-fingerprint: sha256:26e75943da780600971965688924283ddc1fff5e3d795c4f7bc489bdd2bd09dd -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal

@@ -72,6 +72,7 @@ impl ContextManager {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(super) fn replace(&mut self, messages: Vec<Value>) -> Result<(), String> {
         self.replace_history(&AgentItemHistory::from_legacy_messages(&messages)?);
         Ok(())

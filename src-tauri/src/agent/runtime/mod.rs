@@ -95,6 +95,7 @@ use self::usage::context_window_messages_async;
 use self::usage::{context_window_messages, enrich_usage_with_context_window};
 pub use crate::runtime::observability::AgentRuntimeMetrics;
 pub(crate) use provider_loop::run_native_agent_turn_with_workspace_and_instructions_async;
+#[cfg(test)]
 pub use provider_loop::run_native_agent_turn_with_workspace_async;
 #[cfg(test)]
 pub use provider_loop::{
