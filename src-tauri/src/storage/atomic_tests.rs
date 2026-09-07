@@ -14,6 +14,39 @@ impl Serialize for FailingSerialize {
 }
 
 #[test]
+fn checked_write_leaves_target_untouched_when_verification_fails() {
+    let root = temp_workspace_root("checked-replace");
+    let _cleanup = TempWorkspaceCleanup(root.clone());
+    let path = root.join("report.bin");
+    fs::write(&path, b"external edit").unwrap();
+    let error =
+        write_bytes_atomic_checked(&path, b"original", AtomicWriteOptions::default(), || {
+            Err(io_error(
+                "verify target",
+                &path,
+                io::Error::other("conflict"),
+            ))
+        })
+        .unwrap_err();
+    assert!(error.to_string().contains("conflict"));
+    assert_eq!(fs::read(&path).unwrap(), b"external edit");
+    assert!(temp_files(&root).is_empty());
+}
+
+#[test]
+fn atomic_write_supports_long_paths_for_new_and_existing_targets() {
+    let root = temp_workspace_root("long-path");
+    let _cleanup = TempWorkspaceCleanup(root.clone());
+    let path = root
+        .join("a".repeat(100))
+        .join("b".repeat(100))
+        .join("report.bin");
+    write_text_atomic(&path, "before", AtomicWriteOptions::default()).unwrap();
+    write_text_atomic(&path, "after", AtomicWriteOptions::default()).unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), "after");
+}
+
+#[test]
 fn json_write_serializes_before_replacing_existing_file() {
     let root = temp_workspace_root("serialize-before-replace");
     let _cleanup = TempWorkspaceCleanup(root.clone());

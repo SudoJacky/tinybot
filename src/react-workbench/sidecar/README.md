@@ -1,5 +1,5 @@
 # Sidecar
-<!-- tinybot-module-fingerprint: sha256:394bd3547d2de50a20c7c74deac1afa2d1d72f95b1523acc1ce12e5c74ee82c3 -->
+<!-- tinybot-module-fingerprint: sha256:18ea8d30478623769cb881e9d9cae2f763974c91a433a470058bec590c39d2da -->
 
 `sidecar` owns the React resource shell displayed beside Chat. It presents
 thread-scoped Browser and Artifact resources, workspace-scoped Terminal
@@ -81,11 +81,11 @@ smooth vertical pointer-proximity response, while the current slide remains at
 full strength. Pointer hover or keyboard focus expands that rail into numbered
 DOM-derived thumbnails without resizing the slide canvas; activating a
 thumbnail scrolls the owning Artifact surface to the matching slide and marks
-it current. Spreadsheet previews expose one selected
-cell at a time with matching row and column headers, arrow-key navigation,
+it current. Spreadsheet previews expose rectangular cell selections through
+dragging, Shift-click, or Shift-arrow navigation, with matching row and column headers,
 Escape clearing, and an explicit `Ctrl/Cmd+I` change request. Activating that
 action opens a labelled input anchored below the selected cell; Enter or its
-confirm button reports the sheet, address, rendered value, and trimmed request
+confirm button reports the sheet, normalized range address, rendered values, and trimmed request
 through the render callback, while Escape cancels and restores cell focus.
 Sidecar does not own or submit the Chat composer state.
 
@@ -133,3 +133,21 @@ Sidecar does not own or submit the Chat composer state.
 - [Native renderer adapters](../../app-core/native/README.md)
 - [Native Browser runtime](../../../src-tauri/src/native_browser/README.md)
 - [Desktop command reference](../../../docs/api/desktop.md)
+
+`ArtifactReviewPanel` loads the native review state and offers comparison,
+keeping the current version, and restoring the baseline. File revisions
+invalidate displayed comparisons; keep and restore are disabled during Agent
+generation. Excel comparisons list cell value changes and added/removed sheets,
+showing at most 200 changes with a full count (up to one million visited cells).
+They do not verify formulas, formatting or charts. Text versions show the first
+32 KB, while Word and PowerPoint reuse read-only previews. Restore always uses
+the complete saved bytes. These controls acknowledge or replace the live local
+file; they are not a staged edit, history browser or finalization workflow.
+
+`OfficeContentEditor` captures native text ranges wholly within its owning
+preview. Word uses preview paragraph positions and nearby paragraph text;
+PowerPoint uses slide positions and also supports the active entire slide,
+including slides without text. Ctrl/Cmd+I opens the request editor and Escape
+cancels it locally. Source replacement or rerendering invalidates unfinished
+selections. Comparison previews omit these controls. Each Office render owns
+its DOM target so a late renderer cannot replace newer visible content.

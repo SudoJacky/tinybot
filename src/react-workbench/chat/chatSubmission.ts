@@ -24,6 +24,7 @@ export type ComposerMentionedSession = {
 export type SpreadsheetComposerAnnotation = {
   filePath: string;
   fileTitle: string;
+  revision?: string;
   id: string;
   request: SpreadsheetCellChangeRequest;
 };
@@ -38,6 +39,7 @@ export type PreparedChatSubmission =
   | { kind: "send_message"; turnInput: DesktopChatInput; visibleText: string };
 
 export type PrepareChatSubmissionInput = {
+  artifactReferences?: readonly AgentInputReference[];
   availableSessionIds: ReadonlySet<string>;
   files: readonly ComposerFileReference[];
   isRunning: boolean;
@@ -65,6 +67,7 @@ export async function prepareChatSubmission(
       || input.selectedSkillIds.length
       || input.selectedSessionIds.length
       || input.spreadsheetAnnotations.length
+      || input.artifactReferences?.length
     ) {
       throw new Error(input.t("errors.compactWithAttachments"));
     }
@@ -79,6 +82,7 @@ export async function prepareChatSubmission(
     return session;
   });
   const references = [
+    ...(input.artifactReferences ?? []),
     ...input.files.map(nativeReferenceFromComposerFile),
     ...input.spreadsheetAnnotations.map(nativeReferenceFromSpreadsheetAnnotation),
     ...await nativeReferencesFromComposerSessions(
@@ -87,7 +91,7 @@ export async function prepareChatSubmission(
       input.t,
     ),
   ];
-  const fallbackMessage = input.files.length
+  const fallbackMessage = input.files.length || input.artifactReferences?.length
     ? input.t("composer.attachedFilesPrompt")
     : mentionedSessions.length
       ? input.t("composer.sessionMention.attachedPrompt")
@@ -167,11 +171,14 @@ function nativeReferenceFromSpreadsheetAnnotation(
     detail: `${request.sheet}!${request.address}`,
     kind: "reference",
     sourcePath: annotation.filePath,
+    referenceKind: "file",
+    revision: annotation.revision,
     sourceText: [
-      "Spreadsheet cell annotation:",
+      "Spreadsheet selection annotation:",
       `File: ${annotation.filePath}`,
       `Sheet: ${request.sheet}`,
-      `Cell: ${request.address}`,
+      `Range: ${request.address}`,
+      ...(annotation.revision ? [`Viewed revision: ${annotation.revision}`, "Verify the current file before editing; the quoted selection belongs to the viewed revision."] : []),
       `Current value: ${request.value || "(empty)"}`,
       `Requested change: ${request.instruction}`,
     ].join("\n"),

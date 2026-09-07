@@ -16,7 +16,7 @@ src/react-workbench/agent-graph/README.md
 src/react-workbench/shell/README.md
 src/react-workbench/sidecar/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:0b96e163b2c89f3289a0633b197faf28f2869d2bea6df94ada0d5d33dadafb83 -->
+<!-- tinybot-doc-fingerprint: sha256:41835e248f0a334c6607915f6a53867cafcd210233707fbfc3371ba5f70038cb -->
 
 Tinybot Desktop is a local-first React and Rust application. The renderer owns
 presentation, the application core owns framework-independent UI contracts,
@@ -30,6 +30,15 @@ discard its page or profile. Memory diagnostics keep native window identity,
 child WebView membership and process-environment membership separate, including
 when a Sidecar shares the main window. Hidden desktop-pet motion is paused by the
 renderer without changing the pet's persisted mood or preferences.
+
+Chat observes the visible local Artifact with conditional workspace reads and
+refreshes its preview when the file revision changes. Artifact and spreadsheet
+range references enter the existing composer; attached local references retain
+their viewed revision while the preview continues following the live file.
+Before dispatch, Chat asks the native Workspace service to save the original
+bytes. Sidecar presents value/preview comparisons and explicit keep/restore
+actions; native storage owns the baseline and exact-content conflict checks.
+Keeping acknowledges the live file, while restoring atomically replaces it.
 
 ## System map
 
@@ -72,6 +81,7 @@ Desktop Commands / Desktop Host
 | `desktop/pet_file_drop` and `desktop/files` | Windows WebView2 dropped-path extraction plus shared chat-attachment validation/import | Chat state, file-byte transport, or renderer presentation |
 | `desktop_terminal` | User-only Sidecar PTY lifecycle and resource ownership | Agent shell sessions or renderer presentation |
 | `chat_attachments` | Content-addressed managed image storage, validation, and request-local Data URL encoding | Conversation authority or provider protocol selection |
+| `workspace::artifact_review` | Persisted per-Thread/file baselines, checksummed comparisons, and guarded keep/restore | Agent execution, Office semantic fidelity, or finalization |
 | `workspace_extensions` | Project-local `.agents/skills`, `.codex/skills`, and supported MCP configuration discovery for an effective working directory | Global plugin installation or saved configuration mutation |
 | `workspace_registry` | The application workspace catalog, portable canonical paths, display names, and atomic `workspaces.json` persistence | Thread history, project membership, or filesystem folder lifecycle |
 | `agent::bridge` | Complete Turn orchestration and persistence coordination | Provider iteration or the Thread data model |

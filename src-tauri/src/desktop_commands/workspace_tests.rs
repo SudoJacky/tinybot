@@ -77,6 +77,7 @@ fn thread_file_preview_reads_from_the_recorded_workspace_and_rejects_escape() {
         "session-workspace-preview".to_string(),
         "src/main.ts".to_string(),
         None,
+        None,
         default_workspace.clone(),
         json!({}),
         Duration::from_secs(1),
@@ -84,10 +85,25 @@ fn thread_file_preview_reads_from_the_recorded_workspace_and_rejects_escape() {
     .expect("thread workspace file should load");
     assert_eq!(loaded["result"]["content"], "thread root");
 
+    let unchanged = worker_thread_workspace_file_chunk_with_options(
+        &shared,
+        "session-workspace-preview".to_string(),
+        "src/main.ts".to_string(),
+        None,
+        Some(loaded["result"]["revision"].as_str().unwrap().to_string()),
+        default_workspace.clone(),
+        json!({}),
+        Duration::from_secs(1),
+    )
+    .expect("conditional thread preview should load");
+    assert_eq!(unchanged["result"]["content_type"], "unchanged");
+    assert!(unchanged["result"]["content"].is_null());
+
     let binary_metadata = worker_thread_workspace_file_chunk_with_options(
         &shared,
         "session-workspace-preview".to_string(),
         "src/report.xlsx".to_string(),
+        None,
         None,
         default_workspace.clone(),
         json!({}),
@@ -141,6 +157,7 @@ fn thread_file_preview_reads_from_the_recorded_workspace_and_rejects_escape() {
             .to_string_lossy()
             .to_string(),
         None,
+        None,
         default_workspace.clone(),
         json!({}),
         Duration::from_secs(1),
@@ -152,6 +169,7 @@ fn thread_file_preview_reads_from_the_recorded_workspace_and_rejects_escape() {
         &shared,
         "session-workspace-preview".to_string(),
         "../secret.txt".to_string(),
+        None,
         None,
         root.clone(),
         json!({}),

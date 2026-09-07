@@ -1,5 +1,5 @@
 # React Workbench
-<!-- tinybot-module-fingerprint: sha256:f61ffd6dca2995e1f0516ee6d195a2bd08e632076c0ee499dc66e55ba474d9de -->
+<!-- tinybot-module-fingerprint: sha256:061d9c17966a33e7c092a59d21f9601e174d19e1460cd83543c21c4cfe2d6110 -->
 
 `react-workbench` contains the React renderer for Tinybot's desktop application.
 `src/main.ts` selects a dynamic entry before importing React surfaces:
@@ -80,7 +80,8 @@ Terminal tab ends it. Regular chats share the native default-workspace Sidecar
 scope even though their Thread metadata has no explicit working directory.
 Assistant Markdown file links open contextual Artifact tabs backed by bounded,
 Thread-scoped workspace reads. The workspace service contract includes an
-optional revision-bound raw-byte read for modern Office previews. Artifact
+optional revision-bound raw-byte read for modern Office previews and conditional
+chunk reads for refreshing the visible local file. Artifact
 remains absent from the empty-resource menu, while unsupported binary,
 truncated, source-changed, and failed reads stay visible in the preview.
 Docked Sidecar widths are measured against the Chat workspace so persisted
@@ -108,3 +109,8 @@ instead of leaving the optimistic active state visible until restart.
 Form commands retain their command, source, and target correlation through the
 native boundary. Their lifecycle consumes the live canonical acknowledgement
 without waiting for the resumed Agent response to finish.
+
+The optional Workspace `artifactReviews` service connects explicit local file
+references to native baseline capture and Sidecar comparison/keep/restore.
+Desktop supports it; attempting a referenced edit without the service fails
+visibly before dispatch.

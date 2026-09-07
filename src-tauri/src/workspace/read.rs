@@ -375,6 +375,7 @@ impl WorkerWorkspaceRpc {
         &self,
         requested_path: &str,
         cursor: Option<&str>,
+        known_revision: Option<&str>,
     ) -> Result<WorkspaceFileChunk, WorkerProtocolError> {
         let resolved = self.resolve_path(requested_path)?;
         ensure_inside_workspace(&self.root, &resolved.absolute_path)?;
@@ -396,6 +397,19 @@ impl WorkerWorkspaceRpc {
         }
         let updated_at = workspace_updated_at(&resolved.absolute_path);
         let revision = file_metadata_revision(&metadata);
+        if cursor.is_none() && known_revision == Some(revision.as_str()) {
+            return Ok(WorkspaceFileChunk {
+                path: resolved.relative_path,
+                content_type: "unchanged".to_string(),
+                revision,
+                size_bytes: metadata.len(),
+                updated_at,
+                content: None,
+                line_start: None,
+                line_end: None,
+                next_cursor: None,
+            });
+        }
         let (byte_offset, line_start) = match cursor {
             Some(raw) => {
                 let cursor = serde_json::from_str::<FileCursor>(raw).map_err(|_| {
@@ -516,6 +530,22 @@ impl WorkerWorkspaceRpc {
         } else {
             None
         };
+        let loaded_metadata = std::fs::metadata(&resolved.absolute_path).map_err(|error| {
+            workspace_query_error(
+                "io_error",
+                format!("failed to inspect loaded workspace file: {error}"),
+                &resolved.relative_path,
+                true,
+            )
+        })?;
+        if file_metadata_revision(&loaded_metadata) != revision {
+            return Err(workspace_query_error(
+                "source_changed",
+                "workspace file changed while its preview was loaded",
+                &resolved.relative_path,
+                true,
+            ));
+        }
         Ok(WorkspaceFileChunk {
             path: resolved.relative_path,
             content_type: "text".to_string(),

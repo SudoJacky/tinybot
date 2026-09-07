@@ -1,5 +1,5 @@
 # Desktop Adapters
-<!-- tinybot-module-fingerprint: sha256:8f4b5711ca225540c6907b4ec82297c18f3a6776a4c88ac7803f9723271c6702 -->
+<!-- tinybot-module-fingerprint: sha256:58cc71677518931135f864372f5bc29a1e888a51266a11ce9592eb13b77580d7 -->
 
 `adapters` implements renderer store interfaces over Tinybot's native and
 app-core modules. It owns event projection and the Settings, Tools, and
@@ -12,7 +12,8 @@ workspace state.
 
 The workspace Adapter keeps default-workspace directory and chunk browsing
 separate from Thread-scoped file preview reads. For the latter it forwards only
-the Thread ID, file path, and optional expected revision to the native API. It
+the Thread ID, file path, and optional expected or known revision to the native API.
+Conditional chunk reads preserve the `unchanged` response without manufacturing content. It
 normalizes the raw IPC body to `Uint8Array` without interpreting file content,
 preserving Rust as the authority for workspace selection, path containment,
 source revision, and byte limits.
@@ -62,3 +63,7 @@ The bridge listens for native browser snapshots and diagnostics and projects
 them into the owning Chat session. A generated Thread-title event first reloads
 the native session controller, then notifies all Chat subscribers so a title
 completed after navigation still reaches the sidebar.
+
+`desktopArtifactReviewStore` validates native review responses, decodes binary
+snapshots and forwards expected revisions and content hashes. Workspace store
+initialization precedes review calls, and failures propagate to Chat/Sidecar.

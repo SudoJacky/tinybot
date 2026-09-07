@@ -1,0 +1,24 @@
+.react-artifact-review {
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: var(--color-panel);
+  padding: 12px;
+  margin: 8px 0 16px;
+  font-size: 12px;
+  min-width: 0;
+}
+.react-artifact-review p { color: var(--color-muted); margin: 8px 0; }
+.react-artifact-review [role="alert"] { color: var(--color-error); }
+.react-artifact-review__toolbar, .react-artifact-review__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.react-artifact-review__toolbar { justify-content: space-between; }
+.react-artifact-review button { border: 1px solid var(--color-hairline); border-radius: 6px; padding: 6px 10px; color: var(--color-ink); background: var(--color-surface-soft); cursor: pointer; }
+.react-artifact-review button:disabled { opacity: .5; cursor: default; }
+.react-artifact-review button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.react-artifact-review__table { overflow: auto; max-height: 360px; }
+.react-artifact-review table { width: 100%; border-collapse: collapse; }
+.react-artifact-review th, .react-artifact-review td { text-align: start; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--color-hairline); white-space: pre-wrap; overflow-wrap: anywhere; }
+.react-artifact-review thead { background: var(--color-surface-soft); }
+.react-artifact-review__versions { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; }
+.react-artifact-review__versions > div { min-width: 0; overflow: auto; max-height: 400px; }
+.react-artifact-review__versions h4 { margin: 8px 0; }
+.react-artifact-review pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; font-size: 12px; }

@@ -1,5 +1,5 @@
 # Renderer Internationalization
-<!-- tinybot-module-fingerprint: sha256:855a33ff17cfdf2deb30603aa49e2859ac961e082d4aa183cc8c0594f092c6e2 -->
+<!-- tinybot-module-fingerprint: sha256:8fcfc27a26f57ad83ead1acc43739e9e945194b09f4e4bf67ede759f3dda975c -->
 
 `i18n` configures `i18next` for the React renderer and owns the typed English
 and Chinese resource bundles.
@@ -87,3 +87,10 @@ native-owned untranslated identifiers.
 
 Performance recording copy explains cross-page collection and the 300-sample
 automatic stop in both languages.
+
+Artifact review controls, baseline states, live-file semantics, comparison
+limits and Office preview limitations use the `chat.artifactReview` resources
+in both languages. Snapshot hashes and diagnostic codes remain untranslated.
+
+Word paragraph selection, PowerPoint slide selection, whole-slide actions and
+the shared content-change editor use localized `chat.details` labels.

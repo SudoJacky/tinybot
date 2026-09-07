@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OfficeArtifactSource } from "../../app-core/chat/officeArtifact";
 import { OfficeArtifactPreview } from "./OfficeArtifactPreview";
 
@@ -21,6 +21,8 @@ vi.mock("pptx-preview", () => ({ init: parserMocks.initializePresentation }));
 function source(kind: OfficeArtifactSource["kind"]): OfficeArtifactSource {
   return { bytes: new Uint8Array([80, 75, 3, 4]), kind, title: `fixture-${kind}` };
 }
+
+afterEach(cleanup);
 
 describe("Office artifact preview", () => {
   beforeEach(() => {
@@ -106,6 +108,62 @@ describe("Office artifact preview", () => {
     });
   });
 
+  it("extends a rectangular selection with Shift and sends its addresses and values", async () => {
+    const user = userEvent.setup();
+    const onAskForChange = vi.fn();
+    parserMocks.readWorkbook.mockResolvedValue([{ sheet: "Revenue", data: [["Quarter", "Total"], ["Q1", 42]] }]);
+    const view = render(<OfficeArtifactPreview onAskForChange={onAskForChange} source={source("spreadsheet")} />);
+    const preview = within(view.container);
+    await user.click(await preview.findByRole("button", { name: "Cell A1, Quarter" }));
+    await user.keyboard("{Shift>}{ArrowRight}{ArrowDown}{/Shift}{Control>}i{/Control}");
+    expect(view.container.querySelectorAll('td[aria-selected="true"]')).toHaveLength(4);
+    await user.type(preview.getByRole("textbox"), "Explain this region{Enter}");
+    expect(onAskForChange).toHaveBeenCalledWith({
+      sheet: "Revenue", address: "A1:B2", instruction: "Explain this region",
+      value: JSON.stringify([["Quarter", "Total"], ["Q1", "42"]]),
+    });
+  });
+
+  it("drags a range backwards and clears it when switching worksheets", async () => {
+    const user = userEvent.setup();
+    const onAskForChange = vi.fn();
+    parserMocks.readWorkbook.mockResolvedValue([
+      { sheet: "Revenue", data: [["Quarter", "Total"], ["Q1", 42]] },
+      { sheet: "Costs", data: [["Item", 12]] },
+    ]);
+    const view = render(<OfficeArtifactPreview onAskForChange={onAskForChange} source={source("spreadsheet")} />);
+    const preview = within(view.container);
+    const start = await preview.findByRole("button", { name: "Cell B2, 42" });
+    const end = preview.getByRole("button", { name: "Cell A1, Quarter" });
+    fireEvent.pointerDown(start, { button: 0, buttons: 1 });
+    fireEvent.pointerEnter(end, { buttons: 1 });
+    fireEvent.pointerUp(end, { button: 0 });
+    fireEvent.click(end);
+    expect(view.container.querySelectorAll('td[aria-selected="true"]')).toHaveLength(4);
+    await user.click(preview.getByRole("button", { name: /Ask for change Ctrl I/ }));
+    await user.type(preview.getByRole("textbox"), "Review this{Enter}");
+    expect(onAskForChange.mock.calls[0][0].address).toBe("A1:B2");
+    await user.click(preview.getByRole("tab", { name: "Costs" }));
+    expect(view.container.querySelectorAll('td[aria-selected="true"]')).toHaveLength(0);
+  });
+
+  it("ignores a Word render that finishes after the source has refreshed", async () => {
+    let finishOld: (() => void) | undefined;
+    parserMocks.renderDocument.mockImplementationOnce((_bytes: ArrayBuffer, container: HTMLElement) => new Promise<void>((resolve) => {
+      finishOld = () => { container.innerHTML = "<p>Obsolete version</p>"; resolve(); };
+    })).mockImplementationOnce(async (_bytes: ArrayBuffer, container: HTMLElement) => {
+      container.innerHTML = "<p>Latest version</p>";
+    });
+    const original = source("document");
+    const view = render(<OfficeArtifactPreview source={original} />);
+    await waitFor(() => expect(finishOld).toBeDefined());
+    view.rerender(<OfficeArtifactPreview source={{ ...original, bytes: new Uint8Array([2]) }} />);
+    await within(view.container).findByText("Latest version");
+    finishOld!();
+    await waitFor(() => expect(within(view.container).queryByText("Obsolete version")).toBeNull());
+    expect(within(view.container).getByText("Latest version")).toBeTruthy();
+  });
+
   it("renders Word content locally and removes active or external content", async () => {
     parserMocks.renderDocument.mockImplementation(async (_bytes: ArrayBuffer, container: HTMLElement) => {
       const paragraph = document.createElement("p");
@@ -122,6 +180,29 @@ describe("Office artifact preview", () => {
     expect(await screen.findByText("Project brief")).toBeTruthy();
     await waitFor(() => expect(screen.getByText("External tracker").hasAttribute("href")).toBe(false));
     expect(document.querySelector(".react-office-document script")).toBeNull();
+  });
+
+  it("isolates a late PowerPoint renderer from the current source", async () => {
+    let finishOld: (() => void) | undefined;
+    let renderCount = 0;
+    parserMocks.initializePresentation.mockImplementation((host: HTMLElement) => ({
+      destroy: () => host.replaceChildren(),
+      preview: () => {
+        if (++renderCount === 1) return new Promise<void>((resolve) => {
+          finishOld = () => { host.textContent = "Obsolete slide"; resolve(); };
+        });
+        host.textContent = "Current slide";
+        return Promise.resolve();
+      },
+    }));
+    const original = source("presentation");
+    const view = render(<OfficeArtifactPreview source={original} />);
+    await waitFor(() => expect(finishOld).toBeDefined());
+    view.rerender(<OfficeArtifactPreview source={{ ...original, bytes: new Uint8Array([2]) }} />);
+    await within(view.container).findByText("Current slide");
+    finishOld!();
+    await waitFor(() => expect(within(view.container).queryByText("Obsolete slide")).toBeNull());
+    expect(within(view.container).getByText("Current slide")).toBeTruthy();
   });
 
   it("navigates PowerPoint slides inside the artifact scroller without moving the desktop shell", async () => {

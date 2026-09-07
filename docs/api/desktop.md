@@ -17,7 +17,7 @@ src/app-core/native/desktopNativePet.ts
 src/app-core/native/desktopNativePetQuickChat.ts
 src/app-core/native/nativeBackendContract.test.ts
 -->
-<!-- tinybot-doc-fingerprint: sha256:4f395f3ea5d020e22fb8bffda48e91e03532ea7d63a65656485d06270fa0d4f2 -->
+<!-- tinybot-doc-fingerprint: sha256:9e3edc47a4090e6f8949f0cfe1d6de40f3539aa13d10a35145632cf65216031d -->
 
 This document covers native desktop lifecycle and operating-system integration
 commands. It is part of the [Rust backend API reference](rust-backend-api.md),
@@ -126,7 +126,9 @@ empty resource offered by the Sidecar add menu. The renderer recognizes
 workspace-relative paths, `file:` URLs, absolute paths inside the active
 workspace, and optional line suffixes. It sends the Thread ID and normalized
 path to the thread-scoped workspace commands, never a renderer-selected
-workspace root.
+workspace root. Windows destination separators are preserved before Markdown
+punctuation unescaping, so hidden directories such as `\.tinybot` survive
+rendering and link activation.
 
 The backend resolves the canonical Thread projection and uses its recorded
 `workingDirectory`, falling back to the configured default workspace only when
@@ -137,6 +139,21 @@ previews first read binary metadata, then request at most 25 MiB from
 `worker_thread_workspace_file_bytes` with the expected source revision. The
 Artifact surface shows loading, truncation, unsupported-binary, source-change,
 and read-failure states instead of an empty successful preview.
+
+Explicit local Artifact references save a baseline through
+`worker_thread_artifact_review` immediately before Turn dispatch. Sidecar can
+compare that baseline with the live file, keep the current version, or restore
+the saved bytes. Writes are disabled during Agent generation, and changed
+content invalidates a previous comparison. Excel comparisons cover cell
+values only; formula, style and chart preservation is not inferred from them.
+The complete original bytes are retained for restoration.
+
+Word text selections carry preview paragraph positions and surrounding text.
+PowerPoint accepts text selections or the active entire slide, with slide
+positions. Both create version-bound file references in the existing composer;
+adding a request does not dispatch it. Source changes invalidate unfinished
+selections, while already attached requests retain the viewed revision and
+therefore fail preflight if stale.
 
 ## File Dialog Commands
 

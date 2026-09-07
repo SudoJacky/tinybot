@@ -1,5 +1,5 @@
 # Workspace Tests
-<!-- tinybot-module-fingerprint: sha256:60048e3a5ef0396af54f8b028233a20d075b2202f90cfcab3f4b5a0e6307e6e8 -->
+<!-- tinybot-module-fingerprint: sha256:c50a4af28d2383a9b68e6b0faedadeb19ac8ae78a286ab501efc9fd6c21e3c7f -->
 
 This directory contains integration-style tests for the workspace service,
 including path containment, capability checks, file operations, patches, and

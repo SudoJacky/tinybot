@@ -1,5 +1,5 @@
 # Desktop Commands
-<!-- tinybot-module-fingerprint: sha256:9ebb38c6618d62db13520afa1885fa9ca5388443eb35d00a5d8895ba94b8f708 -->
+<!-- tinybot-module-fingerprint: sha256:281c8e8bf4732e44245b687f4785fb8058f20cc68e3ceb378fb3d30ca721eb8d -->
 
 `desktop_commands` contains the Tauri command boundary used by the desktop
 frontend. Commands are grouped by agent, configuration, hooks, memory, runtime,
@@ -40,7 +40,8 @@ derive the recorded working directory from the canonical Thread projection,
 and then delegate to the same guarded workspace reader. Text uses the ordinary
 chunk response. Modern Office files use a raw IPC response capped at 25 MiB and
 may require the metadata revision so a changed source fails explicitly. Neither
-command accepts a renderer-supplied workspace root.
+command accepts a renderer-supplied workspace root. Chunk requests also forward
+optional `knownRevision` for metadata-only unchanged responses.
 
 Agent Graph commands pass workspace-scoped list, save, and delete requests to
 `agent_graphs`. Schema checks, path containment, atomic writes, and optimistic
@@ -63,3 +64,9 @@ Thread commands. Form resolution forwards command correlation and the live
 desktop trace sink so acceptance is visible before the resumed provider call
 finishes. Retry validates the failed source Turn and canonical Item before
 starting a new correlated Agent turn.
+
+`worker_thread_artifact_review` resolves the canonical Thread workspace and
+application data root, then runs snapshot operations on a blocking worker so
+filesystem sync does not block the UI thread. `workspace::artifact_review`
+owns storage, content checks and restoration. The command records mutations
+and failures without logging file contents.

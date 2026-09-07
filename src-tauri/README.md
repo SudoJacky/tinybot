@@ -1,5 +1,5 @@
 # Tinybot Rust Backend
-<!-- tinybot-module-fingerprint: sha256:28aa322afdbd2e80e93caa266bd140b4865696082c0ef91b5a062a8207096df2 -->
+<!-- tinybot-module-fingerprint: sha256:0efafdbdba689a2fa706044548f0896566a2dbd77a7136117e305e30ed38fa98 -->
 
 This single crate is the native backend for Tinybot Desktop. It owns the
 in-process Tauri host, the native agent runtime, RPC services, runtime
@@ -279,3 +279,9 @@ conversation authority directly to SQLite or an in-memory
   implementation invariants next to the module that enforces them.
 - Update the relevant README when changing module ownership, a persistence
   path, a recovery rule, or the order of a cross-module flow.
+
+Artifact reviews persist a per-Thread, per-file baseline below the application
+data root in `artifact-reviews/`. The main workbench command can prepare,
+inspect, compare, accept or restore it; Quick Chat does not receive this
+command permission. Snapshots contain original bytes, while live file
+metadata revisions remain lightweight refresh tokens.

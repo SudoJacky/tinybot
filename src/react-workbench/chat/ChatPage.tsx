@@ -84,10 +84,14 @@ import type {
   LoadedArtifactDetail,
 } from "../../app-core/chat/chatTurnContracts";
 import {
-  resolveOfficeArtifactKind,
   type OfficeArtifactSource,
   type SpreadsheetCellChangeRequest,
 } from "../../app-core/chat/officeArtifact";
+import { officeContentReference } from "../../app-core/chat/officeContentReference";
+import { ArtifactReviewPanel } from "../sidecar/ArtifactReviewPanel";
+import { prepareArtifactReviews } from "./prepareArtifactReviews";
+import { useArtifactFile } from "./useArtifactFile";
+import type { AgentInputReference } from "../../app-core/chat/agentInputReference";
 import { logRendererEvent } from "../../app-core/native/rendererLogger";
 import type { ChatTimelineSnapshot } from "../../app-core/chat/agentTimelineModel";
 import type {
@@ -167,7 +171,7 @@ export type ChatPageProps = {
   workspaceRegistryStore?: WorkspaceRegistryStore;
   settingsStore?: SettingsStore;
   toolsStore?: Partial<Pick<ToolsStore, "installPluginMigration" | "loadCatalog">>;
-  workspaceStore?: Pick<WorkspaceStore, "readThreadFile" | "readThreadFileBytes">;
+  workspaceStore?: Pick<WorkspaceStore, "readThreadFile" | "readThreadFileBytes" | "artifactReviews">;
   createSessionSignal?: number;
   activateSessionRequest?: { sessionId: string; signal: number } | null;
   sessionSidebarCollapsed?: boolean;
@@ -199,6 +203,7 @@ type DrawerState =
   | null;
 
 type ArtifactSidecarContent = {
+  localFile?: boolean;
   artifact: ArtifactRef;
   detail?: LoadedArtifactDetail;
   error?: string;
@@ -390,6 +395,8 @@ export function ChatPage({
   const [queueMessage, setQueueMessage] = useState("");
   const [composerSessionMentionIds, setComposerSessionMentionIds] = useState<string[]>([]);
   const [composerSelectedSkillIds, setComposerSelectedSkillIds] = useState<string[]>([]);
+  const [artifactReviewEpoch, setArtifactReviewEpoch] = useState(0);
+  const [composerArtifactReferences, setComposerArtifactReferences] = useState<(AgentInputReference & { id: string })[]>([]);
   const [composerSpreadsheetAnnotations, setComposerSpreadsheetAnnotations] = useState<SpreadsheetComposerAnnotation[]>([]);
   const [installingMigrationJobId, setInstallingMigrationJobId] = useState("");
   const [migrationInstallError, setMigrationInstallError] = useState("");
@@ -485,8 +492,11 @@ export function ChatPage({
     () => buildComposerToolOptions(composerTools),
     [composerTools],
   );
-  const composerSpreadsheetContextReferences = useMemo<ComposerContextReference[]>(() => (
-    composerSpreadsheetAnnotations.map((annotation) => ({
+  const composerArtifactContextReferences = useMemo<ComposerContextReference[]>(() => (
+    [...composerArtifactReferences.map((reference): ComposerContextReference => ({
+      id: reference.id, kind: "file", label: reference.title, detail: reference.detail,
+      body: reference.sourcePath !== reference.title ? reference.sourcePath : undefined,
+    })), ...composerSpreadsheetAnnotations.map((annotation): ComposerContextReference => ({
       annotation: {
         label: t("composer.spreadsheetAnnotation.count", { count: 1 }),
         text: annotation.request.instruction,
@@ -498,8 +508,8 @@ export function ChatPage({
       id: annotation.id,
       kind: "file",
       label: annotation.fileTitle,
-    }))
-  ), [composerSpreadsheetAnnotations, t]);
+    }))]
+  ), [composerArtifactReferences, composerSpreadsheetAnnotations, t]);
   const sidecarTabs = useMemo(() => visibleSidecarTabs(sidecar), [sidecar]);
   const sidecarActiveTab = useMemo(() => activeSidecarTab(sidecar), [sidecar]);
   const explicitWorkspaceId = activeDisplaySession?.workingDirectory?.trim() ?? "";
@@ -833,6 +843,7 @@ export function ChatPage({
     setComposerSessionMentionIds([]);
     setComposerSelectedSkillIds([]);
     setComposerSpreadsheetAnnotations([]);
+    setComposerArtifactReferences([]);
     dispatchCommandLifecycle({ type: "reset" });
   }, [activeSessionId]);
 
@@ -1372,6 +1383,9 @@ export function ChatPage({
       sessionId,
       source: { control, surface: "chat" },
     });
+    if (await prepareArtifactReviews(input.references, workspaceStore?.artifactReviews, sessionId, command.commandId)) {
+      setArtifactReviewEpoch((value) => value + 1);
+    }
     if (optimisticText) {
       setOptimisticMessagesBySession((current) => updateSessionMessages(
         current,
@@ -1423,6 +1437,7 @@ export function ChatPage({
         title: displaySessionTitle(session.title, t),
         updatedAtMs: session.updatedAtMs,
       })),
+      artifactReferences: composerArtifactReferences.map(({ id: _id, ...reference }) => reference),
       spreadsheetAnnotations: composerSpreadsheetAnnotations,
       t,
     });
@@ -1948,6 +1963,9 @@ export function ChatPage({
     let artifact: ArtifactRef;
     try {
       artifact = assistantFileArtifact(resolveAssistantFileLink(link.href, activeSession.workingDirectory));
+      logRendererEvent("info", "artifact.file_link.resolved", {
+        href: link.href, path: artifact.fetchPath, sessionId: activeSession.id,
+      });
     } catch (error) {
       artifact = assistantFileArtifact({ path: link.href, title: assistantFileLinkTitle(link.href) });
       const tabId = sidecarArtifactTabId(activeSession.id, artifact.id);
@@ -1980,97 +1998,10 @@ export function ChatPage({
       title: artifact.title,
       type: "tab.openArtifact",
     });
-    if (!workspaceStore) {
-      const message = t("details.filePreviewUnavailable");
-      console.error("[artifact-preview] workspace file API unavailable", {
-        path: artifact.fetchPath,
-        sessionId: activeSession.id,
-      });
-      setArtifactSidecarContent((current) => ({
-        ...current,
-        [tabId]: { artifact, error: message, loading: false },
-      }));
-      return;
-    }
-
     setArtifactSidecarContent((current) => ({
       ...current,
-      [tabId]: { artifact, loading: true },
+      [tabId]: { artifact, localFile: true, loading: false },
     }));
-    try {
-      const file = await workspaceStore.readThreadFile({
-        path: artifact.fetchPath!,
-        threadId: activeSession.id,
-      });
-      const officeKind = resolveOfficeArtifactKind({
-        mimeType: artifact.mimeType,
-        path: artifact.fetchPath,
-        title: artifact.title,
-      });
-      if (file.contentType === "binary" && officeKind) {
-        if (!workspaceStore.readThreadFileBytes) {
-          throw new Error(t("details.filePreviewUnavailable"));
-        }
-        logRendererEvent("info", "artifact.office.bytes.started", {
-          format: officeKind,
-          sizeBytes: file.sizeBytes,
-        });
-        const bytes = await workspaceStore.readThreadFileBytes({
-          expectedRevision: file.revision,
-          path: artifact.fetchPath!,
-          threadId: activeSession.id,
-        });
-        logRendererEvent("info", "artifact.office.bytes.completed", {
-          format: officeKind,
-          sizeBytes: bytes.byteLength,
-        });
-        setArtifactSidecarContent((current) => current[tabId]
-          ? {
-              ...current,
-              [tabId]: {
-                ...current[tabId],
-                loading: false,
-                office: { bytes, kind: officeKind, title: artifact.title },
-              },
-            }
-          : current);
-        return;
-      }
-      if (file.contentType !== "text") {
-        throw new Error(t("details.binaryFilePreviewUnsupported"));
-      }
-      const detail: LoadedArtifactDetail = {
-        id: artifact.id,
-        mimeType: artifact.mimeType,
-        textContent: file.content ?? "",
-        title: artifact.title,
-      };
-      setArtifactSidecarContent((current) => current[tabId]
-        ? {
-            ...current,
-            [tabId]: {
-              ...current[tabId],
-              detail,
-              loading: false,
-              ...(file.nextCursor ? { notice: t("details.filePreviewTruncated") } : {}),
-            },
-          }
-        : current);
-    } catch (error) {
-      const message = errorMessage(error);
-      logRendererEvent("error", "artifact.workspace_file.read.failed", {
-        error: message.slice(0, 512),
-        mimeType: artifact.mimeType,
-      });
-      console.error("[artifact-preview] workspace file read failed", {
-        error,
-        path: artifact.fetchPath,
-        sessionId: activeSession.id,
-      });
-      setArtifactSidecarContent((current) => current[tabId]
-        ? { ...current, [tabId]: { ...current[tabId], error: message, loading: false } }
-        : current);
-    }
   }
 
   async function handleCloseSidecarTab(tab: SidecarTab) {
@@ -2131,6 +2062,17 @@ export function ChatPage({
     }
     return (
       <ArtifactDetails
+        key={tab.id}
+        reviewEpoch={artifactReviewEpoch}
+        responding={sessionResponding}
+        localThreadId={content.localFile ? tab.threadId : undefined}
+        observeFile={sidecar.presentation !== "closed" && tab.threadId === activeSessionId}
+        workspaceStore={workspaceStore}
+        onReference={(reference) => {
+          const id = "artifact:" + tab.id + ":" + reference.detail;
+          setComposerArtifactReferences((current) => [...current.filter((item) => item.id !== id), { ...reference, id }]);
+          setComposerFocusRequestId((current) => current + 1);
+        }}
         artifact={content.artifact}
         detail={content.detail}
         error={content.error}
@@ -2314,11 +2256,13 @@ export function ChatPage({
   function handleSpreadsheetAskForChange(
     artifact: ArtifactRef,
     request: SpreadsheetCellChangeRequest,
+    revision?: string,
   ): void {
     const id = `spreadsheet:${artifact.id}:${request.sheet}:${request.address}`;
     const annotation: SpreadsheetComposerAnnotation = {
       filePath: artifact.fetchPath || artifact.title,
       fileTitle: artifact.title,
+      revision,
       id,
       request: {
         ...request,
@@ -2573,7 +2517,7 @@ export function ChatPage({
           ) : null}
           <ClaudeStyleAiInput
             className={["react-composer", emptyActiveSession ? "react-composer--raised" : ""].filter(Boolean).join(" ")}
-            contextReferences={composerSpreadsheetContextReferences}
+            contextReferences={composerArtifactContextReferences}
             focusRequestId={composerFocusRequestId}
             disabled={sessionsLoaded && !activeSession && !draftNewSession}
             disabledReason={sessionsLoaded && !activeSession && !draftNewSession ? t("shell.createOrSelect") : undefined}
@@ -2637,11 +2581,12 @@ export function ChatPage({
             current.includes(id) ? current : [...current, id]
           ))}
           onClearSessionMentions={() => setComposerSessionMentionIds([])}
-          onClearContextReferences={() => setComposerSpreadsheetAnnotations([])}
+          onClearContextReferences={() => { setComposerSpreadsheetAnnotations([]); setComposerArtifactReferences([]); }}
           onClearSkills={() => setComposerSelectedSkillIds([])}
-          onRemoveContextReference={(id) => setComposerSpreadsheetAnnotations((current) => (
-            current.filter((annotation) => annotation.id !== id)
-          ))}
+          onRemoveContextReference={(id) => {
+            setComposerSpreadsheetAnnotations((current) => current.filter((annotation) => annotation.id !== id));
+            setComposerArtifactReferences((current) => current.filter((reference) => reference.id !== id));
+          }}
           onRemoveSessionMention={(id) => setComposerSessionMentionIds((current) => current.filter((sessionId) => sessionId !== id))}
           onRemoveSkill={(id) => setComposerSelectedSkillIds((current) => current.filter((skillId) => skillId !== id))}
           responding={sessionResponding}
@@ -2954,11 +2899,17 @@ function SubagentDetails({
 
 function ArtifactDetails({
   artifact,
-  detail,
-  error,
-  loading,
-  notice,
-  office,
+  detail: storedDetail,
+  error: storedError,
+  loading: storedLoading,
+  notice: storedNotice,
+  office: storedOffice,
+  localThreadId,
+  reviewEpoch,
+  responding,
+  observeFile,
+  workspaceStore,
+  onReference,
   onAskForSpreadsheetChange,
   onOpenFileLink,
 }: {
@@ -2968,16 +2919,52 @@ function ArtifactDetails({
   loading: boolean;
   notice?: string;
   office?: OfficeArtifactSource;
-  onAskForSpreadsheetChange: (artifact: ArtifactRef, request: SpreadsheetCellChangeRequest) => void;
+  localThreadId?: string;
+  reviewEpoch: number;
+  responding: boolean;
+  observeFile: boolean;
+  workspaceStore?: Pick<WorkspaceStore, "readThreadFile" | "readThreadFileBytes" | "artifactReviews">;
+  onReference: (reference: AgentInputReference) => void;
+  onAskForSpreadsheetChange: (artifact: ArtifactRef, request: SpreadsheetCellChangeRequest, revision?: string) => void;
   onOpenFileLink: (link: AssistantFileLink) => void;
 }) {
   const { t } = useTranslation("chat");
+  const [refreshKey, setRefreshKey] = useState(0);
+  const file = useArtifactFile({
+    refreshKey,
+    artifact, enabled: Boolean(localThreadId) && observeFile, threadId: localThreadId, workspaceStore,
+    unavailableMessage: t("details.filePreviewUnavailable"), binaryMessage: t("details.binaryFilePreviewUnsupported"),
+  });
+  const { detail, error, loading, office } = localThreadId ? file : { detail: storedDetail, error: storedError, loading: storedLoading, office: storedOffice };
+  const notice = localThreadId ? (file.truncated ? t("details.filePreviewTruncated") : undefined) : storedNotice;
+  function referenceArtifact() {
+    const text = detail?.dataView ? JSON.stringify(detail.dataView) : detail?.textContent;
+    const excerpt = text && text.length > 12000 ? text.slice(0, 12000) + "\n[Preview excerpt truncated]" : text;
+    onReference({
+      kind: "reference", title: artifact.title, detail: t("details.artifactReference"),
+      ...(localThreadId ? { referenceKind: "file", sourcePath: artifact.fetchPath, scope: localThreadId, revision: file.revision } as const : {}),
+      sourceText: [
+        `Artifact: ${artifact.title}`, `Artifact ID: ${artifact.id}`,
+        ...(localThreadId ? [`File: ${artifact.fetchPath}`, `Viewed revision: ${file.revision}`, "Verify the current file before editing; this reference describes the viewed revision."] : []),
+        ...(excerpt ? [excerpt] : []),
+      ].join("\n"),
+    });
+  }
   const markdown = isMarkdownArtifact(artifact, detail);
   const markdownContent = detail?.textContent && markdown
     ? { text: detail.textContent, title: detail.title }
     : undefined;
   return (
     <div className="react-artifact-detail" data-content={markdown || office?.kind === "document" ? "document" : "preview"}>
+      <div className="react-artifact-detail__toolbar">
+        <button disabled={loading || Boolean(error)} onClick={referenceArtifact} type="button">{t("details.referenceInChat")}</button>
+        {localThreadId ? <span role="status">{t("details.fileAutoUpdates")}</span> : null}
+      </div>
+      {localThreadId && artifact.fetchPath && workspaceStore?.artifactReviews ? (
+        <ArtifactReviewPanel store={workspaceStore.artifactReviews} path={artifact.fetchPath} threadId={localThreadId}
+          revision={error ? undefined : file.revision} epoch={reviewEpoch} responding={responding}
+          kind={office?.kind} title={artifact.title} onRestored={() => setRefreshKey((value) => value + 1)} />
+      ) : null}
       {!markdown && !office ? (
         <dl>
           <div><dt>{t("details.id")}</dt><dd>{artifact.id}</dd></div>
@@ -2991,7 +2978,13 @@ function ArtifactDetails({
       {detail?.dataView ? <DataViewCard artifact={{ ...artifact, dataView: detail.dataView }} expanded /> : null}
       {office ? (
         <OfficeArtifactPreview
-          onAskForChange={(selection) => onAskForSpreadsheetChange(artifact, selection)}
+          onAskForContentChange={!error && localThreadId && file.revision && artifact.fetchPath ? (request) => {
+            const position = request.start === request.end ? String(request.start) : `${request.start}–${request.end}`;
+            onReference(officeContentReference({ request, path: artifact.fetchPath!, title: artifact.title, threadId: localThreadId, revision: file.revision!,
+              label: t(request.kind === "document" ? "details.officeParagraphSelection" : "details.officeSlideSelection", { position }),
+            }));
+          } : undefined}
+          onAskForChange={error ? undefined : (selection) => onAskForSpreadsheetChange(artifact, selection, file.revision)}
           source={office}
         />
       ) : null}
@@ -3076,8 +3069,7 @@ function omitRecordKey<T>(record: Record<string, T>, key: string): Record<string
 }
 
 function boundedSpreadsheetSelectionValue(value: string): string {
-  const normalized = value.replace(/\s+/g, " ").trim();
-  return normalized.length > 160 ? `${normalized.slice(0, 159)}…` : normalized;
+  return value.length > 12000 ? `${value.slice(0, 12000)}\n[Selection excerpt truncated; read the referenced range for all values.]` : value;
 }
 
 function errorMessage(error: unknown): string {

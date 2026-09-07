@@ -1,0 +1,9 @@
+.react-office-content-editor { position: sticky; top: 0; z-index: 11; padding: 10px; margin-bottom: 10px; background: var(--color-panel); border: 1px solid var(--color-hairline); border-radius: 8px; font-size: 12px; }
+.react-office-content-editor__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.react-office-content-editor__actions > span { flex: 1; color: var(--color-muted); }
+.react-office-content-editor button { border: 1px solid var(--color-hairline); border-radius: 6px; padding: 6px 10px; color: var(--color-ink); background: var(--color-surface-soft); cursor: pointer; }
+.react-office-content-editor button:disabled { opacity: .5; cursor: default; }
+.react-office-content-editor :is(button, textarea):focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.react-office-content-editor blockquote { margin: 8px 0; padding-left: 10px; border-left: 2px solid var(--color-hairline); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 120px; overflow: auto; }
+.react-office-content-editor textarea { display: block; box-sizing: border-box; width: 100%; min-height: 64px; margin: 8px 0; padding: 8px; resize: vertical; border: 1px solid var(--color-hairline); border-radius: 6px; background: var(--color-panel); color: var(--color-ink); font: inherit; }
+.react-office-document, .react-office-presentation__stage { user-select: text; }

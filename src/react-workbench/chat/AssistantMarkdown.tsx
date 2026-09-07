@@ -3,6 +3,8 @@ import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
 import { FileText, Globe2, Mail } from "lucide-react";
 import { memo, type ComponentProps, useMemo } from "react";
+import type { Extension, Handle } from "mdast-util-from-markdown";
+import type { Processor } from "unified";
 import {
   Streamdown,
   type Components,
@@ -141,12 +143,30 @@ type AssistantMarkdownNode = {
   url?: string;
 };
 
-function remarkAssistantFileLinks() {
+// Windows file destinations use literal path separators. CommonMark otherwise
+// consumes sequences such as `\.` and `\_` before the link AST is available.
+const preserveWindowsFileDestination: Handle = function (token) {
+  const decoded = this.resume();
+  const raw = this.sliceSerialize(token);
+  const node = this.stack[this.stack.length - 1];
+  if (node.type !== "link" && node.type !== "image" && node.type !== "definition") {
+    throw new Error("Markdown file destination has no owning link");
+  }
+  const windowsPath = /^(?:[a-z]:[\\/]|\.{1,2}\\|file:)/i.test(raw) && raw.includes("\\");
+  node.url = windowsPath ? raw.replace(/\\\\/g, "\\") : decoded;
+};
+
+function remarkAssistantFileLinks(this: Processor) {
+  const data = this.data() as { fromMarkdownExtensions?: Extension[] };
+  (data.fromMarkdownExtensions ??= []).push({ exit: {
+    resourceDestinationString: preserveWindowsFileDestination,
+    definitionDestinationString: preserveWindowsFileDestination,
+  } });
   return (tree: AssistantMarkdownNode) => {
     const pending = [tree];
     while (pending.length) {
       const node = pending.pop()!;
-      if (node.type === "link" && node.url && isAssistantFileHref(node.url)) {
+      if ((node.type === "link" || node.type === "definition") && node.url && isAssistantFileHref(node.url)) {
         node.url = encodeAssistantFileLink(node.url);
       }
       if (node.children) {

@@ -496,6 +496,23 @@ mod tests {
     }
 
     #[test]
+    fn conditional_file_preview_skips_unchanged_content_and_reads_new_revisions() {
+        let fixture = WorkspaceFixture::new();
+        fixture.write("report.md", "original");
+        let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
+        let first = rpc.read_file_chunk("report.md", None, None).unwrap();
+        let unchanged = rpc.read_file_chunk("report.md", None, Some(&first.revision)).unwrap();
+        assert_eq!(unchanged.content_type, "unchanged");
+        assert!(unchanged.content.is_none());
+        assert_eq!(unchanged.revision, first.revision);
+        fixture.write("report.md", "updated report");
+        let changed = rpc.read_file_chunk("report.md", None, Some(&first.revision)).unwrap();
+        assert_eq!(changed.content.as_deref(), Some("updated report"));
+        assert_ne!(changed.revision, first.revision);
+        assert!(rpc.read_file_chunk("../outside.md", None, Some(&first.revision)).is_err());
+    }
+
+    #[test]
     fn read_file_chunk_returns_text_binary_and_revision_bound_continuation() {
         let fixture = WorkspaceFixture::new();
         fixture.write("small.txt", "first\nsecond\n");
@@ -506,26 +523,26 @@ mod tests {
         let rpc = WorkerWorkspaceRpc::new(fixture.root.clone(), read_policy());
 
         let small = rpc
-            .read_file_chunk("small.txt", None)
+            .read_file_chunk("small.txt", None, None)
             .expect("small text should read");
         assert_eq!(small.content_type, "text");
         assert_eq!(small.content.as_deref(), Some("first\nsecond\n"));
         assert!(small.next_cursor.is_none());
 
         let binary = rpc
-            .read_file_chunk("binary.dat", None)
+            .read_file_chunk("binary.dat", None, None)
             .expect("binary metadata should read");
         assert_eq!(binary.content_type, "binary");
         assert!(binary.content.is_none());
 
         let first = rpc
-            .read_file_chunk("large.txt", None)
+            .read_file_chunk("large.txt", None, None)
             .expect("large text should return a chunk");
         assert_eq!(first.content_type, "text");
         assert!(first.next_cursor.is_some());
         fixture.write("large.txt", "changed");
         let error = rpc
-            .read_file_chunk("large.txt", first.next_cursor.as_deref())
+            .read_file_chunk("large.txt", first.next_cursor.as_deref(), None)
             .expect_err("changed file should invalidate the cursor");
         assert_eq!(error.details["query_code"], "source_changed");
     }

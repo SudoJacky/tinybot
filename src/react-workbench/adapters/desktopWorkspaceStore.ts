@@ -1,4 +1,5 @@
 import type { NativeWorkspaceApi } from "../../app-core/native/desktopNativeWorkspace";
+import { createDesktopArtifactReviewStore } from "./desktopArtifactReviewStore";
 import type {
   WorkspaceDirectoryPage,
   WorkspaceFileChunk,
@@ -7,7 +8,7 @@ import type {
   WorkspaceStore,
 } from "../services";
 
-type NativeWorkspaceQueryApi = Pick<NativeWorkspaceApi, "directory" | "fileChunk" | "threadFileBytes" | "threadFileChunk">;
+type NativeWorkspaceQueryApi = Pick<NativeWorkspaceApi, "directory" | "fileChunk" | "threadFileBytes" | "threadFileChunk"> & Partial<Pick<NativeWorkspaceApi, "artifactReview">>;
 
 export function createDesktopWorkspaceStore({
   initialize,
@@ -17,6 +18,10 @@ export function createDesktopWorkspaceStore({
   nativeWorkspace?: NativeWorkspaceQueryApi;
 }): WorkspaceStore {
   return {
+    artifactReviews: nativeWorkspace?.artifactReview ? createDesktopArtifactReviewStore(async (request) => {
+      await initialize();
+      return nativeWorkspace.artifactReview!(request);
+    }) : undefined,
     async listDirectory(request) {
       await initialize();
       return normalizeWorkspaceDirectoryPage(await requireNativeWorkspace(nativeWorkspace).directory(request));
@@ -76,7 +81,7 @@ function normalizeWorkspaceFileChunk(payload: unknown): WorkspaceFileChunk {
   const value = workspaceQueryResult(payload);
   if (!isRecord(value)) throw workspaceQueryError("io_error", "Workspace file response must be an object.");
   const rawContentType = stringValue(value.content_type ?? value.contentType);
-  const contentType = rawContentType === "text" || rawContentType === "binary" || rawContentType === "unsupported"
+  const contentType = rawContentType === "text" || rawContentType === "binary" || rawContentType === "unsupported" || rawContentType === "unchanged"
     ? rawContentType
     : "unsupported";
   return {

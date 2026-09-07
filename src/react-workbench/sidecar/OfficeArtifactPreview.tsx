@@ -19,6 +19,9 @@ import type {
 } from "../../app-core/chat/officeArtifact";
 import { logRendererEvent } from "../../app-core/native/rendererLogger";
 
+import type { OfficeContentChangeRequest } from "../../app-core/chat/officeContentReference";
+import { OfficeContentEditor } from "./OfficeContentEditor";
+
 const MAX_SPREADSHEET_ROWS = 200;
 const MAX_SPREADSHEET_COLUMNS = 50;
 const DEFAULT_PRESENTATION_WIDTH = 640;
@@ -49,17 +52,19 @@ function clearPresentationNavigationProximity(event: ReactPointerEvent<HTMLEleme
 }
 
 export function OfficeArtifactPreview({
+  onAskForContentChange,
   onAskForChange,
   source,
 }: {
   onAskForChange?: (request: SpreadsheetCellChangeRequest) => void;
   source: OfficeArtifactSource;
+  onAskForContentChange?: (request: OfficeContentChangeRequest) => void;
 }) {
   if (source.kind === "spreadsheet") {
     return <SpreadsheetPreview onAskForChange={onAskForChange} source={source} />;
   }
-  if (source.kind === "document") return <DocumentPreview source={source} />;
-  return <PresentationPreview source={source} />;
+  if (source.kind === "document") return <DocumentPreview source={source} onAskForChange={onAskForContentChange} />;
+  return <PresentationPreview source={source} onAskForChange={onAskForContentChange} />;
 }
 
 function SpreadsheetPreview({
@@ -77,6 +82,9 @@ function SpreadsheetPreview({
   const [changeDraft, setChangeDraft] = useState("");
   const [changeEditorOpen, setChangeEditorOpen] = useState(false);
   const [error, setError] = useState<string>();
+  const [selectionAnchor, setSelectionAnchor] = useState<SpreadsheetCellPosition>();
+  const dragging = useRef(false);
+  const dragMoved = useRef(false);
   const [selectedCell, setSelectedCell] = useState<SpreadsheetCellPosition>();
   const [selectionActionPosition, setSelectionActionPosition] = useState<SpreadsheetSelectionActionPosition>();
   const [sheets, setSheets] = useState<SpreadsheetSheet[]>();
@@ -89,6 +97,7 @@ function SpreadsheetPreview({
     setChangeEditorOpen(false);
     setError(undefined);
     setSelectedCell(undefined);
+    setSelectionAnchor(undefined);
     setSelectionActionPosition(undefined);
     setSheets(undefined);
     logRendererEvent("info", "artifact.office.parse.started", {
@@ -123,6 +132,16 @@ function SpreadsheetPreview({
     MAX_SPREADSHEET_COLUMNS,
     rows.reduce((maximum, row) => Math.max(maximum, row.length), 0),
   );
+
+  const range = selectedCell ? spreadsheetRange(selectionAnchor ?? selectedCell, selectedCell) : undefined;
+  const selectionAddress = range ? spreadsheetRangeAddress(range) : "";
+
+  useEffect(() => {
+    const stop = () => { dragging.current = false; };
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    return () => { window.removeEventListener("pointerup", stop); window.removeEventListener("pointercancel", stop); };
+  }, []);
 
   useLayoutEffect(() => {
     const grid = gridRef.current;
@@ -169,7 +188,8 @@ function SpreadsheetPreview({
     changeInputRef.current?.focus();
   }, [changeEditorOpen]);
 
-  function selectCell(position: SpreadsheetCellPosition, focus = false): void {
+  function selectCell(position: SpreadsheetCellPosition, focus = false, extend = false): void {
+    if (!extend || !selectionAnchor) setSelectionAnchor(position);
     setSelectedCell(position);
     setChangeDraft("");
     setChangeEditorOpen(false);
@@ -181,7 +201,7 @@ function SpreadsheetPreview({
 
   function openChangeEditor(position: SpreadsheetCellPosition): void {
     if (!activeSheet || !onAskForChange) return;
-    const address = spreadsheetCellAddress(position.rowIndex, position.columnIndex);
+    const address = spreadsheetRangeAddress(spreadsheetRange(selectionAnchor ?? position, position));
     setSelectedCell(position);
     setChangeDraft("");
     setChangeEditorOpen(true);
@@ -196,12 +216,14 @@ function SpreadsheetPreview({
     if (!activeSheet || !onAskForChange) return;
     const instruction = changeDraft.trim();
     if (!instruction) return;
-    const address = spreadsheetCellAddress(position.rowIndex, position.columnIndex);
+    const address = spreadsheetRangeAddress(spreadsheetRange(selectionAnchor ?? position, position));
     onAskForChange({
       address,
       instruction,
       sheet: activeSheet.sheet,
-      value: formatSpreadsheetCell(activeSheet.data[position.rowIndex]?.[position.columnIndex]),
+      value: range && (range.top !== range.bottom || range.left !== range.right)
+        ? JSON.stringify(activeSheet.data.slice(range.top, range.bottom + 1).map((row) => Array.from({ length: range.right - range.left + 1 }, (_, index) => formatSpreadsheetCell(row[range.left + index]))))
+        : formatSpreadsheetCell(activeSheet.data[position.rowIndex]?.[position.columnIndex]),
     });
     setChangeDraft("");
     setChangeEditorOpen(false);
@@ -218,22 +240,23 @@ function SpreadsheetPreview({
   ): void {
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "i") {
       event.preventDefault();
-      selectCell(position);
       openChangeEditor(position);
       return;
     }
     if (event.key === "Escape") {
       event.preventDefault();
       setSelectedCell(undefined);
+      setSelectionAnchor(undefined);
       return;
     }
     const delta = spreadsheetArrowDelta(event.key);
     if (!delta) return;
     event.preventDefault();
+    const current = selectedCell ?? position;
     selectCell({
-      columnIndex: Math.max(0, Math.min(columnCount - 1, position.columnIndex + delta.columnIndex)),
-      rowIndex: Math.max(0, Math.min(rows.length - 1, position.rowIndex + delta.rowIndex)),
-    }, true);
+      columnIndex: Math.max(0, Math.min(columnCount - 1, current.columnIndex + delta.columnIndex)),
+      rowIndex: Math.max(0, Math.min(rows.length - 1, current.rowIndex + delta.rowIndex)),
+    }, true, event.shiftKey);
   }
 
   return (
@@ -251,6 +274,7 @@ function SpreadsheetPreview({
                   setChangeDraft("");
                   setChangeEditorOpen(false);
                   setSelectedCell(undefined);
+                  setSelectionAnchor(undefined);
                 }}
                 role="tab"
                 type="button"
@@ -275,12 +299,12 @@ function SpreadsheetPreview({
             ref={gridRef}
             role="region"
           >
-            <table role="grid">
+            <table aria-multiselectable="true" role="grid">
               <thead>
                 <tr>
                   <th aria-hidden="true" className="react-office-spreadsheet__row-number" />
                   {Array.from({ length: columnCount }, (_, index) => (
-                    <th data-selected={selectedCell?.columnIndex === index ? "true" : undefined} key={index} scope="col">
+                    <th data-selected={range && index >= range.left && index <= range.right ? "true" : undefined} key={index} scope="col">
                       {spreadsheetColumnName(index)}
                     </th>
                   ))}
@@ -291,7 +315,7 @@ function SpreadsheetPreview({
                   <tr key={rowIndex}>
                     <th
                       className="react-office-spreadsheet__row-number"
-                      data-selected={selectedCell?.rowIndex === rowIndex ? "true" : undefined}
+                      data-selected={range && rowIndex >= range.top && rowIndex <= range.bottom ? "true" : undefined}
                       scope="row"
                     >
                       {rowIndex + 1}
@@ -300,7 +324,8 @@ function SpreadsheetPreview({
                       const position = { columnIndex, rowIndex };
                       const address = spreadsheetCellAddress(rowIndex, columnIndex);
                       const value = formatSpreadsheetCell(row[columnIndex]);
-                      const selected = selectedCell?.rowIndex === rowIndex && selectedCell.columnIndex === columnIndex;
+                      const selected = Boolean(range && rowIndex >= range.top && rowIndex <= range.bottom && columnIndex >= range.left && columnIndex <= range.right);
+                      const focused = selectedCell?.rowIndex === rowIndex && selectedCell.columnIndex === columnIndex;
                       return (
                         <td aria-selected={selected} data-selected={selected ? "true" : undefined} key={columnIndex} role="gridcell">
                           <button
@@ -312,9 +337,23 @@ function SpreadsheetPreview({
                             className="react-office-spreadsheet__cell"
                             data-cell-column={columnIndex}
                             data-cell-row={rowIndex}
-                            tabIndex={selected || (!selectedCell && rowIndex === 0 && columnIndex === 0) ? 0 : -1}
+                            tabIndex={focused || (!selectedCell && rowIndex === 0 && columnIndex === 0) ? 0 : -1}
                             type="button"
-                            onClick={() => selectCell(position)}
+                            onPointerDown={(event) => {
+                              if (event.button !== 0) return;
+                              dragging.current = true;
+                              dragMoved.current = false;
+                              selectCell(position, false, event.shiftKey);
+                            }}
+                            onPointerEnter={(event) => {
+                              if (!dragging.current || !(event.buttons & 1)) return;
+                              dragMoved.current = true;
+                              selectCell(position, false, true);
+                            }}
+                            onClick={(event) => {
+                              if (!dragMoved.current) selectCell(position, false, event.shiftKey);
+                              dragMoved.current = false;
+                            }}
                             onKeyDown={(event) => handleCellKeyDown(event, position)}
                           >
                             {value}
@@ -334,8 +373,8 @@ function SpreadsheetPreview({
               >
                 {changeEditorOpen ? (
                   <form
-                    aria-label={t("details.officeChangeEditorLabel", {
-                      cell: spreadsheetCellAddress(selectedCell.rowIndex, selectedCell.columnIndex),
+                    aria-label={t(range && (range.top !== range.bottom || range.left !== range.right) ? "details.officeRangeEditorLabel" : "details.officeChangeEditorLabel", {
+                      cell: selectionAddress,
                     })}
                     onSubmit={(event) => {
                       event.preventDefault();
@@ -344,7 +383,7 @@ function SpreadsheetPreview({
                   >
                     <label className="react-sr-only" htmlFor={changeInputId}>
                       {t("details.officeChangeEditorLabel", {
-                        cell: spreadsheetCellAddress(selectedCell.rowIndex, selectedCell.columnIndex),
+                        cell: selectionAddress,
                       })}
                     </label>
                     <input
@@ -383,7 +422,7 @@ function SpreadsheetPreview({
             ) : null}
             <p aria-live="polite" className="react-sr-only">
               {selectedCell ? t("details.officeCellSelected", {
-                cell: spreadsheetCellAddress(selectedCell.rowIndex, selectedCell.columnIndex),
+                cell: selectionAddress,
                 sheet: activeSheet.sheet,
               }) : ""}
             </p>
@@ -394,7 +433,19 @@ function SpreadsheetPreview({
   );
 }
 
-function DocumentPreview({ source }: { source: OfficeArtifactSource }) {
+type SpreadsheetRange = { top: number; bottom: number; left: number; right: number };
+
+function spreadsheetRange(anchor: SpreadsheetCellPosition, focus: SpreadsheetCellPosition): SpreadsheetRange {
+  return { top: Math.min(anchor.rowIndex, focus.rowIndex), bottom: Math.max(anchor.rowIndex, focus.rowIndex), left: Math.min(anchor.columnIndex, focus.columnIndex), right: Math.max(anchor.columnIndex, focus.columnIndex) };
+}
+
+function spreadsheetRangeAddress(range: SpreadsheetRange): string {
+  const start = spreadsheetCellAddress(range.top, range.left);
+  const end = spreadsheetCellAddress(range.bottom, range.right);
+  return start === end ? start : start + ":" + end;
+}
+
+function DocumentPreview({ source, onAskForChange }: { source: OfficeArtifactSource; onAskForChange?: (request: OfficeContentChangeRequest) => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string>();
   const [state, setState] = useState<PreviewState>("loading");
@@ -411,8 +462,9 @@ function DocumentPreview({ source }: { source: OfficeArtifactSource }) {
       format: source.kind,
       sizeBytes: source.bytes.byteLength,
     });
+    const renderTarget = document.createElement("div");
     void import("docx-preview")
-      .then(({ renderAsync }) => renderAsync(toArrayBuffer(source.bytes), container, undefined, {
+      .then(({ renderAsync }) => renderAsync(toArrayBuffer(source.bytes), renderTarget, undefined, {
         breakPages: false,
         debug: false,
         experimental: false,
@@ -430,7 +482,8 @@ function DocumentPreview({ source }: { source: OfficeArtifactSource }) {
       }))
       .then(() => {
         if (cancelled) return;
-        sanitizeRenderedOfficeDom(container);
+        sanitizeRenderedOfficeDom(renderTarget);
+        container.replaceChildren(...renderTarget.childNodes);
         setState("ready");
         logOfficeParseComplete(source.kind, source.bytes.byteLength, startedAt);
       })
@@ -446,12 +499,13 @@ function DocumentPreview({ source }: { source: OfficeArtifactSource }) {
 
   return (
     <OfficePreviewFrame error={error} format="Word" loading={!error && state === "loading"} title={source.title}>
+      {onAskForChange ? <OfficeContentEditor containerRef={containerRef} kind="document" sourceBytes={source.bytes} ready={!error && state === "ready"} onChange={onAskForChange} /> : null}
       <div className="react-office-document" onClickCapture={blockRenderedOfficeNavigation} ref={containerRef} />
     </OfficePreviewFrame>
   );
 }
 
-function PresentationPreview({ source }: { source: OfficeArtifactSource }) {
+function PresentationPreview({ source, onAskForChange }: { source: OfficeArtifactSource; onAskForChange?: (request: OfficeContentChangeRequest) => void }) {
   const { t } = useTranslation("chat");
   const containerRef = useRef<HTMLDivElement>(null);
   const thumbnailHostRefs = useRef<Array<HTMLElement | null>>([]);
@@ -478,10 +532,12 @@ function PresentationPreview({ source }: { source: OfficeArtifactSource }) {
       format: source.kind,
       sizeBytes: source.bytes.byteLength,
     });
+    const renderTarget = document.createElement("div");
+    container.append(renderTarget);
     void import("pptx-preview")
       .then(({ init }) => {
         if (cancelled) return;
-        const previewer = init(container, { mode: "list", width });
+        const previewer = init(renderTarget, { mode: "list", width });
         dispose = () => previewer.destroy();
         return previewer.preview(toArrayBuffer(source.bytes));
       })
@@ -581,6 +637,7 @@ function PresentationPreview({ source }: { source: OfficeArtifactSource }) {
 
   return (
     <OfficePreviewFrame error={error} format="PowerPoint" loading={!error && state === "loading"} title={source.title}>
+      {onAskForChange ? <OfficeContentEditor containerRef={containerRef} kind="presentation" sourceBytes={source.bytes} ready={!error && state === "ready"} activeSlide={activeSlideIndex} onChange={onAskForChange} /> : null}
       <div className="react-office-presentation">
         {state === "ready" && slideCount > 0 ? (
           <nav

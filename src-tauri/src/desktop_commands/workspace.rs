@@ -12,6 +12,55 @@ use tauri::{ipc::Response, State};
 
 const OFFICE_PREVIEW_FILE_LIMIT_BYTES: u64 = 25 * 1024 * 1024;
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ThreadArtifactReviewInput {
+    thread_id: String,
+    path: String,
+    #[serde(flatten)]
+    action: crate::workspace::artifact_review::ReviewAction,
+}
+
+#[tauri::command]
+pub(crate) async fn worker_thread_artifact_review(
+    input: ThreadArtifactReviewInput,
+    state: State<'_, SharedNativeRuntime>,
+) -> Result<serde_json::Value, String> {
+    let shared = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (store, workspace_root) =
+            thread_workspace(&shared, &input.thread_id, native_backend_workspace_root())?;
+        let path = thread_workspace_file_path(&workspace_root, &input.path)?;
+        let action_name = match &input.action {
+            crate::workspace::artifact_review::ReviewAction::Prepare { .. } => "prepare",
+            crate::workspace::artifact_review::ReviewAction::Status => "status",
+            crate::workspace::artifact_review::ReviewAction::Compare { .. } => "compare",
+            crate::workspace::artifact_review::ReviewAction::Accept { .. } => "accept",
+            crate::workspace::artifact_review::ReviewAction::Restore { .. } => "restore",
+        };
+        let result = WorkerWorkspaceRpc::new(
+            workspace_root,
+            crate::protocol::capability::default_desktop_capability_policy(),
+        )
+        .artifact_review(store.data_root(), &input.thread_id, &path, input.action);
+        if let Err(error) = &result {
+            eprintln!(
+                "[artifact-review] action={action_name} thread={} path={path} error={error}",
+                input.thread_id
+            );
+        }
+        if result.is_ok() && action_name != "status" && action_name != "compare" {
+            eprintln!(
+                "[artifact-review] action={action_name} thread={} path={path} completed",
+                input.thread_id
+            );
+        }
+        result
+    })
+    .await
+    .map_err(|error| format!("Artifact review worker failed: {error}"))?
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkerWorkspaceFileInput {
@@ -52,6 +101,7 @@ pub(crate) struct WorkerThreadWorkspaceFileChunkInput {
     thread_id: String,
     path: String,
     cursor: Option<String>,
+    known_revision: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -158,6 +208,7 @@ pub(crate) fn worker_thread_workspace_file_chunk(
         input.thread_id,
         input.path,
         input.cursor,
+        input.known_revision,
         native_backend_workspace_root(),
         native_config_snapshot(),
         Duration::from_secs(10),
@@ -349,6 +400,7 @@ pub(crate) fn worker_thread_workspace_file_chunk_with_options(
     thread_id: String,
     path: String,
     cursor: Option<String>,
+    known_revision: Option<String>,
     default_workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     _timeout: Duration,
@@ -357,14 +409,17 @@ pub(crate) fn worker_thread_workspace_file_chunk_with_options(
         thread_workspace(shared, &thread_id, default_workspace_root)?;
     let path = thread_workspace_file_path(&workspace_root, &path)?;
     let request_id = next_worker_request_correlation();
-    let response =
-        native_request_router_with_workspace_root(thread_store, workspace_root, config_snapshot)
-            .dispatch(&WorkerRequest::new(
-                request_id.id("thread-workspace-file-chunk"),
-                request_id.trace_id("thread-workspace-file-chunk"),
-                "workspace.read_file_chunk",
-                serde_json::json!({ "path": path, "cursor": cursor }),
-            ));
+    let response = native_request_router_with_workspace_root(
+        thread_store,
+        workspace_root,
+        config_snapshot,
+    )
+    .dispatch(&WorkerRequest::new(
+        request_id.id("thread-workspace-file-chunk"),
+        request_id.trace_id("thread-workspace-file-chunk"),
+        "workspace.read_file_chunk",
+        serde_json::json!({ "path": path, "cursor": cursor, "known_revision": known_revision }),
+    ));
     serde_json::to_value(response)
         .map_err(|error| format!("thread workspace file chunk failed: {error}"))
 }

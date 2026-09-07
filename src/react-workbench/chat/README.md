@@ -1,5 +1,5 @@
 # Chat Workbench
-<!-- tinybot-module-fingerprint: sha256:5a9a778ca0bc106957e1f474eaf29399c89ec7eb677d514c28c4621410508da3 -->
+<!-- tinybot-module-fingerprint: sha256:77960357c1793a49fbf6bc1d991cd88b3b0f3cbe6ea02cb7952fbf1e396ddb49 -->
 
 `chat` owns the desktop Chat route, including session navigation, submission,
 canonical timeline presentation, the composer, and detail drawers.
@@ -199,11 +199,20 @@ text is projected through the shared safe Markdown renderer as a document,
 without exposing internal Artifact IDs or MIME metadata above the content. The
 outer Artifact panel owns vertical scrolling for document and plain-text
 previews, avoiding a second height-capped scroll region inside the Sidecar.
-Confirming a selected spreadsheet cell's change request adds a visible,
+`useArtifactFile` observes only the visible local Artifact. It checks every three
+seconds and on window focus/visibility restoration, passing `knownRevision` so
+unchanged files do not reload content or reparse Office bytes. Each observer
+owns its asynchronous reads; closing, hiding, or switching resources cancels
+publication from old reads. Read failures retain the previous preview with a
+visible error and recover on the next successful check.
+Artifact previews can attach the whole resource to the composer without changing
+the draft. Local references record the viewed revision and file path; later
+refreshes leave already attached references unchanged.
+Confirming a selected spreadsheet range's change request adds a visible,
 removable file/range/current-value/request card above the composer and focuses
 the editor without overwriting its existing draft. Chat keeps the structured
-cell annotation in route state and submits it as a source-text input reference,
-so the Agent receives the file path, sheet, address, current value, and requested
+range annotation in route state and submits it as a source-text input reference,
+so the Agent receives the file path, viewed revision, sheet, range, values, and requested
 change even when the composer text is empty. Confirmation never sends a Turn
 implicitly; a successful later send clears the annotation with other composer
 context.
@@ -313,3 +322,20 @@ renderer ownership, native lifecycle boundaries, and verification entry points.
 messages, Sidecar, and styles. Shared route setup, native fakes, and stable
 timeline builders live in `test/ChatPageTestHarness.tsx`; assertions and
 behavior-specific fixtures remain in the owning test file.
+
+`prepareArtifactReviews` saves original local Artifact bytes before actual
+Turn dispatch, including queued inputs. Capture failures preserve the draft
+and prevent dispatch. Explicit file references bind to their viewed revision;
+ordinary uploads do not create review snapshots. Sidecar reloads the saved
+review when a request is prepared and refreshes the live preview after restore.
+
+Word and PowerPoint selections enter the existing Artifact reference composer
+with their displayed revision, location and change instruction. Multiple
+selection requests can coexist. Actual dispatch uses the same baseline capture
+and source-revision checks as Excel; adding a request does not send it.
+
+Windows file-link destinations retain their literal separators at the Markdown
+destination compilation step, before CommonMark consumes punctuation escapes
+such as `\.`. Ordinary prose and external URLs keep standard escaping. Link
+activation logs both the decoded href and resolved workspace path for diagnosis;
+the native workspace path guard remains authoritative.
