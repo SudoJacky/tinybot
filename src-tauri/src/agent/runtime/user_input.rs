@@ -368,6 +368,16 @@ pub struct AgentUserInputForm {
     pub correlation: FormCorrelation,
 }
 
+impl AgentUserInputForm {
+    pub(crate) fn required_field_names(&self) -> impl Iterator<Item = &str> {
+        self.request
+            .fields
+            .iter()
+            .filter(|field| field.required)
+            .map(|field| field.name.as_str())
+    }
+}
+
 impl<'de> Deserialize<'de> for AgentUserInputForm {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         use serde::de::Error;

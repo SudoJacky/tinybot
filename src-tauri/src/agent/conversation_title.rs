@@ -37,14 +37,8 @@ impl ConversationTitleTask {
     }
 }
 
-pub(crate) fn should_generate_title(thread: &Value) -> bool {
-    thread.get("title").and_then(Value::as_str) == Some("New session")
-        && thread
-            .get("metadata")
-            .and_then(|metadata| metadata.get("turnCount"))
-            .and_then(Value::as_u64)
-            .unwrap_or(0)
-            == 0
+pub(crate) fn should_generate_title(title: &str, turn_count: u64) -> bool {
+    title == "New session" && turn_count == 0
 }
 
 async fn run_title_task(
@@ -180,18 +174,9 @@ mod tests {
 
     #[test]
     fn title_generation_only_applies_to_an_empty_default_thread() {
-        assert!(should_generate_title(&json!({
-            "title": "New session",
-            "metadata": { "turnCount": 0 }
-        })));
-        assert!(!should_generate_title(&json!({
-            "title": "New session",
-            "metadata": { "turnCount": 1 }
-        })));
-        assert!(!should_generate_title(&json!({
-            "title": "Manual title",
-            "metadata": { "turnCount": 0 }
-        })));
+        assert!(should_generate_title("New session", 0));
+        assert!(!should_generate_title("New session", 1));
+        assert!(!should_generate_title("Manual title", 0));
     }
 
     #[test]

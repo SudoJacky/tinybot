@@ -121,6 +121,76 @@ impl Drop for TestWorkspace {
 }
 
 #[test]
+fn direct_thread_services_survive_reopening_canonical_storage() {
+    let workspace = TestWorkspace::new();
+    let open = || {
+        WorkspaceThreadStore::new_with_data_root(
+            workspace.root.clone(),
+            workspace.root.join("thread-data"),
+            default_desktop_capability_policy(),
+        )
+    };
+    let store = open();
+    let thread = store
+        .create_agent_thread("thread-direct-service".into(), &serde_json::json!({}))
+        .unwrap();
+    assert_eq!(thread.metadata.extra["apiMode"], "chat_completions");
+    store
+        .start_agent_thread_turn(crate::threads::domain::StartThreadTurnRequest {
+            thread_id: thread.thread_id.clone(),
+            turn_id: Some("turn-direct-service".into()),
+            client_event_id: Some("event-direct-service".into()),
+            input: serde_json::json!({"role":"user", "content":"persisted request"}),
+            ..Default::default()
+        })
+        .unwrap();
+    store.flush().unwrap();
+    let reopened = open();
+    let snapshot = reopened.read_agent_thread(&thread.thread_id).unwrap();
+    assert_eq!(
+        snapshot.thread.active_turn_id.as_deref(),
+        Some("turn-direct-service")
+    );
+    assert!(serde_json::to_string(&snapshot.items)
+        .unwrap()
+        .contains("persisted request"));
+}
+
+#[test]
+fn invalid_thread_input_does_not_start_a_durable_turn() {
+    tauri::async_runtime::block_on(async {
+        let workspace = TestWorkspace::new();
+        let store = WorkspaceThreadStore::new_with_data_root(
+            workspace.root.clone(),
+            workspace.root.join("thread-data"),
+            default_desktop_capability_policy(),
+        );
+        let thread = store
+            .create_agent_thread("thread-invalid-service".into(), &serde_json::json!({}))
+            .unwrap();
+        let services = NativeAgentRuntimeServices::default().with_thread_store(store.clone());
+        let error = crate::agent::bridge::thread_flow::execute_thread_turn_with_services(
+            services,
+            crate::agent::bridge::thread_flow::SubmitThreadTurnInput {
+                thread_id: Some(thread.thread_id.clone()),
+                input: serde_json::json!({"content":"hello"}),
+                spec: serde_json::json!({"turnId":"turn-invalid-service", "maxIterations":"invalid"}),
+            }, workspace.root.clone(), serde_json::json!({}), None,
+        ).await.err().expect("invalid settings should fail");
+        assert_eq!(
+            error.code,
+            crate::agent::runtime::AgentErrorCode::InvalidRequest
+        );
+        assert!(store
+            .read_agent_thread(&thread.thread_id)
+            .unwrap()
+            .active_turn
+            .is_none());
+        assert!(store.agent_turns(&thread.thread_id).unwrap().is_empty());
+    });
+}
+
+#[test]
 fn invalid_continuation_is_rejected_before_durability_and_task_ownership() {
     tauri::async_runtime::block_on(async {
         let workspace = TestWorkspace::new();

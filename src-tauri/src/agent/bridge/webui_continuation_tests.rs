@@ -2,13 +2,13 @@ use super::{finish_native_agent_turn, native_agent_ui_form_continuation_spec};
 
 #[test]
 fn form_continuation_preserves_thread_command_correlation() {
+    let checkpoint = crate::agent::runtime::AgentCheckpoint::from_wire(serde_json::json!({
+        "turnId":"turn-1", "sessionId":"thread-1", "threadId":"thread-1", "phase":"tool_running",
+        "messages":[{"role":"user","content":"choose"}]
+    }))
+    .unwrap();
     let spec = native_agent_ui_form_continuation_spec(
-        &serde_json::json!({
-            "turnId": "turn-1",
-            "sessionId": "thread-1",
-            "threadId": "thread-1",
-            "messages": [{ "role": "user", "content": "choose" }],
-        }),
+        &checkpoint,
         &serde_json::json!({
             "commandId": "command-form-1",
             "source": { "control": "chat-form", "surface": "chat" },
@@ -39,7 +39,7 @@ fn form_continuation_preserves_thread_command_correlation() {
     );
 
     let cancelled_spec = native_agent_ui_form_continuation_spec(
-        &serde_json::json!({ "turnId": "turn-1", "sessionId": "thread-1" }),
+        &checkpoint,
         &serde_json::json!({ "commandId": "command-form-cancel-1" }),
         "form-1",
         &serde_json::json!({}),

@@ -8,11 +8,13 @@ use crate::collaboration::subagents::{
 use crate::runtime::mcp::McpRuntime;
 use crate::runtime::turn_execution::{AgentCancelReason, TurnExecutionRuntime};
 use crate::tools::shell::WorkerShellRuntime;
+pub(crate) use checkpoint_types::AgentCheckpointPayload;
 pub use context_checkpoint::AgentContextCheckpoint;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{fmt, future::Future, pin::Pin, sync::Arc};
 use tokio_util::sync::CancellationToken;
+pub(crate) use user_input::AgentUserInputForm;
 
 pub(crate) const DEFAULT_NATIVE_AGENT_MAX_ITERATIONS: i64 = 200;
 
@@ -63,7 +65,7 @@ mod usage;
 mod user_input;
 mod workspace_threads;
 
-pub(crate) use self::context::{agent_trace_context_from_value, ensure_agent_trace_context};
+pub(crate) use self::context::ensure_agent_trace_context;
 pub(crate) use self::events::standalone_runtime_event;
 pub(crate) use self::hooks::AgentHookEvaluation;
 

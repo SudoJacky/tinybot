@@ -6,6 +6,96 @@ use crate::protocol::{WorkerProtocolError, WorkerProtocolErrorCode, WorkerProtoc
 use serde_json::Value;
 
 impl WorkspaceThreadStore {
+    pub(crate) fn read_agent_thread(
+        &self,
+        thread_id: &str,
+    ) -> Result<super::domain::ThreadSnapshot, WorkerProtocolError> {
+        self.turn_operation(|operation| {
+            let snapshot = operation
+                .thread()
+                .read_thread(super::domain::ReadThreadRequest {
+                    thread_id: thread_id.into(),
+                    ..Default::default()
+                })?;
+            operation
+                .thread_log()
+                .hydrate_thread_snapshot(snapshot, None, None, None, None, None)
+        })
+    }
+
+    pub(crate) fn create_agent_thread(
+        &self,
+        thread_id: String,
+        config: &Value,
+    ) -> Result<super::domain::ThreadRecord, WorkerProtocolError> {
+        let api_mode = crate::agent::provider::resolve_provider_profile(config, None, None)
+            .map(|profile| profile.parsed_api_mode())
+            .transpose()
+            .map_err(|error| {
+                WorkerProtocolError::new(
+                    WorkerProtocolErrorCode::InvalidProtocol,
+                    error,
+                    serde_json::json!({"method":"thread.create"}),
+                    false,
+                    WorkerProtocolErrorSource::RustCore,
+                )
+            })?
+            .unwrap_or(crate::agent::provider::NativeProviderApiMode::ChatCompletions);
+        self.turn_operation(|operation| {
+            let mut request = super::domain::CreateThreadRequest {
+                thread_id: Some(thread_id),
+                ..Default::default()
+            };
+            request.metadata.extra = Some(serde_json::json!({"apiMode": api_mode.as_str()}));
+            let thread = operation.thread().create_thread(request)?;
+            operation.thread_log().create_from_thread_record(&thread)?;
+            operation.sync_thread_projection(&thread.thread_id)?;
+            Ok(thread)
+        })
+    }
+
+    pub(crate) fn start_agent_thread_turn(
+        &self,
+        request: super::domain::StartThreadTurnRequest,
+    ) -> Result<super::domain::ThreadTurnRuntimeResult, WorkerProtocolError> {
+        self.turn_operation(|operation| {
+            let result = operation.thread().start_turn(request)?;
+            let thread = &result.snapshot.thread;
+            operation.thread_log().create_from_thread_record(thread)?;
+            operation
+                .thread_log()
+                .append_thread_items(&thread.thread_id, &result.appended_items)?;
+            operation.sync_thread_projection(&thread.thread_id)?;
+            Ok(result)
+        })
+    }
+
+    pub(crate) fn latest_agent_checkpoint(
+        &self,
+        thread_id: &str,
+    ) -> Result<Option<crate::agent::runtime::AgentCheckpoint>, crate::agent::runtime::AgentError>
+    {
+        let checkpoint = self
+            .turn_operation(|operation| operation.thread_log().latest_turn_checkpoint(thread_id))?;
+        checkpoint
+            .map(|checkpoint| {
+                crate::agent::runtime::AgentCheckpoint::from_wire(checkpoint.checkpoint)
+            })
+            .transpose()
+    }
+
+    pub(crate) fn clear_latest_agent_checkpoint(
+        &self,
+        thread_id: &str,
+    ) -> Result<(), WorkerProtocolError> {
+        self.turn_operation(|operation| {
+            operation
+                .thread_log()
+                .clear_latest_turn_checkpoint(thread_id)?;
+            operation.sync_thread_projection(thread_id)
+        })
+    }
+
     pub(crate) fn commit_agent_context_checkpoint(
         &self,
         thread_id: &str,

@@ -31,7 +31,7 @@ pub(crate) async fn run_agent_from_wire_with_services(
     run_agent_with_services(services, request, workspace_root, config, live_sink).await
 }
 
-async fn run_agent_with_services(
+pub(super) async fn run_agent_with_services(
     base_services: NativeAgentRuntimeServices,
     mut request: super::turn_request::AgentTurnRequest,
     workspace_root: PathBuf,

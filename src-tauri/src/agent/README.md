@@ -1,5 +1,5 @@
 # Agent
-<!-- tinybot-module-fingerprint: sha256:c82d74c058c9e08dcf8301dccd7218f9b3dc32225123975ff3f14bf3b4f625dc -->
+<!-- tinybot-module-fingerprint: sha256:4d7b03f3de57e5313120b5dd31caa094dd5da71ace0429e3a77ccfb0e02dfe29 -->
 
 `agent` contains the native agent stack. It connects provider configuration,
 the turn runtime, durable runtime events, and the desktop integration bridge.

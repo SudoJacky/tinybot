@@ -5,11 +5,10 @@ use crate::agent::bridge::{
 };
 use crate::agent::runtime::AgentError;
 use crate::agent::runtime::{
-    run_native_agent_turn_with_workspace_async, NativeAgentRuntimeServices, NativeAgentTraceSink,
+    run_native_agent_turn_with_workspace_and_instructions_async, AgentCheckpoint,
+    AgentCheckpointPayload, AgentTurnInput, InstructionComposer, NativeAgentRuntimeServices,
+    NativeAgentTraceSink,
 };
-use crate::protocol::request_id::next_worker_request_correlation;
-use crate::protocol::WorkerRequest;
-use crate::rpc::call_rust_state_service_typed as call_rust_state_service;
 use crate::threads::workspace_store::WorkspaceThreadStore;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -52,6 +51,29 @@ pub(crate) async fn resolve_agent_ui_form_body_with_services(
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
 ) -> Result<(u16, serde_json::Value), AgentError> {
+    resolve_agent_ui_form_body_with_checkpoint(
+        base_services,
+        form_id,
+        body,
+        cancelled,
+        None,
+        workspace_root,
+        config_snapshot,
+        live_trace_sink,
+    )
+    .await
+}
+
+pub(crate) async fn resolve_agent_ui_form_body_with_checkpoint(
+    base_services: NativeAgentRuntimeServices,
+    form_id: String,
+    body: &serde_json::Value,
+    cancelled: bool,
+    supplied_checkpoint: Option<AgentCheckpoint>,
+    workspace_root: PathBuf,
+    config_snapshot: serde_json::Value,
+    live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
+) -> Result<(u16, serde_json::Value), AgentError> {
     let thread_store = base_services.thread_store()?;
     let session_key = agent_ui_form_session_key(body).unwrap_or_default();
     let values = body
@@ -59,29 +81,30 @@ pub(crate) async fn resolve_agent_ui_form_body_with_services(
         .filter(|value| value.is_object())
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}));
-    let canonical_thread_checkpoint = body.get("threadCheckpoint").cloned();
+    let canonical_thread_checkpoint = supplied_checkpoint.or(body
+        .get("threadCheckpoint")
+        .cloned()
+        .map(AgentCheckpoint::from_wire)
+        .transpose()?);
+    let is_canonical = canonical_thread_checkpoint.is_some();
     let checkpoint = match canonical_thread_checkpoint {
         Some(checkpoint) => Some(checkpoint),
         None => native_session_checkpoint(
             &session_key,
             &thread_store,
-            config_snapshot.clone(),
             "native Agent UI form checkpoint lookup",
         )?,
     };
     let Some(checkpoint) = checkpoint else {
         return Ok((404, native_webui_agent_ui_form_not_found_body(form_id)));
     };
-    if checkpoint.get("phase").and_then(serde_json::Value::as_str) != Some("awaiting_form")
-        || checkpoint
-            .get("payload")
-            .and_then(|payload| payload.get("form_id"))
-            .and_then(serde_json::Value::as_str)
-            != Some(&form_id)
-    {
+    let AgentCheckpointPayload::UserInput(payload) = &checkpoint.payload else {
+        return Ok((404, native_webui_agent_ui_form_not_found_body(form_id)));
+    };
+    if checkpoint.phase.as_str() != "awaiting_form" || payload.form_id != form_id {
         return Ok((404, native_webui_agent_ui_form_not_found_body(form_id)));
     }
-    let errors = validate_agent_ui_form_values(&checkpoint, &values);
+    let errors = validate_agent_ui_form_values(&payload.form, &values);
     if !cancelled && !errors.is_empty() {
         return Ok((
             400,
@@ -100,6 +123,7 @@ pub(crate) async fn resolve_agent_ui_form_body_with_services(
         base_services,
         &session_key,
         checkpoint,
+        is_canonical,
         form_id,
         body,
         values,
@@ -133,25 +157,11 @@ pub(crate) fn agent_ui_form_session_key(body: &serde_json::Value) -> Option<Stri
 }
 
 pub(crate) fn validate_agent_ui_form_values(
-    checkpoint: &serde_json::Value,
+    form: &crate::agent::runtime::AgentUserInputForm,
     values: &serde_json::Value,
 ) -> serde_json::Map<String, serde_json::Value> {
     let mut errors = serde_json::Map::new();
-    let Some(fields) = checkpoint
-        .get("payload")
-        .and_then(|payload| payload.get("form"))
-        .and_then(|form| form.get("fields"))
-        .and_then(serde_json::Value::as_array)
-    else {
-        return errors;
-    };
-    for field in fields {
-        if field.get("required").and_then(serde_json::Value::as_bool) != Some(true) {
-            continue;
-        }
-        let Some(name) = field.get("name").and_then(serde_json::Value::as_str) else {
-            continue;
-        };
+    for name in form.required_field_names() {
         let missing = values
             .get(name)
             .is_none_or(|value| value.is_null() || value.as_str().is_some_and(str::is_empty));
@@ -166,22 +176,14 @@ pub(crate) fn validate_agent_ui_form_values(
 }
 
 pub(crate) fn native_agent_ui_form_continuation_spec(
-    checkpoint: &serde_json::Value,
+    checkpoint: &AgentCheckpoint,
     body: &serde_json::Value,
     form_id: &str,
     values: &serde_json::Value,
     cancelled: bool,
 ) -> serde_json::Value {
-    let turn_id = checkpoint
-        .get("turnId")
-        .or_else(|| checkpoint.get("turn_id"))
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("native-form-resolution");
-    let session_id = checkpoint
-        .get("sessionId")
-        .or_else(|| checkpoint.get("session_id"))
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("native-rust-session");
+    let turn_id = &checkpoint.turn_id;
+    let session_id = &checkpoint.session_id;
     let mut metadata = serde_json::json!({
         "agentContinuation": {
             "kind": "form",
@@ -218,25 +220,23 @@ pub(crate) fn native_agent_ui_form_continuation_spec(
         "runtime": "rust",
         "turnId": turn_id,
         "sessionId": session_id,
-        "messages": checkpoint
-            .get("messages")
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!([])),
         "metadata": metadata,
     })
 }
 
 fn copy_thread_id_to_continuation_metadata(
     metadata: &mut serde_json::Value,
-    checkpoint: &serde_json::Value,
+    checkpoint: &AgentCheckpoint,
     body: &serde_json::Value,
 ) {
     let thread_id = checkpoint
-        .get("threadId")
-        .or_else(|| checkpoint.get("thread_id"))
-        .or_else(|| body.get("threadId"))
-        .or_else(|| body.get("thread_id"))
-        .and_then(serde_json::Value::as_str)
+        .thread_id
+        .as_deref()
+        .or_else(|| {
+            body.get("threadId")
+                .or_else(|| body.get("thread_id"))
+                .and_then(serde_json::Value::as_str)
+        })
         .map(str::trim)
         .filter(|value| !value.is_empty());
     if let Some(thread_id) = thread_id {
@@ -262,7 +262,8 @@ pub(crate) fn native_agent_ui_form_event(
 pub(crate) async fn resolve_agent_ui_form_with_services(
     base_services: NativeAgentRuntimeServices,
     session_key: &str,
-    checkpoint: serde_json::Value,
+    checkpoint: AgentCheckpoint,
+    is_canonical: bool,
     form_id: String,
     body: &serde_json::Value,
     values: serde_json::Value,
@@ -274,9 +275,21 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
     let thread_store = base_services.thread_store()?;
     let continuation_spec =
         native_agent_ui_form_continuation_spec(&checkpoint, body, &form_id, &values, cancelled);
-    base_services.save_checkpoint(crate::agent::runtime::AgentCheckpoint::from_wire(
-        checkpoint,
-    )?);
+    let mut input = AgentTurnInput::from_wire(&continuation_spec, &config_snapshot)
+        .map_err(AgentError::invalid_input)?;
+    input.messages = checkpoint.messages.clone();
+    let trace = input.trace_context.clone();
+    let instructions = InstructionComposer::default().compose_with_config(
+        &workspace_root,
+        &continuation_spec,
+        &config_snapshot,
+    )?;
+    let mut config_snapshot = config_snapshot;
+    crate::workspace_extensions::merge_workspace_mcp_servers(
+        &mut config_snapshot,
+        &instructions.working_directory,
+    )?;
+    base_services.save_checkpoint(checkpoint);
     let services = native_agent_services_with_tool_executor(
         base_services,
         workspace_root.clone(),
@@ -293,11 +306,12 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
         None => services
             .with_trace_sink_if_missing(|| native_agent_trace_sink(thread_store.clone(), None)),
     };
-    let turn_result = run_native_agent_turn_with_workspace_async(
+    let turn_result = run_native_agent_turn_with_workspace_and_instructions_async(
         &services,
-        continuation_spec.clone(),
+        input,
         config_snapshot.clone(),
         &workspace_root,
+        instructions,
     )
     .await;
     let mut continuation = finish_native_agent_turn(
@@ -305,17 +319,12 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
         services.flush_trace_sink(),
         "native Agent UI form continuation",
     )?;
-    persist_native_agent_turn_terminal_if_present(
-        &crate::agent::runtime::agent_trace_context_from_value(&continuation_spec),
-        &mut continuation,
-        &thread_store,
-    )?;
+    persist_native_agent_turn_terminal_if_present(&trace, &mut continuation, &thread_store)?;
     persist_native_agent_checkpoint_if_present(&continuation, &thread_store)?;
-    if body.get("threadCheckpoint").is_none() {
+    if !is_canonical {
         clear_native_session_checkpoint(
             session_key,
             &thread_store,
-            config_snapshot,
             "native Agent UI form checkpoint clear",
         )?;
     }
@@ -341,45 +350,19 @@ pub(crate) async fn resolve_agent_ui_form_with_services(
 pub(crate) fn clear_native_session_checkpoint(
     session_key: &str,
     thread_store: &WorkspaceThreadStore,
-    config_snapshot: serde_json::Value,
     label: &str,
 ) -> Result<(), AgentError> {
-    let request_id = next_worker_request_correlation();
-    call_rust_state_service(
-        thread_store,
-        config_snapshot,
-        WorkerRequest::new(
-            request_id.id("session-clear-checkpoint"),
-            request_id.trace_id("session-clear-checkpoint"),
-            "thread.clear_latest_checkpoint",
-            serde_json::json!({ "threadId": session_key }),
-        ),
-        label,
-    )?;
-    Ok(())
+    thread_store
+        .clear_latest_agent_checkpoint(session_key)
+        .map_err(|error| AgentError::persistence(label, error))
 }
 
 pub(crate) fn native_session_checkpoint(
     session_key: &str,
     thread_store: &WorkspaceThreadStore,
-    config_snapshot: serde_json::Value,
     label: &str,
-) -> Result<Option<serde_json::Value>, AgentError> {
-    let request_id = next_worker_request_correlation();
-    let checkpoint = call_rust_state_service(
-        thread_store,
-        config_snapshot,
-        WorkerRequest::new(
-            request_id.id("session-get-checkpoint"),
-            request_id.trace_id("session-get-checkpoint"),
-            "thread.latest_checkpoint",
-            serde_json::json!({ "threadId": session_key }),
-        ),
-        label,
-    )?;
-    Ok(if checkpoint.is_null() {
-        None
-    } else {
-        Some(checkpoint)
-    })
+) -> Result<Option<AgentCheckpoint>, AgentError> {
+    thread_store
+        .latest_agent_checkpoint(session_key)
+        .map_err(|error| error.context(label))
 }

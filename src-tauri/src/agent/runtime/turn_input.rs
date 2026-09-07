@@ -10,7 +10,7 @@ pub struct AgentTurnInput {
     pub(crate) session_id: String,
     pub(crate) trace_context: AgentTraceContext,
     pub(crate) settings: AgentTurnSettings,
-    // Legacy history and provider-native Responses items retain their protocol extensions.
+    // History stays typed; provider-native Responses items retain their protocol extensions.
     pub(crate) messages: super::AgentItemHistory,
     pub(crate) responses_input_items: Option<Vec<Value>>,
     pub(crate) api_mode: Option<String>,
