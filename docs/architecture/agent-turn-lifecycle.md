@@ -6,12 +6,15 @@ src-tauri/src/agent/bridge/thread_flow.rs
 src-tauri/src/agent/runtime/README.md
 src-tauri/src/agent/runtime/provider_loop.rs
 src-tauri/src/agent/runtime/tool_runtime.rs
+src-tauri/src/agent/runtime/turn_result.rs
+src-tauri/src/agent/runtime/turn_input.rs
+src-tauri/src/runtime/turn_execution.rs
 src-tauri/src/agent/runtime_protocol/README.md
 src-tauri/src/runtime/README.md
 src-tauri/src/threads/domain/README.md
 src-tauri/src/threads/rollout/store/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:cf8a692a4800f17bc225998aa62b38345b95554b29bd713f5690edeb62321cd3 -->
+<!-- tinybot-doc-fingerprint: sha256:26e75943da780600971965688924283ddc1fff5e3d795c4f7bc489bdd2bd09dd -->
 
 A Turn begins with one user request and contains all provider iterations,
 reasoning records, tool calls, tool results, form checkpoints, and the terminal
@@ -25,6 +28,28 @@ outcome that follow. Resolving a form continues the same Turn identity.
 - `TurnExecutionRuntime` owns the current live generation, cancellation, and
   terminal-result publication for a Turn ID.
 - `threads::rollout::store` owns canonical durability and reconstruction.
+
+The provider loop, task owner, bridge, and Graph/workspace-thread callers share
+`AgentTurnResult`. Its required `AgentStopReason` replaces string lookup for
+execution decisions. Exhaustive mappings distinguish completion, cancellation,
+interruption, failure, and resumable waiting; tool and subagent waits retain
+their waiting phase instead of falling through to failure. Lifecycle hooks
+append typed runtime events directly. Complete-result JSON serialization occurs
+at the desktop, Thread-response, or WebUI boundary and preserves the wire schema.
+The bridge decodes wire input into `AgentTurnRequest` and `AgentTurnInput` before
+instruction composition, history hydration, persistence, or task ownership.
+Identity, settings, continuation, and execution controls are resolved once;
+the execution context retains no raw spec. Invalid field types and malformed
+continuations fail explicitly before a durable Turn is started.
+Input and runtime history share typed `AgentItemHistory` through checkpoint storage
+and result publication. Configuration, extension metadata, provider-native items, and
+context checkpoint payloads still have dynamic fields. Runtime checkpoints use
+`AgentCheckpoint` with typed phases and execution/form payloads; the in-memory
+checkpoint store no longer decodes or extracts JSON fields. `AgentError` carries error categories
+and original service errors across execution, buffering, and persistence, including
+combined execution and flush failures. Turn records, runtime events, checkpoints, and history use direct
+workspace store operations. The RPC adapter uses the same guarded Turn service;
+other tool and Thread-management RPC paths remain separate migration work.
 
 ## Execution flow
 
@@ -66,7 +91,8 @@ Rollout reconstruction and live timeline events -> React projection
 The bridge persists the Turn start before provider work. This ordering makes a
 visible Turn recoverable after interruption. Trace output is flushed before a
 successful terminal result is persisted. If runtime execution or trace flush
-fails, the bridge persists a failed terminal state with `runtime_error` before
+fails, the bridge persists a failed terminal state with `runtime_error` (or
+`invalid_request` for runtime validation) and the structured error before
 returning the original error to the desktop caller; the renderer can then
 reload the canonical Rollout instead of leaving the Turn active.
 

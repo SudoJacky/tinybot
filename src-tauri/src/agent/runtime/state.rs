@@ -1,3 +1,4 @@
+use super::context_checkpoint::{AgentContextCheckpoint, ContextCheckpointStage};
 use super::context_manager::ContextManager;
 use super::continuations::guidance_continuation_message;
 use super::events::{prepare_runtime_event_input, runtime_event_timestamp, runtime_status_label};
@@ -10,10 +11,13 @@ use super::usage::{
 use super::{
     string_field, AgentHookInvocation, AgentTurnContext, NativeAgentToolCall, NativeAgentTraceSink,
 };
+use super::{AgentStopReason, AgentTurnResult};
+use crate::agent::runtime::AgentError;
 use crate::agent::runtime_protocol::{
     AgentEventKind, AgentRuntimeEventEnvelope, AgentRuntimePhase, AgentTurnEmitter,
     ModelOutputEvent, PendingAgentEvent,
 };
+use crate::threads::rollout::checkpoint_lineage::ContextCheckpointParent;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
@@ -24,17 +28,16 @@ pub(super) struct AgentTurnState {
     pub(super) session_id: String,
     pub(super) phase: AgentRuntimePhase,
     pub(super) iteration: i64,
-    pub(super) max_iterations: i64,
-    pub(super) pending_tool_calls: Vec<Value>,
-    pub(super) completed_tool_results: Vec<Value>,
+    pub(super) pending_tool_calls: Vec<super::PendingAgentToolCall>,
+    pub(super) completed_tool_results: Vec<super::CompletedAgentToolResult>,
     pub(super) history: ContextManager,
     emitter: AgentTurnEmitter,
     trace_committer: TraceCommitter,
     usage: Vec<Value>,
     pub(super) tools_used: Vec<String>,
-    stop_reason: Option<String>,
-    context_checkpoint: Option<Value>,
-    source_context_checkpoint: Option<Value>,
+    stop_reason: Option<AgentStopReason>,
+    context_checkpoint: Option<AgentContextCheckpoint>,
+    source_context_checkpoint: Option<ContextCheckpointParent>,
     pending_guidance_message: Option<Value>,
     pub(super) tool_loop_guard: ToolLoopGuard,
 }
@@ -43,16 +46,15 @@ impl AgentTurnState {
     pub(super) fn new(
         context: &AgentTurnContext,
         trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, AgentError> {
         Ok(Self {
             turn_id: context.turn_id.clone(),
             session_id: context.session_id.clone(),
             phase: AgentRuntimePhase::Queued,
             iteration: 0,
-            max_iterations: context.max_iterations,
             pending_tool_calls: Vec::new(),
             completed_tool_results: Vec::new(),
-            history: ContextManager::from_legacy_messages(&context.messages)?,
+            history: ContextManager::from_history(&context.messages),
             emitter: AgentTurnEmitter::new_with_trace_context(
                 &context.session_id,
                 context.trace_context.clone(),
@@ -66,31 +68,33 @@ impl AgentTurnState {
                 .metadata
                 .get("contextSourceCheckpoint")
                 .or_else(|| context.metadata.get("context_source_checkpoint"))
-                .filter(|checkpoint| checkpoint.is_object())
                 .cloned()
                 .or_else(|| {
                     string_field(&context.metadata, "contextSourceCheckpointId")
                         .or_else(|| string_field(&context.metadata, "context_source_checkpoint_id"))
                         .map(|context_id| serde_json::json!({ "contextId": context_id }))
-                }),
-            pending_guidance_message: guidance_continuation_message(&context.metadata),
+                })
+                .map(serde_json::from_value)
+                .transpose()
+                .map_err(|error| {
+                    AgentError::invalid_input(format!("invalid context checkpoint parent: {error}"))
+                })?,
+            pending_guidance_message: guidance_continuation_message(context.continuation.as_ref()),
             tool_loop_guard: ToolLoopGuard::default(),
         })
     }
 
-    fn append_trace_event(&mut self, event: &AgentRuntimeEventEnvelope) -> Result<(), String> {
-        self.trace_committer
-            .commit(event)
-            .map_err(|error| error.to_string())
+    fn append_trace_event(&mut self, event: &AgentRuntimeEventEnvelope) -> Result<(), AgentError> {
+        self.trace_committer.commit(event).map_err(AgentError::from)
     }
 
     pub(super) fn new_for_continuation(
         context: &AgentTurnContext,
         trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
-    ) -> Result<Self, String> {
+    ) -> Result<Self, AgentError> {
         let (trace_committer, existing) =
             TraceCommitter::resume(&context.session_id, &context.turn_id, trace_sink)
-                .map_err(|error| error.to_string())?;
+                .map_err(AgentError::from)?;
         let mut state = Self::new(context, None)?;
         state.trace_committer = trace_committer;
         if !existing.is_empty() {
@@ -108,7 +112,7 @@ impl AgentTurnState {
         context: &AgentTurnContext,
         trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
         existing_events: &[AgentRuntimeEventEnvelope],
-    ) -> Result<Self, String> {
+    ) -> Result<Self, AgentError> {
         let mut state = Self::new_for_continuation(context, trace_sink)?;
         if !existing_events.is_empty() {
             state.emitter = AgentTurnEmitter::from_existing_events_with_thread_id(
@@ -126,7 +130,7 @@ impl AgentTurnState {
         phase: AgentRuntimePhase,
         iteration: i64,
         trigger_event_name: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         let previous_phase = self.phase.clone();
         self.iteration = iteration;
         if previous_phase == phase {
@@ -150,7 +154,7 @@ impl AgentTurnState {
         &mut self,
         iteration: i64,
         trigger_event_name: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         let Some(label) = runtime_status_label(&self.phase) else {
             return Ok(());
         };
@@ -174,151 +178,141 @@ impl AgentTurnState {
 
     pub(super) fn set_stop_reason(
         &mut self,
-        stop_reason: &str,
+        stop_reason: AgentStopReason,
         iteration: i64,
         trigger_event_name: &str,
-    ) -> Result<(), String> {
-        self.stop_reason = Some(stop_reason.to_string());
-        let phase = match stop_reason {
-            "final_response" | "context_compacted" => AgentRuntimePhase::Completed,
-            "cancelled" => AgentRuntimePhase::Cancelled,
-            "awaiting_form" => AgentRuntimePhase::AwaitingForm,
-            _ => AgentRuntimePhase::Failed,
-        };
+    ) -> Result<(), AgentError> {
+        self.stop_reason = Some(stop_reason);
+        let phase = stop_reason.runtime_phase();
         self.transition_phase(phase, iteration, trigger_event_name)
     }
 
-    pub(super) fn active_checkpoint_payload(&self, status: &str) -> Value {
-        serde_json::json!({
-            "status": status,
-            "iteration": self.iteration,
-            "maxIterations": self.max_iterations,
-            "pendingToolCalls": self.pending_tool_calls,
-            "completedToolResults": self.completed_tool_results,
-            "stopReason": self.stop_reason,
-            "messages": self.history.messages(),
-            "contextCheckpoint": self.context_checkpoint,
-        })
+    pub(super) fn active_checkpoint_payload(
+        &self,
+        status: &str,
+    ) -> super::checkpoint_types::PhaseCheckpointInput {
+        use super::checkpoint_types::{
+            AgentCheckpointPayload, ExecutionCheckpoint, PhaseCheckpointInput,
+        };
+        PhaseCheckpointInput {
+            iteration: Some(self.iteration),
+            pending_tool_calls: self.pending_tool_calls.clone(),
+            completed_tool_results: self.completed_tool_results.clone(),
+            stop_reason: self.stop_reason,
+            messages: Some(self.history.history()),
+            payload: AgentCheckpointPayload::Execution(ExecutionCheckpoint {
+                status: Some(status.into()),
+                context_checkpoint: self.context_checkpoint.clone(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }
     }
 
     pub(super) fn compacted_context_checkpoint(
         &self,
         replacement_history: &[Value],
-        event_payload: &Value,
-    ) -> Value {
-        let source_version = context_messages_version(&self.history.messages());
-        let parent_checkpoint = self
+        event: &super::usage::ContextWindowActionPayload,
+    ) -> Result<AgentContextCheckpoint, AgentError> {
+        let context_id = event
+            .context_id
+            .clone()
+            .ok_or_else(|| AgentError::invalid_input("compaction action is missing contextId"))?;
+        let parent = self
             .context_checkpoint
             .as_ref()
-            .or(self.source_context_checkpoint.as_ref());
-        let context_id = event_payload
-            .get("contextId")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let window = crate::threads::rollout::checkpoint_lineage::next_context_window(
+            .map(AgentContextCheckpoint::parent);
+        let lineage = crate::threads::rollout::checkpoint_lineage::next_context_window_from_parent(
             &self.session_id,
-            context_id,
-            parent_checkpoint,
+            &context_id,
+            parent.as_ref().or(self.source_context_checkpoint.as_ref()),
         );
-        serde_json::json!({
-            "schemaVersion": 1,
-            "contextId": event_payload.get("contextId").cloned().unwrap_or(Value::Null),
-            "sourceVersion": source_version,
-            "historyVersion": self.history.history_version(),
-            "sourceContextId": window.source_context_id,
-            "windowNumber": window.window_number,
-            "firstWindowId": window.first_window_id,
-            "previousWindowId": window.previous_window_id,
-            "windowId": window.window_id,
-            "trigger": event_payload.get("trigger").cloned().unwrap_or(Value::Null),
-            "reason": event_payload.get("reason").cloned().unwrap_or(Value::Null),
-            "phase": event_payload.get("phase").cloned().unwrap_or(Value::Null),
-            "method": event_payload.get("method").cloned().unwrap_or(Value::Null),
-            "provider": event_payload.get("provider").cloned().unwrap_or(Value::Null),
-            "model": event_payload.get("model").cloned().unwrap_or(Value::Null),
-            "estimatedTokensBefore": event_payload.get("estimatedTokensBefore").cloned().unwrap_or(Value::Null),
-            "estimatedTokensAfter": event_payload.get("estimatedTokensAfter").cloned().unwrap_or(Value::Null),
-            "maskedToolOutputCount": event_payload.get("maskedToolOutputCount").cloned().unwrap_or(Value::Null),
-            "summaryRequestCount": event_payload.get("summaryRequestCount").cloned().unwrap_or(Value::Null),
-            "installedReplacementHistory": replacement_history,
-            "replacementHistory": replacement_history,
-            "checkpointStage": "installed",
+        let history = super::AgentItemHistory::from_legacy_messages(replacement_history)?;
+        Ok(AgentContextCheckpoint {
+            schema_version: 1,
+            context_id,
+            source_version: context_messages_version(&self.history.messages()),
+            history_version: self.history.history_version(),
+            lineage,
+            trigger: event.trigger.clone(),
+            reason: event.reason.clone(),
+            phase: event.phase.clone(),
+            method: event.method.clone(),
+            provider: event.provider.clone(),
+            model: event.model.clone(),
+            estimated_tokens_before: event.estimated_tokens_before,
+            estimated_tokens_after: event.estimated_tokens_after,
+            masked_tool_output_count: event.masked_tool_output_count,
+            summary_request_count: event.summary_request_count,
+            installed_replacement_history: history.clone(),
+            replacement_history: history,
+            checkpoint_stage: ContextCheckpointStage::Installed,
         })
     }
 
-    pub(super) fn install_compacted_context(
-        &mut self,
-        replacement_history: Vec<Value>,
-        checkpoint: Value,
-    ) -> Result<(), String> {
-        self.history.replace(replacement_history)?;
+    pub(super) fn install_compacted_context(&mut self, checkpoint: AgentContextCheckpoint) {
+        self.history
+            .replace_history(&checkpoint.replacement_history);
         self.context_checkpoint = Some(checkpoint);
-        Ok(())
     }
 
     pub(super) fn finalized_context_checkpoint(
         &self,
         final_message: Option<Value>,
-    ) -> Option<Value> {
+    ) -> Option<AgentContextCheckpoint> {
         let mut checkpoint = self.context_checkpoint.clone()?;
-        let mut replacement_history = self.history.messages();
-        if let Some(final_message) = final_message {
-            replacement_history.push(final_message);
+        let mut history = self.history.history();
+        if let Some(message) = final_message {
+            history.items.extend(
+                super::AgentItemHistory::from_legacy_messages(&[message])
+                    .expect("runtime final message must be a valid agent item")
+                    .items,
+            );
         }
-        checkpoint["replacementHistory"] = Value::Array(replacement_history);
-        checkpoint["checkpointStage"] = Value::String("finalized".to_string());
+        checkpoint.replacement_history = history;
+        checkpoint.checkpoint_stage = ContextCheckpointStage::Finalized;
         Some(checkpoint)
     }
 
     pub(super) fn attach_context_checkpoint(
         &self,
-        result: &mut Value,
+        result: &mut AgentTurnResult,
         final_message: Option<Value>,
     ) {
-        if let Some(checkpoint) = self.finalized_context_checkpoint(final_message) {
-            result["contextCheckpoint"] = checkpoint;
-        }
+        result.context_checkpoint = self.finalized_context_checkpoint(final_message);
     }
 
     pub(super) fn set_pending_tool_call(&mut self, tool_call: &NativeAgentToolCall) {
         self.phase = AgentRuntimePhase::ToolRunning;
-        self.pending_tool_calls = vec![serde_json::json!({
-            "toolCallId": tool_call.id,
-            "toolName": tool_call.name,
-            "argumentsJson": tool_call.arguments_json,
-        })];
+        self.pending_tool_calls = vec![super::PendingAgentToolCall::new(tool_call)];
     }
 
     pub(super) fn set_queued_tool_calls(&mut self, tool_calls: &[(NativeAgentToolCall, &str)]) {
         self.phase = AgentRuntimePhase::ToolRunning;
         self.pending_tool_calls = tool_calls
             .iter()
-            .map(|(tool_call, parallel_mode)| {
-                serde_json::json!({
-                    "toolCallId": tool_call.id,
-                    "toolName": tool_call.name,
-                    "argumentsJson": tool_call.arguments_json,
-                    "parallelMode": parallel_mode,
-                    "status": "queued",
-                })
+            .map(|(call, mode)| super::PendingAgentToolCall {
+                parallel_mode: Some((*mode).into()),
+                status: Some(super::execution_payloads::PendingToolStatus::Queued),
+                ..super::PendingAgentToolCall::new(call)
             })
             .collect();
     }
 
     pub(super) fn mark_pending_tool_running(&mut self, tool_call_id: &str) {
-        for pending_tool_call in &mut self.pending_tool_calls {
-            if pending_tool_call.get("toolCallId").and_then(Value::as_str) == Some(tool_call_id) {
-                pending_tool_call["status"] = Value::String("running".to_string());
-                break;
-            }
-        }
+        let pending = self
+            .pending_tool_calls
+            .iter_mut()
+            .find(|pending| pending.tool_call_id == tool_call_id)
+            .expect("a running tool must already belong to the pending batch");
+        pending.status = Some(super::execution_payloads::PendingToolStatus::Running);
     }
 
     pub(super) fn clear_pending_tool_calls(&mut self) {
         self.pending_tool_calls.clear();
     }
 
-    pub(super) fn emit(&mut self, event: impl Into<PendingAgentEvent>) -> Result<(), String> {
+    pub(super) fn emit(&mut self, event: impl Into<PendingAgentEvent>) -> Result<(), AgentError> {
         let input = prepare_runtime_event_input(
             &self.session_id,
             &self.turn_id,
@@ -334,7 +328,7 @@ impl AgentTurnState {
         &mut self,
         invocation: &AgentHookInvocation,
         evaluation: &AgentHookEvaluation,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         if evaluation.decisions.is_empty() && evaluation.command_runs.is_empty() {
             return Ok(());
         }
@@ -348,14 +342,14 @@ impl AgentTurnState {
         &mut self,
         context: &mut AgentTurnContext,
         evaluation: &AgentHookEvaluation,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         self.apply_additional_context(context, evaluation.additional_context.clone(), false)
     }
 
     pub(super) fn apply_pending_tool_hook_context(
         &mut self,
         context: &mut AgentTurnContext,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         let pending = context.take_pending_tool_hook_context();
         self.apply_additional_context(context, pending, true)
     }
@@ -365,7 +359,7 @@ impl AgentTurnState {
         context: &mut AgentTurnContext,
         additional_contexts: Vec<String>,
         defer_response_items: bool,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         for additional_context in additional_contexts {
             let message = serde_json::json!({
                 "role": "developer",
@@ -384,14 +378,17 @@ impl AgentTurnState {
     pub(super) fn emit_pending_hook_evaluations(
         &mut self,
         context: &AgentTurnContext,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         for (invocation, evaluation) in context.drain_hook_evaluations() {
             self.emit_hook_evaluation(&invocation, &evaluation)?;
         }
         Ok(())
     }
 
-    pub(super) fn emit_turn_started(&mut self, context: &AgentTurnContext) -> Result<(), String> {
+    pub(super) fn emit_turn_started(
+        &mut self,
+        context: &AgentTurnContext,
+    ) -> Result<(), AgentError> {
         let current = current_user_message(&context.messages);
         let message_id = current
             .as_ref()
@@ -467,7 +464,7 @@ impl AgentTurnState {
     pub(super) fn emit_thread_command_acknowledgement(
         &mut self,
         context: &AgentTurnContext,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         let Some(command) = context.metadata.get("_threadCommand") else {
             return Ok(());
         };
@@ -501,7 +498,7 @@ impl AgentTurnState {
         self.emitter.take_events()
     }
 
-    pub(super) fn drain_pending_guidance(&mut self) -> Result<Option<Value>, String> {
+    pub(super) fn drain_pending_guidance(&mut self) -> Result<Option<Value>, AgentError> {
         let Some(message) = self.pending_guidance_message.take() else {
             return Ok(None);
         };
@@ -517,7 +514,7 @@ impl AgentTurnState {
         provider_usage: Option<Value>,
         estimated_context_tokens: i64,
         model_timing: crate::agent::runtime_protocol::AgentModelTiming,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         let normalized_provider_usage = crate::token_usage::normalize_provider_token_usage(
             provider_usage.as_ref().unwrap_or(&Value::Null),
         )?;
@@ -635,16 +632,18 @@ fn user_reference_payloads(
         .collect()
 }
 
-pub(super) fn current_user_message(messages: &[Value]) -> Option<Value> {
-    messages
-        .iter()
-        .rev()
-        .find(|message| {
-            message
-                .get("role")
-                .and_then(Value::as_str)
-                .map(|role| role == "user")
-                .unwrap_or(false)
-        })
-        .cloned()
+pub(super) fn current_user_message(history: &super::AgentItemHistory) -> Option<Value> {
+    history.items.iter().rev().find_map(|item| {
+        let super::AgentItem::UserMessage(message) = item else {
+            return None;
+        };
+        let mut value = item.to_legacy_message().expect("user item must serialize");
+        if let Some(id) = &message.id {
+            value["messageId"] = id.clone().into();
+        }
+        if let Some(id) = &message.client_event_id {
+            value["clientEventId"] = id.clone().into();
+        }
+        Some(value)
+    })
 }

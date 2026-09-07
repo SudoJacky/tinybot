@@ -3,22 +3,22 @@ use crate::agent::bridge::{
     native_agent_string_field, native_agent_turn_id,
 };
 use crate::agent::conversation_title::{should_generate_title, ConversationTitleTask};
+use crate::agent::runtime::AgentError;
 use crate::agent::runtime::{
-    ensure_agent_trace_context, AgentHookInvocation, AgentHookStage, NativeAgentRuntimeServices,
-    NativeAgentTraceSink,
+    AgentHookInvocation, AgentHookStage, NativeAgentRuntimeServices, NativeAgentTraceSink,
 };
+use crate::agent::runtime::{AgentResultError, AgentStopReason, AgentTurnResult};
 use crate::agent::runtime_protocol::AgentTraceContext;
-use crate::protocol::request_id::next_worker_request_correlation;
-use crate::protocol::WorkerRequest;
-use crate::rpc::call_rust_state_service;
+use crate::threads::domain::{StartThreadTurnRequest, ThreadRecord, ThreadSnapshot};
 use crate::threads::workspace_store::WorkspaceThreadStore;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::agent_flow::run_agent_with_services;
+use super::turn_request::AgentTurnRequest;
 use super::webui_continuation::{
-    native_session_checkpoint, resolve_agent_ui_form_body_with_services,
+    native_session_checkpoint, resolve_agent_ui_form_body_with_checkpoint,
 };
 
 pub(crate) struct SubmitThreadTurnInput {
@@ -31,7 +31,7 @@ pub(crate) struct ExecutedThreadTurn {
     pub(crate) thread_id: String,
     pub(crate) session_id: String,
     pub(crate) turn_id: String,
-    pub(crate) result: serde_json::Value,
+    pub(crate) result: AgentTurnResult,
 }
 
 pub(crate) struct SubmitThreadFormInput {
@@ -55,25 +55,22 @@ pub(crate) async fn compact_thread_with_services(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, AgentError> {
     let thread_store = base_services.thread_store()?;
     let snapshot = read_thread_snapshot(
         &input.thread_id,
         &thread_store,
-        config_snapshot.clone(),
         "thread compaction target read",
     )?;
-    if snapshot
-        .get("activeTurn")
-        .or_else(|| snapshot.get("active_turn"))
-        .is_some_and(|turn| !turn.is_null())
-    {
-        return Err("Cannot compact context while the thread has an active turn.".to_string());
+    if snapshot.active_turn.is_some() {
+        return Err(
+            "Cannot compact context while the thread has an active turn."
+                .to_string()
+                .into(),
+        );
     }
-    let thread = snapshot
-        .get("thread")
-        .ok_or_else(|| "thread compaction target read returned no thread".to_string())?;
-    let thread_id = thread_thread_id(thread)?;
+    let thread = &snapshot.thread;
+    let thread_id = thread.thread_id.clone();
     let turn_id = generate_thread_compaction_turn_id();
     let mut spec = serde_json::json!({
         "runtime": "rust",
@@ -92,31 +89,31 @@ pub(crate) async fn compact_thread_with_services(
             "clientEventId": input.client_event_id,
         }
     });
-    if let Some(model) = native_agent_string_field(thread, "model") {
-        spec["model"] = serde_json::Value::String(model);
+    if let Some(model) = thread.metadata.model.as_ref() {
+        spec["model"] = serde_json::Value::String(model.clone());
     }
-    if let Some(provider) = native_agent_string_field(thread, "modelProvider")
-        .or_else(|| native_agent_string_field(thread, "model_provider"))
-        .or_else(|| native_agent_string_field(thread, "provider"))
-    {
+    if let Some(provider) = native_agent_string_field(&thread.metadata.extra, "modelProvider") {
         spec["provider"] = serde_json::Value::String(provider);
     }
+    let request = AgentTurnRequest::from_wire(spec, &config_snapshot, &workspace_root)?;
     let result = run_agent_with_services(
         base_services,
-        spec,
+        request,
         workspace_root,
         config_snapshot,
         live_trace_sink,
     )
     .await?;
-    if result.get("stopReason").and_then(serde_json::Value::as_str) != Some("context_compacted") {
-        return Err(result
-            .get("error")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or("Context compaction failed.")
-            .to_string());
+    if result.stop_reason != AgentStopReason::ContextCompacted {
+        return Err(match result.error {
+            Some(AgentResultError::Structured(error)) => error,
+            Some(AgentResultError::Message(message)) => message.into(),
+            None => "Context compaction failed.".into(),
+        });
     }
-    Ok(result)
+    result
+        .into_value()
+        .map_err(crate::agent::runtime::AgentError::from)
 }
 
 pub(crate) async fn submit_thread_turn_with_services(
@@ -125,7 +122,7 @@ pub(crate) async fn submit_thread_turn_with_services(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, AgentError> {
     let completed = execute_thread_turn_with_services(
         base_services,
         input,
@@ -147,14 +144,13 @@ pub(crate) async fn execute_thread_turn_with_services(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
-) -> Result<ExecutedThreadTurn, String> {
+) -> Result<ExecutedThreadTurn, AgentError> {
     let thread_store = base_services.thread_store()?;
     let thread =
         ensure_thread_turn_target(input.thread_id, &thread_store, config_snapshot.clone())?;
-    let thread_id = thread_thread_id(&thread)?;
+    let thread_id = thread.thread_id.clone();
     let thread_working_directory = thread_working_directory(&thread);
-    let is_project_coordinator =
-        thread.get("source").and_then(serde_json::Value::as_str) == Some("project_coordinator");
+    let is_project_coordinator = thread.source == "project_coordinator";
     let coordinator_project_group_id = is_project_coordinator
         .then(|| thread_project_group_id(&thread))
         .flatten();
@@ -187,11 +183,7 @@ pub(crate) async fn execute_thread_turn_with_services(
                 .and_then(|metadata| native_agent_string_field(metadata, "working_directory"))
         })
         .is_some();
-    let mut spec = if input.spec.is_object() {
-        input.spec
-    } else {
-        serde_json::json!({})
-    };
+    let mut spec = input.spec;
     let spec_object = spec
         .as_object_mut()
         .ok_or_else(|| "thread turn spec must be a JSON object".to_string())?;
@@ -242,8 +234,9 @@ pub(crate) async fn execute_thread_turn_with_services(
             }
         }
     }
-    let trace_context = ensure_agent_trace_context(&mut spec)?;
-    let title_task = should_generate_title(&thread)
+    let request = AgentTurnRequest::from_wire(spec.clone(), &config_snapshot, &workspace_root)?;
+    let trace_context = request.input.trace_context.clone();
+    let title_task = should_generate_title(&thread.title, thread.metadata.turn_count)
         .then(|| native_agent_current_user_message(&spec))
         .flatten()
         .and_then(|message| {
@@ -267,7 +260,7 @@ pub(crate) async fn execute_thread_turn_with_services(
     let thread_start_evaluation =
         thread_hook_services.evaluate_hook_invocation(thread_start_invocation)?;
     if let Some(reason) = thread_start_evaluation.denied_reason.clone() {
-        return Err(format!("thread start hook denied: {reason}"));
+        return Err(format!("thread start hook denied: {reason}").into());
     }
 
     start_native_agent_thread_turn(
@@ -287,7 +280,7 @@ pub(crate) async fn execute_thread_turn_with_services(
     }
     let result = run_agent_with_services(
         base_services,
-        spec,
+        request,
         workspace_root,
         config_snapshot,
         live_trace_sink,
@@ -347,28 +340,19 @@ pub(crate) async fn submit_thread_form_with_services(
     workspace_root: PathBuf,
     config_snapshot: serde_json::Value,
     live_trace_sink: Option<Arc<dyn NativeAgentTraceSink>>,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, AgentError> {
     let command_id = input.command_id.trim();
     if command_id.is_empty() {
-        return Err("thread form commandId must not be empty".to_string());
+        return Err("thread form commandId must not be empty".to_string().into());
     }
     let thread_store = base_services.thread_store()?;
-    let target_snapshot = read_thread_snapshot(
-        &input.thread_id,
-        &thread_store,
-        config_snapshot.clone(),
-        "thread form target read",
-    )?;
-    let thread = target_snapshot
-        .get("thread")
-        .cloned()
-        .ok_or_else(|| "thread form target read returned no thread".to_string())?;
-    let thread_id = thread_thread_id(&thread)?;
+    let target_snapshot =
+        read_thread_snapshot(&input.thread_id, &thread_store, "thread form target read")?;
+    let thread_id = target_snapshot.thread.thread_id.clone();
     let session_id = thread_id.clone();
     let thread_checkpoint = native_session_checkpoint(
         &session_id,
         &thread_store,
-        config_snapshot.clone(),
         "thread form Rollout checkpoint lookup",
     )?
     .ok_or_else(|| "thread form target has no Rollout checkpoint".to_string())?;
@@ -381,27 +365,23 @@ pub(crate) async fn submit_thread_form_with_services(
         "thread_id": thread_id.clone(),
         "values": input.values,
         "action": input.action,
-        "threadCheckpoint": thread_checkpoint,
     });
-    let (status_code, mut result) = resolve_agent_ui_form_body_with_services(
+    let (status_code, mut result) = resolve_agent_ui_form_body_with_checkpoint(
         base_services,
         input.form_id,
         &body,
         cancelled,
+        Some(thread_checkpoint),
         workspace_root.clone(),
         config_snapshot.clone(),
         live_trace_sink,
     )
     .await?;
     result["statusCode"] = serde_json::Value::Number(status_code.into());
-    let snapshot = read_thread_snapshot(
-        &thread_id,
-        &thread_store,
-        config_snapshot,
-        "thread form snapshot",
-    )?;
+    let snapshot = read_thread_snapshot(&thread_id, &thread_store, "thread form snapshot")?;
     result["threadId"] = serde_json::Value::String(thread_id.clone());
-    result["threadSnapshot"] = snapshot.clone();
+    result["threadSnapshot"] =
+        serde_json::to_value(&snapshot).expect("thread snapshot must serialize");
     Ok(serde_json::json!({
         "threadId": thread_id,
         "sessionId": session_id,
@@ -414,90 +394,38 @@ fn ensure_thread_turn_target(
     thread_id: Option<String>,
     thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
-) -> Result<serde_json::Value, String> {
+) -> Result<ThreadRecord, AgentError> {
     match thread_id {
         Some(thread_id) if !thread_id.trim().is_empty() => {
-            let snapshot = read_thread_snapshot(
-                &thread_id,
-                thread_store,
-                config_snapshot,
-                "thread turn target read",
-            )?;
-            snapshot
-                .get("thread")
-                .cloned()
-                .ok_or_else(|| "thread turn target read returned no thread".to_string())
+            Ok(thread_store.read_agent_thread(&thread_id)?.thread)
         }
-        _ => {
-            let generated_thread_id = generate_thread_turn_thread_id();
-            let request_id = next_worker_request_correlation();
-            call_rust_state_service(
-                thread_store,
-                config_snapshot,
-                WorkerRequest::new(
-                    request_id.id("thread-turn-create"),
-                    request_id.trace_id("thread-turn-create"),
-                    "thread.create",
-                    serde_json::json!({
-                        "threadId": generated_thread_id,
-                    }),
-                ),
-                "thread turn target create",
-            )
-        }
+        _ => thread_store
+            .create_agent_thread(generate_thread_turn_thread_id(), &config_snapshot)
+            .map_err(AgentError::from),
     }
 }
 
 pub(crate) fn read_thread_snapshot(
     thread_id: &str,
     thread_store: &WorkspaceThreadStore,
-    config_snapshot: serde_json::Value,
     label: &str,
-) -> Result<serde_json::Value, String> {
-    let request_id = next_worker_request_correlation();
-    call_rust_state_service(
-        thread_store,
-        config_snapshot,
-        WorkerRequest::new(
-            request_id.id("thread-turn-read"),
-            request_id.trace_id("thread-turn-read"),
-            "thread.read",
-            serde_json::json!({ "threadId": thread_id }),
-        ),
-        label,
-    )
+) -> Result<ThreadSnapshot, AgentError> {
+    thread_store
+        .read_agent_thread(thread_id)
+        .map_err(|error| AgentError::persistence(label, error))
 }
 
-pub(crate) fn thread_thread_id(thread: &serde_json::Value) -> Result<String, String> {
-    thread
-        .get("threadId")
-        .and_then(serde_json::Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| "thread target is missing threadId".to_string())
+fn thread_working_directory(thread: &ThreadRecord) -> Option<String> {
+    thread.metadata.working_directory.clone()
 }
 
-fn thread_working_directory(thread: &serde_json::Value) -> Option<String> {
-    thread
-        .get("metadata")
-        .and_then(|metadata| {
-            native_agent_string_field(metadata, "workingDirectory")
-                .or_else(|| native_agent_string_field(metadata, "working_directory"))
-                .or_else(|| native_agent_string_field(metadata, "cwd"))
-        })
-        .or_else(|| native_agent_string_field(thread, "workingDirectory"))
-        .or_else(|| native_agent_string_field(thread, "working_directory"))
-        .or_else(|| native_agent_string_field(thread, "cwd"))
+fn thread_project_group_id(thread: &ThreadRecord) -> Option<String> {
+    native_agent_string_field(&thread.metadata.extra, "projectGroupId")
 }
 
-fn thread_project_group_id(thread: &serde_json::Value) -> Option<String> {
-    thread
-        .get("metadata")
-        .and_then(|metadata| metadata.get("extra"))
-        .and_then(|extra| native_agent_string_field(extra, "projectGroupId"))
-}
-
-fn normalize_thread_turn_messages(input: serde_json::Value) -> Result<serde_json::Value, String> {
+fn normalize_thread_turn_messages(
+    input: serde_json::Value,
+) -> Result<serde_json::Value, AgentError> {
     if input
         .as_array()
         .is_some_and(|messages| !messages.is_empty())
@@ -548,9 +476,11 @@ fn normalize_thread_turn_messages(input: serde_json::Value) -> Result<serde_json
     Ok(messages)
 }
 
-fn validate_turn_messages(messages: &serde_json::Value) -> Result<(), String> {
+fn validate_turn_messages(messages: &serde_json::Value) -> Result<(), AgentError> {
     if !messages.is_array() {
-        return Err("thread turn messages must be a JSON array".to_string());
+        return Err("thread turn messages must be a JSON array"
+            .to_string()
+            .into());
     }
     Ok(())
 }
@@ -585,7 +515,7 @@ fn start_native_agent_thread_turn(
     trace_context: &AgentTraceContext,
     thread_store: &WorkspaceThreadStore,
     config_snapshot: serde_json::Value,
-) -> Result<serde_json::Value, String> {
+) -> Result<(), AgentError> {
     let mut input = native_agent_current_user_message(spec)
         .unwrap_or_else(|| serde_json::json!({ "role": "user", "content": "" }));
     let message_id = input
@@ -595,23 +525,17 @@ fn start_native_agent_thread_turn(
         .unwrap_or_else(|| serde_json::Value::String(format!("user:{turn_id}")));
     input["id"] = message_id.clone();
     input["messageId"] = message_id;
-    call_rust_state_service(
-        thread_store,
-        config_snapshot.clone(),
-        WorkerRequest::new(
-            format!("{}:thread-start", trace_context.request_id),
-            trace_context.trace_id.clone(),
-            "thread.start_turn",
-            serde_json::json!({
-                "threadId": thread_id,
-                "clientEventId": format!("native-agent-thread-start:{turn_id}"),
-                "turnId": turn_id,
-                "input": input,
-                "model": native_agent_model(spec, &config_snapshot),
-                "provider": native_agent_provider(spec, &config_snapshot),
-                "traceContext": trace_context,
-            }),
-        ),
-        "native agent thread turn start",
-    )
+    thread_store
+        .start_agent_thread_turn(StartThreadTurnRequest {
+            thread_id: thread_id.into(),
+            client_event_id: Some(format!("native-agent-thread-start:{turn_id}")),
+            turn_id: Some(turn_id.into()),
+            input,
+            model: Some(native_agent_model(spec, &config_snapshot)),
+            provider: native_agent_provider(spec, &config_snapshot),
+            trace_context: Some(trace_context.clone()),
+            ..Default::default()
+        })
+        .map(|_| ())
+        .map_err(AgentError::from)
 }

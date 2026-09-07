@@ -602,6 +602,7 @@ pub(crate) async fn native_webui_agent_ui_form_resolution_body_async(
         None,
     )
     .await
+    .map_err(|error| error.to_string())
 }
 
 fn webui_route_response(

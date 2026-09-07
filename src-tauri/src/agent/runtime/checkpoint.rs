@@ -1,107 +1,38 @@
-use super::{string_field, AgentTurnContext, NativeAgentRuntimeServices};
+use super::checkpoint_types::PhaseCheckpointInput;
+use super::{AgentCheckpoint, AgentCheckpointPhase, AgentTurnContext, NativeAgentRuntimeServices};
 use serde_json::Value;
 
-pub(super) fn checkpoint_value(context: &AgentTurnContext, phase: &str, payload: Value) -> Value {
-    let activated_tool_ids = if matches!(
-        phase,
-        "cancelled"
-            | "interrupted"
-            | "runtime_restarted"
-            | "completed"
-            | "failed"
-            | "final_response"
-            | "max_iterations"
-    ) {
-        Vec::new()
-    } else {
-        context.tool_router.activated_tool_ids()
-    };
-    let iteration = payload.get("iteration").cloned().unwrap_or(Value::Null);
-    let pending_tool_calls = checkpoint_pending_tool_calls(&payload);
-    let completed_tool_results = checkpoint_completed_tool_results(&payload);
-    let resume_token = payload.get("resumeToken").cloned().unwrap_or(Value::Null);
-    let stop_reason = payload.get("stopReason").cloned().unwrap_or(Value::Null);
-    let messages = payload
-        .get("messages")
-        .cloned()
-        .or_else(|| context.spec.get("messages").cloned())
-        .unwrap_or_else(|| serde_json::json!([]));
-    let mut phase_payload = payload;
-    if let Some(phase_payload) = phase_payload.as_object_mut() {
-        for promoted_field in [
-            "iteration",
-            "maxIterations",
-            "pendingToolCalls",
-            "completedToolResults",
-            "resumeToken",
-            "stopReason",
-            "messages",
-        ] {
-            phase_payload.remove(promoted_field);
-        }
-    }
-    serde_json::json!({
-        "schemaVersion": 1,
-        "runtime": "rust",
-        "turnId": context.turn_id,
-        "sessionId": context.session_id,
-        "threadId": string_field(&context.metadata, "threadId")
-            .or_else(|| string_field(&context.metadata, "thread_id")),
-        "traceContext": context.trace_context,
-        "phase": phase,
-        "iteration": iteration,
-        "maxIterations": context.max_iterations,
-        "pendingToolCalls": pending_tool_calls,
-        "activatedToolIds": activated_tool_ids,
-        "completedToolResults": completed_tool_results,
-        "resumeToken": resume_token,
-        "stopReason": stop_reason,
-        "payload": phase_payload,
-        "messages": messages,
-    })
-}
-
-fn checkpoint_pending_tool_calls(payload: &Value) -> Value {
-    if let Some(pending) = payload.get("pendingToolCalls") {
-        return pending.clone();
-    }
-    let Some(tool_call_id) = payload.get("toolCallId").cloned() else {
-        return serde_json::json!([]);
-    };
-    serde_json::json!([{
-        "toolCallId": tool_call_id,
-        "toolName": payload.get("toolName").cloned().unwrap_or(Value::Null),
-        "argumentsJson": payload.get("argumentsJson").cloned().unwrap_or(Value::Null),
-    }])
+pub(super) fn checkpoint_value(
+    context: &AgentTurnContext,
+    phase: impl Into<AgentCheckpointPhase>,
+    mut input: PhaseCheckpointInput,
+) -> AgentCheckpoint {
+    input.completed_tool_results = checkpoint_completed_tool_results(input.completed_tool_results);
+    AgentCheckpoint::new(context, phase.into(), input)
 }
 
 pub(super) fn save_phase_checkpoint(
     services: &NativeAgentRuntimeServices,
     context: &AgentTurnContext,
-    phase: &str,
-    payload: Value,
-) -> Value {
-    let checkpoint = checkpoint_value(context, phase, payload);
+    phase: impl Into<AgentCheckpointPhase>,
+    input: PhaseCheckpointInput,
+) -> AgentCheckpoint {
+    let checkpoint = checkpoint_value(context, phase, input);
     services
         .checkpoints
         .save_for_turn(&context.session_id, &context.turn_id, checkpoint.clone());
     checkpoint
 }
 
-fn checkpoint_completed_tool_results(payload: &Value) -> Value {
-    let mut completed = payload
-        .get("completedToolResults")
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!([]));
-    let Some(results) = completed.as_array_mut() else {
-        return completed;
-    };
-    for result in results {
-        let tool_name = result.get("toolName").and_then(Value::as_str);
-        if !matches!(tool_name, Some("exec_command" | "write_stdin")) {
+fn checkpoint_completed_tool_results(
+    mut results: Vec<super::CompletedAgentToolResult>,
+) -> Vec<super::CompletedAgentToolResult> {
+    for result in &mut results {
+        let tool_name = result.tool_name.as_str();
+        if !matches!(tool_name, "exec_command" | "write_stdin") {
             continue;
         }
-        let Some(envelope) = result.get_mut("envelope").and_then(Value::as_object_mut) else {
+        let Some(envelope) = result.envelope.as_object_mut() else {
             continue;
         };
         let is_shell_process = envelope
@@ -115,7 +46,7 @@ fn checkpoint_completed_tool_results(payload: &Value) -> Value {
             envelope.remove("raw");
         }
     }
-    completed
+    results
 }
 
 #[cfg(test)]
@@ -134,22 +65,17 @@ mod tests {
             }),
             json!({}),
         );
-        let checkpoint = checkpoint_value(
-            &context,
-            "awaiting_form",
-            json!({
-                "kind": "user_input",
-                "formId": "form-1",
-                "form": { "questions": [] },
-                "iteration": 2,
-                "maxIterations": 4,
-                "pendingToolCalls": [{ "toolCallId": "call-1" }],
-                "completedToolResults": [{ "toolCallId": "call-0" }],
-                "resumeToken": "resume-1",
-                "stopReason": "awaiting_form",
-                "messages": [{ "role": "user", "content": "run" }]
-            }),
-        );
+        let checkpoint = checkpoint_value(&context, crate::agent::runtime_protocol::AgentRuntimePhase::AwaitingForm,
+            PhaseCheckpointInput {
+                iteration: Some(2), pending_tool_calls: vec![serde_json::from_value(json!({"toolCallId":"call-1","toolName":"request_user_input","argumentsJson":"{}"})).unwrap()],
+                completed_tool_results: vec![serde_json::from_value(json!({"toolCallId":"call-0","toolName":"read_file","status":"ok","envelope":{}})).unwrap()], resume_token: Some("resume-1".into()),
+                stop_reason: Some(super::super::AgentStopReason::AwaitingForm), messages: Some(super::super::AgentItemHistory::from_legacy_messages(&[json!({"role":"user","content":"run"})]).unwrap()),
+                payload: super::super::checkpoint_types::AgentCheckpointPayload::UserInput(super::super::checkpoint_types::UserInputCheckpoint {
+                    kind: super::super::checkpoint_types::UserInputCheckpointKind::UserInput, form_id: "form-1".into(), pending_hook_context: Vec::new(),
+                    form: serde_json::from_value(json!({"title":"Question", "fields":[], "form_id":"form-1", "correlation":{"form_id":"form-1","turn_id":"turn-1","session_id":"session-1","tool_call_id":"call-1"}})).unwrap(),
+                }),
+            });
+        let checkpoint = serde_json::to_value(checkpoint).unwrap();
 
         assert_eq!(checkpoint["iteration"], 2);
         assert_eq!(checkpoint["maxIterations"], 4);
@@ -202,10 +128,10 @@ mod tests {
         .to_string();
         let checkpoint = checkpoint_value(
             &context,
-            "interrupted",
-            json!({
-                "iteration": 1,
-                "completedToolResults": [{
+            super::super::AgentStopReason::Interrupted,
+            PhaseCheckpointInput {
+                iteration: Some(1),
+                completed_tool_results: vec![serde_json::from_value(json!({
                     "toolCallId": "call-shell",
                     "toolName": "exec_command",
                     "status": "ok",
@@ -228,15 +154,21 @@ mod tests {
                             "workingDir": "D:/workspace"
                         }
                     }
-                }],
-                "messages": [{
-                    "role": "tool",
-                    "tool_call_id": "call-shell",
-                    "content": model_content
-                }]
-            }),
+                }))
+                .unwrap()],
+                messages: Some(
+                    super::super::AgentItemHistory::from_legacy_messages(&[json!({
+                        "role": "tool",
+                        "tool_call_id": "call-shell",
+                        "content": model_content
+                    })])
+                    .unwrap(),
+                ),
+                ..Default::default()
+            },
         );
 
+        let checkpoint = serde_json::to_value(checkpoint).unwrap();
         assert!(checkpoint["completedToolResults"][0]["envelope"]
             .get("raw")
             .is_none());

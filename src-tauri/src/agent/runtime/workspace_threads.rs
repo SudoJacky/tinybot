@@ -1,14 +1,15 @@
+use super::{AgentExecutionStatus, AgentStopReason};
 use super::{AgentTurnContext, NativeAgentRuntimeServices};
 use crate::agent::bridge::{
-    execute_thread_turn_with_services, native_agent_string_field, native_agent_turn_status,
-    SubmitThreadTurnInput,
+    execute_thread_turn_with_services, native_agent_string_field, SubmitThreadTurnInput,
 };
+use crate::agent::runtime::AgentError;
 use crate::project_groups::ProjectGroup;
 #[cfg(test)]
 use crate::project_groups::SaveProjectGroupInput;
 use crate::protocol::request_id::next_worker_request_correlation;
 use crate::protocol::WorkerRequest;
-use crate::rpc::call_rust_state_service;
+use crate::rpc::call_rust_state_service_typed as call_rust_state_service;
 use crate::threads::workspace_store::WorkspaceThreadStore;
 use crate::tools::registry::{WorkspaceThreadTarget, WorkspaceThreadToolContributor};
 use crate::workspace_registry::{canonical_workspace, workspace_id};
@@ -39,7 +40,7 @@ struct SendThreadMessageArgs {
 pub(super) fn tool_contributor(
     services: &NativeAgentRuntimeServices,
     context: &AgentTurnContext,
-) -> Result<Option<WorkspaceThreadToolContributor>, String> {
+) -> Result<Option<WorkspaceThreadToolContributor>, AgentError> {
     let Some(thread_store) = services.optional_thread_store() else {
         return Ok(None);
     };
@@ -52,14 +53,16 @@ pub(super) fn tool_contributor(
     if targets.is_empty() {
         return Ok(None);
     }
-    WorkspaceThreadToolContributor::new(targets).map(Some)
+    WorkspaceThreadToolContributor::new(targets)
+        .map(Some)
+        .map_err(AgentError::from)
 }
 
 pub(super) async fn spawn_workspace_thread(
     services: &NativeAgentRuntimeServices,
     context: &AgentTurnContext,
     arguments: &serde_json::Map<String, Value>,
-) -> Result<Value, String> {
+) -> Result<Value, AgentError> {
     let args = parse_spawn_args(arguments)?;
     let parent_thread_id = current_thread_id(context)?;
     let thread_store = services.thread_store()?;
@@ -106,7 +109,9 @@ pub(super) async fn spawn_workspace_thread(
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| "workspace thread create returned no threadId".to_string())?;
     if created_thread_id != thread_id {
-        return Err("workspace thread create returned an unexpected threadId".to_string());
+        return Err("workspace thread create returned an unexpected threadId"
+            .to_string()
+            .into());
     }
     eprintln!(
         "workspace_thread_created {}",
@@ -124,7 +129,7 @@ pub(super) async fn send_thread_message(
     services: &NativeAgentRuntimeServices,
     context: &AgentTurnContext,
     arguments: &serde_json::Map<String, Value>,
-) -> Result<Value, String> {
+) -> Result<Value, AgentError> {
     let args = parse_send_args(arguments)?;
     let parent_thread_id = current_thread_id(context)?;
     let thread_store = services.thread_store()?;
@@ -145,14 +150,16 @@ pub(super) async fn send_thread_message(
         return Err(format!(
             "thread `{}` was not created by current thread `{parent_thread_id}`",
             args.thread_id
-        ));
+        )
+        .into());
     }
     if thread_project_group_id(&thread).as_deref() != Some(project_group.project_group_id.as_str())
     {
         return Err(format!(
             "thread `{}` does not belong to project group `{}`",
             args.thread_id, project_group.project_group_id
-        ));
+        )
+        .into());
     }
     let target_workspace = thread_workspace(&thread)?;
     thread_store.project_groups().authorize_workspace(
@@ -175,7 +182,7 @@ fn run_workspace_thread_turn(
     context: &AgentTurnContext,
     thread_id: &str,
     message: &str,
-) -> BoxFuture<'static, Result<Value, String>> {
+) -> BoxFuture<'static, Result<Value, AgentError>> {
     let services = services.clone();
     let context = context.clone();
     let thread_id = thread_id.to_string();
@@ -229,18 +236,9 @@ fn run_workspace_thread_turn(
         } else {
             execution.await?
         };
-        let stop_reason = executed
-            .result
-            .get("stopReason")
-            .or_else(|| executed.result.get("stop_reason"))
-            .and_then(Value::as_str);
+        let stop_reason = executed.result.stop_reason;
         let status = workspace_thread_status(stop_reason);
-        let final_message = executed
-            .result
-            .get("finalContent")
-            .or_else(|| executed.result.get("final_content"))
-            .and_then(Value::as_str)
-            .unwrap_or_default();
+        let final_message = &executed.result.final_content;
         eprintln!(
             "workspace_thread_turn_stopped {}",
             json!({
@@ -264,7 +262,7 @@ fn coordinator_project_group(
     thread_store: &WorkspaceThreadStore,
     config_snapshot: Value,
     context: &AgentTurnContext,
-) -> Result<Option<ProjectGroup>, String> {
+) -> Result<Option<ProjectGroup>, AgentError> {
     let Some(thread_id) = context
         .thread_id
         .as_deref()
@@ -283,9 +281,9 @@ fn coordinator_project_group(
         return Ok(None);
     }
     let Some(project_group_id) = thread_project_group_id(&thread) else {
-        return Err(format!(
-            "project coordinator thread `{thread_id}` has no projectGroupId"
-        ));
+        return Err(
+            format!("project coordinator thread `{thread_id}` has no projectGroupId").into(),
+        );
     };
     let project_group = thread_store
         .project_groups()
@@ -328,21 +326,21 @@ fn available_project_workspaces(project_group: &ProjectGroup) -> Vec<WorkspaceTh
         .collect()
 }
 
-fn current_thread_id(context: &AgentTurnContext) -> Result<String, String> {
+fn current_thread_id(context: &AgentTurnContext) -> Result<String, AgentError> {
     context
         .thread_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
-        .ok_or_else(|| "workspace thread tools require a persisted parent thread".to_string())
+        .ok_or_else(|| AgentError::from("workspace thread tools require a persisted parent thread"))
 }
 
 fn thread_id_workspace(
     services: &NativeAgentRuntimeServices,
     context: &AgentTurnContext,
     thread_id: &str,
-) -> Result<String, String> {
+) -> Result<String, AgentError> {
     let thread = read_thread(
         &services.thread_store()?,
         context.config_snapshot.clone(),
@@ -357,7 +355,7 @@ fn read_thread(
     config_snapshot: Value,
     thread_id: &str,
     label: &str,
-) -> Result<Value, String> {
+) -> Result<Value, AgentError> {
     let request_id = next_worker_request_correlation();
     let snapshot = call_rust_state_service(
         thread_store,
@@ -373,15 +371,15 @@ fn read_thread(
     snapshot
         .get("thread")
         .cloned()
-        .ok_or_else(|| format!("{label} returned no thread"))
+        .ok_or_else(|| AgentError::from(format!("{label} returned no thread")))
 }
 
-fn thread_workspace(thread: &Value) -> Result<PathBuf, String> {
+fn thread_workspace(thread: &Value) -> Result<PathBuf, AgentError> {
     let working_directory = thread
         .get("metadata")
         .and_then(|metadata| native_agent_string_field(metadata, "workingDirectory"))
         .ok_or_else(|| "workspace thread has no workingDirectory".to_string())?;
-    canonical_workspace(Path::new(&working_directory))
+    canonical_workspace(Path::new(&working_directory)).map_err(AgentError::from)
 }
 
 fn thread_project_group_id(thread: &Value) -> Option<String> {
@@ -393,7 +391,7 @@ fn thread_project_group_id(thread: &Value) -> Option<String> {
 
 fn parse_spawn_args(
     arguments: &serde_json::Map<String, Value>,
-) -> Result<SpawnWorkspaceThreadArgs, String> {
+) -> Result<SpawnWorkspaceThreadArgs, AgentError> {
     let mut args =
         serde_json::from_value::<SpawnWorkspaceThreadArgs>(Value::Object(arguments.clone()))
             .map_err(|error| format!("invalid spawn_workspace_thread arguments: {error}"))?;
@@ -404,7 +402,7 @@ fn parse_spawn_args(
 
 fn parse_send_args(
     arguments: &serde_json::Map<String, Value>,
-) -> Result<SendThreadMessageArgs, String> {
+) -> Result<SendThreadMessageArgs, AgentError> {
     let mut args =
         serde_json::from_value::<SendThreadMessageArgs>(Value::Object(arguments.clone()))
             .map_err(|error| format!("invalid send_thread_message arguments: {error}"))?;
@@ -413,20 +411,20 @@ fn parse_send_args(
     Ok(args)
 }
 
-fn non_empty_argument(name: &str, value: String) -> Result<String, String> {
+fn non_empty_argument(name: &str, value: String) -> Result<String, AgentError> {
     let value = value.trim().to_string();
     if value.is_empty() {
-        return Err(format!("{name} must not be empty"));
+        return Err(format!("{name} must not be empty").into());
     }
     Ok(value)
 }
 
-fn workspace_thread_status(stop_reason: Option<&str>) -> &'static str {
-    match native_agent_turn_status(stop_reason) {
-        "completed" => "completed",
-        "waiting" => "awaiting_user",
-        "interrupted" | "cancelled" => "interrupted",
-        _ => "failed",
+fn workspace_thread_status(stop_reason: AgentStopReason) -> &'static str {
+    match stop_reason.status() {
+        AgentExecutionStatus::Completed => "completed",
+        AgentExecutionStatus::Waiting => "awaiting_user",
+        AgentExecutionStatus::Interrupted | AgentExecutionStatus::Cancelled => "interrupted",
+        AgentExecutionStatus::Failed => "failed",
     }
 }
 
@@ -503,7 +501,7 @@ mod tests {
             _session_id: &str,
             _turn_id: &str,
             _event: &AgentRuntimeEventEnvelope,
-        ) -> Result<(), String> {
+        ) -> Result<(), crate::agent::runtime::AgentError> {
             Ok(())
         }
 
@@ -512,7 +510,7 @@ mod tests {
             session_id: &str,
             _turn_id: &str,
             _patch: &AgentTimelinePatch,
-        ) -> Result<(), String> {
+        ) -> Result<(), crate::agent::runtime::AgentError> {
             self.timeline_patch_session_ids
                 .lock()
                 .expect("timeline patch session lock should not be poisoned")
@@ -582,13 +580,22 @@ mod tests {
 
     #[test]
     fn result_status_has_only_the_public_workspace_thread_states() {
-        assert_eq!(workspace_thread_status(Some("final_response")), "completed");
         assert_eq!(
-            workspace_thread_status(Some("awaiting_form")),
+            workspace_thread_status(AgentStopReason::FinalResponse),
+            "completed"
+        );
+        assert_eq!(
+            workspace_thread_status(AgentStopReason::AwaitingForm),
             "awaiting_user"
         );
-        assert_eq!(workspace_thread_status(Some("cancelled")), "interrupted");
-        assert_eq!(workspace_thread_status(Some("provider_error")), "failed");
+        assert_eq!(
+            workspace_thread_status(AgentStopReason::Cancelled),
+            "interrupted"
+        );
+        assert_eq!(
+            workspace_thread_status(AgentStopReason::ProviderError),
+            "failed"
+        );
     }
 
     #[test]
@@ -711,14 +718,15 @@ mod tests {
         ))
         .expect("parallel workspace spawns should complete");
 
-        assert_eq!(result["stopReason"], "final_response");
-        assert_eq!(result["finalContent"], "all workspace threads completed");
-        let completed = result["completedToolResults"]
-            .as_array()
+        assert_eq!(result.stop_reason.as_str(), "final_response");
+        assert_eq!(result.final_content, "all workspace threads completed");
+        let completed = result
+            .completed_tool_results
+            .as_ref()
             .expect("completed tool results should be an array");
         assert_eq!(completed.len(), 2);
-        assert_eq!(completed[0]["toolCallId"], "call-spawn-0");
-        assert_eq!(completed[1]["toolCallId"], "call-spawn-1");
+        assert_eq!(completed[0].tool_call_id, "call-spawn-0");
+        assert_eq!(completed[1].tool_call_id, "call-spawn-1");
         let child_patch_session_ids = trace_sink
             .timeline_patch_session_ids
             .lock()
@@ -882,7 +890,7 @@ mod tests {
                 .expect("cancelled coordinator task should join")
                 .expect("cancelled coordinator should return a structured result");
 
-            assert_eq!(result["stopReason"], "interrupted");
+            assert_eq!(result.stop_reason.as_str(), "interrupted");
             let request_id = next_worker_request_correlation();
             let listed = call_rust_state_service(
                 &store,
@@ -1021,7 +1029,9 @@ mod tests {
             .unwrap(),
         ))
         .expect_err("an unrelated child-workspace session must be rejected");
-        assert!(unrelated.contains("was not created by current thread"));
+        assert!(unrelated
+            .to_string()
+            .contains("was not created by current thread"));
 
         let spawned = tauri::async_runtime::block_on(spawn_workspace_thread(
             &services,

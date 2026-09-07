@@ -2,7 +2,9 @@ use crate::tools::registry::{
     ToolCancellationMode, ToolExecutionTarget, ToolExposure, ToolRegistryEntry, ToolRuntimePolicy,
 };
 use crate::tools::registry::{MCP_CALL_TOOL_METHOD, UPDATE_PLAN_METHOD};
-use serde_json::{json, Value};
+#[cfg(test)]
+use serde_json::json;
+use serde_json::Value;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -170,6 +172,7 @@ impl NativeToolRouter {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(super) fn restore_from_checkpoint(&mut self, checkpoint: &Value) -> Result<(), String> {
         let activated_tool_ids = checkpoint
             .get("activatedToolIds")
@@ -191,12 +194,19 @@ impl NativeToolRouter {
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
+        self.restore_activated_tool_ids(&activated_tool_ids)
+    }
+
+    pub(super) fn restore_activated_tool_ids(
+        &mut self,
+        activated_tool_ids: &[String],
+    ) -> Result<(), String> {
         let mut deferred_tool_ids = Vec::new();
         for tool_id in activated_tool_ids {
             let entry = self
                 .entries
                 .iter()
-                .find(|entry| entry.tool_id == tool_id || entry.method == tool_id)
+                .find(|entry| entry.tool_id == *tool_id || entry.method == *tool_id)
                 .ok_or_else(|| {
                     format!("unknown deferred tool ID cannot be activated: {tool_id}")
                 })?;

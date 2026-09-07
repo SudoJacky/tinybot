@@ -7,14 +7,15 @@ fn request(turn_id: &str) -> StartAgentTurn {
     StartAgentTurn::new(turn_id, format!("session:{turn_id}"))
 }
 
-fn final_result(turn_id: &str) -> Value {
-    serde_json::json!({
-        "runtime": "rust",
-        "turnId": turn_id,
-        "sessionId": format!("session:{turn_id}"),
-        "stopReason": "final_response",
-        "finalContent": "done"
-    })
+fn final_result(turn_id: &str) -> AgentTurnResult {
+    AgentTurnResult {
+        final_content: "done".to_string(),
+        ..AgentTurnResult::new(
+            &turn_id,
+            &(format!("session:{turn_id}")),
+            AgentStopReason::FinalResponse,
+        )
+    }
 }
 
 fn wait_until(timeout: Duration, mut condition: impl FnMut() -> bool) {
@@ -39,7 +40,7 @@ fn completed_turn_releases_its_active_handle_and_records_one_terminal_outcome() 
         .status("turn-complete")
         .expect("status should remain");
 
-    assert_eq!(result["stopReason"], "final_response");
+    assert_eq!(result.stop_reason.as_str(), "final_response");
     assert_eq!(runtime.active_count(), 0);
     assert_eq!(runtime.draining_count(), 0);
     assert_eq!(status.phase, "completed");
@@ -52,13 +53,13 @@ fn context_compaction_records_a_completed_terminal_outcome() {
     let runtime = TurnExecutionRuntime::new();
     let handle = runtime
         .start_blocking(request("turn-compact"), || {
-            Ok(serde_json::json!({
-                "runtime": "rust",
-                "turnId": "turn-compact",
-                "sessionId": "session:turn-compact",
-                "stopReason": "context_compacted",
-                "finalContent": ""
-            }))
+            Ok(AgentTurnResult {
+                ..AgentTurnResult::new(
+                    &("turn-compact"),
+                    &("session:turn-compact"),
+                    AgentStopReason::ContextCompacted,
+                )
+            })
         })
         .expect("compaction turn should start");
 
@@ -67,7 +68,7 @@ fn context_compaction_records_a_completed_terminal_outcome() {
         .status("turn-compact")
         .expect("compaction status should remain");
 
-    assert_eq!(result["stopReason"], "context_compacted");
+    assert_eq!(result.stop_reason.as_str(), "context_compacted");
     assert_eq!(runtime.active_count(), 0);
     assert_eq!(runtime.draining_count(), 0);
     assert_eq!(status.phase, "completed");
@@ -121,7 +122,7 @@ fn cancellation_removes_active_handle_and_ignores_late_completion() {
     assert!(outcome.cleanup_pending);
     assert_eq!(runtime.active_count(), 0);
     assert_eq!(runtime.draining_count(), 1);
-    assert_eq!(result["stopReason"], "interrupted");
+    assert_eq!(result.stop_reason.as_str(), "interrupted");
 
     release_sender.send(()).expect("release should send");
     wait_until(Duration::from_secs(1), || runtime.draining_count() == 0);
@@ -135,13 +136,14 @@ fn waiting_turn_releases_task_and_can_resume_with_same_identity() {
     let runtime = TurnExecutionRuntime::new();
     let first = runtime
         .start_blocking(request("turn-wait"), || {
-            Ok(serde_json::json!({
-                "runtime": "rust",
-                "turnId": "turn-wait",
-                "sessionId": "session:turn-wait",
-                "stopReason": "awaiting_form",
-                "checkpoint": { "resumeToken": "form:turn-wait" }
-            }))
+            Ok(AgentTurnResult {
+                checkpoint: Some(crate::agent::runtime::AgentCheckpoint::from_wire(serde_json::json!({ "turnId":"turn-wait", "sessionId":"session-1", "phase":"awaiting_form", "resumeToken":"form:turn-wait" })).unwrap()),
+                ..AgentTurnResult::new(
+                    &("turn-wait"),
+                    &("session:turn-wait"),
+                    AgentStopReason::AwaitingForm,
+                )
+            })
         })
         .expect("waiting turn should start");
     first.wait().expect("waiting result should complete task");
@@ -166,6 +168,43 @@ fn waiting_turn_releases_task_and_can_resume_with_same_identity() {
 }
 
 #[test]
+fn tool_and_subagent_waits_preserve_checkpoint_and_allow_resuming() {
+    for reason in [
+        AgentStopReason::AwaitingTool,
+        AgentStopReason::ToolRunning,
+        AgentStopReason::AwaitingSubagent,
+    ] {
+        let runtime = TurnExecutionRuntime::new();
+        let handle = runtime
+            .start_blocking(request("turn-wait"), move || {
+                let mut result = AgentTurnResult::new("turn-wait", "session:turn-wait", reason);
+                result.checkpoint = Some(crate::agent::runtime::AgentCheckpoint::from_wire(serde_json::json!({ "turnId":"turn-wait", "sessionId":"session-1", "phase":"awaiting_form", "resumeToken":"resume:turn-wait" })).unwrap());
+                Ok(result)
+            })
+            .unwrap();
+        handle.wait().unwrap();
+        let status = runtime.status("turn-wait").unwrap();
+        assert_eq!(status.phase, reason.as_str());
+        assert_eq!(status.terminal_outcome, None);
+        assert_eq!(status.checkpoint_ref.as_deref(), Some("resume:turn-wait"));
+        assert!(!status.active);
+        runtime
+            .start_blocking(request("turn-wait"), || Ok(final_result("turn-wait")))
+            .unwrap()
+            .wait()
+            .unwrap();
+        assert_eq!(
+            runtime
+                .status("turn-wait")
+                .unwrap()
+                .terminal_outcome
+                .as_deref(),
+            Some("completed")
+        );
+    }
+}
+
+#[test]
 fn shutdown_is_bounded_reports_cleanup_and_can_resume_accepting() {
     let runtime = TurnExecutionRuntime::new();
     let (release_sender, release_receiver) = mpsc::channel();
@@ -186,7 +225,7 @@ fn shutdown_is_bounded_reports_cleanup_and_can_resume_accepting() {
             "turn-rejected"
         )))
         .is_err());
-    assert_eq!(handle.wait().unwrap()["stopReason"], "cancelled");
+    assert_eq!(handle.wait().unwrap().stop_reason.as_str(), "cancelled");
 
     release_sender.send(()).expect("release should send");
     wait_until(Duration::from_secs(1), || runtime.draining_count() == 0);
@@ -260,7 +299,7 @@ fn shutdown_does_not_publish_terminal_result_before_cooperative_cleanup() {
             cleanup_completed.load(std::sync::atomic::Ordering::SeqCst);
         let report = shutdown.join().expect("shutdown thread should finish");
 
-        assert_eq!(result["stopReason"], "cancelled");
+        assert_eq!(result.stop_reason.as_str(), "cancelled");
         assert!(
             cleanup_was_complete_when_result_published,
             "shutdown published a terminal result before owned cleanup completed"
@@ -289,7 +328,8 @@ fn async_cancellation_drops_operation_without_a_late_completion() {
             .start_async(request("turn-async-cancel"), async move {
                 let _drop_signal = DropSignal(operation_dropped);
                 started_sender.send(()).expect("async start should send");
-                std::future::pending::<Result<Value, String>>().await
+                std::future::pending::<Result<AgentTurnResult, crate::agent::runtime::AgentError>>()
+                    .await
             })
             .expect("async turn should start");
         started_receiver
@@ -303,7 +343,7 @@ fn async_cancellation_drops_operation_without_a_late_completion() {
             .expect("async cancellation should complete");
 
         assert_eq!(outcome.state, "cancel_requested");
-        assert_eq!(result["stopReason"], "interrupted");
+        assert_eq!(result.stop_reason.as_str(), "interrupted");
         for _ in 0..100 {
             if runtime.draining_count() == 0 {
                 break;
@@ -343,7 +383,10 @@ fn cooperative_async_cancellation_reports_cleanup_timeout_and_releases_owner() {
                 async move {
                     let _drop_signal = DropSignal(operation_dropped);
                     started_sender.send(()).expect("async start should send");
-                    std::future::pending::<Result<Value, String>>().await
+                    std::future::pending::<
+                            Result<AgentTurnResult, crate::agent::runtime::AgentError>,
+                        >()
+                        .await
                 },
             )
             .expect("cooperative async turn should start");
@@ -362,13 +405,17 @@ fn cooperative_async_cancellation_reports_cleanup_timeout_and_releases_owner() {
 
         assert_eq!(outcome.state, "cancel_requested");
         assert!(!outcome.active_task_removed);
-        assert_eq!(result["stopReason"], "interrupted");
-        assert_eq!(result["cancellationCleanup"]["outcome"], "timeout");
-        assert!(result["runtimeEvents"]
-            .as_array()
+        assert_eq!(result.stop_reason.as_str(), "interrupted");
+        assert_eq!(
+            serde_json::to_value(result.cancellation_cleanup.as_ref().unwrap()).unwrap()["outcome"],
+            "timeout"
+        );
+        assert!(result
+            .runtime_events
+            .as_ref()
             .expect("cleanup timeout events should be an array")
             .iter()
-            .any(|event| event["eventName"] == "agent.cleanup_timeout"));
+            .any(|event| event.event_name == "agent.cleanup_timeout"));
         assert!(dropped.load(std::sync::atomic::Ordering::SeqCst));
         assert_eq!(runtime.active_count(), 0);
         assert_eq!(runtime.draining_count(), 0);

@@ -1,10 +1,8 @@
-use super::continuations::queued_user_continuation_message;
 use super::hooks::AgentHookEvaluation;
 use super::tool_router::NativeToolRouter;
 use super::{
-    string_field, AgentHookInvocation, AgentTurnContext, AgentTurnSettings, ComposedInstructions,
+    string_field, AgentHookInvocation, AgentTurnContext, ComposedInstructions,
     NativeAgentCancellation, NativeAgentCancellationContext, NativeAgentRuntimeServices,
-    DEFAULT_NATIVE_AGENT_MAX_ITERATIONS,
 };
 use crate::agent::runtime_protocol::AgentTraceContext;
 use crate::protocol::capability::default_desktop_capability_policy;
@@ -16,57 +14,14 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 impl AgentTurnContext {
+    #[cfg(test)]
     pub(super) fn from_spec(spec: Value, config_snapshot: Value) -> Self {
-        let session_id =
-            normalized_session_id(&spec).unwrap_or_else(|| "native-rust-session".to_string());
-        let metadata = spec
-            .get("metadata")
-            .cloned()
-            .unwrap_or_else(|| serde_json::json!({}));
-        let thread_id = string_field(&spec, "threadId")
-            .or_else(|| string_field(&spec, "thread_id"))
-            .or_else(|| string_field(&metadata, "threadId"))
-            .or_else(|| string_field(&metadata, "thread_id"));
-        let model = normalized_model(&spec, &metadata, &config_snapshot);
-        let provider = normalized_provider(&spec, &metadata, &config_snapshot);
-        let api_mode = string_field(&spec, "apiMode")
-            .or_else(|| string_field(&spec, "api_mode"))
-            .or_else(|| string_field(&metadata, "apiMode"))
-            .or_else(|| string_field(&metadata, "api_mode"));
-        let mut responses_input_items = (api_mode.as_deref() == Some("responses")).then(|| {
-            spec.get("responseItems")
-                .or_else(|| spec.get("response_items"))
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default()
-        });
-        let max_iterations = spec
-            .get("maxIterations")
-            .or_else(|| spec.get("max_iterations"))
-            .or_else(|| metadata.get("maxIterations"))
-            .or_else(|| metadata.get("max_iterations"))
-            .or_else(|| {
-                config_snapshot
-                    .get("agents")
-                    .and_then(|agents| agents.get("defaults"))
-                    .and_then(|defaults| {
-                        defaults
-                            .get("maxIterations")
-                            .or_else(|| defaults.get("max_iterations"))
-                    })
-            })
-            .and_then(Value::as_i64)
-            .unwrap_or(DEFAULT_NATIVE_AGENT_MAX_ITERATIONS);
-        let stream = spec
-            .get("stream")
-            .or_else(|| metadata.get("stream"))
-            .or_else(|| metadata.get("_wants_stream"))
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let mut messages = initial_agent_messages(&spec);
-        if let Some(message) = queued_user_continuation_message(&metadata) {
-            messages.push(message);
-        }
+        let input = super::AgentTurnInput::from_wire(&spec, &config_snapshot)
+            .expect("test turn input must be valid");
+        Self::from_input(input, config_snapshot)
+    }
+
+    pub(super) fn from_input(input: super::AgentTurnInput, config_snapshot: Value) -> Self {
         let tool_router = NativeToolRouter::new(
             WorkerToolRegistryRpc::new_with_config(
                 default_desktop_capability_policy(),
@@ -75,91 +30,28 @@ impl AgentTurnContext {
             .list_tools()
             .tools,
         );
-        let settings = AgentTurnSettings::from_sources(
-            &spec,
-            &metadata,
-            &config_snapshot,
-            model.clone(),
-            provider.clone(),
-            max_iterations,
-            stream,
-        );
-        let trace_value = spec.get("traceContext").unwrap_or(&Value::Null);
-        let turn_id = string_field(&spec, "turnId")
-            .or_else(|| string_field(&spec, "turn_id"))
-            .or_else(|| string_field(trace_value, "turnId"))
-            .or_else(|| string_field(trace_value, "turn_id"))
-            .or_else(|| string_field(&metadata, "turnId"))
-            .or_else(|| string_field(&metadata, "turn_id"))
-            .unwrap_or_else(|| "native-rust-turn".to_string());
-        if let Some(response_items) = responses_input_items.as_mut() {
-            let has_current_user = response_items.iter().any(|item| {
-                item.get("role").and_then(Value::as_str) == Some("user")
-                    && item
-                        .get("turnId")
-                        .or_else(|| item.get("turn_id"))
-                        .and_then(Value::as_str)
-                        == Some(turn_id.as_str())
-            });
-            if !has_current_user {
-                if let Some(current_user) = messages
-                    .iter()
-                    .rev()
-                    .find(|message| message.get("role").and_then(Value::as_str) == Some("user"))
-                {
-                    let mut current_user = current_user.clone();
-                    current_user["turnId"] = Value::String(turn_id.clone());
-                    response_items.push(current_user);
-                }
-            }
-        }
-        let request_id = string_field(&spec, "requestId")
-            .or_else(|| string_field(&spec, "request_id"))
-            .or_else(|| string_field(trace_value, "requestId"))
-            .or_else(|| string_field(trace_value, "request_id"))
-            .or_else(|| string_field(&metadata, "requestId"))
-            .or_else(|| string_field(&metadata, "request_id"))
-            .unwrap_or_else(|| format!("agent-turn-{turn_id}"));
-        let trace_id = string_field(&spec, "traceId")
-            .or_else(|| string_field(&spec, "trace_id"))
-            .or_else(|| string_field(trace_value, "traceId"))
-            .or_else(|| string_field(trace_value, "trace_id"))
-            .or_else(|| string_field(&metadata, "traceId"))
-            .or_else(|| string_field(&metadata, "trace_id"))
-            .unwrap_or_else(|| format!("trace-agent-turn-{turn_id}"));
-        let parent_turn_id = string_field(&spec, "parentTurnId")
-            .or_else(|| string_field(&spec, "parent_turn_id"))
-            .or_else(|| string_field(trace_value, "parentTurnId"))
-            .or_else(|| string_field(trace_value, "parent_turn_id"))
-            .or_else(|| string_field(&metadata, "parentTurnId"))
-            .or_else(|| string_field(&metadata, "parent_turn_id"));
-        let trace_context = AgentTraceContext {
-            request_id,
-            trace_id,
-            turn_id: turn_id.clone(),
-            thread_id: thread_id.clone(),
-            parent_turn_id,
-        };
         Self {
-            turn_id,
-            session_id,
-            thread_id,
-            messages,
-            spec,
+            turn_id: input.trace_context.turn_id.clone(),
+            session_id: input.session_id,
+            thread_id: input.trace_context.thread_id.clone(),
+            model: input.settings.model.clone(),
+            provider: input.settings.provider.clone(),
+            stream: input.settings.stream,
+            max_iterations: input.settings.max_iterations,
+            settings: input.settings,
+            trace_context: input.trace_context,
+            messages: input.messages,
+            responses_input_items: input.responses_input_items,
+            api_mode: input.api_mode,
+            metadata: input.metadata,
+            continuation: input.continuation,
+            controls: input.controls,
+            context_window_projected: false,
             config_snapshot,
-            metadata,
-            model,
-            provider,
-            api_mode,
-            responses_input_items,
             system_prompt: None,
             instructions: None,
             prepared_provider_request: None,
-            stream,
-            max_iterations,
-            settings,
             cancellation: None,
-            trace_context,
             hooks: super::hooks::AgentHookPipeline::default(),
             metrics: crate::runtime::observability::global_agent_runtime_metrics().clone(),
             pending_hook_evaluations: Arc::new(std::sync::Mutex::new(Vec::new())),
@@ -347,66 +239,4 @@ pub(crate) fn agent_trace_context_from_value(value: &Value) -> AgentTraceContext
             .or_else(|| string_field(metadata, "parentTurnId"))
             .or_else(|| string_field(metadata, "parent_turn_id")),
     }
-}
-
-fn initial_agent_messages(spec: &Value) -> Vec<Value> {
-    if let Some(messages) = spec.get("messages").and_then(Value::as_array) {
-        if !messages.is_empty() {
-            return messages.clone();
-        }
-    }
-    if let Some(input) = spec.get("input").and_then(Value::as_object) {
-        let role = input
-            .get("role")
-            .and_then(Value::as_str)
-            .filter(|role| !role.trim().is_empty())
-            .unwrap_or("user");
-        let content = input
-            .get("content")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        if !content.trim().is_empty() {
-            let mut message = serde_json::json!({ "role": role, "content": content });
-            if let Some(client_event_id) = input
-                .get("clientEventId")
-                .or_else(|| input.get("client_event_id"))
-                .and_then(Value::as_str)
-            {
-                message["clientEventId"] = Value::String(client_event_id.to_string());
-            }
-            if let Some(references) = input.get("references").filter(|value| value.is_array()) {
-                message["references"] = references.clone();
-            }
-            return vec![message];
-        }
-    }
-    Vec::new()
-}
-
-fn normalized_session_id(spec: &Value) -> Option<String> {
-    string_field(spec, "sessionId")
-        .or_else(|| string_field(spec, "session_id"))
-        .or_else(|| string_field(spec, "activeSessionId"))
-        .or_else(|| string_field(spec, "active_session_id"))
-        .or_else(|| string_field(spec, "sessionKey"))
-        .or_else(|| string_field(spec, "session_key"))
-}
-
-fn normalized_model(spec: &Value, metadata: &Value, config_snapshot: &Value) -> String {
-    string_field(spec, "model")
-        .or_else(|| string_field(spec, "modelId"))
-        .or_else(|| string_field(spec, "model_id"))
-        .or_else(|| string_field(metadata, "model"))
-        .unwrap_or_else(|| crate::agent::provider::configured_model(config_snapshot))
-}
-
-fn normalized_provider(spec: &Value, metadata: &Value, config_snapshot: &Value) -> Option<String> {
-    string_field(spec, "provider")
-        .or_else(|| string_field(spec, "providerId"))
-        .or_else(|| string_field(spec, "provider_id"))
-        .or_else(|| string_field(metadata, "provider"))
-        .or_else(|| {
-            crate::agent::provider::resolve_provider_profile(config_snapshot, None, None)
-                .map(|profile| profile.provider_id)
-        })
 }

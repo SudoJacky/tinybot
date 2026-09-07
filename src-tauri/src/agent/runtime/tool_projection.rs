@@ -5,6 +5,7 @@ use super::{
     AgentAssistantMessage, AgentItem, AgentMessageContent, AgentToolCallItem, AgentToolResultItem,
     AgentTurnContext, NativeAgentToolCall, NativeAgentToolResult, NativeToolResultEnvelope,
 };
+use crate::agent::runtime::AgentError;
 use crate::agent::runtime_protocol::{AgentEventKind, AgentRuntimePhase, ToolLifecycleEvent};
 use serde_json::Value;
 
@@ -47,51 +48,49 @@ fn tool_observation_message_with_error(
 }
 
 pub(super) fn prepare_continuation_tool_observation(
-    messages: &mut Vec<Value>,
+    messages: &mut super::AgentItemHistory,
     tool_call: &NativeAgentToolCall,
     synthesize_missing_call: bool,
-) -> Result<(), String> {
+) -> Result<(), AgentError> {
     let matching_call_count = messages
+        .items
         .iter()
-        .filter_map(|message| message.get("tool_calls").and_then(Value::as_array))
+        .filter_map(|item| match item {
+            super::AgentItem::AssistantMessage(message) => Some(&message.tool_calls),
+            _ => None,
+        })
         .flatten()
-        .filter(|call| call.get("id").and_then(Value::as_str) == Some(tool_call.id.as_str()))
+        .filter(|call| call.id == tool_call.id)
         .count();
     match matching_call_count {
         0 if synthesize_missing_call => {
-            messages.push(assistant_tool_calls_message("", &[tool_call.clone()]));
+            messages.items.push(super::AgentItem::from_legacy_message(
+                &assistant_tool_calls_message("", &[tool_call.clone()]),
+            )?);
         }
         0 => {
             return Err(format!(
                 "continuation checkpoint is missing assistant tool call `{}`",
                 tool_call.id
-            ));
+            )
+            .into());
         }
         1 => {}
         count => {
             return Err(format!(
                 "continuation checkpoint contains {count} assistant tool calls for `{}`",
                 tool_call.id
-            ));
+            )
+            .into());
         }
     }
 
-    let matching_result_count = messages
-        .iter()
-        .filter(|message| {
-            message.get("role").and_then(Value::as_str) == Some("tool")
-                && message
-                    .get("tool_call_id")
-                    .or_else(|| message.get("toolCallId"))
-                    .and_then(Value::as_str)
-                    == Some(tool_call.id.as_str())
-        })
-        .count();
+    let matching_result_count = messages.items.iter().filter(|item| matches!(item, super::AgentItem::ToolResult(result) if result.tool_call_id == tool_call.id)).count();
     if matching_result_count != 0 {
         return Err(format!(
             "continuation checkpoint already contains {matching_result_count} tool results for `{}`",
             tool_call.id
-        ));
+        ).into());
     }
 
     Ok(())
@@ -103,7 +102,7 @@ pub(super) fn commit_tool_observation(
     iteration: i64,
     tool_call: NativeAgentToolCall,
     result: NativeAgentToolResult,
-) -> Result<(), String> {
+) -> Result<(), AgentError> {
     state.emit_pending_hook_evaluations(context)?;
     let result = normalize_tool_result_for_context(result, context).map_err(|error| {
         format!(
@@ -158,7 +157,7 @@ pub(super) fn commit_tool_observation(
     }
     state
         .completed_tool_results
-        .push(completed_tool_result_entry(&tool_call, &result, &status));
+        .push(completed_tool_result_entry(&tool_call, &result, &status)?);
     let state_changed = status == "ok"
         && (native_tool_mutates_workspace(context, &tool_call.name)
             || native_tool_mutates_session(context, &tool_call.name));
@@ -270,9 +269,9 @@ fn validate_tool_outcome(envelope: &NativeToolResultEnvelope) -> Result<(), Stri
             .and_then(Value::as_str)
             .is_none_or(|value| value.trim().is_empty())
         {
-            return Err(format!(
-                "field `structured.outcome.{field}` must be a non-empty string"
-            ));
+            return Err(
+                format!("field `structured.outcome.{field}` must be a non-empty string").into(),
+            );
         }
     }
     let retry = outcome
@@ -283,15 +282,19 @@ fn validate_tool_outcome(envelope: &NativeToolResultEnvelope) -> Result<(), Stri
         retry,
         "do_not_retry" | "retry_with_updated_state" | "after_user_action" | "replan"
     ) {
-        return Err(format!(
-            "field `structured.outcome.retry` has unsupported value `{retry}`"
-        ));
+        return Err(
+            format!("field `structured.outcome.retry` has unsupported value `{retry}`").into(),
+        );
     }
     if outcome
         .get("actionExecuted")
         .is_some_and(|value| !value.is_boolean())
     {
-        return Err("field `structured.outcome.actionExecuted` must be a boolean".to_string());
+        return Err(
+            "field `structured.outcome.actionExecuted` must be a boolean"
+                .to_string()
+                .into(),
+        );
     }
     if let Some(next_action) = outcome.get("nextAction") {
         let next_action = next_action
@@ -303,7 +306,9 @@ fn validate_tool_outcome(envelope: &NativeToolResultEnvelope) -> Result<(), Stri
             .is_none_or(|value| value.trim().is_empty())
         {
             return Err(
-                "field `structured.outcome.nextAction.tool` must be a non-empty string".to_string(),
+                "field `structured.outcome.nextAction.tool` must be a non-empty string"
+                    .to_string()
+                    .into(),
             );
         }
         if next_action
@@ -311,7 +316,9 @@ fn validate_tool_outcome(envelope: &NativeToolResultEnvelope) -> Result<(), Stri
             .is_none_or(|value| !value.is_object())
         {
             return Err(
-                "field `structured.outcome.nextAction.arguments` must be an object".to_string(),
+                "field `structured.outcome.nextAction.arguments` must be an object"
+                    .to_string()
+                    .into(),
             );
         }
     }
@@ -329,28 +336,7 @@ fn required_envelope_string<'a>(
 }
 
 fn configured_max_tool_result_chars(context: &AgentTurnContext) -> Option<usize> {
-    context
-        .spec
-        .get("maxToolResultChars")
-        .or_else(|| context.spec.get("max_tool_result_chars"))
-        .or_else(|| context.metadata.get("maxToolResultChars"))
-        .or_else(|| context.metadata.get("max_tool_result_chars"))
-        .or_else(|| {
-            context
-                .config_snapshot
-                .get("agents")
-                .and_then(|agents| agents.get("defaults"))
-                .and_then(|defaults| {
-                    defaults
-                        .get("maxToolResultChars")
-                        .or_else(|| defaults.get("max_tool_result_chars"))
-                })
-        })
-        .or_else(|| context.config_snapshot.get("maxToolResultChars"))
-        .or_else(|| context.config_snapshot.get("max_tool_result_chars"))
-        .and_then(Value::as_u64)
-        .and_then(|value| usize::try_from(value).ok())
-        .filter(|value| *value > 0)
+    context.controls.max_tool_result_chars
 }
 
 fn config_redaction_values(value: &Value) -> Vec<String> {
@@ -423,12 +409,12 @@ fn completed_tool_result_entry(
     tool_call: &NativeAgentToolCall,
     result: &NativeAgentToolResult,
     status: &str,
-) -> Value {
-    serde_json::json!({
-        "toolCallId": tool_call.id,
-        "toolName": tool_call.name,
-        "status": status,
-        "envelope": result.envelope,
+) -> Result<super::CompletedAgentToolResult, String> {
+    Ok(super::CompletedAgentToolResult {
+        tool_call_id: tool_call.id.clone(),
+        tool_name: tool_call.name.clone(),
+        status: status.parse()?,
+        envelope: result.envelope.clone(),
     })
 }
 
@@ -475,7 +461,9 @@ mod tests {
         let error = commit_tool_observation(&context, &mut state, 0, tool_call, result)
             .expect_err("malformed tool result must fail fast");
 
-        assert!(error.contains("field `status` must be a string"));
+        assert!(error
+            .to_string()
+            .contains("field `status` must be a string"));
         assert_eq!(state.history.messages().len(), 1);
         assert!(state.completed_tool_results.is_empty());
         assert!(state.runtime_events().is_empty());
@@ -504,7 +492,7 @@ mod tests {
         commit_tool_observation(&context, &mut state, 0, tool_call, result)
             .expect("valid tool result should be committed");
 
-        let completed = &state.completed_tool_results[0];
+        let completed = serde_json::to_value(&state.completed_tool_results[0]).unwrap();
         assert!(completed.get("summary").is_none());
         assert_eq!(completed["envelope"]["summary"], "README");
     }
@@ -545,7 +533,9 @@ mod tests {
         let error = commit_tool_observation(&context, &mut state, 0, tool_call, result)
             .expect_err("tool outcomes with unsupported retry must fail fast");
 
-        assert!(error.contains("unsupported value `retry_forever`"));
+        assert!(error
+            .to_string()
+            .contains("unsupported value `retry_forever`"));
         assert_eq!(state.history.messages().len(), 1);
         assert!(state.completed_tool_results.is_empty());
     }
@@ -591,7 +581,7 @@ mod tests {
         commit_tool_observation(&context, &mut state, 0, tool_call, result)
             .expect("valid outcome should be committed");
 
-        let envelope = &state.completed_tool_results[0]["envelope"];
+        let envelope = &state.completed_tool_results[0].envelope;
         assert!(!envelope.to_string().contains("secret-token"));
         assert!(envelope["ui"]["summary"]
             .as_str()

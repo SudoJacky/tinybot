@@ -252,7 +252,7 @@ impl ProviderProtocolAdapter {
     pub fn record_tool_outputs(
         self,
         context: &mut AgentTurnContext,
-        results: &[Value],
+        results: &[super::CompletedAgentToolResult],
     ) -> Result<(), String> {
         match self {
             Self::ChatCompletions => ensure_chat_has_no_responses_replay(context),

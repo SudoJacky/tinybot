@@ -71,10 +71,19 @@ impl NativeAgentTraceSink for FailWhenToolStartsLiveSink {
         _session_id: &str,
         _turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::agent::runtime::AgentError> {
         if event.event_name == "agent.phase.changed" && event.payload["nextPhase"] == "tool_running"
         {
-            return Err("simulated live trace failure after tool delta".to_string());
+            return Err(AgentError::persistence(
+                "live trace",
+                crate::protocol::WorkerProtocolError::new(
+                    crate::protocol::WorkerProtocolErrorCode::WorkerError,
+                    "simulated live trace failure after tool delta",
+                    serde_json::json!({"operation":"emit_tool_start"}),
+                    true,
+                    crate::protocol::WorkerProtocolErrorSource::RustCore,
+                ),
+            ));
         }
         Ok(())
     }
@@ -84,7 +93,7 @@ impl NativeAgentTraceSink for FailWhenToolStartsLiveSink {
         _session_id: &str,
         _turn_id: &str,
         _patch: &AgentTimelinePatch,
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::agent::runtime::AgentError> {
         Ok(())
     }
 }
@@ -112,6 +121,124 @@ impl Drop for TestWorkspace {
 }
 
 #[test]
+fn direct_thread_services_survive_reopening_canonical_storage() {
+    let workspace = TestWorkspace::new();
+    let open = || {
+        WorkspaceThreadStore::new_with_data_root(
+            workspace.root.clone(),
+            workspace.root.join("thread-data"),
+            default_desktop_capability_policy(),
+        )
+    };
+    let store = open();
+    let thread = store
+        .create_agent_thread("thread-direct-service".into(), &serde_json::json!({}))
+        .unwrap();
+    assert_eq!(thread.metadata.extra["apiMode"], "chat_completions");
+    store
+        .start_agent_thread_turn(crate::threads::domain::StartThreadTurnRequest {
+            thread_id: thread.thread_id.clone(),
+            turn_id: Some("turn-direct-service".into()),
+            client_event_id: Some("event-direct-service".into()),
+            input: serde_json::json!({"role":"user", "content":"persisted request"}),
+            ..Default::default()
+        })
+        .unwrap();
+    store.flush().unwrap();
+    let reopened = open();
+    let snapshot = reopened.read_agent_thread(&thread.thread_id).unwrap();
+    assert_eq!(
+        snapshot.thread.active_turn_id.as_deref(),
+        Some("turn-direct-service")
+    );
+    assert!(serde_json::to_string(&snapshot.items)
+        .unwrap()
+        .contains("persisted request"));
+}
+
+#[test]
+fn invalid_thread_input_does_not_start_a_durable_turn() {
+    tauri::async_runtime::block_on(async {
+        let workspace = TestWorkspace::new();
+        let store = WorkspaceThreadStore::new_with_data_root(
+            workspace.root.clone(),
+            workspace.root.join("thread-data"),
+            default_desktop_capability_policy(),
+        );
+        let thread = store
+            .create_agent_thread("thread-invalid-service".into(), &serde_json::json!({}))
+            .unwrap();
+        let services = NativeAgentRuntimeServices::default().with_thread_store(store.clone());
+        let error = crate::agent::bridge::thread_flow::execute_thread_turn_with_services(
+            services,
+            crate::agent::bridge::thread_flow::SubmitThreadTurnInput {
+                thread_id: Some(thread.thread_id.clone()),
+                input: serde_json::json!({"content":"hello"}),
+                spec: serde_json::json!({"turnId":"turn-invalid-service", "maxIterations":"invalid"}),
+            }, workspace.root.clone(), serde_json::json!({}), None,
+        ).await.err().expect("invalid settings should fail");
+        assert_eq!(
+            error.code,
+            crate::agent::runtime::AgentErrorCode::InvalidRequest
+        );
+        assert!(store
+            .read_agent_thread(&thread.thread_id)
+            .unwrap()
+            .active_turn
+            .is_none());
+        assert!(store.agent_turns(&thread.thread_id).unwrap().is_empty());
+    });
+}
+
+#[test]
+fn invalid_continuation_is_rejected_before_durability_and_task_ownership() {
+    tauri::async_runtime::block_on(async {
+        let workspace = TestWorkspace::new();
+        let store = WorkspaceThreadStore::new_with_data_root(
+            workspace.root.clone(),
+            workspace.root.join("thread-data"),
+            default_desktop_capability_policy(),
+        );
+        let provider = Arc::new(DataViewProvider {
+            calls: AtomicUsize::new(0),
+        });
+        let services = NativeAgentRuntimeServices::new(
+            provider.clone(),
+            Arc::new(FakeNativeAgentToolDispatcher),
+            Arc::new(InMemoryNativeAgentCheckpointStore::default()),
+            Arc::new(InMemoryNativeAgentCancellation::default()),
+        )
+        .with_thread_store(store.clone());
+        let runtime = services.task_runtime().clone();
+        let error = run_agent_from_wire_with_services(
+            services,
+            serde_json::json!({
+                "sessionId": "thread-invalid-input", "threadId": "thread-invalid-input",
+                "turnId": "turn-invalid-input", "model": "fixture-model",
+                "messages": [{"role":"user", "content":"hello"}],
+                "metadata": {"agentContinuation": {"kind":"form", "formId":"missing-action"}}
+            }),
+            workspace.root.clone(),
+            serde_json::json!({}),
+            None,
+        )
+        .await
+        .expect_err("invalid continuation should fail");
+        assert!(error.to_string().contains("agentContinuation"), "{error}");
+        assert_eq!(
+            error.code,
+            crate::agent::runtime::AgentErrorCode::InvalidRequest
+        );
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 0);
+        assert!(runtime.status("turn-invalid-input").is_none());
+        assert!(store
+            .agent_turn("thread-invalid-input", "turn-invalid-input")
+            .unwrap()
+            .is_none());
+    });
+}
+
+#[test]
 fn runtime_error_after_tool_delta_persists_a_failed_turn() {
     tauri::async_runtime::block_on(async {
         let workspace = TestWorkspace::new();
@@ -129,7 +256,7 @@ fn runtime_error_after_tool_delta_persists_a_failed_turn() {
             Arc::new(InMemoryNativeAgentCancellation::default()),
         )
         .with_thread_store(store.clone());
-        let result = run_agent_with_services(
+        let result = run_agent_from_wire_with_services(
             services,
             serde_json::json!({
                 "runtime": "rust",
@@ -147,6 +274,7 @@ fn runtime_error_after_tool_delta_persists_a_failed_turn() {
 
         assert!(result
             .expect_err("live trace failure should remain observable")
+            .to_string()
             .contains("simulated live trace failure after tool delta"));
 
         let correlation = next_worker_request_correlation();
@@ -193,6 +321,13 @@ fn runtime_error_after_tool_delta_persists_a_failed_turn() {
             .as_str()
             .expect("failed turn should preserve the runtime error")
             .contains("simulated live trace failure after tool delta"));
+        assert_eq!(persisted["error"]["code"], "persistence_error");
+        assert_eq!(persisted["error"]["serviceError"]["code"], "worker_error");
+        assert_eq!(persisted["error"]["serviceError"]["retryable"], true);
+        assert_eq!(
+            persisted["error"]["serviceError"]["details"]["operation"],
+            "emit_tool_start"
+        );
 
         let correlation = next_worker_request_correlation();
         let runtime_state = call_rust_state_service(

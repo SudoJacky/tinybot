@@ -112,12 +112,21 @@ struct FailingContextCheckpointCommitter {
 }
 
 impl NativeAgentContextCheckpointCommitter for FailingContextCheckpointCommitter {
-    fn commit(&self, input: &NativeAgentContextCheckpointCommit) -> Result<(), String> {
+    fn commit(&self, input: &NativeAgentContextCheckpointCommit) -> Result<(), AgentError> {
         self.commits
             .lock()
             .expect("checkpoint commit lock should not be poisoned")
             .push(input.clone());
-        Err("fixture durable append failed".to_string())
+        Err(AgentError::persistence(
+            "context checkpoint commit",
+            crate::protocol::WorkerProtocolError::new(
+                crate::protocol::WorkerProtocolErrorCode::CapabilityDenied,
+                "fixture durable append failed",
+                json!({"contextId": input.checkpoint.context_id}),
+                false,
+                crate::protocol::WorkerProtocolErrorSource::RustCore,
+            ),
+        ))
     }
 }
 
@@ -151,7 +160,7 @@ impl NativeAgentTraceSink for RecordingTraceSink {
         &self,
         _session_id: &str,
         _turn_id: &str,
-    ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
+    ) -> Result<Vec<AgentRuntimeEventEnvelope>, crate::agent::runtime::AgentError> {
         Ok(self
             .events
             .lock()
@@ -164,7 +173,7 @@ impl NativeAgentTraceSink for RecordingTraceSink {
         _session_id: &str,
         _turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::agent::runtime::AgentError> {
         self.events
             .lock()
             .expect("trace sink lock should not be poisoned")
@@ -177,7 +186,7 @@ impl NativeAgentTraceSink for RecordingTraceSink {
         _session_id: &str,
         _turn_id: &str,
         patch: &crate::agent::runtime_protocol::AgentTimelinePatch,
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::agent::runtime::AgentError> {
         self.timeline_patches
             .lock()
             .expect("timeline patch sink lock should not be poisoned")

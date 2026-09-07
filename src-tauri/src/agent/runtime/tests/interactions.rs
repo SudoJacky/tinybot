@@ -154,7 +154,7 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
                         .resumed_messages
                         .lock()
                         .expect("resumed messages lock should not be poisoned") =
-                        context.messages.clone();
+                        context.messages.to_legacy_messages().unwrap();
                     Ok(NativeAgentProviderResponse {
                         final_content: String::new(),
                         reasoning_delta: None,
@@ -236,7 +236,7 @@ fn request_user_input_waits_then_resumes_the_same_tool_chain() {
         "toolCallId": "call-before-form",
         "toolName": "workspace.read_file",
         "status": "ok",
-        "summary": "completed before form"
+        "envelope": { "status": "ok", "modelContent": "completed before form" }
     }]);
     services.save_turn_checkpoint(
         "session-user-input",
@@ -353,13 +353,18 @@ fn request_user_input_rejects_invalid_forms_without_waiting() {
             context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             if self.calls.fetch_add(1, Ordering::SeqCst) > 0 {
-                assert!(context.messages.iter().any(|message| {
-                    message["role"] == "tool"
-                        && message["tool_call_id"] == "invalid-form"
-                        && message["content"].as_str().is_some_and(|content| {
-                            content.contains("fields must contain between 1 and 50 entries")
-                        })
-                }));
+                assert!(context
+                    .messages
+                    .to_legacy_messages()
+                    .unwrap()
+                    .iter()
+                    .any(|message| {
+                        message["role"] == "tool"
+                            && message["tool_call_id"] == "invalid-form"
+                            && message["content"].as_str().is_some_and(|content| {
+                                content.contains("fields must contain between 1 and 50 entries")
+                            })
+                    }));
                 return Ok(NativeAgentProviderResponse {
                     final_content: "invalid form handled".to_string(),
                     reasoning_delta: None,
@@ -435,13 +440,18 @@ fn discovered_allowlisted_mcp_tool_is_injected_and_calls_real_server() {
                     }],
                 }),
                 _ => {
-                    assert!(context.messages.iter().any(|message| {
-                        message["role"] == "tool"
-                            && message["tool_call_id"] == "call-real-mcp"
-                            && message["content"]
-                                .to_string()
-                                .contains("hello through router")
-                    }));
+                    assert!(context
+                        .messages
+                        .to_legacy_messages()
+                        .unwrap()
+                        .iter()
+                        .any(|message| {
+                            message["role"] == "tool"
+                                && message["tool_call_id"] == "call-real-mcp"
+                                && message["content"]
+                                    .to_string()
+                                    .contains("hello through router")
+                        }));
                     Ok(NativeAgentProviderResponse {
                         final_content: "real MCP complete".to_string(),
                         reasoning_delta: None,
@@ -595,19 +605,32 @@ fn backend_selected_deferred_tool_round_trips_through_checkpoint_validation() {
         .tool_router
         .activate_for_turn(&["test.deferred_wait".to_string()])
         .expect("backend-selected deferred wait should activate for the current turn");
-    let checkpoint =
-        super::checkpoint::checkpoint_value(&context, "awaiting_form", json!({ "iteration": 1 }));
+    let checkpoint = super::checkpoint::checkpoint_value(
+        &context,
+        crate::agent::runtime_protocol::AgentRuntimePhase::AwaitingForm,
+        super::checkpoint_types::PhaseCheckpointInput {
+            iteration: Some(1),
+            ..Default::default()
+        },
+    );
 
     assert_eq!(
-        checkpoint["activatedToolIds"],
+        serde_json::json!(checkpoint.activated_tool_ids),
         json!(["test.deferred_wait"])
     );
     let cancelled_checkpoint = super::checkpoint::checkpoint_value(
         &context,
-        "cancelled",
-        json!({ "iteration": 1, "stopReason": "cancelled" }),
+        crate::agent::runtime_protocol::AgentRuntimePhase::Cancelled,
+        super::checkpoint_types::PhaseCheckpointInput {
+            iteration: Some(1),
+            stop_reason: Some(AgentStopReason::Cancelled),
+            ..Default::default()
+        },
     );
-    assert_eq!(cancelled_checkpoint["activatedToolIds"], json!([]));
+    assert_eq!(
+        serde_json::json!(cancelled_checkpoint.activated_tool_ids),
+        json!([])
+    );
 
     let mut restored = AgentTurnContext::from_spec(
         json!({
@@ -623,7 +646,7 @@ fn backend_selected_deferred_tool_round_trips_through_checkpoint_validation() {
     )]);
     restored
         .tool_router
-        .restore_from_checkpoint(&checkpoint)
+        .restore_activated_tool_ids(&checkpoint.activated_tool_ids)
         .expect("checkpoint activation should restore after registry validation");
     let request = agent_chat_completion_request(&restored)
         .expect("restored provider request should include activated tools");
@@ -730,14 +753,19 @@ fn direct_calls_to_unactivated_deferred_tools_are_rejected() {
             context: &AgentTurnContext,
         ) -> Result<NativeAgentProviderResponse, String> {
             if self.calls.fetch_add(1, Ordering::SeqCst) > 0 {
-                assert!(context.messages.iter().any(|message| {
-                    message["role"] == "tool"
-                        && message["tool_call_id"] == "unactivated-deferred"
-                        && message["content"].as_str().is_some_and(|content| {
-                            content.contains("not active for this turn")
-                                && content.contains("backend tool policy")
-                        })
-                }));
+                assert!(context
+                    .messages
+                    .to_legacy_messages()
+                    .unwrap()
+                    .iter()
+                    .any(|message| {
+                        message["role"] == "tool"
+                            && message["tool_call_id"] == "unactivated-deferred"
+                            && message["content"].as_str().is_some_and(|content| {
+                                content.contains("not active for this turn")
+                                    && content.contains("backend tool policy")
+                            })
+                    }));
                 return Ok(NativeAgentProviderResponse {
                     final_content: "deferred tool rejection handled".to_string(),
                     reasoning_delta: None,
@@ -858,9 +886,8 @@ fn tool_batch_dispatches_directly_and_injects_all_results_before_the_next_model_
                     ],
                 }),
                 _ => {
-                    let tool_result_ids = context
-                        .messages
-                        .iter()
+                    let projected_messages = context.messages.to_legacy_messages().unwrap();
+                let tool_result_ids = projected_messages.iter()
                         .filter(|message| message["role"] == "tool")
                         .filter_map(|message| message["tool_call_id"].as_str())
                         .collect::<Vec<_>>();
@@ -964,13 +991,18 @@ fn write_tool_dispatches_and_does_not_abort_the_turn() {
                     }],
                 });
             }
-            assert!(context.messages.iter().any(|message| {
-                message["role"] == "tool"
-                    && message["tool_call_id"] == "denied-write"
-                    && message["content"]
-                        .as_str()
-                        .is_some_and(|content| content.contains("write complete"))
-            }));
+            assert!(context
+                .messages
+                .to_legacy_messages()
+                .unwrap()
+                .iter()
+                .any(|message| {
+                    message["role"] == "tool"
+                        && message["tool_call_id"] == "denied-write"
+                        && message["content"]
+                            .as_str()
+                            .is_some_and(|content| content.contains("write complete"))
+                }));
             Ok(NativeAgentProviderResponse {
                 final_content: "continued after execution".to_string(),
                 reasoning_delta: None,
@@ -1240,19 +1272,11 @@ fn provider_tool_call_names_restore_internal_registry_methods() {
 
 #[test]
 fn typed_agent_history_rejects_unknown_roles_before_provider_dispatch() {
-    let context = AgentTurnContext::from_spec(
-        json!({
-            "runtime": "rust",
-            "provider": "fixture",
-            "model": "fixture-model",
-            "messages": [{ "role": "observer", "content": "hidden shape" }]
-        }),
-        json!({}),
-    );
-
-    let error = agent_chat_completion_request(&context)
-        .expect_err("unknown history roles must not pass through to provider JSON");
-
+    let error = AgentTurnInput::from_wire(
+        &json!({"messages":[{"role":"observer","content":"hidden shape"}]}),
+        &json!({}),
+    )
+    .expect_err("unknown history roles must fail at entry");
     assert!(error.contains("unsupported agent message role"));
     assert!(error.contains("observer"));
 }

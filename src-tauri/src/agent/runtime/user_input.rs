@@ -1,11 +1,12 @@
 use super::checkpoint::save_phase_checkpoint;
-use super::continuations::typed_continuation_from_metadata;
 use super::state::AgentTurnState;
 use super::tool_projection::{commit_tool_observation, prepare_continuation_tool_observation};
 use super::{
     AgentHookInvocation, AgentHookStage, AgentTurnContext, NativeAgentRuntimeServices,
     NativeAgentToolCall, NativeAgentToolResult, PreparedToolCall,
 };
+use super::{AgentResultError, AgentStopReason, AgentTurnResult};
+use crate::agent::runtime::AgentError;
 use crate::agent::runtime_protocol::{
     AgentContinuationInput, AgentEventKind, AgentFormAction, AgentRuntimePhase, PendingAgentEvent,
     TerminalEvent,
@@ -22,14 +23,14 @@ const MAX_TOOL_CALL_ID_LENGTH: usize = 117;
 
 pub(super) enum UserInputContinuationOutcome {
     Resume(UserInputResume),
-    Finished(Value),
+    Finished(AgentTurnResult),
 }
 
 pub(super) struct UserInputResume {
     iteration: i64,
     tool_call: NativeAgentToolCall,
     result: NativeAgentToolResult,
-    restored_completed_results: Vec<Value>,
+    restored_completed_results: Vec<super::CompletedAgentToolResult>,
     form_id: String,
     values: Value,
     pending_hook_context: Vec<String>,
@@ -40,7 +41,7 @@ impl UserInputResume {
         self,
         context: &mut AgentTurnContext,
         state: &mut AgentTurnState,
-    ) -> Result<i64, String> {
+    ) -> Result<i64, AgentError> {
         context.restore_pending_tool_hook_context(self.pending_hook_context);
         state
             .completed_tool_results
@@ -99,18 +100,19 @@ pub(super) fn awaiting_user_input_result(
     state: &mut AgentTurnState,
     iteration: i64,
     tool_call: PreparedToolCall,
-) -> Result<Value, String> {
+) -> Result<AgentTurnResult, AgentError> {
     let form_id = form_id_for_tool_call(&tool_call.id)?;
     let request = parse_user_input_request(tool_call.arguments())?;
-    let mut form = serde_json::to_value(request)
-        .map_err(|error| format!("failed to serialize request_user_input form: {error}"))?;
-    form["form_id"] = Value::String(form_id.clone());
-    form["correlation"] = serde_json::json!({
-        "form_id": form_id,
-        "turn_id": context.turn_id,
-        "session_id": context.session_id,
-        "tool_call_id": tool_call.id,
-    });
+    let form = AgentUserInputForm {
+        request,
+        form_id: form_id.clone(),
+        correlation: FormCorrelation {
+            form_id: form_id.clone(),
+            turn_id: context.turn_id.clone(),
+            session_id: context.session_id.clone(),
+            tool_call_id: tool_call.id.clone(),
+        },
+    };
 
     state.tools_used.push(tool_call.name.clone());
     state.set_pending_tool_call(&tool_call);
@@ -122,18 +124,23 @@ pub(super) fn awaiting_user_input_result(
     let checkpoint = save_phase_checkpoint(
         services,
         context,
-        state.phase.as_str(),
-        serde_json::json!({
-            "kind": "user_input",
-            "iteration": iteration,
-            "formId": form_id,
-            "form": form,
-            "pendingToolCalls": state.pending_tool_calls.clone(),
-            "completedToolResults": state.completed_tool_results.clone(),
-            "pendingHookContext": context.pending_tool_hook_context(),
-            "messages": state.history.messages(),
-            "resumeToken": format!("form:{form_id}"),
-        }),
+        state.phase.clone(),
+        super::checkpoint_types::PhaseCheckpointInput {
+            iteration: Some(iteration),
+            pending_tool_calls: state.pending_tool_calls.clone(),
+            completed_tool_results: state.completed_tool_results.clone(),
+            messages: Some(state.history.history()),
+            resume_token: Some(format!("form:{form_id}")),
+            payload: super::checkpoint_types::AgentCheckpointPayload::UserInput(
+                super::checkpoint_types::UserInputCheckpoint {
+                    kind: super::checkpoint_types::UserInputCheckpointKind::UserInput,
+                    form_id: form_id.clone(),
+                    form: form.clone(),
+                    pending_hook_context: context.pending_tool_hook_context().to_vec(),
+                },
+            ),
+            ..Default::default()
+        },
     );
     state.emit(PendingAgentEvent::new(
         AgentEventKind::Checkpoint,
@@ -151,40 +158,43 @@ pub(super) fn awaiting_user_input_result(
             "toolName": tool_call.name,
             "detailId": format!("form:{form_id}"),
             "status": "waiting",
-            "summary": form["title"],
+            "summary": form.request.title,
             "form": form,
         }),
     ))?;
-    state.set_stop_reason("awaiting_form", iteration, AgentEventKind::Done.wire_name())?;
+    state.set_stop_reason(
+        AgentStopReason::AwaitingForm,
+        iteration,
+        AgentEventKind::Done.wire_name(),
+    )?;
     state.emit(TerminalEvent::Done(serde_json::json!({
         "iteration": iteration,
         "stopReason": "awaiting_form",
     })))?;
     let runtime_events = state.runtime_events();
-    Ok(serde_json::json!({
-        "runtime": "rust",
-        "turnId": context.turn_id,
-        "sessionId": context.session_id,
-        "finalContent": "",
-        "stopReason": "awaiting_form",
-        "messages": [],
-        "toolsUsed": state.tools_used,
-        "completedToolResults": state.completed_tool_results,
-        "form": form,
-        "checkpoint": checkpoint,
-        "runtimeEvents": runtime_events,
-    }))
+    Ok(AgentTurnResult {
+        tools_used: state.tools_used.clone(),
+        completed_tool_results: Some(state.completed_tool_results.clone()),
+        form: Some(form),
+        checkpoint: Some(checkpoint),
+        runtime_events: Some(runtime_events),
+        ..AgentTurnResult::new(
+            &context.turn_id,
+            &context.session_id,
+            AgentStopReason::AwaitingForm,
+        )
+    })
 }
 
 pub(super) fn prepare_user_input_continuation(
     services: &NativeAgentRuntimeServices,
     context: &mut AgentTurnContext,
-) -> Result<Option<UserInputContinuationOutcome>, String> {
+) -> Result<Option<UserInputContinuationOutcome>, AgentError> {
     let Some(AgentContinuationInput::Form {
         form_id,
         action,
         values,
-    }) = typed_continuation_from_metadata(&context.metadata)
+    }) = context.continuation.clone()
     else {
         return Ok(None);
     };
@@ -194,21 +204,11 @@ pub(super) fn prepare_user_input_continuation(
     else {
         return Ok(None);
     };
-    if checkpoint.pointer("/payload/kind").and_then(Value::as_str) != Some("user_input") {
-        return Ok(None);
-    }
-    validate_user_input_checkpoint(&checkpoint, &form_id)?;
+    let payload = checkpoint.user_input(&form_id)?;
     let tool_call = user_input_pending_tool_call(&checkpoint)?;
     let iteration = checkpoint
-        .get("iteration")
-        .and_then(Value::as_i64)
-        .or_else(|| {
-            checkpoint
-                .pointer("/payload/iteration")
-                .and_then(Value::as_i64)
-        })
+        .iteration
         .ok_or_else(|| "invalid user input checkpoint: iteration is missing".to_string())?;
-
     if matches!(action, AgentFormAction::Cancel) {
         services
             .checkpoints
@@ -218,15 +218,8 @@ pub(super) fn prepare_user_input_continuation(
         )));
     }
 
-    let form = checkpoint
-        .pointer("/payload/form")
-        .ok_or_else(|| "invalid user input checkpoint: form is missing".to_string())?;
-    let values = validate_submitted_values(form, values)?;
-    let mut messages = checkpoint
-        .get("messages")
-        .and_then(Value::as_array)
-        .cloned()
-        .ok_or_else(|| "invalid user input checkpoint: messages must be an array".to_string())?;
+    let values = validate_submitted_values(&payload.form, values)?;
+    let mut messages = checkpoint.messages.clone();
     let raw_result = serde_json::json!({
         "formId": form_id,
         "status": "submitted",
@@ -235,32 +228,9 @@ pub(super) fn prepare_user_input_continuation(
     let result = NativeAgentToolResult::generic_success(&tool_call, raw_result);
     prepare_continuation_tool_observation(&mut messages, &tool_call, false)
         .map_err(|error| format!("invalid user input checkpoint: {error}"))?;
-    let restored_completed_results = checkpoint
-        .get("completedToolResults")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    let pending_hook_context = checkpoint
-        .pointer("/payload/pendingHookContext")
-        .map(|value| {
-            value
-                .as_array()
-                .ok_or_else(|| {
-                    "invalid user input checkpoint: pendingHookContext must be an array".to_string()
-                })?
-                .iter()
-                .map(|item| {
-                    item.as_str().map(str::to_string).ok_or_else(|| {
-                        "invalid user input checkpoint: pendingHookContext entries must be strings"
-                            .to_string()
-                    })
-                })
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .transpose()?
-        .unwrap_or_default();
-    context.messages = messages.clone();
-    context.spec["messages"] = Value::Array(messages);
+    let restored_completed_results = checkpoint.completed_tool_results.clone();
+    let pending_hook_context = payload.pending_hook_context.clone();
+    context.messages = messages;
     services
         .checkpoints
         .clear_for_turn(&context.session_id, &context.turn_id);
@@ -281,10 +251,10 @@ pub(super) fn prepare_user_input_continuation(
 fn cancelled_user_input_result(
     services: &NativeAgentRuntimeServices,
     context: &AgentTurnContext,
-    checkpoint: Value,
+    checkpoint: super::AgentCheckpoint,
     form_id: String,
     iteration: i64,
-) -> Result<Value, String> {
+) -> Result<AgentTurnResult, AgentError> {
     let message = "User input request was cancelled.";
     let mut state = AgentTurnState::new_for_continuation(context, services.trace_sink.clone())?;
     state.tools_used.push(REQUEST_USER_INPUT_METHOD.to_string());
@@ -307,7 +277,7 @@ fn cancelled_user_input_result(
         resolution,
     ))?;
     state.set_stop_reason(
-        "form_cancelled",
+        AgentStopReason::FormCancelled,
         iteration,
         AgentEventKind::Error.wire_name(),
     )?;
@@ -318,23 +288,22 @@ fn cancelled_user_input_result(
         "error": message,
     })))?;
     let runtime_events = state.runtime_events();
-    Ok(serde_json::json!({
-        "runtime": "rust",
-        "turnId": context.turn_id,
-        "sessionId": context.session_id,
-        "finalContent": "",
-        "stopReason": "form_cancelled",
-        "messages": [],
-        "toolsUsed": state.tools_used,
-        "error": message,
-        "restoredCheckpoint": checkpoint,
-        "continuation": {
-            "kind": "form",
-            "formId": form_id,
-            "action": "cancel",
-        },
-        "runtimeEvents": runtime_events,
-    }))
+    Ok(AgentTurnResult {
+        tools_used: state.tools_used.clone(),
+        error: Some(AgentResultError::Message(message.to_string())),
+        restored_checkpoint: Some(checkpoint),
+        continuation: Some(AgentContinuationInput::Form {
+            form_id,
+            action: AgentFormAction::Cancel,
+            values: None,
+        }),
+        runtime_events: Some(runtime_events),
+        ..AgentTurnResult::new(
+            &context.turn_id,
+            &context.session_id,
+            AgentStopReason::FormCancelled,
+        )
+    })
 }
 
 fn attach_thread_command_id(payload: &mut Value, context: &AgentTurnContext) {
@@ -350,47 +319,29 @@ fn attach_thread_command_id(payload: &mut Value, context: &AgentTurnContext) {
     payload["commandId"] = Value::String(command_id.to_string());
 }
 
-fn validate_user_input_checkpoint(checkpoint: &Value, form_id: &str) -> Result<(), String> {
-    if checkpoint.get("phase").and_then(Value::as_str) != Some("awaiting_form") {
-        return Err("invalid user input checkpoint: phase must be awaiting_form".to_string());
-    }
-    let expected_form_id = checkpoint
-        .pointer("/payload/formId")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "invalid user input checkpoint: formId is missing".to_string())?;
-    if form_id != expected_form_id {
-        return Err(format!(
-            "form continuation ID `{form_id}` does not match checkpoint `{expected_form_id}`"
-        ));
-    }
-    Ok(())
-}
-
-fn user_input_pending_tool_call(checkpoint: &Value) -> Result<NativeAgentToolCall, String> {
-    let pending = checkpoint
-        .get("pendingToolCalls")
-        .and_then(Value::as_array)
-        .ok_or_else(|| {
-            "invalid user input checkpoint: pendingToolCalls must be an array".to_string()
-        })?;
+fn user_input_pending_tool_call(
+    checkpoint: &super::AgentCheckpoint,
+) -> Result<NativeAgentToolCall, String> {
+    let pending = &checkpoint.pending_tool_calls;
     if pending.len() != 1 {
         return Err(format!(
             "invalid user input checkpoint: expected one pending tool call, found {}",
             pending.len()
-        ));
+        )
+        .into());
     }
     let pending = &pending[0];
-    let id = required_string(pending, "toolCallId", "pending toolCallId")?;
-    let name = required_string(pending, "toolName", "pending toolName")?;
+    let id = pending.tool_call_id.clone();
+    let name = pending.tool_name.clone();
     if name != REQUEST_USER_INPUT_METHOD {
         return Err(format!(
             "invalid user input checkpoint: pending tool must be `{REQUEST_USER_INPUT_METHOD}`, found `{name}`"
-        ));
+        ).into());
     }
     Ok(NativeAgentToolCall {
         id,
         name,
-        arguments_json: required_string(pending, "argumentsJson", "pending argumentsJson")?,
+        arguments_json: pending.arguments_json.clone(),
         result: Value::Null,
     })
 }
@@ -404,14 +355,68 @@ fn form_id_for_tool_call(tool_call_id: &str) -> Result<String, String> {
     {
         return Err(format!(
             "invalid request_user_input tool call id: expected 1-{MAX_TOOL_CALL_ID_LENGTH} safe ASCII characters"
-        ));
+        ).into());
     }
     Ok(format!("user-input:{tool_call_id}"))
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct AgentUserInputForm {
+    #[serde(flatten)]
+    pub request: UserInputRequest,
+    pub form_id: String,
+    pub correlation: FormCorrelation,
+}
+
+impl AgentUserInputForm {
+    pub(crate) fn required_field_names(&self) -> impl Iterator<Item = &str> {
+        self.request
+            .fields
+            .iter()
+            .filter(|field| field.required)
+            .map(|field| field.name.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for AgentUserInputForm {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let mut value = Value::deserialize(deserializer)?;
+        let object = value
+            .as_object_mut()
+            .ok_or_else(|| D::Error::custom("form must be an object"))?;
+        let form_id = serde_json::from_value(
+            object
+                .remove("form_id")
+                .ok_or_else(|| D::Error::missing_field("form_id"))?,
+        )
+        .map_err(D::Error::custom)?;
+        let correlation = serde_json::from_value(
+            object
+                .remove("correlation")
+                .ok_or_else(|| D::Error::missing_field("correlation"))?,
+        )
+        .map_err(D::Error::custom)?;
+        let request = serde_json::from_value(value).map_err(D::Error::custom)?;
+        Ok(Self {
+            request,
+            form_id,
+            correlation,
+        })
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct FormCorrelation {
+    pub form_id: String,
+    pub turn_id: String,
+    pub session_id: String,
+    pub tool_call_id: String,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct UserInputRequest {
+pub struct UserInputRequest {
     title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     description: Option<String>,
@@ -456,7 +461,7 @@ fn parse_user_input_request(arguments: &Map<String, Value>) -> Result<UserInputR
     if request.fields.is_empty() || request.fields.len() > MAX_FORM_FIELDS {
         return Err(format!(
             "invalid request_user_input arguments: fields must contain between 1 and {MAX_FORM_FIELDS} entries"
-        ));
+        ).into());
     }
     let mut names = HashSet::new();
     for (index, field) in request.fields.iter_mut().enumerate() {
@@ -465,7 +470,8 @@ fn parse_user_input_request(arguments: &Map<String, Value>) -> Result<UserInputR
             return Err(format!(
                 "invalid request_user_input arguments: duplicate field name `{}`",
                 field.name
-            ));
+            )
+            .into());
         }
     }
     Ok(request)
@@ -480,7 +486,8 @@ fn normalize_field(field: &mut UserInputField, index: usize) -> Result<(), Strin
     {
         return Err(format!(
             "invalid request_user_input arguments: fields[{index}].name is unsafe"
-        ));
+        )
+        .into());
     }
     normalize_required_string(&mut field.field_type, &format!("fields[{index}].type"), 64)?;
     if !matches!(
@@ -489,7 +496,8 @@ fn normalize_field(field: &mut UserInputField, index: usize) -> Result<(), Strin
     ) {
         return Err(format!(
             "invalid request_user_input arguments: fields[{index}].type is unsupported"
-        ));
+        )
+        .into());
     }
     normalize_required_string(&mut field.label, &format!("fields[{index}].label"), 256)?;
     normalize_optional_string(
@@ -520,62 +528,58 @@ fn normalize_field(field: &mut UserInputField, index: usize) -> Result<(), Strin
                     return Err(format!(
                         "invalid request_user_input arguments: fields[{index}] has duplicate option value `{}`",
                         option.value
-                    ));
+                    ).into());
                 }
             }
         }
         (Some(_), true) | (None, true) => {
             return Err(format!(
                 "invalid request_user_input arguments: fields[{index}].options must contain between 1 and {MAX_FORM_OPTIONS} entries"
-            ));
+            ).into());
         }
         (Some(_), false) => {
             return Err(format!(
                 "invalid request_user_input arguments: fields[{index}].options is only valid for choice fields"
-            ));
+            ).into());
         }
         (None, false) => {}
     }
     Ok(())
 }
 
-fn validate_submitted_values(form: &Value, values: Option<Value>) -> Result<Value, String> {
+fn validate_submitted_values(
+    form: &AgentUserInputForm,
+    values: Option<Value>,
+) -> Result<Value, String> {
     let values = match values.unwrap_or_else(|| Value::Object(Map::new())) {
         Value::Object(values) => values,
-        _ => return Err("invalid user input submission: values must be an object".to_string()),
+        _ => {
+            return Err("invalid user input submission: values must be an object"
+                .to_string()
+                .into())
+        }
     };
-    let fields = form
-        .get("fields")
-        .and_then(Value::as_array)
-        .ok_or_else(|| "invalid user input checkpoint: form.fields must be an array".to_string())?;
+    let fields = &form.request.fields;
     let allowed_names = fields
         .iter()
-        .filter_map(|field| field.get("name").and_then(Value::as_str))
+        .map(|field| field.name.as_str())
         .collect::<HashSet<_>>();
     if let Some(unknown) = values
         .keys()
         .find(|name| !allowed_names.contains(name.as_str()))
     {
-        return Err(format!(
-            "invalid user input submission: unknown field `{unknown}`"
-        ));
+        return Err(format!("invalid user input submission: unknown field `{unknown}`").into());
     }
     for field in fields {
-        validate_submitted_field(
-            field,
-            values.get(required_string(field, "name", "field name")?.as_str()),
-        )?;
+        validate_submitted_field(field, values.get(&field.name))?;
     }
     Ok(Value::Object(values))
 }
 
-fn validate_submitted_field(field: &Value, value: Option<&Value>) -> Result<(), String> {
-    let name = required_string(field, "name", "field name")?;
-    let field_type = required_string(field, "type", "field type")?;
-    let required = field
-        .get("required")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+fn validate_submitted_field(field: &UserInputField, value: Option<&Value>) -> Result<(), String> {
+    let name = &field.name;
+    let field_type = &field.field_type;
+    let required = field.required;
     let missing = value.is_none_or(|value| {
         value.is_null()
             || value.as_str().is_some_and(str::is_empty)
@@ -583,9 +587,7 @@ fn validate_submitted_field(field: &Value, value: Option<&Value>) -> Result<(), 
     });
     if missing {
         return if required {
-            Err(format!(
-                "invalid user input submission: field `{name}` is required"
-            ))
+            Err(format!("invalid user input submission: field `{name}` is required").into())
         } else {
             Ok(())
         };
@@ -599,18 +601,18 @@ fn validate_submitted_field(field: &Value, value: Option<&Value>) -> Result<(), 
             if text.len() > MAX_FORM_TEXT_LENGTH {
                 return Err(format!(
                     "invalid user input submission: field `{name}` exceeds {MAX_FORM_TEXT_LENGTH} characters"
-                ));
+                ).into());
             }
         }
         "number" if !value.is_number() => {
-            return Err(format!(
-                "invalid user input submission: field `{name}` must be a number"
-            ));
+            return Err(
+                format!("invalid user input submission: field `{name}` must be a number").into(),
+            );
         }
         "checkbox" if !value.is_boolean() => {
-            return Err(format!(
-                "invalid user input submission: field `{name}` must be a boolean"
-            ));
+            return Err(
+                format!("invalid user input submission: field `{name}` must be a boolean").into(),
+            );
         }
         "select" | "radio" => {
             let selected = value.as_str().ok_or_else(|| {
@@ -619,7 +621,8 @@ fn validate_submitted_field(field: &Value, value: Option<&Value>) -> Result<(), 
             if !choice_values(field).contains(selected) {
                 return Err(format!(
                     "invalid user input submission: field `{name}` contains an unsupported option"
-                ));
+                )
+                .into());
             }
         }
         "multiselect" => {
@@ -634,7 +637,8 @@ fn validate_submitted_field(field: &Value, value: Option<&Value>) -> Result<(), 
             }) {
                 return Err(format!(
                     "invalid user input submission: field `{name}` contains an unsupported option"
-                ));
+                )
+                .into());
             }
         }
         _ => {}
@@ -642,23 +646,13 @@ fn validate_submitted_field(field: &Value, value: Option<&Value>) -> Result<(), 
     Ok(())
 }
 
-fn choice_values(field: &Value) -> HashSet<&str> {
+fn choice_values(field: &UserInputField) -> HashSet<&str> {
     field
-        .get("options")
-        .and_then(Value::as_array)
-        .into_iter()
+        .options
+        .iter()
         .flatten()
-        .filter_map(|option| option.get("value").and_then(Value::as_str))
+        .map(|option| option.value.as_str())
         .collect()
-}
-
-fn required_string(value: &Value, key: &str, label: &str) -> Result<String, String> {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| format!("invalid user input checkpoint: {label} is missing"))
 }
 
 fn normalize_required_string(
@@ -670,7 +664,7 @@ fn normalize_required_string(
     if value.is_empty() || value.len() > max_length {
         return Err(format!(
             "invalid request_user_input arguments: {path} must contain between 1 and {max_length} characters"
-        ));
+        ).into());
     }
     Ok(())
 }
@@ -687,7 +681,8 @@ fn normalize_optional_string(
     if current.len() > max_length {
         return Err(format!(
             "invalid request_user_input arguments: {path} must not exceed {max_length} characters"
-        ));
+        )
+        .into());
     }
     if current.is_empty() {
         *value = None;

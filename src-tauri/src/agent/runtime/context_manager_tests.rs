@@ -51,7 +51,15 @@ fn prompt_accepts_complete_tool_pairs() {
     ])
     .unwrap();
 
-    assert_eq!(history.for_prompt().unwrap().len(), 2);
+    assert_eq!(
+        history
+            .for_prompt()
+            .unwrap()
+            .to_provider_messages()
+            .unwrap()
+            .len(),
+        2
+    );
 }
 
 #[test]
@@ -67,7 +75,11 @@ fn compaction_summary_round_trips_as_internal_assistant_and_provider_user_messag
     assert_eq!(stored[0]["role"], "assistant");
     assert_eq!(stored[0]["contextCompaction"], true);
 
-    let prompt = history.for_prompt().unwrap();
+    let prompt = history
+        .for_prompt()
+        .unwrap()
+        .to_provider_messages()
+        .unwrap();
     assert_eq!(prompt[0]["role"], "user");
     assert!(prompt[0].get("contextCompaction").is_none());
     assert!(prompt[0]["content"]
@@ -190,7 +202,11 @@ fn prompt_only_keeps_targets_from_the_latest_web_snapshot() {
     ])
     .unwrap();
 
-    let prompt = history.for_prompt().unwrap();
+    let prompt = history
+        .for_prompt()
+        .unwrap()
+        .to_provider_messages()
+        .unwrap();
     let old_result: Value = serde_json::from_str(prompt[1]["content"].as_str().unwrap()).unwrap();
     let latest_result: Value =
         serde_json::from_str(prompt[3]["content"].as_str().unwrap()).unwrap();

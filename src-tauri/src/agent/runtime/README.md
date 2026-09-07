@@ -1,10 +1,38 @@
 # Native Agent Runtime
-<!-- tinybot-module-fingerprint: sha256:1a390eb303c74ef3bf3b2cc6fa38a5e2f7fadd43a6fcdda626528c868936343f -->
+<!-- tinybot-module-fingerprint: sha256:39d549fbdc1193d78f5b69ae61a1927bc343db880972231c21d50eba2c43f038 -->
 
 `agent::runtime` implements Tinybot's native model-and-tool execution
 loop. It turns a validated turn specification, runtime services, and composed
 instructions into typed agent items, runtime events, checkpoints, usage, and a
 terminal result.
+
+Execution results stay as `AgentTurnResult` through provider/tool iterations,
+task ownership, lifecycle hooks, bridge persistence, and Graph/workspace-thread
+consumers. `AgentStopReason` exhaustively maps each stop to an
+`AgentExecutionStatus` and runtime phase; waiting stops remain resumable.
+Runtime events and instruction diagnostics are retained as Rust types and the
+complete result is serialized only at a command or WebUI response boundary.
+`AgentTurnInput` resolves wire aliases, identity, settings, continuation, and
+execution controls before task ownership. The core consumes that input once;
+`AgentTurnContext` no longer retains or reparses a JSON spec. Invalid settings,
+field types, and malformed continuations fail before an owned task starts.
+Context projection is runtime state rather than a mutable JSON input flag.
+`AgentCheckpoint` carries typed phases, resume tokens, iteration state, and a
+discriminated execution/form payload through task ownership and in-memory storage.
+Form definitions and correlation are decoded once at the storage boundary.
+Pending calls, completed tool results, continuation, terminal records, and cancellation
+cleanup use typed contracts. Tool envelopes retain dynamic extension payloads.
+Input, execution context, in-memory checkpoints, and result messages share
+`AgentItemHistory`. History merges operate on `AgentItem`; protocol messages are
+encoded at provider, event, and storage adapters. User message IDs, client event IDs,
+and references survive entry normalization. Context compaction checkpoints carry
+typed history, window lineage, and installed/finalized stages. The committer calls
+the persistence service directly and retains structured commit failures.
+Configuration, extension metadata, and provider-native items remain dynamic.
+`AgentError` preserves execution error categories and the
+complete service error (code, source, details, retryability) across task ownership,
+trace buffering, and bridge persistence. Multiple failures retain their individual
+causes. String conversion is reserved for legacy response boundaries and diagnostics.
 
 The module is independent of the Tauri command surface. Desktop integration,
 history selection, attachment lifetime, and durable turn orchestration belong
@@ -51,10 +79,12 @@ decide which durable conversation store a caller uses.
 
 ## Execution flow
 
-1. The caller provides `NativeAgentRuntimeServices`, a turn specification, the
+1. The bridge decodes wire input into `AgentTurnRequest` and `AgentTurnInput`,
+   then hydrates typed input fields
+   and provides `NativeAgentRuntimeServices`, the typed input, the
    effective configuration, workspace context, and composed instructions.
 2. `provider_loop.rs` merges project-local MCP definitions for the effective
-   working directory, validates turn settings, and prepares the typed history.
+   working directory and prepares the typed history from legacy messages.
    A standalone manual-compaction turn summarizes older history through the
    same context path, installs its checkpoint, and finishes without a normal
    assistant message.

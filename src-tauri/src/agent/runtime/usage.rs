@@ -1,7 +1,6 @@
 use super::context_window_config::resolve_context_window_tokens;
 use super::{
-    agent_provider_config, bool_field, chat_completion_content, AgentTurnContext,
-    NativeAgentProviderFailure,
+    agent_provider_config, chat_completion_content, AgentTurnContext, NativeAgentProviderFailure,
 };
 use super::{
     chat_completions_adapter::ChatCompletionsAdapter, provider_protocol::ProviderProtocolAdapter,
@@ -75,8 +74,8 @@ struct CompactionSummary {
 
 #[cfg(test)]
 pub(super) fn context_window_messages(context: &AgentTurnContext) -> Result<Vec<Value>, String> {
-    if bool_field(&context.spec, "_contextWindowProjected") {
-        return Ok(context.messages.clone());
+    if context.context_window_projected {
+        return context.messages.to_legacy_messages();
     }
     context_window_projection(context).map(|projection| projection.messages)
 }
@@ -84,8 +83,11 @@ pub(super) fn context_window_messages(context: &AgentTurnContext) -> Result<Vec<
 pub(super) async fn context_window_messages_async(
     context: &AgentTurnContext,
 ) -> Result<Vec<Value>, NativeAgentProviderFailure> {
-    if bool_field(&context.spec, "_contextWindowProjected") {
-        return Ok(context.messages.clone());
+    if context.context_window_projected {
+        return context
+            .messages
+            .to_legacy_messages()
+            .map_err(NativeAgentProviderFailure::provider);
     }
     context_window_projection_async(context)
         .await
@@ -111,7 +113,7 @@ pub(super) async fn context_window_projection_async(
         .max(1);
     let full_estimate = estimate_context_tokens_for_request(context)
         .map_err(NativeAgentProviderFailure::provider)?;
-    let manual_compaction = manual_context_compaction_requested(&context.spec);
+    let manual_compaction = context.controls.manual_compaction;
     let automatic_compaction = context_window_strategy(context) == "compact"
         && compact_threshold_reached(context, full_estimate, context_window_tokens);
     if manual_compaction || automatic_compaction {
@@ -156,7 +158,10 @@ pub(super) async fn context_window_projection_async(
         }
         if manual_compaction {
             return Ok(ContextWindowProjection {
-                messages: context.messages.clone(),
+                messages: context
+                    .messages
+                    .to_legacy_messages()
+                    .map_err(NativeAgentProviderFailure::provider)?,
                 action: None,
             });
         }
@@ -164,13 +169,19 @@ pub(super) async fn context_window_projection_async(
 
     if full_estimate <= context_window_tokens {
         return Ok(ContextWindowProjection {
-            messages: context.messages.clone(),
+            messages: context
+                .messages
+                .to_legacy_messages()
+                .map_err(NativeAgentProviderFailure::provider)?,
             action: None,
         });
     }
 
     let (bounded_messages, masked_tool_output_count) = mask_oversized_tool_outputs(
-        &context.messages,
+        &context
+            .messages
+            .to_legacy_messages()
+            .map_err(NativeAgentProviderFailure::provider)?,
         compact_tool_output_char_limit(message_budget),
     );
     let messages = trim_messages_to_context_window(&bounded_messages, message_budget);
@@ -203,62 +214,86 @@ pub(super) async fn context_window_projection_async(
     })
 }
 
+#[derive(Clone, Debug, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct ContextWindowActionPayload {
+    pub iteration: i64,
+    pub context_id: Option<String>,
+    pub trigger: Option<String>,
+    pub reason: Option<String>,
+    pub phase: Option<String>,
+    pub method: Option<String>,
+    pub provider: Option<String>,
+    pub model: String,
+    pub strategy: String,
+    #[serde(flatten)]
+    pub lineage: Option<crate::threads::rollout::checkpoint_lineage::ContextWindowLineage>,
+    pub dropped_message_count: usize,
+    pub retained_message_count: usize,
+    pub replacement_message_count: usize,
+    pub context_window_tokens: i64,
+    pub estimated_tokens_before: i64,
+    pub estimated_tokens_after: i64,
+    pub masked_tool_output_count: usize,
+    pub summary_request_count: usize,
+    pub preserved_user_message_count: usize,
+    pub dropped_user_message_count: usize,
+    pub dropped_assistant_message_count: usize,
+    pub dropped_tool_message_count: usize,
+    pub merged_compaction_summary_count: usize,
+}
+
 pub(super) fn context_window_action_payload(
     context: &AgentTurnContext,
     iteration: i64,
     action: &ContextWindowAction,
-) -> Value {
+) -> ContextWindowActionPayload {
     let compacted = action.event_kind == AgentEventKind::ContextCompacted;
-    serde_json::json!({
-        "iteration": iteration,
-        "contextId": compacted.then(|| format!("{}:context:{}", context.turn_id, iteration + 1)),
-        "trigger": compacted.then_some(action.trigger),
-        "reason": compacted.then_some(action.reason),
-        "phase": compacted.then_some(if action.trigger == "manual" {
-            action.phase
-        } else if iteration == 0 {
-            "pre_turn"
-        } else {
-            "mid_turn"
+    ContextWindowActionPayload {
+        iteration,
+        context_id: compacted.then(|| format!("{}:context:{}", context.turn_id, iteration + 1)),
+        trigger: compacted.then(|| action.trigger.to_string()),
+        reason: compacted.then(|| action.reason.to_string()),
+        phase: compacted.then(|| {
+            if action.trigger == "manual" {
+                action.phase
+            } else if iteration == 0 {
+                "pre_turn"
+            } else {
+                "mid_turn"
+            }
+            .to_string()
         }),
-        "method": compacted.then_some("summary"),
-        "provider": context.provider,
-        "model": context.model,
-        "strategy": action.strategy,
-        "droppedMessageCount": action.dropped_message_count,
-        "retainedMessageCount": action.retained_message_count,
-        "replacementMessageCount": action.replacement_message_count,
-        "contextWindowTokens": action.context_window_tokens,
-        "estimatedTokensBefore": action.estimated_tokens_before,
-        "estimatedTokensAfter": action.estimated_tokens_after,
-        "maskedToolOutputCount": action.masked_tool_output_count,
-        "summaryRequestCount": action.summary_request_count,
-        "preservedUserMessageCount": action.preserved_user_message_count,
-        "droppedUserMessageCount": action.dropped_user_message_count,
-        "droppedAssistantMessageCount": action.dropped_assistant_message_count,
-        "droppedToolMessageCount": action.dropped_tool_message_count,
-        "mergedCompactionSummaryCount": action.merged_compaction_summary_count,
-    })
-}
-
-pub(crate) fn manual_context_compaction_requested(spec: &Value) -> bool {
-    spec.get("contextCompaction")
-        .or_else(|| spec.get("context_compaction"))
-        .and_then(|request| request.get("trigger"))
-        .and_then(Value::as_str)
-        == Some("manual")
+        method: compacted.then(|| "summary".to_string()),
+        provider: context.provider.clone(),
+        model: context.model.clone(),
+        strategy: action.strategy.to_string(),
+        lineage: None,
+        dropped_message_count: action.dropped_message_count,
+        retained_message_count: action.retained_message_count,
+        replacement_message_count: action.replacement_message_count,
+        context_window_tokens: action.context_window_tokens,
+        estimated_tokens_before: action.estimated_tokens_before,
+        estimated_tokens_after: action.estimated_tokens_after,
+        masked_tool_output_count: action.masked_tool_output_count,
+        summary_request_count: action.summary_request_count,
+        preserved_user_message_count: action.preserved_user_message_count,
+        dropped_user_message_count: action.dropped_user_message_count,
+        dropped_assistant_message_count: action.dropped_assistant_message_count,
+        dropped_tool_message_count: action.dropped_tool_message_count,
+        merged_compaction_summary_count: action.merged_compaction_summary_count,
+    }
 }
 
 pub(super) fn context_with_projected_messages(
     context: &AgentTurnContext,
     messages: Vec<Value>,
-) -> AgentTurnContext {
+) -> Result<AgentTurnContext, String> {
     let mut projected = context.clone();
-    projected.messages = messages.clone();
-    projected.spec["messages"] = Value::Array(messages);
-    projected.spec["_contextWindowProjected"] = Value::Bool(true);
+    projected.messages = super::AgentItemHistory::from_legacy_messages(&messages)?;
+    projected.context_window_projected = true;
     projected.prepared_provider_request = None;
-    projected
+    Ok(projected)
 }
 
 pub(super) fn estimate_context_tokens_for_request(
@@ -269,7 +304,8 @@ pub(super) fn estimate_context_tokens_for_request(
 
 pub(super) fn prepare_provider_request(context: &AgentTurnContext) -> Result<(Value, i64), String> {
     let adapter = ProviderProtocolAdapter::for_runtime_request(context)?;
-    let request = adapter.build_request_from_window(context, context.messages.clone())?;
+    let request =
+        adapter.build_request_from_window(context, context.messages.to_legacy_messages()?)?;
     let estimated_tokens = estimate_message_tokens(&request);
     Ok((request, estimated_tokens))
 }
@@ -278,7 +314,7 @@ fn estimate_context_tokens_for_messages(
     context: &AgentTurnContext,
     messages: Vec<Value>,
 ) -> Result<i64, String> {
-    estimate_context_tokens_for_request(&context_with_projected_messages(context, messages))
+    estimate_context_tokens_for_request(&context_with_projected_messages(context, messages)?)
 }
 
 pub(super) fn enrich_usage_with_context_window(
@@ -353,35 +389,17 @@ fn context_window_strategy(context: &AgentTurnContext) -> String {
 }
 
 fn compact_trigger_percent(context: &AgentTurnContext) -> i64 {
-    positive_i64_field(&context.spec, "compactTriggerPercent")
-        .or_else(|| positive_i64_field(&context.spec, "compact_trigger_percent"))
-        .or_else(|| {
-            context
-                .config_snapshot
-                .get("agents")
-                .and_then(|agents| agents.get("defaults"))
-                .and_then(|defaults| {
-                    positive_i64_field(defaults, "compactTriggerPercent")
-                        .or_else(|| positive_i64_field(defaults, "compact_trigger_percent"))
-                })
-        })
+    context
+        .controls
+        .compact_trigger_percent
         .unwrap_or(DEFAULT_COMPACT_TRIGGER_PERCENT)
         .clamp(1, 100)
 }
 
 fn compact_summary_max_tokens(context: &AgentTurnContext) -> i64 {
-    positive_i64_field(&context.spec, "compactSummaryMaxTokens")
-        .or_else(|| positive_i64_field(&context.spec, "compact_summary_max_tokens"))
-        .or_else(|| {
-            context
-                .config_snapshot
-                .get("agents")
-                .and_then(|agents| agents.get("defaults"))
-                .and_then(|defaults| {
-                    positive_i64_field(defaults, "compactSummaryMaxTokens")
-                        .or_else(|| positive_i64_field(defaults, "compact_summary_max_tokens"))
-                })
-        })
+    context
+        .controls
+        .compact_summary_max_tokens
         .unwrap_or(DEFAULT_COMPACT_SUMMARY_MAX_TOKENS)
 }
 
@@ -531,7 +549,10 @@ async fn compact_messages_to_context_window_async(
     context_window_tokens: i64,
 ) -> Result<Option<CompactedContextMessages>, NativeAgentProviderFailure> {
     let (bounded_messages, masked_tool_output_count) = mask_oversized_tool_outputs(
-        &context.messages,
+        &context
+            .messages
+            .to_legacy_messages()
+            .map_err(NativeAgentProviderFailure::provider)?,
         compact_tool_output_char_limit(context_window_tokens),
     );
     if bounded_messages.is_empty() {

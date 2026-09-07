@@ -201,6 +201,15 @@ impl NativeAgentToolResult {
         }
     }
 
+    pub(crate) fn execution_error(
+        tool_call: &NativeAgentToolCall,
+        error: super::AgentError,
+    ) -> Self {
+        let mut result = Self::generic_error(tool_call, error.to_string());
+        result.envelope["error"] = serde_json::to_value(error).expect("agent error must serialize");
+        result
+    }
+
     pub fn generic_error(tool_call: &NativeAgentToolCall, message: String) -> Self {
         let envelope = NativeToolResultEnvelope::generic_error(
             tool_call,

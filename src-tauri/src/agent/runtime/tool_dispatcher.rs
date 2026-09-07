@@ -351,18 +351,7 @@ fn shell_call_supports_parallel(context: &AgentTurnContext, tool_call: &Prepared
 }
 
 fn shell_parallel_policy(context: &AgentTurnContext) -> Option<&str> {
-    context
-        .spec
-        .get("nativeAgent")
-        .and_then(|native_agent| native_agent.get("shellParallelPolicy"))
-        .or_else(|| context.spec.get("shellParallelPolicy"))
-        .or_else(|| {
-            context
-                .config_snapshot
-                .get("nativeAgent")
-                .and_then(|native_agent| native_agent.get("shellParallelPolicy"))
-        })
-        .and_then(Value::as_str)
+    context.controls.shell_parallel_policy.as_deref()
 }
 
 fn shell_command_is_read_only_allowlisted(command: &str) -> bool {

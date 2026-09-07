@@ -173,13 +173,15 @@ fn prepare_tool_free_text_completion(
     title_spec.remove("responseItems");
     title_spec.remove("response_items");
 
-    let context =
-        AgentTurnContext::from_spec(Value::Object(title_spec.clone()), config_snapshot.clone());
+    let context = AgentTurnContext::from_input(
+        super::AgentTurnInput::from_wire(&Value::Object(title_spec.clone()), config_snapshot)?,
+        config_snapshot.clone(),
+    );
     let provider_config = agent_provider_config(&context);
     let adapter = ProviderProtocolAdapter::resolve(&context, &provider_config)?;
     let request = match adapter {
         ProviderProtocolAdapter::ChatCompletions => ChatCompletionsAdapter::build_request(
-            &context.messages,
+            &context.messages.to_legacy_messages()?,
             Some(system_prompt),
             &[],
             &context.settings,
@@ -187,7 +189,7 @@ fn prepare_tool_free_text_completion(
             false,
         )?,
         ProviderProtocolAdapter::Responses => ResponsesAdapter::build_request(
-            &context.messages,
+            &context.messages.to_legacy_messages()?,
             Some(system_prompt),
             None,
             &[],
@@ -242,7 +244,10 @@ fn provider_response_from_completion(
     adapter: ProviderProtocolAdapter,
     completion: Value,
 ) -> Result<NativeAgentProviderResponse, String> {
-    let fixture_response = fixture_agent_response(&context.config_snapshot, &context.messages)?;
+    let fixture_response = fixture_agent_response(
+        &context.config_snapshot,
+        &context.messages.to_legacy_messages()?,
+    )?;
     let decoded_response = adapter.decode_response(context, &completion)?;
     let response_items = decoded_response.response_items;
     let mut decoded = decoded_response.turn;

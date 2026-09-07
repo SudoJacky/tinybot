@@ -1,6 +1,7 @@
 use super::support::*;
-use crate::agent::bridge::native_agent_turn_record;
+use crate::agent::bridge::native_agent_turn_start_record;
 use crate::agent::runtime::NativeAgentRuntimeServices;
+use crate::agent::runtime::{AgentStopReason, AgentTurnResult};
 use crate::config::application::default_tinybot_workspace_root;
 use crate::config::application::native_config_snapshot_from_path;
 use crate::config::application::resolve_native_backend_workspace_root_from_config_path;
@@ -36,7 +37,11 @@ fn close_shutdown_cancels_and_drains_owned_agent_task() {
                 while !operation_runtime.is_cancelled("turn-shutdown-owned") {
                     std::thread::sleep(Duration::from_millis(5));
                 }
-                Ok(serde_json::json!({ "stopReason": "late_completion" }))
+                Ok(AgentTurnResult::new(
+                    "turn-shutdown-owned",
+                    "session-shutdown-owned",
+                    AgentStopReason::FinalResponse,
+                ))
             },
         )
         .expect("owned agent task should start");
@@ -47,7 +52,7 @@ fn close_shutdown_cancels_and_drains_owned_agent_task() {
         .wait()
         .expect("owned agent runner should return cancellation");
 
-    assert_eq!(result["stopReason"], "cancelled");
+    assert_eq!(result.stop_reason, AgentStopReason::Cancelled);
     assert_eq!(task_runtime.active_count(), 0);
     assert_eq!(task_runtime.draining_count(), 0);
     assert_eq!(
@@ -165,46 +170,40 @@ fn startup_reconciles_orphaned_turn_and_preserves_waiting_checkpoint() {
         .append_thread_items("thread-recovery", &started.appended_items)
         .expect("orphaned thread turn should persist to Rollout");
 
-    let mut running_record: crate::threads::turn::AgentTurnRecord =
-        serde_json::from_value(native_agent_turn_record(
+    let mut running_record: crate::threads::turn::AgentTurnRecord = native_agent_turn_start_record(
+        &crate::agent::runtime::AgentTurnInput::from_wire(
             &serde_json::json!({
                 "turnId": "turn-orphaned",
                 "sessionId": "session-recovery",
                 "threadId": "thread-recovery"
             }),
-            &serde_json::json!({
-                "turnId": "turn-orphaned",
-                "sessionId": "session-recovery"
-            }),
             &serde_json::json!({}),
-            "session-recovery",
-            "turn-orphaned",
-        ))
-        .expect("running recovery record should deserialize");
+        )
+        .unwrap(),
+        "session-recovery",
+        "turn-orphaned",
+    );
     running_record.thread_id = Some("thread-recovery".to_string());
     thread_log
         .start_turn(running_record, None, Vec::new())
         .expect("running recovery record should persist");
-    let waiting_record: crate::threads::turn::AgentTurnRecord =
-        serde_json::from_value(native_agent_turn_record(
+    let mut waiting_record: crate::threads::turn::AgentTurnRecord = native_agent_turn_start_record(
+        &crate::agent::runtime::AgentTurnInput::from_wire(
             &serde_json::json!({
                 "turnId": "turn-waiting",
                 "sessionId": "session-recovery"
             }),
-            &serde_json::json!({
-                "turnId": "turn-waiting",
-                "sessionId": "session-recovery",
-                "stopReason": "awaiting_form",
-                "checkpoint": {
-                    "phase": "awaiting_form",
-                    "turnId": "turn-waiting"
-                }
-            }),
             &serde_json::json!({}),
-            "session-recovery",
-            "turn-waiting",
-        ))
-        .expect("waiting recovery record should deserialize");
+        )
+        .unwrap(),
+        "session-recovery",
+        "turn-waiting",
+    );
+    waiting_record.status = crate::threads::turn::AgentTurnStatus::Waiting;
+    waiting_record.phase = "awaiting_form".to_string();
+    waiting_record.stop_reason = Some("awaiting_form".to_string());
+    waiting_record.checkpoint =
+        Some(serde_json::json!({ "phase": "awaiting_form", "turnId": "turn-waiting" }));
     let waiting_checkpoint = waiting_record
         .checkpoint
         .clone()
@@ -590,7 +589,11 @@ fn close_shutdown_exposes_cleanup_timeout_diagnostics() {
                 release_receiver
                     .recv()
                     .expect("cleanup timeout fixture should release");
-                Ok(serde_json::json!({ "stopReason": "final_response" }))
+                Ok(AgentTurnResult::new(
+                    "turn-cleanup-timeout",
+                    "session-cleanup-timeout",
+                    AgentStopReason::FinalResponse,
+                ))
             },
         )
         .expect("cleanup timeout fixture should start");

@@ -11,12 +11,25 @@ pub(super) struct ContextManager {
 }
 
 impl ContextManager {
-    pub(super) fn from_legacy_messages(messages: &[Value]) -> Result<Self, String> {
-        Ok(Self {
-            items: AgentItemHistory::from_legacy_messages(messages)?.items,
+    pub(super) fn from_history(history: &AgentItemHistory) -> Self {
+        Self {
+            items: history.items.clone(),
             history_version: 0,
             token_info: None,
-        })
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn from_legacy_messages(messages: &[Value]) -> Result<Self, String> {
+        Ok(Self::from_history(&AgentItemHistory::from_legacy_messages(
+            messages,
+        )?))
+    }
+
+    pub(super) fn history(&self) -> AgentItemHistory {
+        AgentItemHistory {
+            items: self.items.clone(),
+        }
     }
 
     pub(super) fn history_version(&self) -> u64 {
@@ -47,11 +60,11 @@ impl ContextManager {
         .expect("ContextManager stores only model-visible history items")
     }
 
-    pub(super) fn for_prompt(&self) -> Result<Vec<Value>, String> {
+    pub(super) fn for_prompt(&self) -> Result<AgentItemHistory, String> {
         let mut items = self.items.clone();
         project_superseded_web_targets(&mut items);
         validate_tool_pairs(&items)?;
-        AgentItemHistory { items }.to_provider_messages()
+        Ok(AgentItemHistory { items })
     }
 
     pub(super) fn record_message(&mut self, message: Value) -> Result<(), String> {
@@ -59,10 +72,15 @@ impl ContextManager {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(super) fn replace(&mut self, messages: Vec<Value>) -> Result<(), String> {
-        self.items = AgentItemHistory::from_legacy_messages(&messages)?.items;
-        self.history_version = self.history_version.saturating_add(1);
+        self.replace_history(&AgentItemHistory::from_legacy_messages(&messages)?);
         Ok(())
+    }
+
+    pub(super) fn replace_history(&mut self, history: &AgentItemHistory) {
+        self.items = history.items.clone();
+        self.history_version = self.history_version.saturating_add(1);
     }
 }
 

@@ -7,21 +7,26 @@ use super::state::{current_user_message, user_message_text, AgentTurnState};
 use super::tool_runtime::{execute_tool_calls_for_iteration, NativeAgentToolExecutionOutcome};
 use super::usage::{
     context_window_action_payload, context_window_projection_async,
-    context_with_projected_messages, estimate_context_tokens_for_request,
-    manual_context_compaction_requested, prepare_provider_request,
+    context_with_projected_messages, estimate_context_tokens_for_request, prepare_provider_request,
 };
 use super::user_input::{
     prepare_user_input_continuation, UserInputContinuationOutcome, UserInputResume,
 };
+#[cfg(test)]
+use super::InstructionComposer;
+use super::{
+    AgentExecutionStatus, AgentResultError, AgentStopReason, AgentTurnInput, AgentTurnMetrics,
+    AgentTurnResult,
+};
 use super::{
     AgentHookInvocation, AgentHookStage, AgentTurnContext, ComposedInstructions,
-    InstructionComposer, NativeAgentContextCheckpointCommit, NativeAgentProviderFailure,
-    NativeAgentProviderFailureKind, NativeAgentProviderResponse, NativeAgentProviderStreamEvent,
-    NativeAgentRuntimeServices,
+    NativeAgentContextCheckpointCommit, NativeAgentProviderFailure, NativeAgentProviderFailureKind,
+    NativeAgentProviderResponse, NativeAgentProviderStreamEvent, NativeAgentRuntimeServices,
 };
+use crate::agent::runtime::AgentError;
 use crate::agent::runtime_protocol::{
-    AgentAssistantMessagePhase, AgentEventKind, AgentRuntimeEventEnvelope, AgentRuntimePhase,
-    ModelOutputEvent, PendingAgentEvent, TerminalEvent,
+    AgentAssistantMessagePhase, AgentEventKind, AgentRuntimePhase, ModelOutputEvent,
+    PendingAgentEvent, TerminalEvent,
 };
 use crate::runtime::turn_execution::StartAgentTurn;
 use crate::tools::registry::{
@@ -37,7 +42,7 @@ pub fn run_native_agent_turn_with_config(
     services: &NativeAgentRuntimeServices,
     spec: Value,
     config_snapshot: Value,
-) -> Result<Value, String> {
+) -> Result<Value, AgentError> {
     tauri::async_runtime::block_on(run_native_agent_turn_with_config_async(
         services,
         spec,
@@ -50,8 +55,17 @@ pub async fn run_native_agent_turn_with_config_async(
     services: &NativeAgentRuntimeServices,
     spec: Value,
     config_snapshot: Value,
-) -> Result<Value, String> {
-    run_owned_native_agent_turn_async(services, spec, config_snapshot, None, None).await
+) -> Result<Value, AgentError> {
+    run_owned_native_agent_turn_async(
+        services,
+        AgentTurnInput::from_wire(&spec, &config_snapshot).map_err(AgentError::invalid_input)?,
+        config_snapshot,
+        None,
+        None,
+    )
+    .await?
+    .into_value()
+    .map_err(AgentError::from)
 }
 
 #[cfg(test)]
@@ -60,21 +74,24 @@ pub fn run_native_agent_turn_with_workspace(
     spec: Value,
     config_snapshot: Value,
     workspace_root: &Path,
-) -> Result<Value, String> {
+) -> Result<Value, AgentError> {
     tauri::async_runtime::block_on(run_native_agent_turn_with_workspace_async(
         services,
         spec,
         config_snapshot,
         workspace_root,
-    ))
+    ))?
+    .into_value()
+    .map_err(AgentError::from)
 }
 
+#[cfg(test)]
 pub async fn run_native_agent_turn_with_workspace_async(
     services: &NativeAgentRuntimeServices,
     spec: Value,
     mut config_snapshot: Value,
     workspace_root: &Path,
-) -> Result<Value, String> {
+) -> Result<AgentTurnResult, AgentError> {
     let instructions = InstructionComposer::default().compose_with_config(
         workspace_root,
         &spec,
@@ -86,7 +103,7 @@ pub async fn run_native_agent_turn_with_workspace_async(
     )?;
     run_owned_native_agent_turn_async(
         services,
-        spec,
+        AgentTurnInput::from_wire(&spec, &config_snapshot).map_err(AgentError::invalid_input)?,
         config_snapshot,
         Some(workspace_root.to_path_buf()),
         Some(instructions),
@@ -96,14 +113,14 @@ pub async fn run_native_agent_turn_with_workspace_async(
 
 pub(crate) async fn run_native_agent_turn_with_workspace_and_instructions_async(
     services: &NativeAgentRuntimeServices,
-    spec: Value,
+    input: AgentTurnInput,
     config_snapshot: Value,
     workspace_root: &Path,
     instructions: ComposedInstructions,
-) -> Result<Value, String> {
+) -> Result<AgentTurnResult, AgentError> {
     run_owned_native_agent_turn_async(
         services,
-        spec,
+        input,
         config_snapshot,
         Some(workspace_root.to_path_buf()),
         Some(instructions),
@@ -113,18 +130,14 @@ pub(crate) async fn run_native_agent_turn_with_workspace_and_instructions_async(
 
 async fn run_owned_native_agent_turn_async(
     services: &NativeAgentRuntimeServices,
-    spec: Value,
+    input: AgentTurnInput,
     config_snapshot: Value,
     workspace_root: Option<PathBuf>,
     instructions: Option<ComposedInstructions>,
-) -> Result<Value, String> {
-    let mut identity = AgentTurnContext::from_spec(spec.clone(), config_snapshot.clone());
+) -> Result<AgentTurnResult, AgentError> {
+    let mut identity = AgentTurnContext::from_input(input, config_snapshot.clone());
     identity.attach_observability(services);
-    let continuation_metadata = identity
-        .metadata
-        .get("agentContinuation")
-        .or_else(|| identity.metadata.get("continuation"))
-        .cloned();
+    let continuation_metadata = identity.continuation.clone();
     let restored_continuation_checkpoint = continuation_metadata.as_ref().and_then(|_| {
         services
             .checkpoints
@@ -149,13 +162,14 @@ async fn run_owned_native_agent_turn_async(
     }
     let request = StartAgentTurn::new(identity.turn_id.clone(), identity.session_id.clone());
     let owned_services = services.clone();
+    let execution_context = identity.clone();
     let result_instructions = instructions.clone();
     let handle = services
         .task_runtime
         .start_cooperative_async(request, Duration::from_secs(5), async move {
             run_native_agent_turn_with_instructions_async(
                 &owned_services,
-                spec,
+                execution_context,
                 config_snapshot,
                 instructions,
                 workspace_root.as_deref(),
@@ -164,10 +178,16 @@ async fn run_owned_native_agent_turn_async(
         })
         .map_err(|error| format!("failed to start owned agent task: {error}"))?;
     if handle.turn_id() != identity.turn_id || handle.session_id() != identity.session_id {
-        return Err("owned agent task identity does not match the normalized turn".to_string());
+        return Err(
+            "owned agent task identity does not match the normalized turn"
+                .to_string()
+                .into(),
+        );
     }
     if handle.status().is_none() {
-        return Err("owned agent task did not publish a runtime status".to_string());
+        return Err("owned agent task did not publish a runtime status"
+            .to_string()
+            .into());
     }
     let turn_started_at = Instant::now();
     identity.metrics().increment("turn.started");
@@ -182,29 +202,27 @@ async fn run_owned_native_agent_turn_async(
                 AgentHookStage::TurnAbort,
                 identity.trace_context.clone(),
             );
-            identity
-                .evaluate_hook(invocation)
-                .map_err(|hook_error| format!("{error}; turn abort hook failed: {hook_error}"))?;
+            identity.evaluate_hook(invocation).map_err(|hook_error| {
+                error
+                    .clone()
+                    .combine(AgentError::from(hook_error).context("turn abort hook failed"))
+            })?;
             return Err(error);
         }
     };
     if let Some(continuation) = continuation_metadata {
-        if result.get("continuation").is_none() {
-            result["continuation"] = continuation;
+        if result.continuation.is_none() {
+            result.continuation = Some(continuation);
         }
-        if result.get("restoredCheckpoint").is_none() {
+        if result.restored_checkpoint.is_none() {
             if let Some(checkpoint) = restored_continuation_checkpoint {
-                result["restoredCheckpoint"] = checkpoint;
+                result.restored_checkpoint = Some(checkpoint);
             }
         }
     }
-    let stop_reason = result
-        .get("stopReason")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown");
     let completed = matches!(
-        stop_reason,
-        "final_response" | "context_compacted" | "awaiting_form" | "awaiting_subagent"
+        result.stop_reason.status(),
+        AgentExecutionStatus::Completed | AgentExecutionStatus::Waiting
     );
     let stage = if completed {
         identity.metrics().increment("turn.completed");
@@ -220,14 +238,14 @@ async fn run_owned_native_agent_turn_async(
     let invocation = AgentHookInvocation::lifecycle(stage, identity.trace_context.clone());
     let evaluation = identity.evaluate_hook(invocation.clone())?;
     append_hook_evaluation_to_result(&mut result, services, &identity, &invocation, &evaluation)?;
-    result["traceContext"] = serde_json::to_value(&identity.trace_context)
-        .map_err(|error| format!("failed to serialize agent trace context: {error}"))?;
-    result["turnMetrics"] = serde_json::json!({
-        "turnDurationMs": duration.as_millis().min(u128::from(u64::MAX)) as u64,
-        "outcome": if completed { "completed" } else { "aborted" },
+    result.trace_context = Some(identity.trace_context.clone());
+    result.turn_metrics = Some(AgentTurnMetrics {
+        turn_duration_ms: duration.as_millis().min(u128::from(u64::MAX)) as u64,
+        outcome: if completed { "completed" } else { "aborted" },
     });
     if let Some(instructions) = result_instructions {
-        instructions.attach_diagnostics(&mut result)?;
+        result.instruction_provenance = Some(instructions.provenance());
+        result.instruction_diagnostics = Some(instructions.diagnostics());
     }
     Ok(result)
 }
@@ -239,7 +257,7 @@ struct ProviderStreamState {
     reasoning_content: String,
     message_phase: AgentAssistantMessagePhase,
     observer_cancelled: bool,
-    trace_error: Option<String>,
+    trace_error: Option<AgentError>,
 }
 
 impl ProviderStreamState {
@@ -343,7 +361,7 @@ impl ProviderStreamState {
         iteration: i64,
         provider_attempt_id: &str,
         assistant_message_id: &str,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         if !self.streamed_content || self.message_content.is_empty() {
             return Ok(());
         }
@@ -385,17 +403,17 @@ enum PreparedNativeAgentTurnExecution<'a> {
         execution: NativeAgentTurnExecution<'a>,
         start_iteration: i64,
     },
-    Finished(Value),
+    Finished(AgentTurnResult),
 }
 
 enum ExecutionStage<T> {
     Ready(T),
-    Finished(Value),
+    Finished(AgentTurnResult),
 }
 
 enum IterationOutcome {
     Continue,
-    Finished(Value),
+    Finished(AgentTurnResult),
 }
 
 struct ProviderAttempt {
@@ -434,14 +452,14 @@ struct CompletedProviderIteration {
 impl<'a> NativeAgentTurnExecution<'a> {
     async fn execute(
         dependencies: &'a NativeAgentRuntimeServices,
-        spec: Value,
+        context: AgentTurnContext,
         config_snapshot: Value,
         instructions: Option<ComposedInstructions>,
         workspace_root: Option<&Path>,
-    ) -> Result<Value, String> {
+    ) -> Result<AgentTurnResult, AgentError> {
         match Self::prepare(
             dependencies,
-            spec,
+            context,
             config_snapshot,
             instructions,
             workspace_root,
@@ -458,17 +476,15 @@ impl<'a> NativeAgentTurnExecution<'a> {
 
     async fn prepare(
         dependencies: &'a NativeAgentRuntimeServices,
-        spec: Value,
+        mut context: AgentTurnContext,
         config_snapshot: Value,
         instructions: Option<ComposedInstructions>,
         workspace_root: Option<&Path>,
-    ) -> Result<PreparedNativeAgentTurnExecution<'a>, String> {
-        let mut context = AgentTurnContext::from_spec(spec, config_snapshot.clone());
+    ) -> Result<PreparedNativeAgentTurnExecution<'a>, AgentError> {
         context.attach_observability(dependencies);
         if let Some(instructions) = instructions.as_ref() {
             context.settings.working_directory = Some(instructions.working_directory.clone());
         }
-        context.settings.validate()?;
         context.instructions = instructions;
         context.attach_cancellation(
             dependencies.cancellations.clone(),
@@ -478,7 +494,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             return Ok(PreparedNativeAgentTurnExecution::Finished(error_result(
                 &context.turn_id,
                 &context.session_id,
-                "max_iterations",
+                AgentStopReason::MaxIterations,
                 "Rust agent runtime reached max iterations before provider call.",
             )));
         }
@@ -486,8 +502,16 @@ impl<'a> NativeAgentTurnExecution<'a> {
             let checkpoint = save_phase_checkpoint(
                 dependencies,
                 &context,
-                "cancelled",
-                serde_json::json!({ "cancelled": true }),
+                crate::agent::runtime_protocol::AgentRuntimePhase::Cancelled,
+                super::checkpoint_types::PhaseCheckpointInput {
+                    payload: super::checkpoint_types::AgentCheckpointPayload::Execution(
+                        super::checkpoint_types::ExecutionCheckpoint {
+                            cancelled: Some(true),
+                            ..Default::default()
+                        },
+                    ),
+                    ..Default::default()
+                },
             );
             return Ok(PreparedNativeAgentTurnExecution::Finished(
                 cancelled_result(
@@ -521,13 +545,19 @@ impl<'a> NativeAgentTurnExecution<'a> {
                         let checkpoint = save_phase_checkpoint(
                             dependencies,
                             &context,
-                            "cancelled",
-                            serde_json::json!({
-                                "cancelled": true,
-                                "phase": "mcp_discovery",
-                                "server": error.server,
-                                "transport": error.transport,
-                            }),
+                            crate::agent::runtime_protocol::AgentRuntimePhase::Cancelled,
+                            super::checkpoint_types::PhaseCheckpointInput {
+                                payload: super::checkpoint_types::AgentCheckpointPayload::Execution(
+                                    super::checkpoint_types::ExecutionCheckpoint {
+                                        cancelled: Some(true),
+                                        phase: Some("mcp_discovery".into()),
+                                        server: Some(error.server),
+                                        transport: Some(error.transport),
+                                        ..Default::default()
+                                    },
+                                ),
+                                ..Default::default()
+                            },
                         );
                         return Ok(PreparedNativeAgentTurnExecution::Finished(
                             cancelled_result(
@@ -542,7 +572,8 @@ impl<'a> NativeAgentTurnExecution<'a> {
                         return Err(format!(
                             "MCP registry snapshot failed for server `{}` over {}: {}",
                             error.server, error.transport, error.message
-                        ));
+                        )
+                        .into());
                     }
                 }
             } else {
@@ -553,8 +584,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             let graph_node_turn = ["graphRunId", "graph_run_id"]
                 .iter()
                 .any(|key| context.metadata.get(*key).is_some());
-            if !graph_node_turn && turn_declares_working_directory(&context.spec, &context.metadata)
-            {
+            if !graph_node_turn && context.controls.declares_working_directory {
                 if let Some(definition_workspace_root) =
                     context.settings.working_directory.as_deref()
                 {
@@ -631,7 +661,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             return Ok(PreparedNativeAgentTurnExecution::Finished(error_result(
                 &context.turn_id,
                 &context.session_id,
-                "invalid_request",
+                AgentStopReason::InvalidRequest,
                 "Rust agent runtime requires at least one user input or chat message.",
             )));
         }
@@ -662,13 +692,13 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 iteration
             }
             None => {
-                if !manual_context_compaction_requested(&context.spec) {
+                if !context.controls.manual_compaction {
                     state.emit_turn_started(&context)?;
                 }
                 0
             }
         };
-        if !is_continuation && !manual_context_compaction_requested(&context.spec) {
+        if !is_continuation && !context.controls.manual_compaction {
             let prompt = current_user_message(&context.messages)
                 .as_ref()
                 .map(user_message_text)
@@ -717,7 +747,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         })
     }
 
-    async fn run_loop(mut self, start_iteration: i64) -> Result<Value, String> {
+    async fn run_loop(mut self, start_iteration: i64) -> Result<AgentTurnResult, AgentError> {
         for iteration in start_iteration..self.context.max_iterations {
             match self.advance_iteration(iteration).await? {
                 IterationOutcome::Continue => {}
@@ -727,7 +757,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         self.finish_max_iterations()
     }
 
-    async fn advance_iteration(&mut self, iteration: i64) -> Result<IterationOutcome, String> {
+    async fn advance_iteration(&mut self, iteration: i64) -> Result<IterationOutcome, AgentError> {
         let prepared = match self.prepare_provider_iteration(iteration).await? {
             ExecutionStage::Ready(prepared) => prepared,
             ExecutionStage::Finished(result) => return Ok(IterationOutcome::Finished(result)),
@@ -742,7 +772,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
     async fn prepare_provider_iteration(
         &mut self,
         iteration: i64,
-    ) -> Result<ExecutionStage<PreparedProviderIteration>, String> {
+    ) -> Result<ExecutionStage<PreparedProviderIteration>, AgentError> {
         self.state
             .transition_phase(AgentRuntimePhase::CallingModel, iteration, "provider_call")?;
         if turn_context_is_cancelled(&self.context) {
@@ -754,12 +784,11 @@ impl<'a> NativeAgentTurnExecution<'a> {
         save_phase_checkpoint(
             self.dependencies,
             &self.context,
-            self.state.phase.as_str(),
+            self.state.phase.clone(),
             self.state.active_checkpoint_payload("running"),
         );
         let prompt_messages = self.state.history.for_prompt()?;
-        self.context.messages = prompt_messages.clone();
-        self.context.spec["messages"] = Value::Array(prompt_messages);
+        self.context.messages = prompt_messages;
         let mut projection = match context_window_projection_async(&self.context).await {
             Ok(projection) => projection,
             Err(error) if error.kind() == NativeAgentProviderFailureKind::Cancelled => {
@@ -786,29 +815,17 @@ impl<'a> NativeAgentTurnExecution<'a> {
             provider_protocol(&self.context)?
                 .reset_replay_after_context_projection(&mut self.context)?;
             let mut payload = context_window_action_payload(&self.context, iteration, action);
-            if let Some(tokens) = payload.get("estimatedTokensBefore").and_then(Value::as_i64) {
-                self.context
-                    .metrics()
-                    .set_gauge("context.tokens.before", tokens);
-            }
-            if let Some(tokens) = payload.get("estimatedTokensAfter").and_then(Value::as_i64) {
-                self.context
-                    .metrics()
-                    .set_gauge("context.tokens.after", tokens);
-            }
+            self.context
+                .metrics()
+                .set_gauge("context.tokens.before", payload.estimated_tokens_before);
+            self.context
+                .metrics()
+                .set_gauge("context.tokens.after", payload.estimated_tokens_after);
             if action.event_kind == AgentEventKind::ContextCompacted {
                 let checkpoint = self
                     .state
-                    .compacted_context_checkpoint(&projection.messages, &payload);
-                for field in [
-                    "sourceContextId",
-                    "windowNumber",
-                    "firstWindowId",
-                    "previousWindowId",
-                    "windowId",
-                ] {
-                    payload[field] = checkpoint.get(field).cloned().unwrap_or(Value::Null);
-                }
+                    .compacted_context_checkpoint(&projection.messages, &payload)?;
+                payload.lineage = Some(checkpoint.lineage.clone());
                 let commit = NativeAgentContextCheckpointCommit {
                     session_id: self.context.session_id.clone(),
                     turn_id: self.context.turn_id.clone(),
@@ -816,34 +833,37 @@ impl<'a> NativeAgentTurnExecution<'a> {
                     checkpoint: checkpoint.clone(),
                 };
                 if let Err(error) = self.dependencies.commit_context_checkpoint(commit).await {
-                    let message = format!("context compaction checkpoint commit failed: {error}");
+                    let error = error.context("context compaction checkpoint commit failed");
+                    let message = error.to_string();
                     emit_context_compaction_failure(
                         &self.context,
                         &mut self.state,
                         iteration,
-                        "context_compaction_commit_failed",
+                        AgentStopReason::ContextCompactionCommitFailed,
                         &message,
                     )?;
-                    return Ok(ExecutionStage::Finished(agent_failure_result(
+                    let mut result = agent_failure_result(
                         self.dependencies,
                         &self.context,
                         &mut self.state,
                         iteration,
-                        "context_compaction_commit_failed",
+                        AgentStopReason::ContextCompactionCommitFailed,
                         message,
-                    )?));
+                    )?;
+                    result.error = Some(super::AgentResultError::Structured(error));
+                    return Ok(ExecutionStage::Finished(result));
                 }
-                self.state
-                    .install_compacted_context(projection.messages.clone(), checkpoint)?;
+                self.state.install_compacted_context(checkpoint);
                 let prompt_messages = self.state.history.for_prompt()?;
-                self.context.messages = prompt_messages.clone();
-                self.context.spec["messages"] = Value::Array(prompt_messages);
+                self.context.messages = prompt_messages;
                 self.context.metrics().increment("compaction.completed");
             }
-            self.state
-                .emit(PendingAgentEvent::new(action.event_kind, payload))?;
+            self.state.emit(PendingAgentEvent::new(
+                action.event_kind,
+                serde_json::to_value(payload).expect("context event must serialize"),
+            ))?;
             if action.event_kind == AgentEventKind::ContextCompacted {
-                let trigger = if manual_context_compaction_requested(&self.context.spec) {
+                let trigger = if self.context.controls.manual_compaction {
                     "manual"
                 } else {
                     "auto"
@@ -871,13 +891,13 @@ impl<'a> NativeAgentTurnExecution<'a> {
                         reason,
                     )?));
                 }
-                projection.messages = self.state.history.for_prompt()?;
-                self.context.messages = projection.messages.clone();
-                self.context.spec["messages"] = Value::Array(projection.messages.clone());
+                projection.messages = self.state.history.for_prompt()?.to_legacy_messages()?;
+                self.context.messages =
+                    super::AgentItemHistory::from_legacy_messages(&projection.messages)?;
             }
         }
 
-        if manual_context_compaction_requested(&self.context.spec) {
+        if self.context.controls.manual_compaction {
             if projection
                 .action
                 .as_ref()
@@ -892,7 +912,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 &self.context,
                 &mut self.state,
                 iteration,
-                "context_compaction_not_needed",
+                AgentStopReason::ContextCompactionNotNeeded,
                 message,
             )?;
             return Ok(ExecutionStage::Finished(agent_failure_result(
@@ -900,13 +920,13 @@ impl<'a> NativeAgentTurnExecution<'a> {
                 &self.context,
                 &mut self.state,
                 iteration,
-                "context_compaction_not_needed",
+                AgentStopReason::ContextCompactionNotNeeded,
                 message.to_string(),
             )?));
         }
 
         let mut provider_context =
-            context_with_projected_messages(&self.context, projection.messages);
+            context_with_projected_messages(&self.context, projection.messages)?;
         let (provider_request, estimated_context_tokens) =
             match prepare_provider_request(&provider_context) {
                 Ok(prepared) => prepared,
@@ -952,7 +972,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
     async fn call_provider(
         &mut self,
         prepared: PreparedProviderIteration,
-    ) -> Result<ExecutionStage<CompletedProviderIteration>, String> {
+    ) -> Result<ExecutionStage<CompletedProviderIteration>, AgentError> {
         let PreparedProviderIteration {
             provider_context,
             mut attempt,
@@ -1000,7 +1020,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             }
         };
         if let Some(error) = attempt.stream.trace_error.take() {
-            return Err(error);
+            return Err(error.into());
         }
         let provider_duration = provider_started_at.elapsed();
         let timing = crate::agent::runtime_protocol::AgentModelTiming {
@@ -1085,7 +1105,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
     async fn reduce_provider_iteration(
         &mut self,
         mut completed: CompletedProviderIteration,
-    ) -> Result<IterationOutcome, String> {
+    ) -> Result<IterationOutcome, AgentError> {
         let iteration = completed.attempt.iteration;
         let provider_phase_conflict = match completed.attempt.stream.message_phase {
             AgentAssistantMessagePhase::FinalAnswer
@@ -1135,7 +1155,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
     fn project_provider_fallbacks(
         &mut self,
         completed: &mut CompletedProviderIteration,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         let iteration = completed.attempt.iteration;
         if let Some(reasoning_delta) = completed
             .response
@@ -1194,7 +1214,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
     async fn complete_tool_iteration(
         &mut self,
         completed: CompletedProviderIteration,
-    ) -> Result<IterationOutcome, String> {
+    ) -> Result<IterationOutcome, AgentError> {
         let CompletedProviderIteration {
             response,
             attempt,
@@ -1264,7 +1284,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
     fn finish_final_response(
         &mut self,
         completed: CompletedProviderIteration,
-    ) -> Result<Value, String> {
+    ) -> Result<AgentTurnResult, AgentError> {
         let CompletedProviderIteration {
             response,
             attempt,
@@ -1303,7 +1323,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             }),
         ))?;
         self.state.set_stop_reason(
-            "final_response",
+            AgentStopReason::FinalResponse,
             attempt.iteration,
             AgentEventKind::Done.wire_name(),
         )?;
@@ -1319,24 +1339,25 @@ impl<'a> NativeAgentTurnExecution<'a> {
         let context_checkpoint = self
             .state
             .finalized_context_checkpoint(Some(final_message.clone()));
-        let mut result = serde_json::json!({
-            "runtime": "rust",
-            "turnId": self.context.turn_id,
-            "sessionId": self.context.session_id,
-            "finalContent": final_message["content"],
-            "stopReason": "final_response",
-            "messages": [final_message.clone()],
-            "toolsUsed": self.state.tools_used,
-            "completedToolResults": self.state.completed_tool_results,
-            "runtimeEvents": runtime_events,
-        });
+        let mut result = AgentTurnResult {
+            final_content,
+            messages: super::AgentItemHistory::from_legacy_messages(&[final_message])?,
+            tools_used: self.state.tools_used.clone(),
+            completed_tool_results: Some(self.state.completed_tool_results.clone()),
+            runtime_events: Some(runtime_events),
+            ..AgentTurnResult::new(
+                &self.context.turn_id,
+                &self.context.session_id,
+                AgentStopReason::FinalResponse,
+            )
+        };
         if let Some(context_checkpoint) = context_checkpoint {
-            result["contextCheckpoint"] = context_checkpoint;
+            result.context_checkpoint = Some(context_checkpoint);
         }
         Ok(result)
     }
 
-    fn finish_cancelled(&mut self, iteration: i64) -> Result<Value, String> {
+    fn finish_cancelled(&mut self, iteration: i64) -> Result<AgentTurnResult, AgentError> {
         self.state.transition_phase(
             AgentRuntimePhase::Cancelled,
             iteration,
@@ -1345,7 +1366,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
         cancelled_turn_result(self.dependencies, &self.context, &mut self.state, iteration)
     }
 
-    fn finish_context_compaction(&mut self, iteration: i64) -> Result<Value, String> {
+    fn finish_context_compaction(&mut self, iteration: i64) -> Result<AgentTurnResult, AgentError> {
         self.state.transition_phase(
             AgentRuntimePhase::Finalizing,
             iteration,
@@ -1355,7 +1376,7 @@ impl<'a> NativeAgentTurnExecution<'a> {
             .checkpoints
             .clear_for_turn(&self.context.session_id, &self.context.turn_id);
         self.state.set_stop_reason(
-            "context_compacted",
+            AgentStopReason::ContextCompacted,
             iteration,
             AgentEventKind::Done.wire_name(),
         )?;
@@ -1365,27 +1386,26 @@ impl<'a> NativeAgentTurnExecution<'a> {
         })))?;
         let runtime_events = self.state.runtime_events();
         let context_checkpoint = self.state.finalized_context_checkpoint(None);
-        let mut result = serde_json::json!({
-            "runtime": "rust",
-            "turnId": self.context.turn_id,
-            "sessionId": self.context.session_id,
-            "finalContent": "",
-            "stopReason": "context_compacted",
-            "messages": [],
-            "toolsUsed": self.state.tools_used,
-            "completedToolResults": self.state.completed_tool_results,
-            "runtimeEvents": runtime_events,
-        });
+        let mut result = AgentTurnResult {
+            tools_used: self.state.tools_used.clone(),
+            completed_tool_results: Some(self.state.completed_tool_results.clone()),
+            runtime_events: Some(runtime_events),
+            ..AgentTurnResult::new(
+                &self.context.turn_id,
+                &self.context.session_id,
+                AgentStopReason::ContextCompacted,
+            )
+        };
         if let Some(context_checkpoint) = context_checkpoint {
-            result["contextCheckpoint"] = context_checkpoint;
+            result.context_checkpoint = Some(context_checkpoint);
         }
         Ok(result)
     }
 
-    fn finish_max_iterations(&mut self) -> Result<Value, String> {
+    fn finish_max_iterations(&mut self) -> Result<AgentTurnResult, AgentError> {
         let error = "Rust agent runtime reached max iterations before final response.";
         self.state.set_stop_reason(
-            "max_iterations",
+            AgentStopReason::MaxIterations,
             self.state.iteration,
             AgentEventKind::Error.wire_name(),
         )?;
@@ -1398,65 +1418,34 @@ impl<'a> NativeAgentTurnExecution<'a> {
             .clear_for_turn(&self.context.session_id, &self.context.turn_id);
         let runtime_events = self.state.runtime_events();
         let context_checkpoint = self.state.finalized_context_checkpoint(None);
-        let mut result = serde_json::json!({
-            "runtime": "rust",
-            "turnId": self.context.turn_id,
-            "sessionId": self.context.session_id,
-            "finalContent": "",
-            "stopReason": "max_iterations",
-            "messages": [],
-            "toolsUsed": self.state.tools_used,
-            "completedToolResults": self.state.completed_tool_results,
-            "error": error,
-            "runtimeEvents": runtime_events,
-        });
+        let mut result = AgentTurnResult {
+            tools_used: self.state.tools_used.clone(),
+            completed_tool_results: Some(self.state.completed_tool_results.clone()),
+            error: Some(AgentResultError::Message(error.to_string())),
+            runtime_events: Some(runtime_events),
+            ..AgentTurnResult::new(
+                &self.context.turn_id,
+                &self.context.session_id,
+                AgentStopReason::MaxIterations,
+            )
+        };
         if let Some(context_checkpoint) = context_checkpoint {
-            result["contextCheckpoint"] = context_checkpoint;
+            result.context_checkpoint = Some(context_checkpoint);
         }
         Ok(result)
     }
 }
 
-fn turn_declares_working_directory(spec: &Value, metadata: &Value) -> bool {
-    ["cwd", "workingDirectory", "working_directory", "workspace"]
-        .iter()
-        .any(|key| {
-            [spec, metadata].iter().any(|source| {
-                source
-                    .get(*key)
-                    .and_then(Value::as_str)
-                    .is_some_and(|value| !value.trim().is_empty())
-            })
-        })
-}
-
-#[cfg(test)]
-mod workspace_graph_tests {
-    use super::turn_declares_working_directory;
-
-    #[test]
-    fn workspace_graphs_require_a_turn_declared_workspace() {
-        assert!(!turn_declares_working_directory(
-            &serde_json::json!({}),
-            &serde_json::json!({})
-        ));
-        assert!(turn_declares_working_directory(
-            &serde_json::json!({}),
-            &serde_json::json!({ "workingDirectory": "D:\\work\\alerts" })
-        ));
-    }
-}
-
 async fn run_native_agent_turn_with_instructions_async(
     services: &NativeAgentRuntimeServices,
-    spec: Value,
+    context: AgentTurnContext,
     config_snapshot: Value,
     instructions: Option<ComposedInstructions>,
     workspace_root: Option<&Path>,
-) -> Result<Value, String> {
+) -> Result<AgentTurnResult, AgentError> {
     NativeAgentTurnExecution::execute(
         services,
-        spec,
+        context,
         config_snapshot,
         instructions,
         workspace_root,
@@ -1466,13 +1455,15 @@ async fn run_native_agent_turn_with_instructions_async(
 
 fn append_response_tool_outputs(
     context: &mut AgentTurnContext,
-    results: &[Value],
-) -> Result<(), String> {
-    provider_protocol(context)?.record_tool_outputs(context, results)
+    results: &[super::CompletedAgentToolResult],
+) -> Result<(), AgentError> {
+    provider_protocol(context)?
+        .record_tool_outputs(context, results)
+        .map_err(AgentError::from)
 }
 
-fn provider_protocol(context: &AgentTurnContext) -> Result<ProviderProtocolAdapter, String> {
-    ProviderProtocolAdapter::for_runtime_request(context)
+fn provider_protocol(context: &AgentTurnContext) -> Result<ProviderProtocolAdapter, AgentError> {
+    ProviderProtocolAdapter::for_runtime_request(context).map_err(AgentError::from)
 }
 
 fn turn_context_is_cancelled(context: &AgentTurnContext) -> bool {
@@ -1488,7 +1479,7 @@ fn provider_failure_result(
     state: &mut AgentTurnState,
     iteration: i64,
     error: NativeAgentProviderFailure,
-) -> Result<Value, String> {
+) -> Result<AgentTurnResult, AgentError> {
     agent_failure_result(
         services,
         context,
@@ -1504,9 +1495,9 @@ fn agent_failure_result(
     context: &AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
-    stop_reason: &str,
+    stop_reason: AgentStopReason,
     message: String,
-) -> Result<Value, String> {
+) -> Result<AgentTurnResult, AgentError> {
     state.set_stop_reason(stop_reason, iteration, AgentEventKind::Error.wire_name())?;
     state.emit(TerminalEvent::Error(serde_json::json!({
         "iteration": iteration,
@@ -1518,18 +1509,13 @@ fn agent_failure_result(
         .checkpoints
         .clear_for_turn(&context.session_id, &context.turn_id);
     let runtime_events = state.runtime_events();
-    let mut result = serde_json::json!({
-        "runtime": "rust",
-        "turnId": context.turn_id,
-        "sessionId": context.session_id,
-        "finalContent": "",
-        "stopReason": stop_reason,
-        "messages": [],
-        "toolsUsed": std::mem::take(&mut state.tools_used),
-        "completedToolResults": std::mem::take(&mut state.completed_tool_results),
-        "error": message,
-        "runtimeEvents": runtime_events,
-    });
+    let mut result = AgentTurnResult {
+        tools_used: std::mem::take(&mut state.tools_used),
+        completed_tool_results: Some(std::mem::take(&mut state.completed_tool_results)),
+        error: Some(AgentResultError::Message(message)),
+        runtime_events: Some(runtime_events),
+        ..AgentTurnResult::new(&context.turn_id, &context.session_id, stop_reason)
+    };
     state.attach_context_checkpoint(&mut result, None);
     Ok(result)
 }
@@ -1538,11 +1524,11 @@ fn emit_context_compaction_failure(
     context: &AgentTurnContext,
     state: &mut AgentTurnState,
     iteration: i64,
-    failure_stop_reason: &str,
+    failure_stop_reason: AgentStopReason,
     message: &str,
-) -> Result<(), String> {
+) -> Result<(), AgentError> {
     context.metrics().increment("compaction.failed");
-    let manual = manual_context_compaction_requested(&context.spec);
+    let manual = context.controls.manual_compaction;
     state.emit(PendingAgentEvent::new(
         AgentEventKind::ContextCompactionFailed,
         serde_json::json!({
@@ -1577,8 +1563,12 @@ fn hook_denied_result(
     state: &mut AgentTurnState,
     iteration: i64,
     reason: String,
-) -> Result<Value, String> {
-    state.set_stop_reason("hook_denied", iteration, AgentEventKind::Error.wire_name())?;
+) -> Result<AgentTurnResult, AgentError> {
+    state.set_stop_reason(
+        AgentStopReason::HookDenied,
+        iteration,
+        AgentEventKind::Error.wire_name(),
+    )?;
     state.emit(TerminalEvent::Error(serde_json::json!({
         "iteration": iteration,
         "stopReason": "hook_denied",
@@ -1589,68 +1579,51 @@ fn hook_denied_result(
         .checkpoints
         .clear_for_turn(&context.session_id, &context.turn_id);
     let runtime_events = state.runtime_events();
-    let mut result = serde_json::json!({
-        "runtime": "rust",
-        "turnId": context.turn_id,
-        "sessionId": context.session_id,
-        "finalContent": "",
-        "stopReason": "hook_denied",
-        "messages": [],
-        "toolsUsed": std::mem::take(&mut state.tools_used),
-        "completedToolResults": std::mem::take(&mut state.completed_tool_results),
-        "error": reason,
-        "runtimeEvents": runtime_events,
-    });
+    let mut result = AgentTurnResult {
+        tools_used: std::mem::take(&mut state.tools_used),
+        completed_tool_results: Some(std::mem::take(&mut state.completed_tool_results)),
+        error: Some(AgentResultError::Message(reason)),
+        runtime_events: Some(runtime_events),
+        ..AgentTurnResult::new(
+            &context.turn_id,
+            &context.session_id,
+            AgentStopReason::HookDenied,
+        )
+    };
     state.attach_context_checkpoint(&mut result, None);
     Ok(result)
 }
 
 fn append_hook_evaluation_to_result(
-    result: &mut Value,
+    result: &mut AgentTurnResult,
     services: &NativeAgentRuntimeServices,
     context: &AgentTurnContext,
     invocation: &AgentHookInvocation,
     evaluation: &AgentHookEvaluation,
-) -> Result<(), String> {
+) -> Result<(), AgentError> {
     if evaluation.decisions.is_empty() {
         return Ok(());
     }
-    let existing = result
-        .get("runtimeEvents")
-        .filter(|events| events.is_array())
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!([]));
-    let existing: Vec<AgentRuntimeEventEnvelope> = serde_json::from_value(existing)
-        .map_err(|error| format!("failed to read runtime events for lifecycle hook: {error}"))?;
+    let existing = result.runtime_events.as_deref().unwrap_or_default();
     let phase = match invocation.stage {
         AgentHookStage::TurnComplete => AgentRuntimePhase::Completed,
         AgentHookStage::TurnAbort => AgentRuntimePhase::Failed,
         _ => AgentRuntimePhase::Planning,
     };
     let mut state =
-        AgentTurnState::new_for_result_append(context, services.trace_sink.clone(), &existing)?;
+        AgentTurnState::new_for_result_append(context, services.trace_sink.clone(), existing)?;
     state.phase = phase;
     state.emit_hook_evaluation(invocation, evaluation)?;
     let appended = state.take_runtime_events();
-    let events = result
-        .as_object_mut()
-        .ok_or_else(|| "agent result must be a JSON object".to_string())?
-        .entry("runtimeEvents".to_string())
-        .or_insert_with(|| serde_json::json!([]))
-        .as_array_mut()
-        .ok_or_else(|| "agent result runtimeEvents must be an array".to_string())?;
-    events.extend(
-        appended
-            .into_iter()
-            .map(serde_json::to_value)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| format!("failed to serialize lifecycle hook event: {error}"))?,
-    );
+    result
+        .runtime_events
+        .get_or_insert_with(Vec::new)
+        .extend(appended);
     Ok(())
 }
 
 enum PreparedContinuation {
-    Finished(Value),
+    Finished(AgentTurnResult),
     Continue {
         context: AgentTurnContext,
         resume: Option<UserInputResume>,
@@ -1660,7 +1633,7 @@ enum PreparedContinuation {
 async fn prepare_continuation(
     services: NativeAgentRuntimeServices,
     mut context: AgentTurnContext,
-) -> Result<PreparedContinuation, String> {
+) -> Result<PreparedContinuation, AgentError> {
     restore_activated_tools_for_continuation(&services, &mut context)?;
     let resume = match prepare_user_input_continuation(&services, &mut context)? {
         Some(UserInputContinuationOutcome::Finished(result)) => {

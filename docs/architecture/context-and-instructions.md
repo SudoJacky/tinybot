@@ -5,6 +5,7 @@ src-tauri/src/agent/bridge/thread_flow.rs
 src-tauri/src/agent/runtime/README.md
 src-tauri/src/agent/runtime/instructions.rs
 src-tauri/src/agent/runtime/settings.rs
+src-tauri/src/agent/runtime/turn_input.rs
 src-tauri/src/agent/runtime/usage.rs
 src-tauri/src/config/application.rs
 src-tauri/src/memory/README.md
@@ -12,11 +13,17 @@ src-tauri/src/runtime/working_directory.rs
 src-tauri/src/system_prompt.rs
 src-tauri/src/workspace/README.md
 -->
-<!-- tinybot-doc-fingerprint: sha256:83f32afa28f32caa8c43241964f95e2921b01bfb0050131b140d7acea04c7313 -->
+<!-- tinybot-doc-fingerprint: sha256:d42af8b59e8e5feacfcb3758a35d64cac57d4688e559021eaae6d9fcb5a3d1aa -->
 
 Tinybot composes model-visible instructions from explicit, traceable sources
 before the Agent Runtime builds the bounded provider request. Instruction
 composition and context-window management are separate stages.
+
+The hydrated wire specification becomes `AgentTurnInput` before task ownership.
+This boundary resolves settings aliases and context-window overrides, and parses
+continuations into `AgentContinuationInput`. The execution context holds typed
+controls and a projection flag; compaction no longer modifies a copy of the
+input JSON alongside the active message history.
 
 The optional first-Turn title request is a separate tool-free request, not part
 of this composed Agent context. Its fixed system prompt treats the bounded user

@@ -49,7 +49,7 @@ impl NativeAgentTraceSink for RecordingTraceSink {
         _session_id: &str,
         _turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::agent::runtime::AgentError> {
         self.append_trace_events("", "", std::slice::from_ref(event))
     }
 
@@ -58,7 +58,7 @@ impl NativeAgentTraceSink for RecordingTraceSink {
         _session_id: &str,
         _turn_id: &str,
         events: &[AgentRuntimeEventEnvelope],
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::agent::runtime::AgentError> {
         if !self.delay.is_zero() {
             std::thread::sleep(self.delay);
         }
@@ -81,7 +81,7 @@ impl NativeAgentTraceSink for FailingTraceSink {
         _session_id: &str,
         _turn_id: &str,
         _event: &AgentRuntimeEventEnvelope,
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::agent::runtime::AgentError> {
         unreachable!("buffered persistence should use append_trace_events")
     }
 
@@ -90,9 +90,9 @@ impl NativeAgentTraceSink for FailingTraceSink {
         _session_id: &str,
         _turn_id: &str,
         _events: &[AgentRuntimeEventEnvelope],
-    ) -> Result<(), String> {
+    ) -> Result<(), crate::agent::runtime::AgentError> {
         self.attempts.fetch_add(1, Ordering::Relaxed);
-        Err("durable trace write failed".to_string())
+        Err("durable trace write failed".to_string().into())
     }
 }
 
@@ -295,7 +295,7 @@ fn buffered_trace_sink_keeps_first_persistence_error_terminal() {
         .append_trace_event("session-1", "turn-1", &second)
         .expect_err("terminal worker should reject later events");
 
-    assert_eq!(first_error, "durable trace write failed");
+    assert_eq!(first_error, "durable trace write failed".into());
     assert_eq!(second_error, first_error);
     assert_eq!(durable.attempts.load(Ordering::Relaxed), 1);
     assert_eq!(live.event_count(), 1);
@@ -304,6 +304,49 @@ fn buffered_trace_sink_keeps_first_persistence_error_terminal() {
             .expect_err("shutdown should retain the first error"),
         first_error
     );
+}
+
+#[test]
+fn buffered_service_error_survives_task_completion() {
+    struct ServiceFailure(AgentError);
+    impl NativeAgentTraceSink for ServiceFailure {
+        fn append_trace_event(
+            &self,
+            _: &str,
+            _: &str,
+            _: &AgentRuntimeEventEnvelope,
+        ) -> Result<(), AgentError> {
+            Err(self.0.clone())
+        }
+    }
+    let source = crate::protocol::WorkerProtocolError::new(
+        crate::protocol::WorkerProtocolErrorCode::CapabilityDenied,
+        "write denied",
+        serde_json::json!({"capability":"session.write"}),
+        false,
+        crate::protocol::WorkerProtocolErrorSource::RustCore,
+    );
+    let expected = AgentError::persistence("append", source);
+    let sink = BufferedNativeAgentTraceSink::new(
+        Arc::new(ServiceFailure(expected.clone())),
+        Arc::new(RecordingTraceSink::default()),
+    );
+    let mut emitter = AgentTurnEmitter::new("session-error", "turn-error");
+    let event = emitter.message_completed("unix-ms:1", Some("message-1".to_string()), "hello");
+    sink.append_trace_event("session-error", "turn-error", &event)
+        .unwrap();
+    let runtime = crate::runtime::turn_execution::TurnExecutionRuntime::new();
+    let handle = runtime
+        .start_blocking(
+            crate::runtime::turn_execution::StartAgentTurn::new("turn-error", "session-error"),
+            move || {
+                sink.flush()?;
+                panic!("service error must prevent successful completion");
+            },
+        )
+        .unwrap();
+    assert_eq!(handle.wait().unwrap_err(), expected);
+    assert!(runtime.terminal_result("turn-error").is_none());
 }
 
 #[test]

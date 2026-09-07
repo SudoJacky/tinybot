@@ -1,7 +1,21 @@
+fn persist_native_agent_turn_start(
+    spec: serde_json::Value,
+    store: &crate::threads::workspace_store::WorkspaceThreadStore,
+    config: serde_json::Value,
+) -> Result<(), crate::agent::runtime::AgentError> {
+    let workspace = WorkspaceFixture::new();
+    let root = workspace.root.clone();
+    let request =
+        crate::agent::bridge::turn_request::AgentTurnRequest::from_wire(spec, &config, &root)?;
+    let instructions = crate::agent::runtime::InstructionComposer::default()
+        .compose_input(&root, &request.instructions)?;
+    crate::agent::bridge::persist_native_agent_turn_start(&request, &instructions, store)
+}
 use super::support::*;
-use crate::agent::bridge::persist_native_agent_turn_start;
+
 use crate::agent::runtime::NativeAgentRuntimeServices;
 use crate::agent::runtime::NativeAgentTraceSink;
+use crate::agent::runtime::{AgentStopReason, AgentTurnResult};
 use crate::desktop::state::lock_runtime;
 use crate::desktop::state::NativeRuntimeState;
 use crate::desktop_commands::agent::worker_run_agent_with_options;
@@ -189,7 +203,7 @@ fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
             _session_id: &str,
             _turn_id: &str,
             _event: &crate::agent::runtime_protocol::AgentRuntimeEventEnvelope,
-        ) -> Result<(), String> {
+        ) -> Result<(), crate::agent::runtime::AgentError> {
             Ok(())
         }
 
@@ -198,7 +212,7 @@ fn worker_submit_thread_turn_forwards_live_streaming_timeline_patches() {
             _session_id: &str,
             _turn_id: &str,
             patch: &crate::agent::runtime_protocol::AgentTimelinePatch,
-        ) -> Result<(), String> {
+        ) -> Result<(), crate::agent::runtime::AgentError> {
             self.patches
                 .lock()
                 .expect("live patch sink should lock")
@@ -1094,12 +1108,13 @@ fn worker_thread_commands_expose_thread_service_surface() {
                 release_receiver
                     .recv()
                     .expect("owned thread command task release should arrive");
-                Ok(serde_json::json!({
-                    "runtime": "rust",
-                    "turnId": "turn-command-surface",
-                    "sessionId": "session-command-surface",
-                    "stopReason": "final_response"
-                }))
+                Ok(AgentTurnResult {
+                    ..AgentTurnResult::new(
+                        &("turn-command-surface"),
+                        &("session-command-surface"),
+                        AgentStopReason::FinalResponse,
+                    )
+                })
             },
         )
         .expect("thread command run should have an active owner");
@@ -1130,7 +1145,9 @@ fn worker_thread_commands_expose_thread_service_surface() {
     assert_eq!(
         owned_handle
             .wait()
-            .expect("thread interrupt should complete the owned handle")["stopReason"],
+            .expect("thread interrupt should complete the owned handle")
+            .stop_reason
+            .as_str(),
         "interrupted"
     );
     release_sender
@@ -1164,10 +1181,7 @@ fn native_agent_semantic_sink_updates_runtime_state_before_final_persistence() {
         Some("assistant-trace-sink".to_string()),
         "Semantic trace",
     );
-    let sink = crate::agent::bridge::AgentTurnSemanticSink::new(
-        fixture.thread_store.clone(),
-        config.clone(),
-    );
+    let sink = crate::agent::bridge::AgentTurnSemanticSink::new(fixture.thread_store.clone());
 
     sink.append_trace_event(session_id, turn_id, &event)
         .expect("trace sink should append event");

@@ -1,3 +1,4 @@
+mod context_checkpoint;
 use crate::agent::runtime_protocol::{AgentRuntimeEventEnvelope, AgentTraceContext};
 use crate::collaboration::subagents::SubagentThreadManager;
 #[cfg(test)]
@@ -7,21 +8,32 @@ use crate::collaboration::subagents::{
 use crate::runtime::mcp::McpRuntime;
 use crate::runtime::turn_execution::{AgentCancelReason, TurnExecutionRuntime};
 use crate::tools::shell::WorkerShellRuntime;
+pub(crate) use checkpoint_types::AgentCheckpointPayload;
+pub use context_checkpoint::AgentContextCheckpoint;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{fmt, future::Future, pin::Pin, sync::Arc};
 use tokio_util::sync::CancellationToken;
+pub(crate) use user_input::AgentUserInputForm;
 
 pub(crate) const DEFAULT_NATIVE_AGENT_MAX_ITERATIONS: i64 = 200;
 
 mod chat_completions_adapter;
 mod checkpoint;
+mod checkpoint_types;
+pub use checkpoint_types::{AgentCheckpoint, AgentCheckpointPhase};
 mod context;
 mod context_manager;
 mod context_window_config;
 mod continuations;
 mod data_view;
+mod error;
 mod events;
+mod execution_payloads;
+pub use error::{AgentError, AgentErrorCode};
+pub use execution_payloads::{
+    AgentCancellationCleanup, CompletedAgentToolResult, PendingAgentToolCall, TerminalAgentTurn,
+};
 mod hooks;
 mod instructions;
 mod item_event_projection;
@@ -32,6 +44,11 @@ mod provider_loop;
 mod provider_protocol;
 mod responses_adapter;
 mod result;
+mod turn_input;
+pub use turn_input::AgentTurnInput;
+mod turn_result;
+pub(crate) use turn_result::AgentTurnMetrics;
+pub use turn_result::{AgentExecutionStatus, AgentResultError, AgentStopReason, AgentTurnResult};
 mod settings;
 mod state;
 mod stores;
@@ -48,14 +65,16 @@ mod usage;
 mod user_input;
 mod workspace_threads;
 
-pub(crate) use self::context::{agent_trace_context_from_value, ensure_agent_trace_context};
+pub(crate) use self::context::ensure_agent_trace_context;
 pub(crate) use self::events::standalone_runtime_event;
 pub(crate) use self::hooks::AgentHookEvaluation;
 
 #[cfg(test)]
 pub use self::hooks::AgentHookDecision;
 pub use self::hooks::{AgentHook, AgentHookInvocation, AgentHookStage};
-pub(crate) use self::instructions::{ComposedInstructions, InstructionComposer};
+pub(crate) use self::instructions::{
+    ComposedInstructions, InstructionComposer, TurnInstructionInput,
+};
 #[cfg(test)]
 pub use self::items::AgentPlanStepStatus;
 pub use self::items::{
@@ -76,6 +95,7 @@ use self::usage::context_window_messages_async;
 use self::usage::{context_window_messages, enrich_usage_with_context_window};
 pub use crate::runtime::observability::AgentRuntimeMetrics;
 pub(crate) use provider_loop::run_native_agent_turn_with_workspace_and_instructions_async;
+#[cfg(test)]
 pub use provider_loop::run_native_agent_turn_with_workspace_async;
 #[cfg(test)]
 pub use provider_loop::{
@@ -86,7 +106,6 @@ pub use stores::{InMemoryNativeAgentCancellation, InMemoryNativeAgentCheckpointS
 #[cfg(test)]
 pub use tool_dispatcher::FakeNativeAgentToolDispatcher;
 pub use tool_dispatcher::SubagentNativeAgentToolDispatcher;
-pub(crate) use usage::manual_context_compaction_requested;
 
 #[derive(Clone)]
 pub struct NativeAgentCancellationContext {
@@ -158,8 +177,10 @@ pub struct AgentTurnContext {
     pub turn_id: String,
     pub session_id: String,
     pub thread_id: Option<String>,
-    pub spec: Value,
-    pub messages: Vec<Value>,
+    continuation: Option<crate::agent::runtime_protocol::AgentContinuationInput>,
+    controls: turn_input::AgentTurnControls,
+    context_window_projected: bool,
+    pub messages: AgentItemHistory,
     pub config_snapshot: Value,
     pub metadata: Value,
     pub model: String,
@@ -210,13 +231,13 @@ pub enum NativeAgentProviderFailureKind {
 }
 
 impl NativeAgentProviderFailureKind {
-    fn stop_reason(self) -> &'static str {
+    fn stop_reason(self) -> AgentStopReason {
         match self {
-            Self::Cancelled => "cancelled",
-            Self::RequestTimeout => "provider_request_timeout",
-            Self::StreamIdleTimeout => "provider_stream_idle_timeout",
-            Self::Transport => "provider_transport_error",
-            Self::Provider => "provider_error",
+            Self::Cancelled => AgentStopReason::Cancelled,
+            Self::RequestTimeout => AgentStopReason::ProviderRequestTimeout,
+            Self::StreamIdleTimeout => AgentStopReason::ProviderStreamIdleTimeout,
+            Self::Transport => AgentStopReason::ProviderTransportError,
+            Self::Provider => AgentStopReason::ProviderError,
         }
     }
 }
@@ -247,7 +268,7 @@ impl NativeAgentProviderFailure {
         &self.message
     }
 
-    pub fn stop_reason(&self) -> &'static str {
+    pub fn stop_reason(&self) -> AgentStopReason {
         self.kind.stop_reason()
     }
 }
@@ -475,9 +496,8 @@ pub trait NativeAgentToolDispatcher: Send + Sync + 'static {
 }
 
 pub trait NativeAgentCheckpointStore: Send + Sync {
-    fn save(&self, session_id: &str, checkpoint: Value);
-    fn save_for_turn(&self, session_id: &str, turn_id: &str, checkpoint: Value);
-    fn restore_for_turn(&self, session_id: &str, turn_id: &str) -> Option<Value>;
+    fn save_for_turn(&self, session_id: &str, turn_id: &str, checkpoint: AgentCheckpoint);
+    fn restore_for_turn(&self, session_id: &str, turn_id: &str) -> Option<AgentCheckpoint>;
     fn clear_for_turn(&self, session_id: &str, turn_id: &str);
 }
 
@@ -486,11 +506,11 @@ pub struct NativeAgentContextCheckpointCommit {
     pub session_id: String,
     pub turn_id: String,
     pub thread_id: Option<String>,
-    pub checkpoint: Value,
+    pub checkpoint: AgentContextCheckpoint,
 }
 
 pub trait NativeAgentContextCheckpointCommitter: Send + Sync {
-    fn commit(&self, input: &NativeAgentContextCheckpointCommit) -> Result<(), String>;
+    fn commit(&self, input: &NativeAgentContextCheckpointCommit) -> Result<(), AgentError>;
 }
 
 #[derive(Default)]
@@ -500,17 +520,13 @@ struct InMemoryNativeAgentContextCheckpointCommitter {
 
 #[derive(Default)]
 struct InMemoryContextCheckpointState {
-    checkpoints: std::collections::HashMap<(String, String), Value>,
-    latest_checkpoints: std::collections::HashMap<String, Value>,
+    checkpoints: std::collections::HashMap<(String, String), AgentContextCheckpoint>,
+    latest_checkpoints: std::collections::HashMap<String, AgentContextCheckpoint>,
 }
 
 impl NativeAgentContextCheckpointCommitter for InMemoryNativeAgentContextCheckpointCommitter {
-    fn commit(&self, input: &NativeAgentContextCheckpointCommit) -> Result<(), String> {
-        let context_id = input
-            .checkpoint
-            .get("contextId")
-            .and_then(Value::as_str)
-            .ok_or_else(|| "context checkpoint is missing contextId".to_string())?;
+    fn commit(&self, input: &NativeAgentContextCheckpointCommit) -> Result<(), AgentError> {
+        let context_id = &input.checkpoint.context_id;
         let key = (input.session_id.clone(), context_id.to_string());
         let mut state = self
             .state
@@ -520,17 +536,15 @@ impl NativeAgentContextCheckpointCommitter for InMemoryNativeAgentContextCheckpo
             if existing != &input.checkpoint {
                 return Err(format!(
                     "context checkpoint identity `{context_id}` already has different content"
-                ));
+                )
+                .into());
             }
             return Ok(());
         }
         if let Some(current) = state.latest_checkpoints.get(&input.session_id) {
-            crate::threads::rollout::checkpoint_lineage::validate_context_checkpoint_successor(
-                &input.session_id,
-                Some(current),
-                &input.checkpoint,
-            )
-            .map_err(|error| error.to_string())?;
+            input
+                .checkpoint
+                .validate_successor(&input.session_id, current)?;
         }
         state.checkpoints.insert(key, input.checkpoint.clone());
         state
@@ -557,7 +571,7 @@ pub trait NativeAgentTraceSink: Send + Sync {
         &self,
         _session_id: &str,
         _turn_id: &str,
-    ) -> Result<Vec<AgentRuntimeEventEnvelope>, String> {
+    ) -> Result<Vec<AgentRuntimeEventEnvelope>, AgentError> {
         Ok(Vec::new())
     }
 
@@ -566,14 +580,14 @@ pub trait NativeAgentTraceSink: Send + Sync {
         session_id: &str,
         turn_id: &str,
         event: &AgentRuntimeEventEnvelope,
-    ) -> Result<(), String>;
+    ) -> Result<(), AgentError>;
 
     fn append_trace_events(
         &self,
         session_id: &str,
         turn_id: &str,
         events: &[AgentRuntimeEventEnvelope],
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         for event in events {
             self.append_trace_event(session_id, turn_id, event)?;
         }
@@ -585,15 +599,19 @@ pub trait NativeAgentTraceSink: Send + Sync {
         _session_id: &str,
         _turn_id: &str,
         _patch: &crate::agent::runtime_protocol::AgentTimelinePatch,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         Ok(())
     }
 
-    fn thread_title_updated(&self, _thread_id: &str, _source_turn_id: &str) -> Result<(), String> {
+    fn thread_title_updated(
+        &self,
+        _thread_id: &str,
+        _source_turn_id: &str,
+    ) -> Result<(), AgentError> {
         Ok(())
     }
 
-    fn flush(&self) -> Result<(), String> {
+    fn flush(&self) -> Result<(), AgentError> {
         Ok(())
     }
 }
@@ -701,14 +719,14 @@ impl NativeAgentRuntimeServices {
     pub(crate) async fn commit_context_checkpoint(
         &self,
         input: NativeAgentContextCheckpointCommit,
-    ) -> Result<(), String> {
+    ) -> Result<(), AgentError> {
         let committer = self.context_checkpoint_committer.clone();
         tauri::async_runtime::spawn_blocking(move || committer.commit(&input))
             .await
             .map_err(|error| format!("context checkpoint commit task failed: {error}"))?
     }
 
-    pub(crate) fn flush_trace_sink(&self) -> Result<(), String> {
+    pub(crate) fn flush_trace_sink(&self) -> Result<(), AgentError> {
         self.trace_sink
             .as_ref()
             .map_or(Ok(()), |trace_sink| trace_sink.flush())
@@ -853,14 +871,21 @@ impl NativeAgentRuntimeServices {
         })
     }
 
-    pub fn save_checkpoint(&self, session_id: &str, checkpoint: Value) {
-        self.checkpoints.save(session_id, checkpoint);
+    pub fn save_checkpoint(&self, checkpoint: AgentCheckpoint) {
+        self.checkpoints.save_for_turn(
+            &checkpoint.session_id.clone(),
+            &checkpoint.turn_id.clone(),
+            checkpoint,
+        );
     }
 
     #[cfg(test)]
     pub fn save_turn_checkpoint(&self, session_id: &str, turn_id: &str, checkpoint: Value) {
-        self.checkpoints
-            .save_for_turn(session_id, turn_id, checkpoint);
+        self.checkpoints.save_for_turn(
+            session_id,
+            turn_id,
+            AgentCheckpoint::from_wire(checkpoint).expect("fixture checkpoint must be valid"),
+        );
     }
 
     #[cfg(test)]
@@ -890,6 +915,7 @@ pub fn run_native_agent_turn(spec: Value) -> Result<Value, String> {
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}));
     run_native_agent_turn_with_config(&services, spec, config_snapshot)
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]
@@ -898,6 +924,7 @@ pub fn run_native_agent_turn_with_services(
     spec: Value,
 ) -> Result<Value, String> {
     run_native_agent_turn_with_config(services, spec, serde_json::json!({}))
+        .map_err(|error| error.to_string())
 }
 
 fn string_field(value: &Value, key: &str) -> Option<String> {
@@ -907,10 +934,6 @@ fn string_field(value: &Value, key: &str) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
-}
-
-fn bool_field(value: &Value, key: &str) -> bool {
-    value.get(key).and_then(Value::as_bool).unwrap_or(false)
 }
 
 #[cfg(test)]

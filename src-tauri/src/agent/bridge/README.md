@@ -1,5 +1,5 @@
 # Native Agent Bridge
-<!-- tinybot-module-fingerprint: sha256:7119e833db73af20069ac842e795f642206933f21dbb6f20b5818f1bfb8b32ac -->
+<!-- tinybot-module-fingerprint: sha256:5647db55ca0690db2c03b8de04499e79846866e5d5432103c65111648debf850 -->
 
 `agent::bridge` is the application-service layer around the generic
 native agent runtime. It coordinates the resources required for a complete
@@ -24,6 +24,26 @@ loop.
 
 The bridge does **not** implement provider iteration or define the canonical
 Thread data model. Those belong to `agent::runtime` and `threads::domain`.
+
+`run_agent_from_wire_with_services` decodes protocol input into `AgentTurnRequest`.
+`run_agent_with_services` consumes the typed request and returns `AgentTurnResult`.
+Instruction composition receives `TurnInstructionInput`; history hydration updates
+typed execution fields. Start records and Turn Context are constructed as Rust
+types, and terminal persistence receives a typed trace context. Invalid wire input
+is rejected before creating a durable Turn or owning a task.
+Thread submission also decodes its request before starting a durable Turn and
+passes that same typed request into execution. Runtime failures follow the
+failed-turn persistence path; invalid entry parameters fail before Turn start.
+Terminal persistence matches `AgentStopReason` through its exhaustive status
+mapping, preserving waiting outcomes and error messages/codes. Only the outer
+desktop, Thread-response, and WebUI adapters serialize the complete result.
+Turn persistence, semantic event batches, and history hydration call the typed
+workspace store service directly. They retain trace correlation and metrics;
+the shared service owns lifecycle locking and projection synchronization.
+Thread reads, creation, Turn start, compaction commits, and form checkpoint lookup
+also call this service directly. Form history stays typed through continuation;
+only incoming protocol fields and stored checkpoint data are decoded.
+Dynamic tool arguments and external tool RPC adapters retain their extension schemas.
 
 ## Turn flow
 
@@ -82,8 +102,7 @@ when it failed.
 - `tool_dispatcher.rs`: construct runtime services backed by registered tools.
   It also owns Agent-only `mcp.config.*` dispatch because configuration changes
   require asynchronous runtime reconciliation rather than generic Worker RPC.
-- `result_projection.rs`: stable result, canonical token-usage, artifact, and
-  status accessors.
+- `result_projection.rs`: input identity, model, provider, and setting accessors.
 - `webui_continuation.rs`: form continuations for WebUI callers.
 
 ## Invariants

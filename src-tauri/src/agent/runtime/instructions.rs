@@ -92,6 +92,42 @@ pub struct InstructionDiagnostic {
     pub message: String,
 }
 
+/// Turn-provided instruction sources, decoded at the wire boundary.
+#[derive(Clone, Debug)]
+pub struct TurnInstructionInput {
+    pub working_directory: PathBuf,
+    pub developer: Option<String>,
+    pub collaboration: Option<String>,
+    pub agent_role: Option<String>,
+    pub memory_snapshot: Option<String>,
+    pub selected_skills: Vec<String>,
+}
+
+impl TurnInstructionInput {
+    pub(crate) fn from_wire(spec: &Value, workspace_root: &Path) -> Result<Self, String> {
+        Ok(Self {
+            working_directory: instruction_working_directory(spec, workspace_root)?,
+            developer: optional_turn_instruction(
+                spec,
+                &["developerInstructions", "developer_instructions"],
+                "developer instructions",
+            )?,
+            collaboration: optional_turn_instruction(
+                spec,
+                &["collaborationMode", "collaboration_mode"],
+                "collaboration mode instructions",
+            )?,
+            agent_role: optional_turn_instruction(
+                spec,
+                &["agentRole", "agent_role"],
+                "agent role instructions",
+            )?,
+            memory_snapshot: long_term_memory_snapshot(spec)?,
+            selected_skills: selected_skill_names(spec)?,
+        })
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct InstructionComposer {
     project_instruction_max_bytes: usize,
@@ -123,7 +159,18 @@ impl InstructionComposer {
         spec: &Value,
         _config_snapshot: &Value,
     ) -> Result<ComposedInstructions, String> {
-        let working_directory = instruction_working_directory(spec, workspace_root)?;
+        self.compose_input(
+            workspace_root,
+            &TurnInstructionInput::from_wire(spec, workspace_root)?,
+        )
+    }
+
+    pub(crate) fn compose_input(
+        &self,
+        workspace_root: &Path,
+        input: &TurnInstructionInput,
+    ) -> Result<ComposedInstructions, String> {
+        let working_directory = input.working_directory.clone();
         let loaded_at_ms = current_unix_ms();
         let system_content =
             crate::system_prompt::load_or_create_system_prompt_for_working_directory(
@@ -156,11 +203,7 @@ impl InstructionComposer {
             Vec::new(),
             false,
         );
-        if let Some(content) = optional_turn_instruction(
-            spec,
-            &["developerInstructions", "developer_instructions"],
-            "developer instructions",
-        )? {
+        if let Some(content) = input.developer.clone() {
             push_instruction_source(
                 &mut messages,
                 &mut sources,
@@ -248,7 +291,7 @@ impl InstructionComposer {
             );
         }
 
-        if let Some(memory_snapshot) = long_term_memory_snapshot(spec)? {
+        if let Some(memory_snapshot) = input.memory_snapshot.clone() {
             push_instruction_source(
                 &mut messages,
                 &mut sources,
@@ -269,7 +312,7 @@ impl InstructionComposer {
             );
         }
 
-        let selected_skills = selected_skill_names(spec)?;
+        let selected_skills = input.selected_skills.clone();
         let workspace_skills =
             crate::workspace_extensions::discover_workspace_skills(&working_directory)?;
         if !workspace_skills.is_empty() {
@@ -353,11 +396,7 @@ impl InstructionComposer {
             );
         }
 
-        if let Some(content) = optional_turn_instruction(
-            spec,
-            &["collaborationMode", "collaboration_mode"],
-            "collaboration mode instructions",
-        )? {
+        if let Some(content) = input.collaboration.clone() {
             push_instruction_source(
                 &mut messages,
                 &mut sources,
@@ -372,11 +411,7 @@ impl InstructionComposer {
                 false,
             );
         }
-        if let Some(content) = optional_turn_instruction(
-            spec,
-            &["agentRole", "agent_role"],
-            "agent role instructions",
-        )? {
+        if let Some(content) = input.agent_role.clone() {
             push_instruction_source(
                 &mut messages,
                 &mut sources,
@@ -613,23 +648,6 @@ impl ComposedInstructions {
                     })
             })
             .collect()
-    }
-
-    pub fn attach_diagnostics(&self, value: &mut Value) -> Result<(), String> {
-        let object = value.as_object_mut().ok_or_else(|| {
-            "agent result must be an object for instruction diagnostics".to_string()
-        })?;
-        object.insert(
-            "instructionProvenance".to_string(),
-            serde_json::to_value(self.provenance())
-                .map_err(|error| format!("failed to serialize instruction provenance: {error}"))?,
-        );
-        object.insert(
-            "instructionDiagnostics".to_string(),
-            serde_json::to_value(self.diagnostics())
-                .map_err(|error| format!("failed to serialize instruction diagnostics: {error}"))?,
-        );
-        Ok(())
     }
 }
 

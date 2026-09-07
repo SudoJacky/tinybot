@@ -1,5 +1,5 @@
 # Native Runtime Services
-<!-- tinybot-module-fingerprint: sha256:df132243363521c624baff09db637e3b70254da66ad7ceae68ba1b0118fa1bdc -->
+<!-- tinybot-module-fingerprint: sha256:34c7d5867f84f0ce4658f260a8a1410f24a4fc83cf5f52114b271543b932eda5 -->
 
 `runtime` owns process-local services that must outlive an individual backend
 request: turn execution ownership, shared MCP connections, startup/shutdown
@@ -33,6 +33,11 @@ desktop or Worker RPC boundaries.
 generation, cancellation token, completion state, and a single owned execution
 handle. Replacing or terminating a generation moves old work to draining state
 so late results cannot become the current terminal result.
+
+Owned completions retain `Result<AgentTurnResult, String>` without a JSON
+round trip. `AgentStopReason` determines terminal versus waiting state;
+`awaiting_tool`, `tool_running`, and `awaiting_subagent` preserve the resume
+token and allow another generation under the same Turn identity.
 
 Callers should use this service for cancellation rather than maintaining a
 parallel map of spawned tasks.

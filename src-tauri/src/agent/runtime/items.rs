@@ -51,6 +51,8 @@ pub struct AgentMessage {
     pub content: AgentMessageContent,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub references: Vec<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_event_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -298,6 +300,17 @@ pub struct AgentItemHistory {
 }
 
 impl AgentItemHistory {
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+    pub fn len(&self) -> usize {
+        self.items.len()
+    }
+    #[cfg(test)]
+    pub fn clear(&mut self) {
+        self.items.clear();
+    }
+
     pub fn from_legacy_messages(messages: &[Value]) -> Result<Self, String> {
         let items = messages
             .iter()
@@ -359,6 +372,11 @@ impl AgentItem {
                 content: required_content(object.get("content"), role)?,
             })),
             "user" => Ok(Self::UserMessage(AgentMessage {
+                client_event_id: optional_string_field(
+                    object,
+                    &["clientEventId", "client_event_id"],
+                    "client event id",
+                )?,
                 id,
                 content: required_content(object.get("content"), role)?,
                 references: object
@@ -532,6 +550,19 @@ impl AgentItem {
 }
 
 impl AgentMessageContent {
+    pub fn plain_text(&self) -> String {
+        match self {
+            Self::Text(text) => text.clone(),
+            Self::Parts(parts) => parts
+                .iter()
+                .filter_map(|part| match part {
+                    AgentContentPart::Text { text } => Some(text.as_str()),
+                    AgentContentPart::Image { .. } | AgentContentPart::File { .. } => None,
+                })
+                .collect(),
+        }
+    }
+
     pub fn text(content: impl Into<String>) -> Self {
         Self::Text(content.into())
     }
@@ -871,5 +902,26 @@ mod tests {
         .expect("provider tool call should parse");
 
         assert_eq!(call.arguments_json, arguments_json);
+    }
+}
+
+pub(super) mod legacy_history {
+    use super::*;
+    pub fn serialize<S: serde::Serializer>(
+        history: &AgentItemHistory,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        use serde::ser::Error;
+        history
+            .to_legacy_messages()
+            .map_err(S::Error::custom)?
+            .serialize(serializer)
+    }
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<AgentItemHistory, D::Error> {
+        use serde::de::Error;
+        let messages = Vec::<Value>::deserialize(deserializer)?;
+        AgentItemHistory::from_legacy_messages(&messages).map_err(D::Error::custom)
     }
 }

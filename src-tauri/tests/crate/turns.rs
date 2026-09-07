@@ -1,5 +1,4 @@
 use super::support::*;
-use crate::agent::bridge::native_agent_turn_record;
 use crate::agent::runtime::NativeAgentRuntimeServices;
 use crate::desktop::state::NativeRuntimeState;
 use crate::desktop_commands::agent::{
@@ -366,7 +365,7 @@ fn worker_run_agent_stops_before_provider_when_run_start_persistence_fails() {
     )
     .expect_err("turn-start persistence failure should fail the command");
 
-    assert!(error.contains("turn start persistence failed"), "{error}");
+    assert!(error.contains("terminal-check failed"), "{error}");
     assert_eq!(
         *calls
             .lock()
@@ -449,60 +448,6 @@ fn worker_run_agent_fails_when_trace_persistence_breaks_after_provider_response(
     );
 }
 
-#[test]
-fn native_agent_turn_record_includes_structured_token_usage_info() {
-    let spec = serde_json::json!({
-        "runtime": "rust",
-        "turnId": "turn-token-info",
-        "sessionId": "websocket:chat-token-info",
-        "messages": [{ "role": "user", "content": "hello" }]
-    });
-    let result = serde_json::json!({
-        "runtime": "rust",
-        "turnId": "turn-token-info",
-        "sessionId": "websocket:chat-token-info",
-        "stopReason": "final_response",
-        "runtimeEvents": [{
-            "eventName": "agent.usage",
-            "payload": {
-                "usage": {
-                    "prompt_tokens": 5,
-                    "completion_tokens": 167,
-                    "total_tokens": 172,
-                    "contextWindowTokens": 128000,
-                    "contextUsageTokens": 172,
-                    "cumulativeUsageTokens": 1172
-                }
-            }
-        }]
-    });
-
-    let record = native_agent_turn_record(
-        &spec,
-        &result,
-        &serde_json::json!({
-            "agents": { "defaults": { "provider": "fixture", "model": "fixture-model" } }
-        }),
-        "websocket:chat-token-info",
-        "turn-token-info",
-    );
-
-    assert_eq!(
-        record["tokenUsageInfo"]["lastTokenUsage"]["totalTokens"],
-        172
-    );
-    assert_eq!(record["tokenUsageInfo"]["lastTokenUsage"]["inputTokens"], 5);
-    assert_eq!(
-        record["tokenUsageInfo"]["lastTokenUsage"]["outputTokens"],
-        167
-    );
-    assert_eq!(
-        record["tokenUsageInfo"]["totalTokenUsage"]["totalTokens"],
-        1172
-    );
-    assert_eq!(record["tokenUsageInfo"]["modelContextWindow"], 128000);
-}
-
 #[derive(Clone)]
 struct UsageNativeAgentProvider;
 
@@ -560,7 +505,7 @@ impl crate::agent::runtime::NativeAgentProvider for RecordingNativeAgentProvider
         self.calls
             .lock()
             .expect("recording provider calls lock should not be poisoned")
-            .push(context.messages.clone());
+            .push(context.messages.to_legacy_messages().unwrap());
         Ok(crate::agent::runtime::NativeAgentProviderResponse {
             final_content: "remembered answer".to_string(),
             reasoning_delta: None,
@@ -586,7 +531,7 @@ impl crate::agent::runtime::NativeAgentProvider for ToolLoopRecordingNativeAgent
                 .calls
                 .lock()
                 .expect("recording provider calls lock should not be poisoned");
-            calls.push(context.messages.clone());
+            calls.push(context.messages.to_legacy_messages().unwrap());
             calls.len()
         };
         if call_count == 1 {
@@ -631,7 +576,7 @@ impl crate::agent::runtime::NativeAgentProvider for MultiExchangeRecallProvider 
                 .calls
                 .lock()
                 .expect("recall provider calls lock should not be poisoned");
-            calls.push(context.messages.clone());
+            calls.push(context.messages.to_legacy_messages().unwrap());
             calls.len()
         };
         let final_content = match call_count {
@@ -1164,27 +1109,31 @@ fn agent_run_compaction_commits_installed_checkpoint_before_final_turn_persisten
         .expect("first context checkpoint should have an id")
         .to_string();
     assert_eq!(context["contextCheckpoint"]["contextId"], first_context_id);
-    let hydrated = crate::agent::bridge::hydrate_native_agent_history_for_runtime(
-        serde_json::json!({
+    let mut hydrated = crate::agent::runtime::AgentTurnInput::from_wire(
+        &serde_json::json!({
             "runtime": "rust",
             "turnId": "turn-session-context-commit-next",
             "sessionId": session_id,
             "messages": [{ "role": "user", "content": "next current question" }]
         }),
-        &fixture.thread_store,
-        config,
+        &config,
     )
-    .expect("next session run should hydrate canonical checkpoint lineage");
+    .unwrap();
+    crate::agent::bridge::hydrate_native_agent_history_for_runtime(
+        &mut hydrated,
+        &fixture.thread_store,
+    )
+    .unwrap();
     assert_eq!(
-        hydrated["metadata"]["contextSourceCheckpointId"],
+        hydrated.metadata["contextSourceCheckpointId"],
         first_context_id
     );
     assert_eq!(
-        hydrated["metadata"]["contextSourceCheckpoint"]["windowNumber"],
+        hydrated.metadata["contextSourceCheckpoint"]["windowNumber"],
         1
     );
     assert_eq!(
-        hydrated["metadata"]["contextSourceCheckpoint"]["windowId"],
+        hydrated.metadata["contextSourceCheckpoint"]["windowId"],
         first_context_id
     );
 

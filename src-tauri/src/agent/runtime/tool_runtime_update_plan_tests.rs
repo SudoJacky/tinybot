@@ -44,7 +44,7 @@ fn update_plan_rejects_invalid_execution_state() {
         let error = parse_update_plan_args(&arguments)
             .expect_err("invalid update_plan arguments should fail visibly");
         assert!(
-            error.contains(expected),
+            error.to_string().contains(expected),
             "expected `{expected}` in `{error}`"
         );
     }
